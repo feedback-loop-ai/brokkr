@@ -37,6 +37,25 @@
 //! A NUL-bearing name is refused before any lookup where the child
 //! reports invalid input.
 //!
+//! A layout DECLARES the expectation glibc's rule gives it, because
+//! glibc is where every cell was measured, and `expect_on` translates
+//! that declaration to the running library and this form's operation.
+//! The translation exists because the declaration is not portable: the
+//! oversized-component layouts reach the working directory only on
+//! glibc, whose skip leaves the cursor on the colon, while Apple sizes
+//! every candidate against a 1,024-byte buffer BEFORE building it, so
+//! the same `PATH` stops `posix_spawnp` with `ENAMETOOLONG` having run
+//! nothing and is merely skipped by `execvP`. Reading one library's
+//! declaration as though it were the rule is what made PR #311's macOS
+//! leg cost one cell per pass.
+//!
+//! Every failing case is COLLECTED and reported in one panic, by the
+//! child for its cells and by the parent for its children. The matrix
+//! is a cross-product of independent cells, and this suite cannot be
+//! run on one of its hosts: three macOS passes at ~25 minutes each
+//! answered twelve failures, then one, then two, each hiding the next
+//! (2026-09-21). One pass now shows the whole remaining surface.
+//!
 //! The six component lengths are each their own layout — 255, 256, 300,
 //! 4095, 4096 and 5000 ASCII `x` bytes ahead of a runnable B — because
 //! one 5,000-byte cell proved a continuation glibc makes BEFORE `execve`
@@ -186,6 +205,15 @@ enum Expect {
     /// and the resolver refuses there — by the named cwd reason, or by
     /// native's own terminal cause.
     WorkingDirectory,
+    /// Apple's PRE-ATTEMPT bound: `posix_spawnp` sizes each candidate
+    /// against its 1,024-byte buffer before building it (`lp + ln + 2 >
+    /// sizeof(buf)`, `sys/posix_spawn.c`) and answers `ENAMETOOLONG`
+    /// there, having handed `execve` nothing. Native therefore reports
+    /// ENAMETOOLONG for a candidate that was never constructed, and the
+    /// resolver names the BOUND rather than a stop the kernel never
+    /// authored. Only the Apple arm produces this, and only under
+    /// `posix_spawnp`: `execvP` warns and takes the next token.
+    ConstructionStop,
 }
 
 /// The same-fixture control a layout carries.
@@ -574,6 +602,75 @@ fn cell_id(name: usize, layout: usize, form: &str) -> String {
     format!("n{name}-l{layout}/{form}")
 }
 
+/// Whether Apple's walk can BUILD the candidate this slot and name make:
+/// `lp + ln + 2 > sizeof(buf)` with `buf` PATH_MAX, an empty token
+/// counted as the `.` Apple substitutes for it (`gen/FreeBSD/exec.c`,
+/// `sys/posix_spawn.c`, design D10). The bound is per candidate and
+/// applies to every token, so it is asked of every token rather than
+/// assumed of the one the matrix pads.
+fn apple_overflows(root: &Path, cwd: &Path, index: usize, slot: Slot, name: &str) -> bool {
+    let lp = match slot {
+        Slot::Empty => 1,
+        _ => dir_of(root, cwd, index, slot).as_os_str().len(),
+    };
+    lp + name.len() + 2 > DARWIN_PATH_MAX
+}
+
+/// A layout's expectation UNDER THE RUNNING LIBRARY and this form's
+/// operation.
+///
+/// A layout DECLARES the expectation glibc's rule gives it, because
+/// glibc is where each cell was measured. That declaration is not
+/// portable, and reading it as though it were is what made PR #311's
+/// macOS leg reveal one cell per 25-minute pass: the oversized-component
+/// layouts reach the working directory only on glibc, whose skip leaves
+/// the cursor on the colon (`posix/execvpe.c` 118–124, 168). Apple has
+/// no such iteration. Its bound is per candidate and 1,024 bytes, so an
+/// oversized token STOPS `posix_spawnp` before any attempt and is SKIPPED
+/// by `execvP`, which then walks on to whatever the next token is.
+///
+/// Only a layout's first component is ever oversized in this matrix —
+/// the `Long` and `PaddedA` slots are always spelled first — and that is
+/// asserted here rather than assumed, so a later layout cannot quietly
+/// fall outside the correction.
+fn expect_on(
+    root: &Path,
+    cwd: &Path,
+    index: usize,
+    layout: &Layout,
+    name: &str,
+    operation: Operation,
+) -> Expect {
+    let Some(slots) = layout.path.as_deref() else {
+        return layout.expect;
+    };
+    let Some((first, rest)) = slots.split_first() else {
+        return layout.expect;
+    };
+    if LIBRARY != Library::Apple {
+        return layout.expect;
+    }
+    assert!(
+        !rest
+            .iter()
+            .any(|slot| apple_overflows(root, cwd, index, *slot, name)),
+        "{}: only a layout's FIRST component is oversized on Apple's arm",
+        layout.name
+    );
+    if !apple_overflows(root, cwd, index, *first, name) {
+        return layout.expect;
+    }
+    match operation {
+        Operation::Spawn => Expect::ConstructionStop,
+        // The skipped token is gone; an explicit empty entry behind it
+        // is the next candidate, and is the working directory.
+        Operation::Exec => match rest.contains(&Slot::Empty) {
+            true => Expect::WorkingDirectory,
+            false => Expect::Parity,
+        },
+    }
+}
+
 /// A completed native outcome: an identified sentinel that exited
 /// successfully, or the spawn error with its kind and errno. Nothing
 /// else is an outcome — unidentified output and an unsuccessful sentinel
@@ -657,6 +754,7 @@ const CWD_REASON: &str = "the platform's search would fall into the working dire
 /// arm asserts identity or the specific cause; none passes on a boolean.
 fn compare(
     cell: &Cell<'_>,
+    declared: Expect,
     label: &str,
     native: &Outcome,
     resolved: &Result<PathBuf, CompositeError>,
@@ -678,10 +776,11 @@ fn compare(
             .map(|(_, at)| at.canonicalize().unwrap())
     };
     // A direct spelling is the spelled file to native and resolver
-    // alike, whatever the search would have reached: the cwd rule
-    // governs the search's iteration, not a deliberate path.
-    let expect = match (cell.layout.expect, cell.direct) {
-        (Expect::WorkingDirectory, true) => Expect::Parity,
+    // alike, whatever the search would have reached: neither the cwd
+    // rule nor Apple's per-candidate construction bound governs a
+    // deliberate path — both are properties of the search's iteration.
+    let expect = match (declared, cell.direct) {
+        (Expect::WorkingDirectory | Expect::ConstructionStop, true) => Expect::Parity,
         (expect, _) => expect,
     };
     match (expect, native) {
@@ -747,19 +846,41 @@ fn compare(
                 describe("a terminal error authorizes no later candidate")
             );
             let errno = errno_of(error);
+            // WHO authored an errno, and whether it ended the lookup, is
+            // per library and per position — so the wording owed is too,
+            // and asserting glibc's on every host is what PR #311's
+            // macOS leg kept failing on. Apple's switch CONTINUES past
+            // both ELOOP and ENAMETOOLONG (`sys/posix_spawn.c`), so on
+            // that arm a SEARCHED name can only end on one of them by
+            // exhausting its entries, and the refusal is the exhaustion
+            // it is; a DIRECT name, which no switch governs, names the
+            // terminal cause on every arm alike.
+            let terminal_here = cell.direct || LIBRARY != Library::Apple;
             if errno == Some(rustix::io::Errno::LOOP) {
                 assert!(
-                    reason.contains("a symlink loop stops the lookup"),
+                    match terminal_here {
+                        true => reason.contains("a symlink loop stops the lookup"),
+                        false =>
+                            reason.contains("is not on")
+                                && reason.contains("Too many levels of symbolic links"),
+                    },
                     "{}",
-                    describe("ELOOP is named")
+                    describe("ELOOP is named as the stop or the exhaustion it is")
                 );
             }
             if errno == Some(rustix::io::Errno::NAMETOOLONG) {
                 assert!(
-                    reason.contains("File name too long")
-                        && reason.contains("on which the platform's lookup stops"),
+                    reason.contains("File name too long"),
                     "{}",
-                    describe("ENAMETOOLONG is named as the stop it is")
+                    describe("ENAMETOOLONG is named")
+                );
+                assert!(
+                    match terminal_here {
+                        true => reason.contains("on which the platform's lookup stops"),
+                        false => reason.contains("is not on"),
+                    },
+                    "{}",
+                    describe("ENAMETOOLONG is named as the stop or the exhaustion it is")
                 );
             }
             if errno == Some(rustix::io::Errno::NOTDIR) {
@@ -776,6 +897,36 @@ fn compare(
                     describe("EACCES is named as the denial it is")
                 );
             }
+            Kind::Terminal
+        }
+        (Expect::ConstructionStop, native) => {
+            // Apple's `posix_spawnp` answered ENAMETOOLONG for a
+            // candidate it never built, so nothing ran — not B, and not
+            // the working directory the same `PATH` reaches on glibc —
+            // and the resolver names the BOUND, not a measurement.
+            let reason = refusal("the resolver selected a file where construction stopped");
+            let Outcome::Failed(error) = native else {
+                panic!("{}", describe("the construction bound attempts nothing"));
+            };
+            assert_eq!(
+                errno_of(error),
+                Some(rustix::io::Errno::NAMETOOLONG),
+                "{}",
+                describe("the construction bound answers ENAMETOOLONG")
+            );
+            assert!(
+                reason.contains(&format!(
+                    "the platform's lookup stops before attempting a candidate longer than the \
+                     {DARWIN_PATH_MAX} bytes it builds one in (ENAMETOOLONG)"
+                )),
+                "{}",
+                describe("the resolver names the pre-attempt bound")
+            );
+            assert!(
+                !reason.contains(&cell.b.display().to_string()) && !reason.contains(CWD_REASON),
+                "{}",
+                describe("a construction stop reaches neither B nor the working directory")
+            );
             Kind::Terminal
         }
         (Expect::WorkingDirectory, native) => {
@@ -1167,6 +1318,11 @@ fn parent() {
 
     let mut executed: BTreeSet<String> = BTreeSet::new();
     let mut tally = [0usize; KINDS];
+    // A failing child is RECORDED, never the end of the parent: the
+    // layouts are independent of one another, and stopping at the first
+    // makes every look at a host this seat cannot run — macOS — reveal
+    // one layout and hide the rest (PR #311, three passes, 2026-09-21).
+    let mut failures: Vec<String> = Vec::new();
     let mut run = |case: &str, path: Option<OsString>| {
         let mut child = Command::new(std::env::current_exe().unwrap());
         child
@@ -1185,11 +1341,13 @@ fn parent() {
         let output = spawn_retrying_etxtbsy(&mut child);
         let said = String::from_utf8_lossy(&output.stdout).into_owned()
             + &String::from_utf8_lossy(&output.stderr);
-        assert!(
-            said.contains("1 passed") || said.contains("1 failed"),
-            "the child ran case {case} rather than filtering it away: {said}"
-        );
-        assert!(output.status.success(), "case {case}: {said}");
+        if !(said.contains("1 passed") || said.contains("1 failed")) {
+            failures.push(format!(
+                "case {case}: the child filtered the test away rather than running it: {said}"
+            ));
+        } else if !output.status.success() {
+            failures.push(format!("case {case}: {said}"));
+        }
         for line in said.lines() {
             if let Some(id) = line.strip_prefix("matrix-oracle: ") {
                 assert!(
@@ -1215,6 +1373,11 @@ fn parent() {
     }
     run("controls", Some(root.join("controls").into_os_string()));
 
+    // Every failing case, in one panic, ahead of the inventory: a child
+    // that failed also stopped reporting oracles, and its missing
+    // identifiers are a consequence of the failure rather than a second
+    // finding.
+    report("the matrix", failures);
     let missing: Vec<&String> = declared.difference(&executed).collect();
     let undeclared: Vec<&String> = executed.difference(&declared).collect();
     assert!(
@@ -1305,6 +1468,7 @@ fn child_layout(index: usize, removed: bool) {
     }
     let missing_interpreter = root.join("no-such-interpreter");
 
+    let mut failures: Vec<String> = Vec::new();
     let mut tally = [0usize; KINDS];
     let mut count = |kind: Kind| {
         tally[match kind {
@@ -1322,11 +1486,18 @@ fn child_layout(index: usize, removed: bool) {
     };
     // A removal control compares as a parity cell of the same fixtures:
     // the platform's search, with the offending component gone, and
-    // the resolver, agreeing on the exact file.
+    // the resolver, agreeing on the exact file. It carries its own
+    // `PATH`, because a removal that leaves the component oversized on
+    // Apple's arm — one slash off a 4,092-byte padded A is still far
+    // over 1,024 — is still a construction stop there, and the
+    // expectation has to be read from the spelling that actually ran.
     let removed_layout = Layout {
         name: format!("{} [removed]", layout.name),
         files: Vec::new(),
-        path: None,
+        path: match removed {
+            true => Some(layout.removed()),
+            false => None,
+        },
         expect: Expect::Parity,
         removal: Removal::None,
     };
@@ -1449,11 +1620,11 @@ fn child_layout(index: usize, removed: bool) {
         let explicit = oracle(&mut command, &id_explicit);
         let resolved_explicit = resolve_executable_in(name, path.clone());
 
-        for (label, native, resolved) in [
-            (&id, &native, &resolved),
-            (&id_explicit, &explicit, &resolved_explicit),
+        for (label, operation, native, resolved) in [
+            (&id, Operation::Spawn, &native, &resolved),
+            (&id_explicit, Operation::Exec, &explicit, &resolved_explicit),
         ] {
-            match removed {
+            let kind = collecting(&mut failures, label, || match removed {
                 // A same-fixture removal control is a parity cell: a
                 // fresh oracle runs the same B (or A through the fitting
                 // padded spelling), and the resolver selects it.
@@ -1462,7 +1633,8 @@ fn child_layout(index: usize, removed: bool) {
                         layout: &removed_layout,
                         ..cell_view(&cell)
                     };
-                    count(compare(&removed_cell, label, native, resolved));
+                    let expect = expect_on(&root, &cwd, index, &removed_layout, name, operation);
+                    let kind = compare(&removed_cell, expect, label, native, resolved);
                     if layout.removal == Removal::Component {
                         let Outcome::Ran(marker) = native else {
                             panic!("{label}: with the component removed the native child runs B: {native:?}");
@@ -1486,9 +1658,11 @@ fn child_layout(index: usize, removed: bool) {
                     {
                         assert_glibc_padded(&cell, bytes, true, native, resolved);
                     }
+                    kind
                 }
                 false => {
-                    count(compare(&cell, label, native, resolved));
+                    let expect = expect_on(&root, &cwd, index, layout, name, operation);
+                    let kind = compare(&cell, expect, label, native, resolved);
                     if let (Some(bytes), true) = (layout.length(), glibc_bare) {
                         if layout
                             .path
@@ -1528,16 +1702,22 @@ fn child_layout(index: usize, removed: bool) {
                             "{label}: {reason}"
                         );
                     }
+                    kind
                 }
+            });
+            if let Some(kind) = kind {
+                count(kind);
             }
         }
-        if LIBRARY == Library::Glibc {
-            assert_eq!(
-                resolved_explicit.as_ref().ok(),
-                resolved.as_ref().ok(),
-                "{id}: both forms select alike on glibc"
-            );
-        }
+        collecting(&mut failures, &id, || {
+            if LIBRARY == Library::Glibc {
+                assert_eq!(
+                    resolved_explicit.as_ref().ok(),
+                    resolved.as_ref().ok(),
+                    "{id}: both forms select alike on glibc"
+                );
+            }
+        });
 
         for at in placed {
             let _ = fs::remove_file(&at);
@@ -1550,6 +1730,55 @@ fn child_layout(index: usize, removed: bool) {
             .map(|count| count.to_string())
             .collect::<Vec<_>>()
             .join(" ")
+    );
+    report(
+        &format!(
+            "layout {index}{}",
+            match removed {
+                true => " [removed]",
+                false => "",
+            }
+        ),
+        failures,
+    );
+}
+
+/// Run one cell's comparison and RECORD its failure rather than ending
+/// the child at it.
+///
+/// The matrix is a cross-product, and a panic in the first cell is an
+/// answer about that cell alone. On the one host this suite cannot run
+/// locally that made each look cost a 25-minute CI pass and reveal one
+/// cell: PR #311's macOS leg answered twelve failures, then one, then
+/// two, each time a different cell behind the last (2026-09-21). A cell
+/// is independent of its siblings — its fixtures are its own and are
+/// removed after it — so collecting every failure and reporting them
+/// together costs nothing and makes one pass show the whole surface.
+fn collecting<T>(failures: &mut Vec<String>, label: &str, cell: impl FnOnce() -> T) -> Option<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(cell)) {
+        Ok(answer) => Some(answer),
+        Err(payload) => {
+            let said = match payload.downcast_ref::<String>() {
+                Some(said) => said.clone(),
+                None => match payload.downcast_ref::<&str>() {
+                    Some(said) => (*said).to_string(),
+                    None => "a panic carrying no message".to_string(),
+                },
+            };
+            failures.push(format!("{label}: {said}"));
+            None
+        }
+    }
+}
+
+/// Every failure this child collected, in ONE panic, so a single pass on
+/// a host this seat cannot reach reports its whole remaining surface.
+fn report(what: &str, failures: Vec<String>) {
+    assert!(
+        failures.is_empty(),
+        "{what}: {} of this child's cells failed:\n\n{}\n",
+        failures.len(),
+        failures.join("\n\n")
     );
 }
 
@@ -1577,6 +1806,7 @@ fn child_controls() {
         Some(controls.clone().into_os_string()),
         "the parent staged the controls directory as this child's PATH"
     );
+    let mut failures: Vec<String> = Vec::new();
     let record = |what: &str, native: &Outcome, resolved: &Result<PathBuf, CompositeError>| {
         eprintln!(
             "matrix control {what} on {}: native {native:?}, resolver {resolved:?}",
@@ -1587,11 +1817,16 @@ fn child_controls() {
     assert!(!nowhere.exists());
     let file = root.join("controls-file");
     fs::write(&file, b"a file, not a directory\n").unwrap();
+    // ENAMETOOLONG's NUMBER is the host's — 36 under Linux, 63 under
+    // Darwin — so the expectation renders it from the same constant the
+    // kernel answers with rather than spelling Linux's integer into a
+    // control that also runs on macOS.
     let terminal = |candidate: &Path| {
         format!(
-            "the DSH layout is unreadable: {}: metadata answers File name too long (os error 36), \
-             on which the platform's lookup stops",
-            candidate.display()
+            "the DSH layout is unreadable: {}: metadata answers {}, on which the platform's \
+             lookup stops",
+            candidate.display(),
+            std::io::Error::from_raw_os_error(rustix::io::Errno::NAMETOOLONG.raw_os_error())
         )
     };
     let exhausted = |name: &str, candidate: &Path| {
@@ -1612,20 +1847,24 @@ fn child_controls() {
         "control:overlong-bare-name",
     );
     let resolved = resolve_executable(&overlong);
-    match LIBRARY {
-        Library::Glibc => {
-            let Outcome::Failed(error) = &native else {
-                panic!("the native child ran a 300-byte name: {native:?}");
-            };
-            assert_eq!(
-                errno_of(error),
-                Some(rustix::io::Errno::NAMETOOLONG),
-                "{error}"
-            );
-            assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
-        }
-        _ => record("overlong-bare-name", &native, &resolved),
-    }
+    collecting(
+        &mut failures,
+        "control:overlong-bare-name",
+        || match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!("the native child ran a 300-byte name: {native:?}");
+                };
+                assert_eq!(
+                    errno_of(error),
+                    Some(rustix::io::Errno::NAMETOOLONG),
+                    "{error}"
+                );
+                assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
+            }
+            _ => record("overlong-bare-name", &native, &resolved),
+        },
+    );
 
     // Under a missing directory the name is never measured: ENOENT,
     // walked past, and the search is exhausted as NotFound.
@@ -1637,19 +1876,25 @@ fn child_controls() {
         "control:overlong-under-missing-prefix",
     );
     let resolved = resolve_executable_in(&overlong, Some(nowhere.clone().into_os_string()));
-    match LIBRARY {
-        Library::Glibc => {
-            let Outcome::Failed(error) = &native else {
-                panic!("the native child ran a 300-byte name under a missing prefix: {native:?}");
-            };
-            assert_eq!(errno_of(error), Some(rustix::io::Errno::NOENT), "{error}");
-            assert_eq!(
-                refused(resolved),
-                exhausted(&overlong, &nowhere.join(&overlong))
-            );
-        }
-        _ => record("overlong-under-missing-prefix", &native, &resolved),
-    }
+    collecting(
+        &mut failures,
+        "control:overlong-under-missing-prefix",
+        || match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!(
+                        "the native child ran a 300-byte name under a missing prefix: {native:?}"
+                    );
+                };
+                assert_eq!(errno_of(error), Some(rustix::io::Errno::NOENT), "{error}");
+                assert_eq!(
+                    refused(resolved),
+                    exhausted(&overlong, &nowhere.join(&overlong))
+                );
+            }
+            _ => record("overlong-under-missing-prefix", &native, &resolved),
+        },
+    );
 
     // Under a file spelled as a directory: ENOTDIR, walked past, and the
     // exhaustion keeps THAT cause.
@@ -1661,19 +1906,23 @@ fn child_controls() {
         "control:overlong-under-file-prefix",
     );
     let resolved = resolve_executable_in(&overlong, Some(file.clone().into_os_string()));
-    match LIBRARY {
-        Library::Glibc => {
-            let Outcome::Failed(error) = &native else {
-                panic!("the native child ran a 300-byte name under a file prefix: {native:?}");
-            };
-            assert_eq!(errno_of(error), Some(rustix::io::Errno::NOTDIR), "{error}");
-            assert_eq!(
-                refused(resolved),
-                exhausted(&overlong, &file.join(&overlong))
-            );
-        }
-        _ => record("overlong-under-file-prefix", &native, &resolved),
-    }
+    collecting(
+        &mut failures,
+        "control:overlong-under-file-prefix",
+        || match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!("the native child ran a 300-byte name under a file prefix: {native:?}");
+                };
+                assert_eq!(errno_of(error), Some(rustix::io::Errno::NOTDIR), "{error}");
+                assert_eq!(
+                    refused(resolved),
+                    exhausted(&overlong, &file.join(&overlong))
+                );
+            }
+            _ => record("overlong-under-file-prefix", &native, &resolved),
+        },
+    );
 
     // Missing, then existing: the miss is walked past and the existing
     // directory's ENAMETOOLONG stops the search.
@@ -1687,20 +1936,24 @@ fn child_controls() {
         "control:overlong-missing-then-existing",
     );
     let resolved = resolve_executable_in(&overlong, Some(missing_then_existing));
-    match LIBRARY {
-        Library::Glibc => {
-            let Outcome::Failed(error) = &native else {
-                panic!("the native child ran a 300-byte name: {native:?}");
-            };
-            assert_eq!(
-                errno_of(error),
-                Some(rustix::io::Errno::NAMETOOLONG),
-                "{error}"
-            );
-            assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
-        }
-        _ => record("overlong-missing-then-existing", &native, &resolved),
-    }
+    collecting(
+        &mut failures,
+        "control:overlong-missing-then-existing",
+        || match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!("the native child ran a 300-byte name: {native:?}");
+                };
+                assert_eq!(
+                    errno_of(error),
+                    Some(rustix::io::Errno::NAMETOOLONG),
+                    "{error}"
+                );
+                assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
+            }
+            _ => record("overlong-missing-then-existing", &native, &resolved),
+        },
+    );
 
     // At the working directory (`PATH=""`): the bare 300-byte name is
     // ENAMETOOLONG to the kernel, on which native stops — and a native
@@ -1714,7 +1967,7 @@ fn child_controls() {
         "control:overlong-at-cwd",
     );
     let resolved = resolve_executable_in(&overlong, Some(OsString::new()));
-    match LIBRARY {
+    collecting(&mut failures, "control:overlong-at-cwd", || match LIBRARY {
         Library::Glibc => {
             let Outcome::Failed(error) = &native else {
                 panic!("the native child ran a 300-byte name from cwd: {native:?}");
@@ -1727,7 +1980,7 @@ fn child_controls() {
             assert_eq!(refused(resolved), terminal(Path::new(&overlong)));
         }
         _ => record("overlong-at-cwd", &native, &resolved),
-    }
+    });
 
     // With only an oversized component there is no candidate at all,
     // so nothing is measured: glibc breaks out of its loop with errno
@@ -1760,27 +2013,31 @@ fn child_controls() {
             &format!("control:{what}"),
         );
         let resolved = resolve_executable_in(&overlong, Some(skipped.clone()));
-        match LIBRARY {
-            Library::Glibc => {
-                let Outcome::Failed(error) = &native else {
-                    panic!("{what}: the native child ran a 300-byte name with no candidate: {native:?}");
-                };
-                assert_eq!(
-                    errno_of(error),
-                    Some(planted),
-                    "{what}: nothing was attempted, so the planted errno stands: {error}"
-                );
-                assert_eq!(
-                    refused(resolved),
-                    format!(
+        collecting(
+            &mut failures,
+            &format!("control:{what}"),
+            || match LIBRARY {
+                Library::Glibc => {
+                    let Outcome::Failed(error) = &native else {
+                        panic!("{what}: the native child ran a 300-byte name with no candidate: {native:?}");
+                    };
+                    assert_eq!(
+                        errno_of(error),
+                        Some(planted),
+                        "{what}: nothing was attempted, so the planted errno stands: {error}"
+                    );
+                    assert_eq!(
+                        refused(resolved),
+                        format!(
                         "the DSH layout is unreadable: '{overlong}' is not on PATH (the search \
                          attempted no candidate: every component was skipped as longer than the \
                          buffer the platform builds one in)"
                     )
-                );
-            }
-            _ => record(what, &native, &resolved),
-        }
+                    );
+                }
+                _ => record(what, &native, &resolved),
+            },
+        );
     }
 
     // The same name as an explicit path: `execve` itself answers
@@ -1791,20 +2048,22 @@ fn child_controls() {
         "control:overlong-explicit-path",
     );
     let resolved = resolve_executable(spelled.to_str().unwrap());
-    match LIBRARY {
-        Library::Glibc => {
-            let Outcome::Failed(error) = &native else {
-                panic!("the native child ran an overlong explicit path: {native:?}");
-            };
-            assert_eq!(
-                errno_of(error),
-                Some(rustix::io::Errno::NAMETOOLONG),
-                "{error}"
-            );
-            assert_eq!(refused(resolved), terminal(&spelled));
-        }
-        _ => record("overlong-explicit-path", &native, &resolved),
-    }
+    // A DIRECT name is answered by `execve` on every arm, so the
+    // terminal refusal is the same on every arm: this control is a
+    // library-independent expectation, not glibc's (the Apple-arm audit,
+    // 2026-09-21; `the_lookup_rule_is_each_librarys_own_switch_arm_by_arm`
+    // proves the same refusal under each injected library on Linux).
+    collecting(&mut failures, "control:overlong-explicit-path", || {
+        let Outcome::Failed(error) = &native else {
+            panic!("the native child ran an overlong explicit path: {native:?}");
+        };
+        assert_eq!(
+            errno_of(error),
+            Some(rustix::io::Errno::NAMETOOLONG),
+            "{error}"
+        );
+        assert_eq!(refused(resolved), terminal(&spelled));
+    });
 
     // The NAME_MAX boundary itself: 256 bytes is one more than the
     // kernel takes for a component, refused by the kernel under the
@@ -1816,20 +2075,24 @@ fn child_controls() {
         "control:name-max-boundary",
     );
     let resolved = resolve_executable(&boundary);
-    match LIBRARY {
-        Library::Glibc => {
-            let Outcome::Failed(error) = &native else {
-                panic!("the native child ran a 256-byte name: {native:?}");
-            };
-            assert_eq!(
-                errno_of(error),
-                Some(rustix::io::Errno::NAMETOOLONG),
-                "{error}"
-            );
-            assert_eq!(refused(resolved), terminal(&controls.join(&boundary)));
-        }
-        _ => record("name-max-boundary", &native, &resolved),
-    }
+    collecting(
+        &mut failures,
+        "control:name-max-boundary",
+        || match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!("the native child ran a 256-byte name: {native:?}");
+                };
+                assert_eq!(
+                    errno_of(error),
+                    Some(rustix::io::Errno::NAMETOOLONG),
+                    "{error}"
+                );
+                assert_eq!(refused(resolved), terminal(&controls.join(&boundary)));
+            }
+            _ => record("name-max-boundary", &native, &resolved),
+        },
+    );
 
     // The valid-length positive: a 255-byte name that EXISTS on the
     // search runs natively and is selected, so length continuation and
@@ -1844,15 +2107,17 @@ fn child_controls() {
         Command::new(&valid).arg("--list").stdin(Stdio::null()),
         "control:valid-length-name",
     );
-    let Outcome::Ran(marker) = &native else {
-        panic!("the native child runs a 255-byte name on its search: {native:?}");
-    };
-    assert_eq!(marker, "valid-255");
-    assert_eq!(
-        resolve_executable(&valid).unwrap(),
-        planted.canonicalize().unwrap(),
-        "the resolver selects the 255-byte name the child ran"
-    );
+    collecting(&mut failures, "control:valid-length-name", || {
+        let Outcome::Ran(marker) = &native else {
+            panic!("the native child runs a 255-byte name on its search: {native:?}");
+        };
+        assert_eq!(marker, "valid-255");
+        assert_eq!(
+            resolve_executable(&valid).unwrap(),
+            planted.canonicalize().unwrap(),
+            "the resolver selects the 255-byte name the child ran"
+        );
+    });
 
     // Exhaustion keeps the LAST candidate's cause, not a relabelled
     // NotFound: missing then file ends in ENOTDIR, file then missing in
@@ -1870,21 +2135,25 @@ fn child_controls() {
             &format!("control:{what}"),
         );
         let resolved = resolve_executable_in("dsh", Some(path));
-        match LIBRARY {
-            Library::Glibc => {
-                let Outcome::Failed(error) = &native else {
-                    panic!("{what}: the native child ran a dsh: {native:?}");
-                };
-                let expected = fs::metadata(second.join("dsh")).unwrap_err();
-                assert_eq!(
-                    error.raw_os_error(),
-                    expected.raw_os_error(),
-                    "{what}: native reports the last candidate's cause: {error}"
-                );
-                assert_eq!(refused(resolved), exhausted("dsh", &second.join("dsh")));
-            }
-            _ => record(what, &native, &resolved),
-        }
+        collecting(
+            &mut failures,
+            &format!("control:{what}"),
+            || match LIBRARY {
+                Library::Glibc => {
+                    let Outcome::Failed(error) = &native else {
+                        panic!("{what}: the native child ran a dsh: {native:?}");
+                    };
+                    let expected = fs::metadata(second.join("dsh")).unwrap_err();
+                    assert_eq!(
+                        error.raw_os_error(),
+                        expected.raw_os_error(),
+                        "{what}: native reports the last candidate's cause: {error}"
+                    );
+                    assert_eq!(refused(resolved), exhausted("dsh", &second.join("dsh")));
+                }
+                _ => record(what, &native, &resolved),
+            },
+        );
     }
 
     // The default-search positive AO requires beside the all-negative
@@ -1899,17 +2168,20 @@ fn child_controls() {
     .expect("a native child finds sh with no PATH");
     println!("\nmatrix-oracle: control:default-search-sh");
     let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(output.status.success() && !ran.contains("decoy"), "{ran}");
-    let selected = resolve_executable_in("sh", None).unwrap();
-    assert_ne!(selected, cwd.join("sh").canonicalize().unwrap());
-    if cfg!(target_os = "linux") {
-        assert_eq!(
-            selected,
-            PathBuf::from(&ran),
-            "the resolver's absent-PATH selection is the native default-search identity"
-        );
-    }
+    collecting(&mut failures, "control:default-search-sh", || {
+        assert!(output.status.success() && !ran.contains("decoy"), "{ran}");
+        let selected = resolve_executable_in("sh", None).unwrap();
+        assert_ne!(selected, cwd.join("sh").canonicalize().unwrap());
+        if cfg!(target_os = "linux") {
+            assert_eq!(
+                selected,
+                PathBuf::from(&ran),
+                "the resolver's absent-PATH selection is the native default-search identity"
+            );
+        }
+    });
     println!("\nmatrix-tally: 0 0 0 0 0 0");
+    report("the controls", failures);
 }
 
 #[test]

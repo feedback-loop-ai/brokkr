@@ -5323,20 +5323,19 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
             "this platform's search continues past the loop to B"
         ),
     }
-    // The same file as an explicit override is a refusal either way,
-    // because an override has no next entry to continue to; what the
-    // search stops on it names as the stop, and what the search walks
-    // past it names as the cause.
-    let loop_cause = match loop_stops {
-        true => format!(
-            "{}: a symlink loop stops the lookup: {eloop}",
-            a.join("dsh").display()
-        ),
-        false => format!("{}: {eloop}", a.join("dsh").display()),
-    };
+    // The same file as an explicit override is the SAME refusal on every
+    // library's arm, because an override has no next entry to continue
+    // to: the loop is named wherever it is met (run `551ef2a7`,
+    // `a_direct_names_symlink_loop_is_named_on_every_librarys_arm`). The
+    // library-qualified spelling this expectation used to carry was the
+    // Apple-arm leftover of the rule that run replaced, and it is what
+    // failed on PR #311's third macOS pass.
     assert_eq!(
         refused(resolve_executable_in(a.join("dsh").to_str().unwrap(), None)),
-        format!("the DSH layout is unreadable: {loop_cause}")
+        format!(
+            "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {eloop}",
+            a.join("dsh").display()
+        )
     );
     fs::remove_file(a.join("dsh")).unwrap();
 
@@ -6966,7 +6965,7 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             "{errno}"
         );
     }
-    for errno in [Errno::IO, Errno::INVAL, Errno::STALE] {
+    for errno in [Errno::IO, Errno::INVAL, Errno::STALE, Errno::NOEXEC] {
         assert_eq!(
             step(Library::Apple, errno),
             Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
@@ -7246,18 +7245,106 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             "{library:?} names a direct name's terminal loop"
         );
     }
-    // And nothing else about a direct name's refusal moves: a continued
-    // errno keeps the operation's own answer, and a stop keeps its own
-    // words, exactly as at a searched candidate.
+    // ENAMETOOLONG is the OTHER errno the searching libraries part
+    // company on — glibc and musl stop, Apple's switch continues — so it
+    // is the other one whose direct-name refusal read one way on Linux
+    // and another on macOS until this repair. A direct name has no next
+    // entry on any arm, so all three name the stop, in the one wording
+    // Linux has always carried.
+    for library in [Library::Apple, Library::Glibc, Library::Musl] {
+        assert_eq!(
+            describe(lookup_failure(
+                candidate,
+                library,
+                "metadata",
+                Errno::NAMETOOLONG,
+                Position::Direct
+            )),
+            format!(
+                "refused: the DSH layout is unreadable: /nowhere/dsh: metadata answers {}, on \
+                 which the platform's lookup stops",
+                rendered(Errno::NAMETOOLONG)
+            ),
+            "{library:?} names a direct name's terminal ENAMETOOLONG"
+        );
+    }
+    // The SEARCHED Apple arm does not move with it: a kernel
+    // ENAMETOOLONG under one entry is a continuation there, exactly as
+    // `sys/posix_spawn.c`'s switch has it, and only the direct position
+    // turns that continuation into the stop it is.
     assert_eq!(
         describe(lookup_failure(
             candidate,
             Library::Apple,
             "metadata",
+            Errno::NAMETOOLONG,
+            Position::Searched
+        )),
+        format!("passed (false): {}", rendered(Errno::NAMETOOLONG))
+    );
+    // And nothing else about a direct name's refusal moves: a continued
+    // errno keeps the operation's own answer, and a stop keeps its own
+    // words, exactly as at a searched candidate.
+    //
+    // This is the AUDIT the differential matrix's errno-named branches
+    // rest on (PR #311, 2026-09-21): at a direct name no library's
+    // switch runs, so every arm must answer alike, and each errno the
+    // matrix names is asserted so arm by arm rather than described.
+    // ENOENT, ENOTDIR and EACCES already agreed — all three sit in every
+    // library's continue-set — and ELOOP and ENAMETOOLONG, the two the
+    // searching libraries part company on, were the two that did not.
+    for (operation, errno, answer) in [
+        (
+            "metadata",
             Errno::NOENT,
+            "passed (false): No such file or directory (os error 2)",
+        ),
+        (
+            "metadata",
+            Errno::NOTDIR,
+            "passed (false): Not a directory (os error 20)",
+        ),
+        (
+            "access",
+            Errno::ACCESS,
+            "passed (true): is not executable by this process",
+        ),
+        (
+            "metadata",
+            Errno::ACCESS,
+            "passed (true): Permission denied (os error 13)",
+        ),
+    ] {
+        for library in [Library::Apple, Library::Glibc, Library::Musl] {
+            assert_eq!(
+                describe(lookup_failure(
+                    candidate,
+                    library,
+                    operation,
+                    errno,
+                    Position::Direct
+                )),
+                answer,
+                "{library:?} answers a direct name's {errno} as every other arm does"
+            );
+        }
+    }
+    // The ONE arm that audit found still library-dependent at a direct
+    // name, recorded rather than guessed at: an errno OUTSIDE Apple's
+    // pinned switch — EIO here — renders as that limitation, where
+    // glibc and musl name the stop a direct name always is. No cell of
+    // the differential matrix asserts it and no Linux string carries
+    // it, so it is left as named pending work (delivery account, 8.8).
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "access",
+            Errno::IO,
             Position::Direct
         )),
-        "passed (false): No such file or directory (os error 2)"
+        "refused: the DSH layout is unreadable: /nowhere/dsh: access answers Input/output error \
+         (os error 5), and that arm of Apple's posix_spawnp switch is not pinned by this resolver"
     );
     assert_eq!(
         describe(lookup_failure(
@@ -7493,6 +7580,157 @@ fn a_direct_names_symlink_loop_is_named_on_every_librarys_arm() {
             )),
             named,
             "glibc's search stops at the loop"
+        );
+    }
+}
+
+/// The native matrix's OVERSIZED-COMPONENT cells, driven on this host
+/// under the Apple arm — the shapes whose macOS answer the matrix used
+/// to predict from glibc's rule and therefore discovered one cell per
+/// 25-minute CI pass (PR #311, passes 1–3).
+///
+/// The question the third pass asked was which refusal Apple owes cell
+/// n0-l10 — `PATH` a single 5,000-byte component, name `dsh`, native
+/// answering ENAMETOOLONG. The per-library table answers it: Apple sizes
+/// EVERY candidate against a 1,024-byte buffer before it is built
+/// (`lp + ln + 2 > sizeof(buf)`, `sys/posix_spawn.c` and
+/// `gen/FreeBSD/exec.c`, design D10), so a 5,004-byte candidate is never
+/// constructed and never handed to `execve`; `posix_spawnp` answers
+/// `err = ENAMETOOLONG` there and `execvP` warns and takes the next
+/// token. The kernel cannot be the author of that errno, because the
+/// candidate whose name it would have measured does not exist — and the
+/// two refusals differ in exactly that: the pre-attempt bound says the
+/// lookup stopped BEFORE a candidate, the kernel's stop says a candidate
+/// was measured. Apple's arm owes the pre-attempt bound, which is what
+/// production already answers; it was the matrix that carried glibc's
+/// rule onto the Apple arm.
+///
+/// glibc's own answers to the same four spellings stand beside them, so
+/// the two rules are read together rather than one being assumed to be
+/// the other.
+#[cfg(unix)]
+#[test]
+fn the_apple_arm_answers_an_oversized_component_by_its_construction_bound() {
+    let root = FixtureRoot::new();
+    let b = root.path().join("b");
+    fs::create_dir_all(&b).unwrap();
+    let real = stage_executable(&b, "dsh", b"#!/bin/sh\ntrue\n");
+    let real = real.canonicalize().unwrap();
+    let search = |library: Library, operation: Operation, entries: String| Search {
+        entries: OsString::from(entries),
+        default: false,
+        library,
+        operation,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    let find = |library, operation, entries: String| {
+        lookup_in("dsh", &search(library, operation, entries), &mut Vec::new())
+    };
+    // The exact `PATH` spellings the matrix's oversized layouts stage:
+    // the sole 5,000-byte component (cell n0-l10); the 4,095-, 4,096-
+    // and 5,000-byte components ahead of a runnable B (n0-l11/47,
+    // n0-l12/48 and n0-l13/49); the 4,092 bytes the padded-A spelling
+    // reaches (n0-l39–41); and the 4,096-byte component ahead of an
+    // EXPLICIT empty entry and B (n0-l18). Every one of them is over
+    // Apple's 1,024-byte bound, and the first four are the cells the
+    // third macOS pass had still to reveal.
+    let x = |bytes: usize| "x".repeat(bytes);
+    let alone = x(5000);
+    let then_b = |bytes: usize| format!("{}:{}", x(bytes), b.display());
+    let then_empty_b = format!("{}::{}", x(4096), b.display());
+    // Apple's bound is on the CANDIDATE, so the refusal names the
+    // candidate the walk would have built and the buffer it builds one
+    // in — never a candidate the kernel measured.
+    let bound = |component: &str| {
+        format!(
+            "the DSH layout is unreadable: {}/dsh: the platform's lookup stops before attempting \
+             a candidate longer than the {DARWIN_PATH_MAX} bytes it builds one in (ENAMETOOLONG)",
+            component
+        )
+    };
+
+    // `posix_spawnp` — production's own form, and the matrix's INHERITED
+    // cell: the walk stops at the first oversized token, whatever
+    // follows it, and B is never reached.
+    for component in [5000, 4096, 4095, 4092] {
+        assert_eq!(
+            refused(find(Library::Apple, Operation::Spawn, then_b(component))),
+            bound(&x(component)),
+            "Apple's posix_spawnp stops at a {component}-byte token"
+        );
+    }
+    assert_eq!(
+        refused(find(Library::Apple, Operation::Spawn, alone.clone())),
+        bound(&alone)
+    );
+    assert_eq!(
+        refused(find(Library::Apple, Operation::Spawn, then_empty_b.clone())),
+        bound(&x(4096)),
+        "the construction stop comes before the explicit empty entry"
+    );
+
+    // `execvP` — the matrix's EXPLICIT cell: the same token is a SKIP,
+    // so the walk goes on to whatever the next token is. B is selected
+    // where B follows; the empty entry that follows is the working
+    // directory, and is refused by the reconciled rule under the NAME
+    // the caller searched for; a sole oversized token leaves the walk
+    // with no candidate at all.
+    for component in [5000, 4096, 4095, 4092] {
+        assert_eq!(
+            find(Library::Apple, Operation::Exec, then_b(component))
+                .unwrap()
+                .path,
+            real,
+            "Apple's execvP skips a {component}-byte token and reaches B"
+        );
+    }
+    assert_eq!(
+        refused(find(Library::Apple, Operation::Exec, then_empty_b)),
+        "the DSH layout is unreadable: dsh: the platform's search would fall into the working \
+         directory: PATH entry 1 is empty"
+    );
+    assert_eq!(
+        refused(find(Library::Apple, Operation::Exec, alone.clone())),
+        "the DSH layout is unreadable: 'dsh' is not on PATH (the search attempted no candidate: \
+         every component was skipped as longer than the buffer the platform builds one in)"
+    );
+
+    // glibc, on the same four spellings, under both operations — one
+    // loop, so the operation changes nothing — and NOT Apple's answer
+    // anywhere: 4,095 bytes fit its 4,096-byte bound and are ATTEMPTED,
+    // 4,096 and 5,000 are skipped with the cursor left on the colon so
+    // the next candidate is the working directory, and a sole oversized
+    // component ends the walk with nothing constructed.
+    let attempted = format!(
+        "the DSH layout is unreadable: {}/dsh: metadata answers {}, on which the platform's \
+         lookup stops",
+        x(4095),
+        std::io::Error::from_raw_os_error(rustix::io::Errno::NAMETOOLONG.raw_os_error())
+    );
+    let implicit_cwd = |bytes: usize| {
+        format!(
+            "the DSH layout is unreadable: dsh: the platform's search would fall into the \
+             working directory: glibc skips the {bytes}-byte component and its next iteration \
+             is the empty entry it leaves the cursor on (posix/execvpe.c 118–124, 168)"
+        )
+    };
+    for operation in [Operation::Spawn, Operation::Exec] {
+        assert_eq!(
+            refused(find(Library::Glibc, operation, then_b(4095))),
+            attempted,
+            "glibc attempts a 4095-byte component and the kernel stops it"
+        );
+        for bytes in [4096, 5000] {
+            assert_eq!(
+                refused(find(Library::Glibc, operation, then_b(bytes))),
+                implicit_cwd(bytes)
+            );
+        }
+        assert_eq!(
+            refused(find(Library::Glibc, operation, alone.clone())),
+            "the DSH layout is unreadable: 'dsh' is not on PATH (the search attempted no \
+             candidate: every component was skipped as longer than the buffer the platform \
+             builds one in)"
         );
     }
 }

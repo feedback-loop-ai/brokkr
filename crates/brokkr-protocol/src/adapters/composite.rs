@@ -2757,7 +2757,9 @@ fn step(library: Library, errno: rustix::io::Errno) -> Result<Step, &'static str
 /// continuation rule to a direct name rendered one rule two ways: on
 /// the Apple arm `./dsh`, a self-symlink, refused with the bare
 /// `Too many levels of symbolic links` while glibc and musl named the
-/// loop (PR #311's macOS leg, 2026-09-21, matrix cell n1-l4).
+/// loop (PR #311's macOS leg, 2026-09-21, matrix cell n1-l4), and an
+/// overlong direct path refused with the bare `File name too long`
+/// where Linux named the stop (the Apple-arm audit that followed).
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Position {
@@ -2789,9 +2791,10 @@ fn errno_of(error: &std::io::Error) -> Option<rustix::io::Errno> {
 ///
 /// `position` is what the continuation means here. A continuation with
 /// nothing to continue TO is a stop, so a DIRECT name whose own path is
-/// a symlink loop is refused by the named cause on every platform —
-/// the naming belongs to the terminal loop, not to the library whose
-/// search happens to stop on it.
+/// a symlink loop, or is longer than the kernel measures, is refused by
+/// the named cause on every platform — the naming belongs to the
+/// terminal candidate, not to the library whose search happens to stop
+/// on it.
 #[cfg(unix)]
 fn lookup_failure(
     candidate: &Path,
@@ -2808,13 +2811,27 @@ fn lookup_failure(
         )))
     };
     match step(library, errno) {
-        // The loop is the one cause a stop NAMES, and a direct name's
-        // loop is a stop wherever it is met: Apple's switch would walk
-        // to a next entry that does not exist. Every other continued
-        // errno keeps the operation's own answer here, which is the
-        // word-for-word refusal a direct name has always carried.
+        // A DIRECT name's refusal may not vary by library, because at a
+        // direct name no library's switch runs: `execvp` and
+        // `posix_spawnp` alike hand a name containing `/` straight to
+        // `execve` (`gen/FreeBSD/exec.c`'s "if it's an absolute or
+        // relative path name, it's easy"), so the continuation these two
+        // errnos get on one arm has no next entry to reach. They are the
+        // two the searching libraries part company on — glibc and musl
+        // stop on both, Apple continues past both — and so the two whose
+        // refusal read one way on Linux and another on macOS: ELOOP was
+        // found that way on PR #311's second macOS pass (cell n1-l4) and
+        // ENAMETOOLONG by the audit that followed. Both take the terminal
+        // naming every Linux target already carries, byte for byte. Every
+        // other continued errno keeps the operation's own answer here,
+        // which is the word-for-word refusal a direct name has always
+        // carried on every arm.
         Ok(Step::Continue { .. })
-            if position == Position::Direct && errno == rustix::io::Errno::LOOP =>
+            if position == Position::Direct
+                && matches!(
+                    errno,
+                    rustix::io::Errno::LOOP | rustix::io::Errno::NAMETOOLONG
+                ) =>
         {
             Candidate::Refused(stop_cause(candidate, operation, errno))
         }
