@@ -5,6 +5,10 @@ Recorded 2026-09-21 by the implement seat of run
 observed. It instructs no gate, waives none, and claims no live provider
 result: every argv assertion named here is composition evidence.
 
+The two implementation visits below are historical observations. The repair
+design addendum at the end supersedes their completion/permission conclusions;
+it does not rewrite their measurements or turn masked assertions into passes.
+
 ## What this visit found and did
 
 The branch already carried five `wip:` commits (≈8.7k lines) from an earlier
@@ -235,3 +239,64 @@ Two things a reviewer should weigh, stated rather than buried:
 
 - 6.1 is ticked against a recorded deviation, not against its letter.
 - The flake in the first `brokkr-protocol` run is unexplained by this visit.
+
+## Security-hold repair design — 2026-09-22
+
+Run `build-decision-0065-slice-one-re-25d222e6`, design seat. Adopted every
+branch commit through specification repair `5c53a30f`, following the council's
+review of `f0264a9b`. Read both current design positions, all four original
+review positions and the chief's complete eight-finding reconciliation.
+This addendum reports design work only; no repair regression, implementation,
+mutation, provider observation or new manifest measurement occurred here.
+
+The design now rejects D7's former exception for excluded active charter and
+policy bytes. The owning specification had already chosen compile refusal;
+D7 and reopened task 6.1 now agree, including standalone/inherited attribution,
+normalized/canonical paths and permitted-input identity controls. H4 remains
+HIGH with `spec_defect=true`. The old paragraph saying 6.1 was closed by a
+recorded refusal is historical and is no longer a completion claim.
+
+D3–D8/D10 now bind H1–H3 to fallible known-provider admission, explicit
+argument provenance, complete final control composition and independently
+validated active input identity. They bind M1–M3 to disposition-aware doctor
+wording, strict source-byte request parsing and whole-loaded-library lint,
+with consulted-definition pins. Both council positions were reconciled by
+claim and evidence; no new subsystem or later-slice behavior was adopted.
+The macOS fixture design stores one canonical temporary root and keeps full
+diagnostic equality. Its code change and actual host results remain pending.
+
+Task 9.1 is reopened. Historical removal M3 failed on a required refusal or a
+fallback holding; historical M4 failed on a required refusal before reaching
+its optional assertions. M6 removed notice recording and M8 removed cold OFF
+composition, so they do not establish optional notice detection when either
+compatibility check itself is removed. No independent optional compatibility
+failure/restored-pass result has been observed in this design visit. The
+revised design/tasks identify the two separate optional proofs still owed.
+The earlier adapter-duplicate, selected sequence fallback and no-decoy unmapped
+resume removal observations remain historical protections to retain.
+
+Reopened tasks are pending repair and proof, not a restatement of the original
+40-of-43 ledger. The separate proposed repair decision remains before code
+implementation in task 0.1; accepted 0065 is unchanged. Original contract
+additions are adopted and their bytes are now frozen for this repair. No
+witness is re-pinned by inference from a design change.
+
+The operator has authorized OpenSpec validation and the exact-coverage script;
+earlier records of denied permission do not apply to this run. The operator
+also explicitly withholds archive/fold pending council re-judgment: task 12.1
+remains open for that reason, independent of local check results. The security
+hold remains. Notes here describe status and provide no gate instruction or
+exception.
+
+Design validation observations: strict all-item noninteractive OpenSpec passed
+16 items with zero failures; `git diff --check` was clean. The unchanged
+informational long-requirement and issue-226 archive notices were not failures.
+Formatting, strict all-target/all-feature locked clippy, all seven crate-scoped
+suites, both workspace suites and self/verify compiles each stopped at missing
+`cargo` with exit 127 through workspace hands. The now-authorized exact-coverage
+script stopped at line 33 for the same reason, exit 127. Coverage counts were
+not produced: **source lines unavailable, branches unavailable, functions
+unavailable**. No Rust, bundle, coverage, macOS or remote-CI pass is claimed.
+These observations describe this design return, not completion of the pending
+code repairs. Final committed-head validation is also reported in this seat's
+result record; no historical coverage diagnostic substitutes for it.
