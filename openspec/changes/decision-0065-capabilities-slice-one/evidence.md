@@ -6,7 +6,7 @@ observed. It instructs no gate, waives none, and claims no live provider
 result: every argv assertion named here is composition evidence.
 
 The two implementation visits below are historical observations. The repair
-design addendum at the end supersedes their completion/permission conclusions;
+design and tasks addenda below supersede their completion/permission conclusions;
 it does not rewrite their measurements or turn masked assertions into passes.
 
 ## What this visit found and did
@@ -300,3 +300,50 @@ unavailable**. No Rust, bundle, coverage, macOS or remote-CI pass is claimed.
 These observations describe this design return, not completion of the pending
 code repairs. Final committed-head validation is also reported in this seat's
 result record; no historical coverage diagnostic substitutes for it.
+
+
+## Security-hold repair tasks — 2026-09-22
+
+Run `build-decision-0065-capabilities-slice-one-re-25d222e6`, tasks seat.
+Adopted the branch through `6d47c120`; read all nine 0065 rulings, the chief's
+complete ruling, proposal, six deltas and revised design, and checked the
+named implementation/test seams. D7 and the owning manifest scenarios already
+choose refusal of excluded active inputs, so no upstream correction was needed
+to write an honest breakdown. H4 remains HIGH with `spec_defect=true`.
+
+The revised ledger contains **52 tasks: 15 adopted checked tasks and 37 open
+tasks**. Its dependency order puts red reproductions and the proposed repair
+decision before code, strict source readers and argument-origin capture before
+shared composition/admission, and dispatch before final launch proofs. M3's
+whole-loaded-library lint is now separately executable as 3.7; H2's argument
+origin prerequisite is 3.8. Task 6.1 retains the corrected H4 refusal and four
+standalone/inherited charter/policy cases. Task 4.4 separates the optional
+compatibility tests; 9.1 requires the two intended notice failures under actual
+compatibility removal. No historical required failure was promoted to that
+missing evidence. The finding index and launch matrix bind every repair to
+its owning proofs; 9.4 carries closure observations, and 11.5 carries committed
+handoff. All three earlier removal-found regressions remain obligations.
+
+A read-only ledger audit verified unique numerical ordering, unchanged adopted
+checkmarks, requirement citations on every task and valid links/titles for all
+**39 requirements**. Tasks 6.1, 9.1 and 12.1 remain unchecked. Strict all-item
+OpenSpec validation passed **16 items, zero failures**; `git diff --check`
+passed. OpenSpec reports all planning artifacts present, which is no claim
+that implementation is complete. Existing informational long-requirement and
+unrelated issue-226 archive notices remain unchanged.
+
+Formatting, strict all-target/all-feature locked clippy, all seven crate-scoped
+suites, both workspace suites and self/verify compiles were attempted through
+workspace hands; every command stopped with missing `cargo`, exit 127.
+The authorized exact-coverage script stopped at line 33 for the same reason.
+The three coverage results are **source lines unavailable; branches unavailable;
+logical functions unavailable**. No report, counts or percentage was produced.
+Final committed-head attempts are recorded in this seat's result record.
+
+This visit changes the breakdown and this evidence addendum only. It adds no
+production code, repair regression, mutation observation, host/provider result,
+grant, contract change or digest pin. Linux/macOS repair results, Rust gates
+and final implementation coverage remain pending; they are not passes. The
+security hold remains for council re-judgment. No archive/fold was attempted;
+12.1 stays open under the operator's explicit ruling. These notes describe
+observations and supply no gate instruction or exception.
