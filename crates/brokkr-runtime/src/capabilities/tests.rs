@@ -471,6 +471,48 @@ fn every_kind_loads_as_data_and_nothing_is_executed_or_contacted() {
     );
 }
 
+/// An `mcp` launch reaches a credential only by a declared binding NAME
+/// (decision 0012). The check is textual — no store is opened, no server
+/// started — and no refusal repeats the argument or the URL, either of
+/// which may be where a credential was pasted by hand.
+#[test]
+fn an_mcp_launch_names_only_the_secrets_its_dialect_declares_and_echoes_no_credential() {
+    let root = TempDir::new().unwrap();
+    let load = |connection: Value| {
+        dialect(root.path(), &mcp_dialect("docs", connection));
+        ToolDialect::load(root.path(), "docs")
+    };
+    // The declared binding, referenced twice and beside plain text, loads.
+    load(json!({"argv": ["docs-mcp", "--token={{secret:DOCS_TOKEN}}", "{{secret:DOCS_TOKEN}}"]}))
+        .unwrap();
+    assert_eq!(
+        load(
+            json!({"argv": ["docs-mcp", "{{secret:DOCS_TOKEN}}", "--key", "{{secret:OTHER_KEY}}"]})
+        )
+        .unwrap_err(),
+        "tool dialect 'dialects/tools/docs.json' connection argv[3] references secret \
+         'OTHER_KEY', which its 'secrets' does not declare; a server reaches only the bindings \
+         its dialect names (decision 0012)"
+    );
+    let malformed = load(json!({"argv": ["docs-mcp", "hunter2-{{secret:lower}}"]})).unwrap_err();
+    assert_eq!(
+        malformed,
+        "tool dialect 'dialects/tools/docs.json' connection argv[1] carries a malformed secret \
+         reference; a reference is {{secret:NAME}} with NAME matching [A-Z][A-Z0-9_]*"
+    );
+    // Userinfo in a URL is refused by the contract's own pattern, and the
+    // refusal names the FIELD and the clause, never the value.
+    let userinfo = load(json!({"url": "https://operator:hunter2@docs.invalid/mcp"})).unwrap_err();
+    assert_eq!(
+        userinfo,
+        "tool dialect 'dialects/tools/docs.json' is outside brokkr.tool-dialect/v1 at \
+         '/connection/url': it does not satisfy '/properties/connection/properties/url/pattern'"
+    );
+    for refusal in [malformed, userinfo] {
+        assert!(!refusal.contains("hunter2"), "{refusal}");
+    }
+}
+
 #[test]
 fn a_dialect_outside_the_contract_is_refused_naming_the_file_and_the_field() {
     let outside = "tool dialect 'dialects/tools/d.json' is outside brokkr.tool-dialect/v1 ";
@@ -584,15 +626,86 @@ fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
          'https://example.org/hosts.json', which is outside the dialect file; a restriction \
          schema is never fetched"
     );
-    for restrictions in [
-        json!({"properties": {"offices": {"type": "array"}}}),
-        json!({"allOf": [{"required": ["tools"]}]}),
+    // A reference that stays inside the file and points at nothing in it.
+    assert_eq!(
+        schema_of(json!({"properties": {"allow": {"$ref": "#/definitions/nobody"}}})).unwrap_err(),
+        "tool dialect 'dialects/tools/d.json' restriction schema references \
+         '#/definitions/nobody', which names nothing in the dialect file"
+    );
+    // A `$ref` spelled inside DATA is an example of one, not one.
+    schema_of(json!({"properties": {"allow": {
+        "default": {"$ref": "https://example.org/x"},
+        "enum": [{"$ref": "https://example.org/x"}]}}}))
+    .unwrap();
+    // Every way a schema can name a key of the grant's own top level:
+    // directly, by requirement, by dependency, by a pattern that matches
+    // it, and through composition or a local reference to any of those.
+    for (restrictions, key) in [
+        (
+            json!({"properties": {"offices": {"type": "array"}}}),
+            "offices",
+        ),
+        (json!({"allOf": [{"required": ["tools"]}]}), "tools"),
+        (json!({"dependencies": {"dialect": ["allow"]}}), "dialect"),
+        (
+            json!({"patternProperties": {"^too": {"type": "array"}}}),
+            "tools",
+        ),
+        (json!({"not": {"properties": {"tools": {}}}}), "tools"),
+        (
+            json!({"if": {}, "then": {"anyOf": [true, {"required": ["offices"]}]}}),
+            "offices",
+        ),
+        (
+            json!({"definitions": {"top": {"oneOf": [{"properties": {"dialect": {}}}]}},
+                   "$ref": "#/definitions/top"}),
+            "dialect",
+        ),
     ] {
-        let problem = schema_of(restrictions).unwrap_err();
-        assert!(
-            problem.ends_with("', which is a key of the grant the engine owns"),
-            "{problem}"
+        assert_eq!(
+            schema_of(restrictions).unwrap_err(),
+            format!(
+                "tool dialect 'dialects/tools/d.json' restriction schema redefines '{key}', \
+                 which is a key of the grant the engine owns"
+            )
         );
+    }
+    // A key of the same name NESTED inside a restriction is the dialect's
+    // own — `allow.tools` is not the grant's `tools` — and a definition
+    // nobody applies to the top level is not looked at. A reference cycle
+    // ends; a pattern that matches no reserved key passes.
+    let nested = schema_of(json!({
+        "definitions": {"unused": {"properties": {"tools": {}}},
+                        "loop": {"allOf": [{"$ref": "#/definitions/loop"}]}},
+        "type": "object",
+        "allOf": [{"$ref": "#/definitions/loop"}],
+        "patternProperties": {"^x-": {"type": "string"}},
+        "properties": {"allow": {"type": "object", "required": ["tools"],
+                                 "properties": {"tools": {"type": "array"},
+                                                "offices": {"type": "array"}}}}
+    }))
+    .unwrap();
+    assert_eq!(
+        nested.restrictions["properties"]["allow"]["required"],
+        json!(["tools"])
+    );
+    // A schema written against another draft is refused, not re-read.
+    assert_eq!(
+        schema_of(json!({"$schema": "https://json-schema.org/draft/2020-12/schema"})).unwrap_err(),
+        "tool dialect 'dialects/tools/d.json' restriction schema declares '$schema' \
+         \"https://json-schema.org/draft/2020-12/schema\"; a restriction schema is draft-07 \
+         ('http://json-schema.org/draft-07/schema#')"
+    );
+    assert_eq!(
+        schema_of(json!({"$schema": 7})).unwrap_err(),
+        "tool dialect 'dialects/tools/d.json' restriction schema declares '$schema' 7; a \
+         restriction schema is draft-07 ('http://json-schema.org/draft-07/schema#')"
+    );
+    for draft_07 in [
+        "http://json-schema.org/draft-07/schema#",
+        "http://json-schema.org/draft-07/schema",
+    ] {
+        schema_of(json!({"$schema": draft_07, "type": "object"})).unwrap();
     }
     assert!(schema_of(json!({"type": "no-such-type"}))
         .unwrap_err()
@@ -654,11 +767,10 @@ fn a_native_declaration_states_both_halves_or_says_why_it_cannot() {
     // Each refusal names the adapter, the place in its declaration and
     // the clause it broke — the missing half, the missing reason, the
     // unexplained empty argv, the mixed variants.
-    let broke = |problem: String, place: &str, keyword: &str| {
-        assert!(
-            problem.starts_with(&format!("{at}{place}': it does not satisfy '"))
-                && problem.ends_with(&format!("/{keyword}'")),
-            "{problem}"
+    let broke = |problem: String, place: &str, clause: &str| {
+        assert_eq!(
+            problem,
+            format!("{at}{place}': it does not satisfy '{clause}'")
         );
     };
     broke(
@@ -669,24 +781,24 @@ fn a_native_declaration_states_both_halves_or_says_why_it_cannot() {
                 .remove("off");
         }),
         "",
-        "required",
+        "/properties/known/additionalProperties/required",
     );
     broke(
         entry(&|raw| raw["known"]["web-search"]["off"] = json!({"unsupported": ""})),
         "/off/unsupported",
-        "minLength",
+        "/definitions/reason/minLength",
     );
     broke(
         entry(&|raw| raw["known"]["web-search"]["off"] = json!({"argv": []})),
         "/off/argv",
-        "minItems",
+        "/definitions/disposition/properties/argv/minItems",
     );
     broke(
         entry(&|raw| {
             raw["known"]["web-search"]["off"] = json!({"argv": ["--off"], "unsupported": "both"})
         }),
         "/off",
-        "maxProperties",
+        "/definitions/disposition/maxProperties",
     );
     // Both inventories at once is neither.
     assert_eq!(

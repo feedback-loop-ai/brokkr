@@ -486,43 +486,126 @@ pub struct ToolDialect {
     pub sha256: String,
 }
 
-/// Every `$ref` in an embedded schema stays inside it, and no `properties`
-/// or `required` anywhere names a key the engine owns.
+/// The draft an embedded restriction schema is read as. One written
+/// against any other is refused rather than judged by rules it did not
+/// mean.
+const DRAFT_07: &str = "http://json-schema.org/draft-07/schema";
+
+/// The keywords whose value is DATA, not a schema: a `$ref` spelled inside
+/// one is an example of a reference, not a reference.
+const DATA_KEYWORDS: [&str; 4] = ["const", "default", "enum", "examples"];
+
+/// The keywords that apply a further schema to the SAME instance, so a
+/// schema reached through one still describes the grant's own top level.
+const SAME_INSTANCE: [&str; 7] = ["allOf", "anyOf", "oneOf", "not", "if", "then", "else"];
+
+/// What is wrong with an embedded restriction schema before it is ever
+/// compiled: it is written against another draft; a `$ref` anywhere in it
+/// leaves the dialect file or points at nothing in it; or, where it
+/// describes the grant's own top level, it names a key the engine owns.
 fn embedded_schema_fault(schema: &Value) -> Option<String> {
-    match schema {
+    if let Some(draft) = schema.get("$schema") {
+        if draft.as_str().map(|uri| uri.trim_end_matches('#')) != Some(DRAFT_07) {
+            return Some(format!(
+                "declares '$schema' {draft}; a restriction schema is draft-07 ('{DRAFT_07}#')"
+            ));
+        }
+    }
+    reference_fault(schema, schema).or_else(|| reserved_fault(schema, schema, &mut Vec::new()))
+}
+
+/// Every `$ref` stays inside the dialect file and resolves in it. Walked
+/// through the whole document, data keywords aside: a reference is never
+/// fetched, wherever it hides.
+fn reference_fault(root: &Value, node: &Value) -> Option<String> {
+    match node {
         Value::Object(map) => {
             if let Some(reference) = map.get("$ref").and_then(Value::as_str) {
-                if !reference.starts_with('#') {
+                let Some(pointer) = reference.strip_prefix('#') else {
                     return Some(format!(
                         "references '{reference}', which is outside the dialect file; a \
                          restriction schema is never fetched"
                     ));
-                }
-            }
-            let named = map
-                .get("properties")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flat_map(|properties| properties.keys().map(String::as_str))
-                .chain(
-                    map.get("required")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str),
-                );
-            for key in named {
-                if brokkr_core::realms::GRANT_KEYS.contains(&key) {
+                };
+                if root.pointer(pointer).is_none() {
                     return Some(format!(
-                        "redefines '{key}', which is a key of the grant the engine owns"
+                        "references '{reference}', which names nothing in the dialect file"
                     ));
                 }
             }
-            map.values().find_map(embedded_schema_fault)
+            map.iter()
+                .filter(|(keyword, _)| !DATA_KEYWORDS.contains(&keyword.as_str()))
+                .find_map(|(_, value)| reference_fault(root, value))
         }
-        Value::Array(items) => items.iter().find_map(embedded_schema_fault),
+        Value::Array(items) => items.iter().find_map(|item| reference_fault(root, item)),
         _ => None,
     }
+}
+
+/// `node` describes the grant's own top level: refuse a reserved key it
+/// names — by `properties`, `required`, `dependencies`, or a
+/// `patternProperties` pattern that matches one — then follow composition
+/// and local references, which describe that same level. A key of the same
+/// name NESTED inside a restriction (`allow.tools`) is the dialect's own
+/// and is never looked at. `propertyNames` names no key, so it redefines
+/// none. `seen` ends a reference cycle.
+fn reserved_fault<'a>(root: &'a Value, node: &'a Value, seen: &mut Vec<&'a str>) -> Option<String> {
+    let map = node.as_object()?;
+    let reserved = brokkr_core::realms::GRANT_KEYS;
+    let keys_of = |keyword: &str| {
+        map.get(keyword)
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|named| named.keys().map(String::as_str))
+    };
+    let required = map
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    let named = keys_of("properties")
+        .chain(keys_of("dependencies"))
+        .chain(required)
+        .find(|key| reserved.contains(key));
+    // A pattern is judged by the validator that will later read it: the
+    // schema `{patternProperties: {<pattern>: false}}` refuses exactly the
+    // objects one of whose keys the pattern matches.
+    let matched = || {
+        keys_of("patternProperties").find_map(|pattern| {
+            let probe = jsonschema::draft7::new(&json!({"patternProperties": {pattern: false}}));
+            reserved.iter().copied().find(|key| {
+                probe
+                    .as_ref()
+                    .is_ok_and(|probe| !probe.is_valid(&json!({*key: null})))
+            })
+        })
+    };
+    if let Some(key) = named.or_else(matched) {
+        return Some(format!(
+            "redefines '{key}', which is a key of the grant the engine owns"
+        ));
+    }
+    let target = map
+        .get("$ref")
+        .and_then(Value::as_str)
+        .filter(|reference| !seen.contains(reference))
+        .map(|reference| {
+            seen.push(reference);
+            root.pointer(&reference[1..])
+                .expect("reference_fault resolved every reference first")
+        });
+    let applied = SAME_INSTANCE
+        .iter()
+        .filter_map(|keyword| map.get(*keyword))
+        .flat_map(|applied| match applied {
+            Value::Array(branches) => branches.iter().collect::<Vec<_>>(),
+            single => vec![single],
+        });
+    target
+        .into_iter()
+        .chain(applied)
+        .find_map(|branch| reserved_fault(root, branch, seen))
 }
 
 impl ToolDialect {
@@ -576,6 +659,31 @@ impl ToolDialect {
         jsonschema::draft7::new(&restrictions).map_err(|error| {
             format!("tool dialect '{source}' restriction schema is not valid draft-07: {error}")
         })?;
+        // An `mcp` launch names a credential only by decision 0012's
+        // `{{secret:NAME}}`, and only a NAME the dialect declares under
+        // `secrets`. Judged as text: no store is opened, and neither
+        // refusal repeats the argument, which may be where somebody pasted
+        // a credential by hand. The contract's pattern already keeps
+        // userinfo out of a `url`.
+        let declared = value["secrets"].as_array().into_iter().flatten();
+        let declared: Vec<&str> = declared.filter_map(Value::as_str).collect();
+        let launch = value["connection"]["argv"].as_array().into_iter().flatten();
+        for (index, part) in launch.filter_map(Value::as_str).enumerate() {
+            let names = brokkr_protocol::secret::scan_secret_refs(part).map_err(|_| {
+                format!(
+                    "tool dialect '{source}' connection argv[{index}] carries a malformed secret \
+                     reference; a reference is {{{{secret:NAME}}}} with NAME matching \
+                     [A-Z][A-Z0-9_]*"
+                )
+            })?;
+            if let Some(name) = names.iter().find(|name| !declared.contains(&name.as_str())) {
+                return Err(format!(
+                    "tool dialect '{source}' connection argv[{index}] references secret '{name}', \
+                     which its 'secrets' does not declare; a server reaches only the bindings \
+                     its dialect names (decision 0012)"
+                ));
+            }
+        }
         let kind = match value["kind"].as_str() {
             Some("provider-native") => DialectKind::Native {
                 provider: text("provider"),

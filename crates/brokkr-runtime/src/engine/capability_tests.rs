@@ -239,9 +239,7 @@ fn a_run_starts_only_over_the_definition_and_dialect_bytes_it_was_compiled_again
         std::fs::create_dir_all(root.join(relative).parent().unwrap()).unwrap();
         std::fs::write(root.join(relative), bytes).unwrap();
     };
-    let pinned = |relative: &str, bytes: &str| {
-        json!({"source": relative, "sha256": brokkr_core::canonical::sha256_bytes(bytes.as_bytes())})
-    };
+    let pinned = |relative: &str, bytes: &str| json!({"source": relative, "sha256": brokkr_core::canonical::sha256_bytes(bytes.as_bytes())});
     let compiled = |realm: &str| {
         let mut bundle = bundle(dir.path(), single_body(vec!["driver".into()]));
         bundle.manifest["capabilities"] = json!({
