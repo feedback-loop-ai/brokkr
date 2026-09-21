@@ -798,8 +798,8 @@ fn a_moved_crossing_refuses_run_rerun_and_resume_before_any_seat_spawns() {
 /// into the bundle (decision 0046 ruling 1's shape, decision 0057 ruling
 /// 1's home): the printed view carries the publisher's file and observed
 /// digest and the consumer's pin, `bundle.manifest` carries neither, and
-/// the bundle's digest is the digest the same bundle compiles to in a
-/// workspace with no map at all.
+/// the bundle's digest is the digest the same bundle compiles to in the
+/// same realm of a world that draws no crossing.
 ///
 /// And compile refuses a moved crossing too — before any prompt exists to
 /// leak, which is decision 0021 ruling 2's reason for a compile-time
@@ -847,14 +847,29 @@ fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
     assert_eq!(code, Some(1), "{stderr}");
     names_what_moved(&stderr, &pin, &observed);
 
-    // And the same bundle in a workspace that draws no crossing compiles
-    // to the same digest and prints no `crossings` key at all.
-    std::fs::remove_file(ws.path().join("realms.json")).unwrap();
+    // And the same bundle in the same realm, in a world that draws no
+    // crossing, compiles to the same digest and prints no `crossings` key
+    // at all. The realm keeps its NAME here: since decision 0065 a bundle's
+    // capability authority names the realm it was resolved in, so a map
+    // that names the realm and no map at all are different authorities —
+    // which is what the last two lines hold, and not the crossing's doing.
+    std::fs::write(ws.path().join("realms.json"), map_over(".").to_string()).unwrap();
     let (code, out, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
     assert_eq!(code, Some(0), "{stderr}");
     let plain: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(plain["digest"], digest, "a crossing moved a bundle digest");
     assert!(plain.get("crossings").is_none(), "{plain}");
+    assert_eq!(plain["manifest"]["capabilities"]["realm"], json!("brokkr"));
+
+    std::fs::remove_file(ws.path().join("realms.json")).unwrap();
+    let (code, out, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let unmapped: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        unmapped["manifest"]["capabilities"]["realm"],
+        json!("<unmapped>")
+    );
+    assert_eq!(unmapped["manifest"]["capabilities"]["grants"], json!({}));
 }
 
 /// `brokkr doctor` reports and never refuses (decision 0046's Addendum),
@@ -1080,11 +1095,11 @@ fn a_missing_or_malformed_map_refuses_before_any_seat_spawns() {
     // Including a map that names a version this build does not read:
     // an addition is a version, not drift inside one already published.
     let mut future = map_over(".");
-    future["schema"] = json!("forge.realms/v6");
+    future["schema"] = json!("forge.realms/v7");
     std::fs::write(ws.path().join("realms.json"), future.to_string()).unwrap();
     let (code, _, stderr) = ws.run(&["realms"]);
     assert_eq!(code, Some(1));
-    assert!(stderr.contains("forge.realms/v6"), "{stderr}");
+    assert!(stderr.contains("forge.realms/v7"), "{stderr}");
 
     // And a v1 map reaching for v2's one new word: the version is the
     // promise, so the word is refused under the label that forbids it.
