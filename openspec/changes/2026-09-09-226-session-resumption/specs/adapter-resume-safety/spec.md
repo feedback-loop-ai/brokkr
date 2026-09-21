@@ -990,6 +990,14 @@ read as history, not as a current claim.
 - **AND** a source-only check or logged oracle cannot establish either operation; each actually executed cell asserts its qualified native outcome and zero forbidden markers
 - **AND** missing native macOS or other target evidence remains pending; restoring the wrong target's default, ELOOP rule or outer-spawn rule for nested env fails its named discriminating check
 
+#### Scenario: Selected invocation is not replaced by its canonical target
+- **GIVEN** the platform's env utility is reached through an owned symlink named `dsh`, separately by searched name and absolute alias, and direct `/usr/bin/env` is the control
+- **WHEN** native version invocation and DSH selection/doctor observation are compared under the same child environment
+- **THEN** the unestablished other-name invocation refuses by a cause naming the selected invocation and env dispatch, before any DSH or Node probe; no doctor execution marker or successful canonical-target version is produced
+- **AND** the native result is recorded separately for both alias forms; a native name-mismatch exit with no stdout cannot become successful availability by executing the canonical target under its own name
+- **AND** direct `/usr/bin/env` retains its native version outcome as the availability control, without being declared a readable DSH composite
+- **AND** admitted launcher invocations retain their native invocation semantics and their canonical file identity separately, use the already-selected candidate without another bare-name search, and preserve existing valid launcher-alias controls
+
 #### Scenario: Interpreter aliases cannot bypass the Node obstruction refusal
 - **GIVEN** disposable env and env-alias symlinks plus `tools/env` and `tools/uu_env` hard links verified to share device/inode, obstructed A/node and distinct runnable B/node
 - **WHEN** `an_env_argument_is_selected_as_the_kernel_hands_it_to_env` invokes a native Command control for each spelling and the built doctor observes the same chain
@@ -1000,11 +1008,25 @@ read as history, not as a current claim.
 - **AND** a symlink named `env` to the copy's `uu_env` or `ls` hard link — spelled `env`, the platform's env by every byte, running as a file whose own name is not `env` — is refused naming the file that runs, with zero doctor markers and the native outcome recorded beside it and never counted (this uutils host refuses it as a utility-name violation; an installed-as-`env` stand-in dispatching on the invoked name runs B through the same layout); a stand-in the injected reference itself resolves to, under an own name that is not `env` and invoked through a symlink named `env`, is established and natively B; an interpreter whose path no longer resolves to a file is refused by that cause on its inspected metadata
 - **AND** restoring spelled-or-canonical-basename recognition, restoring same-file admission under another name, or restoring admission on the invoked name alone without the file that runs, in a compiling mutation fails the hard-link no-probe/cause assertion; exact restoration reruns green alongside the existing symlink controls
 
+#### Scenario: An env launcher without a nonblank program refuses before probing
+- **GIVEN** separate owned launchers whose established env shebang is bare or has only spaces/tabs after the interpreter, and a terminating `#!/usr/bin/env sh` launcher as control
+- **WHEN** the executable is selected for the composite producer or observed by doctor
+- **THEN** both missing-program forms refuse with the launcher, env interpreter and absent nonblank program named, without supplying a probe target or producing any DSH/Node execution marker
+- **AND** an external timeout needed to stop recursive native self-execution is recorded as native evidence, never as a successful doctor refusal; doctor must return the named refusal without starting that loop
+- **AND** the established `env sh` control retains its ordinary terminating native version behavior, while measured `env node` and retained-Node controls remain valid under their existing rules
+
 #### Scenario: Ignored pnpm syntax is admitted through the producer and built doctor
 - **GIVEN** a readable synthetic installation with separately malformed plain tarball NUL/BEL, quoted tarball NUL, checksum colon-space/NUL, unterminated deprecated quote or engines flow map
 - **WHEN** each lock is observed through the sole producer and `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`
 - **THEN** it refuses with pnpm, the field/context and syntax cause named, never yielding the valid control's readable composite
 - **AND** valid ignored scalar/collection fields, admitted URLs, separator and plain/quoted NBSP controls retain their specified outcomes; ignored dependency semantics do not exempt syntax
+
+#### Scenario: Flow-value separator padding cannot hide opening syntax
+- **GIVEN** otherwise readable installations separately add `engines: {node:  *missing}`, `engines: {node:  &}` or `engines: {node:  %bad}`, with one-space and further supported separator-padding variants
+- **WHEN** their pnpm locks are admitted through the sole producer and built doctor
+- **THEN** each malformed value refuses with pnpm, engines/member context and the malformed scalar-opening cause named, produces no composite and leaves no DSH or Node execution marker
+- **AND** scalar opening syntax is judged after all admitted structural separation, so changing only separator padding cannot turn a refused alias, anchor or reserved indicator into scalar content
+- **AND** `engines: {node: 22}` and `engines: {node:    22}` remain readable and preserve the same control composite; quoted controls and identity-bearing whitespace rules remain unchanged
 
 #### Scenario: Ignored collections and bodies cannot erase malformed members
 - **GIVEN** separate locks with `cpu: [,x64]`, `cpu: [x64,,arm64]`, `engines: {,node: 22}`, `engines: {node: 18,,npm: 9}`, `engines: {,}`, and unterminated quotes inside peerDependencies or snapshots bodies
@@ -1019,6 +1041,20 @@ read as history, not as a current claim.
 - **THEN** each refuses with pnpm, the responsible body/field and scalar-parent or mixed-collection cause named, without producing the valid control's composite
 - **AND** valid nested peerDependenciesMeta and snapshots mapping controls within the admitted subset remain readable, alongside the existing flow-member, control-byte, quote and scalar controls
 - **AND** independently removing parent-type or collection-kind enforcement in compiling mutations fails the corresponding named reason/readability assertion; exact restoration reruns green, and a per-line quote check cannot substitute for either structural proof
+
+#### Scenario: Implicit ignored block keys obey YAML lookahead
+- **GIVEN** otherwise readable pnpm locks separately contain a peerDependencies implicit block key of 1,024 or 1,025 ASCII characters followed by `: a`
+- **WHEN** the sole producer and built doctor admit each lock
+- **THEN** the 1,025-character spelling refuses with pnpm, peerDependencies and the implicit-key lookahead limit of 1,024 characters named, produces no composite and leaves no DSH or Node execution marker
+- **AND** the 1,024-character control stays readable with the same composite as the valid ignored-body control
+- **AND** the limit governs implicit block-key syntax rather than whole lines or values; admitted long scalar values and the existing total raw-file bound retain their rules
+
+#### Scenario: Implicit-key lookahead includes raw spelling and pre-colon separation
+- **GIVEN** separate ignored block entries have 1,023 key characters plus one pre-colon space, 1,024 key characters plus one pre-colon space, and quoted keys with respectively 1,022 and 1,023 content characters plus their two quote delimiters
+- **WHEN** the pnpm reader admits the implicit key before discarding separation or decoding its scalar
+- **THEN** the 1,024-character spans remain readable, and the 1,025-character spans refuse by the named implicit-key lookahead cause through producer and built doctor, with no composite or DSH/Node execution marker
+- **AND** the span counts Unicode characters in key spelling and pre-colon separation, excluding indentation, colon and value; an otherwise admitted 1,024-character multibyte key is not refused merely because its UTF-8 byte length exceeds 1,024
+- **AND** trimmed or decoded length cannot hide over-limit syntax, and no blanket line/value cap or additional YAML construct is introduced
 
 #### Scenario: Composition retains the launcher head inspected before the probe
 - **GIVEN** a shell launcher that prints `v22.23.2` and rewrites itself to the env-node shebang, an otherwise identical non-rewriting control, and a valid env-node launcher
