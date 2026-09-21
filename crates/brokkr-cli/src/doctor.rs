@@ -739,19 +739,87 @@ fn scope_words(grant: &brokkr_core::realms::CapabilityGrant) -> String {
     }
 }
 
+/// How one declared native control reads, as the adapter data it is: the
+/// argv that switches it, the measured default that needs none, the tool
+/// lists it contributes to, or the reason it cannot be or has not been
+/// measured. Words for a readout, never a claim that the control held.
+fn disposition_words(disposition: &brokkr_runtime::capabilities::Disposition) -> String {
+    use brokkr_runtime::capabilities::Disposition;
+    match disposition {
+        Disposition::Argv(argv) => format!("argv [{}]", argv.join(" ")),
+        Disposition::Default(reason) => format!("the harness default ({reason})"),
+        Disposition::Selection(lists) => format!(
+            "tool lists include [{}] allow [{}] deny [{}]",
+            lists.include.join(", "),
+            lists.allow.join(", "),
+            lists.deny.join(", ")
+        ),
+        Disposition::Unsupported(reason) => format!("cannot be switched ({reason})"),
+        Disposition::Unmeasured(reason) => format!("unmeasured ({reason})"),
+    }
+}
+
+/// Design D8's unknown-authority half: a realms map that could not be read
+/// names no realm, so nothing here is keyed to one and nothing is said to
+/// be granted, not granted or switched off anywhere — an empty grant set
+/// invented for the occasion would be a denial doctor never read. What an
+/// installed harness HAS is still adapter data, and is still named: its
+/// tools, how ON and OFF are declared, the evidence scope and what stays
+/// unmeasured, or the reason its inventory is unmeasured at all.
+fn report_native_assessments(report: &mut Report, installed: &[&Adapter]) {
+    use brokkr_runtime::capabilities::NativeInventory;
+    for adapter in installed {
+        let provider = &adapter.provider;
+        let natives = match &adapter.native {
+            NativeInventory::Known { known, .. } => known,
+            NativeInventory::Unmeasured(reason) => {
+                report.warn(
+                    &format!("capabilities native {provider}"),
+                    format!(
+                        "native inventory unmeasured: {reason}. No native grant or denial is \
+                         claimed"
+                    ),
+                );
+                continue;
+            }
+        };
+        for native in natives.values() {
+            report.warn(
+                &format!("capabilities native {provider} '{}'", native.capability),
+                Safe::new(&format!(
+                    "declared by the adapter: tools [{}] · ON: {} · OFF: {} · evidence: {} · \
+                     still unmeasured: {} · whether any realm grants it is UNKNOWN, so neither \
+                     a grant nor a denial is claimed",
+                    native.tools.join(", "),
+                    disposition_words(&native.on),
+                    disposition_words(&native.off),
+                    native.evidence.scope,
+                    native.evidence.limitations.join("; ")
+                ))
+                .as_str()
+                .to_string(),
+            );
+        }
+    }
+}
+
 /// Decision 0065 ruling 4: per realm, what it grants — by which dialect,
 /// to which offices, with which tools and restrictions — and then every
 /// native capability an INSTALLED harness declares that the realm has not
 /// granted, so the day a realm loses a power it used without permission is
 /// loud rather than discovered later.
 ///
-/// A line reports and never refuses. Each realm is read under ITS OWN
-/// grants, never the current directory's; a realm whose grants do not
-/// validate — a missing definition, a conflicting dialect, an `mcp` grant
-/// slice two has not built — is its own failing line, and the native lines
-/// under it still print, reading that realm as granting nothing. A map
-/// that could not be read leaves authority UNKNOWN: nothing is assumed
-/// granted, and the installed harnesses are still named.
+/// A line reports and never refuses, and independent results survive one
+/// another (design D8). Each realm is read under ITS OWN grants, never the
+/// current directory's, and each GRANT is validated on its own: one that
+/// does not validate — a missing definition, a conflicting dialect, an
+/// `mcp` grant slice two has not built — is its own failing line carrying
+/// the compiler's refusal, the realm's other grants are still shown, and a
+/// native power of the failing grant's name reads UNKNOWN under that realm
+/// rather than denied, because doctor could not read what would cover it.
+/// Definitions that cannot be read are one failing line of their own. A
+/// map that could not be read leaves authority UNKNOWN: no empty grant set
+/// is invented, and the installed harnesses are still assessed.
 ///
 /// Nothing is run to say any of this: no model request, search, fetch or
 /// capability server. "Installed" is the availability `probe_providers`
@@ -759,7 +827,9 @@ fn scope_words(grant: &brokkr_core::realms::CapabilityGrant) -> String {
 /// gets no native one, because nothing was observed about it here. A
 /// declared control is adapter data — its evidence scope and its open
 /// limitations are printed beside it, and a green argv test upgrades
-/// neither.
+/// neither. Adapter declarations that cannot be read say so here, so a
+/// report with no native line is never read as a harness with no native
+/// power.
 fn report_capabilities(
     report: &mut Report,
     world: &Result<Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>,
@@ -768,69 +838,75 @@ fn report_capabilities(
     availability: &Availability,
 ) {
     use brokkr_runtime::capabilities::{
-        restriction_names, Authority, CapabilityContext, Disposition, NativeInventory, Transport,
-        UNMAPPED,
+        restriction_names, Authority, CapabilityContext, Definitions, Disposition, NativeInventory,
+        Transport, UNMAPPED,
     };
-    let adapters = Adapters::load(adapters_root).ok();
+    let adapters = match Adapters::load(adapters_root) {
+        Ok(adapters) => Some(adapters),
+        Err(error) => {
+            // A warning on `probe_providers`' terms: a tree with no
+            // adapters is a normal state there, and stays one here.
+            report.warn(
+                "capabilities native",
+                format!(
+                    "the adapter declarations at {} could not be read ({error}), so no \
+                     harness's native capabilities are named below; that is NOT a finding that \
+                     an installed harness has none",
+                    adapters_root.display()
+                ),
+            );
+            None
+        }
+    };
     let installed: Vec<&Adapter> = adapters
         .iter()
         .flat_map(|adapters| adapters.providers())
         .filter(|adapter| availability.presence(&adapter.provider) == Presence::Available)
         .collect();
-    let native_of = |adapter: &Adapter, key: &str| match &adapter.native {
-        NativeInventory::Known { known, .. } => known.get(key).cloned(),
-        NativeInventory::Unmeasured(_) => None,
-    };
-    let contexts: Vec<(CapabilityContext, &str)> = match world {
-        Ok(Some(world)) => {
-            let root = workspace
+    let (root, realms): (std::path::PathBuf, Vec<(String, _, &str)>) = match world {
+        Ok(Some(world)) => (
+            workspace
                 .join(&world.source)
                 .parent()
-                .map_or_else(|| workspace.to_path_buf(), Path::to_path_buf);
+                .map_or_else(|| workspace.to_path_buf(), Path::to_path_buf),
             world
                 .map
                 .realms
                 .iter()
-                .map(|realm| {
-                    (
-                        CapabilityContext {
-                            realm: realm.name.clone(),
-                            grants: realm.grants.clone(),
-                            root: root.clone(),
-                        },
-                        "grants nothing",
-                    )
-                })
-                .collect()
-        }
-        Ok(None) => vec![(
-            CapabilityContext::no_grants(UNMAPPED, workspace),
-            "no realms map, so no capability grants are declared",
-        )],
+                .map(|realm| (realm.name.clone(), realm.grants.clone(), "grants nothing"))
+                .collect(),
+        ),
+        Ok(None) => (
+            workspace.to_path_buf(),
+            vec![(
+                UNMAPPED.to_string(),
+                Default::default(),
+                "no realms map, so no capability grants are declared",
+            )],
+        ),
         Err(_) => {
             report.warn(
                 "capabilities",
                 "the realms map could not be read, so what each realm grants is UNKNOWN; \
-                 nothing is assumed granted"
+                 nothing is assumed granted and nothing is assumed denied"
                     .into(),
             );
-            vec![(CapabilityContext::no_grants("<unknown>", workspace), "")]
+            report_native_assessments(report, &installed);
+            return;
         }
     };
-    for (context, mut nothing) in contexts {
-        let what = format!("capabilities {}", context.realm);
-        let authority = match Authority::load(context.clone()) {
-            Ok(authority) => authority,
-            Err(problem) => {
-                // The failing line IS this realm's grant line: a realm
-                // whose grants did not validate is not said to grant
-                // nothing, though the native lines below read it so.
-                report.missing(&what, problem);
-                nothing = "";
-                Authority::nothing(&context.realm, &context.root)
-            }
-        };
-        if authority.context.grants.is_empty() && !nothing.is_empty() {
+    if let Err(problem) = Definitions::load(&root) {
+        report.missing(
+            "capabilities definitions",
+            format!(
+                "{problem}; no grant can be validated and every compile under this \
+                 configuration refuses until it is repaired"
+            ),
+        );
+    }
+    for (realm, grants, nothing) in realms {
+        let what = format!("capabilities {realm}");
+        if grants.is_empty() {
             report.ok(
                 &what,
                 format!(
@@ -839,7 +915,24 @@ fn report_capabilities(
                 ),
             );
         }
-        for (capability, grant) in &authority.context.grants {
+        // Each grant is judged ALONE, by the compiler's own validation:
+        // one that fails is its own line and takes no neighbour with it.
+        let mut valid = std::collections::BTreeMap::new();
+        let mut unread = BTreeSet::new();
+        for (capability, grant) in &grants {
+            let alone = CapabilityContext {
+                realm: realm.clone(),
+                grants: [(capability.clone(), grant.clone())].into(),
+                root: root.clone(),
+            };
+            let authority = match Authority::load(alone) {
+                Ok(authority) => authority,
+                Err(problem) => {
+                    report.missing(&format!("{what} '{capability}'"), problem);
+                    unread.insert(capability.as_str());
+                    continue;
+                }
+            };
             let dialect = &authority.dialects[capability];
             let (provider, key) = authority
                 .binding(capability)
@@ -849,29 +942,41 @@ fn report_capabilities(
                 true => "none".to_string(),
                 false => serde_json::Value::Object(grant.restrictions.clone()).to_string(),
             };
-            // A declared restriction is not a claim of usable authority.
-            let inexpressible = adapters
+            // A declaration is not a claim of usable authority: what the
+            // bound provider's adapter says of itself decides whether any
+            // seat can hold the capability through this grant.
+            let bound = adapters
                 .as_ref()
                 .and_then(|adapters| adapters.adapter(provider))
-                .and_then(|adapter| native_of(adapter, key))
-                .filter(|native| {
-                    !grant.restrictions.is_empty()
-                        && matches!(native.restrictions, Transport::Unsupported(_))
-                })
-                .map(|_| {
-                    format!(
-                        " · provider '{provider}' cannot express restriction '{}': a seat that \
-                         requires the capability is refused, one that wants it drops it with \
-                         the native capability OFF, and it never runs unrestricted",
-                        restriction_names("", &grant.restrictions).join("', '")
-                    )
-                })
-                .unwrap_or_default();
+                .map(|adapter| &adapter.native);
+            let unusable = match bound {
+                Some(NativeInventory::Known { known, .. }) => known
+                    .get(key)
+                    .filter(|native| {
+                        !grant.restrictions.is_empty()
+                            && matches!(native.restrictions, Transport::Unsupported(_))
+                    })
+                    .map(|_| {
+                        format!(
+                            " · provider '{provider}' cannot express restriction '{}': a seat \
+                             that requires the capability is refused, one that wants it drops \
+                             it with the native capability OFF, and it never runs unrestricted",
+                            restriction_names("", &grant.restrictions).join("', '")
+                        )
+                    })
+                    .unwrap_or_default(),
+                Some(NativeInventory::Unmeasured(reason)) => format!(
+                    " · provider '{provider}' declares its native capabilities unmeasured \
+                     ({reason}): no seat can hold the capability through this grant, and no \
+                     native denial is claimed"
+                ),
+                None => String::new(),
+            };
             report.ok(
                 &format!("{what} '{capability}'"),
                 Safe::new(&format!(
                     "dialect '{}' ({}, provider '{provider}') · tools [{}] · {} · restrictions \
-                     {restrictions}{inexpressible}",
+                     {restrictions}{unusable}",
                     dialect.name,
                     dialect.kind.word(),
                     tools.join(", "),
@@ -880,6 +985,7 @@ fn report_capabilities(
                 .as_str()
                 .to_string(),
             );
+            valid.insert(capability.as_str(), (provider.to_string(), key.to_string()));
         }
         for adapter in &installed {
             let provider = &adapter.provider;
@@ -899,17 +1005,16 @@ fn report_capabilities(
             for (key, native) in natives {
                 let capability = &native.capability;
                 let line = format!("{what} native {provider} '{capability}'");
-                let granted =
-                    authority.context.grants.get(capability).filter(|_| {
-                        authority.binding(capability) == Some((provider.as_str(), key))
-                    });
+                let granted = grants.get(capability).filter(|_| {
+                    valid.get(capability.as_str()) == Some(&(provider.clone(), key.clone()))
+                });
                 let evidence = format!(
                     "evidence: {} · still unmeasured: {}",
                     native.evidence.scope,
                     native.evidence.limitations.join("; ")
                 );
-                match (granted, &native.off) {
-                    (Some(grant), _) => report.ok(
+                match (granted, unread.contains(capability.as_str()), &native.off) {
+                    (Some(grant), _, _) => report.ok(
                         &line,
                         format!(
                             "granted to {} through dialect '{}'; every other seat on {provider} \
@@ -918,7 +1023,18 @@ fn report_capabilities(
                             grant.dialect
                         ),
                     ),
-                    (None, Disposition::Unsupported(reason)) => report.warn(
+                    // The realm DECLARES a grant of this name and doctor
+                    // could not read it: neither half may be asserted.
+                    (None, true, _) => report.warn(
+                        &line,
+                        format!(
+                            "UNKNOWN here: this realm's grant of '{capability}' did not \
+                             validate (its failing line is above), so neither a grant nor a \
+                             denial is claimed, and no seat compiles in this realm until it is \
+                             repaired · {evidence}"
+                        ),
+                    ),
+                    (None, false, Disposition::Unsupported(reason)) => report.warn(
                         &line,
                         format!(
                             "NOT granted here, and it cannot be switched off ({reason}): \
@@ -926,14 +1042,14 @@ fn report_capabilities(
                              compilation (decision 0065 ruling 4)"
                         ),
                     ),
-                    (None, Disposition::Unmeasured(reason)) => report.warn(
+                    (None, false, Disposition::Unmeasured(reason)) => report.warn(
                         &line,
                         format!(
                             "NOT granted here, and its OFF control is unmeasured ({reason}); no \
                              denial is claimed"
                         ),
                     ),
-                    (None, _) => report.warn(
+                    (None, false, _) => report.warn(
                         &line,
                         format!(
                             "NOT granted here: every seat on {provider} is launched with it \

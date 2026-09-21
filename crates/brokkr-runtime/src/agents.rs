@@ -848,6 +848,25 @@ fn compose(
                     format!("the provider maps no tool permission named '{tool}'"),
                 )
             })?;
+            // Decision 0065, no grandfathering: an allow entry that maps
+            // to a tool of one of this harness's NATIVE capabilities was
+            // a second way to hold it, and only the realm grants one. It
+            // is refused by name with the way out, never composed and
+            // never silently dropped from the office's restriction.
+            if let Some(capability) = adapter.native.capability_of(name) {
+                return Err(capability_gap(
+                    agent,
+                    adapter,
+                    model,
+                    format!(
+                        "tool permission '{tool}' maps to '{name}', a tool of the provider's \
+                         native capability '{capability}'; a legacy allow entry cannot \
+                         authorize a capability, so request '{capability}' by name under \
+                         'capabilities' and let the realm grant it through a tool dialect \
+                         (decision 0065 ruling 3)"
+                    ),
+                ));
+            }
             expressed.push(name.clone());
         }
         argv.push(permissions.flag.clone());

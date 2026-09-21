@@ -134,6 +134,19 @@ impl Operator {
         asks: Option<Value>,
         seat: Option<Value>,
     ) -> Result<Bundle, String> {
+        self.compile_against(&workspace().join("adapters"), context, boundary, asks, seat)
+    }
+
+    /// The same four seats against a stated adapters root: the shipped
+    /// declarations, or a copy one axis of which a test has edited.
+    fn compile_against(
+        &self,
+        adapters: &Path,
+        context: &CapabilityContext,
+        boundary: Boundary,
+        asks: Option<Value>,
+        seat: Option<Value>,
+    ) -> Result<Bundle, String> {
         let codex = |extra: &[&str]| {
             let mut command = vec![
                 "{brokkr}",
@@ -187,7 +200,7 @@ impl Operator {
         Bundle::compile_with_capabilities(
             &self.root().join("bundle"),
             &self.root().join("agents"),
-            &workspace().join("adapters"),
+            adapters,
             Some("private"),
             None,
             boundary,
@@ -583,6 +596,122 @@ fn every_authority_axis_moves_the_manifest_digest_and_identical_inputs_do_not() 
         &json!({"name": "unrelated", "classes": ["writes"]}),
     );
     assert_eq!(digest(&nothing, wants), dropped);
+}
+
+/// Ruling 8, one axis at a time and apart from the rest: a RESTRICTION's
+/// value is identity even where it is inactive — Codex declares no
+/// restriction transport, so the want is dropped whole (CQ1) and the
+/// restriction still rides the pinned grant, authored order included.
+#[test]
+fn a_restriction_value_moves_the_manifest_digest_even_where_it_is_inactive() {
+    let operator = Operator::new();
+    let mut hosts: Value = serde_json::from_slice(
+        &std::fs::read(
+            operator
+                .root()
+                .join("dialects/tools/codex-native-search.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    hosts["name"] = json!("codex-search-hosts");
+    hosts["restrictions"] = json!({"type": "object", "additionalProperties": false,
+        "properties": {"allow": {"type": "object", "additionalProperties": false,
+            "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}});
+    write(
+        operator.root(),
+        "dialects/tools/codex-search-hosts.json",
+        &hosts,
+    );
+    let compiled = |allow: Option<Value>| {
+        let mut grant = json!({"dialect": "codex-search-hosts"});
+        if let Some(allow) = allow {
+            grant["allow"] = json!({"hosts": allow});
+        }
+        operator
+            .compile(
+                &operator.context(json!({"web-search": grant})),
+                Boundary::Namespace,
+                Some(json!({"web-search": "wants"})),
+                Some(json!({})),
+            )
+            .unwrap()
+    };
+    let digests: Vec<String> = [
+        None,
+        Some(json!(["a.example", "b.example"])),
+        Some(json!(["b.example", "a.example"])),
+        Some(json!(["a.example"])),
+    ]
+    .into_iter()
+    .map(|allow| compiled(allow).manifest_digest())
+    .collect();
+    for (index, digest) in digests.iter().enumerate() {
+        assert!(
+            !digests[..index].contains(digest),
+            "restriction value {index} did not move the digest: {digests:?}"
+        );
+    }
+    // Inactive, and pinned all the same: the want was dropped with the
+    // native search OFF, and the grant still carries what was written.
+    let restricted = compiled(Some(json!(["a.example"])));
+    assert_eq!(
+        restricted.manifest["capabilities"]["grants"]["web-search"],
+        json!({"dialect": "codex-search-hosts", "allow": {"hosts": ["a.example"]}})
+    );
+    assert_eq!(off_pairs(&launch(&restricted, "inline", 0)), 1);
+    assert_eq!(
+        compiled(Some(json!(["a.example"]))).manifest_digest(),
+        restricted.manifest_digest(),
+        "identical restrictions, one digest"
+    );
+}
+
+/// And the last axis: an adapter's NATIVE-CONTROL declaration. A
+/// byte-identical copy of the shipped adapters compiles to the shipped
+/// digest; one edited word in Codex's declaration — an evidence limitation,
+/// nothing that changes an argv — moves it, because what a harness is
+/// declared able to do is what every denial in the bundle rests on.
+#[test]
+fn a_native_control_declaration_moves_the_manifest_digest() {
+    let operator = Operator::new();
+    let copied = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(workspace().join("adapters")).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            std::fs::copy(&path, copied.path().join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    let context = operator.context(json!({}));
+    let digest = |adapters: &Path| {
+        operator
+            .compile_against(adapters, &context, Boundary::Namespace, None, None)
+            .unwrap()
+            .manifest_digest()
+    };
+    let shipped = digest(&workspace().join("adapters"));
+    assert_eq!(digest(copied.path()), shipped, "identical declarations");
+
+    // Edited as TEXT, so the one word is the only byte that moves: a
+    // re-serialised file would move the digest by its whitespace alone.
+    let codex = copied.path().join("codex.json");
+    let written = std::fs::read_to_string(&codex).unwrap();
+    let measured = "codex-cli versions other than 0.154.0 were not measured";
+    assert_eq!(written.matches(measured).count(), 1, "{measured}");
+    std::fs::write(
+        &codex,
+        written.replace(
+            measured,
+            "codex-cli versions other than 0.154.0 were never measured",
+        ),
+    )
+    .unwrap();
+    assert_ne!(digest(copied.path()), shipped);
+    std::fs::write(&codex, written).unwrap();
+    assert_eq!(digest(copied.path()), shipped, "restored");
 }
 
 /// Every shipped bundle, as it compiles in this repository's own realm —

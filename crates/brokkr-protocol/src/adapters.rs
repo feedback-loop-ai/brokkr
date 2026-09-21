@@ -2547,7 +2547,7 @@ fn codex_launch(
     // ordering two controls against each other is not a ruling.
     let controls = crate::native_controls::managed(input)?.unwrap_or_default();
     if let Some(conflict) = crate::native_controls::authored_conflict(extra, &controls.guards) {
-        return Err(crate::native_controls::conflict_refusal(&conflict));
+        return Err(crate::native_controls::conflict_refusal(input, &conflict));
     }
     let managed = controls.argv;
     let gate = resume_gate(input, CODEX_SHAPE);
@@ -2860,12 +2860,18 @@ fn claude_launch(
     // seat's OWN lists, once, so the hands fragment's empty tool list
     // gains exactly what is held, `mcp__brokkr__workspace` stays allowed
     // and strict MCP configuration stays — and the duplicate and arity
-    // refusals below judge the argv that will actually run.
+    // refusals below judge the argv that will actually run. A list the
+    // seat wrote as `--allowed-tools` or `--disallowedTools=…` is the same
+    // list (design D6), found through the one alias reading this launch
+    // already owns, so a local permission is kept rather than refused as
+    // a duplicate of the engine's own flag.
     let controls = crate::native_controls::managed(input)?.unwrap_or_default();
     if let Some(conflict) = crate::native_controls::authored_conflict(extra, &controls.guards) {
-        return Err(crate::native_controls::conflict_refusal(&conflict));
+        return Err(crate::native_controls::conflict_refusal(input, &conflict));
     }
-    let composed = crate::native_controls::apply_selection(extra, &controls.selection);
+    let composed = crate::native_controls::apply_selection(extra, &controls.selection, |name| {
+        claude_restriction_control(name).map(|(control, _)| control)
+    });
     let extra = composed.as_slice();
     if let Some(conflict) = claude_selector_conflict(extra) {
         return Err(format!(
@@ -3570,6 +3576,16 @@ fn dsh_launch_with(
     input: &Value,
     composite: impl FnOnce() -> Result<DshComposite, String>,
 ) -> Result<DshLaunch, String> {
+    // Decision 0065 ruling 4, as on the codex and claude paths and FIRST
+    // here: a site the engine computed no authority for is refused before
+    // the seat's argv is read, a route claimed, a version probed or an
+    // overlay staged. DSH declares its native inventory unmeasured, so the
+    // plan an engine writes carries no argv, no selection and no guard —
+    // there is nothing to compose and nothing authored to contend with,
+    // and every residual argument is refused below whatever it spells. The
+    // plan is read for the one thing it can say: that there is one. A
+    // driver no ruling engine launched carries no key and runs as it did.
+    crate::native_controls::managed(input)?;
     let (model, passthrough) = split_dsh_model(extra)?;
     let (effort, passthrough) = split_effort(&passthrough);
     let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;

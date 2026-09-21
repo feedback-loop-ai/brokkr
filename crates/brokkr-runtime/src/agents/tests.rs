@@ -408,6 +408,63 @@ fn a_tool_the_provider_does_not_name_is_a_hard_failure() {
     );
 }
 
+/// Decision 0065, no grandfathering (SC7): `websearch` in `tools.allow`
+/// used to put `WebSearch` on the harness's allowed list — a second way to
+/// hold a capability only the realm grants. An allow entry that maps to a
+/// tool of one of the provider's NATIVE capabilities is refused with the
+/// way out, never composed and never dropped in silence; the local command
+/// entries beside it keep their meaning, and so does the same alias on a
+/// provider whose inventory does not own the tool.
+#[test]
+fn a_legacy_allow_entry_cannot_authorize_a_native_capability() {
+    let tree = Tree::new();
+    let mut agent = agent_body();
+    agent["tools"]["allow"] = json!(["cargo", "websearch"]);
+    tree.write("agents/tester.json", &agent);
+    let mut adapter = claude_body();
+    adapter["tool_permissions"]["names"]["websearch"] = json!("WebSearch");
+    tree.write("adapters/claude.json", &adapter);
+
+    // An unmeasured inventory owns no tool name: the mapping is an
+    // ordinary permission, exactly as before.
+    let plain = resolved(&tree, &Availability::unspecified());
+    assert!(
+        plain.candidates[0]
+            .argv
+            .contains(&"Bash(cargo:*),WebSearch".to_string()),
+        "{:?}",
+        plain.candidates[0].argv
+    );
+
+    adapter["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["WebSearch"],
+        "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+        "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+        "restrictions": {"unsupported": "no native restriction transport is established"},
+        "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+        "selection": {"include": {"flag": "--tools", "separator": ","},
+                      "allow": {"flag": "--allowedTools", "separator": ","},
+                      "deny": {"flag": "--disallowedTools", "separator": ","}}});
+    tree.write("adapters/claude.json", &adapter);
+    assert_eq!(
+        refusal(&tree, "tester"),
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': tool permission \
+         'websearch' maps to 'WebSearch', a tool of the provider's native capability \
+         'web-search'; a legacy allow entry cannot authorize a capability, so request \
+         'web-search' by name under 'capabilities' and let the realm grant it through a tool \
+         dialect (decision 0065 ruling 3). A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    );
+
+    // The local entries alone still compose.
+    agent["tools"]["allow"] = json!(["cargo"]);
+    tree.write("agents/tester.json", &agent);
+    let local = resolved(&tree, &Availability::unspecified());
+    assert!(local.candidates[0]
+        .argv
+        .contains(&"Bash(cargo:*)".to_string()));
+}
+
 /// A provider that serves the model but cannot be told which model would
 /// run its own default and let the run claim the pinned one.
 #[test]

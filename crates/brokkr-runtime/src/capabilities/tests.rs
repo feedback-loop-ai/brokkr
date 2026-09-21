@@ -1259,9 +1259,12 @@ fn cq1_an_inexpressible_restriction_refuses_a_requirement_drops_a_want_and_idles
     );
     // OFF, never an unrestricted ON.
     assert_eq!(argv_of(&dropped), ["--search-off"]);
+    // And the seat is told so in its own reason, which is what its prompt
+    // renders: a dropped native power's state is never left unsaid.
     assert_eq!(
         dropped.not_held["web-search"],
-        "provider 'test-native' cannot express restriction 'allow.hosts'"
+        "provider 'test-native' cannot express restriction 'allow.hosts'; native capability \
+         remains OFF"
     );
     // Unused: no ask, or an ask subtracted — inactive, OFF, and no notice
     // is invented for an ask that does not exist.

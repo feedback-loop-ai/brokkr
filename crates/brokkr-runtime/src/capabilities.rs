@@ -707,6 +707,19 @@ pub enum NativeInventory {
 pub const ABSENT_ASSESSMENT: &str = "the adapter declares no native_capabilities assessment";
 
 impl NativeInventory {
+    /// The native capability a concrete tool name belongs to, where this
+    /// inventory is known and declares one. An unmeasured inventory owns
+    /// no name it can show, so it answers for none.
+    pub fn capability_of(&self, tool: &str) -> Option<&str> {
+        match self {
+            NativeInventory::Known { known, .. } => known
+                .values()
+                .find(|native| native.tools.iter().any(|name| name == tool))
+                .map(|native| native.capability.as_str()),
+            NativeInventory::Unmeasured(_) => None,
+        }
+    }
+
     /// Read an adapter's `native_capabilities`. Absent is unmeasured with
     /// the absence as its reason — never a verified empty inventory.
     pub fn parse(what: &str, raw: Option<&Value>) -> Result<NativeInventory, String> {
@@ -1327,20 +1340,22 @@ impl Authority {
             }
             _ => false,
         };
-        let notices = dropped
-            .into_iter()
-            .map(|(capability, through, but)| {
-                let tail = match (through.is_empty(), switched_off(&capability)) {
-                    (true, _) => "",
-                    (false, true) => "; native capability remains OFF",
-                    (false, false) => "; no native denial is claimed",
-                };
-                let message = format!(
-                    "{who}: dropped wanted capability '{capability}'{through} because {but}{tail}"
-                );
-                (capability, message)
-            })
-            .collect();
+        // The seat is told the same thing the manifest is: its own reason
+        // for not holding the capability carries the tail, so a prompt
+        // never leaves a dropped native power's state unsaid.
+        let mut notices = Vec::with_capacity(dropped.len());
+        for (capability, through, but) in dropped {
+            let tail = match (through.is_empty(), switched_off(&capability)) {
+                (true, _) => "",
+                (false, true) => "; native capability remains OFF",
+                (false, false) => "; no native denial is claimed",
+            };
+            not_held.insert(capability.clone(), format!("{but}{tail}"));
+            let message = format!(
+                "{who}: dropped wanted capability '{capability}'{through} because {but}{tail}"
+            );
+            notices.push((capability, message));
+        }
         Ok(Outcome {
             provider: serving.provider.to_string(),
             model: serving.model.map(str::to_string),

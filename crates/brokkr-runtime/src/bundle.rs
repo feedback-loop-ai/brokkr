@@ -1650,11 +1650,15 @@ impl Bundle {
             // D5). ONLY this site is given one here — an authored site the
             // walk above missed keeps none, and a site with no outcome is
             // refused at dispatch rather than launched on its defaults.
+            // And it is refused like one: an `exec` harness declared with
+            // a native power it cannot switch off does not seat the
+            // validator either (ruling 4).
             {
-                let (library, adapters) = match &agents {
-                    Some(context) => (context.library.as_ref(), Some(&context.adapters)),
-                    None => (None, pin_adapters.as_ref()),
-                };
+                let context = agents.as_ref();
+                let library = context.and_then(|context| context.library.as_ref());
+                let adapters = context
+                    .map(|context| &context.adapters)
+                    .or(pin_adapters.as_ref());
                 record_capabilities(
                     &authority,
                     library,

@@ -391,6 +391,135 @@ fn doctor_names_every_unpinned_model_seat_and_the_single_repair() {
     assert!(stdout.contains("--model <concrete-model-id>"), "{stdout}");
 }
 
+/// A directory holding one executable that answers `--version`, put FIRST
+/// on the PATH doctor runs under: doctor's "installed" is the provider
+/// probe's answer, and the probe asks a binary for its version banner. No
+/// model is reached — the stand-in can say nothing else.
+#[cfg(unix)]
+fn path_with_a_stand_in(root: &std::path::Path, binary: &str) -> std::ffi::OsString {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = root.join("stand-in-bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let program = bin.join(binary);
+    std::fs::write(&program, "#!/bin/sh\necho '0.0.0 (stand-in)'\n").unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let rest = std::env::var_os("PATH").unwrap_or_default();
+    std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(&rest))).unwrap()
+}
+
+#[cfg(unix)]
+fn doctor_lines(cwd: &std::path::Path, path: &std::ffi::OsStr) -> Vec<String> {
+    let output = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .arg("doctor")
+        .env("PATH", path)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// The complete native lines doctor owes the scaffolded realm for Claude,
+/// built from the evidence the SCAFFOLDED adapter declares: doctor prints
+/// adapter data, and these are the data.
+#[cfg(unix)]
+fn scaffolded_claude_denials(workspace: &std::path::Path) -> Vec<String> {
+    let adapter: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(workspace.join("adapters/claude.json")).unwrap())
+            .unwrap();
+    ["web-fetch", "web-search"]
+        .iter()
+        .map(|key| {
+            let evidence = &adapter["native_capabilities"]["known"][key]["evidence"];
+            let limitations: Vec<&str> = evidence["limitations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|limitation| limitation.as_str().unwrap())
+                .collect();
+            format!(
+                "warn     capabilities starter native claude '{key}': NOT granted here: every \
+                 seat on claude is launched with it switched off by the adapter's declared \
+                 control · evidence: {} · still unmeasured: {}",
+                evidence["scope"].as_str().unwrap(),
+                limitations.join("; ")
+            )
+        })
+        .collect()
+}
+
+/// Decision 0065, task 8.2: what `init` scaffolds is proved through
+/// doctor. The scaffolded realm grants nothing and says so; with Claude
+/// installed, both of its native tools are named as not granted, each
+/// beside its evidence scope and the live checks still owed.
+#[cfg(unix)]
+#[test]
+fn doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools() {
+    let dir = tempfile::tempdir().unwrap();
+    let (code, _, stderr) = brokkr(&["init", "."], dir.path());
+    assert_eq!(code, Some(0), "{stderr}");
+    let path = path_with_a_stand_in(dir.path(), "claude");
+    let lines = doctor_lines(dir.path(), &path);
+    let expected = scaffolded_claude_denials(dir.path());
+    assert!(
+        expected[1].contains("no live denial or enablement of WebSearch has been measured")
+            && expected[1].contains("are both unmeasured live"),
+        "the scaffold carries the evidence limits: {}",
+        expected[1]
+    );
+    let capabilities: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.contains(" capabilities starter"))
+        .filter(|line| !line.contains(" native exec:"))
+        .collect();
+    assert_eq!(
+        capabilities,
+        [
+            "ok       capabilities starter: grants nothing; every native capability is governed \
+             by the no-grant default — switched off, or the seat is refused",
+            expected[0].as_str(),
+            expected[1].as_str(),
+        ],
+        "{lines:#?}"
+    );
+}
+
+/// Design D8: independent results survive an agent library that does not
+/// load. The library's failure is its own line, and the native lines —
+/// Claude's denials and generic exec's unmeasured reason — still print.
+#[cfg(unix)]
+#[test]
+fn a_broken_agent_library_takes_no_native_capability_line_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (code, _, stderr) = brokkr(&["init", "."], dir.path());
+    assert_eq!(code, Some(0), "{stderr}");
+    std::fs::write(dir.path().join("agents/implementer.json"), "not json").unwrap();
+    let path = path_with_a_stand_in(dir.path(), "claude");
+    let lines = doctor_lines(dir.path(), &path);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("warn     agents:")),
+        "{lines:#?}"
+    );
+    // The scaffolded exec adapter declares no assessment of its own, so
+    // doctor reads it as every pre-ruling adapter is read: unmeasured,
+    // with the absence as the reason — never as an empty inventory.
+    let mut expected = scaffolded_claude_denials(dir.path());
+    expected.push(
+        "warn     capabilities starter native exec: native inventory unmeasured: the adapter \
+         declares no native_capabilities assessment. Nothing is granted through it and no \
+         native denial is claimed"
+            .to_string(),
+    );
+    for line in &expected {
+        assert!(lines.contains(line), "{line}\n---\n{lines:#?}");
+    }
+}
+
 #[test]
 fn doctor_judges_each_boundary_and_compiles_the_discovered_dialect() {
     use serde_json::{json, Value};

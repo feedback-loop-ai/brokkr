@@ -133,10 +133,23 @@ harness there without the grant refuses compilation), one whose OFF
 nobody has measured, and a harness whose whole native inventory is
 unmeasured. A same-name grant bound to another provider covers nothing of
 this one's, a scoped grant is printed with its scope, and an empty scope
-never reads as "all". A realm whose grants do not validate — a missing
-definition, a dialect asserting other classes, an `mcp` grant — is one
-failing line, and the native lines under it still print. A map that
-cannot be read leaves authority UNKNOWN: nothing is assumed granted.
+never reads as "all". Each grant is validated on its own: one that does
+not validate — a missing definition, a dialect asserting other classes, an
+`mcp` grant — is its own failing line carrying the compiler's refusal, the
+realm's other grants still print, and a native power of the failing
+grant's name reads UNKNOWN under that realm rather than denied. A grant
+bound to a provider whose native inventory is unmeasured says so on its
+line: no seat can hold the capability through it. A map that cannot be
+read leaves authority UNKNOWN: no empty grant set is invented, nothing is
+assumed granted and nothing is assumed denied, and each installed harness
+is still assessed from its adapter — its tools, how ON and OFF are
+declared, the evidence scope and what stays unmeasured. Adapter
+declarations or capability definitions that cannot be read are failing
+lines of their own, so a report with no native line is never read as a
+harness with no native power. `brokkr agents list` and `brokkr agents
+show` lint the library the same way: a capability an agent asks for that
+the operator's `capabilities/` does not define is a warning on `list` and
+a refusal on `show`, wherever `--agents-dir` points the library.
 Nothing is run to say any of this — no model request, search, fetch or
 server — and a harness whose binary is absent gets no native line,
 because nothing was observed about it here. A declared control is adapter

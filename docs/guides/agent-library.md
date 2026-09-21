@@ -206,9 +206,13 @@ read is refused non-empty — required or optional, served by the adapter
 or not — because a server an office could name would be a door a pulled
 bundle could open. The empty list every shipped agent writes stays valid.
 Nor may `tools.allow` name a provider's own network tool: on Claude,
-`webfetch` and `websearch` would compose `WebFetch` and `WebSearch` into
-the seat's argv, and an authored control over a native capability is
-refused at compile naming the seat. The shipped `researcher` was migrated
+`webfetch` and `websearch` map to `WebFetch` and `WebSearch`, tools of the
+adapter's declared native capabilities, and an allow entry that maps to
+one is refused when the agent resolves — naming the agent, the provider,
+the entry, the tool and the capability, and pointing at `capabilities` and
+the realm's tool dialect as the way out. A legacy entry is never composed
+and never dropped in silence; the local command entries beside it keep
+their meaning. The shipped `researcher` was migrated
 exactly this way: it asks for `web-search` and `web-fetch` as `wants`,
 keeps `git`, `ls` and `rg`, and in a realm that grants neither it loses
 both, visibly, and is launched with the native tools denied.
