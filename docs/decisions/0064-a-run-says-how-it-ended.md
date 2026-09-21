@@ -1,6 +1,6 @@
 # 0064 — A run says how it ended: `stopped` keeps its meaning, and every terminal run carries a typed ending
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
 ## Context
