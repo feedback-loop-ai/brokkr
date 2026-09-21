@@ -538,10 +538,10 @@ fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
         local.restrictions["properties"]["allow"]["$ref"],
         "#/definitions/hosts"
     );
-    assert_eq!(
-        violation(&json!({"type": "no-such-type"}), &json!({})).is_err(),
-        true
-    );
+    // A schema that does not compile is a refusal, never a pass.
+    assert!(violation(&json!({"type": "no-such-type"}), &json!({}))
+        .unwrap_err()
+        .contains("no-such-type"));
 }
 
 // ------------------------------------------------ native declarations

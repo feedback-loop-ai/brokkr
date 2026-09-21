@@ -584,3 +584,211 @@ fn every_authority_axis_moves_the_manifest_digest_and_identical_inputs_do_not() 
     );
     assert_eq!(digest(&nothing, wants), dropped);
 }
+
+/// Every shipped bundle, as it compiles in this repository's own realm —
+/// which grants NOTHING. Every executable site of every form has an
+/// outcome; no seat holds anything; every Codex candidate is composed with
+/// the OFF pair and every Claude candidate with both native tools denied;
+/// DSH, LaneTally and exec stay unmeasured and claim no denial; and the
+/// dialect wrapper moved the wrapped verify seat's outcome with the rest of
+/// its facts while the generated validator got an explicit empty one.
+#[test]
+fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_denied() {
+    let root = workspace();
+    let mut dirs: Vec<PathBuf> = ["bundles", "recipes"]
+        .iter()
+        .flat_map(|parent| std::fs::read_dir(root.join(parent)).unwrap())
+        .map(|entry| entry.unwrap().path())
+        .filter(|dir| dir.join("bundle.json").is_file())
+        .collect();
+    dirs.sort();
+    let (mut codex, mut claude, mut unmeasured, mut nested) = (0, 0, 0, 0);
+    for dir in &dirs {
+        let bundle = Bundle::compile_with(dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|error| panic!("{} must compile: {error}", dir.display()));
+        assert_eq!(bundle.manifest["capabilities"]["grants"], json!({}));
+        for (label, facts) in &bundle.sites {
+            let site = facts
+                .capabilities
+                .as_ref()
+                .unwrap_or_else(|| panic!("{}: {label} has no outcome", dir.display()));
+            nested += usize::from(label.contains(':'));
+            assert!(!site.outcomes.is_empty(), "{label}");
+            for outcome in &site.outcomes {
+                assert!(
+                    outcome.held.is_empty(),
+                    "{}: {label} holds something",
+                    dir.display()
+                );
+                let controls = outcome.controls();
+                match outcome.provider.as_str() {
+                    "codex" => {
+                        codex += 1;
+                        assert_eq!(controls["argv"], json!(OFF), "{}: {label}", dir.display());
+                    }
+                    "claude" => {
+                        claude += 1;
+                        assert_eq!(
+                            controls["selection"]["deny"],
+                            json!(["WebFetch", "WebSearch"]),
+                            "{}: {label}",
+                            dir.display()
+                        );
+                        assert_eq!(controls["selection"]["include"], json!([]));
+                    }
+                    _ => {
+                        unmeasured += 1;
+                        assert_eq!(controls["inventory"], "unmeasured", "{label}");
+                        // The seat is told so, rather than told nothing.
+                        assert!(outcome.prompt()["native"].is_string(), "{label}");
+                    }
+                }
+            }
+        }
+        if let Some(wrapped) = bundle.sites.get("verify:checks") {
+            // The wrapper moved the facts, not the office's identity.
+            assert_eq!(wrapped.capabilities.as_ref().unwrap().asks.office, "verify");
+            let validator = bundle.sites["verify:dialect-verify"]
+                .capabilities
+                .as_ref()
+                .unwrap();
+            assert_eq!(validator.asks.office, "verify:dialect-verify");
+            assert!(validator.asks.asks.is_empty());
+            assert_eq!(validator.outcomes[0].provider, "exec");
+        }
+    }
+    assert!(codex > 0 && claude > 0 && unmeasured > 0 && nested > 0);
+    // The researcher is the one shipped office that asks, and in this
+    // realm it loses both wants, visibly, on every link of its chain.
+    let research = Bundle::compile_with(
+        &root.join("recipes/research"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .unwrap();
+    let site = research.sites["research"].capabilities.as_ref().unwrap();
+    assert_eq!(site.asks.office, "researcher");
+    for outcome in &site.outcomes {
+        let lost: Vec<&str> = outcome
+            .notices
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(lost, ["web-fetch", "web-search"]);
+    }
+    assert_eq!(
+        research.manifest["agents"]["research"]["notices"][0]["message"],
+        "seat 'research' (office 'researcher') in realm '<unmapped>': dropped wanted capability \
+         'web-fetch' because the realm does not grant it to this office"
+    );
+    // Both consulted definitions are pinned beside the dropped asks.
+    assert_eq!(
+        research.manifest["capabilities"]["definitions"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["web-fetch", "web-search"]
+    );
+}
+
+/// A panel member and a sequence step are sites exactly as a seat is: each
+/// resolves its own asks under its own label, and a request written on the
+/// CONTAINER — which executes nothing — is refused rather than dropped.
+#[test]
+fn a_panel_member_and_a_sequence_step_resolve_under_their_own_labels() {
+    let operator = Operator::new();
+    let site = |asks: Option<Value>| {
+        let mut site = json!({"role": "roles/role.md", "driver": {"command": [
+            "{brokkr}", "driver", "codex", "--", "--model", "gpt-6-astra", "--effort", "high",
+            "--sandbox", "read-only"]}});
+        if let Some(asks) = asks {
+            site["capabilities"] = asks;
+        }
+        site
+    };
+    write(
+        operator.root(),
+        "bundle/policy.json",
+        &json!({"phases": ["judges", "steps", "review", "done"], "initial": "judges",
+            "terminal": ["done"], "rules": [
+                {"id": "A", "from": "judges", "result": "pass", "next": "steps", "reason": "r"},
+                {"id": "B", "from": "judges", "result": "fail", "next": "steps", "reason": "r"},
+                {"id": "C", "from": "steps", "result": "complete", "next": "review", "reason": "r"},
+                {"id": "D", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}),
+    );
+    let wants = json!({"web-search": "wants"});
+    let compile = |judges: Value| {
+        let mut one = site(Some(wants.clone()));
+        one["name"] = json!("one");
+        one["results"] = json!(["complete"]);
+        let mut two = site(None);
+        two["name"] = json!("two");
+        write(
+            operator.root(),
+            "bundle/bundle.json",
+            &json!({"name": "forms", "policy": "policy.json", "seats": {
+                "judges": judges,
+                "steps": {"results": ["complete"], "sequence": [one, two]},
+                "review": {"results": ["clean"], "role": "roles/role.md",
+                           "driver": {"command": ["driver"]}}}}),
+        );
+        Bundle::compile_with_capabilities(
+            &operator.root().join("bundle"),
+            &operator.root().join("agents"),
+            &workspace().join("adapters"),
+            Some("private"),
+            None,
+            Boundary::Namespace,
+            &operator.context(json!({"web-search": {"dialect": "codex-native-search",
+                                                    "offices": ["judges:search"]}})),
+        )
+        .map_err(|error| error.to_string())
+    };
+    let panel = json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass", "panel": {
+        "search": site(Some(wants.clone())), "plain": site(None)}});
+    let bundle = compile(panel.clone()).unwrap();
+    let held = |label: &str| {
+        let site = bundle.sites[label].capabilities.as_ref().unwrap();
+        (site.asks.office.clone(), !site.outcomes[0].held.is_empty())
+    };
+    // The grant names ONE office: the member that asks and is named holds
+    // it; the step that asks and is not named loses it with the reason.
+    assert_eq!(held("judges:search"), ("judges:search".to_string(), true));
+    assert_eq!(held("judges:plain"), ("judges:plain".to_string(), false));
+    assert_eq!(held("steps:one"), ("steps:one".to_string(), false));
+    assert_eq!(held("steps:two"), ("steps:two".to_string(), false));
+    assert_eq!(
+        bundle.sites["steps:one"]
+            .capabilities
+            .as_ref()
+            .unwrap()
+            .outcomes[0]
+            .notices[0]
+            .1,
+        "seat 'steps:one' (office 'steps:one') in realm 'private': dropped wanted capability \
+         'web-search' because the realm grants it only to offices [judges:search], not to \
+         this office"
+    );
+    let step = &bundle.sites["steps:one"]
+        .capabilities
+        .as_ref()
+        .unwrap()
+        .outcomes[0];
+    assert_eq!(step.controls()["argv"], json!(OFF));
+    let member = &bundle.sites["judges:search"]
+        .capabilities
+        .as_ref()
+        .unwrap()
+        .outcomes[0];
+    assert_eq!(member.controls()["argv"], json!([]));
+
+    let mut container = panel;
+    container["capabilities"] = wants.clone();
+    assert_eq!(
+        compile(container).unwrap_err(),
+        "bundle: seat 'judges' declares 'capabilities' beside a panel, sequence or select; a \
+         request belongs to the site that executes — the member, step or case body — because \
+         that is the office the realm grants to (decision 0065 ruling 5)"
+    );
+}

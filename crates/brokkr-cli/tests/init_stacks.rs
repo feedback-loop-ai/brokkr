@@ -325,6 +325,53 @@ fn the_scaffolded_adapter_declares_an_honest_unmeasured_resume_assessment() {
     compiles(&bundle);
 }
 
+/// Decision 0065 ruling 4: a scaffold carries the SAME native assessment
+/// the shipped Claude adapter does — word for word, evidence limits
+/// included — so a stranger's first workspace cannot drift into a weaker
+/// declaration. And it grants nothing: every model seat it compiles holds
+/// no capability and is composed with both native tools denied by name.
+#[test]
+fn the_scaffolded_adapter_carries_the_shipped_native_assessment_and_grants_nothing() {
+    let (_dir, bundle) = scaffold_from("rust");
+    let scaffolded = read_json(&bundle.join(DEFAULT_ADAPTERS_DIR).join("claude.json"));
+    let shipped =
+        read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/claude.json"));
+    assert_eq!(
+        scaffolded["native_capabilities"],
+        shipped["native_capabilities"]
+    );
+
+    let compiled = compiles(&bundle);
+    assert_eq!(
+        compiled.manifest["capabilities"]["grants"],
+        serde_json::json!({})
+    );
+    let mut model_sites = 0;
+    for (label, facts) in &compiled.sites {
+        let site = facts.capabilities.as_ref().unwrap();
+        for outcome in &site.outcomes {
+            assert!(outcome.held.is_empty(), "{label} holds nothing");
+            if outcome.provider != "claude" {
+                continue;
+            }
+            model_sites += 1;
+            assert_eq!(
+                outcome.controls()["selection"]["deny"],
+                serde_json::json!(["WebFetch", "WebSearch"]),
+                "{label}"
+            );
+            assert_eq!(
+                outcome.controls()["selection"]["include"],
+                serde_json::json!([])
+            );
+        }
+    }
+    assert!(
+        model_sites > 0,
+        "the scaffold seats at least one claude site"
+    );
+}
+
 /// Compile the scaffold against ITS OWN roots — the property init proves
 /// when it prints its digest, asserted here from the outside.
 fn compiles(bundle: &Path) -> Bundle {
