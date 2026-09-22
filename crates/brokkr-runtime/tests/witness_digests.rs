@@ -204,6 +204,16 @@ fn workspace() -> PathBuf {
 /// local route with its `glm-flash` alias (ruled 2026-09-16) and the
 /// Model Studio aliases `glm53` and `studio-flash41`, and an adapter
 /// declaration is bundle data. The other seven are unchanged.
+/// Issue #307 (operator rulings 2026-09-20 and 2026-09-21) moves
+/// `recipes/triage` and nothing else here: its `engine` case seats
+/// `implementer-engine`, which now hires astra@high then fable@high and
+/// declares decision 0043's workspace hands in place of its Cargo/Git tool
+/// list. The agent digest, the adapters that chain consults and the
+/// manifest's `hands` and `boundary` entries for that site are the
+/// movement. No charter, adapter or engine version changed; the measured
+/// value is this tree's actual compile, and the nine others — including
+/// `recipes/night-shift` and `recipes/gpt-flash`, which derive from triage
+/// but seat their own implementers — reported no movement.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -227,7 +237,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/triage",
-        "d95b41d920e0ca5db3012a4eae51449d16505733c4530a4eb83445dff36f336f",
+        "2343cd5dff8bda10a14798dedd8d46195aeca31ed416b9bba0abf57d9658fe7f",
     ),
     (
         "recipes/research",

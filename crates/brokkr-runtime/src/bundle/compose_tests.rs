@@ -1215,7 +1215,15 @@ fn a_composed_bundles_manifest_is_pinned() {
         // `design` and `feature` criteria are rewritten to the who-decides
         // cut, and the charter's bytes ride every route that seats it —
         // `night-shift` and `gpt-flash` move for the same reason.
-        "d95b41d920e0ca5db3012a4eae51449d16505733c4530a4eb83445dff36f336f",
+        // Issue #307 (operator rulings 2026-09-20 and 2026-09-21) moves it
+        // once more through the engine smith this route seats: the office
+        // now hires astra@high then fable@high, and decision 0043's
+        // workspace hands replace its Cargo/Git tool list, so the agent
+        // digest, the adapters its chain consults and the `engine` case's
+        // `hands` and `boundary` entries all changed. The value agrees with
+        // the `recipes/triage` pin in `tests/witness_digests.rs`; both are
+        // this tree's actual compile.
+        "2343cd5dff8bda10a14798dedd8d46195aeca31ed416b9bba0abf57d9658fe7f",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

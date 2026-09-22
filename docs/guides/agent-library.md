@@ -23,7 +23,7 @@ $ brokkr agents list
 analyst	opus → astra → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
 chief-architect	opus → astra → opus	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
 clarifier	opus → sol	Read-only SDD judge: identifies every material ambiguity in the specification.
-implementer-engine	fable → opus	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
+implementer-engine	astra → fable	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
 implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
 implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
 intake	sonnet → opus	Frames a raw request into a recorded, actionable task before any code is written.
