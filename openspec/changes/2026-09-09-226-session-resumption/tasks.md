@@ -700,6 +700,161 @@ Nothing under 9.6, 10.x, 11.x or whole-change closure is touched, and no
 provider installation, live qualification, route enablement or release work
 is part of D1.
 
+## Implementation delivery — Pass D part two, the plugin component and containment, 2026-09-23
+
+Run `dsh-pass-d-part-two-of-three-the-65b37a39`, implement seat, branch
+`slice-dsh-pass-d` off D1's head `4d6b15f3`. Pass D is split into three
+narrow runs; this is **D2 only**, the plugin component's byte form, equal
+staging, containment and the synthetic conditional extension. D1's three
+commits are adopted unchanged and its completion is not re-audited; D3 is
+named as owed below and is not claimed here. **8.8 and 8.10 stay
+unticked**, no checkbox row is added or moved, and the inventory is
+unchanged: 152 checkbox rows, 125 checked / 27 unchecked.
+
+Four signed commits, all in
+`crates/brokkr-protocol/src/adapters/composite/tests.rs` and nothing else:
+`97c15d3b` the plugin vector, `e19e4629` equal staging, `24fe50fc`
+containment and order, `e6efabd9` the conditional extension. Production is
+byte-identical to D1's head — `git diff 4d6b15f3 --name-only` names one
+file — so no production line entered or left the coverage denominator, and
+the exact-coverage gate excludes test-harness sources by its own filter. No
+dependency, schema, contract, policy, fixture, reference, extension or
+decision byte moved; 0056 stays proposed, the DSH route stays disabled, and
+no repository extension was created. Never pushed.
+
+**What was built.** Every vector below is SYNTHETIC, labelled as such in the
+source, and is a deterministic planner and storage shim — not live DSH
+compatibility, qualification or enforcement evidence. The measured rc.2
+fixture and the repository-owned adaptation are untouched and stay distinct
+from them. Every home is built under a canonicalized temporary root through
+the existing `Synthetic`/`FixtureRoot` support, no test reads `.forge/`, and
+none needs an installed provider or an ambient installation.
+
+- `WORKED_PLUGIN_SET`, six declared files with distinct bytes — no member
+  carries its own relative path as its content and none matches an
+  extension member — staged in REVERSE declared order, so a component that
+  followed the fixture's write order or the platform's `read_dir` order
+  parts from the pinned value. Exact input bytes are read back off disk,
+  each observed digest is checked against an independent hash of that
+  file's bytes, and the walk's key sequence is asserted against a declared
+  set separately proved to be in strictly increasing bytewise order.
+- The component is pinned twice. `WORKED_PLUGIN_VECTOR_COMPONENT` is the
+  producer's own output. `WORKED_PLUGIN_STREAM` is a frozen literal of
+  D6's `<relative path>\0<file SHA-256>\n` form, which
+  `read_component_stream` PARSES back — line count, declared path at each
+  position, strictly increasing order, and each line's digest against the
+  observation — rather than assembling. No test-side serializer or digest
+  producer was added, and
+  `no_test_reassembles_the_component_stream` stays green.
+- The plugin's own local `file:` tarball record leaves the dependency
+  lines through the producer while a same-named REGISTRY record nested
+  under another package stays. The same lock read with nothing excluded
+  refuses at that exact record for want of a registry `integrity`, which
+  is what the exclusion is worth: composition succeeded only because the
+  record was excluded, and it was excluded as a record.
+- Equal staging: the worked pair staged in two synthetic homes at
+  different absolute paths, each with a per-seat overlay staged through
+  the launch planner's own production path — `dsh_transcript_root_under`
+  allocating that seat's transcript root under that home, and
+  `dsh_seat_overlay_with` writing different pinned rows to different
+  `--patch` files. Plugin and composite are equal and equal to the pinned
+  literals; `plugin-patch`, `profile-patch` and `home-patch` stay equal
+  with them, so the per-seat overlay is visibly not an identity-bearing
+  patch and a seat's own directory under the home leaves `home-patch` at
+  `absent`. The same home reached through a symlinked ancestor composes
+  the same two values. The invariance is asserted BEFORE the literals, so
+  a producer that let a staging path into the identity parts at the claim
+  the case owns, and a home-level `cordis.patch.yml` is the control that
+  the comparison can part at all.
+- Containment: a bundle directory that is a SYMLINK is judged where the
+  link lands — a candidate spelled inside the profile whose target is not
+  earns its target's refusal, named by the canonical path — with the same
+  link pointed inside the profile as the control.
+- The search order is read off the producer in four steps. Each position —
+  the core package's Node lookup, the injected global folders, the
+  profile's own lookup from the RAW anchor — holds one candidate outside
+  both canonical roots, so the refusal names the candidate reached first
+  and removing it hands the next position its turn; step three composes
+  through the contained copy the profile ships, and step four climbs past
+  its absence to the candidate above the profile. Steps one, two and four
+  are also the shapes a listed general bundle escapes through: an ancestor
+  `node_modules` and a global folder.
+- `the_dsh_composite_refuses_a_layout_outside_the_locators` now asserts all
+  three refusals whole — the escaped bundle with its canonical path, the
+  shebang with the canonical executable, and the profile that lists no
+  plugin — where it asserted three substrings.
+- The conditional extension is pinned as two whole streams.
+  `WORKED_PAIR_STREAM` carries no `extension` line at all, which is what
+  absence means here, and `WORKED_TRIO_STREAM` carries one more
+  `profile-bundle` row in declared order and one `extension` line at the
+  end, read back off the literal's last line. Both hash to the producer's
+  own composite over the same inputs. The extension set itself is pinned
+  the way the plugin's is — exact bytes, per-file digests, bytewise path
+  order over a declared set proved to be in it, a frozen component stream
+  parsed rather than built, reverse staging order — and one changed byte
+  moves the extension component and the composite.
+- Drift in a listed extension refuses by the EXTENSION component and never
+  as absence: an extra file, a declared file replaced by a symlink to
+  identical bytes, and that same file missing. The extension's own local
+  `file:` record leaves the dependency lines only when the extension
+  resolved, with its registry namesake staying beside it; the same lock
+  with the extension unlisted refuses at that record.
+
+**Removal proofs.** Seven production mutations were compiled, run red
+against the case they were aimed at and reverted; production ends the slice
+unchanged and none was committed.
+
+| Mutation | Case that parted |
+|---|---|
+| `component_digest` walks `digests.iter().rev()` | the plugin vector's pinned component; with the hex moved to the mutant's value the frozen stream literal parted on its own, so both pins carry weight |
+| `npm_dependencies` excludes on `local` OR `file:` | the registry namesake left with the tarball record |
+| `home_patch`'s absent literal carries the home path | the two homes' composites, at the invariance assertion |
+| `resolve_bundle` compares the RAW candidate | the symlinked escape was admitted |
+| globals moved ahead of the core's ancestors | step one named the global copy, not the ancestor |
+| `canonical_composite` pushes `extension` unconditionally | the absent composite moved |
+| the extension walk named `plugin` | every extension drift refusal misreported its component |
+| the extension's local record excluded unconditionally | the unlisted lock composed instead of refusing |
+
+**Gates.** Run sequentially, from this worktree, each crate suite in its own
+invocation. `cargo fmt --all -- --check`, `cargo clippy --workspace
+--all-targets --all-features --locked -- -D warnings`, `cargo test` for
+`brokkr-core`, `brokkr-store`, `brokkr-protocol` (420 lib tests),
+`brokkr-runtime`, `brokkr-view`, `brokkr-bridge` and `brokkr-cli`, and
+`cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` all
+passed. `bash scripts/coverage-exact.sh` and `openspec validate --all
+--strict` are withheld by this seat's permission grant and are recorded
+**pending, not passed**; neither was weakened or substituted. Remote CI on a
+final head and native macOS remain pending until their own results exist.
+
+**Owed to D3, not claimed by this delivery.** D2 discharged the plugin-order,
+equal-staging and containment clauses D1 carried forward, and — under the
+commission's split, which moved them out of D1's D3 column — the synthetic
+extension's absent and present sets, exact four-file order, changed bytes,
+missing and extra members, symlinks, outside-profile resolution and the
+no-extension-line rule for absence. `the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`
+is retained unchanged and credited, not reclaimed. The clause comparing a
+REAL extension's committed set to its own provenance block through the same
+function stays conditional: none is commissioned, D2 proved synthetic
+behaviour only, and D3 must keep that conditional status rather than create
+an extension to close a checkbox. Everything else in D1's D3 bullets stands:
+core, Node, dependency, plugin, patch, composed-profile and optional-extension
+drift yielding `unverified-harness` before provider work; the remaining doctor
+matrix and its reporting; profile bundle addition, removal and reordering, a
+changed `patchReload`, an added home `cordis.patch.yml` and a rewritten
+`cordis.yml`; executable and core `env node` layout rejection and missing or
+malformed `bundles` or `patchReload`; the bounded locator round-trip with its
+truncation, ambiguity, traversal and symlink-escape refusals and no retained
+directory as a handle; retained storage and planner retention; and the exact
+resume argv with the complete current class, model and effort cases for every
+other adapter, generated fragment versus passthrough, no ambient cold or gate
+continuation, nonpersistent refusal, identifier injection, unsupported hands
+and cold or resume inability to honour the class. D2's component-byte mutation
+controls do not discharge D3's planner drift admission proof.
+
+Nothing under 9.6, 10.x, 11.x or whole-change closure is touched, and no
+provider installation, live qualification, route enablement or release work
+is part of D2.
+
 ## Historical composite decisions and execution clauses
 
 The following composite scope, task states, verification commands and dated
