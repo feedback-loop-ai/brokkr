@@ -532,6 +532,174 @@ omission of unattributable totals and legacy compatibility. No latch proof
 credits either. Run-local logs are under
 `.forge/validation/dsh-bff4c1e2-implement/`, outside the committed artifact.
 
+## Implementation delivery — Pass D part one, the lock dialects, 2026-09-23
+
+Run `dsh-pass-d-part-one-of-three-the-0357f090`, implement seat, branch
+`slice-dsh-pass-d` off `e50020ac`. Pass D is split into three narrow runs;
+this is **D1 only**, the canonical composite's byte form and the two lock
+dialects. D2 and D3 are named as owed below and are not claimed here.
+**8.8 and 8.10 stay unticked**, no checkbox row is added or moved, and the
+inventory above is unchanged: 152 checkbox rows, 125 checked / 27 unchecked.
+
+Three signed commits, all in
+`crates/brokkr-protocol/src/adapters/composite/tests.rs` and nothing else:
+`8633c6e5` the worked vectors and the byte form, `b27a357b` the unreadable
+key and version matrix, `4c9eec33` the dependency value's shape. Production
+is byte-identical to `e50020ac` — `git diff e50020ac --name-only` names one
+file — so no production line entered the coverage denominator. No
+dependency, schema, contract, policy, fixture, reference, extension or
+decision byte moved; 0056 stays proposed and the DSH route stays disabled.
+Never pushed.
+
+**What was built.** Both worked vectors are SYNTHETIC excerpts in the
+measured grammar, labelled as such in the source, and they are deterministic
+planner and storage shims — not live DSH compatibility, qualification or
+enforcement evidence. The measured rc.2 literals below are untouched and stay
+distinct from them; the three-group key is grammar coverage and claims no
+deeper measured tree. Every home is built under a canonicalized temporary
+root through the existing `Synthetic`/`FixtureRoot` support, no test reads
+`.forge/`, and none needs an installed provider.
+
+- `WORKED_NPM_LOCK`, one lockfile-3 hidden lock read through the sole
+  producer at D6's locators: top-level and nested unscoped names, a
+  top-level scoped name, scoped names under an unscoped and under a scoped
+  parent, a scoped parent with an unscoped terminal, and three successive
+  groups at `node_modules/a/node_modules/@parent/b/node_modules/@scope/child`
+  whose version and integrity differ from both shallower `@scope/child`
+  entries. Exactly one entry carries an optional `name`, and it disagrees
+  with its key; every other entry carries none. The census of `name` fields
+  is asserted, so the vector cannot quietly lose the case it exists for.
+- `WORKED_PNPM_LOCK`, one lockfile-9.0 document: three records equivalent to
+  npm ones (two of them the npm vector's nested entries), one record this
+  dialect alone supplies, and the plugin's local tarball record beside its
+  same-named registry record, so the exclusion is proved to identify a
+  RECORD and not a name.
+- `WORKED_DEPENDENCIES`, the complete ordered value bytes — fourteen values
+  over ten names — asserted as literals against the producer's own
+  `dependencies`, never as a count. Each value's shape is read off the value
+  itself: three fields, one ASCII space between them, no other whitespace.
+- The byte form is pinned twice. `WORKED_CANONICAL` is the producer's own
+  output. `WORKED_CANONICAL_STREAM` is a frozen literal of D6's
+  `<component>\0<value>\n` stream — `core`, `node`, the bytewise-sorted
+  complete `dependency` values, `plugin`, `plugin-patch`, `profile-patch`,
+  the declared-order `profile-bundle` rows, `profile-patch-reload`,
+  `home-patch`, no `extension` line — written out by hand, including the
+  final newline. It assembles nothing and follows nothing, which is why it
+  is an expectation rather than the second serializer
+  `no_test_reassembles_the_component_stream` forbids; no test-side
+  serializer or digest producer was added.
+- Equivalence and deduplication are proved by identity rather than by
+  comparing lists: one home, the triple supplied by both locks, by npm alone
+  and by pnpm alone, all three composing to one canonical composite, with a
+  pnpm record differing only in its integrity as the moving control. Within
+  npm, two keys with the same complete triple are one value; one name at two
+  versions and one name and version at two integrities each stay two.
+- A malformed intermediate group refuses through the producer:
+  `node_modules/a/extra/node_modules/@scope/child`'s valid terminal package
+  does not excuse it, and no identity is composed.
+- Each commissioned pnpm construct — tab, comment, document marker,
+  block-form resolution, missing resolution, repeated resolution, and a key
+  without the version separator — now refuses through the producer too, by
+  its exact reason, against a legal control composed from the same document.
+- The inherited unreadable-key table gains INCOMPLETE keys (`node_modules`
+  with no separator; a trailing group that opens and never fills), traversal
+  at each of the three places a key offers it, a tab, and keys separated the
+  other platform's way. The version table gains non-string, boolean and null
+  versions and a non-string integrity, each by the reason that owns it.
+- The hidden-lock locator keeps its decoy-root control and gains the one it
+  could not draw: a root `package-lock.json` in the full npm shape, whose
+  `""` root entry this reader refuses by its own first key. With the hidden
+  lock absent the refusal is still the hidden lock's — component, locator
+  and the host's own `io::Error` wording — so the root file was never
+  opened.
+
+**Falsifiability of the byte-form pin.** Two production mutations were
+compiled and run red against
+`the_worked_vectors_pin_the_canonical_composite_byte_form`, then reverted:
+`sha256_text(lines.trim_end_matches('\n'))` (the trailing newline dropped) and
+`plugin-patch`/`profile-patch` transposed. In each case the pinned hex parted
+first; with the hex moved to the mutant's value the frozen stream literal
+parted on its own, so both pins carry weight independently. Production ends
+the slice unchanged.
+
+**Inherited cases credited, not duplicated.** `malformed_npm_keys_are_refused`
+and `npm_keys_with_an_empty_or_dotted_component_are_refused` (empty, absolute,
+trailing, spaced, backslashed, dotted and scoped-half spellings);
+`npm_three_group_and_dedup_vectors_retain_distinct_triples`;
+`npm_exclusions_name_exact_records_and_keep_same_named_registry_ones`;
+`npm_versions_with_any_whitespace_are_unreadable`;
+`pnpm_locks_reject_every_unrecognized_construct` and
+`missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`
+(the closed grammar, bounded reads and scalar validation);
+`duplicate_decoded_pnpm_package_keys_refuse_before_triple_normalization`,
+which is the preserved proof that triple deduplication is not permission to
+accept duplicate keys; and the complete measured rc.2 fixture, whose literals
+and pinned digests are untouched.
+
+**Gates, run sequentially on this candidate.**
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -D warnings`:
+  clean.
+- Each crate suite in its own process: core 73/3/8/2, store (7 green
+  results), protocol **412 lib** (407 before this slice, five new) + 99
+  seatbelt + 1 doc, runtime 2/7/6/3/3/3/4, view 243, bridge 13, cli 16/24/4/
+  9/12/18/61/18/23/2/15/10/6/2/39/9/6/1. No failures anywhere.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `… bundles/verify`: both exit 0.
+- **NOT RUN: `openspec validate --all --strict`** and **`bash
+  scripts/coverage-exact.sh`.** This seat's permission grant withholds both;
+  each was refused before execution and was not reached by another route.
+  An unavailable tool is a pending check, never a pass. The coverage gate
+  stays at literal 100% and no threshold or exclusion was touched; this
+  slice adds no production line, and `scripts/coverage-exact.sh` excludes
+  `tests.rs` from the report it evaluates, so the denominator is the one
+  `e50020ac` already passed. That reasoning is not a substitute for the run.
+- **PENDING, external:** native macOS and final-head remote CI.
+
+**Owed to D2 and D3, not claimed by this delivery.** Every clause below is
+carried forward even where an inherited test already touches it; D1 does not
+report those matrices complete.
+
+- **D2, plugin order and equal staging:** the plugin component's exact
+  bytewise path-order vector and the exclusion of the plugin's own tarball
+  entry; equal composites for the same pair staged in two homes at different
+  absolute paths, under two per-seat overlays, and reached through a
+  symlinked ancestor, with equal plugin values when the same bundles resolve.
+- **D2, containment:** general bundle, plugin and synthetic conditional
+  extension containment against the canonical profile, with the raw lookup
+  anchor and first-hit order preserved; unresolvable profile boundaries,
+  escaping symlinks, `headless-extra` near-prefix siblings, an outside first
+  hit with a later inside candidate, and listed bundles outside both core and
+  profile in an ancestor `node_modules` or a global folder; no fallback
+  repairs a refused first hit. The extension's exact four-file order,
+  missing or extra members, symlinks and outside-profile resolution belong to
+  that matrix.
+- **D3, drift, doctor and profile:** core, Node, dependency, plugin, patch,
+  composed-profile and optional-extension drift yielding `unverified-harness`
+  before provider work; added, dropped or reordered bundles, a changed
+  `patchReload` and an added home `cordis.patch.yml` moving identity while a
+  rewritten `cordis.yml` does not; unreadability for an executable other
+  than the core's `env node` script and for a missing or malformed `bundles`
+  or `patchReload`, with the remaining doctor matrix.
+- **D3, adaptation and extension bytes:** the repository-owned adaptation's
+  exact six-file/provenance test preserved and credited; synthetic extension
+  absent and present sets and changed bytes, with absence emitting no
+  extension line; the committed set compared with its own provenance through
+  the same function where required; file-order and containment coordinated
+  with D2; no speculative extension created.
+- **D3, locator, retained storage and planner retention:** bounded locator
+  round-trip and truncation, ambiguity, traversal and symlink-escape
+  refusals; a retained directory is never a handle; exact resume argv and
+  the complete current class/model/effort cases for every other adapter,
+  generated-fragment versus passthrough distinctions, no ambient cold or
+  gate continuation, nonpersistent refusal, identifier injection,
+  unsupported hands, and cold/resume inability to honour the class.
+
+Nothing under 9.6, 10.x, 11.x or whole-change closure is touched, and no
+provider installation, live qualification, route enablement or release work
+is part of D1.
+
 ## Historical composite decisions and execution clauses
 
 The following composite scope, task states, verification commands and dated
