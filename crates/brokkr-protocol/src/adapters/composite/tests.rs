@@ -10213,6 +10213,21 @@ fn the_worked_vectors_pin_the_canonical_composite_byte_form() {
         WORKED_DEPENDENCIES.map(str::to_string).to_vec(),
         "the complete ordered dependency values"
     );
+    // A dependency value's shape, read off each value rather than
+    // asserted of the list: name, ONE ASCII space, version, ONE ASCII
+    // space, integrity — and no other whitespace anywhere, which is what
+    // the one scalar rule buys the serializer.
+    for value in &observed.dependencies {
+        let fields: Vec<&str> = value.split(' ').collect();
+        assert_eq!(fields.len(), 3, "{value:?} is three space-separated fields");
+        for field in fields {
+            assert!(!field.is_empty(), "{value:?} carries an empty field");
+            assert!(
+                !field.contains(char::is_whitespace),
+                "{value:?} carries whitespace inside a field"
+            );
+        }
+    }
     assert_eq!(observed.plugin, WORKED_PLUGIN_COMPONENT);
     assert_eq!(
         observed.plugin_patch,
