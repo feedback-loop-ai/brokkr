@@ -10431,6 +10431,237 @@ fn the_unrecognized_pnpm_constructs_refuse_through_the_producer() {
 }
 
 // ---------------------------------------------------------------------------
+// The plugin component, equal staging, containment and conditional
+// extension vectors (Pass D, D2).
+//
+// The plugin and extension byte sets below are SYNTHETIC. They are written
+// in the declared SHAPE of the committed pair and they are not its bytes:
+// the measured rc.2 fixture at the end of this file holds those unchanged,
+// and `the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`
+// above remains the only test that reads the repository's own adaptation.
+// Like D1's lock vectors these are deterministic planner and storage shims,
+// not live DSH compatibility, qualification or enforcement evidence. Every
+// home is built under a canonicalized temporary root through `Synthetic`
+// and `FixtureRoot`; nothing here reads `.forge/`, none of it needs an
+// installed provider, and no repository extension is created to exercise a
+// case.
+// ---------------------------------------------------------------------------
+
+/// The worked plugin vector: the six declared relative paths and the exact
+/// bytes staged at each.
+///
+/// No two members share bytes, none carries its own relative path as its
+/// content, and none matches a member of the worked extension set below —
+/// so a walk that crossed two paths, reused one member's digest for
+/// another or read an extension file where a plugin file belongs cannot
+/// reach the pinned component.
+const WORKED_PLUGIN_SET: [(&str, &[u8]); 6] = [
+    ("LICENSE", b"MIT: the plugin's licence\n"),
+    ("README.md", b"# dsh-plugin-cli-session\n"),
+    ("cordis.patch.yml", b"- id: cli-session\n  config: {}\n"),
+    ("lib/index.js", b"module.exports = { name: 'index' }\n"),
+    ("lib/startup.js", b"module.exports = { name: 'startup' }\n"),
+    (
+        "package.json",
+        b"{\"name\":\"dsh-plugin-cli-session\",\"version\":\"0.2.0\"}\n",
+    ),
+];
+
+/// D6's component stream over the worked plugin set, written out by hand:
+/// one `<relative path>\0<file SHA-256>\n` line per declared file, in
+/// bytewise path order, ending with a newline.
+///
+/// It is a frozen literal, not a computation. It assembles nothing from
+/// the producer's output and cannot follow it: reordering the walk's
+/// lines, dropping a separator or dropping the final newline in production
+/// leaves this literal behind. `read_component_stream` PARSES it back
+/// rather than building it, which is what keeps it an expectation instead
+/// of the second serializer `no_test_reassembles_the_component_stream`
+/// forbids.
+const WORKED_PLUGIN_STREAM: &str =
+    "LICENSE\u{0}79dce08a18044a366563406c6a3c02cbd947989c47fdd64d0fbaf351ed1a83a4\n\
+     README.md\u{0}86f31cae9f04723ccacec665210e2fdb6fffe4ae7d19901e0420a81376d654ac\n\
+     cordis.patch.yml\u{0}2e5380d538ff7f04b1d0035336fd3937c6762ad7acf8a17e00a0a23bdf2d6bc2\n\
+     lib/index.js\u{0}e931e87e321b250f52712f4090c3c7b960a5e225f6a5eaf4b9f177f05faa1b24\n\
+     lib/startup.js\u{0}725cce087fb0ffa4df40acf9b5ac782097850db6da91e61ff29d5387266ba32d\n\
+     package.json\u{0}935f6e76f24a7b51dde7e944be8dfa5216f5d1058602cfd72a40ff6136cfebf0\n";
+
+/// The producer's pinned component over the worked plugin set.
+const WORKED_PLUGIN_VECTOR_COMPONENT: &str =
+    "d1f7df60c6c4eeda7797b4d2d54241cc7d1597b808b33422af87ee7ef9e09d7a";
+
+/// Stage one worked byte set beneath `dir`, each member at its declared
+/// relative path.
+fn stage_set(dir: &Path, set: &[(&str, &[u8])]) {
+    for (name, bytes) in set {
+        write(dir, name, bytes);
+    }
+}
+
+/// Read a frozen component-stream literal back as the form D6 declares,
+/// and bind it to one observation.
+///
+/// The literal is PARSED, never assembled: this proves the hand-written
+/// expectation really is `<relative path>\0<file SHA-256>\n` per line, in
+/// strictly increasing bytewise path order, over exactly the declared set,
+/// carrying exactly the digests the producer's walk observed — and it
+/// produces no component of its own.
+fn read_component_stream(stream: &str, expected: &[&str], observed: &BTreeMap<String, String>) {
+    let body = stream
+        .strip_suffix('\n')
+        .expect("the component stream ends with a newline");
+    let lines: Vec<&str> = body.split('\n').collect();
+    assert_eq!(
+        lines.len(),
+        expected.len(),
+        "one line per declared file: {lines:?}"
+    );
+    let mut previous = "";
+    for (line, file) in lines.iter().zip(expected) {
+        let (path, digest) = match line.split_once('\u{0}') {
+            Some(split) => split,
+            None => panic!("{line:?} carries no NUL separator"),
+        };
+        assert_eq!(path, *file, "the declared file at this position");
+        assert!(
+            previous < path,
+            "{previous:?} then {path:?} is not bytewise path order"
+        );
+        previous = path;
+        assert_eq!(
+            digest,
+            observed
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} was observed")),
+            "{path}: the line carries the observed digest"
+        );
+    }
+}
+
+/// The worked plugin vector: the component's bytewise path order, its
+/// exact input bytes and per-file digests, D6's stream form, and the
+/// producer's own pinned component over all six.
+///
+/// The files are staged in REVERSE declared order, so a component that
+/// followed the order the fixture wrote them in — or the order the
+/// platform's `read_dir` yields — parts from the pinned value.
+#[test]
+fn the_worked_plugin_vector_pins_the_bytewise_path_order_of_the_component() {
+    let dir = FixtureRoot::new();
+    for (name, bytes) in WORKED_PLUGIN_SET.iter().rev() {
+        write(dir.path(), name, bytes);
+    }
+
+    // The declared set is itself in bytewise order, so "declared order"
+    // and "bytewise order" below are the same claim about the same six
+    // paths rather than two that happen to agree.
+    assert!(
+        PLUGIN_FILES.windows(2).all(|pair| pair[0] < pair[1]),
+        "the declared plugin set is in strictly increasing bytewise order"
+    );
+
+    let observed =
+        plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES, &read_dir_entries).unwrap();
+    assert_eq!(
+        observed.keys().map(String::as_str).collect::<Vec<&str>>(),
+        PLUGIN_FILES.to_vec(),
+        "the walk observed exactly the declared six, in bytewise path order"
+    );
+
+    // Each member's EXACT input bytes reached the file, and each observed
+    // digest is that file's own. Hashing one file's bytes on its own is an
+    // input check, not a second component producer.
+    for (name, bytes) in WORKED_PLUGIN_SET {
+        assert_eq!(fs::read(dir.path().join(name)).unwrap(), bytes, "{name}");
+        assert_eq!(observed[name], digest_of(bytes), "{name}");
+    }
+
+    read_component_stream(WORKED_PLUGIN_STREAM, &PLUGIN_FILES, &observed);
+    let component = component_digest(&observed);
+    assert_eq!(
+        component, WORKED_PLUGIN_VECTOR_COMPONENT,
+        "the producer's pinned component over the worked plugin set"
+    );
+    assert_eq!(
+        digest_of(WORKED_PLUGIN_STREAM.as_bytes()),
+        component,
+        "the component is the SHA-256 of exactly these lines, in this \
+         order, ending with a newline"
+    );
+}
+
+/// The hidden lock the worked pair is staged with: the core's own record,
+/// the plugin's LOCAL `file:` tarball record, a same-named REGISTRY record
+/// of the plugin nested under another package, and one ordinary
+/// dependency the synthetic pnpm lock also carries.
+///
+/// Written in D1's grammar and read through the same producer; D1's own
+/// dialect matrix is not reopened here.
+const WORKED_PAIR_NPM_LOCK: &str = r#"{"lockfileVersion":3,"packages":{
+  "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+  "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+  "node_modules/nested/node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"https://registry.npmjs.org/dsh-plugin-cli-session-0.2.0.tgz","integrity":"sha512-NPMREG"},
+  "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+}}"#;
+
+/// The complete ordered dependency values the worked pair composes.
+const WORKED_PAIR_DEPENDENCIES: [&str; 2] = [
+    "debug 2.6.9 sha512-DEBUG",
+    "dsh-plugin-cli-session 0.2.0 sha512-NPMREG",
+];
+
+/// Install the worked pair into a synthetic home: the six worked plugin
+/// files at the profile's plugin locator, replacing the fixture's own, and
+/// the worked hidden lock at the core's. Everything else is
+/// `Synthetic::new`'s, so two homes prepared this way differ only in where
+/// they sit.
+fn worked_pair(install: &Synthetic) {
+    stage_set(
+        &install.profile().join("node_modules").join(PLUGIN_BUNDLE),
+        &WORKED_PLUGIN_SET,
+    );
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        WORKED_PAIR_NPM_LOCK.as_bytes(),
+    );
+}
+
+/// The plugin's own local tarball record leaves the dependency lines and
+/// its same-named registry record stays — through the PRODUCER, whose
+/// exclusion list carries the plugin exactly because the component above
+/// was measured from its installed bytes.
+#[test]
+fn the_plugin_s_own_tarball_record_leaves_and_its_registry_namesake_stays() {
+    let install = Synthetic::new();
+    worked_pair(&install);
+    let observed = install.composite();
+
+    assert_eq!(
+        observed.plugin, WORKED_PLUGIN_VECTOR_COMPONENT,
+        "the installed plugin is the worked set, so the exclusion is that set's"
+    );
+    assert_eq!(
+        observed.dependencies,
+        WORKED_PAIR_DEPENDENCIES.map(str::to_string).to_vec(),
+        "the local record leaves, the registry namesake stays, and the core's \
+         own record is never a dependency"
+    );
+
+    // What the exclusion is worth: the same lock read with NO name
+    // supplying a component refuses at that exact record, because a local
+    // `file:` entry carries no registry integrity. Composition above
+    // succeeded only because the record was excluded, and it was excluded
+    // as a RECORD — the nested registry entry of the same name survived
+    // beside it.
+    assert_eq!(
+        refused(npm_dependencies(&lock(WORKED_PAIR_NPM_LOCK), &[])),
+        "npm lock is unreadable: 'node_modules/dsh-plugin-cli-session': \
+         no registry 'integrity'"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // The measured rc.2 fixture (design D6, AK).
 //
 // Every input below is the LITERAL byte content measured on the installed
