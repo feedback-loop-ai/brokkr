@@ -9834,6 +9834,505 @@ fn dsh_composite_with_propagates_a_lock_refusal() {
 }
 
 // ---------------------------------------------------------------------------
+// The worked lock-dialect vectors (Pass D, D1).
+//
+// One worked vector per dialect — npm's lockfile-3 hidden lock and pnpm's
+// lockfile 9.0 — read through the SOLE PRODUCER at D6's locators, pinning
+// the normalized dependency value bytes and the canonical composite's byte
+// form.
+//
+// Both vectors are SYNTHETIC excerpts written in the measured grammar, and
+// they are deterministic planner and storage shims: they are not live DSH
+// compatibility, qualification or enforcement evidence, and they make no
+// claim about the measured rc.2 tree, whose own literal bytes are the
+// fixture below. The measured hidden lock reaches two package groups; the
+// three-group key here is grammar coverage, not a deeper measured tree.
+// ---------------------------------------------------------------------------
+
+/// The worked npm vector: one lockfile-3 hidden lock carrying every key
+/// spelling D6's rule admits, both exclusions, and the four normalization
+/// outcomes (collapse, two versions, two integrities, a nested entry whose
+/// own bytes differ from its shallower namesake's).
+///
+/// Only ONE entry carries the optional `name` field, and it disagrees with
+/// its key: the terminal spelling is the name, and an entry's own
+/// `version` and `integrity` are the triple's, never an ancestor's, the
+/// optional name's, a manifest's or a URL's.
+const WORKED_NPM_LOCK: &str = r#"{"lockfileVersion":3,"packages":{
+  "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+  "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+  "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"},
+  "node_modules/express/node_modules/debug":{"version":"4.4.3","integrity":"sha512-DEEP"},
+  "node_modules/@scope/child":{"version":"1.0.0","integrity":"sha512-ONE"},
+  "node_modules/a/node_modules/@scope/child":{"name":"@wrong/spelling","version":"1.1.0","integrity":"sha512-TWO"},
+  "node_modules/@parent/b/node_modules/@scope/child":{"version":"1.2.0","integrity":"sha512-THREE"},
+  "node_modules/a/node_modules/@parent/b/node_modules/@scope/child":{"version":"2.0.0","integrity":"sha512-FOUR"},
+  "node_modules/@parent/b/node_modules/plain":{"version":"3.0.0","integrity":"sha512-PLAIN"},
+  "node_modules/x/node_modules/dup":{"version":"1.0.0","integrity":"sha512-DUP"},
+  "node_modules/y/node_modules/dup":{"version":"1.0.0","integrity":"sha512-DUP"},
+  "node_modules/split":{"version":"1.0.0","integrity":"sha512-SAME"},
+  "node_modules/z/node_modules/split":{"version":"1.0.0","integrity":"sha512-OTHER"},
+  "node_modules/versions":{"version":"1.0.0","integrity":"sha512-V"},
+  "node_modules/w/node_modules/versions":{"version":"2.0.0","integrity":"sha512-V"}
+}}"#;
+
+/// The worked pnpm vector: three records equivalent to npm ones — two of
+/// them the npm vector's nested entries — one record this dialect alone
+/// supplies, and the plugin's local tarball record beside its same-named
+/// registry record, so the exclusion is proved to identify a RECORD.
+const WORKED_PNPM_LOCK: &str = "lockfileVersion: '9.0'\n\npackages:\n\n  \
+    debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n\n  \
+    debug@4.4.3:\n    resolution: {integrity: sha512-DEEP, tarball: https://example.invalid/d.tgz}\n\n  \
+    '@scope/child@1.0.0':\n    resolution: {integrity: sha512-ONE}\n\n  \
+    '@pnpm/only@0.3.1':\n    resolution: {integrity: sha512-PNPM}\n\n  \
+    dsh-plugin-cli-session@file:./plugin.tgz:\n    \
+    resolution: {integrity: sha512-LOCAL, tarball: file:./plugin.tgz}\n    version: 0.2.0\n\n  \
+    dsh-plugin-cli-session@0.2.0:\n    resolution: {integrity: sha512-REG}\n";
+
+/// Every key spelling the npm vector carries, with the terminal package
+/// the rule takes from it and that entry's OWN version and integrity.
+///
+/// Top-level and nested unscoped names; a top-level scoped name; scoped
+/// names under an unscoped and under a scoped parent; a scoped parent
+/// with an unscoped terminal; and three successive groups whose terminal
+/// `@scope/child` carries a version and integrity distinct from both
+/// shallower `@scope/child` entries.
+const WORKED_NPM_KEY_CASES: [(&str, &str, &str, &str); 11] = [
+    ("node_modules/debug", "debug", "2.6.9", "sha512-DEBUG"),
+    (
+        "node_modules/express/node_modules/debug",
+        "debug",
+        "4.4.3",
+        "sha512-DEEP",
+    ),
+    (
+        "node_modules/@scope/child",
+        "@scope/child",
+        "1.0.0",
+        "sha512-ONE",
+    ),
+    (
+        "node_modules/a/node_modules/@scope/child",
+        "@scope/child",
+        "1.1.0",
+        "sha512-TWO",
+    ),
+    (
+        "node_modules/@parent/b/node_modules/@scope/child",
+        "@scope/child",
+        "1.2.0",
+        "sha512-THREE",
+    ),
+    (
+        "node_modules/a/node_modules/@parent/b/node_modules/@scope/child",
+        "@scope/child",
+        "2.0.0",
+        "sha512-FOUR",
+    ),
+    (
+        "node_modules/@parent/b/node_modules/plain",
+        "plain",
+        "3.0.0",
+        "sha512-PLAIN",
+    ),
+    (
+        "node_modules/x/node_modules/dup",
+        "dup",
+        "1.0.0",
+        "sha512-DUP",
+    ),
+    (
+        "node_modules/y/node_modules/dup",
+        "dup",
+        "1.0.0",
+        "sha512-DUP",
+    ),
+    ("node_modules/split", "split", "1.0.0", "sha512-SAME"),
+    (
+        "node_modules/z/node_modules/split",
+        "split",
+        "1.0.0",
+        "sha512-OTHER",
+    ),
+];
+
+/// The complete ordered dependency values the two worked vectors yield:
+/// the merged, deduplicated, bytewise-sorted set the serializer emits one
+/// `dependency` line per. Fourteen values over ten names.
+const WORKED_DEPENDENCIES: [&str; 14] = [
+    "@pnpm/only 0.3.1 sha512-PNPM",
+    "@scope/child 1.0.0 sha512-ONE",
+    "@scope/child 1.1.0 sha512-TWO",
+    "@scope/child 1.2.0 sha512-THREE",
+    "@scope/child 2.0.0 sha512-FOUR",
+    "debug 2.6.9 sha512-DEBUG",
+    "debug 4.4.3 sha512-DEEP",
+    "dsh-plugin-cli-session 0.2.0 sha512-REG",
+    "dup 1.0.0 sha512-DUP",
+    "plain 3.0.0 sha512-PLAIN",
+    "split 1.0.0 sha512-OTHER",
+    "split 1.0.0 sha512-SAME",
+    "versions 1.0.0 sha512-V",
+    "versions 2.0.0 sha512-V",
+];
+
+/// The synthetic install with both worked vectors written at D6's
+/// locators, recomposed in place: ONE home, so a difference between two
+/// observations is a difference between two LOCKS and nothing else. The
+/// same pair staged at two absolute paths is a separate matrix.
+fn recomposed(install: &Synthetic, npm: &str, pnpm: &str) -> DshComposite {
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        npm.as_bytes(),
+    );
+    write(&install.profile(), "pnpm-lock.yaml", pnpm.as_bytes());
+    install.composite()
+}
+
+/// The npm dialect, read through the producer: every key spelling binds
+/// to its terminal package, every group of every key is consumed, and the
+/// optional `name` field is not the name.
+#[test]
+fn the_worked_npm_vector_binds_every_key_spelling_to_its_terminal_package() {
+    let install = Synthetic::new();
+    let observed = recomposed(&install, WORKED_NPM_LOCK, WORKED_PNPM_LOCK);
+
+    for (key, name, version, integrity) in WORKED_NPM_KEY_CASES {
+        // The rule's own answer, and the value the composition carried it
+        // into: a key that bound correctly but reached no dependency line
+        // would pass the first assertion alone.
+        assert_eq!(npm_name(key).unwrap(), name, "{key}");
+        let value = format!("{name} {version} {integrity}");
+        assert!(
+            observed.dependencies.contains(&value),
+            "{key} yields {value:?}: {:?}",
+            observed.dependencies
+        );
+    }
+
+    // The vector really is what it claims: exactly one entry carries an
+    // optional `name`, and that name is NOT its key's terminal spelling.
+    // Every other entry has no `name` field at all.
+    let parsed = lock(WORKED_NPM_LOCK);
+    let named: Vec<(String, String)> = parsed["packages"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter_map(|(key, entry)| {
+            entry
+                .get("name")
+                .and_then(Value::as_str)
+                .map(|name| (key.clone(), name.to_string()))
+        })
+        .collect();
+    assert_eq!(
+        named,
+        vec![(
+            "node_modules/a/node_modules/@scope/child".to_string(),
+            "@wrong/spelling".to_string()
+        )],
+        "one conflicting optional name, and no other entry carries one"
+    );
+    assert!(
+        !observed
+            .dependencies
+            .iter()
+            .any(|value| value.contains("@wrong/spelling")),
+        "the optional name reaches no dependency value: {:?}",
+        observed.dependencies
+    );
+
+    // The four normalization outcomes, counted by name: one collapsed
+    // pair, two versions of one name, two integrities of one name and
+    // version, and a nested entry retained beside its shallower namesake.
+    let values = |name: &str| -> Vec<&String> {
+        observed
+            .dependencies
+            .iter()
+            .filter(|value| value.starts_with(&format!("{name} ")))
+            .collect()
+    };
+    assert_eq!(
+        values("dup"),
+        vec!["dup 1.0.0 sha512-DUP"],
+        "two keys with the same complete triple are one value"
+    );
+    assert_eq!(
+        values("versions"),
+        vec!["versions 1.0.0 sha512-V", "versions 2.0.0 sha512-V"],
+        "one name at two versions is two values"
+    );
+    assert_eq!(
+        values("split"),
+        vec!["split 1.0.0 sha512-OTHER", "split 1.0.0 sha512-SAME"],
+        "one name and version at two integrities is two values"
+    );
+    assert_eq!(
+        values("debug"),
+        vec!["debug 2.6.9 sha512-DEBUG", "debug 4.4.3 sha512-DEEP"],
+        "a nested entry's own bytes are retained beside the shallower one's"
+    );
+    assert_eq!(
+        values("@scope/child"),
+        vec![
+            "@scope/child 1.0.0 sha512-ONE",
+            "@scope/child 1.1.0 sha512-TWO",
+            "@scope/child 1.2.0 sha512-THREE",
+            "@scope/child 2.0.0 sha512-FOUR",
+        ],
+        "the three-group terminal is distinct from both shallower entries"
+    );
+
+    // Both exclusions identify exact RECORDS: the core's own hidden-lock
+    // key and the plugin's local `file:` record leave, and the plugin's
+    // same-named pnpm registry record stays.
+    assert!(
+        !observed
+            .dependencies
+            .iter()
+            .any(|value| value.starts_with("@deepseek-ai/dsh ")),
+        "the core's own record is not a dependency: {:?}",
+        observed.dependencies
+    );
+    assert_eq!(
+        values("dsh-plugin-cli-session"),
+        vec!["dsh-plugin-cli-session 0.2.0 sha512-REG"],
+        "the local tarball record leaves and the registry record stays"
+    );
+}
+
+/// The canonical composite's BYTE FORM over the two worked vectors.
+///
+/// `WORKED_CANONICAL_STREAM` is a frozen literal, not a computation: it
+/// is D6's `<component>\0<value>\n` form written out by hand, component
+/// name for component name, in the fixed order, with the final newline.
+/// It assembles nothing from the producer's output and cannot follow it —
+/// reordering the lines, dropping one, dropping the trailing newline or
+/// changing a separator in production leaves this literal behind and the
+/// digests unequal. That is what makes it an expectation rather than the
+/// second serializer `no_test_reassembles_the_component_stream` forbids.
+///
+/// `WORKED_CANONICAL` is the producer's own pinned output over the same
+/// inputs, so the form and the result are pinned independently.
+#[test]
+fn the_worked_vectors_pin_the_canonical_composite_byte_form() {
+    let install = Synthetic::new();
+    let observed = recomposed(&install, WORKED_NPM_LOCK, WORKED_PNPM_LOCK);
+
+    // Every component value, as literal bytes. Each is one line of the
+    // stream below, so a value that moved is named here before the digest
+    // comparison reports only that something did.
+    assert_eq!(observed.core, "@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE");
+    assert_eq!(observed.node, "v22.23.2");
+    assert_eq!(
+        observed.dependencies,
+        WORKED_DEPENDENCIES.map(str::to_string).to_vec(),
+        "the complete ordered dependency values"
+    );
+    assert_eq!(observed.plugin, WORKED_PLUGIN_COMPONENT);
+    assert_eq!(
+        observed.plugin_patch,
+        digest_of(b"cordis.patch.yml"),
+        "the synthetic plugin's patch file carries its own name as bytes"
+    );
+    assert_eq!(observed.profile_patch, digest_of(b"[]\n"));
+    assert_eq!(
+        observed.profile_bundles,
+        vec!["@deepseek-ai/dsh-base", "dsh-plugin-cli-session"],
+        "the declared order"
+    );
+    assert_eq!(observed.profile_patch_reload, "startup");
+    assert_eq!(observed.home_patch, "absent");
+    assert_eq!(
+        observed.extension, None,
+        "this profile lists no extension, so the stream carries no extension line"
+    );
+
+    assert_eq!(
+        observed.canonical, WORKED_CANONICAL,
+        "the producer's pinned canonical composite over the worked vectors"
+    );
+    assert_eq!(
+        digest_of(WORKED_CANONICAL_STREAM.as_bytes()),
+        observed.canonical,
+        "the canonical composite is the SHA-256 of exactly these component \
+         lines, in this order, ending with a newline"
+    );
+}
+
+/// The producer's pinned canonical composite over the two worked vectors.
+const WORKED_CANONICAL: &str = "2b22346b648577b4ad3776fe926935a2506b5f35fe3df9a732a8b4bda7a466c9";
+
+/// The plugin component over the synthetic plugin set, whose six files
+/// each carry their own relative name as their bytes.
+const WORKED_PLUGIN_COMPONENT: &str =
+    "8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99";
+
+/// D6's component stream for the worked vectors, written out by hand:
+/// `core`, `node`, the bytewise-sorted complete `dependency` values,
+/// `plugin`, `plugin-patch`, `profile-patch`, the declared-order
+/// `profile-bundle` rows, `profile-patch-reload`, `home-patch`, and no
+/// `extension` line, each as `<component>\0<value>\n`.
+const WORKED_CANONICAL_STREAM: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
+     node\u{0}v22.23.2\n\
+     dependency\u{0}@pnpm/only 0.3.1 sha512-PNPM\n\
+     dependency\u{0}@scope/child 1.0.0 sha512-ONE\n\
+     dependency\u{0}@scope/child 1.1.0 sha512-TWO\n\
+     dependency\u{0}@scope/child 1.2.0 sha512-THREE\n\
+     dependency\u{0}@scope/child 2.0.0 sha512-FOUR\n\
+     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
+     dependency\u{0}debug 4.4.3 sha512-DEEP\n\
+     dependency\u{0}dsh-plugin-cli-session 0.2.0 sha512-REG\n\
+     dependency\u{0}dup 1.0.0 sha512-DUP\n\
+     dependency\u{0}plain 3.0.0 sha512-PLAIN\n\
+     dependency\u{0}split 1.0.0 sha512-OTHER\n\
+     dependency\u{0}split 1.0.0 sha512-SAME\n\
+     dependency\u{0}versions 1.0.0 sha512-V\n\
+     dependency\u{0}versions 2.0.0 sha512-V\n\
+     plugin\u{0}8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99\n\
+     plugin-patch\u{0}66e6d923ac24b898cc4d8b405e107adfca86b017b7b63d31287a71549c1580bd\n\
+     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n\
+     profile-bundle\u{0}@deepseek-ai/dsh-base\n\
+     profile-bundle\u{0}dsh-plugin-cli-session\n\
+     profile-patch-reload\u{0}startup\n\
+     home-patch\u{0}absent\n";
+
+/// Equivalent entries in the two dialects normalize to the SAME value
+/// bytes, and a complete triple present in both is one dependency.
+///
+/// Proved by identity rather than by comparing two lists: the same home,
+/// the same everything else, and the triple supplied by both locks, by
+/// npm alone and by pnpm alone. All three compose to one canonical
+/// composite. A pnpm record differing only in its integrity is the
+/// control that the comparison is capable of moving at all.
+#[test]
+fn equivalent_npm_and_pnpm_entries_compose_to_one_dependency() {
+    const NPM_ONLY: &str = r#"{"lockfileVersion":3,"packages":{
+      "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+      "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+      "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+    }}"#;
+    const NPM_BARE: &str = r#"{"lockfileVersion":3,"packages":{
+      "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+      "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true}
+    }}"#;
+    const PNPM_ONLY: &str =
+        "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n";
+    const PNPM_BARE: &str = "lockfileVersion: '9.0'\n\npackages:\n";
+    const PNPM_OTHER: &str =
+        "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-OTHER}\n";
+
+    let install = Synthetic::new();
+    let both = recomposed(&install, NPM_ONLY, PNPM_ONLY);
+    assert_eq!(both.dependencies, vec!["debug 2.6.9 sha512-DEBUG"]);
+    let npm_only = recomposed(&install, NPM_ONLY, PNPM_BARE);
+    let pnpm_only = recomposed(&install, NPM_BARE, PNPM_ONLY);
+    assert_eq!(
+        both.canonical, npm_only.canonical,
+        "the pnpm record equal to the npm one adds no dependency line"
+    );
+    assert_eq!(
+        both.canonical, pnpm_only.canonical,
+        "either dialect alone normalizes that entry to the same bytes"
+    );
+
+    let differing = recomposed(&install, NPM_ONLY, PNPM_OTHER);
+    assert_eq!(
+        differing.dependencies,
+        vec!["debug 2.6.9 sha512-DEBUG", "debug 2.6.9 sha512-OTHER"],
+        "a pnpm record differing only in integrity is a second dependency"
+    );
+    assert_ne!(both.canonical, differing.canonical);
+}
+
+/// A key whose terminal package is perfectly good and whose INTERMEDIATE
+/// group is not is refused, through the producer: every group of every
+/// key is consumed and validated, so no identity is composed from a lock
+/// this reader cannot spell.
+#[test]
+fn a_malformed_intermediate_group_refuses_the_whole_worked_lock() {
+    let install = Synthetic::new();
+    let base = recomposed(&install, WORKED_NPM_LOCK, WORKED_PNPM_LOCK);
+    assert_eq!(base.canonical, WORKED_CANONICAL);
+
+    let malformed = WORKED_NPM_LOCK.replace(
+        "  \"node_modules/debug\":",
+        "  \"node_modules/a/extra/node_modules/@scope/child\":{\"version\":\"9.9.9\",\"integrity\":\"sha512-EXTRA\"},\n  \"node_modules/debug\":",
+    );
+    assert!(
+        malformed.contains("node_modules/a/extra/node_modules/@scope/child"),
+        "the vector carries the malformed key"
+    );
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        malformed.as_bytes(),
+    );
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "npm key is unreadable: 'node_modules/a/extra/node_modules/@scope/child': \
+         expected a 'node_modules/' group"
+    );
+}
+
+/// Each construct the pnpm grammar does not recognize, refused through
+/// the PRODUCER: the reader's own vectors prove the reason, and these
+/// prove that an unrecognized construct composes no identity at all.
+#[test]
+fn the_unrecognized_pnpm_constructs_refuse_through_the_producer() {
+    let install = Synthetic::new();
+    // The legal control: the same document, admitted, with its triple in
+    // the composed dependency values. Every refusal below is a single
+    // departure from a spelling this producer does read.
+    let legal = composite_over_pnpm(
+        &install,
+        "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+    )
+    .unwrap();
+    assert!(legal
+        .dependencies
+        .contains(&"debug 2.6.9 sha512-X".to_string()));
+
+    for (lock, reason) in [
+        (
+            "\tlockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+            "a tab",
+        ),
+        (
+            "lockfileVersion: '9.0'\n# a comment\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+            "a comment or document marker",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  ---\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+            "a comment or document marker",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution:\n      integrity: sha512-X\n",
+            "a block-form or malformed resolution",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    engines: {node: '>=1'}\n",
+            "'debug@2.6.9': no resolution integrity",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    resolution: {integrity: sha512-Y}\n",
+            "'debug@2.6.9': repeated resolution",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug:\n    resolution: {integrity: sha512-X}\n",
+            "'debug': no '@' after the first character",
+        ),
+    ] {
+        assert_eq!(
+            refused_vector(composite_over_pnpm(&install, lock), lock),
+            format!("pnpm lock is unreadable: {reason}"),
+            "{lock:?}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The measured rc.2 fixture (design D6, AK).
 //
 // Every input below is the LITERAL byte content measured on the installed
