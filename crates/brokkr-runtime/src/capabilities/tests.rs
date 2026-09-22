@@ -1959,3 +1959,29 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
         assert!(reason.contains(phrase), "{provider}: {reason}");
     }
 }
+
+/// The harness an adapter dispatches is read off its own invocation, by
+/// brokkr's dispatch convention and nothing else (decision 0009): a
+/// command that does not follow it dispatches no built-in driver, and a
+/// provider may run a known harness under any name it likes.
+#[test]
+fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
+    let argv =
+        |parts: &[&str]| -> Vec<String> { parts.iter().map(|part| part.to_string()).collect() };
+    for (command, harness) in [
+        (argv(&["{brokkr}", "driver", "codex", "--"]), "codex"),
+        (argv(&["/usr/bin/brokkr", "driver", "claude"]), "claude"),
+        (
+            argv(&["{brokkr}", "driver", "lanetally", "--", "--verbose"]),
+            "lanetally",
+        ),
+        // Not the convention: a bare binary, a short command, and a
+        // three-token command whose middle word is something else.
+        (argv(&["invented-cli", "run", "now"]), OPAQUE_HARNESS),
+        (argv(&["{brokkr}", "driver"]), OPAQUE_HARNESS),
+        (argv(&["claude"]), OPAQUE_HARNESS),
+        (Vec::new(), OPAQUE_HARNESS),
+    ] {
+        assert_eq!(harness_of(&command), harness, "{command:?}");
+    }
+}

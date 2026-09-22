@@ -417,18 +417,14 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
     // council H5: the table is resolved to the file that will be READ —
     // canonically, through every link — so the bytes this parse rules on
     // are the bytes the identity walk hashes.
-    let path = match super::active_input(&layer.dir, relative) {
-        Ok(path) => path,
-        Err(Some(place)) => {
-            return Err(invalid(format!(
-                "{}: 'policy' names '{relative}', {place}. A table there could change how a run \
-                 is ruled without moving the bundle's identity, so it is refused; move it to a \
-                 path the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
-                layer.file.display()
-            )))
-        }
-        Err(None) => layer.dir.join(relative),
-    };
+    let path = super::active_input(&layer.dir, relative).map_err(|place| {
+        invalid(format!(
+            "{}: 'policy' names '{relative}', {place}. A table there could change how a run is \
+             ruled without moving the bundle's identity, so it is refused; move it to a path \
+             the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
+            layer.file.display()
+        ))
+    })?;
     // One read: the buffer this parses is the buffer that was hashed.
     let table: Map<String, Value> = serde_json::from_slice(&std::fs::read(&path)?)?;
     Ok(Some((table, path)))

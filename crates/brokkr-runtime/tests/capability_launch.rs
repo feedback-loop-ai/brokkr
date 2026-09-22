@@ -595,6 +595,38 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
             )
         );
     }
+    // An option `codex exec` does not have never reaches the guard at
+    // all: the grammar refuses it first, at the compiler, naming the
+    // token (decision 0066 ruling 6).
+    operator
+        .compile(&context, Boundary::Namespace, None, None)
+        .unwrap();
+    let mut bundle: Value =
+        serde_json::from_slice(&std::fs::read(operator.root().join("bundle/bundle.json")).unwrap())
+            .unwrap();
+    bundle["seats"]["inline"]["driver"]["command"]
+        .as_array_mut()
+        .unwrap()
+        .extend([json!("--enable"), json!("web_search_request")]);
+    write(operator.root(), "bundle/bundle.json", &bundle);
+    assert_eq!(
+        Bundle::compile_with_capabilities(
+            &operator.root().join("bundle"),
+            &operator.root().join("agents"),
+            &workspace().join("adapters"),
+            Some("private"),
+            None,
+            Boundary::Namespace,
+            &context,
+        )
+        .unwrap_err()
+        .to_string(),
+        "bundle: seat 'inline' (office 'inline') in realm 'private': its arguments do not \
+         parse: the 'codex' command grammar cannot place argument 7 ('--enable'): it names no \
+         option. A harness brokkr launches is parsed against a model of its options, and a \
+         token that grammar cannot place is refused rather than passed through, because a \
+         control nobody can read is a control nobody can rule on (decision 0066 ruling 6)"
+    );
 }
 
 /// A requirement the realm does not grant refuses compilation naming the

@@ -484,6 +484,23 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
             "WebFetch"
         ])
     );
+    // A blank in an adapter's own list names no tool: it is dropped
+    // rather than written as a separator with nothing beside it.
+    assert_eq!(
+        composed(
+            &[],
+            &[],
+            &claude_controls(
+                Selection {
+                    deny: argv(&["", "WebFetch"]),
+                    flags: claude_flags(),
+                    ..Selection::default()
+                },
+                &[]
+            )
+        ),
+        argv(&["--disallowedTools", "WebFetch"])
+    );
     // Nothing held: both are denied by name, into a list already there.
     let denied = claude_controls(
         Selection {
@@ -1450,5 +1467,148 @@ fn provenance_is_a_recorded_fact_that_must_reassemble_the_argv() {
             ),
             "{input}"
         );
+    }
+}
+
+/// The dispatch prefix is brokkr's, not the harness's: what follows the
+/// `--` of `<engine> driver <kind> --` is what the CLI is handed, and an
+/// argv that is already that tail — what the driver receives — is whole.
+#[test]
+fn only_what_follows_the_dispatch_terminator_reaches_the_harness() {
+    for (whole, tail) in [
+        (
+            argv(&["{brokkr}", "driver", "claude", "--", "--verbose"]),
+            argv(&["--verbose"]),
+        ),
+        (argv(&["{brokkr}", "driver", "codex", "--"]), Vec::new()),
+        // A dispatch the convention did not finish: the tokens after the
+        // driver's name are still the harness's, terminator or not.
+        (
+            argv(&["{brokkr}", "driver", "claude", "--verbose"]),
+            argv(&["--verbose"]),
+        ),
+        (argv(&["{brokkr}", "driver", "claude"]), Vec::new()),
+        // Already the harness's own argv, as the driver is handed it.
+        (argv(&["--verbose"]), argv(&["--verbose"])),
+        (Vec::new(), Vec::new()),
+    ] {
+        assert_eq!(harness_arguments(&whole), tail.as_slice(), "{whole:?}");
+    }
+}
+
+/// The grammar's own refusals, each at its exact cause: a bare word where
+/// no positional is part of the shape, an unknown name with a value joined
+/// to it, a value on a switch that takes none, and an option written twice
+/// where the grammar admits it once (decision 0066 ruling 6).
+#[test]
+fn every_token_the_grammar_cannot_place_is_refused_at_its_own_cause() {
+    let refusal = |harness: &str, at: usize, token: &str, cause: &str| {
+        Err(Refusal {
+            authored: true,
+            cause: format!(
+                "do not parse: the '{harness}' command grammar cannot place argument {at} \
+                 ('{token}'): it {cause}. A harness brokkr launches is parsed against a model \
+                 of its options, and a token that grammar cannot place is refused rather than \
+                 passed through, because a control nobody can read is a control nobody can \
+                 rule on (decision 0066 ruling 6)"
+            ),
+        })
+    };
+    for (harness, extra, at, token, cause) in [
+        (
+            "codex",
+            argv(&["--sandbox", "read-only", "resume"]),
+            3,
+            "resume",
+            "is a bare word, and no positional argument is part of the supported shape",
+        ),
+        (
+            "claude",
+            argv(&["--nope=1"]),
+            1,
+            "--nope=1",
+            "names no option, or names one that has no equals-joined spelling",
+        ),
+        // A switch declares no joined spelling, so a value stuck to one
+        // is simply a name no option has.
+        (
+            "claude",
+            argv(&["--verbose=1"]),
+            1,
+            "--verbose=1",
+            "names no option, or names one that has no equals-joined spelling",
+        ),
+        (
+            "codex",
+            argv(&["--model", "one", "--model", "two"]),
+            3,
+            "--model",
+            "repeats option '--model', which the grammar admits once; a CLI that resolves a \
+             duplicate last-wins would resolve it against the control the engine composed",
+        ),
+    ] {
+        assert_eq!(
+            parse_origin(harness, &extra, true),
+            refusal(harness, at, token, cause),
+            "{extra:?}"
+        );
+    }
+    // A repeatable option is not a duplicate.
+    assert!(parse_origin("codex", &argv(&["-c", "a=1", "-c", "b=2"]), true).is_ok());
+}
+
+/// An adapter's selection mapping is read against the harness's own
+/// grammar: a flag that harness writes no such list with maps nothing.
+#[test]
+fn a_selection_mapping_is_read_against_the_harnesss_own_lists() {
+    use grammar::list_of;
+    assert_eq!(list_of("claude", "--tools"), Some(ListKind::Include));
+    assert_eq!(list_of("claude", "--allowed-tools"), Some(ListKind::Allow));
+    assert_eq!(list_of("claude", "--disallowedTools"), Some(ListKind::Deny));
+    assert_eq!(list_of("claude", "--model"), None);
+    assert_eq!(list_of("codex", "--tools"), None);
+    assert_eq!(list_of("exec", "--tools"), None);
+}
+
+/// The two shapes the tables are written in, as data: every option they
+/// build takes a value or takes none, and neither carries authority of
+/// its own.
+#[test]
+fn the_table_shorthands_build_the_shapes_they_name() {
+    use grammar::{inert, switch, Arity};
+    let inert = inert("--x", &["-x"]);
+    assert_eq!(inert.canonical, "--x");
+    assert_eq!(inert.aliases, ["-x"]);
+    assert_eq!(inert.arity, Arity::One);
+    assert!(inert.equals && !inert.attached && !inert.repeat);
+    assert_eq!(inert.effect, Effect::Inert);
+    let switch = switch("--y", &[]);
+    assert_eq!(switch.canonical, "--y");
+    assert!(switch.aliases.is_empty());
+    assert_eq!(switch.arity, Arity::Bare);
+    assert!(!switch.equals && !switch.attached && !switch.repeat);
+    assert_eq!(switch.effect, Effect::Switch);
+    // The invariant the parse relies on: a switch declares no joined
+    // spelling, so a joined value can only have come from an option that
+    // takes one. An attached spelling belongs to a SHORT name.
+    for table in grammar::TABLES {
+        for spec in table.options {
+            let bare = spec.arity == Arity::Bare;
+            assert!(
+                !bare || (!spec.equals && !spec.attached),
+                "{}: {} declares a joined spelling for a switch",
+                table.harness,
+                spec.canonical
+            );
+            assert!(
+                !spec.attached
+                    || std::iter::once(spec.canonical)
+                        .chain(spec.aliases.iter().copied())
+                        .any(|name| !name.starts_with("--")),
+                "{}: {} allows an attached value with no short name",
+                table.harness,
+                spec.canonical
+            );
+        }
     }
 }

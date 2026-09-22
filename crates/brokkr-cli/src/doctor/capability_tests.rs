@@ -526,6 +526,40 @@ fn a_dropped_restricted_want_is_promised_off_only_where_off_is_deliverable() {
             "{provider}"
         );
     }
+    // Second council M2, in the same paragraph: a declared OFF the serving
+    // provider's launch cannot consume denies nothing, and the readout
+    // carries the composer's own cause rather than promising a denial.
+    let dir = workspace_with(Some(json!([realm(
+        "private",
+        Some(json!({"web-search": {
+            "dialect": "codex-native-search", "allow": {"hosts": ["yaml.org"]}}}))
+    )])));
+    let list = |flag: &str| json!({"flag": flag, "separator": ","});
+    let mut declared = native(json!({"selection": {
+        "include": [], "allow": [], "deny": ["web_search"]}}));
+    declared["selection"] = json!({
+        "include": list("--tools"), "allow": list("--allowedTools"),
+        "deny": list("--disallowedTools")});
+    let mut codex = adapter("codex", Some(declared));
+    codex["driver"] = json!(["{brokkr}", "driver", "codex", "--"]);
+    write(dir.path(), "adapters/codex.json", &codex);
+    let (_, lines) = lines(dir.path(), &installed(&[]));
+    assert_eq!(
+        lines,
+        [
+            "ok       capabilities private 'web-search': dialect 'codex-native-search' \
+             (provider-native, provider 'codex') · tools [web_search] · all requesting offices \
+             · restrictions {\"allow\":{\"hosts\":[\"yaml.org\"]}} · provider 'codex' cannot \
+             express restriction 'allow.hosts': a seat that requires the capability is \
+             refused, one that wants it drops it and is then refused, because the native \
+             capability's declared OFF control cannot be composed for this provider (the \
+             capability plan carries a tool selection for provider 'codex', which its launch \
+             does not consume; a control that cannot reach the final command is refused rather \
+             than recorded and dropped (decision 0066 ruling 3)) and no denial is claimed, and \
+             it never runs unrestricted"
+                .to_string()
+        ]
+    );
 }
 
 #[test]

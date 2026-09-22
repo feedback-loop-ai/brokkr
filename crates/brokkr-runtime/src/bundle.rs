@@ -3178,16 +3178,13 @@ pub(crate) fn unpinned_active_input(root: &Path, reference: &str) -> Option<Stri
 /// The same question, answered with the path the compile pins, the
 /// identity walk hashes and the dispatch verifies — ONE path, reached by
 /// the walk's own steps, however many links stand along it (second
-/// council H5). `Err(Some)` is the clause a refusal carries; `Err(None)`
-/// is a file that is not there.
-pub(crate) fn active_input(root: &Path, reference: &str) -> Result<PathBuf, Option<String>> {
-    if let Some(place) = unpinned_active_input(root, reference) {
-        return Err(Some(place));
-    }
-    let path = root.join(reference);
-    match path.is_file() {
-        true => Ok(path),
-        false => Err(None),
+/// council H5). `Err` is the clause a refusal carries; whether the file
+/// is there is the caller's own question, because a missing charter and a
+/// missing table are not said in the same words.
+pub(crate) fn active_input(root: &Path, reference: &str) -> Result<PathBuf, String> {
+    match unpinned_active_input(root, reference) {
+        Some(place) => Err(place),
+        None => Ok(root.join(reference)),
     }
 }
 
@@ -4252,23 +4249,14 @@ fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileErr
     // is the CANONICAL file, so what the compile pins, what the identity
     // walk hashes and what the driver reads are one file (second council
     // H5).
-    let role_path = match active_input(dir, role_rel) {
-        Ok(path) => path,
-        Err(Some(place)) => {
-            return Err(CompileError::Invalid(format!(
-                "{}: seat '{what}' names role '{role_rel}', {place}. A charter there could \
-                 change what the seat is told without moving the bundle's identity, so it is \
-                 refused; move it to a path the bundle pins, such as 'roles/' (decision 0066 \
-                 ruling 5)",
-                dir.join("bundle.json").display()
-            )))
-        }
-        Err(None) => {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' role file '{role_rel}' does not exist"
-            )))
-        }
-    };
+    let role_path = active_input(dir, role_rel).map_err(|place| {
+        CompileError::Invalid(format!(
+            "{}: seat '{what}' names role '{role_rel}', {place}. A charter there could change \
+             what the seat is told without moving the bundle's identity, so it is refused; move \
+             it to a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
+            dir.join("bundle.json").display()
+        ))
+    })?;
     if !role_path.is_file() {
         return Err(CompileError::Invalid(format!(
             "seat '{what}' role file '{role_rel}' does not exist"

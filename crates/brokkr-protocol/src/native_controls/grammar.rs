@@ -162,15 +162,18 @@ impl fmt::Display for Problem {
     }
 }
 
-/// One harness's modelled options.
+/// One harness's modelled options. No supported invocation carries a
+/// bare positional word: the prompt reaches every harness on stdin and
+/// the session identifiers are the engine's to place, so a bare word is
+/// a token the grammar cannot put anywhere.
 pub struct Grammar {
     pub harness: &'static str,
     pub options: &'static [Spec],
-    /// Whether bare positional words are part of the supported shape.
-    pub positionals: bool,
 }
 
-const fn inert(canonical: &'static str, aliases: &'static [&'static str]) -> Spec {
+/// The two shapes most of a table is written in: a value-taking option
+/// whose value is data, and a switch.
+pub(crate) const fn inert(canonical: &'static str, aliases: &'static [&'static str]) -> Spec {
     Spec {
         canonical,
         aliases,
@@ -182,7 +185,7 @@ const fn inert(canonical: &'static str, aliases: &'static [&'static str]) -> Spe
     }
 }
 
-const fn switch(canonical: &'static str, aliases: &'static [&'static str]) -> Spec {
+pub(crate) const fn switch(canonical: &'static str, aliases: &'static [&'static str]) -> Spec {
     Spec {
         canonical,
         aliases,
@@ -456,12 +459,10 @@ static DSH: &[Spec] = &[
 static CODEX_GRAMMAR: Grammar = Grammar {
     harness: "codex",
     options: CODEX,
-    positionals: false,
 };
 static CLAUDE_GRAMMAR: Grammar = Grammar {
     harness: "claude",
     options: CLAUDE,
-    positionals: false,
 };
 /// LaneTally wraps the same harness and forwards the same option grammar,
 /// so it is parsed by the same table under its own name — not by importing
@@ -469,13 +470,19 @@ static CLAUDE_GRAMMAR: Grammar = Grammar {
 static LANETALLY_GRAMMAR: Grammar = Grammar {
     harness: "lanetally",
     options: CLAUDE,
-    positionals: false,
 };
 static DSH_GRAMMAR: Grammar = Grammar {
     harness: "dsh",
     options: DSH,
-    positionals: false,
 };
+
+/// Every table, for the sweep that keeps their shapes honest.
+pub const TABLES: [&Grammar; 4] = [
+    &CODEX_GRAMMAR,
+    &CLAUDE_GRAMMAR,
+    &LANETALLY_GRAMMAR,
+    &DSH_GRAMMAR,
+];
 
 /// The grammar of a harness brokkr knows, or `None` for one it does not:
 /// `exec` runs an operator's own command line and a custom driver is
@@ -547,9 +554,6 @@ impl Grammar {
             let start = index;
             index += 1;
             if !reads_as_option(token) {
-                if self.positionals {
-                    continue;
-                }
                 return Err(problem(
                     start,
                     token,
@@ -586,13 +590,10 @@ impl Grammar {
                     },
                 },
             };
-            if joined && spec.arity == Arity::Bare {
-                return Err(problem(
-                    start,
-                    token,
-                    "carries a value for a switch that takes none",
-                ));
-            }
+            // A joined value can only have come from an option that
+            // declares a joined spelling, and no switch does — an
+            // invariant the tables are swept for, so `--verbose=1` is
+            // simply a name no option has.
             if !joined {
                 match spec.arity {
                     Arity::Bare => {}
