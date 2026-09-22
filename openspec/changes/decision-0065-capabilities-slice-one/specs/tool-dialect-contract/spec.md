@@ -103,6 +103,13 @@ SHALL NOT remove egress or writes from the abstraction to widen eligibility.
 - **THEN** its complete agent-named refusal assertion fails even though standalone CLI lint remains intact
 - **AND** restoring compile-time lint restores the pass; a malformed unrelated fixture cannot satisfy the expected cause
 
+#### Scenario: Second H6 whole-library lint does not replace charter consumption pins
+
+- **WHEN** a valid loaded library passes request lint and a seated agent's charter is changed after the bundle compiles, including a library outside all recipe layer roots
+- **THEN** semantic lint remains evidence about requests only; dispatch still enforces that selected agent's existing charter digest under capability-manifest-and-prompts
+- **AND** a missing layer-file entry supplies no exemption, while unseated request definitions retain their existing consulted pins
+- **AND** restoring the charter and retaining valid definitions restores the selected agent's ordinary launch without granting any capability
+
 #### Scenario: CQ2 rejects conflicting implementation metadata
 
 - **GIVEN** the operator definition for web-search declares reads and egress
@@ -235,3 +242,9 @@ missing-definition error is superseded for agent libraries by the same named
 agent-lint error compilation must now emit first; inline sites retain their
 site-specific diagnostics. This ordering keeps the requirements coherent and
 does not broaden class or grant authority.
+
+Second H6 preserves whole-library lint/pinning from the first repair and rejects
+using it as proof of charter integrity at consumption. The library owns its
+charter's existing pin even outside recipe layers; the manifest-and-prompts
+delta owns enforcement at dispatch. No new grant source, tool dialect kind,
+manifest version or loaded-library expansion is introduced by this correction.

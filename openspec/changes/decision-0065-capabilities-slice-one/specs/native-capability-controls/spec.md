@@ -218,8 +218,12 @@ local permissions and boundary composition. A representation that cannot be
 safely composed for that provider SHALL refuse during compilation, naming the
 seat, realm, capability, provider and unsupported representation or conflict.
 Successful compilation SHALL NOT record OFF, ON or an enforced restriction
-that the launch drops. Controls SHALL compose once, preserving current
-restriction arity, duplicate checks, strict MCP and engine-owned hands.
+that the launch drops. Controls SHALL compose once from the same typed
+option/value structure used for compile admission, preserving current restriction arity, duplicate checks,
+strict MCP and engine-owned hands. Managed argv and restriction transports
+SHALL also parse in that provider grammar; a non-list token SHALL NOT be
+forwarded verbatim without a classified position. Final validation SHALL judge
+that structure, not search raw values for apparent option names.
 
 #### Scenario: H3 Claude argv denial is executable denial
 
@@ -232,18 +236,77 @@ restriction arity, duplicate checks, strict MCP and engine-owned hands.
 #### Scenario: H3 a held restriction survives final composition
 
 - **GIVEN** a synthetic supported native grant has a schema-valid nonempty restriction and a declared argv transport, with a supported ON disposition
-- **WHEN** a Claude seat holds it and reaches final command construction
-- **THEN** the command contains both the accepted ON control and the exact encoded restriction value, or compilation refuses the representation before claiming a holding
+- **WHEN** a Claude seat compiles with that holding through production admission and reaches actual cold and eligible-resume final command construction
+- **THEN** both complete ordered commands match independent literal expectations containing the accepted ON control and the exact nonempty encoded restriction value
 - **AND** the original structured restriction remains pinned, and the native capability cannot launch unrestricted
-- **AND** rejecting a supported test representation is not evidence that its transport was composed
+- **AND** the resumed case verifies the offered session and resumed shape, never a cold replacement
+- **AND** rejecting this supported test representation is a failure of the positive proof; separate unsupported-form cases assert their full compile refusal
 
 #### Scenario: H1 through H3 cover every serving path
 
 - **WHEN** denial/admission, authored-configuration and accepted-control regressions exercise inline and agent-backed work/gate seats, primary and fallback links, panel members, sequence steps and selected/inherited bodies, boxed and unboxed, cold and eligible resumed
-- **THEN** every supported path asserts the exact final command and effective ON/OFF/restriction disposition, while an unsupported path asserts its complete refusal
+- **THEN** every supported path compiles its fixture through production admission and asserts the complete ordered final command against a literal and its effective ON/OFF/restriction disposition, while an unsupported path asserts its complete refusal
 - **AND** the actual resume assertions verify the offered session and resumed command; boxed ineligible cold fallback stays a separate case
 - **AND** an always-OFF mutation fails authorized ON assertions, and removing a delivered argv or restriction fragment fails its own final-command assertion
 - **AND** this matrix tests the current gate launch paths without implementing slice-two gate capability policy
+
+### Requirement: Prompt values cannot absorb a composed control
+
+Option values SHALL retain their typed positions through composition and final
+validation. In authored split syntax, an option-looking value whose boundary
+is ambiguous SHALL refuse at compilation; an explicitly delimited value may
+be accepted only if the provider grammar can preserve it without consuming a
+managed option. Native OFF SHALL always occupy an effective option position.
+The same rule SHALL apply to cold, resume and rejected-rejoin replacement
+commands and to every admitted control transport.
+
+#### Scenario: Second H3 the prompt-value reproduction refuses
+
+- **WHEN** an empty-holding Claude command includes `--append-system-prompt --disallowedTools hello`
+- **THEN** compilation refuses with the complete site/provider/argument-grammar reason identifying the ambiguous value for `--append-system-prompt` and the token `--disallowedTools`
+- **AND** no command is emitted with tail `["--append-system-prompt", "--disallowedTools", "hello,WebFetch,WebSearch"]`, and no missing denial is recorded as delivered
+- **AND** the shared LaneTally path obeys its declared grammar and gives the same semantic refusal
+
+#### Scenario: Explicit prompt text is data rather than a tool-list option
+
+- **WHEN** a supported prompt option has an unambiguous inert text value containing `--disallowedTools`, or an explicitly joined option-looking value admitted by that provider grammar
+- **THEN** its complete final command preserves that text as one prompt value and emits real managed denial options in their own grammatical positions
+- **AND** final duplicate, arity and capability checks do not mistake that value for a control; genuinely malformed forms assert their full compile refusal instead
+
+### Requirement: Explicit restrictive tool lists retain their meaning
+
+An explicit native-tool include list SHALL remain a restriction, distinct from
+an additive selection contribution. Absence, a present empty list and a present
+nonempty list SHALL be distinct states through compilation and final command
+composition. An accepted empty list SHALL remain effective as no built-in
+tools; it SHALL NOT disappear into provider defaults. Explicit restrictions
+SHALL NOT be widened by an additive native contribution or by argument order.
+Compatible restrictions and native denial SHALL compose with engine-owned
+hands once; an incompatible required holding or representation SHALL refuse
+at compilation with its full provider/capability/restriction cause.
+
+#### Scenario: Second H4 restrictive Read OFF survives cold and resume
+
+- **GIVEN** only the shipped Claude web-search OFF declaration is changed to `["--tools", "Read"]` or independently `["--tools=Read"]`
+- **WHEN** an otherwise valid empty-holding unboxed seat compiles and reaches cold and actual eligible-resume final construction
+- **THEN** each complete command matches a literal retaining the effective `Read` include restriction and the independent WebFetch denial
+- **AND** WebSearch is excluded by the include restriction; a final command containing only `--disallowedTools WebFetch` fails the proof
+- **AND** the independent `["--disallowedTools", "WebSearch"]` OFF positive control still produces both managed native denials
+
+#### Scenario: Second H4 explicit empty differs from no tools option
+
+- **GIVEN** only Claude web-search OFF is changed to `["--tools="]`, or the equivalent supported split explicit empty value
+- **WHEN** the same cold and eligible-resume commands are composed
+- **THEN** each complete literal expectation contains an effective empty native-tool list plus the independent WebFetch denial; omitting the tools option fails
+- **AND** a separate fixture without an explicit include restriction still receives its independently declared effective native OFF controls
+- **AND** boxed engine-owned hands remain permitted independently of the empty built-in list; an incompatible restriction refuses rather than being weakened
+
+#### Scenario: Admission and restriction cannot erase each other
+
+- **WHEN** an explicit restrictive list conflicts with another managed control or a required effective holding
+- **THEN** compilation refuses the full conflict with provider, capability and restriction named instead of unioning away the restriction or dropping mandatory denial
+- **AND** a compatible held-ON case still reaches its literal final command, so always-OFF cannot pass as grant support
+- **AND** every supported alias, variadic and repeated form is either parsed with the same restriction meaning or refused for its precise grammar/duplicate cause
 
 ### Requirement: Denial and admission have removal proofs and bounded live claims
 
@@ -253,6 +316,13 @@ holding, plus actual eligible resumed denial/admission. Tests SHALL remove
 the relevant OFF composition and observe the denial assertion fail, restore
 it and pass; admission tests SHALL independently detect an always-OFF
 implementation. Existing ineligible resume cases SHALL keep their reasons.
+For second H1–H4, M1 and M3, the compiled launch matrix SHALL cover every
+applicable cold/eligible-resume, boxed/unboxed, gate/work, primary/fallback,
+ordinary/panel/sequence, inline/agent-backed and nested/inherited shape. Every
+matrix row SHALL name an actual whole-command or whole-refusal assertion;
+coverage of one dimension SHALL NOT imply an untested serving path. Expected
+commands SHALL be independent ordered literals with canonical fixture values,
+never sorted, deduplicated or obtained from the production composer under test.
 These tests SHALL NOT substitute for a live provider measurement.
 
 #### Scenario: Removing OFF is caught where it protects the launch
@@ -266,6 +336,20 @@ These tests SHALL NOT substitute for a live provider measurement.
 - **WHEN** the ON path is replaced with unconditional OFF
 - **THEN** the held-capability cold and eligible resume assertions fail
 - **AND** restoring the declared grant behavior restores them
+
+#### Scenario: Second M3 restriction removal fails at final launch
+
+- **GIVEN** the held supported nonempty restriction case has passed both compiled cold and actual eligible-resume literal final-command assertions
+- **WHEN** restriction delivery is removed independently at each serving path while compile admission, holding, ON control and fixture remain valid
+- **THEN** each corresponding whole-command equality fails for the missing restriction at the production final launch boundary
+- **AND** restoring delivery restores each pass, with mutation, revision, test, intended assertion, observed failure and restored result recorded
+- **AND** manual construction of a control plan, resolver argv or intermediate composer output cannot substitute for either final-launch failure
+
+#### Scenario: Second H3 H4 and M1 removals detect lost semantics
+
+- **WHEN** positional parsing, explicit nonempty restriction retention, explicit empty retention or subtractive denial preservation is independently removed
+- **THEN** its exact compile-refusal or whole cold/eligible-resume command assertion fails for that lost protection and passes after restoration
+- **AND** a build error, unrelated refusal or earlier failed test is not the required observation
 
 #### Scenario: Delivery carries every measurement gap forward
 
@@ -283,3 +367,15 @@ Selection-only composition is rejected because the accepted contract also
 admits argv dispositions and restriction transports. Tests prove the final
 command or full compile refusal, not only a resolver plan. Live Codex resume,
 Claude, DSH and LaneTally evidence remains separately unmeasured.
+
+Second H3 adopts compile refusal for the ambiguous split prompt reproduction;
+it does not ban inert flag-looking text in a supported unambiguous value.
+Second H4 requires the three named restrictive argv forms to work in the
+otherwise-valid unboxed fixture, preserving the accepted argv contract and
+its useful restrictive semantics. Treating them as additive selections or
+silently dropping an empty list is rejected because it restores defaults.
+Conflicts may refuse, but refusal cannot replace the required supported
+positive proofs. Second M3 rejects the R-H3c intermediate removal as final
+launch evidence and requires separate compiled cold and actual resume proofs.
+D6, proposed 0066 ruling 3 and tasks 7.4/7.5/9.2 need the same correction;
+their historical completion claims do not close these findings.

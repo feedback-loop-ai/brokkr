@@ -65,6 +65,14 @@ no denial. For a known unheld native capability, an unmeasured or unavailable
 mandatory OFF plan SHALL report the same refusal consequence as compilation.
 Only a valid composable OFF disposition SHALL justify saying an unheld seat
 is launched with the capability switched off, within its evidence scope.
+Doctor SHALL use the same provider-aware grammar, control representation and
+composition admission as compilation and final launch. An argv, selection or
+default tag alone SHALL NOT be assessed as delivered. A representation the
+provider cannot consume, a malformed control or an incompatible composition
+SHALL be reported as a compile refusal with its complete cause, distinct from
+measured unsupported and unmeasured controls. A report without a resolved seat
+SHALL state the scope of its assessment rather than assert universal delivery
+for unassessed authored arguments or restrictions.
 
 #### Scenario: Codex default search is made visible
 
@@ -106,6 +114,27 @@ is launched with the capability switched off, within its evidence scope.
 - **WHEN** a matching grant is made to bypass the OFF assessment in an isolated removal experiment
 - **THEN** the scoped, empty and unused unsupported/unmeasured report assertions fail at their exact expected lines
 - **AND** restoration passes while the supported control still reports declared denial within its actual evidence scope
+
+#### Scenario: Second M2 a Codex selection OFF reports refusal rather than denial
+
+- **GIVEN** installed Codex declares web-search OFF as a tool selection that its provider composition cannot consume
+- **WHEN** doctor reports a realm with no grant, a matching scoped grant, empty offices, empty tools, an unused grant or a subtracted request
+- **THEN** every unheld case reports the same complete provider/representation refusal cause as compilation and never says the seat is launched with search switched off
+- **AND** independent whole-line assertions verify every grant shape and the complete compile refusal; no live provider is invoked
+- **AND** valid Codex argv OFF remains a positive declared-composition result within the cold-only measurement scope
+
+#### Scenario: Second M2 provider composition determines every supported claim
+
+- **WHEN** otherwise valid native OFF declarations use malformed managed argv, an unsupported selection mapping, an unconsumed DSH representation or a conflicting explicit restriction
+- **THEN** doctor and compile agree on the full grammar/composition refusal instead of treating the representation tag as proof
+- **AND** supported argv/selection/default controls, measured unsupported controls and unmeasured controls each retain their distinct report and complete reason
+- **AND** parsed subtractive lists are not misreported as realm grants, and accepted empty restrictive lists are not reported as absent controls
+
+#### Scenario: Second M2 removing provider assessment breaks the report proof
+
+- **WHEN** only doctor's provider-aware assessment is replaced by declaring every argv/selection OFF delivered
+- **THEN** the separate scoped, empty and unused Codex-selection whole-line assertions fail for the false promise while compilation still refuses
+- **AND** restoring the shared assessment restores the exact lines and pass; a required-case failure or grant-description assertion cannot substitute
 
 ### Requirement: Unknown inventories and live-control gaps remain unmeasured
 
@@ -163,3 +192,10 @@ as launch: an unsupported or unmeasured OFF cannot become a success sentence
 through the matching-grant branch. Unknown inventory remains different from
 known unmeasured OFF, and declared control composition remains different from
 live enforcement evidence.
+
+Second M2 adopts the independently reproduced Codex-selection contradiction.
+The first repair's OFF-first ordering remains necessary but is insufficient:
+provider-aware composability decides delivery. A second doctor-only classifier
+or unconditional success for an Argv/Selection variant is rejected because it
+can contradict the compiler. D8 and proposed 0066 ruling 6 must share this
+assessment; task 8.4's narrower historical proof does not close second M2.

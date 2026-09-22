@@ -71,13 +71,16 @@ named compile refusal. Recipe composition SHALL NOT manufacture realm data.
 
 A recipe-authored driver command or passthrough SHALL NOT configure a
 capability server, authorize its concrete tools or replace engine-owned MCP
-configuration. Compilation SHALL refuse Codex `mcp_servers` configuration
-(including descendant keys and whole-table assignments), Claude and
-Claude-compatible LaneTally `--mcp-config` and `mcp__*` allowed-tool entries,
-and equivalent adapter configuration paths. Supported split/equal and alias
-spellings SHALL enforce the same rule using argument positions. Final launch
-assembly SHALL retain the authored-versus-managed distinction. Diagnostics
-SHALL identify the source/site, provider, offending control and realm-only
+configuration. Compilation SHALL judge the typed option/value structure of
+each supported provider command, using the closed grammar required below. It SHALL refuse
+Codex `mcp_servers` configuration (including descendant keys and whole-table
+assignments), Claude and Claude-compatible LaneTally server/config/plugin
+loading and unauthorized tool admissions, and equivalent configuration paths.
+Every supported split, equals, attached, alias, repeated and variadic form
+SHALL receive the same semantic admission. Final launch assembly SHALL retain
+the authored-versus-managed distinction and use the same parsed structure.
+Subtractive lists SHALL NOT be classified as server configuration or grants.
+Diagnostics SHALL identify the source/site, provider, offending control and realm-only
 authority reason without echoing server credentials or payload values.
 
 An authored DSH `--patch` or equivalent overlay SHALL refuse if it carries
@@ -114,6 +117,81 @@ slice-two MCP grant fence. Ambient configuration measurement stays separate.
 - **THEN** their exact final commands retain the existing hands server, workspace permission and strict configuration behavior alongside native denial
 - **AND** identical-looking recipe-authored configuration is refused because its provenance differs
 - **AND** inert argument values that only resemble a control are not interpreted as authored control positions
+
+### Requirement: Known provider commands have a closed argument grammar
+
+Authored driver commands for `claude`, `codex`, `lanetally` and `dsh` SHALL
+parse into typed options, their values and admitted positional arguments
+before capability admission. Each supported provider grammar SHALL define
+option identity and aliases, permitted split/equals/attached spellings, value
+arity including explicit empty values, variadic boundaries, repetitions,
+subcommands and end-of-options handling. Every token SHALL have one valid
+place. An unknown option, unplaced positional, unsupported spelling, malformed
+value or ambiguous boundary SHALL refuse compilation naming the provider,
+site/source, offending token and grammatical cause. Secret-bearing payloads
+SHALL be redacted; their option/key and token position SHALL remain identifiable.
+No unclassified token SHALL pass through merely because it is not in a
+scanner's list of forbidden spellings. Launch SHALL enforce the same grammar
+and admission on expanded inputs before provider work.
+
+Admission SHALL judge all parsed server/plugin loading, tool admission and
+native capability settings against the serving seat's effective realm holding.
+An authored implementation/configuration SHALL NOT substitute for a realm
+binding; the slice-one MCP fence remains in force. Valid repeatable options
+SHALL have every occurrence checked before any last-wins interpretation;
+duplicates of authoritative restriction controls SHALL retain their refusal.
+A flag-looking value SHALL never become an option by a later scan. Opaque
+settings or plugin transports whose authority cannot be bounded SHALL refuse.
+Engine-owned hands retain explicit origin through parsing and composition.
+
+#### Scenario: Second H1 attached Codex config is the same authority request
+
+- **WHEN** a no-grant inline Codex seat supplies `-cmcp_servers.ungranted.command="/bin/false"`, `-c mcp_servers.ungranted.command="/bin/false"`, `-c=mcp_servers.ungranted.command="/bin/false"`, `--config mcp_servers.ungranted.command="/bin/false"` or `--config=mcp_servers.ungranted.command="/bin/false"`
+- **THEN** every supported spelling refuses with the full site/provider/realm-only server-configuration reason for the parsed `mcp_servers` key, before launch; the named attached and split/equals config forms are parsed as config, not rejected as unknown options
+- **AND** whole-table, quoted-key, descendant and repeated-assignment cases obey the same admission, including a forbidden assignment before a harmless repeated assignment
+- **AND** native capability settings in all supported config spellings are likewise checked against holdings; no attached enable setting can override OFF
+- **AND** a separately compiled engine-owned hands control still reaches its complete expected final command under empty grants
+
+#### Scenario: Second H2 every Claude admission-list value is judged
+
+- **WHEN** an empty-holding Claude seat authors `--allowedTools Read mcp__ungranted__fetch`, `--allowedTools Read '*'`, or the supported alias/equals/repeated forms of those admission lists
+- **THEN** compilation refuses with the entire realm-only cause naming the parsed offending admission control and unauthorized tool or wildcard, or the exact duplicate/grammar cause where that form is forbidden
+- **AND** a harmless first list value never hides a later admission, including after another permitted local tool
+- **AND** the same cases through LaneTally's supported wrapper grammar have the same authority result with LaneTally attribution, without inheriting Claude live-enforcement evidence
+
+#### Scenario: Second H2 plugin loading is an authored authority channel
+
+- **WHEN** a no-grant seat supplies `--plugin-dir` in a supported value form, including a plugin exposing `mcp__plugin_recipe_ungranted__fetch`, with or without an accompanying allowed-tool entry
+- **THEN** Claude and the supported LaneTally path refuse before loading the plugin, with the complete plugin-control and realm-only authority cause
+- **AND** rejection does not depend on seeing an MCP tool name in the command or invoking a live provider
+- **AND** opaque settings and MCP-config channels retain their equivalent refusal
+
+#### Scenario: Unknown and malformed tokens never become passthrough
+
+- **WHEN** an otherwise valid command for each known provider includes an unknown option such as `--unclassified-capability-door`, an unplaced positional, a missing required value, a forbidden repetition or an unsupported attached form
+- **THEN** compile and final admission refuse each case with the complete token-specific grammar reason; no provider or server starts
+- **AND** end-of-options and option-looking value cases follow the declared positional/value grammar rather than bypassing capability admission
+- **AND** supported inert values, valid repeatable options, engine-owned hands and the contained digest-matched DSH route-only patch retain their exact successful command or existing eligibility outcome
+
+### Requirement: Subtractive tool lists never grant a capability
+
+An authored disallowed-tools list SHALL narrow access, including MCP patterns
+and wildcards. For Claude and LaneTally, every supported spelling and every
+variadic value SHALL retain that subtractive meaning. Native denial SHALL
+merge with those lists without erasing any authored denial or fabricating an
+admission. Syntax/duplicate/contradiction checks remain applicable, but a
+server-admission refusal SHALL NOT be caused by a subtractive pattern. If a
+denial conflicts with mandatory engine-owned hands or a required holding,
+compilation SHALL report that precise incompatibility rather than discard
+the denial or call it a grant.
+
+#### Scenario: Second M1 MCP subtraction survives with native OFF
+
+- **WHEN** a supported unboxed Claude seat with empty holdings authors `--disallowedTools mcp__*` or `--disallowed-tools mcp__*`, including supported joined and multi-value forms
+- **THEN** it compiles and its complete cold and eligible-resume commands retain the MCP denial and the managed WebFetch/WebSearch denials in the effective deny list, with no duplicate authoritative flag
+- **AND** the corresponding LaneTally cases retain its independently declared controls and unmeasured-inventory limits
+- **AND** a broad subtractive wildcard receives the same treatment when compatible with the seat; a boxed hands conflict refuses for the conflict, never for granting a server
+- **AND** moving the same MCP pattern to an admission list produces the full realm-only refusal, proving that polarity changes the outcome
 
 ### Requirement: Office scopes and tool subsets only narrow a grant
 
@@ -279,3 +357,12 @@ second grant source. Provenance preserves hands without a forgeable server-name
 exception. DSH's existing constrained route patch is not carte blanche for a
 capability overlay; equivalent doors must be constrained or refused. This
 repair adds no MCP broker and supplies no new ambient-MCP guarantee.
+
+Second H1/H2 replace the first repair's permissive spelling scan with a closed
+provider grammar. Adding `-cVALUE`, `--plugin-dir` or a second-value check to
+that scanner is rejected: an unclassified token would still pass. The grammar
+is scoped to supported known-provider commands and refuses unknown syntax;
+it is not a claim to support future CLI options or arbitrary custom drivers.
+Second M1 separates subtraction from admission. Refusing `mcp__*` solely for
+its presence in a denial list is rejected because it narrows power. Engine
+hands remain origin-bound; a real denial conflict is diagnosed as such.

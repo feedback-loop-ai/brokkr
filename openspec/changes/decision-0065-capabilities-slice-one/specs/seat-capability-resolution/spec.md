@@ -282,21 +282,45 @@ longer enable anything without a realm grant.
 
 ### Requirement: Refusal proofs assert the full reason
 
-Each commissioned finding SHALL first have a regression that fails on the
-delivered implementation at its intended assertion, then a repair and an
-independent removal/restoration proof. Tests of capability compilation SHALL
-assert the complete diagnostic and complete optional notice, including every required identity and cause.
+Each commissioned behavioral finding SHALL first have a regression that fails
+on the delivered implementation at its intended assertion, then a repair and
+an independent removal/restoration proof. The second chief's named
+reproductions SHALL become regressions, not be replaced by nearby examples.
+Second M3 SHALL add the missing compiled final-launch positive and its
+independent failing removal/restoration. Second V1 SHALL retain the actual
+failing coverage gate and require a fresh final-head exact pass. Second L1
+SHALL receive an evidence/claim audit, not a fabricated behavior mutation.
+Tests of capability compilation SHALL assert the complete diagnostic and
+complete optional notice, including every required identity and cause.
 Assertions that merely test is_err(), success/failure status or an isolated
 substring SHALL NOT constitute the commissioned refusal proof. Removal
 experiments SHALL restore the implementation and demonstrate a final pass;
 a compiler error or unrelated fixture failure SHALL NOT count as enforcement
-proof.
+proof. Launch proofs SHALL compile the fixture through production admission,
+carry its own realm and provider candidate into final boundary/driver
+composition, and compare the whole ordered command with an independently
+written literal. Manually assembled control objects, resolver argv and
+intermediate composer output SHALL NOT establish final delivery.
 
 #### Scenario: A wrong refusal cannot satisfy a denial test
 
 - **WHEN** a missing-grant case instead fails for an invalid model or malformed unrelated input
 - **THEN** the expected full capability diagnostic does not match and the test fails
 - **AND** the case passes only when it reaches the intended named authorization refusal
+
+#### Scenario: Second-council regressions remain individually accountable
+
+- **WHEN** H1–H6 and M1–M3 are presented for closure
+- **THEN** each named chief reproduction has its own indexed exact refusal, complete final-command, consumed-file identity or full doctor-line assertion in the owning suite, including all standalone/inherited identity cases and supported cold/eligible-resume restriction cases
+- **AND** each behavioral repair records its baseline red, fix, independent removal failure at the intended assertion and restored pass with revision and test name
+- **AND** second M3's new successful final-launch case is independently removed and restored at that boundary; historical intermediate R-H3c does not satisfy it
+- **AND** launch matrix rows identify the tested serving shapes and exact unsupported-shape refusals; no row infers a fallback, panel or sequence proof from an ordinary primary launch
+
+#### Scenario: Subtraction does not become authorization at resolution
+
+- **WHEN** a valid seat retains an authored MCP denial while its effective holding is empty after request subtraction, office scope or absence of a grant
+- **THEN** compilation admits the subtractive list when otherwise compatible, keeps the holding empty and carries both authored and managed denial into the final command
+- **AND** the same pattern in a tool-admission list refuses under realm-only authority; a genuine hands/holding contradiction reports that conflict instead
 
 #### Scenario: The three earlier removal-found gaps stay closed
 
@@ -325,3 +349,12 @@ experiments above must stand alone with their intended failure and restored
 pass recorded. The macOS correction preserves exact diagnostic equality by
 fixing fixture identity, not by changing refusal semantics or inventing a
 temporary pathname. These tests belong to the owning suites, not fixtures/.
+
+Second-council parsing and consumption proofs extend the retained first-repair
+invariants; they do not reopen strict source-key parsing, whole-loaded-library
+lint or the independently runnable optional notices as different feature work.
+Second M3 rejects manual Controls/composer-only proof for an accepted held
+restriction: it must survive compile and the production final launch on cold
+and actual eligible resume. V1 is a whole-workspace gate obligation and L1 an
+observational audit, so neither is satisfied by inventing a behavioral test.
+Linux and macOS remain the only hosts; fixture roots are canonical facts.

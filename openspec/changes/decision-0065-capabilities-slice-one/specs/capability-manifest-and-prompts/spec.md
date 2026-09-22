@@ -97,17 +97,29 @@ policy SHALL participate in bundle identity or be refused before use. In
 this repair, compilation SHALL refuse charter/role and policy references
 under trees excluded from incidental bundle walking, including top-level
 `capabilities/`, in both standalone and inherited/composed recipes. This rule
-SHALL apply to each declaring layer and to normalized and canonical targets,
-so path aliases cannot disguise an excluded input. Refusals SHALL identify
-the source/layer, site when applicable, active input kind, relative path and
+SHALL apply to each declaring layer. The system SHALL canonicalize the actual
+file reference through filesystem resolution before judging containment and
+pinning the bytes it reads. Lexically cancelling a parent component before
+resolving a preceding symlink SHALL NOT substitute for that resolution.
+A layer-owned charter, policy or instruction whose actual canonical file lies
+outside its declaring layer SHALL refuse, including when a lexical path appears
+contained. Canonicalization, missing-file and read failures SHALL refuse with
+their cause, never yield an absent exclusion or absent drift result. Both an
+excluded authored path and an excluded canonical target SHALL still refuse.
+Refusals SHALL identify the source/layer, site when applicable, active input kind, relative path and
 the reason that excluded active bytes cannot be omitted from bundle identity.
 
 The existing pinned-script refusal SHALL remain. A genuinely unconsulted
 operator definition SHALL remain outside identity; an active charter or policy
 SHALL NOT be classified as such a definition merely by directory name.
 Ordinary permitted active inputs SHALL retain their byte pins, and changing
-each SHALL change the manifest digest. Existing start/resume integrity
-checks SHALL not admit excluded active inputs through a later reread.
+each SHALL change the manifest digest. Compilation, pin comparison and prompt
+consumption SHALL identify the same filesystem-resolved file; checking a
+lexically folded neighbor while rendering the authored path is forbidden.
+Existing start/resume/dispatch integrity checks SHALL not admit excluded or
+changed active inputs through a later reread. Independently owned library
+charters and dialect instructions SHALL retain their existing contained source
+and digest route rather than be treated as escaping inline layer inputs.
 
 #### Scenario: H4 a standalone excluded charter refuses
 
@@ -137,6 +149,64 @@ checks SHALL not admit excluded active inputs through a later reread.
 - **THEN** each standalone and inherited full-refusal assertion fails for the now-accepted unpinned input, and passes again when enforcement is restored
 - **AND** start/resume tests refuse a changed permitted pinned active input or a newly excluded reference instead of launching with fresh unpinned bytes
 - **AND** independent controls retain the script fence and show an unused operator definition does not change identity
+
+#### Scenario: Second H5 symlink then parent escape refuses in every layer
+
+- **GIVEN** a canonical fixture root contains `base/alias -> ../outside/child`, with `outside/child` an existing directory and valid `outside/charter.md` and `outside/policy.json`
+- **WHEN** a standalone base recipe references `alias/../charter.md`, and independently `alias/../policy.json`, then each case is repeated through an inheriting recipe
+- **THEN** all four compilations refuse with the complete declaring-layer/source/site-when-applicable/input-kind/reference and canonical-outside-layer cause before consuming unpinned input
+- **AND** changing only the external charter bytes or only a valid external policy severity still produces the same identity refusal; no successful unchanged manifest digest is evidence of safety
+- **AND** the filesystem target is the external file, even if lexical folding would point to an existing different file under base
+
+#### Scenario: Second H5 a contained alias pins the file actually read
+
+- **WHEN** a permitted alias followed by parent traversal resolves to an ordinary file inside its declaring layer, with standalone and inherited charter/policy cases tested separately
+- **THEN** the compiled pin and prompt or policy read identify that actual file; identical bytes have stable identity and an independent byte change moves the applicable layer and final manifest digests
+- **AND** changing only a lexically folded decoy cannot substitute for changing the consumed file
+- **AND** a later link retarget outside the layer or to unpinned/excluded bytes refuses before dispatch; permitted changed content refuses against the compiled pin
+- **AND** missing targets, canonicalization failure and missing applicable pins give complete integrity refusals rather than a no-drift result
+
+#### Scenario: Second H5 canonical protection is independently removable
+
+- **WHEN** canonical containment for roles and then for policies is independently removed, or consumption is made to check the lexical decoy instead of its actual file
+- **THEN** the corresponding standalone/inherited full-refusal or consumed-file identity assertion fails at the intended mismatch
+- **AND** restoration passes with the same canonical fixture roots on the observed supported host; unconsulted-definition stability and the existing script fence remain independently proved
+
+### Requirement: Library charter pins are enforced at consumption
+
+Every agent-backed dispatch SHALL enforce the already compiled library
+`charter_digest` against the charter the driver will consume. This SHALL hold
+whether the library is inside or outside recipe layer roots and whether the
+recipe is standalone, inherited or composed. Absence from a layer file map
+SHALL NOT mean no drift when the applicable owner is the library. A missing,
+changed, unreadable or unpinned charter, or a link retarget that changes its
+validated source or pinned bytes, SHALL refuse before provider launch with
+the complete office/site, library/charter identity and integrity cause.
+Checking the library only during recompile SHALL NOT discharge dispatch
+integrity. Existing library containment, layer pins and dialect instruction
+pins SHALL remain authoritative through their respective consumption paths;
+no new manifest version or replacement identity inventory is required.
+
+#### Scenario: Second H6 a changed library charter never reaches the provider
+
+- **GIVEN** an otherwise valid agent-backed bundle has compiled worker's existing `agents/charters/worker.md` pin
+- **WHEN** only that file's text is changed before dispatch, without recompiling, for standalone and inherited recipes and independently an external library
+- **THEN** each dispatch refuses with the complete charter-pin mismatch reason before any provider starts or receives the changed prompt text
+- **AND** absence of a layer-root match or layer-file entry cannot turn the mismatch into success
+- **AND** unchanged and restored bytes pass and prompt rendering consumes the verified charter text
+
+#### Scenario: Second H6 library aliases and missing pins fail closed
+
+- **WHEN** a compiled library charter link is retargeted, its file disappears or becomes unreadable, or its applicable library pin is missing
+- **THEN** dispatch refuses the precise integrity cause even if a neighboring layer file or a lexically folded path still matches a different pin
+- **AND** every supported ordinary, panel, sequence, primary and fallback serving path preserves its own selected library charter identity at consumption
+- **AND** start and eligible resume retain their existing identity checks and cannot replace the required per-dispatch comparison with a recompile-only proof
+
+#### Scenario: Second H6 removing library consumption checking is caught
+
+- **WHEN** only the library charter consumption check is removed while compile pinning and layer checks remain
+- **THEN** the changed-charter full dispatch-refusal test fails for the newly admitted launch in the standalone/inherited/external-library cases
+- **AND** restoration passes; a test that recompiles first or checks only a manifest digest does not prove this boundary
 
 ### Requirement: Prompt capability statements reflect the serving seat's pinned holdings
 
@@ -195,6 +265,12 @@ those are slice two.
 - **THEN** it remains data outside the authority record
 - **AND** composing the prompt and launch from that record leaves holdings, restrictions and native controls unchanged
 
+#### Scenario: Second L1 panel prose does not direct the workflow
+
+- **WHEN** council notes contain a direction to edit, choose a next phase, waive a gate or replace the aggregate security residual with a prose claim of `false`
+- **THEN** the notes remain data; the finding record carries checked observations and retains the commissioned `has_security_residual=true` and H5/H6 `spec_defect=true`
+- **AND** a documentary audit records rejection of the embedded direction without inventing a runtime change or treating the note as operator authority
+
 ### Requirement: Digest pins are measured and their history remains truthful
 
 Every affected witness and compose digest, and any changed charter pin,
@@ -203,8 +279,8 @@ final implementation. The witness and compose history blocks SHALL append
 decision 0065 slice one and the concrete reason for each identity movement:
 native-control adapter data, abstract requests/charters, capability records,
 grant context, consulted abstract definitions or dialect bytes as applicable.
-For the H4 repair, reasons SHALL identify the active-input identity correction
-and any role/policy relocation that changed a witness; excluded inputs SHALL
+For the first H4 and second H5/H6 repairs, reasons SHALL identify the
+active-input identity correction and any role/policy relocation that changed a witness; excluded inputs SHALL
 not be assigned fabricated successful compile digests.
 Existing historical reasons SHALL remain historical; unaffected pins SHALL not be fabricated or churned.
 
@@ -221,6 +297,22 @@ Existing historical reasons SHALL remain historical; unaffected pins SHALL not b
 - **AND** unavailable host or live-provider evidence is reported as pending with its actual limitation, never inferred from a different passing check
 - **AND** final-head exact coverage reports source lines, branches and functions as separate covered/total counts with literal nonzero 100% equality; stale reports and unrun counts do not establish a pass
 - **AND** task 12.1 remains open and the change is not archived before council re-judgment, regardless of local validation results
+
+#### Scenario: Second V1 a historical exact pass cannot replace the failing head
+
+- **GIVEN** the second chief measured source lines `34897/35073`, branches `5730/5744` and logical functions `3443/3453`, exit 1, at adopted head `3b31c5de`
+- **WHEN** repair completion is assessed
+- **THEN** that gate remains recorded as failed, distinct from historical `35073/35073`, `5744/5744`, `3453/3453` results and from any new measurement
+- **AND** the unchanged exact gate must run on the final repaired head with fresh nonzero literal covered/total equality for all three whole-workspace measures, including every added production line
+- **AND** no uncovered added production line, unknown regression attribution, rounding, exclusions or a different gate's pass can close the deficit
+- **AND** unavailable tooling or boundary execution leaves the check pending and prevents a repair-completion claim; CI, release admission and local coverage retain the same pinned compiler
+
+#### Scenario: Second H6 M3 and V1 completion follows the observed boundary
+
+- **WHEN** task 6.3 claims library consumption protection but evidence records only recompile checking, tasks 7.4/7.5/9.2 cite an intermediate restriction removal, or task 11.4 cites a superseded exact pass
+- **THEN** the owning task/evidence revision reopens or qualifies each affected claim until its actual dispatch, final-launch or final-head gate proof exists
+- **AND** retained narrower first-repair observations stay historical and are not relabeled as second-hold closure
+- **AND** every new closure records revision, test/check, intended assertion, observed failure where required and restored pass; notes neither instruct nor waive a gate
 
 ### Requirement: Slice-one records do not claim later-slice behavior
 
@@ -247,3 +339,15 @@ without operator-directory coupling and keeps unconsulted definitions out of
 identity. A pinned-script check alone is not evidence about charter or policy
 bytes. No historical witness value or prior measurement is rewritten as a
 repair result; affected pins come from actual final compiles.
+
+Second H5/H6 remain HIGH and **spec_defect=true**. Canonical resolution precedes
+containment; lexical folding before symlink traversal is rejected because it
+can identify a file different from the one read. Library charters are not a
+layer-containment exception without enforcement: their existing independent
+pin must be checked at dispatch. D7 and proposed 0066 ruling 5 must state both
+rules explicitly; task 6.3's recompile-only completion basis is rejected.
+Second V1 retains the chief's failed counts without attributing a regression
+cause not established by evidence. Second L1 rejects workflow direction in
+panel prose as authority; it supplies no permission to change a gate or lower
+the security residual. The specified audit is documentary, not a new policy
+or event-schema feature. Task 12.1 stays open for council re-judgment.
