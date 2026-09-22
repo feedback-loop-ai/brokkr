@@ -96,10 +96,15 @@ This amendment is design, not implementation evidence or operator acceptance.
    parser and fallible composer in `brokkr-protocol::native_controls` own the
    supported commands of Codex, Claude, LaneTally and DSH. Their option grammar
    declares identities/aliases, split/equals/attached forms, typed values,
-   arity/empty policy, variadic boundaries, repetition, subcommands and
-   positionals. Unknown or unplaceable tokens and unclassified configuration
-   effects refuse with source/provider/token position and cause. Concrete native
-   switches remain adapter data; naming a flag cannot extend the grammar.
+   arity/empty policy, variadic boundaries and repetition. No supported
+   invocation carries a bare positional word — the prompt reaches every
+   harness on stdin and the session identifiers are the engine's to place —
+   so a bare word is a token the grammar cannot put anywhere. Unknown or
+   unplaceable tokens and unclassified configuration effects refuse with
+   source/provider/token position and cause. Concrete native switches remain
+   adapter data; naming a flag cannot extend the grammar, and a guard over an
+   option the grammar does not model is answered by the grammar first, which
+   refuses it by name.
 
    Compile admission, final composition, duplicate/restriction checks,
    selectors, model/effort extraction and resume eligibility consume the same
@@ -112,15 +117,21 @@ This amendment is design, not implementation evidence or operator acceptance.
    complete before merging, so a value or terminator cannot consume another
    fragment's mandatory control.
 
-   Explicit `--tools` is a restriction, distinct from additive selection and
-   the engine hands baseline: absent, present empty and present nonempty remain
-   distinct. Preserve the specified Read and empty OFF forms in successful
-   unboxed cold and eligible-resume commands with independent WebFetch denial.
-   Compose by narrowing, never union away a hard limit; unrepresentable
-   conflicts refuse. Denial lists are subtraction, including `mcp__*`, and
-   merge with native denial. A real hands/required-holding contradiction is
-   diagnosed as a conflict, not a grant. Required holdings cannot be silently
-   lost; optional losses retain whole-drop notices and effective native OFF.
+   An explicit `--tools` the PLAN carries is a restriction, distinct from
+   additive selection and from the engine hands baseline: absent, present
+   empty and present nonempty remain distinct, and each reaches the final
+   command. Preserve the specified Read and empty OFF forms in successful
+   unboxed cold and eligible-resume commands with independent WebFetch
+   denial. A seat's OWN tool list is a local convenience, not a statement of
+   authority — a recipe grants nothing — so the engine folds a held native
+   tool into it where it stands, which is the already-accepted ON semantics
+   and is not the engine widening anybody's authority. A list the harness's
+   grammar does not read as that list cannot be folded anywhere and refuses;
+   a tool both admitted and denied refuses. Denial lists are subtraction,
+   including `mcp__*`, and merge with native denial. A real hands/required
+   holding contradiction is diagnosed as a conflict, not a grant. Required
+   holdings cannot be silently lost; optional losses retain whole-drop
+   notices and effective native OFF.
 
    Codex consumes supported argv and refuses selection; unconsumed DSH native
    representations refuse. Claude/LaneTally consume only modeled representations
@@ -165,13 +176,28 @@ This amendment is design, not implementation evidence or operator acceptance.
 
 5. **Active identity follows the filesystem and the bytes consumed
    (corrects D7 and task 6.3; second H5/H6 keep `spec_defect=true`).**
-   Canonicalize each original layer-owned reference before containment:
-   never cancel `..` across a symlink first. A canonical target outside its
-   declaring layer refuses, standalone and inherited, before active bytes are
-   consumed. Retain both authored-path and canonical-target excluded-tree
-   refusals. Missing, unreadable, unresolvable, non-regular or unpinned inputs
-   are errors, never absence of drift. Every layer's policy and role uses this
-   check; policy parses the same buffer whose digest matches its file map.
+   An active input must be reachable by the identity walk's own steps. The
+   walk descends real directory entries, following links, and keys every
+   file it reaches by that chain; a reference that reaches its file through
+   a `..` component is not such a chain, because a link earlier in it can
+   put the file a reader opens outside everything the walk pinned. A parent
+   step refuses, standalone and inherited, before active bytes are consumed,
+   and lexical folding is never asked where a file stands. A link standing
+   under its OWN name inside the layer stays permitted and its target's
+   bytes ride the digest, because the walk reaches and hashes them through
+   that name: an outward link is pinned by content, a parent step by
+   nothing. Retain both authored-path and canonical-target excluded-tree
+   refusals. Missing and unreadable inputs are errors in their caller's own
+   words, never absence of drift. Every layer's policy and role uses this
+   check; policy parses the same buffer it read.
+
+   *Corrects this decision's own first wording,* which asked instead that a
+   canonical target outside the declaring layer refuse. That rule is neither
+   necessary nor sufficient: it refuses the outward link the walk already
+   pins, and containment says nothing about whether the walk can reach the
+   path at all. What the identity argument needs is that the key the
+   dispatch check computes names the file the driver opens, which is exactly
+   the no-parent-step rule.
 
    Keep the `capabilities/` exclusion and consulted-definition pins; do not
    pin unconsulted definitions. Ordinary inputs use existing layer file maps.
@@ -184,7 +210,10 @@ This amendment is design, not implementation evidence or operator acceptance.
    library `charter_digest`, even for an external library or missing layer-file
    entry. Re-resolve/check owner, target and digest; never bless changed bytes
    by recomputing the expected pin. Missing applicable pins, changed/retargeted
-   sources and read/encoding failures refuse before provider work.
+   sources and read/encoding failures refuse before provider work. A charter
+   NEITHER route pins refuses too: after a compile there is no such charter,
+   so reaching that state means the bundle's identity does not answer for
+   what the seat is about to be told.
    Hash/read once and pass that verified text through engine-private input
    after authored merging; managed prompt rendering consumes the same buffer,
    without reopening the role path or converting failure to empty instructions.

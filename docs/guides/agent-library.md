@@ -198,6 +198,18 @@ must define what every shipped agent asks for — `web-search` and
 `web-fetch`, for the researcher — even under a recipe that never seats
 it.
 
+**An agent's charter is pinned by its library record, and enforced where
+it is consumed.** `charter_digest` is taken when the library loads, and
+compared again at the dispatch door, immediately before the driver that
+will be told it — whether the library sits inside the recipe or well
+outside it, and whether the recipe is standalone or inherits the seat.
+Editing a charter after a compile therefore refuses the dispatch rather
+than reaching the seat under the old identity: recompile, which is what
+moves the pin. The door hands the driver the bytes it just compared, so
+the prompt is rendered from them and the file is not opened a second
+time; a charter whose pinned bytes are not text is refused rather than
+rendered with its undecodable parts replaced.
+
 **A seat may subtract and never widen.** A site that names an agent and
 writes no `capabilities` inherits the agent's asks. A map it does write
 is a subset with unchanged strengths, and what it leaves out is

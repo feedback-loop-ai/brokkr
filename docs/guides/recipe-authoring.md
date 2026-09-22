@@ -562,6 +562,20 @@ Three consequences worth internalising:
    or beside `bundle.json`. A charter whose bytes moved after the
    compile is refused at dispatch as well, before the seat is told
    anything under the old identity.
+5. **A `..` step is not a path the walk takes.** The walk descends real
+   directory entries, following links, and keys every file it reaches by
+   that chain — so `roles/role.md` may be a link pointing anywhere, and
+   its target's bytes ride the digest, because the walk hashes them
+   under that name. A reference that goes back UP — `alias/../charter.md`
+   — is not such a chain: a link earlier in it can put the file a reader
+   opens somewhere the walk never reached, and it is refused. Write the
+   path the way the tree is laid out; link where you need to.
+6. **What the seat is told is read once.** The dispatch door compares
+   the charter against its pin and hands the driver the bytes it read;
+   the driver does not reopen the file. An agent's charter answers to
+   its library record's `charter_digest`, wherever the library lives, so
+   editing `agents/charters/<name>.md` after a compile refuses the
+   dispatch until you recompile — it does not quietly reach the seat.
 
 ## The policy table
 

@@ -795,3 +795,219 @@ committed-head OpenSpec/diff checks and the authorized exact-gate attempt are
 recorded with that SHA in run-local logs/result, outside tracked inputs.
 No archive or push was performed; panel prose has not selected a phase or
 lowered `has_security_residual=true` or H5/H6 `spec_defect=true`.
+
+## Second-hold implementation — 2026-09-23
+
+Commission `build-decision-0065-slice-one-th-80bfd784`, on
+`slice-0065-capabilities` from adopted head `a8950ded`. Six commits:
+`c68b0e34` (parse before admission), `6103af88` (final-command proofs),
+`c2e6950d` (active-input resolution and the library pin at dispatch),
+`2ad20be9` (provider-aware doctor), `703a8897` (exact-coverage closure),
+`27a28c90` (the verified charter through the dispatch seam).
+
+### The rule that replaced the scanner (H1, H2, H3)
+
+`brokkr-protocol::native_controls::grammar` models each known harness's
+option table: canonical identity and aliases, value arity, the split,
+equals-joined and attached forms, variadic boundaries, repetition, and
+what each option DOES (`Inert`, `Switch`, `Config`, `List(kind)`, `Load`,
+`Session`). `parse_origin` places every token of an origin or refuses,
+naming the token and its position and echoing no value. Admission and
+composition then judge the parsed structure.
+
+`harness_arguments` strips brokkr's own `<engine> driver <kind> --`
+prefix, so the compiler (which sees the whole invocation) and the driver
+(which is handed only the tail) parse the same tokens under the same
+grammar. A harness with no modelled table — `exec`, an opaque custom
+driver — has none and claims none; its guards are judged conservatively
+by name instead (`opaque_conflict`), which errs toward refusal because
+nothing can tell a value from an option there.
+
+Consequences worth naming, because they change what compiles:
+
+- a bare positional word refuses for every modelled harness, so fixtures
+  that carried a trailing `true` after a model pin were corrected;
+- a split value that itself reads as an option refuses as ambiguous, so
+  option-looking text now travels in the joined spelling;
+- `--profile` is a LOADING channel for Codex, because a named profile is
+  another configuration document and what it can configure includes
+  servers; an authored one refuses whatever its value spells;
+- `adapters/codex.json`'s `authored.feature_flags` (`--enable`,
+  `--disable`) name options `codex exec` does not have. The adapter bytes
+  are unchanged — they are the adapter's own declaration — but such a
+  token is now refused EARLIER, by the grammar, and by name. The guard's
+  feature axis is proved over `--ask-for-approval`, an option the grammar
+  does place.
+
+### Restrictions, subtraction and delivery (H4, M1, M3)
+
+`compose_for_provider` reads the plan's own argv under the same grammar.
+A list node there is an EXPLICIT control on that list — including an
+explicitly empty one, which is a restriction and not an absence — and is
+emitted once, folded into the seat's own node where it stands or appended
+where the seat wrote none. That is H4: the three spellings
+`[--tools, Read]`, `[--tools=Read]` and `[--tools=]` all reach the final
+command, beside the independent WebFetch denial.
+
+A deny list never enters the admission branch (M1). An adapter mapping
+onto a flag the harness's grammar does not read as that list refuses
+rather than folding into whatever the name happens to be.
+
+M3's transport is Claude Code's `--settings <file-or-json>`, which the
+installed 2.1.266 help gives it and which carries a whole settings
+document; the engine writes the operator's canonical JSON into it and
+interprets none of it. The grant in the fixture is synthetic; the option
+is not. The fictitious `--search-policy` / `--search-restrict` fixtures
+are gone, and would now refuse at the grammar.
+
+### Active inputs and the charter the seat is told (H5, H6)
+
+H5's rule changed from the one this design first wrote down. The
+identity walk descends REAL directory entries, following links, and keys
+every file it reaches by that chain — so a role that is a link standing
+under its own name is pinned BY CONTENT and its target's bytes ride the
+digest. What the identity argument needs is that the key the dispatch
+check computes names the file the driver opens, which holds exactly when
+the reference is itself such a chain and fails exactly when a `..`
+component lets a link earlier in the path put the opened file somewhere
+the walk never reached. A parent step therefore refuses, and lexical
+folding is no longer asked where a file stands. The earlier wording —
+refuse any canonical target outside the declaring layer — is neither
+necessary nor sufficient: it refuses the outward link the walk already
+pins. Decision 0066 ruling 5, the `capability-manifest-and-prompts`
+delta and design D7's second-hold section are corrected to say so.
+
+H6: `charter_text` finds the pin — the declaring layer's file map, or
+the selected agent's existing library `charter_digest`, carried on
+`Bundle::charters` from resolution — reads the bytes ONCE, compares, and
+returns the text. `spawn_site` returns the input the driver is actually
+sent, carrying that text under the engine-private `role_text`;
+`render_prompt` renders it without reopening `role_path`, which is kept
+for identity and diagnostics. An engine launch that names a role and
+hands over no text is refused before any provider work. A charter
+neither route pins refuses. A charter whose pinned bytes are not text
+refuses rather than being rendered with its undecodable parts replaced.
+
+### The doctor (M2)
+
+`NativeCapability::declared_denial` is what the disposition SAYS;
+`denial_on(harness, flags)` is what the serving provider's launch can
+deliver, answered through the same composer the compiler uses, and it
+carries the compiler's own cause. `Denial::Refused` is a fourth state
+beside delivered, impossible and unmeasured. The doctor reads it for
+both the native line and the restriction/drop paragraph, under a scoped
+grant, an empty-office grant, an unused grant and no grant at all.
+
+### Removal proofs (9.2–9.3), each restored
+
+Every mutation below was applied to a clean tree, the named test run, the
+observed failure recorded, the mutation reverted and the test rerun green.
+
+| Removal | Test | Observed failure |
+| --- | --- | --- |
+| typed config admission (`Effect::Config` arm) | `an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still_launch` | the attached `-c mcp_servers…` seat LAUNCHED, left `launched ["codex","exec",…,"-c","mcp_servers.ungranted.command=\"npx\"",…]` against the realm-only refusal |
+| the plugin channel (`--plugin-dir` exempted from `Effect::Load`) | `an_authored_plugin_or_later_list_value_is_refused_at_the_final_command` | final command kept `--plugin-dir /etc/ungranted-plugins` |
+| every list value (`node_patterns` truncated to the first) | same test | final command kept `--allowedTools Read mcp__ungranted__fetch` |
+| the ambiguous split-value refusal | same test | `hello` reached the positional fence instead of the intended `--append-system-prompt` cause |
+| explicit list retention (`create` without `explicit.is_some()`) | `an_explicitly_restrictive_managed_tool_list_reaches_the_final_command` | the chief's own observation: `[… "--disallowedTools","WebFetch"]` and no `--tools Read` |
+| subtraction routed through admission (`Effect::List(_)`) | `an_authored_mcp_denial_is_subtraction_and_survives_beside_the_native_one` | the exact refusal the chief reproduced, for `--disallowedTools mcp__*` |
+| restriction delivery at composition (`verbatim.take(0)`) | `a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands` | the COLD literal lost `--settings {…}` |
+| restriction delivery on the resume path only | same test | the cold literal passed; the RESUMED literal lost `--settings` |
+| role active-input resolution | `a_symlink_and_a_parent_step_cannot_carry_an_active_input_out_of_the_pin` | the escape compiled, to digest `d1fe6c0e…` |
+| policy active-input resolution | same test | the escape compiled, to digest `a5d7c603…` |
+| the library pin (expected digest recomputed from the current bytes) | `a_library_charter_that_moved_since_the_compile_refuses_the_dispatch` | the CHANGED charter dispatched |
+| the verified buffer (`render_prompt` reopens the path) | `adapter_vocabulary_prompt_and_fold_edges_are_closed` | the prompt carried the file's bytes, not the door's |
+| provider-aware assessment (tag-only delivered) | `an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives` | the chief's own line: `ok … every other seat on codex is launched with it switched off` |
+
+### Gates on this head
+
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings` and `git diff --check` pass.
+`cargo test --workspace --all-features --locked` passes, and each crate
+suite passes crate-scoped; two tests already known to be order-sensitive
+under workspace parallelism
+(`adapters::tests::a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms`,
+`doctor::tests::the_dsh_probe_runs_the_selected_invocation_and_not_its_canonical_target`)
+pass crate-scoped and alone, and are the known issue-255 shape rather
+than a repair regression.
+
+`cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+`bundles/verify` compile to
+`09ff39b7d3f38faf1beb6283b5ca15cea1f7252cbf4062162d509715d155924e` and
+`fcbfe0ec7281992d946e983808e30a9eded91cbb96a92e35749d39dc3155bd2f` —
+the same digests the second chief measured, so no witness pin moved and
+none was re-pinned.
+
+`bash scripts/coverage-exact.sh` PASSES on this tree: **source lines
+35366/35366, branches 5764/5764, logical functions 3505/3505**. Reaching
+it removed two checks no reachable input could take, rather than leaving
+unreachable code: the value-on-a-switch refusal (no table declares a
+joined spelling for a switch, and a sweep now holds that invariant) and
+the never-set positional admission.
+
+macOS and remote CI remain pending; nothing here is a live-provider
+measurement. `has_security_residual=true` and H5/H6 `spec_defect=true`
+are carried forward, and task 12.1 stays open for the council.
+
+### Launch matrix (7.5), actual test names on this head
+
+Every row names a test that compiles or composes its own fixture and
+asserts a whole ordered final command or a complete refusal. A row
+marked *retained* is a first-repair proof that still holds on this head
+and was rerun, not re-authored.
+
+| Route | Test |
+| --- | --- |
+| Codex cold, inline and agent-backed, boxed and unboxed | `capability_launch::a_codex_seat_that_does_not_hold_search_is_launched_with_it_switched_off` *(retained)* |
+| Codex cold, held ON, no conflicting OFF | `capability_launch::a_codex_seat_that_holds_search_is_launched_without_the_off_pair` *(retained)* |
+| Codex actual eligible `exec resume`, each way round | `capability_launch::an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_round` *(retained)* |
+| Codex authored config, all five spellings, at the compiler | `capability_launch::an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still_launch` |
+| Codex authored native control, cold and warm, held and denied | `adapters::tests::an_authored_native_control_is_refused_whatever_the_seat_holds` |
+| Codex authored grammar refusal at the compiler | `capability_launch::an_authored_search_control_is_refused_at_compile_naming_the_seat` |
+| The whole shipped Codex guard block, every spelling | `adapters::tests::every_authored_spelling_the_shipped_codex_adapter_guards_is_refused` |
+| Claude cold, argv OFF folded into one deny list | `capability_launch::a_native_control_declared_as_argv_reaches_the_final_claude_command` *(retained)* |
+| Claude cold, boxed hands, held tool folded once | `adapters::tests::claude_admits_only_held_native_tools_beside_its_hands` *(retained)* |
+| Claude cold, every spelling of a local list | `adapters::tests::a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag` |
+| Claude cold, explicit restrictive `--tools` in three forms | `adapters::tests::an_explicitly_restrictive_managed_tool_list_reaches_the_final_command` |
+| Claude cold and actual eligible resume, held nonempty restriction | `adapters::tests::a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands` |
+| Claude resume is the cold argv plus one owned selector | `adapters::tests::a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector` *(retained)* |
+| Claude and LaneTally authored plugin, later list value, wildcard | `adapters::tests::an_authored_plugin_or_later_list_value_is_refused_at_the_final_command` |
+| Claude and LaneTally authored MCP subtraction | `adapters::tests::an_authored_mcp_denial_is_subtraction_and_survives_beside_the_native_one` |
+| Claude ambiguous prompt value, and its joined form intact | `adapters::tests::an_authored_plugin_or_later_list_value_is_refused_at_the_final_command` |
+| Every control representation, per provider, consumed or refused | `native_controls::tests::every_control_representation_reaches_the_composed_command_or_refuses` |
+| Panel member and sequence step, under their own labels | `capability_launch::a_panel_member_and_a_sequence_step_resolve_under_their_own_labels` *(retained)* |
+| Nested dispatch, each link's own controls | `engine::capability_tests::every_nested_dispatch_hands_its_driver_the_selected_links_own_controls` *(retained)* |
+| Fallback link on legacy adapter data | `capability_launch::an_agent_backed_link_on_legacy_adapter_data_refuses_too` *(retained)* |
+| Every site of every shipped bundle | `capability_launch::every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_denied` *(retained)* |
+| Session fence and grammar close over each other | `adapters::tests::every_session_control_is_refused_by_one_of_the_two_fences` |
+| Dispatch: layer charter moved, standalone and inherited | `engine::boundary_tests::a_charter_that_moved_since_the_compile_refuses_the_dispatch` |
+| Dispatch: library charter moved, standalone and inherited | `engine::boundary_tests::a_library_charter_that_moved_since_the_compile_refuses_the_dispatch` |
+| Prompt renders the door's buffer, not a second read | `adapters::tests::adapter_vocabulary_prompt_and_fold_edges_are_closed` |
+| Doctor: uncomposable OFF, four grant shapes | `doctor::capability_tests::an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives` |
+| Doctor: dropped restricted want, four dispositions | `doctor::capability_tests::a_dropped_restricted_want_is_promised_off_only_where_off_is_deliverable` |
+
+### What this visit did NOT finish
+
+Four rows stay open, and none of them is a claim disguised as a tick.
+
+- **3.13** — `claude_selector_conflict`, `claude_restriction_conflict`,
+  `codex_selector_conflict`, `codex_resume_blocker` and
+  `dsh_control_conflict` still read argv by name rather than by parse.
+  They are refusal-only gates and they now run BEFORE composition, so a
+  misread can only add a refusal, never admit one; and
+  `every_session_control_is_refused_by_one_of_the_two_fences` checks
+  that the grammar's session options and the selector list close over
+  each other, so a name is refused by one fence or the other. That is a
+  checked invariant, not the rewrite the row asks for.
+- **5.2** — the policy buffer is read once and parsed from that read, so
+  nothing reparses a second read. It is not reconciled against the
+  owner's file map, because at `own_table` time the map does not exist
+  yet: the walk runs later, over the same tree. Closing the remaining
+  window needs the compile to carry each active input's measured digest
+  into the walk's comparison.
+- **6.4** — the start and pinned-context resume fences are unchanged and
+  their suites pass, but no new proof was added that the LIBRARY pin is
+  enforced at those two doors as it now is at dispatch.
+- **11.2** — the seven crate suites pass crate-scoped on Linux. macOS is
+  not available to this seat, so its leg stays pending, as does remote
+  CI on the final head.

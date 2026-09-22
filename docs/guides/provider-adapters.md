@@ -535,6 +535,47 @@ fragment. DSH's one `--patch` stays: a bound, contained, digest-matched
 route overlay under a closed grammar, re-read and re-validated before it
 is staged.
 
+### The command is parsed, not scanned
+
+A driver command for a harness brokkr KNOWS — `claude`, `codex`,
+`lanetally`, `dsh` — is parsed against a model of that CLI's options
+before anything judges it: which options exist, which take a value, in
+which forms (split, `=`-joined, attached), which are variadic, which may
+repeat, and what each one DOES. Admission then judges that structure, so
+every spelling of one option is judged at once. What this means when you
+author a command:
+
+- **All five Codex config spellings are one assignment.** `-c k=v`,
+  `-c=k=v`, `-ck=v`, `--config k=v` and `--config=k=v` reach the same
+  place and earn the same answer. There is no spelling that escapes.
+- **A token the grammar cannot place is refused, by name.** An option
+  the model does not carry, a bare word where no positional belongs, an
+  option written twice where the CLI resolves duplicates last-wins — all
+  refuse at compile, naming the token and its position. The guarantee is
+  a closed supported subset, not support for every option those CLIs
+  will ever grow: a new one refuses until it is modelled, which is the
+  direction a capability fence has to fail in.
+- **A split value that reads as an option is ambiguous.** Write
+  `--append-system-prompt='--disallowedTools hello'`, not
+  `--append-system-prompt --disallowedTools hello`: the split pair could
+  be a prompt carrying a flag or a flag carrying a prompt, and a harness
+  that reads it the other way turns a required denial into a prompt.
+  The joined spelling carries such text intact.
+- **Loading is a realm's business, not a recipe's.** `--plugin-dir`,
+  `--mcp-config`, `--settings`, `--agents` and a Codex `--profile` each
+  load a document that can configure a server, so an authored one
+  refuses. So does any include or allow list value naming an `mcp__`
+  tool or carrying a wildcard — EVERY value of every occurrence, not the
+  first.
+- **A deny list is subtraction and always survives.**
+  `--disallowedTools mcp__*` narrows what a seat can reach; it is never
+  read as an admission, and the engine's own native denial merges into
+  the same list, which reaches the harness once.
+
+An `exec` command and a driver brokkr does not recognize have no modelled
+grammar and claim none: the engine never composes their final command,
+and what such a driver then does is its own.
+
 ### What the five shipped adapters say today
 
 | Adapter | Native capabilities | What is established, and what is not |

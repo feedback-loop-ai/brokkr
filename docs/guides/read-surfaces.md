@@ -140,11 +140,17 @@ warn     capabilities brokkr native codex 'web-search': NOT granted here: every 
 warn     capabilities brokkr native dsh: native inventory unmeasured: … Nothing is granted through it and no native denial is claimed
 ```
 
-The lines keep four things apart: a power that is switched off by a
+The lines keep five things apart: a power that is switched off by a
 declared control, one that **cannot** be switched off (seating that
 harness there without the grant refuses compilation), one whose OFF
-nobody has measured, and a harness whose whole native inventory is
-unmeasured. That disposition is judged BEFORE any grant is described
+nobody has measured, one whose declared control the serving provider's
+launch **cannot compose** — a Codex tool selection, say, which `codex
+exec` takes no such list for — and a harness whose whole native
+inventory is unmeasured. The fourth is why the readout asks the harness
+rather than the declaration: a control that cannot reach the final
+command denies nothing, so the line reports the compiler's own refusal
+and its cause instead of promising a denial. That disposition is judged
+BEFORE any grant is described
 (decision 0066 ruling 6): a grant scoped to some offices, to none, to no
 tools, or to nobody who asks never earns the other seats a promise of
 denial the launch would not deliver — beside such a grant an

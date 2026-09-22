@@ -15240,6 +15240,57 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     }
 }
 
+/// The session fence and the grammar close over each other: every option
+/// the Claude grammar places as a SESSION control is one the selector
+/// check refuses by name, and every name that check lists is either one
+/// of those or a token the grammar cannot place at all. Two lists that
+/// happen to agree are a scanner; two lists that are checked to agree are
+/// a fence (decision 0066 ruling 6).
+#[test]
+fn every_session_control_is_refused_by_one_of_the_two_fences() {
+    use crate::native_controls::grammar;
+    let listed: Vec<&str> = CLAUDE_SELECTORS_WITH_VALUE
+        .iter()
+        .chain(CLAUDE_SELECTORS_BARE.iter())
+        .copied()
+        .collect();
+    let placed = |name: &str| {
+        grammar::parse("claude", &[name.to_string()])
+            .expect("claude has a grammar")
+            .is_ok()
+    };
+    for table in grammar::TABLES {
+        if table.harness != "claude" && table.harness != "lanetally" {
+            continue;
+        }
+        for spec in table.options {
+            if spec.effect != grammar::Effect::Session {
+                continue;
+            }
+            for name in std::iter::once(spec.canonical).chain(spec.aliases.iter().copied()) {
+                assert!(
+                    listed.contains(&name),
+                    "{}: the grammar places '{name}' as a session control that no selector \
+                     check refuses",
+                    table.harness
+                );
+            }
+        }
+    }
+    for name in &listed {
+        assert_eq!(
+            claude_selector_conflict(&[name.to_string()]),
+            Some(*name),
+            "{name} is listed and must be refused by name"
+        );
+    }
+    // A name neither list knows is placed by neither fence: `--bg` is a
+    // selector the grammar also models, `--from-pr` one it does not, and
+    // both refuse — one by name, one as a token with nowhere to go.
+    assert!(placed("--bg"));
+    assert!(!placed("--from-pr"));
+}
+
 const CLAUDE_HEAD: [&str; 5] = [
     "claude",
     "-p",
