@@ -10661,6 +10661,143 @@ fn the_plugin_s_own_tarball_record_leaves_and_its_registry_namesake_stays() {
     );
 }
 
+/// The producer's pinned canonical composite over the worked pair in a
+/// synthetic home with no extension listed.
+const WORKED_PAIR_CANONICAL: &str =
+    "85f6e4b6653ca50a9004f067def20e5971192c8745bd7dce0f97543cd8bec54e";
+
+/// One seat's own overlay, staged the way the launch planner stages it:
+/// this seat's transcript root allocated under the home, and the rows
+/// that seat pins written to a temporary `--patch` file. The value is
+/// RETURNED to the caller because the patch file and its settings
+/// document live exactly as long as it does.
+///
+/// A per-seat overlay is not an identity-bearing patch. The composite's
+/// `plugin-patch`, `profile-patch` and `home-patch` lines are the
+/// installation's own `cordis.patch.yml` files; this is a file the driver
+/// hands the launcher, beside a directory under the home only this seat
+/// writes.
+fn seat_overlay(
+    home: &Path,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> crate::adapters::DshSeatOverlay {
+    let root = crate::transcript::dsh_transcript_root_under(Some(home.to_path_buf()))
+        .expect("the seat's transcript root is allocated under the home");
+    assert!(
+        root.starts_with(home),
+        "this seat's transcript root sits under the home: {}",
+        root.display()
+    );
+    crate::adapters::dsh_seat_overlay_with(model, effort, &root, None, None)
+        .expect("the planner stages this seat's overlay")
+}
+
+/// The same pair staged in two homes at different absolute paths, under
+/// two different per-seat overlays, is ONE identity — and so is the first
+/// home reached through a symlinked ancestor.
+///
+/// Unix only: a symlinked ancestor is one of the inputs, and Linux and
+/// macOS are the only hosts (decision 0063).
+#[cfg(unix)]
+#[test]
+fn one_pair_in_two_homes_under_two_seat_overlays_is_one_identity() {
+    let first = Synthetic::new();
+    let second = Synthetic::new();
+    assert_ne!(
+        first.seams.home, second.seams.home,
+        "the two homes are at different absolute paths"
+    );
+    worked_pair(&first);
+    worked_pair(&second);
+
+    // Two seats, each with its own overlay near its own home: different
+    // pinned rows, different `--patch` files, and a transcript root under
+    // each home that only that seat writes.
+    let one_seat = seat_overlay(
+        &first.seams.home,
+        Some("deepseek/deepseek-chat"),
+        Some("high"),
+    );
+    let two_seat = seat_overlay(&second.seams.home, None, None);
+    assert_ne!(
+        one_seat.path(),
+        two_seat.path(),
+        "each seat stages its own overlay file"
+    );
+    assert_ne!(
+        fs::read(one_seat.path()).unwrap(),
+        fs::read(two_seat.path()).unwrap(),
+        "the two seats pinned different rows"
+    );
+
+    let one = first.composite();
+    let two = second.composite();
+    // The invariance this case owns, asserted before the literals it is
+    // pinned to, so a producer that let a staging path or a seat's own
+    // file into the identity parts HERE rather than at an expectation
+    // that could be restated.
+    assert_eq!(
+        two.plugin, one.plugin,
+        "the same six files at another absolute path are the same component"
+    );
+    assert_eq!(
+        two.canonical, one.canonical,
+        "neither the staging path nor the seat beside it enters the identity"
+    );
+    assert_eq!(
+        one.plugin, WORKED_PLUGIN_VECTOR_COMPONENT,
+        "the worked plugin component, staged at an absolute path this \
+         fixture chose"
+    );
+    assert_eq!(
+        one.canonical, WORKED_PAIR_CANONICAL,
+        "the producer's pinned composite over the worked pair"
+    );
+
+    // The identity-bearing patches are equal, and the per-seat overlay is
+    // not one of them: a seat's own directory under the home leaves
+    // `home-patch` at the literal `absent`.
+    assert_eq!(
+        one.plugin_patch,
+        digest_of(b"- id: cli-session\n  config: {}\n"),
+        "the worked plugin's own cordis.patch.yml"
+    );
+    assert_eq!(two.plugin_patch, one.plugin_patch);
+    assert_eq!(one.profile_patch, two.profile_patch);
+    assert_eq!(
+        [one.home_patch.as_str(), two.home_patch.as_str()],
+        ["absent", "absent"],
+        "a seat's transcript root under the home is not a home patch"
+    );
+
+    // The same home, reached through a symlinked ancestor: the same
+    // bundles resolve, so the plugin and the composite are the same
+    // values. The raw anchor's own discriminator lives in
+    // `the_dsh_composite_accepts_a_symlinked_home_ancestor` and is not
+    // repeated here.
+    let alias = first.dir.path().join("alias");
+    std::os::unix::fs::symlink(&first.seams.home, &alias).unwrap();
+    let aliased = DshSeams {
+        executable: first.seams.executable.clone(),
+        home: alias,
+        node: None,
+        head: first.seams.head.clone(),
+    };
+    let through_alias = dsh_composite_with(&aliased, &first.node(), &[]).unwrap();
+    assert_eq!(through_alias.plugin, WORKED_PLUGIN_VECTOR_COMPONENT);
+    assert_eq!(through_alias.canonical, WORKED_PAIR_CANONICAL);
+
+    // The moving control: the comparison above is capable of parting. A
+    // home-level `cordis.patch.yml` — an identity-bearing patch, unlike
+    // the overlay — moves the second home's composite away from the
+    // first's.
+    write(&second.seams.home, "cordis.patch.yml", b"[]\n");
+    let patched = second.composite();
+    assert_eq!(patched.home_patch, digest_of(b"[]\n"));
+    assert_ne!(patched.canonical, one.canonical);
+}
+
 // ---------------------------------------------------------------------------
 // The measured rc.2 fixture (design D6, AK).
 //
