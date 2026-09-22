@@ -1078,9 +1078,14 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// Claude's two tools, `unmeasured` for dsh, LaneTally and exec — which is
 /// adapter data and rides the declaration digest as `resume` does.
 /// Composition still moves none of them: an ancestor layer holds no
-/// capability and its own digest carries no such section. The values
-/// below are the actual compiles of the final tree, never recomputed
-/// guesses.
+/// capability and its own digest carries no such section.
+/// Proposed decision 0066 ruling 8 (finding M3) moves `recipes/panel-review`
+/// and `bundles/self`, the two here that load the shipped library: a
+/// compile now resolves the asks of every loaded agent, seated or not, so
+/// the researcher's two wants are consulted and their definitions pinned
+/// though neither bundle seats it. `recipes/fast` and `bundles/verify` load
+/// no library and keep their digests. The values below are the actual
+/// compiles of the final tree, never recomputed guesses.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
@@ -1088,11 +1093,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "4cc63d625718edd6bfb908f0a8481e12a895df7e354a3c4a42cbe824d33a94bf",
+        "11cb41f02627e30b9cfe24740d2d8ad3b24a87dcdac7eb36a6f7d0eda23a54ec",
     ),
     (
         "bundles/self",
-        "0452044929a0cbb2136de74eed9933abefd26520aa765cb908949592f25a6b37",
+        "596541a884df4f1f724f2b950a827d5047fd6c52f487c9f06d149bc1e5d7ecb3",
     ),
     (
         "bundles/verify",
@@ -1243,10 +1248,16 @@ fn a_composed_bundles_manifest_is_pinned() {
         // every case body its office, its asks and each candidate's
         // outcome — and the adapters its lanes pin gained their
         // `native_capabilities` declarations. Its ancestor `fast` layer's
-        // own digest did not move: a layer holds no capability. This value
-        // agrees with the `recipes/triage` pin in `tests/witness_digests.rs`;
-        // both are the final tree's actual compile.
-        "357e1889fb211b27e203f3c7a5109dd9377d9e2f1dbe62d995e392fa06bb8602",
+        // own digest did not move: a layer holds no capability.
+        // Proposed decision 0066 ruling 8 (finding M3) moves it once more:
+        // triage loads the shipped library without seating its researcher,
+        // and a compile now resolves every loaded agent's asks, so the
+        // researcher's `web-search` and `web-fetch` definitions are pinned
+        // as consulted. The `fast` layer's digest still does not move. This
+        // value agrees with the `recipes/triage` pin in
+        // `tests/witness_digests.rs`; both are the final tree's actual
+        // compile.
+        "e4f24ee6215b44b4b6b3f6ce42ef0db7665674944faada28c0801c9986954f77",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

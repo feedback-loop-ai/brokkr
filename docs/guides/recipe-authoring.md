@@ -552,6 +552,16 @@ Three consequences worth internalising:
 3. **Resume refuses a digest mismatch** with a diagnostic; it never
    picks up edited files. Editing a recipe mid-run means the run is no
    longer resumable under it — start a new one.
+4. **Nothing a seat is told, and nothing that rules a run, stands
+   outside the map.** The walk skips the top-level names that hold
+   operator configuration — `realms.json`, `capabilities/`, `dialects/`
+   — so a role or a `policy` declared under one of them, by any spelling
+   or through a link, and one written out of its own layer
+   (`../shared/role.md`), is refused at the layer that declares it,
+   ancestors included (decision 0066 ruling 5); move it under `roles/`
+   or beside `bundle.json`. A charter whose bytes moved after the
+   compile is refused at dispatch as well, before the seat is told
+   anything under the old identity.
 
 ## The policy table
 

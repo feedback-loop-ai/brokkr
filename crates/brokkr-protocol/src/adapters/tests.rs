@@ -14189,6 +14189,117 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
     }
 }
 
+/// Finding H2 at the last boundary before the spawn: a recipe's AUTHORED
+/// arguments that configure a capability server, or admit a server's tools,
+/// are refused by the DRIVER as well as by the compiler — the two share one
+/// composer, and the driver opens its sentence in its own voice and closes
+/// it with the composer's cause. Codex cold and rejoining, Claude cold, the
+/// seat holding its powers or not; the refusal names the seat and what was
+/// written, never a value. A driver run by hand carries no plan and its
+/// argv stays the operator's own, as it always was.
+#[test]
+fn an_authored_capability_server_is_refused_at_launch_in_the_drivers_own_voice() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let refusal = |provider: &str, written: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the arguments of seat 'inline' carry '{written}', \
+             which configures a capability server or admits a server's tools for provider \
+             '{provider}'. A recipe's driver arguments are recipe data, and only the realm \
+             grants a capability (decision 0065 ruling 3); the workspace hands are the engine's \
+             own to compose and need no authored configuration (decision 0066 ruling 4)"
+        )
+    };
+    let codex_cases = [
+        (
+            s(&[
+                "-c",
+                "mcp_servers.ungranted.command=\"npx\"",
+                "-c",
+                "mcp_servers.ungranted.args=[\"fetch-mcp\"]",
+            ]),
+            "-c mcp_servers",
+        ),
+        (
+            s(&["--config=mcp_servers={x={command=\"npx\"}}"]),
+            "--config mcp_servers",
+        ),
+        // Counterfeit hands: the engine's own server name proves nothing.
+        (
+            s(&["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\""]),
+            "-c mcp_servers",
+        ),
+    ];
+    for plan in [codex_denied(), codex_held()] {
+        let input = json!({"workdir": "/w", "seat": "inline", "native_controls": plan});
+        for (extra, written) in &codex_cases {
+            for session in [None, Some(THREAD)] {
+                assert_eq!(
+                    codex_launch("codex", extra, "/w", session, &all_authored(&input, extra)).err(),
+                    Some(refusal("codex", written)),
+                    "{extra:?} {session:?}"
+                );
+            }
+        }
+    }
+    let claude_cases = [
+        (
+            s(&[
+                "--mcp-config",
+                "/etc/ungranted.json",
+                "--allowedTools",
+                "mcp__ungranted__fetch",
+            ]),
+            "--mcp-config",
+        ),
+        (
+            s(&["--allowedTools", "Bash(git:*),mcp__ungranted__fetch"]),
+            "--allowedTools mcp__*",
+        ),
+        (s(&["--tools", "*"]), "--tools *"),
+    ];
+    for plan in [
+        claude_plan(&[], &[], &["WebSearch", "WebFetch"]),
+        claude_plan(&[], &["WebSearch"], &["WebFetch"]),
+    ] {
+        let input = json!({"workdir": "/w", "seat": "inline", "native_controls": plan});
+        for (extra, written) in &claude_cases {
+            assert_eq!(
+                claude_launch(
+                    "claude",
+                    extra,
+                    None,
+                    &all_authored(&input, extra),
+                    CLAUDE_SHAPE,
+                    None
+                )
+                .err(),
+                Some(refusal("claude", written)),
+                "{extra:?}"
+            );
+        }
+    }
+    // By hand there is no plan to compose against, and no provenance: the
+    // operator's own argv is launched as written.
+    let by_hand = json!({"workdir": "/w"});
+    let (extra, _) = &codex_cases[0];
+    assert_eq!(
+        codex_launch("codex", extra, "/w", None, &by_hand)
+            .unwrap()
+            .command,
+        [
+            "codex",
+            "exec",
+            "--json",
+            "-C",
+            "/w",
+            "-c",
+            "mcp_servers.ungranted.command=\"npx\"",
+            "-c",
+            "mcp_servers.ungranted.args=[\"fetch-mcp\"]"
+        ]
+    );
+}
+
 /// The engine's plan with the guard `adapters/codex.json` SHIPS, read from
 /// the committed file at test time and never a hand-typed copy: the
 /// `authored` block of its one known native capability, under the key names

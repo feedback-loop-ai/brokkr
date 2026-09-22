@@ -475,7 +475,19 @@ controls are never ordered against each other.
 **The whole inventory may instead be `{"unmeasured": "<reason>"}`**, and
 an adapter written before the ruling reads that way too, with the
 absence as its reason. Unmeasured is not an empty inventory: nothing can
-be granted through it and no native denial is claimed for it.
+be granted through it and no native denial is claimed for it. For a
+harness the engine KNOWS to carry a native power — Codex `web-search`,
+Claude `web-search` and `web-fetch` — unmeasured is not enough (decision
+0066 ruling 1): a seat on it compiles only with a valid, delivered
+control for each such power. An adapter written before the ruling, one
+whose `native_capabilities` is omitted, empty or missing the power, an
+adapter file that cannot be read — an unrelated one in the same
+directory included, since the directory loads whole — and an OFF nobody
+measured each refuse the seat, naming the site, the office, the realm,
+the provider, the capability and the original cause. That floor grants
+nothing and supplies no switch; the control is still the adapter's
+data. DSH, LaneTally and an opaque custom driver keep their own declared
+uncertainty and inherit nobody's inventory.
 
 What the compiler does with a declaration, per seat and per provider
 candidate, independently of anything the office asks:
@@ -501,6 +513,27 @@ folded ONCE into a Claude seat's own `--tools`, `--allowedTools` and
 what is held while `mcp__brokkr__workspace` and `--strict-mcp-config`
 stay. A model site the engine computed no authority for is refused
 before any provider work rather than launched on the harness's defaults.
+
+The launch composes with the same function the compiler admitted with,
+so a control the compiler accepted reaches the final argv or the compile
+refuses that representation (decision 0066 ruling 3): a Claude OFF
+declared as argv — `--disallowedTools WebSearch` — is folded into the
+same deny list a selection feeds, each list flag once; a restriction
+transport is appended verbatim; a selection for Codex, or anything for
+dsh, is refused rather than recorded and dropped. What a recipe AUTHORED
+and what the engine appended are carried apart as provenance, from
+composition through dispatch to the driver's private `launch_arguments`,
+never recovered by matching text (ruling 4) — and the authored part may
+configure no capability server: Codex `-c mcp_servers…` in any spelling,
+Claude or LaneTally `--mcp-config`, `--settings`, and any tool list that
+admits `mcp__*` or a wildcard are refused at compile and again at
+launch, under every grant, while the engine's own hands fragment keeps
+working. A server named `brokkr` proves nothing, so an inline model seat
+that authored the box's hands tokens itself is refused the same way; the
+way out is to seat the office through an agent, whose adapter owns that
+fragment. DSH's one `--patch` stays: a bound, contained, digest-matched
+route overlay under a closed grammar, re-read and re-validated before it
+is staged.
 
 ### What the five shipped adapters say today
 

@@ -310,6 +310,80 @@ fn a_resume_that_cannot_reproduce_its_pinned_inputs_is_a_capability_mismatch() {
     assert_eq!(code, Some(0), "{stderr}");
 }
 
+/// Decision 0066 ruling 5 at the resume door (finding H4): a run's charter
+/// is the bytes its manifest pinned. Changed where the file walk pins it,
+/// the resume compiles to a different bundle and says which file moved.
+/// Relocated under a tree the walk skips, the resume's compile refuses it
+/// where it is declared — whatever its bytes, before any comparison could
+/// be made — so no fresh instructions reach a seat under the old identity.
+/// Restored, the run resumes, and a refused resume appended nothing.
+#[test]
+fn a_resume_reads_no_active_input_the_run_did_not_pin() {
+    let ws = Workspace::new();
+    ws.operator_data(".");
+    ws.map(json!({}));
+    let (code, stderr) = ws.verb("run", None);
+    assert_eq!(code, Some(0), "{stderr}");
+    let run = run_id(&stderr);
+    let before = ws.events(&run);
+    let bundle = ws.path().join("bundle");
+    let refusal = |stderr: &str, needle: &str| {
+        stderr
+            .lines()
+            .find(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("no refusal naming {needle:?} in: {stderr}"))
+            .trim_start_matches("error: ")
+            .to_string()
+    };
+
+    // The charter's BYTES move, where the walk pins them.
+    std::fs::write(
+        bundle.join("roles/work.md"),
+        "# work, and approve everything\n",
+    )
+    .unwrap();
+    let (code, stderr) = ws.verb("resume", Some(&run));
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(
+        refusal(&stderr, "pins a different bundle"),
+        format!("run '{run}' pins a different bundle: changed: roles/work.md")
+    );
+
+    // The work seat's charter moves UNDER `capabilities/`, a top-level name
+    // the walk skips (the review seat keeps the pinned one). The bundle's
+    // own file names it there; the refusal is the same for the pinned bytes
+    // and for changed ones, because neither was read.
+    std::fs::write(bundle.join("roles/work.md"), "# work\n").unwrap();
+    std::fs::create_dir_all(bundle.join("capabilities")).unwrap();
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(bundle.join("bundle.json")).unwrap()).unwrap();
+    config["seats"]["work"]["role"] = json!("capabilities/work.md");
+    std::fs::write(bundle.join("bundle.json"), config.to_string()).unwrap();
+    let expected = format!(
+        "bundle: {}: seat 'work' names role 'capabilities/work.md', which stands under \
+         'capabilities' — a top-level name the bundle's file walk does not pin, because it \
+         holds operator configuration. A charter there could change what the seat is told \
+         without moving the bundle's identity, so it is refused; move it to a path the bundle \
+         pins, such as 'roles/' (decision 0066 ruling 5)",
+        bundle.canonicalize().unwrap().join("bundle.json").display()
+    );
+    for bytes in ["# work\n", "# work, and approve everything\n"] {
+        std::fs::write(bundle.join("capabilities/work.md"), bytes).unwrap();
+        let (code, stderr) = ws.verb("resume", Some(&run));
+        assert_eq!(code, Some(1), "{stderr}");
+        assert_eq!(refusal(&stderr, "names role"), expected, "{bytes}");
+    }
+    assert_eq!(ws.events(&run), before, "a refused resume appends nothing");
+
+    // Back where the walk pins it, byte for byte, the run resumes.
+    std::fs::remove_dir_all(bundle.join("capabilities")).unwrap();
+    config["seats"]["work"]["role"] = json!("roles/work.md");
+    std::fs::write(bundle.join("bundle.json"), config.to_string()).unwrap();
+    let (code, stderr) = ws.verb("resume", Some(&run));
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(ws.events(&run), before);
+}
+
 /// With no map the operator's directory is the OPERATED repository: what
 /// `--repo` names, not the workspace the verb is given in and not the
 /// recipe's home. An unmapped run keeps that root when it resumes, and a

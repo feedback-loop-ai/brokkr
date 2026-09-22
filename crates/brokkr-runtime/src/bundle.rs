@@ -925,11 +925,7 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
     }
     if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
         for (index, step) in sequence.iter().enumerate() {
-            let name = step
-                .get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("step-{}", index + 1));
+            let name = step_label(index, step);
             collect_unpinned(&format!("{what}:{name}"), step, adapters, out);
         }
     }
@@ -3106,7 +3102,10 @@ pub(crate) fn unpinned_active_input(root: &Path, reference: &str) -> Option<Stri
 }
 
 /// A path with its `.` and `..` folded away, without touching the disk:
-/// the spelling a layer's file map keys a file under.
+/// the spelling a layer's file map keys a file under. `Path::components`
+/// already drops every `.` but a leading one, and every path folded here is
+/// absolute — a reference joined to its layer's canonical root, or a role
+/// path the compile wrote — so only `..` is left to fold.
 fn folded(path: &Path) -> PathBuf {
     let mut folded = PathBuf::new();
     for component in path.components() {
@@ -3114,7 +3113,6 @@ fn folded(path: &Path) -> PathBuf {
             std::path::Component::ParentDir => {
                 folded.pop();
             }
-            std::path::Component::CurDir => {}
             other => folded.push(other),
         }
     }
@@ -3416,12 +3414,7 @@ fn record_capabilities(
     }
     if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
         for (index, step) in sequence.iter().enumerate() {
-            let name = step
-                .get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("step-{}", index + 1));
-            nested.push((format!("{what}:{name}"), step));
+            nested.push((format!("{what}:{}", step_label(index, step)), step));
         }
     }
     if let Some(select) = raw.get("select").and_then(Value::as_object) {
@@ -3441,6 +3434,16 @@ fn record_capabilities(
         record_capabilities(authority, library, adapters, &label, raw, sites)?;
     }
     Ok(())
+}
+
+/// The label a sequence step is recorded under: its `name`, or its
+/// one-based position where the step names itself nothing. One spelling,
+/// shared by the pin walk and the capability walk, so the two record the
+/// same step under the same label.
+fn step_label(index: usize, step: &Value) -> String {
+    step.get("name")
+        .and_then(Value::as_str)
+        .map_or_else(|| format!("step-{}", index + 1), str::to_string)
 }
 
 /// The one accessor into the canonical site family (design D10 F1):

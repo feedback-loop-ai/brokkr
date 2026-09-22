@@ -238,6 +238,15 @@ fn workspace() -> PathBuf {
 /// both consulted definitions are pinned. (4) `recipes/research-dsh` moves
 /// with the charter copy it holds equal to the library's, and with its
 /// README, which now says what decision 0065 makes of dsh's own web tools.
+/// Proposed decision 0066 ruling 8 (finding M3) moves the three bundles
+/// that LOAD the shipped library without seating its researcher —
+/// `recipes/night-shift`, `recipes/triage` and `recipes/gpt-flash`: a
+/// compile now resolves the asks of every loaded agent, seated or not, so
+/// the researcher's `web-search` and `web-fetch` wants are consulted and
+/// their definitions pinned in each of these manifests, where before only
+/// `recipes/research`, which seats it, pinned them. `recipes/research`
+/// keeps its digest for exactly that reason, and the six bundles that load
+/// no library are untouched: no charter, table, adapter or grant moved.
 /// The values below are the final tree's actual compiles, never
 /// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
@@ -255,7 +264,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "f868685b4494f29d81d414f730a5ffaa38ba593dec1f01a46b288f58af15c007",
+        "11bd9becacc03d01f166c2453c2b9d67821596c22ae97c92628964068caffd1b",
     ),
     (
         "recipes/wager-harness",
@@ -263,7 +272,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/triage",
-        "357e1889fb211b27e203f3c7a5109dd9377d9e2f1dbe62d995e392fa06bb8602",
+        "e4f24ee6215b44b4b6b3f6ce42ef0db7665674944faada28c0801c9986954f77",
     ),
     (
         "recipes/research",
@@ -275,7 +284,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "9fa653f7032afdffd2cd02d7e2408f36e79533acabbaba7a719560cd977e4d8d",
+        "d434415be1b8932e8cb206a18cb76714e9997ed2100051d581865da67de18d3d",
     ),
     (
         "bundles/verify",

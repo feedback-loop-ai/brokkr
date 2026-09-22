@@ -144,7 +144,13 @@ The lines keep four things apart: a power that is switched off by a
 declared control, one that **cannot** be switched off (seating that
 harness there without the grant refuses compilation), one whose OFF
 nobody has measured, and a harness whose whole native inventory is
-unmeasured. A same-name grant bound to another provider covers nothing of
+unmeasured. That disposition is judged BEFORE any grant is described
+(decision 0066 ruling 6): a grant scoped to some offices, to none, to no
+tools, or to nobody who asks never earns the other seats a promise of
+denial the launch would not deliver — beside such a grant an
+unsupported OFF reports the compile refusal, and an unmeasured OFF keeps
+its reason, claims nothing, and reports that a seat which does not hold
+the power is refused. A same-name grant bound to another provider covers nothing of
 this one's, a scoped grant is printed with its scope, and an empty scope
 never reads as "all". Each grant is validated on its own: one that does
 not validate — a missing definition, a dialect asserting other classes, an

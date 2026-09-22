@@ -3710,6 +3710,20 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         )
         .unwrap();
     }
+    // The pinned world is where the operator's abstract definitions are
+    // read from, and a compile that loads the shipped library resolves the
+    // asks of EVERY loaded agent (decision 0066 ruling 8) — the researcher's
+    // two wants included, though triage seats it nowhere. A map directory
+    // without them refuses the compile, so this world carries them.
+    std::fs::create_dir(dir.path().join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(root.join("capabilities")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            dir.path().join("capabilities").join(entry.file_name()),
+        )
+        .unwrap();
+    }
     let map = json!({
         "schema":"forge.realms/v3",
         "realms":[{"name":"pinned","path":root,"default_branch":"main","dialect":"openspec"}],

@@ -183,6 +183,21 @@ ask a seat subtracts: a capability nobody defined is an invalid
 declaration, not an optional gap. Brokkr ships `web-search` and
 `web-fetch`; an operator adds a file, not a release.
 
+A request is read from its own bytes, strictly (decision 0066 ruling 7).
+A capability name written twice, or a `capabilities` field written
+twice — in an agent file or in any layer of a bundle, at any nesting —
+refuses the file, in either strength order and even when the two
+spellings agree, because an ordinary reader keeps the last one and would
+turn a `requires` into a `wants` before anything checked it. And a
+compile that loads the library at all resolves the asks of EVERY agent
+in it, seated or not (ruling 8): an undefined request in an agent no
+seat names refuses the compile with the diagnostic `brokkr agents show`
+gives, and every definition a loaded agent names is pinned in the
+manifest as consulted. So the `capabilities/` beside the operator's map
+must define what every shipped agent asks for — `web-search` and
+`web-fetch`, for the researcher — even under a recipe that never seats
+it.
+
 **A seat may subtract and never widen.** A site that names an agent and
 writes no `capabilities` inherits the agent's asks. A map it does write
 is a subset with unchanged strengths, and what it leaves out is

@@ -864,11 +864,14 @@ fn report_capabilities(
         .filter(|adapter| availability.presence(&adapter.provider) == Presence::Available)
         .collect();
     let (root, realms): (std::path::PathBuf, Vec<(String, _, &str)>) = match world {
+        // The definitions stand beside the map, as the engine reads them:
+        // the map is a file, so the directory it stands in is always there.
         Ok(Some(world)) => (
             workspace
                 .join(&world.source)
                 .parent()
-                .map_or_else(|| workspace.to_path_buf(), Path::to_path_buf),
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
             world
                 .map
                 .realms
