@@ -252,7 +252,13 @@ fn malformed_npm_keys_are_refused() {
         ("node_modules/", FORBIDDEN),
         ("node_modules/a/", FORBIDDEN),
         ("node_modules/a b", FORBIDDEN),
+        ("node_modules/a\tb", FORBIDDEN),
         ("node_modules/a\\b", FORBIDDEN),
+        // A key whose GROUPS are separated the other platform's way is
+        // not a key with one odd byte in a name: it is a spelling this
+        // reader never converts, so it is refused whole.
+        ("node_modules\\a", FORBIDDEN),
+        ("node_modules\\a\\node_modules\\b", FORBIDDEN),
         ("node_modules/a/node_modules/", FORBIDDEN),
         ("node_modules//a", "invalid unscoped component"),
         ("node_modules/.", "invalid unscoped component"),
@@ -264,6 +270,31 @@ fn malformed_npm_keys_are_refused() {
         // separately invalid: one passing is not the key passing.
         ("node_modules/@./name", "invalid scope or name component"),
         ("node_modules/@scope/.", "invalid scope or name component"),
+        // INCOMPLETE keys: a first group with no separator at all, and a
+        // trailing `node_modules` that opens a group it never fills.
+        ("node_modules", "expected a 'node_modules/' group"),
+        (
+            "node_modules/a/node_modules",
+            "expected a 'node_modules/' group",
+        ),
+        // TRAVERSAL, at each of the three places a key offers it: ahead
+        // of the first group, between two groups, and as a terminal or
+        // scoped component. None of them is normalized away.
+        ("../node_modules/a", "expected a 'node_modules/' group"),
+        (
+            "node_modules/a/../node_modules/b",
+            "expected a 'node_modules/' group",
+        ),
+        (
+            "node_modules/a/node_modules/../b",
+            "invalid unscoped component",
+        ),
+        (
+            "node_modules/@scope/../name",
+            "invalid scope or name component",
+        ),
+        // A valid terminal package cannot excuse a malformed group ahead
+        // of it: every group of every key is parsed and validated.
         (
             "node_modules/a/extra/node_modules/@scope/child",
             "expected a 'node_modules/' group",
@@ -8704,6 +8735,29 @@ fn npm_locks_reject_unparseable_and_incomplete_entries() {
     for (packages, reason) in [
         (r#"{"node_modules/a":5}"#, "entry is not an object"),
         (r#"{"node_modules/a":{}}"#, "no string 'version'"),
+        // A version that is present but is not a STRING is refused as a
+        // missing one rather than rendered into `5` or `true`: a JSON
+        // number is not a version this reader may spell for the lock.
+        (
+            r#"{"node_modules/a":{"version":5,"integrity":"sha512-A"}}"#,
+            "no string 'version'",
+        ),
+        (
+            r#"{"node_modules/a":{"version":true,"integrity":"sha512-A"}}"#,
+            "no string 'version'",
+        ),
+        (
+            r#"{"node_modules/a":{"version":null,"integrity":"sha512-A"}}"#,
+            "no string 'version'",
+        ),
+        (
+            r#"{"node_modules/a":{"version":"","integrity":"sha512-A"}}"#,
+            "version is empty",
+        ),
+        (
+            r#"{"node_modules/a":{"version":"1.0.0","integrity":5}}"#,
+            "no registry 'integrity'",
+        ),
         (
             r#"{"node_modules/a":{"version":"1.0.0"}}"#,
             "no registry 'integrity'",
@@ -9759,13 +9813,42 @@ fn the_root_package_lock_is_never_read_beside_or_instead_of_the_hidden_one() {
     // fallback: the refusal names the hidden locator.
     let hidden = core_root.join("node_modules").join(".package-lock.json");
     fs::remove_file(&hidden).unwrap();
+    let absent = format!(
+        "npm lock is unreadable: {}: {}",
+        hidden.display(),
+        // The host's own wording for the absent path: the exact
+        // filesystem cause is the platform's to phrase, and only the
+        // component and the locator are this producer's (Linux and
+        // macOS, decision 0063).
+        std::fs::read(&hidden).unwrap_err()
+    );
     assert_eq!(
         refused(dsh_composite_with(&install.seams, &install.node(), &[])),
-        format!(
-            "npm lock is unreadable: {}: {}",
-            hidden.display(),
-            std::fs::read(&hidden).unwrap_err()
-        )
+        absent
+    );
+
+    // The same absence beside a root lock in the full npm shape, whose
+    // `""` root entry the key rule refuses. The distinction the decoy
+    // above cannot draw: a reader that FELL BACK to this file would
+    // refuse too, but with `'': empty, absolute, trailing…` — a refusal
+    // naming the root lock's own first entry. The refusal is still the
+    // hidden lock's absence, so the root lock was never opened.
+    let rooted = r#"{"name":"dsh-home","version":"0.0.0","lockfileVersion":3,"requires":true,"packages":{
+      "":{"name":"dsh-home","version":"0.0.0","dependencies":{"decoy":"9.9.9"}},
+      "node_modules/decoy":{"version":"9.9.9","integrity":"sha512-DECOY"}
+    }}"#;
+    assert_eq!(
+        refused(npm_dependencies(&lock(rooted), &[])),
+        "npm key is unreadable: '': empty, absolute, trailing, or carries a forbidden byte",
+        "read as a lock, this file refuses by its own root entry — which is \
+         how a fallback would be visible below"
+    );
+    write(&core_root, "package-lock.json", rooted.as_bytes());
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        absent,
+        "the sole npm source is the hidden lock, and its absence is not \
+         cured by a root lock in any shape"
     );
 }
 
