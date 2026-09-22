@@ -4,11 +4,12 @@ This document states what you can build against, what may still move,
 and how a change to a frozen thing is made when it has to happen.
 
 **Where the tree is right now:** the workspace version in `Cargo.toml`
-is **0.10.0**. This is pre-1.0 software. The contracts under
+is **0.11.0**. This is pre-1.0 software. The contracts under
 `contracts/` are nonetheless already frozen and have been since the
 first implementation — the freeze is older than the version number and
-does not wait for it. See the [v0.10.0 release notes](../releases/v0.10.0.md)
-for the boundary migration and current platform limitations.
+does not wait for it. See the [v0.11.0 release notes](../releases/v0.11.0.md)
+for what changed and current platform limitations, and the
+[v0.10.0 notes](../releases/v0.10.0.md) for the boundary migration.
 
 - [Two different promises](#two-different-promises)
 - [The frozen-contract law](#the-frozen-contract-law)
@@ -27,7 +28,7 @@ other is not yet.
 | | Frozen contracts | The CLI surface |
 |---|---|---|
 | **Promise** | A version's bytes never change. A change is a new numbered version file beside the old one. | Semver from 1.0: breaking changes to subcommands and flags need a major bump. |
-| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.10.0, flags may still move. |
+| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.11.0, flags may still move. |
 | **Enforced by** | CI compiles the frozen and additive contracts; the fixtures corpus differential-tests the evaluator; manifest schemas pin `{"const": 1}` on `event_schema`. | Convention today; release process from 1.0. |
 
 The contracts freeze is the load-bearing one, because it is what a
@@ -153,7 +154,7 @@ The binary reports the versions it was built against:
 
 ```
 $ brokkr doctor
-ok       contracts: engine 0.10.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.11.0, event_schema 1, database_schema 1, driver_protocol 1
 ```
 
 `event_schema`, `database_schema` and `driver_protocol` are all `1` and
@@ -223,7 +224,7 @@ Stated plainly, because this is a 0.x tree:
 - **What does *not* break, even pre-1.0:** the frozen contracts. Every
   decision that has touched them so far — 0016, 0022, 0023 — added a new
   numbered version beside the old one and left the old bytes alone. That
-  is the one guarantee that is already load-bearing at 0.10.0, and it is
+  is the one guarantee that is already load-bearing at 0.11.0, and it is
   the one to build against.
 
 ## The live deprecation window
