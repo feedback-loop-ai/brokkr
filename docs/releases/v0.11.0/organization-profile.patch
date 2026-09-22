@@ -1,0 +1,14 @@
+--- a/profile/README.md
++++ b/profile/README.md
+@@ -26,9 +26,9 @@
+ 
+ | Project | What it is | Licence | State |
+ |---|---|---|---|
+-| [**brokkr**](https://github.com/feedback-loop-ai/brokkr) | **Engine.** Deterministic delivery engine for autonomous multi-agent software delivery. An event-sourced phase machine is the outermost layer; agent sessions are leaf effects inside it. Runs you can replay, releases you can prove. | MIT OR Apache-2.0 | [v0.10.0](https://github.com/feedback-loop-ai/brokkr/releases/tag/v0.10.0) · Rust |
++| [**brokkr**](https://github.com/feedback-loop-ai/brokkr) | **Engine.** Deterministic delivery engine for autonomous multi-agent software delivery. An event-sourced phase machine is the outermost layer; agent sessions are leaf effects inside it. Runs you can replay, releases you can prove. | MIT OR Apache-2.0 | [v0.11.0](https://github.com/feedback-loop-ai/brokkr/releases/tag/v0.11.0) · Rust |
+ | [**homebrew-tap**](https://github.com/feedback-loop-ai/homebrew-tap) | **Channel.** Homebrew formulas for Brokkr, rendered from attested releases. | MIT | `brew install feedback-loop-ai/tap/brokkr` |
+-| [**scoop-bucket**](https://github.com/feedback-loop-ai/scoop-bucket) | **Channel.** Scoop manifests for Brokkr, rendered from attested releases. | MIT | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket` |
++| [**scoop-bucket**](https://github.com/feedback-loop-ai/scoop-bucket) | **Channel, retired.** Scoop manifests for Brokkr up to v0.10.0. Windows is not a host from v0.11.0; use WSL2 and a Linux channel. | MIT | retired at v0.10.0 |
+ | [**mcp-scaleway**](https://github.com/feedback-loop-ai/mcp-scaleway) | **Hands.** An MCP server for the Scaleway APIs — compute, storage, networking, an agent can reach through a tool call. | MIT | TypeScript |
+ | [**mcp-ory-kratos**](https://github.com/feedback-loop-ai/mcp-ory-kratos) | **Hands.** An MCP server for Ory Kratos — identities, sessions, recovery, through the same door. | MIT | TypeScript |
+ 

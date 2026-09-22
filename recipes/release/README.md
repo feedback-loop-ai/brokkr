@@ -1,7 +1,7 @@
 # release — prepare a release from the record
 
 ```console
-brokkr run --recipe release --repo . --feature "Prepare v0.10.0 from the latest published release using the realm's Release configuration"
+brokkr run --recipe release --repo . --feature "Prepare v0.11.0 from the latest published release using the realm's Release configuration"
 ```
 
 The library's `release-manager` reads the commits, prepares the version change

@@ -222,43 +222,43 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "e3dd70ff4f27e2f2f430b862e8ac1be53abde0a84d596651421b0fa48df37167",
+        "d0906fed3119985a38c8883a26b27cce299dbc0aa36352cb088f05d401d847d4",
     ),
     (
         "recipes/node",
-        "78e2479943d50c1387aebdfa2f192fbfd8e177fdaafd346d61298aae8404d0fe",
+        "84741c8452aec3e04f4fd7bfd7d5569bc36e884915d291103a2979c47fad725c",
     ),
     (
         "recipes/preflight",
-        "08a7a8cc20e7ef41f23fd741b3eacc226466e7bd0e41e7106e229f8f80e4fbea",
+        "a99bb568b244c74efa99d9a01a7efb2de57fb2c3ed14607821b2ed6645da08f9",
     ),
     (
         "recipes/night-shift",
-        "a5d6bec3c8d1564a6aba36e7df83f5e06ffb3c588bb8fdcead47e054c95f64ca",
+        "12270381a037b59bf146ecd544882ff7498cae0075fa96d7c807aa73dadbf75a",
     ),
     (
         "recipes/wager-harness",
-        "2571a2670f180bfda3770ff291ab18cb7162ec9dedaca83972b191a87696bff2",
+        "198f49dbf455b3af1150470ff7d0c4885fa2d98276a3702865fb866f68c09ec8",
     ),
     (
         "recipes/triage",
-        "b10ef3adde8cb42cd7daba79a813305aaa005462eb2884cab52a6d44195cde27",
+        "53f0bfb28bc1a815430c1f59daaaad164b915f48bf659de673136ff1731155e1",
     ),
     (
         "recipes/research",
-        "2e51d8a9b4419335ab9b4949427c00da584e541a037c8a3c9ccbbded0497ad5a",
+        "393ffd7c5c396d74ed68b23191751e6517ac691c344067d8abd6803037940a9b",
     ),
     (
         "recipes/research-dsh",
-        "0c24d23b3c48a0b9b1102be3ba8c3676058106de06cec028d76ae3980cbfad0b",
+        "208a1c88c88fdc84a98bdcacf3b0f2fcf9c2a2348951d6db8a99baa8cdb5e0cc",
     ),
     (
         "recipes/gpt-flash",
-        "7ce71d8b645012eeb02979293f5aa6c7f7ba846e41608d0c3a36e69b11e1348c",
+        "e7f9cc846063353d5db55b59f1991634a22e04ec3761b857c44f3bd85f52df5d",
     ),
     (
         "bundles/verify",
-        "2f8dcb68465609461aa063a90bf762f2b1b1ca990924c2a4f9f974af8f14fb0d",
+        "b10e1f471a874ff1a0e278e8f303bda9e3965345b509bde0de1287f4eeee9f03",
     ),
 ];
 

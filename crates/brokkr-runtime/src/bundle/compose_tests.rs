@@ -1069,19 +1069,19 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "e3dd70ff4f27e2f2f430b862e8ac1be53abde0a84d596651421b0fa48df37167",
+        "d0906fed3119985a38c8883a26b27cce299dbc0aa36352cb088f05d401d847d4",
     ),
     (
         "recipes/panel-review",
-        "d7484dc8580af2a9b500bb8997ffd40233e51097e05a59c0c7496d21b7cdaef9",
+        "be90c7cfe7dc1ca2984b6ffd78c4ee7ed9dda73bdc6d8820ac5267a6c135c138",
     ),
     (
         "bundles/self",
-        "f6d89eb473ac9c7760c4540cc51c942fb342aaf1b74e3adb173461e301f80e42",
+        "7718d5a5ee2d2a5ded5a7db73c41d8ddb80d1036363df754b1640e9f1e9c7b56",
     ),
     (
         "bundles/verify",
-        "2f8dcb68465609461aa063a90bf762f2b1b1ca990924c2a4f9f974af8f14fb0d",
+        "b10e1f471a874ff1a0e278e8f303bda9e3965345b509bde0de1287f4eeee9f03",
     ),
 ];
 
@@ -1223,7 +1223,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // `hands` and `boundary` entries all changed. The value agrees with
         // the `recipes/triage` pin in `tests/witness_digests.rs`; both are
         // this tree's actual compile.
-        "b10ef3adde8cb42cd7daba79a813305aaa005462eb2884cab52a6d44195cde27",
+        "53f0bfb28bc1a815430c1f59daaaad164b915f48bf659de673136ff1731155e1",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
