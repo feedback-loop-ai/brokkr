@@ -1619,8 +1619,16 @@ impl Authority {
                 value_flags: native.authored.value_flags.clone(),
             })
             .collect();
-        if let Some((written, capability)) =
-            brokkr_protocol::native_controls::authored_conflict(serving.authored, &guards)
+        // The authored part is PARSED against the harness's own option
+        // grammar before it is judged, so a guarded control is found in
+        // every spelling at once and a token the grammar cannot place is
+        // refused rather than passed over (decision 0066 ruling 6).
+        if let Some((written, capability)) = brokkr_protocol::native_controls::authored_conflict(
+            serving.harness,
+            serving.authored,
+            &guards,
+        )
+        .map_err(|refusal| refusal.at_compile(who))?
         {
             return Err(format!(
                 "{who}: its arguments carry '{written}', which controls native capability \

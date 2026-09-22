@@ -25,6 +25,10 @@
 
 use serde_json::Value;
 
+pub mod grammar;
+
+use grammar::{Command, Effect, ListKind};
+
 /// One list flag of a harness's tool selection, as its adapter names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListFlag {
@@ -259,99 +263,107 @@ pub fn managed(input: &Value) -> Result<Option<Controls>, String> {
     })
 }
 
-/// A flag and the value it carries, in either spelling: `--flag value`
-/// (the value is the next part) or `--flag=value`.
-fn flag_value<'a>(
-    part: &'a str,
-    next: Option<&'a String>,
-    flags: &[String],
-) -> Option<(&'a str, Option<&'a str>, bool)> {
-    if flags.iter().any(|flag| flag == part) {
-        return Some((part, next.map(String::as_str), true));
-    }
-    let (name, value) = part.split_once('=')?;
-    flags
-        .iter()
-        .any(|flag| flag == name)
-        .then_some((name, Some(value), false))
-}
-
-/// A tool pattern's name: `WebFetch(domain:example.org)` names `WebFetch`.
-fn tool_name(pattern: &str) -> &str {
-    pattern.split('(').next().unwrap_or(pattern).trim()
-}
-
-/// The patterns of one tool-list value, split at a comma or a space that
-/// stands OUTSIDE parentheses: `Bash(git log:*),Read` is two patterns, and
-/// the star inside the first belongs to its argument, not to a tool name.
-fn tool_patterns(value: &str) -> Vec<&str> {
-    let (mut patterns, mut depth, mut start) = (Vec::new(), 0usize, 0);
-    for (index, c) in value.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            ',' | ' ' if depth == 0 => {
-                patterns.push(&value[start..index]);
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    patterns.push(&value[start..]);
-    patterns
-}
-
 /// The first AUTHORED argument that would contend with a managed native
 /// control, as `(what was written, the capability it reaches)`. Names
 /// only: a value is never copied into a refusal.
 ///
-/// Parts are read in their argument positions. The value of a flag the
-/// adapter lists as value-taking is skipped whatever it spells, and a
-/// bare `key=value` that follows no configuration flag is a value, not a
-/// control.
-pub fn authored_conflict(extra: &[String], guards: &[Guard]) -> Option<(String, String)> {
+/// The judgment is on the PARSED command, so every spelling of one option
+/// is judged at once: a `-c` assignment reaching a guarded key contends
+/// whether it was written `-c k=v`, `-c=k=v`, `-ck=v`, `--config k=v` or
+/// `--config=k=v`, and a tool list contends on its SECOND value as much as
+/// its first (second council H1 and H2). The grammar already knows which
+/// options take a value, so no `value_flags` list has to be trusted to
+/// keep a model named `--search` from reading as a switch.
+///
+/// A DENY list is never a contender: it narrows access, and subtraction is
+/// not admission (second council M1). An admitted tool that the engine's
+/// plan denies is a different refusal, stated where the lists are composed.
+pub fn authored_conflict(
+    harness: &str,
+    authored: &[String],
+    guards: &[Guard],
+) -> Result<Option<(String, String)>, Refusal> {
+    let authored = harness_arguments(authored);
+    Ok(match parse_origin(harness, authored, true)? {
+        Some(command) => typed_conflict(&command, guards),
+        None => opaque_conflict(authored, guards),
+    })
+}
+
+/// The same question for a command that dispatches no harness brokkr
+/// models — an `exec` script or an opaque custom driver. There is no
+/// grammar to place its arguments in, so nothing can be told about which
+/// token is a value; the answer is therefore the CONSERVATIVE one. Any
+/// token that spells a guarded control contends, value position or not,
+/// because for a command nobody can parse the safe reading is the one
+/// that refuses. An opaque driver is not a way to relabel a recognized
+/// harness and escape the grammar (design D6a).
+fn opaque_conflict(authored: &[String], guards: &[Guard]) -> Option<(String, String)> {
     for guard in guards {
-        let mut index = 0;
-        while index < extra.len() {
-            let part = extra[index].as_str();
-            let next = extra.get(index + 1);
-            index += 1;
-            let bare = part.split_once('=').map_or(part, |(name, _)| name);
-            if guard.flags.iter().any(|flag| flag == bare) {
-                return Some((bare.to_string(), guard.capability.clone()));
+        for part in authored {
+            let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
+            let guarded = guard
+                .flags
+                .iter()
+                .chain(&guard.config_flags)
+                .chain(&guard.feature_flags)
+                .chain(&guard.list_flags)
+                .any(|flag| flag == name);
+            if guarded {
+                return Some((name.to_string(), guard.capability.clone()));
             }
-            if let Some((flag, value, split)) = flag_value(part, next, &guard.config_flags) {
-                index += usize::from(split);
-                let key = value
-                    .and_then(|value| value.split_once('='))
-                    .map(|(key, _)| key.trim());
-                if let Some(key) = key.filter(|key| guard.config_keys.iter().any(|k| k == key)) {
-                    return Some((format!("{flag} {key}"), guard.capability.clone()));
+        }
+    }
+    None
+}
+
+fn typed_conflict(command: &Command, guards: &[Guard]) -> Option<(String, String)> {
+    for guard in guards {
+        for node in &command.nodes {
+            let named = |names: &[String]| {
+                names
+                    .iter()
+                    .any(|name| name == node.name() || name == &node.spelling)
+            };
+            if named(&guard.flags) {
+                return Some((node.name().to_string(), guard.capability.clone()));
+            }
+            match node.spec.effect {
+                Effect::Config => {
+                    let key = grammar::config_key(node.values.first().map_or("", String::as_str));
+                    if guard.config_keys.iter().any(|known| known == &key) {
+                        return Some((
+                            format!("{} {key}", node.spelling),
+                            guard.capability.clone(),
+                        ));
+                    }
                 }
-                continue;
-            }
-            if let Some((flag, value, split)) = flag_value(part, next, &guard.feature_flags) {
-                index += usize::from(split);
-                if let Some(feature) =
-                    value.filter(|value| guard.features.iter().any(|f| f == value))
-                {
-                    return Some((format!("{flag} {feature}"), guard.capability.clone()));
+                Effect::List(ListKind::Include | ListKind::Allow) => {
+                    let admitted = grammar::node_patterns(node);
+                    if let Some(tool) = admitted
+                        .into_iter()
+                        .map(grammar::tool_name)
+                        .find(|tool| guard.tools.iter().any(|known| known == tool))
+                    {
+                        return Some((
+                            format!("{} {tool}", node.spelling),
+                            guard.capability.clone(),
+                        ));
+                    }
                 }
-                continue;
-            }
-            if let Some((flag, value, split)) = flag_value(part, next, &guard.list_flags) {
-                index += usize::from(split);
-                let named = value.into_iter().flat_map(|value| value.split([',', ' ']));
-                if let Some(tool) = named
-                    .map(tool_name)
-                    .find(|tool| guard.tools.iter().any(|known| known == tool))
-                {
-                    return Some((format!("{flag} {tool}"), guard.capability.clone()));
+                _ if named(&guard.feature_flags) => {
+                    if let Some(feature) = node
+                        .values
+                        .iter()
+                        .find(|value| guard.features.iter().any(|f| f == *value))
+                    {
+                        return Some((
+                            format!("{} {feature}", node.spelling),
+                            guard.capability.clone(),
+                        ));
+                    }
                 }
-                continue;
-            }
-            if let Some((_, _, split)) = flag_value(part, next, &guard.value_flags) {
-                index += usize::from(split);
+                _ => {}
             }
         }
     }
@@ -460,127 +472,94 @@ pub fn launch_arguments(
     Ok((authored, managed))
 }
 
-/// Claude Code's three tool lists under either spelling its help gives
-/// them; LaneTally forwards the same grammar.
-fn claude_list(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "--tools" => "--tools",
-        "--allowedTools" | "--allowed-tools" => "--allowedTools",
-        "--disallowedTools" | "--disallowed-tools" => "--disallowedTools",
-        _ => return None,
-    })
-}
-
-/// Flags whose VALUE is never a control, per provider: the value is
-/// skipped whatever it spells, so a model named `--mcp-config` stays inert.
-fn inert_value_flags(provider: &str) -> &'static [&'static str] {
-    match provider {
-        "codex" => &[
-            "-m",
-            "--model",
-            "--effort",
-            "-s",
-            "--sandbox",
-            "-C",
-            "--cd",
-            "-i",
-            "--image",
-            "-o",
-            "--output-last-message",
-            "--output-schema",
-            "--color",
-            "--add-dir",
-        ],
-        _ => &[
-            "--model",
-            "--effort",
-            "--permission-mode",
-            "--system-prompt",
-            "--append-system-prompt",
-            "--add-dir",
-            "--fallback-model",
-            "--session-id",
-            "--output-format",
-            "--input-format",
-            "--max-turns",
-        ],
+/// The tokens of an authored command that reach the HARNESS. brokkr's own
+/// dispatch convention is `<engine> driver <kind> -- …` (decision 0009),
+/// so a command written that way hands the harness exactly what follows
+/// its `--`, and the tokens before it are brokkr's own, not the CLI's.
+/// What the driver is handed at the launch boundary is already that tail
+/// and is returned whole, so the compiler and the driver parse the same
+/// tokens under the same grammar.
+pub fn harness_arguments(argv: &[String]) -> &[String] {
+    match argv {
+        [_, marker, _, rest @ ..] if marker == "driver" => match rest {
+            [terminator, tail @ ..] if terminator == "--" => tail,
+            _ => rest,
+        },
+        _ => argv,
     }
 }
 
-/// The first AUTHORED argument that configures a capability server, or
-/// admits a server's tools, as the NAME of what was written — never a
-/// value (decision 0066 ruling 4; finding H2). Independent of any native
-/// inventory and of any grant: a recipe's driver command is recipe data,
-/// and only the realm grants a capability.
+/// Parse one origin of a harness's argv, or refuse it. `Ok(None)` is a
+/// harness brokkr has no grammar for — `exec` and an opaque custom driver
+/// — whose final command the engine never composes and never claims to
+/// understand. `authored` decides whose words a grammar refusal names.
+pub fn parse_origin(
+    harness: &str,
+    argv: &[String],
+    authored: bool,
+) -> Result<Option<Command>, Refusal> {
+    match grammar::parse(harness, argv) {
+        None => Ok(None),
+        Some(Ok(command)) => Ok(Some(command)),
+        Some(Err(problem)) => Err(Refusal {
+            authored,
+            cause: match authored {
+                true => format!("do not parse: {problem}"),
+                false => format!("cannot be composed: {problem}"),
+            },
+        }),
+    }
+}
+
+/// The first AUTHORED effect that configures a capability server, loads a
+/// plugin, or admits a server's tools — as the NAME of what was written,
+/// never a value (decision 0066 rulings 4 and 6; second council H1 and
+/// H2). Independent of any native inventory and of any grant: a recipe's
+/// driver command is recipe data, and only the realm grants a capability.
 ///
-/// - Codex: a `-c`/`--config` assignment, split or joined, whose key is the
-///   `mcp_servers` table or anything under it, however the key is quoted or
-///   spaced.
-/// - Claude and LaneTally: `--mcp-config`; `--settings`, an opaque document
-///   that can carry the same configuration and so cannot be classified; and
-///   any tool list that admits an `mcp__` tool or a wildcard.
+/// The judgment is on the parsed STRUCTURE, so it does not enumerate
+/// spellings:
+///
+/// - any assignment into the `mcp_servers` table or under it, in all five
+///   Codex config spellings including the attached `-cKEY=VALUE`, however
+///   the key is quoted or spaced;
+/// - any option whose modelled effect is LOADING — `--mcp-config`,
+///   `--settings`, `--plugin-dir`, `--agents`, a Codex `--profile` — because
+///   each loads a document that can configure a server, and a document the
+///   engine cannot classify is not a channel a recipe may open;
+/// - any value of any INCLUDE or ALLOW list that names an `mcp__` tool or
+///   carries a wildcard, judged on every value of every occurrence rather
+///   than on the first.
+///
+/// A DENY list is never here: subtraction narrows access and is not an
+/// admission (second council M1).
 ///
 /// There is deliberately no exception for a server named `brokkr`: the
 /// engine's own hands arrive in the OTHER part, and a name proves nothing.
-/// DSH has no such door here — every residual argument of a DSH seat is
-/// already refused, and its one `--patch` is a bound, digest-matched route
-/// overlay under a closed grammar.
-pub fn authored_server_conflict(provider: &str, authored: &[String]) -> Option<String> {
-    let config_flags: &[&str] = match provider {
-        "codex" => &["-c", "--config"],
-        "claude" | "lanetally" => &[],
-        _ => return None,
-    };
-    let inert: Vec<String> = inert_value_flags(provider)
-        .iter()
-        .map(|flag| flag.to_string())
-        .collect();
-    let config: Vec<String> = config_flags.iter().map(|flag| flag.to_string()).collect();
-    let opaque: Vec<String> = match provider {
-        "codex" => Vec::new(),
-        _ => vec!["--mcp-config".to_string(), "--settings".to_string()],
-    };
-    let mut index = 0;
-    while index < authored.len() {
-        let part = authored[index].as_str();
-        let next = authored.get(index + 1);
-        index += 1;
-        if let Some((flag, value, split)) = flag_value(part, next, &config) {
-            index += usize::from(split);
-            let key: String = value
-                .unwrap_or_default()
-                .split('=')
-                .next()
-                .unwrap_or_default()
-                .chars()
-                .filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'')
-                .collect();
-            if key == "mcp_servers" || key.starts_with("mcp_servers.") {
-                return Some(format!("{flag} mcp_servers"));
-            }
-            continue;
-        }
-        if let Some((flag, _, _)) = flag_value(part, next, &opaque) {
-            return Some(flag.to_string());
-        }
-        let name = part.split_once('=').map_or(part, |(name, _)| name);
-        if let Some(list) = claude_list(name).filter(|_| provider != "codex") {
-            let lists = [name.to_string()];
-            let (_, value, split) = flag_value(part, next, &lists).expect("the name matched");
-            index += usize::from(split);
-            let admitted = value.into_iter().flat_map(tool_patterns);
-            for tool in admitted.map(tool_name) {
-                if tool.starts_with("mcp__") {
-                    return Some(format!("{list} mcp__*"));
-                }
-                if tool.contains('*') {
-                    return Some(format!("{list} *"));
+pub fn authored_server_conflict(command: &Command) -> Option<String> {
+    for node in &command.nodes {
+        match node.spec.effect {
+            Effect::Config => {
+                let key = grammar::config_key(node.values.first().map_or("", String::as_str));
+                if grammar::config_under(&key, "mcp_servers") {
+                    return Some(format!("{} mcp_servers", node.spelling));
                 }
             }
-            continue;
-        }
-        if let Some((_, _, split)) = flag_value(part, next, &inert) {
-            index += usize::from(split);
+            Effect::Load => return Some(node.spelling.clone()),
+            Effect::List(ListKind::Include | ListKind::Allow) => {
+                for tool in grammar::node_patterns(node)
+                    .into_iter()
+                    .map(grammar::tool_name)
+                {
+                    if tool.starts_with("mcp__") {
+                        return Some(format!("{} mcp__*", node.name()));
+                    }
+                    if tool.contains('*') {
+                        return Some(format!("{} *", node.name()));
+                    }
+                }
+            }
+            _ => {}
         }
     }
     None
@@ -646,7 +625,17 @@ pub fn compose_for_provider(
     fragment: &[String],
     controls: &Controls,
 ) -> Result<Composed, Refusal> {
-    if let Some(written) = authored_server_conflict(provider, authored) {
+    // brokkr's own dispatch prefix is not the harness's argv: the compiler
+    // sees the whole `<engine> driver <kind> --` invocation and the driver
+    // sees only what follows it, and both parse the same tail.
+    let head = &authored[..authored.len() - harness_arguments(authored).len()];
+    let authored = harness_arguments(authored);
+    // Every origin is parsed to completion and SEPARATELY, so a dangling
+    // value or terminator in one cannot reach across and consume another
+    // origin's control (decision 0066 ruling 6).
+    let authored_command = parse_origin(provider, authored, true)?;
+    parse_origin(provider, fragment, false)?;
+    if let Some(written) = authored_command.as_ref().and_then(authored_server_conflict) {
         return Err(Refusal {
             authored: true,
             cause: format!(
@@ -683,6 +672,12 @@ pub fn compose_for_provider(
         }
     }
     let mut extra: Vec<String> = authored.iter().chain(fragment).cloned().collect();
+    // Whatever the composition writes, the dispatch prefix opens the argv
+    // again exactly as it was written.
+    let composed = |extra: Vec<String>, managed: Vec<String>| Composed {
+        extra: [head.to_vec(), extra].concat(),
+        managed,
+    };
     let selects = [
         &controls.selection.include,
         &controls.selection.allow,
@@ -695,88 +690,118 @@ pub fn compose_for_provider(
             if selects {
                 return Err(unconsumed(provider, "a tool selection"));
             }
-            Ok(Composed {
-                extra,
-                managed: controls.argv.clone(),
-            })
+            Ok(composed(extra, controls.argv.clone()))
         }
         "claude" | "lanetally" => {
-            let mut selection = controls.selection.clone();
-            let mut verbatim = Vec::new();
-            let mut index = 0;
-            while index < controls.argv.len() {
-                let part = controls.argv[index].as_str();
-                index += 1;
-                let (name, joined) = match part.split_once('=') {
-                    Some((name, value)) => (name, Some(value)),
-                    None => (part, None),
-                };
-                let Some(list) = claude_list(name) else {
-                    verbatim.push(part.to_string());
-                    continue;
-                };
-                let value = match joined {
-                    Some(value) => Some(value),
-                    None => {
-                        index += 1;
-                        controls.argv.get(index - 1).map(String::as_str)
-                    }
-                };
-                // The list the adapter maps this flag to, and its separator.
-                let mapped = selection.flags.as_ref().and_then(|flags| {
-                    let slot = flags.iter().position(|flag| flag.flag == list)?;
-                    Some((slot, flags[slot].separator.clone()))
-                });
-                let (Some((slot, separator)), Some(value)) = (mapped, value) else {
+            // The plan's own argv is parsed under the same grammar. A list
+            // it names is an EXPLICIT control on that list — including an
+            // explicitly empty one; anything else is a restriction
+            // transport, which is appended as written.
+            let plan = parse_origin(provider, &controls.argv, false)?
+                .expect("claude and lanetally have a grammar");
+            // The two origins together, so a duplicate ACROSS them — a
+            // seat's own `--tools` beside the boundary fragment's — is the
+            // same refusal a duplicate within one origin is.
+            let seat =
+                parse_origin(provider, &extra, true)?.expect("claude and lanetally have a grammar");
+            let verbatim: Vec<String> = plan
+                .nodes
+                .iter()
+                .filter(|node| node.list().is_none())
+                .flat_map(|node| controls.argv[node.at..node.at + node.tokens].to_vec())
+                .collect();
+            // A plan that carries a list for a provider whose adapter maps
+            // none cannot be folded anywhere, and is refused rather than
+            // dropped (decision 0066 ruling 3).
+            let Some(flags) = controls.selection.flags.clone() else {
+                if let Some(node) = plan.nodes.iter().find(|node| node.list().is_some()) {
                     return Err(unconsumed(
                         provider,
                         &format!(
-                            "a managed '{list}' with no value, or no selection mapping to fold \
-                             it into,"
+                            "a managed '{}' with no selection mapping to fold it into,",
+                            node.name()
                         ),
                     ));
-                };
-                let names: Vec<String> = value
-                    .split(separator.as_str())
-                    .filter(|tool| !tool.is_empty())
+                }
+                extra.extend(verbatim);
+                return Ok(composed(extra, Vec::new()));
+            };
+            let mut folding: Vec<Folding> = Vec::new();
+            for (slot, kind) in [ListKind::Include, ListKind::Allow, ListKind::Deny]
+                .into_iter()
+                .enumerate()
+            {
+                let node = seat.nodes.iter().find(|node| node.list() == Some(kind));
+                let explicit = plan.lists(kind).next();
+                let carried: Vec<String> = node
+                    .map(grammar::node_patterns)
+                    .unwrap_or_default()
+                    .into_iter()
                     .map(str::to_string)
                     .collect();
-                [
-                    &mut selection.include,
-                    &mut selection.allow,
-                    &mut selection.deny,
-                ][slot]
-                    .extend(names);
-            }
-            for names in [
-                &mut selection.include,
-                &mut selection.allow,
-                &mut selection.deny,
-            ] {
-                let mut seen = Vec::new();
+                let mut names: Vec<String> = match slot {
+                    0 => controls.selection.include.clone(),
+                    1 => controls.selection.allow.clone(),
+                    _ => controls.selection.deny.clone(),
+                }
+                .into_iter()
+                .chain(
+                    explicit
+                        .map(grammar::node_patterns)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(str::to_string),
+                )
+                .collect();
+                let mut seen = carried.clone();
                 names.retain(|tool| {
-                    !seen.contains(tool) && {
+                    !tool.is_empty() && !seen.contains(tool) && {
                         seen.push(tool.clone());
                         true
                     }
                 });
+                // The adapter's mapping must name a flag the harness's own
+                // grammar reads as THIS list: a mapping onto anything else
+                // cannot reach the final command, and is refused rather
+                // than folded into whatever the name happens to be.
+                if (!names.is_empty() || explicit.is_some())
+                    && grammar::list_of(provider, &flags[slot].flag) != Some(kind)
+                {
+                    return Err(unconsumed(
+                        provider,
+                        &format!(
+                            "a selection mapped onto '{}', which its grammar does not read as \
+                             that tool list,",
+                            flags[slot].flag
+                        ),
+                    ));
+                }
+                folding.push(Folding {
+                    at: node.map(|node| Place {
+                        at: node.at,
+                        tokens: node.tokens,
+                        joined: node.joined,
+                    }),
+                    create: explicit.is_some() || (slot != 0 && !names.is_empty()),
+                    flag: flags[slot].clone(),
+                    carried,
+                    names,
+                });
             }
-            if let Some(tool) = selection
-                .deny
-                .iter()
-                .find(|tool| selection.include.contains(tool) || selection.allow.contains(tool))
-            {
+            let admitted: Vec<&String> = folding[0]
+                .all()
+                .into_iter()
+                .chain(folding[1].all())
+                .collect();
+            if let Some(tool) = folding[2].all().into_iter().find(|t| admitted.contains(t)) {
                 return Err(unconsumed(
                     provider,
                     &format!("tool '{tool}' both admitted and denied"),
                 ));
             }
-            extra = apply_selection(&extra, &selection, claude_list);
+            extra = fold_lists(&extra, &folding);
             extra.extend(verbatim);
-            Ok(Composed {
-                extra,
-                managed: Vec::new(),
-            })
+            Ok(composed(extra, Vec::new()))
         }
         // Built-in launches that consume no native control at all.
         "dsh" | "exec" => {
@@ -786,77 +811,80 @@ pub fn compose_for_provider(
             if !controls.argv.is_empty() {
                 return Err(unconsumed(provider, "managed arguments"));
             }
-            Ok(Composed {
-                extra,
-                managed: Vec::new(),
-            })
+            Ok(composed(extra, Vec::new()))
         }
         // An opaque custom driver: the plan rides its input as data.
-        _ => Ok(Composed {
-            extra,
-            managed: controls.argv.clone(),
-        }),
+        _ => Ok(composed(extra, controls.argv.clone())),
     }
 }
 
-/// Fold the engine's tool selection into the seat's own lists, each list
-/// flag emitted ONCE: a name is appended to the value the seat already
-/// carries for that flag, and a flag the seat does not carry is added
-/// only when the engine has something to say on it. The tools that exist
-/// at all are the exception — a seat that names no such list runs with
-/// the harness's whole set, which already holds every native tool, so
-/// `include` adds to an existing list and never creates one.
+/// Where one of the seat's own list options stands in its argv.
+struct Place {
+    at: usize,
+    tokens: usize,
+    /// Whether the value arrived inside the option's own token.
+    joined: bool,
+}
+
+/// One tool list as the composition resolved it: where the seat's own
+/// node for it stands, what that node already carries, and what the plan
+/// adds — the whole of what [`fold_lists`] writes into the final command.
+struct Folding {
+    at: Option<Place>,
+    create: bool,
+    flag: ListFlag,
+    carried: Vec<String>,
+    names: Vec<String>,
+}
+
+impl Folding {
+    /// Every tool this list ends up naming, the seat's own and the plan's.
+    fn all(&self) -> Vec<&String> {
+        self.carried.iter().chain(&self.names).collect()
+    }
+}
+
+/// Fold each resolved list into the seat's argv, every list flag emitted
+/// ONCE (decision 0066 rulings 3 and 6).
 ///
-/// The seat's list is found under ANY spelling its harness gives the
-/// flag, and folded into where it stands: `--flag value` gains the names
-/// in its value part, `--flag=value` inside the part itself, and the
-/// spelling the seat wrote is the one that runs. `canonical` is the
-/// harness's own reading of a flag name — Claude's
-/// `--allowed-tools` IS `--allowedTools` — so the alias knowledge stays
-/// with the launch that already owns it, and a name it does not know is
-/// read as written. A list flag with nothing after it is left alone, for
-/// the arity refusal that follows.
-pub fn apply_selection(
-    extra: &[String],
-    selection: &Selection,
-    canonical: impl Fn(&str) -> Option<&'static str>,
-) -> Vec<String> {
-    let Some(flags) = &selection.flags else {
-        return extra.to_vec();
-    };
+/// A list the seat already wrote gains the plan's names IN PLACE, at the
+/// token the parse placed it: `--flag value` in its last value token,
+/// `--flag=value` inside the option's own token, so the spelling the seat
+/// wrote is the spelling that runs. A list the seat did not write is
+/// appended when the plan names one explicitly — including an explicitly
+/// EMPTY one, which is a restriction and not an absence (second council
+/// H4) — or when the plan has names for an allow or deny list.
+///
+/// The tools that exist at all keep their one exception: a seat that names
+/// no include list runs with the harness's whole set, which already holds
+/// every native tool, so additive include names create no list. What
+/// creates one is an explicit include the plan itself carries.
+fn fold_lists(extra: &[String], folding: &[Folding]) -> Vec<String> {
     let mut argv = extra.to_vec();
-    let lists = [
-        (&flags[0], &selection.include, false),
-        (&flags[1], &selection.allow, true),
-        (&flags[2], &selection.deny, true),
-    ];
-    for (list, names, create) in lists {
-        if names.is_empty() {
-            continue;
-        }
-        let joined = names.join(&list.separator);
-        let authored = argv.iter().position(|part| {
-            let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
-            canonical(name).unwrap_or(name) == list.flag
-        });
-        // Where the seat's own value stands, and whether it is empty: an
-        // empty list — the hands fragment's `--tools ""` — takes the names
-        // with no separator before them.
-        let value = authored.and_then(|position| match argv[position].split_once('=') {
-            Some((_, value)) => Some((position, value.is_empty())),
-            None => argv
-                .get(position + 1)
-                .map(|value| (position + 1, value.is_empty())),
-        });
-        match value {
-            Some((index, empty)) => {
+    for list in folding {
+        let joined = list.names.join(&list.flag.separator);
+        match &list.at {
+            Some(_) if joined.is_empty() => {}
+            // `--flag=value`: the value lives in the option's own token,
+            // and an empty one takes the names with no separator before
+            // them. `--flag value …`: the names join the LAST value token,
+            // which is where a reader of the final command looks for them.
+            Some(place) => {
+                let value = match place.joined {
+                    true => place.at,
+                    false => place.at + place.tokens - 1,
+                };
+                let empty = match place.joined {
+                    true => argv[value].ends_with('='),
+                    false => argv[value].is_empty(),
+                };
                 if !empty {
-                    argv[index].push_str(&list.separator);
+                    argv[value].push_str(&list.flag.separator);
                 }
-                argv[index].push_str(&joined);
+                argv[value].push_str(&joined);
             }
-            None if create => {
-                argv.push(list.flag.clone());
+            None if list.create => {
+                argv.push(list.flag.flag.clone());
                 argv.push(joined);
             }
             None => {}

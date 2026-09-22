@@ -263,6 +263,10 @@ impl Fixture {
 
 /// An inline seat driven by `provider`, classed and bound as given.
 fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
+    // Every known harness's passthrough is written in ITS OWN grammar: a
+    // token the harness has no option for — the trailing `true` these
+    // fixtures once carried — is refused at compile now, wherever it
+    // stands (decision 0066 ruling 6).
     let command = match provider {
         "claude" | "lanetally" => json!([
             "{brokkr}",
@@ -272,8 +276,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--model",
             "claude-fable-5-1",
             "--effort",
-            "high",
-            "true"
+            "high"
         ]),
         "codex" => json!([
             "{brokkr}",
@@ -283,8 +286,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--model",
             "gpt-6-sol",
             "--effort",
-            "medium",
-            "true"
+            "medium"
         ]),
         "dsh" => json!([
             "{brokkr}",
@@ -294,8 +296,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             "--model",
             "deepseek-v4-flash",
             "--effort",
-            "medium",
-            "true"
+            "medium"
         ]),
         "judge" => json!(["{brokkr}", "driver", provider, "--", "--model", "judge-1", "true"]),
         _ => json!(["{brokkr}", "driver", provider, "--", "true"]),

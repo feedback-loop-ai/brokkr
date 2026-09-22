@@ -542,12 +542,22 @@ fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_ro
 fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
     let operator = Operator::new();
     let context = CapabilityContext::no_grants("private", operator.root());
+    // Second council H1: all five spellings of the one config assignment,
+    // the ATTACHED one included, earn the same realm-only refusal, because
+    // the grammar parses them into the same assignment before anything
+    // judges it.
     for (authored, written) in [
         (vec!["--search"], "--search"),
         (vec!["-c", "web_search=\"disabled\""], "-c web_search"),
+        (vec!["-cweb_search=\"disabled\""], "-c web_search"),
+        (vec!["-c=web_search=\"disabled\""], "-c web_search"),
         (
-            vec!["--enable", "web_search_request"],
-            "--enable web_search_request",
+            vec!["--config", "web_search=\"disabled\""],
+            "--config web_search",
+        ),
+        (
+            vec!["--config=web_search=\"disabled\""],
+            "--config web_search",
         ),
     ] {
         // The sound bundle compiles; then one authored control is added.

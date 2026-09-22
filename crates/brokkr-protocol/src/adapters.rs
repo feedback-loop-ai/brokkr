@@ -2576,7 +2576,13 @@ fn composed_launch(
         });
     };
     let (authored, fragment) = controls::launch_arguments(input, extra)?;
-    if let Some(conflict) = controls::authored_conflict(&authored, &plan.guards) {
+    // The authored part is parsed against the harness's grammar before it
+    // is judged, at this boundary exactly as at compile: one parser, so a
+    // spelling admitted here cannot be one the compiler read differently
+    // (decision 0066 ruling 6).
+    let conflict = controls::authored_conflict(provider, &authored, &plan.guards)
+        .map_err(|refusal| refusal.at_launch(input))?;
+    if let Some(conflict) = conflict {
         return Err(controls::conflict_refusal(input, &conflict));
     }
     controls::compose_for_provider(provider, &authored, &fragment, &plan)
@@ -2960,8 +2966,12 @@ fn claude_launch(
         LANETALLY_SHAPE => "lanetally",
         _ => "claude",
     };
-    let composed = composed_launch(provider, extra, input)?;
-    let extra = composed.extra.as_slice();
+    // The session and duplicate/arity refusals judge the argv the seat was
+    // handed, BEFORE the plan is composed into it: the composition emits
+    // each list flag exactly once, so a duplicate in the final command can
+    // only have come from the seat, and naming it in the seat's own words
+    // (proposed decision 0056 ruling 6) is more use than naming it in the
+    // grammar's.
     if let Some(conflict) = claude_selector_conflict(extra) {
         return Err(format!(
             "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
@@ -2973,6 +2983,8 @@ fn claude_launch(
     if let Some(conflict) = claude_restriction_conflict(extra) {
         return Err(conflict);
     }
+    let composed = composed_launch(provider, extra, input)?;
+    let extra = composed.extra.as_slice();
     // `--no-session-persistence` is admitted — it is a legitimate thing
     // for a seat to want — and it makes the shape nonresumable, which is
     // a fact the launch row reports rather than a setting to strip.

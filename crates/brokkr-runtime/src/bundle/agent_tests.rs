@@ -562,7 +562,7 @@ fn an_adapter_template_secret_reference_faces_the_declared_secret_lint() {
         "driver",
         "claude",
         "--",
-        "--key",
+        "--append-system-prompt",
         "{{secret:TOKEN}}"
     ]);
     fixture.write("adapters/claude.json", adapter);

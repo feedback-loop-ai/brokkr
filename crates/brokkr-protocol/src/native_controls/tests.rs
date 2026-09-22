@@ -262,13 +262,40 @@ fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
     }
 }
 
+/// One guard over an option whose VALUE names a feature, as an adapter
+/// may declare one. `--ask-for-approval` is a real codex option, so the
+/// guard is judged on a command the grammar can actually place.
+fn feature_guard() -> Guard {
+    Guard {
+        capability: "web-search".into(),
+        feature_flags: argv(&["--ask-for-approval", "-a"]),
+        features: argv(&["never"]),
+        ..Guard::default()
+    }
+}
+
+/// The authored conflict of a fixture the grammar is expected to place.
+fn conflict(harness: &str, extra: &[String], guards: &[Guard]) -> Option<(String, String)> {
+    authored_conflict(harness, extra, guards)
+        .unwrap_or_else(|refusal| panic!("{extra:?} parses: {}", refusal.cause))
+}
+
+/// Second council H1: the spelling is not the control. All five Codex
+/// config spellings — split, equals-joined and ATTACHED, under both the
+/// short and the long name — parse to one assignment, so the same guard
+/// finds the same key in every one of them.
 #[test]
 fn every_authored_spelling_of_a_native_control_is_found_by_name() {
-    let guards = [codex_guard()];
+    let guards = [codex_guard(), feature_guard()];
     for (extra, written) in [
         (argv(&["--sandbox", "read-only", "--search"]), "--search"),
-        (argv(&["--search=true"]), "--search"),
         (argv(&["-c", "web_search=\"live\""]), "-c web_search"),
+        (argv(&["-c=web_search=\"live\""]), "-c web_search"),
+        (argv(&["-cweb_search=\"live\""]), "-c web_search"),
+        (
+            argv(&["--config", "web_search=\"live\""]),
+            "--config web_search",
+        ),
         (
             argv(&["--config=web_search=\"live\""]),
             "--config web_search",
@@ -278,18 +305,20 @@ fn every_authored_spelling_of_a_native_control_is_found_by_name() {
             "--config tools.web_search",
         ),
         (
-            argv(&["--enable", "web_search_request"]),
-            "--enable web_search_request",
+            argv(&["--ask-for-approval", "never"]),
+            "--ask-for-approval never",
         ),
-        (
-            argv(&["--disable=web_search_request"]),
-            "--disable web_search_request",
-        ),
+        (argv(&["-a=never"]), "-a never"),
         // The engine's own OFF pair, authored, is an authored control.
         (argv(&["-c", "web_search=\"disabled\""]), "-c web_search"),
+        // An attached assignment among other arguments is still found.
+        (
+            argv(&["--model", "gpt-6-astra", "-cweb_search=\"live\"", "--json"]),
+            "-c web_search",
+        ),
     ] {
         assert_eq!(
-            authored_conflict(&extra, &guards),
+            conflict("codex", &extra, &guards),
             Some((written.to_string(), "web-search".to_string())),
             "{extra:?}"
         );
@@ -328,30 +357,30 @@ fn the_conflict_refusal_names_the_seat_the_control_and_the_capability() {
 
 #[test]
 fn an_unrelated_value_is_never_read_as_a_control() {
-    let guards = [codex_guard()];
+    let guards = [codex_guard(), feature_guard()];
     for extra in [
-        // A value-taking flag's value is skipped whatever it spells.
-        argv(&["--model", "--search"]),
-        argv(&["-m", "--search", "--sandbox", "read-only"]),
+        // A value-taking option's value is data whatever it spells; the
+        // grammar knows which options take one, so no list of value flags
+        // has to be trusted to keep a model named `--search` inert.
         argv(&["--model=--search"]),
+        argv(&["-m=--search", "--sandbox", "read-only"]),
         // Configuration and features that reach something else.
         argv(&["-c", "model_reasoning_effort=\"low\""]),
         argv(&["-c", "sandbox_mode"]),
-        argv(&["--enable", "other_feature"]),
-        // A dangling flag names nothing, and a bare pair follows no flag.
-        argv(&["-c"]),
-        argv(&["--enable"]),
-        argv(&["--model"]),
-        argv(&["web_search=\"live\""]),
+        argv(&["-cmodel_reasoning_effort=\"low\""]),
+        argv(&["--ask-for-approval", "on-request"]),
         Vec::new(),
     ] {
-        assert_eq!(authored_conflict(&extra, &guards), None, "{extra:?}");
+        assert_eq!(conflict("codex", &extra, &guards), None, "{extra:?}");
     }
 }
 
+/// Second council H2: a tool list is judged on EVERY value, not on the
+/// first. The lists are variadic, so `--allowedTools Read WebFetch` admits
+/// two tools and the second is the one the guard finds.
 #[test]
 fn a_tool_list_that_admits_a_native_tool_is_an_authored_control() {
-    let guards = [codex_guard(), claude_guard()];
+    let guards = [claude_guard()];
     for (extra, written) in [
         (
             argv(&["--allowedTools", "Bash(git:*),WebFetch"]),
@@ -362,9 +391,18 @@ fn a_tool_list_that_admits_a_native_tool_is_an_authored_control() {
             "--allowed-tools WebFetch",
         ),
         (argv(&["--tools", "Read WebFetch"]), "--tools WebFetch"),
+        // The SECOND variadic value, which the old scanner never read.
+        (
+            argv(&["--allowedTools", "Read", "WebFetch"]),
+            "--allowedTools WebFetch",
+        ),
+        (
+            argv(&["--allowedTools", "Read", "Bash(git:*)", "WebFetch"]),
+            "--allowedTools WebFetch",
+        ),
     ] {
         assert_eq!(
-            authored_conflict(&extra, &guards),
+            conflict("claude", &extra, &guards),
             Some((written.to_string(), "web-fetch".to_string())),
             "{extra:?}"
         );
@@ -372,12 +410,34 @@ fn a_tool_list_that_admits_a_native_tool_is_an_authored_control() {
     for extra in [
         argv(&["--allowedTools", "Bash(git:*),mcp__brokkr__workspace"]),
         argv(&["--tools", ""]),
-        argv(&["--allowedTools"]),
-        // Denying the tool by name is not admitting it.
+        // Denying the tool by name is not admitting it (second council M1).
         argv(&["--disallowedTools", "WebFetch"]),
+        argv(&["--disallowed-tools", "Read", "WebFetch"]),
     ] {
-        assert_eq!(authored_conflict(&extra, &guards), None, "{extra:?}");
+        assert_eq!(conflict("claude", &extra, &guards), None, "{extra:?}");
     }
+}
+
+/// A claude plan that answers for both of the harness's known powers,
+/// over the selection and managed argv a test hands it.
+fn claude_controls(selection: Selection, managed: &[&str]) -> Controls {
+    Controls {
+        provider: "claude".into(),
+        harness: "claude".into(),
+        inventory: Inventory::Known,
+        held: argv(&["web-search", "web-fetch"]),
+        denied: Vec::new(),
+        argv: argv(managed),
+        selection,
+        guards: Vec::new(),
+    }
+}
+
+/// The composed seat argv, through the one production composer.
+fn composed(authored: &[&str], fragment: &[&str], controls: &Controls) -> Vec<String> {
+    compose_for_provider("claude", &argv(authored), &argv(fragment), controls)
+        .unwrap_or_else(|refusal| panic!("{authored:?} composes: {}", refusal.cause))
+        .extra
 }
 
 #[test]
@@ -388,19 +448,20 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
         deny: argv(&["WebFetch"]),
         flags: claude_flags(),
     };
+    let controls = claude_controls(selection.clone(), &[]);
     // Boxed hands: the empty native list gains exactly the held tool, the
     // workspace tool stays allowed, and strict MCP configuration stays.
     assert_eq!(
-        apply_selection(
-            &argv(&[
+        composed(
+            &[],
+            &[
                 "--tools",
                 "",
                 "--strict-mcp-config",
                 "--allowedTools",
                 "mcp__brokkr__workspace"
-            ]),
-            &selection,
-            as_written
+            ],
+            &controls
         ),
         argv(&[
             "--tools",
@@ -415,11 +476,7 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
     // Unboxed with a local restriction: no tool list is invented, so the
     // harness's other built-ins are not restored or removed.
     assert_eq!(
-        apply_selection(
-            &argv(&["--allowedTools", "Bash(git:*)"]),
-            &selection,
-            as_written
-        ),
+        composed(&["--allowedTools", "Bash(git:*)"], &[], &controls),
         argv(&[
             "--allowedTools",
             "Bash(git:*),WebSearch",
@@ -428,54 +485,29 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
         ])
     );
     // Nothing held: both are denied by name, into a list already there.
-    let denied = Selection {
-        deny: argv(&["WebSearch", "WebFetch"]),
-        flags: claude_flags(),
-        ..Selection::default()
-    };
+    let denied = claude_controls(
+        Selection {
+            deny: argv(&["WebSearch", "WebFetch"]),
+            flags: claude_flags(),
+            ..Selection::default()
+        },
+        &[],
+    );
     assert_eq!(
-        apply_selection(
-            &argv(&["--disallowedTools", "Bash(rm:*)"]),
-            &denied,
-            as_written
-        ),
+        composed(&["--disallowedTools", "Bash(rm:*)"], &[], &denied),
         argv(&["--disallowedTools", "Bash(rm:*),WebSearch,WebFetch"])
     );
-    // A dangling list flag is left for the arity refusal that follows.
+    // A dangling list flag is a grammar refusal, not a second flag.
     assert_eq!(
-        apply_selection(&argv(&["--disallowedTools"]), &denied, as_written),
-        argv(&[
-            "--disallowedTools",
-            "--disallowedTools",
-            "WebSearch,WebFetch"
-        ])
+        compose_for_provider("claude", &argv(&["--disallowedTools"]), &[], &denied)
+            .expect_err("a list option with no value does not parse")
+            .cause,
+        "do not parse: the 'claude' command grammar cannot place argument 1 \
+         ('--disallowedTools'): it takes a value and is the last argument, so it has none. A \
+         harness brokkr launches is parsed against a model of its options, and a token that \
+         grammar cannot place is refused rather than passed through, because a control nobody \
+         can read is a control nobody can rule on (decision 0066 ruling 6)"
     );
-    // A provider with no selection grammar is untouched.
-    assert_eq!(
-        apply_selection(
-            &argv(&["--sandbox", "read-only"]),
-            &Selection::default(),
-            as_written
-        ),
-        argv(&["--sandbox", "read-only"])
-    );
-}
-
-/// A harness that knows no other name for a flag: every name is read as
-/// the seat wrote it.
-fn as_written(_: &str) -> Option<&'static str> {
-    None
-}
-
-/// A harness's own alias reading, as a launch supplies it. The shipped one
-/// is Claude's and is proved at the launch, in the adapter tests; this one
-/// stands in for it so the fold is judged apart from any one harness.
-fn kebab_aliases(name: &str) -> Option<&'static str> {
-    match name {
-        "--allowed-tools" => Some("--allowedTools"),
-        "--disallowed-tools" => Some("--disallowedTools"),
-        _ => None,
-    }
 }
 
 /// The seat's own list is ONE list whatever it is spelled: a split alias
@@ -490,28 +522,27 @@ fn a_selection_folds_into_an_aliased_or_joined_list_where_it_stands() {
         deny: argv(&["WebFetch"]),
         flags: claude_flags(),
     };
+    let controls = claude_controls(selection, &[]);
     for (authored, folded) in [
-        // The joined canonical spelling, every list at once.
+        // The joined canonical spelling, every list at once. The seat's
+        // own nonempty include list is a limit the engine may not widen,
+        // so this fixture holds only what that limit already names.
         (
+            vec!["--allowedTools=Bash(git:*)", "--disallowedTools=Bash(rm:*)"],
             argv(&[
-                "--tools=Read",
-                "--allowedTools=Bash(git:*)",
-                "--disallowedTools=Bash(rm:*)",
-            ]),
-            argv(&[
-                "--tools=Read,WebSearch",
                 "--allowedTools=Bash(git:*),WebSearch",
                 "--disallowedTools=Bash(rm:*),WebFetch",
             ]),
         ),
-        // The split alias keeps its spelling and gains the names.
+        // The split alias keeps its spelling and gains the names: an alias
+        // is the SAME control, because the grammar says so.
         (
-            argv(&[
+            vec![
                 "--allowed-tools",
                 "Bash(git:*)",
                 "--disallowed-tools",
                 "Bash(rm:*)",
-            ]),
+            ],
             argv(&[
                 "--allowed-tools",
                 "Bash(git:*),WebSearch",
@@ -521,38 +552,26 @@ fn a_selection_folds_into_an_aliased_or_joined_list_where_it_stands() {
         ),
         // The joined alias, and a joined EMPTY list takes no separator.
         (
-            argv(&["--allowed-tools=Bash(git:*)", "--disallowed-tools="]),
+            vec!["--allowed-tools=Bash(git:*)", "--disallowed-tools="],
             argv(&[
                 "--allowed-tools=Bash(git:*),WebSearch",
                 "--disallowed-tools=WebFetch",
             ]),
         ),
-    ] {
-        assert_eq!(
-            apply_selection(&authored, &selection, kebab_aliases),
-            folded,
-            "{authored:?}"
-        );
-    }
-    // Without the harness's reading an alias is some other flag, which is
-    // why the launch supplies it: the engine's flag is added beside it.
-    assert_eq!(
-        apply_selection(
-            &argv(&["--disallowed-tools", "Bash(rm:*)"]),
-            &Selection {
-                deny: argv(&["WebFetch"]),
-                flags: claude_flags(),
-                ..Selection::default()
-            },
-            as_written
+        // A variadic list gains the names in its LAST value token.
+        (
+            vec!["--allowed-tools", "Bash(git:*)", "Read"],
+            argv(&[
+                "--allowed-tools",
+                "Bash(git:*)",
+                "Read,WebSearch",
+                "--disallowedTools",
+                "WebFetch",
+            ]),
         ),
-        argv(&[
-            "--disallowed-tools",
-            "Bash(rm:*)",
-            "--disallowedTools",
-            "WebFetch"
-        ])
-    );
+    ] {
+        assert_eq!(composed(&authored, &[], &controls), folded, "{authored:?}");
+    }
 }
 
 #[test]
@@ -856,13 +875,14 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
             "{provider}: {authored:?}"
         );
     }
-    // Inert: a value position is a value, whatever it spells; a bare
-    // assignment follows no configuration flag; another key is another key.
+    // Inert: a value is a value whatever it spells, and another key is
+    // another key. An option-looking value reaches the command through the
+    // joined spelling, which the grammar preserves as one token.
     for (provider, controls, authored) in [
         (
             "codex",
             &codex,
-            argv(&["--model", "-c", "--sandbox", "mcp_servers.x=1"]),
+            argv(&["--model=-c", "--sandbox", "mcp_servers.x=1"]),
         ),
         (
             "codex",
@@ -872,16 +892,14 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
         (
             "codex",
             &codex,
-            argv(&["-c", "mcp_servers_timeout=5", "mcp_servers.x=1"]),
+            argv(&["-c", "mcp_servers_timeout=5", "-c", "shell.x=1"]),
         ),
         (
             "claude",
             &claude,
             argv(&[
-                "--model",
-                "--mcp-config",
-                "--append-system-prompt",
-                "--allowedTools mcp__x__y",
+                "--model=--mcp-config",
+                "--append-system-prompt=--allowedTools mcp__x__y",
             ]),
         ),
         (
@@ -908,14 +926,22 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
             managed: Vec::new(),
         })
     );
-    // A provider with no such door is not judged for one.
+    // DSH has no such door: the option is not in its grammar at all, so it
+    // never reaches an admission question.
     assert_eq!(
-        authored_server_conflict("dsh", &argv(&["--mcp-config", "x"])),
-        None
+        parse_origin("dsh", &argv(&["--mcp-config", "x"]), true)
+            .expect_err("dsh has no such option")
+            .cause,
+        "do not parse: the 'dsh' command grammar cannot place argument 1 ('--mcp-config'): it \
+         names no option. A harness brokkr launches is parsed against a model of its options, \
+         and a token that grammar cannot place is refused rather than passed through, because a \
+         control nobody can read is a control nobody can rule on (decision 0066 ruling 6)"
     );
+    // A command that dispatches no built-in harness has no grammar and
+    // claims none: the engine never composes its final command.
     assert_eq!(
-        authored_server_conflict("exec", &argv(&["-c", "mcp_servers.x=1"])),
-        None
+        parse_origin("exec", &argv(&["-c", "mcp_servers.x=1"]), true),
+        Ok(None)
     );
     // Both voices of the one refusal.
     let refusal = server_refusal("codex", "-c mcp_servers");
@@ -973,12 +999,20 @@ fn a_known_native_power_is_composed_only_under_a_plan_that_answers_for_it() {
     };
     assert_eq!(known_powers("codex"), ["web-search"]);
     assert_eq!(known_powers("claude"), ["web-search", "web-fetch"]);
-    for provider in ["dsh", "lanetally", "exec", "<custom>"] {
+    // Each seat's argv is one its own harness's grammar admits: a provider
+    // with no known power still parses under its own table, and a command
+    // that dispatches no built-in harness has no table at all.
+    for (provider, authored) in [
+        ("dsh", argv(&["--model", "flash"])),
+        ("lanetally", argv(&["--verbose"])),
+        ("exec", argv(&["--x"])),
+        ("<custom>", argv(&["--x"])),
+    ] {
         assert_eq!(known_powers(provider), [""; 0], "{provider}");
         assert_eq!(
-            compose_for_provider(provider, &argv(&["--x"]), &[], &unmeasured(provider)),
+            compose_for_provider(provider, &authored, &[], &unmeasured(provider)),
             Ok(Composed {
-                extra: argv(&["--x"]),
+                extra: authored.clone(),
                 managed: Vec::new()
             }),
             "{provider}"
@@ -1146,10 +1180,14 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         .concat()
     );
     // A restriction transport is not a list: verbatim, after the lists.
+    // `--settings` is the supported production option that carries a whole
+    // settings document — the installed 2.1.266 help spells it
+    // `--settings <file-or-json>` — so a restriction rides a form the
+    // harness actually has, never an invented one (task 0.3).
     let restricted = claude(
         &[
-            "--search-policy",
-            "{\"allow\":{\"hosts\":[\"yaml.org\"]}}",
+            "--settings",
+            "{\"permissions\":{\"deny\":[\"WebFetch\"]}}",
             "--disallowedTools",
             "WebFetch",
         ],
@@ -1166,8 +1204,8 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             argv(&[
                 "--disallowedTools",
                 "WebFetch",
-                "--search-policy",
-                "{\"allow\":{\"hosts\":[\"yaml.org\"]}}"
+                "--settings",
+                "{\"permissions\":{\"deny\":[\"WebFetch\"]}}"
             ])
         ]
         .concat()
@@ -1188,15 +1226,18 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         ]
         .concat()
     );
-    // Codex consumes argv, appended LAST by its launch.
+    // Codex consumes argv, appended LAST by its launch. Its seat's argv is
+    // one the codex grammar places, because a harness is parsed under its
+    // own table and never under another's.
+    let codex_seat = argv(&["--sandbox", "read-only"]);
     let off = Controls {
         argv: argv(&["-c", "web_search=\"disabled\""]),
         ..ready("codex", &[], &["web-search"])
     };
     assert_eq!(
-        compose_for_provider("codex", &seat, &[], &off),
+        compose_for_provider("codex", &codex_seat, &[], &off),
         Ok(Composed {
-            extra: seat.clone(),
+            extra: codex_seat.clone(),
             managed: argv(&["-c", "web_search=\"disabled\""])
         })
     );
@@ -1219,21 +1260,33 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             separator: ",".into(),
         },
     ]);
+    // A managed list with no value does not parse at all, and a plan whose
+    // own argv cannot be read is refused in the engine's own voice.
+    assert_eq!(
+        compose_for_provider(
+            "claude",
+            &seat,
+            &[],
+            &claude(&["--disallowedTools"], &[], &[], &[])
+        )
+        .expect_err("a list option with no value does not parse")
+        .cause,
+        "cannot be composed: the 'claude' command grammar cannot place argument 1 \
+         ('--disallowedTools'): it takes a value and is the last argument, so it has none. A \
+         harness brokkr launches is parsed against a model of its options, and a token that \
+         grammar cannot place is refused rather than passed through, because a control nobody \
+         can read is a control nobody can rule on (decision 0066 ruling 6)"
+    );
     for (provider, controls, form) in [
         (
             "claude",
             no_flags,
-            "a managed '--disallowedTools' with no value, or no selection mapping to fold it into,",
+            "a managed '--disallowedTools' with no selection mapping to fold it into,",
         ),
         (
             "claude",
             foreign,
-            "a managed '--disallowedTools' with no value, or no selection mapping to fold it into,",
-        ),
-        (
-            "claude",
-            claude(&["--disallowedTools"], &[], &[], &[]),
-            "a managed '--disallowedTools' with no value, or no selection mapping to fold it into,",
+            "a selection mapped onto '--deny', which its grammar does not read as that tool list,",
         ),
         (
             "claude",
@@ -1245,8 +1298,19 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             claude(&[], &["WebFetch"], &[], &["WebFetch"]),
             "tool 'WebFetch' both admitted and denied",
         ),
+    ] {
+        assert_eq!(
+            compose_for_provider(provider, &seat, &[], &controls),
+            Err(form_refusal(provider, form)),
+            "{provider}: {form}"
+        );
+    }
+    // The same, for providers whose own grammar the seat's argv is written
+    // in: each harness is parsed under its own table, never another's.
+    for (provider, seat, controls, form) in [
         (
             "codex",
+            argv(&["--sandbox", "read-only"]),
             Controls {
                 selection: mixed.selection.clone(),
                 ..ready("codex", &[], &["web-search"])
@@ -1255,6 +1319,7 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         ),
         (
             "dsh",
+            argv(&["--model", "flash"]),
             Controls {
                 selection: mixed.selection.clone(),
                 ..ready("dsh", &[], &[])
@@ -1263,6 +1328,7 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         ),
         (
             "dsh",
+            argv(&["--model", "flash"]),
             Controls {
                 argv: argv(&["--no-web"]),
                 ..ready("dsh", &[], &[])
@@ -1271,6 +1337,7 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         ),
         (
             "exec",
+            argv(&["--no-web"]),
             Controls {
                 argv: argv(&["--no-web"]),
                 ..ready("exec", &[], &[])

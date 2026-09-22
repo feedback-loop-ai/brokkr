@@ -14161,10 +14161,12 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
             (s(&["--sandbox", "read-only", "--search"]), "--search"),
             (s(&["-c", "web_search=\"live\""]), "-c web_search"),
             (s(&["-c", "web_search=\"disabled\""]), "-c web_search"),
-            (
-                s(&["--enable", "web_search_request"]),
-                "--enable web_search_request",
-            ),
+            // Second council H1: the ATTACHED spelling is the same control
+            // as the split and equals-joined ones, judged on the parsed
+            // assignment rather than on the token's shape.
+            (s(&["-cweb_search=\"live\""]), "-c web_search"),
+            (s(&["-c=web_search=\"live\""]), "-c web_search"),
+            (s(&["--config=web_search=\"live\""]), "--config web_search"),
         ] {
             for session in [None, Some(THREAD)] {
                 let input = all_authored(&input, &extra);
@@ -14184,8 +14186,32 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
             }
         }
         // A model that merely SPELLS the flag is a value, not a control.
-        let inert = s(&["--model", "--search"]);
+        // The grammar knows `--model` takes one, and the joined spelling is
+        // the one that carries text which itself reads as an option: the
+        // split pair is ambiguous and is refused rather than guessed at
+        // (second council H3).
+        let inert = s(&["--model=--search"]);
         assert!(codex_launch("codex", &inert, "/w", None, &all_authored(&input, &inert)).is_ok());
+        let ambiguous = s(&["--model", "--search"]);
+        let Err(error) = codex_launch(
+            "codex",
+            &ambiguous,
+            "/w",
+            None,
+            &all_authored(&input, &ambiguous),
+        ) else {
+            panic!("an option-looking split value is ambiguous");
+        };
+        assert_eq!(
+            error,
+            "refusing to invoke the agent CLI: the arguments of seat 'research' do not parse: \
+             the 'codex' command grammar cannot place argument 2 ('--search'): it stands where \
+             the value of '--model' belongs but reads as an option, so which of the two it is \
+             cannot be told. A harness brokkr launches is parsed against a model of its \
+             options, and a token that grammar cannot place is refused rather than passed \
+             through, because a control nobody can read is a control nobody can rule on \
+             (decision 0066 ruling 6)"
+        );
     }
 }
 
@@ -14367,13 +14393,12 @@ fn every_authored_spelling_the_shipped_codex_adapter_guards_is_refused() {
                 "--config features.web_search_cached",
             ),
             (s(&["-c", "tools.web_search=true"]), "-c tools.web_search"),
+            // All five config spellings of the one assignment, including
+            // the attached form the first repair's scanner never read.
+            (s(&["-ctools.web_search=true"]), "-c tools.web_search"),
             (
-                s(&["--enable=web_search_cached"]),
-                "--enable web_search_cached",
-            ),
-            (
-                s(&["--disable", "web_search_cached"]),
-                "--disable web_search_cached",
+                s(&["-c=features.web_search_cached=true"]),
+                "-c features.web_search_cached",
             ),
             // A DUPLICATE control: the engine's own OFF pair, authored
             // twice over beside the managed one, is refused at its first
@@ -14418,32 +14443,69 @@ fn every_authored_spelling_the_shipped_codex_adapter_guards_is_refused() {
         for flag in list("flags") {
             assert_eq!(refused(std::slice::from_ref(&flag)), refusal(&flag));
         }
-        // A configuration flag carries `key=value`, a feature flag the bare
-        // feature; the refusal names the key or the feature, never a value.
-        for (flags, names, assigned) in [
-            (list("config_flags"), list("config_keys"), "=true"),
-            (list("feature_flags"), list("features"), ""),
-        ] {
-            for flag in &flags {
-                for name in &names {
-                    let written = format!("{flag} {name}");
-                    let carried = format!("{name}{assigned}");
-                    assert_eq!(refused(&[flag.clone(), carried.clone()]), refusal(&written));
-                    assert_eq!(refused(&[format!("{flag}={carried}")]), refusal(&written));
+        // A configuration flag carries `key=value`; the refusal names the
+        // key, never a value — in ALL FIVE spellings the grammar
+        // normalizes to one assignment, the attached one included (second
+        // council H1).
+        for flag in list("config_flags") {
+            for name in list("config_keys") {
+                let written = format!("{flag} {name}");
+                let carried = format!("{name}=true");
+                assert_eq!(refused(&[flag.clone(), carried.clone()]), refusal(&written));
+                assert_eq!(refused(&[format!("{flag}={carried}")]), refusal(&written));
+                if !flag.starts_with("--") {
+                    assert_eq!(refused(&[format!("{flag}{carried}")]), refusal(&written));
                 }
             }
         }
-        // A value-taking flag's value is never a control, whatever it
+        // The adapter's `feature_flags` name options `codex exec` does not
+        // have. The grammar places every token or refuses it, so such a
+        // token never reaches the guard at all: it is refused EARLIER, and
+        // by name. The guard's own feature axis is proved over an option
+        // the grammar does place, in the native-controls tests.
+        for flag in list("feature_flags") {
+            for name in list("features") {
+                assert_eq!(
+                    refused(&[flag.clone(), name.clone()]),
+                    format!(
+                        "refusing to invoke the agent CLI: the arguments of seat 'inline' do \
+                         not parse: the 'codex' command grammar cannot place argument 1 \
+                         ('{flag}'): it names no option. A harness brokkr launches is parsed \
+                         against a model of its options, and a token that grammar cannot place \
+                         is refused rather than passed through, because a control nobody can \
+                         read is a control nobody can rule on (decision 0066 ruling 6)"
+                    )
+                );
+            }
+        }
+        // A value-taking option's value is never a control, whatever it
         // spells: under every shipped one a value spelled `--search`
         // launches, with the OFF pair exactly when the plan carries it.
+        // The value travels in the JOINED spelling, because a split value
+        // that itself reads as an option is ambiguous (second council H3).
+        // `--profile` is the exception: the grammar classifies it as a
+        // LOADING channel, because a named codex profile is another
+        // configuration document and what it can configure includes
+        // servers — so it is refused whatever its value spells.
         for flag in list("value_flags") {
-            let extra = [flag.clone(), "--search".to_string()];
-            assert_eq!(
-                codex_launch("codex", &extra, "/w", None, &all_authored(&input, &extra))
-                    .map(|launch| carries_off(&launch.command))
-                    .map_err(|error| format!("{flag}: {error}")),
-                Ok(!managed.is_empty())
-            );
+            let extra = [format!("{flag}=--search")];
+            let launched = codex_launch("codex", &extra, "/w", None, &all_authored(&input, &extra))
+                .map(|launch| carries_off(&launch.command))
+                .map_err(|error| format!("{flag}: {error}"));
+            match flag.as_str() {
+                "-p" | "--profile" => assert_eq!(
+                    launched,
+                    Err(format!(
+                        "{flag}: refusing to invoke the agent CLI: the arguments of seat \
+                         'inline' carry '{flag}', which configures a capability server or \
+                         admits a server's tools for provider 'codex'. A recipe's driver \
+                         arguments are recipe data, and only the realm grants a capability \
+                         (decision 0065 ruling 3); the workspace hands are the engine's own to \
+                         compose and need no authored configuration (decision 0066 ruling 4)"
+                    ))
+                ),
+                _ => assert_eq!(launched, Ok(!managed.is_empty()), "{flag}"),
+            }
         }
     }
 }
