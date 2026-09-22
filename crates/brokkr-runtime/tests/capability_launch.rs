@@ -1809,6 +1809,36 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
             "--config mcp_servers",
             "codex",
         ),
+        // Second council H1, verbatim: the ATTACHED spelling the first
+        // repair's scanner passed straight through into the final
+        // `codex exec` command earns the same realm-only refusal.
+        (
+            codex(&["-cmcp_servers.ungranted.command=\"/bin/false\""]),
+            "-c mcp_servers",
+            "codex",
+        ),
+        (
+            codex(&["-c=mcp_servers.ungranted.command=\"/bin/false\""]),
+            "-c mcp_servers",
+            "codex",
+        ),
+        (
+            codex(&["--config", "mcp_servers.ungranted.command=\"/bin/false\""]),
+            "--config mcp_servers",
+            "codex",
+        ),
+        // Second council H2: the plugin channel, and a later admission
+        // value, at the compiler as at the launch.
+        (
+            claude(&["--plugin-dir", "/etc/ungranted-plugins"]),
+            "--plugin-dir",
+            "claude",
+        ),
+        (
+            claude(&["--allowedTools", "Read", "mcp__ungranted__fetch"]),
+            "--allowedTools mcp__*",
+            "claude",
+        ),
         // Counterfeit hands: the engine's server name, authored.
         (
             codex(&["-c", "mcp_servers.brokkr.command=\"{brokkr}\""]),

@@ -14755,6 +14755,306 @@ fn claude_plan(include: &[&str], allow: &[&str], deny: &[&str]) -> Value {
     })
 }
 
+/// Second council H2 and H3 at the final command, for Claude and for
+/// LaneTally, which forwards the same grammar.
+///
+/// H2: the chief's probes kept `--allowedTools Read mcp__ungranted__fetch`,
+/// a later wildcard, and a `--plugin-dir` exposing
+/// `mcp__plugin_recipe_ungranted__fetch` in the final command under empty
+/// holdings — the scanner read one list value and knew no plugin channel.
+/// Every value of every admission list is judged now, and loading a plugin
+/// is the same authored channel loading a server is.
+///
+/// H3: `--append-system-prompt --disallowedTools hello` produced a tail
+/// whose required denial had been eaten by a prompt value. A split value
+/// that itself reads as an option is ambiguous and refuses; the JOINED
+/// spelling carries such text intact, beside a real denial.
+#[test]
+fn an_authored_plugin_or_later_list_value_is_refused_at_the_final_command() {
+    let server = |written: &str, provider: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the arguments of seat 'research' carry \
+             '{written}', which configures a capability server or admits a server's tools for \
+             provider '{provider}'. A recipe's driver arguments are recipe data, and only the \
+             realm grants a capability (decision 0065 ruling 3); the workspace hands are the \
+             engine's own to compose and need no authored configuration (decision 0066 ruling 4)"
+        )
+    };
+    for (case, extra, written) in [
+        (
+            "the second value of a variadic allow list",
+            vec!["--allowedTools", "Read", "mcp__ungranted__fetch"],
+            "--allowedTools mcp__*",
+        ),
+        (
+            "a later wildcard",
+            vec!["--allowedTools", "Read", "Bash(git:*)", "*"],
+            "--allowedTools *",
+        ),
+        (
+            "a plugin directory",
+            vec!["--plugin-dir", "/etc/ungranted-plugins"],
+            "--plugin-dir",
+        ),
+        (
+            "a plugin directory beside an admitted plugin tool",
+            vec![
+                "--plugin-dir",
+                "/etc/p",
+                "--allowedTools",
+                "mcp__plugin_recipe_ungranted__fetch",
+            ],
+            "--plugin-dir",
+        ),
+        (
+            "an aliased later value",
+            vec!["--allowed-tools", "Read", "mcp__ungranted__fetch"],
+            "--allowedTools mcp__*",
+        ),
+    ] {
+        assert_eq!(
+            claude_composed(&extra, claude_plan(&[], &[], &["WebSearch", "WebFetch"])),
+            Err(server(written, "claude")),
+            "{case}"
+        );
+        let owned: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
+        let input = engine_input(
+            json!({"workdir": "/w", "seat": "research"}),
+            claude_plan(&[], &[], &["WebSearch", "WebFetch"]),
+            &owned,
+            0,
+        );
+        assert_eq!(
+            claude_launch("lanetally", &owned, None, &input, LANETALLY_SHAPE, None).err(),
+            Some(server(written, "lanetally")),
+            "{case}: lanetally shares this grammar"
+        );
+    }
+    // H3: the required denial is not something a prompt value may absorb.
+    assert_eq!(
+        claude_composed(
+            &["--append-system-prompt", "--disallowedTools", "hello"],
+            claude_plan(&[], &[], &["WebSearch", "WebFetch"])
+        ),
+        Err(
+            "refusing to invoke the agent CLI: the arguments of seat 'research' do not parse: \
+             the 'claude' command grammar cannot place argument 2 ('--disallowedTools'): it \
+             stands where the value of '--append-system-prompt' belongs but reads as an option, \
+             so which of the two it is cannot be told. A harness brokkr launches is parsed \
+             against a model of its options, and a token that grammar cannot place is refused \
+             rather than passed through, because a control nobody can read is a control nobody \
+             can rule on (decision 0066 ruling 6)"
+                .to_string()
+        )
+    );
+    // The joined spelling is inert text and reaches the command whole,
+    // beside a denial that is really delivered.
+    assert_eq!(
+        claude_composed(
+            &["--append-system-prompt=--disallowedTools hello"],
+            claude_plan(&[], &[], &["WebSearch", "WebFetch"])
+        ),
+        Ok([
+            &CLAUDE_HEAD[..],
+            &[
+                "--append-system-prompt=--disallowedTools hello",
+                "--disallowedTools",
+                "WebSearch,WebFetch"
+            ],
+        ]
+        .concat()
+        .iter()
+        .map(|part| part.to_string())
+        .collect::<Vec<_>>())
+    );
+}
+
+/// Second council M1: A SUBTRACTIVE LIST IS NEVER A GRANT. The chief
+/// reproduced a compile refusal claiming `--disallowedTools mcp__*`
+/// "configures a server or admits its tools". It narrows access: the
+/// pattern is preserved, the engine's own native denial merges into the
+/// same list, and the list flag reaches the harness once.
+#[test]
+fn an_authored_mcp_denial_is_subtraction_and_survives_beside_the_native_one() {
+    let denied = || claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
+    for (case, extra, composed) in [
+        (
+            "canonical",
+            vec!["--disallowedTools", "mcp__*"],
+            vec!["--disallowedTools", "mcp__*,WebSearch,WebFetch"],
+        ),
+        (
+            "alias",
+            vec!["--disallowed-tools", "mcp__*"],
+            vec!["--disallowed-tools", "mcp__*,WebSearch,WebFetch"],
+        ),
+        (
+            "joined",
+            vec!["--disallowedTools=mcp__ungranted__fetch"],
+            vec!["--disallowedTools=mcp__ungranted__fetch,WebSearch,WebFetch"],
+        ),
+        (
+            "a later denied value",
+            vec!["--disallowedTools", "Read", "mcp__ungranted__fetch"],
+            vec![
+                "--disallowedTools",
+                "Read",
+                "mcp__ungranted__fetch,WebSearch,WebFetch",
+            ],
+        ),
+    ] {
+        let expected: Vec<String> = [&CLAUDE_HEAD[..], &composed[..]]
+            .concat()
+            .iter()
+            .map(|part| part.to_string())
+            .collect();
+        assert_eq!(claude_composed(&extra, denied()), Ok(expected), "{case}");
+        // LaneTally shares the branch and the outcome.
+        let owned: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
+        let input = engine_input(
+            json!({"workdir": "/w", "seat": "research"}),
+            denied(),
+            &owned,
+            0,
+        );
+        assert!(
+            claude_launch("lanetally", &owned, None, &input, LANETALLY_SHAPE, None).is_ok(),
+            "{case}: lanetally keeps the subtraction too"
+        );
+    }
+}
+
+/// Second council H4: AN ACCEPTED RESTRICTIVE `--tools` ARGV REACHES THE
+/// FINAL COMMAND. The chief changed only the shipped `web-search.off`
+/// disposition to each of `[--tools, Read]`, `[--tools=Read]` and
+/// `[--tools=]`, and every final unboxed command came back carrying
+/// neither the restriction nor a WebSearch denial: the composer folded an
+/// explicit include into an ADDITIVE selection, and an additive include
+/// with no list to join was dropped.
+///
+/// An explicit list in the plan's own argv is now an explicit control on
+/// that list, and an explicitly EMPTY one is a restriction rather than an
+/// absence. All three spellings reach the command; the independent
+/// `WebFetch` denial travels beside them; and the `--disallowedTools
+/// WebSearch` deny-list positive still delivers both denials.
+#[test]
+fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
+    let seat = ["--permission-mode", "acceptEdits"];
+    let with_off = |off: &[&str]| {
+        let mut plan = claude_plan(&[], &[], &["WebFetch"]);
+        plan["off"] = json!(["web-search", "web-fetch"]);
+        plan["on"] = json!([]);
+        plan["argv"] = json!(off);
+        plan
+    };
+    for (case, off, restriction) in [
+        ("split", vec!["--tools", "Read"], vec!["--tools", "Read"]),
+        ("equals", vec!["--tools=Read"], vec!["--tools", "Read"]),
+        ("explicitly empty", vec!["--tools="], vec!["--tools", ""]),
+    ] {
+        assert_eq!(
+            claude_composed(&seat, with_off(&off)),
+            Ok([
+                &CLAUDE_HEAD[..],
+                &["--permission-mode", "acceptEdits"],
+                &restriction[..],
+                &["--disallowedTools", "WebFetch"],
+            ]
+            .concat()
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()),
+            "{case}"
+        );
+    }
+    // The positive control the chief kept: a deny-list OFF still delivers
+    // both denials, in one list, exactly once.
+    assert_eq!(
+        claude_composed(&seat, with_off(&["--disallowedTools", "WebSearch"])),
+        Ok([
+            &CLAUDE_HEAD[..],
+            &[
+                "--permission-mode",
+                "acceptEdits",
+                "--disallowedTools",
+                "WebFetch,WebSearch"
+            ],
+        ]
+        .concat()
+        .iter()
+        .map(|part| part.to_string())
+        .collect::<Vec<_>>())
+    );
+}
+
+/// Second council M3: A HELD, SUPPORTED, NONEMPTY RESTRICTION SURVIVES TO
+/// THE FINAL LAUNCH — cold and on an actual eligible resume, compared to
+/// whole ordered literals rather than to an intermediate composer's
+/// `extra`.
+///
+/// The transport is `--settings <file-or-json>`, which the installed
+/// 2.1.266 help gives Claude Code and which carries a whole settings
+/// document; the engine writes the operator's canonical JSON into it and
+/// interprets none of it. The grant is synthetic; the option is not.
+#[cfg(unix)]
+#[test]
+fn a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands() {
+    const CLAUDE_VERSION: &str = "2.1.266";
+    const RESTRICTION: &str = "{\"permissions\":{\"deny\":[\"WebFetch\"]}}";
+    let dir = tempfile::tempdir().unwrap();
+    let bin = executable(
+        dir.path(),
+        "claude",
+        &format!(
+            "#!/bin/sh\n{}exit 1\n",
+            version_preamble(&format!("{CLAUDE_VERSION} (Claude Code)"))
+        ),
+    );
+    let bin = bin.to_str().unwrap();
+    let extra: Vec<String> = ["--permission-mode", "acceptEdits"]
+        .iter()
+        .map(|part| part.to_string())
+        .collect();
+    let mut plan = claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"]);
+    plan["argv"] = json!(["--settings", RESTRICTION]);
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    let mut input = enabled_input(CLAUDE_SHAPE, CLAUDE_VERSION, std::path::Path::new("/w"));
+    input["seat"] = json!("research");
+    let input = engine_input(input, plan, &extra, 0);
+
+    let expected: Vec<String> = [
+        bin,
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        "acceptEdits",
+        // An unboxed seat names no include list, so the additive include
+        // creates none: the harness's whole set already holds the tool.
+        "--allowedTools",
+        "WebSearch",
+        "--disallowedTools",
+        "WebFetch",
+        "--settings",
+        RESTRICTION,
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect();
+    let cold = claude_launch(bin, &extra, None, &input, CLAUDE_SHAPE, None).unwrap();
+    assert_eq!(cold.command, expected);
+    assert!(cold.rejoining.is_none() && cold.refusal.is_none());
+
+    let warm = claude_launch(bin, &extra, Some(session), &input, CLAUDE_SHAPE, None).unwrap();
+    assert_eq!(
+        warm.command,
+        [expected, vec!["--resume".into(), session.to_string()]].concat()
+    );
+    assert_eq!(warm.rejoining.as_deref(), Some(session));
+    assert!(warm.refusal.is_none());
+}
+
 /// Claude's held native tools are folded into the seat's own lists ONCE:
 /// search held without fetch admits `WebSearch` only, keeps the workspace
 /// tool and strict MCP configuration, restores no other built-in, and
