@@ -136,6 +136,54 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert!(prompt.contains("goes INSIDE inputs"));
     assert!(prompt.contains("\"fact\": true"));
 
+    // Second council H6: where the engine hands over the charter text its
+    // dispatch door verified, THAT is what the seat is told — the path is
+    // retained for identity and is not reopened, so bytes written to it
+    // after the door read it never reach the prompt.
+    let verified = |carried: Value| {
+        render_prompt(
+            &json!({
+                "role_path": role,
+                "role_text": carried,
+                "feature": "feature",
+                "phase": "review",
+                "workdir": "/work",
+                "result_path": "/result.json",
+                "context": {},
+                "allowed_results": ["clean"],
+            }),
+            AdapterKind::Claude,
+        )
+    };
+    let carried = verified(json!("the charter the door read"));
+    assert!(carried.contains("the charter the door read"));
+    assert!(!carried.contains("trusted role"));
+    // A by-hand input carries no such text, and reads the path it names.
+    assert!(verified(Value::Null).contains("trusted role"));
+    // And an engine launch that names a role but hands over no text is
+    // refused before any provider work.
+    assert_eq!(
+        crate::native_controls::verified_role(&json!({"role_path": role})),
+        Err(
+            "refusing to invoke the agent CLI: the engine named a charter for this site but \
+             handed over none of its text. What a seat is told is read once, where the pin is \
+             compared; a driver that opened the path itself would read whatever it said by \
+             then (decision 0066 ruling 5)"
+                .to_string()
+        )
+    );
+    for admitted in [
+        json!({"role_path": role, "role_text": "the charter"}),
+        json!({"role_path": ""}),
+        json!({}),
+    ] {
+        assert_eq!(
+            crate::native_controls::verified_role(&admitted),
+            Ok(()),
+            "{admitted}"
+        );
+    }
+
     let housed = render_prompt(
         &json!({
             "role_path": role,

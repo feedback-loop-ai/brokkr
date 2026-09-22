@@ -3225,7 +3225,15 @@ fn folded(path: &Path) -> PathBuf {
 /// the driver is about to be handed. A role neither route pins is refused
 /// rather than launched, because a charter nothing pins is a charter
 /// nobody ruled on.
-pub fn charter_drift(bundle: &Bundle, role: &Path) -> Option<(String, String)> {
+/// The verified charter TEXT, from the same read the pin was checked
+/// against (second council H6; task 6.3). A driver that reopened
+/// `role_path` would read whatever the file said by then — after the door
+/// read what it said at the door — so the bytes that were compared are the
+/// bytes the seat is told, and nothing reopens the path to render them.
+///
+/// `Err((owner, what))` is the pin's complaint, in the two pieces the
+/// dispatch refusal is written from.
+pub fn charter_text(bundle: &Bundle, role: &Path) -> Result<String, (String, String)> {
     let role = folded(role);
     let layer = bundle
         .roots
@@ -3277,26 +3285,29 @@ pub fn charter_drift(bundle: &Bundle, role: &Path) -> Option<(String, String)> {
         // other — an inline charter stands inside its layer, where the
         // walk keys it, and an agent's is pinned by its library record —
         // so reaching here means the bundle's identity does not answer for
-        // what this seat is about to be told, and the launch stops. A
-        // bundle carrying no file map at all, or a RELATIVE role, was not
-        // compiled by this engine: `parse_role` joins its layer's absolute
-        // directory and the library resolves an absolute charter, so an
-        // absolute path is the only shape a compile produces.
+        // what this seat is about to be told, and the launch stops.
+        //
+        // A RELATIVE role was not produced by this engine at all:
+        // `parse_role` joins its layer's absolute directory and the
+        // library resolves an absolute charter, so an absolute path is the
+        // only shape a compile writes. Such a role reads as it always did.
         if !role.is_absolute() {
-            return None;
+            return Ok(std::fs::read_to_string(&role).unwrap_or_default());
         }
-        return bundle.manifest["files"].as_object().map(|_| {
-            (
-                format!("bundle '{}'", bundle.name),
-                format!("unpinned: {}", role.display()),
-            )
-        });
+        return Err((
+            format!("bundle '{}'", bundle.name),
+            format!("unpinned: {}", role.display()),
+        ));
     };
-    match std::fs::read(&role) {
-        Ok(bytes) if sha256_bytes(&bytes) == digest => None,
-        Ok(_) => Some((name, format!("changed: {key}"))),
-        Err(_) => Some((name, format!("missing: {key}"))),
+    let bytes = std::fs::read(&role).map_err(|_| (name.clone(), format!("missing: {key}")))?;
+    if sha256_bytes(&bytes) != digest {
+        return Err((name, format!("changed: {key}")));
     }
+    // The pin is over BYTES; what a seat is told is text. A charter whose
+    // bytes are not text is refused rather than rendered with its
+    // undecodable parts replaced, because what the seat would then read is
+    // not what the digest names.
+    String::from_utf8(bytes).map_err(|_| (name, format!("unreadable: {key}")))
 }
 
 /// Re-walk the script's directory, including its helpers, against the

@@ -187,11 +187,20 @@ fn last_message_door(input: &Value) -> bool {
 /// scripts keep reading the result path off it by line.
 pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
-    let role = input
-        .get("role_path")
-        .and_then(Value::as_str)
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .unwrap_or_default();
+    // Second council H6: the charter is the text the dispatch door read
+    // when it compared the pin, carried here. The path is retained for
+    // identity and diagnostics and is NOT reopened — an engine launch
+    // that names a role and carries no text is refused before this, in
+    // `composed_launch`. A driver run by hand over a hand-written input
+    // has no such door, and reads the path it was given.
+    let role = match input.get(crate::native_controls::ROLE_TEXT) {
+        Some(Value::String(text)) => text.clone(),
+        _ => input
+            .get("role_path")
+            .and_then(Value::as_str)
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .unwrap_or_default(),
+    };
     let context = serde_json::to_string_pretty(input.get("context").unwrap_or(&json!({})))
         .unwrap_or_default();
     let allowed = input
@@ -2575,6 +2584,7 @@ fn composed_launch(
             managed: Vec::new(),
         });
     };
+    controls::verified_role(input)?;
     let (authored, fragment) = controls::launch_arguments(input, extra)?;
     // The authored part is parsed against the harness's grammar before it
     // is judged, at this boundary exactly as at compile: one parser, so a

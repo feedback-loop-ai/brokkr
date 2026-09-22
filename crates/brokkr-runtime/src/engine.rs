@@ -27,7 +27,7 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use crate::agents::{Candidate, HarnessHands, ResultDoor};
 use crate::bundle::{
-    charter_drift, dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState,
+    charter_text, dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState,
     PanelMember, Seat, SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
@@ -1783,9 +1783,11 @@ impl Engine {
             );
         }
         let stamp = plan.map(|plan| plan.context.clone());
-        let process = match spawn_site(&self.bundle, spawn, &input, &workdir, deadline) {
+        // The door returns the input the driver is actually sent: the same
+        // object, with the charter text it verified carried in it.
+        let (process, input) = match spawn_site(&self.bundle, spawn, &input, &workdir, deadline) {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
-            Ok(process) => process,
+            Ok(started) => started,
         };
         let mut checkpoint_error: Option<EngineError> = None;
         // A checkpoint the journal refused under the seat-record fence
@@ -2099,12 +2101,14 @@ impl Engine {
                                     // kill.
                                     deadline_killed: false,
                                 },
-                                Ok(process) => process.run_attempt_resuming(
+                                // The door's own input, carrying the charter
+                                // text it verified for this member.
+                                Ok((process, input)) => process.run_attempt_resuming(
                                     ENGINE_VERSION,
                                     effect_id,
                                     attempt_id,
                                     &run.driver_seat,
-                                    run.input.clone(),
+                                    input,
                                     // This member's own offer, decided in
                                     // `site_plans` before anything spawned.
                                     // Only its provider ID crosses the wire;
@@ -4207,24 +4211,31 @@ fn spawn_site(
     input: &Value,
     workdir: &Path,
     deadline: std::time::Duration,
-) -> Result<DriverProcess, String> {
+) -> Result<(DriverProcess, Value), String> {
     if let Some(reason) = &spawn.refusal {
         return Err(reason.clone());
     }
     // Decision 0066 ruling 5: the driver renders the prompt from the role
     // file it is handed, so the file is judged here, against the pin the
     // compile took, immediately before the driver that will read it.
-    let role = input["role_path"].as_str().unwrap_or_default();
-    // An exec site has no charter to load into a prompt; everything else
-    // answers to a pin, the layer's file map or the library record
-    // (second council H6).
+    //
+    // Second council H6: and the TEXT that read produced rides the input
+    // from here, because a driver that reopened the path would read
+    // whatever it said by then. An exec site has no charter to load into
+    // a prompt; everything else answers to a pin, the layer's file map or
+    // the library record.
+    let mut input = input.clone();
+    let role = input["role_path"].as_str().unwrap_or_default().to_string();
     if !role.is_empty() {
-        if let Some((owner, key)) = charter_drift(bundle, Path::new(role)) {
-            return Err(format!(
-                "dispatch refused: a charter of {owner} moved since the compile ({key}); what a \
-                 seat is told must be the bytes the bundle's identity names (decision 0066 \
-                 ruling 5)"
-            ));
+        match charter_text(bundle, Path::new(&role)) {
+            Err((owner, key)) => {
+                return Err(format!(
+                    "dispatch refused: a charter of {owner} moved since the compile ({key}); \
+                     what a seat is told must be the bytes the bundle's identity names \
+                     (decision 0066 ruling 5)"
+                ))
+            }
+            Ok(text) => input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text),
         }
     }
     if let Some(layer) = &spawn.rewalk {
@@ -4236,6 +4247,7 @@ fn spawn_site(
         }
     }
     DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
+        .map(|process| (process, input))
         .map_err(|error| error.to_string())
 }
 

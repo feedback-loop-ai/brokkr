@@ -472,6 +472,33 @@ pub fn launch_arguments(
     Ok((authored, managed))
 }
 
+/// The engine-private input key carrying the charter text the dispatch
+/// door verified against its pin (second council H6). The driver renders
+/// the prompt from these bytes; reopening `role_path` would read whatever
+/// the file says by then, which is not what the digest names.
+pub const ROLE_TEXT: &str = "role_text";
+
+/// An engine launch that names a role carries the verified text of that
+/// role, or it is refused before any provider work: a launch whose
+/// charter the door did not hand over is a launch whose instructions
+/// nothing answered for (second council H6).
+pub fn verified_role(input: &Value) -> Result<(), String> {
+    let named = input
+        .get("role_path")
+        .and_then(Value::as_str)
+        .is_some_and(|role| !role.is_empty());
+    match named && !input.get(ROLE_TEXT).is_some_and(Value::is_string) {
+        false => Ok(()),
+        true => Err(
+            "refusing to invoke the agent CLI: the engine named a charter for this site but \
+             handed over none of its text. What a seat is told is read once, where the pin is \
+             compared; a driver that opened the path itself would read whatever it said by \
+             then (decision 0066 ruling 5)"
+                .to_string(),
+        ),
+    }
+}
+
 /// The tokens of an authored command that reach the HARNESS. brokkr's own
 /// dispatch convention is `<engine> driver <kind> -- …` (decision 0009),
 /// so a command written that way hands the harness exactly what follows

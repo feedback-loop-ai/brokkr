@@ -97,17 +97,26 @@ policy SHALL participate in bundle identity or be refused before use. In
 this repair, compilation SHALL refuse charter/role and policy references
 under trees excluded from incidental bundle walking, including top-level
 `capabilities/`, in both standalone and inherited/composed recipes. This rule
-SHALL apply to each declaring layer. The system SHALL canonicalize the actual
-file reference through filesystem resolution before judging containment and
-pinning the bytes it reads. Lexically cancelling a parent component before
-resolving a preceding symlink SHALL NOT substitute for that resolution.
-A layer-owned charter, policy or instruction whose actual canonical file lies
-outside its declaring layer SHALL refuse, including when a lexical path appears
-contained. Canonicalization, missing-file and read failures SHALL refuse with
-their cause, never yield an absent exclusion or absent drift result. Both an
-excluded authored path and an excluded canonical target SHALL still refuse.
-Refusals SHALL identify the source/layer, site when applicable, active input kind, relative path and
-the reason that excluded active bytes cannot be omitted from bundle identity.
+SHALL apply to each declaring layer.
+
+An active input SHALL be reachable by the identity walk's own steps. The walk
+descends real directory entries from the declaring layer's root, following
+links, and keys every file it reaches by that chain; a reference that reaches
+its file through a parent (`..`) component is not such a chain, because a link
+earlier in it can put the file a reader opens outside everything the walk
+pinned. Such a reference SHALL refuse, naming the parent step, whether or not
+its lexically folded form appears contained. Lexically cancelling a parent
+component before resolving a preceding symlink SHALL NOT substitute for
+filesystem resolution, and SHALL NOT be relied on to answer where a file
+stands. A link that stands under its OWN name inside the layer SHALL remain
+permitted, and its target's bytes SHALL participate in identity, because the
+walk reaches and hashes them through that name: an outward link is pinned by
+content, while a parent step is pinned by nothing. Missing files and read
+failures SHALL refuse with their cause, never yield an absent exclusion or
+absent drift result. Both an excluded authored path and an excluded canonical
+target SHALL still refuse. Refusals SHALL identify the source/layer, site when
+applicable, active input kind, relative path and the reason that excluded
+active bytes cannot be omitted from bundle identity.
 
 The existing pinned-script refusal SHALL remain. A genuinely unconsulted
 operator definition SHALL remain outside identity; an active charter or policy
@@ -154,22 +163,21 @@ and digest route rather than be treated as escaping inline layer inputs.
 
 - **GIVEN** a canonical fixture root contains `base/alias -> ../outside/child`, with `outside/child` an existing directory and valid `outside/charter.md` and `outside/policy.json`
 - **WHEN** a standalone base recipe references `alias/../charter.md`, and independently `alias/../policy.json`, then each case is repeated through an inheriting recipe
-- **THEN** all four compilations refuse with the complete declaring-layer/source/site-when-applicable/input-kind/reference and canonical-outside-layer cause before consuming unpinned input
+- **THEN** all four compilations refuse with the complete declaring-layer/source/site-when-applicable/input-kind/reference and parent-step cause before consuming unpinned input
 - **AND** changing only the external charter bytes or only a valid external policy severity still produces the same identity refusal; no successful unchanged manifest digest is evidence of safety
-- **AND** the filesystem target is the external file, even if lexical folding would point to an existing different file under base
+- **AND** the refusal does not depend on where lexical folding would point, because lexical folding is no longer asked where a file stands
 
-#### Scenario: Second H5 a contained alias pins the file actually read
+#### Scenario: Second H5 a link under its own name pins the file actually read
 
-- **WHEN** a permitted alias followed by parent traversal resolves to an ordinary file inside its declaring layer, with standalone and inherited charter/policy cases tested separately
-- **THEN** the compiled pin and prompt or policy read identify that actual file; identical bytes have stable identity and an independent byte change moves the applicable layer and final manifest digests
-- **AND** changing only a lexically folded decoy cannot substitute for changing the consumed file
-- **AND** a later link retarget outside the layer or to unpinned/excluded bytes refuses before dispatch; permitted changed content refuses against the compiled pin
-- **AND** missing targets, canonicalization failure and missing applicable pins give complete integrity refusals rather than a no-drift result
+- **WHEN** a role or policy is a link standing under its own name inside its declaring layer, whose target is an ordinary file outside it, with standalone and inherited cases tested separately
+- **THEN** the compiled pin and the prompt or policy read identify that actual file; identical bytes have stable identity and an independent byte change to the target moves the applicable layer and final manifest digests
+- **AND** a later link retarget refuses before dispatch, because the bytes the walk pinned under that name have changed
+- **AND** missing targets and missing applicable pins give complete integrity refusals rather than a no-drift result
 
-#### Scenario: Second H5 canonical protection is independently removable
+#### Scenario: Second H5 the parent-step refusal is independently removable
 
-- **WHEN** canonical containment for roles and then for policies is independently removed, or consumption is made to check the lexical decoy instead of its actual file
-- **THEN** the corresponding standalone/inherited full-refusal or consumed-file identity assertion fails at the intended mismatch
+- **WHEN** the active-input resolution is removed for roles and then for policies, independently, so each reference is joined and read as written
+- **THEN** the corresponding standalone/inherited full-refusal assertion fails at the intended cause, and the escaped compile produces a manifest digest the finding turned on
 - **AND** restoration passes with the same canonical fixture roots on the observed supported host; unconsulted-definition stability and the existing script fence remain independently proved
 
 ### Requirement: Library charter pins are enforced at consumption

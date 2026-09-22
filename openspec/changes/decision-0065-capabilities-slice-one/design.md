@@ -565,24 +565,41 @@ lexical-folding/recompile-only implementation are both superseded.
 
 Replace the optional exclusion/drift result with a fallible active-input
 resolver. Its inputs are kind, declaring owner, original reference and site.
-Resolve `canonicalize(owner_root.join(original_reference))` **before**
-filesystem containment judgment; never cancel `..` across a symlink first.
-The root itself is canonical. A canonical target outside the declaring layer
-refuses, even if a folded spelling is inside. Missing, unreadable, non-regular
-or unresolvable inputs refuse with their exact cause, not absence of exclusion.
-Retain a separate authored-path exclusion check and canonical-target exclusion:
-an excluded written path cannot launder a link to an ordinary file, and an
-ordinary spelling cannot target excluded bytes.
+
+**The rule, corrected against the filesystem the walk actually uses.** An
+earlier reading of this design asked for `canonicalize(root.join(reference))`
+and a refusal whenever the canonical target lies outside the declaring layer.
+That is neither necessary nor sufficient, and it refuses a shape that is
+already sound. The walk (`bundle::walk_files`) descends REAL directory
+entries, following links, and keys every file it reaches by that chain of
+entries: a role that is a link standing under its own name is therefore
+pinned BY CONTENT, its target's bytes ride the digest, and retargeting it is
+a change like any other. What the identity argument actually needs is that
+the key `charter_drift` computes names the file the driver opens — which
+holds exactly when the reference is itself such a chain, and fails exactly
+when a `..` component lets a link earlier in the path put the opened file
+somewhere the walk never reached.
+
+So the resolver refuses a PARENT STEP, and asks lexical folding nothing about
+where a file stands. `base/alias -> ../outside/child` with
+`alias/../charter.md` refuses on the step, before anything looks at
+`outside/charter.md`; a `roles/role.md -> ../../agents/charters/work.md` link
+remains permitted and pinned. A reference that folds outside the layer keeps
+its existing refusal, and both the written path and its canonical target are
+still asked the narrower skipped-tree question, so an excluded written path
+cannot launder a link to an ordinary file and an ordinary spelling cannot
+target excluded bytes. Missing and unreadable inputs refuse with their exact
+cause in their caller's own words — a missing charter and a missing table are
+not said alike — not as an absence of exclusion.
 
 `parse_role` and every `compose::own_table` use this resolver with their actual
-declaring layer, including ancestors later overridden by the leaf. Require an
-applicable existing file-map pin for the resolved target, not mere containment.
-Read/hash the resolved bytes once and reconcile with the owner's pinned file
-map; a changed read between walk and parse refuses. Parse policy from this same
-buffer and continue using the compiled table; no runtime policy reopen is
-needed. A contained alias remains supported when it has an unambiguous pinned
-target. The chief's four `alias/../charter.md` / `alias/../policy.json`
-standalone/inherited escapes refuse, regardless of a lexical decoy.
+declaring layer, including ancestors later overridden by the leaf. Containment
+by the walk's own steps IS the pin: everything it reaches under a name the
+walk does not skip is in the file map by construction. Read the policy bytes
+once and parse that same buffer, so the bytes ruled on are the bytes hashed;
+no runtime policy reopen is needed. The chief's four `alias/../charter.md` /
+`alias/../policy.json` standalone/inherited escapes refuse, and the bundles
+whose unchanged digests the finding turned on no longer compile.
 
 Carry a small internal charter binding through compiled site/candidate facts:
 owner `Layer` or `Library`, original reference, canonical source at compile

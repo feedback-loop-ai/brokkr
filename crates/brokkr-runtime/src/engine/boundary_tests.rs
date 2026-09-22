@@ -1089,32 +1089,59 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
         )
         .unwrap(),
     );
-    let bundle = Bundle::compile_with_realm(
-        &root.join("recipe"),
-        &root.join("agents"),
-        &root.join("adapters"),
-        None,
-        None,
-        brokkr_core::realms::Boundary::Namespace,
-    )
-    .expect("the agent-backed recipe compiles");
-    let charter = root.join("agents/charters/worker.md");
-    let SeatBody::Single { role_path, .. } = &bundle.seats["work"].body else {
-        unreachable!("an agent resolves to a single seat")
-    };
-    assert_eq!(role_path, &charter, "the seat is told the agent's charter");
-    let door = |role: &std::path::Path| {
-        spawn_site(
-            &bundle,
-            &SiteSpawn::inherit(vec!["true".into()]),
-            &json!({"role_path": role}),
-            &root,
-            std::time::Duration::from_secs(5),
+    // A leaf that inherits the agent-backed seat, so the pin is proved
+    // where the charter's owner is an ancestor as well as where it is the
+    // recipe itself.
+    write(
+        "derived/bundle.json",
+        &serde_json::to_string(&json!({"name": "derived", "extends": "recipe"})).unwrap(),
+    );
+    let compile = |recipe: &str| {
+        Bundle::compile_with_realm(
+            &root.join(recipe),
+            &root.join("agents"),
+            &root.join("adapters"),
+            None,
+            None,
+            brokkr_core::realms::Boundary::Namespace,
         )
-        .map(drop)
+        .expect("the agent-backed recipe compiles")
     };
-    // The pin holds: the seat spawns.
-    assert_eq!(door(&charter), Ok(()));
+    let bundles = [compile("recipe"), compile("derived")];
+    let charter = root.join("agents/charters/worker.md");
+    for bundle in &bundles {
+        let SeatBody::Single { role_path, .. } = &bundle.seats["work"].body else {
+            unreachable!("an agent resolves to a single seat")
+        };
+        assert_eq!(role_path, &charter, "the seat is told the agent's charter");
+    }
+    // What the door returns is the input the driver is actually sent, so
+    // the charter it verified is the charter the seat is told.
+    let door = |role: &std::path::Path| {
+        let outcomes: Vec<Result<String, String>> = bundles
+            .iter()
+            .map(|bundle| {
+                spawn_site(
+                    bundle,
+                    &SiteSpawn::inherit(vec!["true".into()]),
+                    &json!({"role_path": role}),
+                    &root,
+                    std::time::Duration::from_secs(5),
+                )
+                .map(|(_, input)| {
+                    input[brokkr_protocol::native_controls::ROLE_TEXT]
+                        .as_str()
+                        .expect("the door hands over the text it read")
+                        .to_string()
+                })
+            })
+            .collect();
+        assert_eq!(outcomes[0], outcomes[1], "standalone and inherited agree");
+        outcomes.into_iter().next().expect("two bundles")
+    };
+    // The pin holds: the seat spawns, and the text it will be told is the
+    // text the door read — not a second read of the path.
+    assert_eq!(door(&charter), Ok("# work as written\n".to_string()));
     let moved = |key: &str| {
         Err(format!(
             "dispatch refused: a charter of agent 'worker' moved since the compile ({key}); \
@@ -1135,7 +1162,30 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     assert_eq!(door(&charter), moved("missing: worker.md"));
     // Restored: the SAME compiled bundle dispatches again.
     std::fs::write(&charter, "# work as written\n").unwrap();
-    assert_eq!(door(&charter), Ok(()));
+    assert_eq!(door(&charter), Ok("# work as written\n".to_string()));
+
+    // The pin is over BYTES, and what a seat is told is TEXT. A charter
+    // pinned as bytes nobody can decode is refused at the door rather
+    // than rendered with its undecodable parts replaced: what the seat
+    // would then read is not what the digest names.
+    std::fs::write(&charter, [b'#', b' ', 0xff, b'\n']).unwrap();
+    let bundle = compile("recipe");
+    assert_eq!(
+        spawn_site(
+            &bundle,
+            &SiteSpawn::inherit(vec!["true".into()]),
+            &json!({"role_path": charter}),
+            &root,
+            std::time::Duration::from_secs(5),
+        )
+        .map(drop),
+        Err(
+            "dispatch refused: a charter of agent 'worker' moved since the compile (unreadable: \
+             worker.md); what a seat is told must be the bytes the bundle's identity names \
+             (decision 0066 ruling 5)"
+                .to_string()
+        )
+    );
 }
 
 /// The probe is asked once per engine process and remembered: a second
