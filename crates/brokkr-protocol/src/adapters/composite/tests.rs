@@ -10930,6 +10930,286 @@ fn the_bundle_search_order_is_core_ancestors_then_globals_then_the_profile() {
     );
 }
 
+/// The worked conditional-extension vector: the four declared relative
+/// paths and the exact bytes staged at each.
+///
+/// SYNTHETIC throughout. No repository extension exists and none is
+/// created here: these bytes are a temporary set staged under a temporary
+/// profile, and the Pass D clause comparing a real extension's committed
+/// files to its own provenance block applies only if an extension ever
+/// becomes required. No member shares bytes with a worked plugin member,
+/// so a walk that read one set where the other belongs cannot reach the
+/// pinned component.
+const WORKED_EXTENSION_SET: [(&str, &[u8]); 4] = [
+    ("LICENSE", b"MIT: the extension's licence\n"),
+    ("cordis.patch.yml", b"- id: resume-policy\n  config: {}\n"),
+    ("index.js", b"module.exports = { name: 'resume-policy' }\n"),
+    (
+        "package.json",
+        b"{\"name\":\"brokkr-dsh-resume-policy\",\"version\":\"0.1.0\"}\n",
+    ),
+];
+
+/// D6's component stream over the worked extension set, written out by
+/// hand in the same frozen form as `WORKED_PLUGIN_STREAM` and parsed back
+/// by `read_component_stream`.
+const WORKED_EXTENSION_STREAM: &str =
+    "LICENSE\u{0}f2b46aa194ff89288e43e52a6114072cd0e534f900b774aaf712c852d4820349\n\
+     cordis.patch.yml\u{0}9573302ca2ebd68d6d82706d7719b64e3263ae72ae207974230e72fb1beeec69\n\
+     index.js\u{0}875368ee35e942d7403b1dfc80c6cf471ae42c9f2bbe24790f6b9b3a86514733\n\
+     package.json\u{0}aeee393cadf790f650bdad1ece41c1dd4520fe78a4aaadad76f4a8643dbcf662\n";
+
+/// The producer's pinned component over the worked extension set.
+const WORKED_EXTENSION_COMPONENT: &str =
+    "7d95298968e908a8b10a692aff697b41d707f2b64f04b589cb7948c0f39a9cfd";
+
+/// The producer's pinned canonical composite over the worked pair with
+/// the worked extension listed and installed beside it.
+const WORKED_TRIO_CANONICAL: &str =
+    "2a08a17b3526f542138e760fa35c6e245be69d13380b32e2566ae82e13885183";
+
+/// The profile manifest that lists the conditional extension after the
+/// pair, so the declared order carries three `profile-bundle` rows.
+const TRIO_PROFILE_MANIFEST: &[u8] = br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#;
+
+/// D6's component stream for the worked pair with NO extension listed,
+/// written out by hand: the same frozen-literal discipline as D1's, and
+/// the direct statement that absence emits no `extension` line.
+const WORKED_PAIR_STREAM: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
+     node\u{0}v22.23.2\n\
+     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
+     dependency\u{0}dsh-plugin-cli-session 0.2.0 sha512-NPMREG\n\
+     plugin\u{0}d1f7df60c6c4eeda7797b4d2d54241cc7d1597b808b33422af87ee7ef9e09d7a\n\
+     plugin-patch\u{0}2e5380d538ff7f04b1d0035336fd3937c6762ad7acf8a17e00a0a23bdf2d6bc2\n\
+     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n\
+     profile-bundle\u{0}@deepseek-ai/dsh-base\n\
+     profile-bundle\u{0}dsh-plugin-cli-session\n\
+     profile-patch-reload\u{0}startup\n\
+     home-patch\u{0}absent\n";
+
+/// The same stream once the extension is listed and installed: one more
+/// `profile-bundle` row in declared order, and one `extension` line at
+/// the end.
+const WORKED_TRIO_STREAM: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
+     node\u{0}v22.23.2\n\
+     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
+     dependency\u{0}dsh-plugin-cli-session 0.2.0 sha512-NPMREG\n\
+     plugin\u{0}d1f7df60c6c4eeda7797b4d2d54241cc7d1597b808b33422af87ee7ef9e09d7a\n\
+     plugin-patch\u{0}2e5380d538ff7f04b1d0035336fd3937c6762ad7acf8a17e00a0a23bdf2d6bc2\n\
+     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n\
+     profile-bundle\u{0}@deepseek-ai/dsh-base\n\
+     profile-bundle\u{0}dsh-plugin-cli-session\n\
+     profile-bundle\u{0}brokkr-dsh-resume-policy\n\
+     profile-patch-reload\u{0}startup\n\
+     home-patch\u{0}absent\n\
+     extension\u{0}7d95298968e908a8b10a692aff697b41d707f2b64f04b589cb7948c0f39a9cfd\n";
+
+/// Stage the worked extension beneath the profile and list it after the
+/// pair. The files are written in REVERSE declared order, so a component
+/// that followed the fixture's write order parts from the pinned value.
+fn stage_worked_extension(install: &Synthetic) {
+    for (name, bytes) in WORKED_EXTENSION_SET.iter().rev() {
+        write(
+            &install
+                .profile()
+                .join("node_modules")
+                .join(EXTENSION_BUNDLE),
+            name,
+            bytes,
+        );
+    }
+    write(&install.profile(), "package.json", TRIO_PROFILE_MANIFEST);
+}
+
+/// The conditional extension: absent, then composed from its own four
+/// files, with both composites pinned twice and the ABSENCE stated as the
+/// missing line rather than as a missing value.
+#[test]
+fn the_conditional_extension_is_absent_or_composed_from_its_own_four_files() {
+    let install = Synthetic::new();
+    worked_pair(&install);
+
+    // Absent: the profile names no extension, so the stream carries no
+    // `extension` line at all.
+    let absent = install.composite();
+    assert_eq!(absent.extension, None);
+    assert_eq!(absent.canonical, WORKED_PAIR_CANONICAL);
+    assert!(
+        !WORKED_PAIR_STREAM.contains("extension"),
+        "absence emits no extension line"
+    );
+    assert_eq!(
+        digest_of(WORKED_PAIR_STREAM.as_bytes()),
+        absent.canonical,
+        "the composite over the pair is the SHA-256 of exactly these \
+         component lines, in this order"
+    );
+
+    // Present: the four declared files, in bytewise path order.
+    stage_worked_extension(&install);
+    assert!(
+        EXTENSION_FILES.windows(2).all(|pair| pair[0] < pair[1]),
+        "the declared extension set is in strictly increasing bytewise order"
+    );
+    let installed = install
+        .profile()
+        .join("node_modules")
+        .join(EXTENSION_BUNDLE);
+    let observed =
+        plugin_file_digests("extension", &installed, &EXTENSION_FILES, &read_dir_entries).unwrap();
+    assert_eq!(
+        observed.keys().map(String::as_str).collect::<Vec<&str>>(),
+        EXTENSION_FILES.to_vec(),
+        "the walk observed exactly the declared four, in bytewise path order"
+    );
+    for (name, bytes) in WORKED_EXTENSION_SET {
+        assert_eq!(fs::read(installed.join(name)).unwrap(), bytes, "{name}");
+        assert_eq!(observed[name], digest_of(bytes), "{name}");
+    }
+    read_component_stream(WORKED_EXTENSION_STREAM, &EXTENSION_FILES, &observed);
+    assert_eq!(
+        digest_of(WORKED_EXTENSION_STREAM.as_bytes()),
+        WORKED_EXTENSION_COMPONENT,
+        "the extension component is the SHA-256 of exactly these lines"
+    );
+
+    let present = install.composite();
+    assert_eq!(
+        present.extension.as_deref(),
+        Some(WORKED_EXTENSION_COMPONENT),
+        "the producer's pinned component over the worked extension set"
+    );
+    assert_eq!(
+        present.profile_bundles,
+        vec!["@deepseek-ai/dsh-base", PLUGIN_BUNDLE, EXTENSION_BUNDLE],
+        "the declared order, with the extension last"
+    );
+    assert_eq!(present.canonical, WORKED_TRIO_CANONICAL);
+    assert_ne!(present.canonical, absent.canonical);
+    assert_eq!(
+        digest_of(WORKED_TRIO_STREAM.as_bytes()),
+        present.canonical,
+        "the same stream with one more profile-bundle row and one \
+         extension line at the end"
+    );
+    // Read the frozen literal's last line back: the extension line is the
+    // final one, and it carries the observed component.
+    let last = WORKED_TRIO_STREAM
+        .strip_suffix('\n')
+        .expect("the stream ends with a newline")
+        .rsplit('\n')
+        .next()
+        .expect("the stream has a last line");
+    let (component, value) = last
+        .split_once('\u{0}')
+        .expect("the last line carries a NUL separator");
+    assert_eq!(component, "extension");
+    assert_eq!(value, WORKED_EXTENSION_COMPONENT);
+
+    // One changed byte in one extension file moves the extension
+    // component and the composite with it.
+    write(
+        &installed,
+        "index.js",
+        b"module.exports = { name: 'other' }\n",
+    );
+    let changed = install.composite();
+    assert_ne!(changed.extension, present.extension);
+    assert_ne!(changed.canonical, present.canonical);
+}
+
+/// A listed extension whose installed set has drifted is unreadable by
+/// the EXTENSION component — never plugin drift, and never absence.
+#[cfg(unix)]
+#[test]
+fn the_extension_walk_refuses_a_missing_extra_or_symlinked_member() {
+    let install = Synthetic::new();
+    worked_pair(&install);
+    stage_worked_extension(&install);
+    let installed = install
+        .profile()
+        .join("node_modules")
+        .join(EXTENSION_BUNDLE);
+    assert!(install.composite().extension.is_some());
+
+    // An EXTRA file the declared set does not name.
+    write(&installed, "extra.txt", b"x");
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "extension component is unreadable: unexpected entry 'extra.txt'"
+    );
+    fs::remove_file(installed.join("extra.txt")).unwrap();
+
+    // A declared file that is a SYMLINK, even to bytes that would hash to
+    // the same value: a hashed member is a regular non-symlink file.
+    let target = install.dir.path().join("licence-elsewhere");
+    fs::write(&target, b"MIT: the extension's licence\n").unwrap();
+    fs::remove_file(installed.join("LICENSE")).unwrap();
+    std::os::unix::fs::symlink(&target, installed.join("LICENSE")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "extension component is unreadable: 'LICENSE' is a symlink"
+    );
+    fs::remove_file(installed.join("LICENSE")).unwrap();
+
+    // A MISSING declared file — the same LICENSE, now simply gone.
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "extension component is unreadable: missing expected file 'LICENSE'"
+    );
+}
+
+/// The extension's own local `file:` record leaves the dependency lines
+/// only when the extension RESOLVED, because the exclusion list carries a
+/// name exactly when that name's installed bytes supplied a component.
+#[test]
+fn the_extension_s_local_record_leaves_only_when_the_extension_resolves() {
+    // The pair's lock with the extension's local tarball record and a
+    // same-named registry record beside it.
+    const TRIO_NPM_LOCK: &str = r#"{"lockfileVersion":3,"packages":{
+      "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+      "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+      "node_modules/nested/node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"https://registry.npmjs.org/dsh-plugin-cli-session-0.2.0.tgz","integrity":"sha512-NPMREG"},
+      "node_modules/brokkr-dsh-resume-policy":{"version":"0.1.0","resolved":"file:extension.tgz","link":true},
+      "node_modules/nested/node_modules/brokkr-dsh-resume-policy":{"version":"0.1.0","resolved":"https://registry.npmjs.org/brokkr-dsh-resume-policy-0.1.0.tgz","integrity":"sha512-EXTREG"},
+      "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+    }}"#;
+
+    let install = Synthetic::new();
+    worked_pair(&install);
+    stage_worked_extension(&install);
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        TRIO_NPM_LOCK.as_bytes(),
+    );
+    let observed = install.composite();
+    assert!(observed.extension.is_some());
+    assert_eq!(
+        observed.dependencies,
+        vec![
+            "brokkr-dsh-resume-policy 0.1.0 sha512-EXTREG".to_string(),
+            "debug 2.6.9 sha512-DEBUG".to_string(),
+            "dsh-plugin-cli-session 0.2.0 sha512-NPMREG".to_string(),
+        ],
+        "both local records leave and both registry namesakes stay"
+    );
+
+    // The SAME lock with the extension no longer listed: nothing supplied
+    // an extension component, so its local record is an ordinary entry —
+    // and an ordinary entry needs a registry integrity.
+    write(
+        &install.profile(),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "npm lock is unreadable: 'node_modules/brokkr-dsh-resume-policy': \
+         no registry 'integrity'"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The measured rc.2 fixture (design D6, AK).
 //
