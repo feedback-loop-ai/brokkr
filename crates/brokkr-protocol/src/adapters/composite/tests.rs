@@ -1566,17 +1566,17 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh-base"}"#,
     );
-    let error = dsh_composite_with(
-        &install.seams,
-        &install.node(),
-        &[install.dir.path().join("global")],
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("bundle '@deepseek-ai/dsh-base' resolves outside"),
-        "{error}"
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &[install.dir.path().join("global")],
+        )),
+        format!(
+            "the DSH layout is unreadable: bundle '@deepseek-ai/dsh-base' resolves outside \
+             the core root and the profile ({})",
+            outside.canonicalize().unwrap().display()
+        )
     );
 
     // A core package whose shebang is not `env node` is refused — as
@@ -1588,12 +1588,12 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
     let bin = std::path::PathBuf::from(&install.seams.executable);
     write_executable(bin.parent().unwrap(), "bin.js", b"#!/bin/sh\n");
     install.seams.head = selected_head(&bin);
-    let error = dsh_composite_with(&install.seams, &install.node(), &[]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("first line is not the env node shebang"),
-        "{error}"
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        format!(
+            "the DSH layout is unreadable: {}: first line is not the env node shebang",
+            bin.canonicalize().unwrap().display()
+        )
     );
 
     // A profile that does not list the plugin is refused.
@@ -1603,12 +1603,9 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
         "package.json",
         br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"],"patchReload":"live"}}}"#,
     );
-    let error = dsh_composite_with(&install.seams, &install.node(), &[]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("the profile does not list dsh-plugin-cli-session"),
-        "{error}"
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "the DSH layout is unreadable: the profile does not list dsh-plugin-cli-session"
     );
 }
 
@@ -10796,6 +10793,141 @@ fn one_pair_in_two_homes_under_two_seat_overlays_is_one_identity() {
     let patched = second.composite();
     assert_eq!(patched.home_patch, digest_of(b"[]\n"));
     assert_ne!(patched.canonical, one.canonical);
+}
+
+/// The manifest every general-bundle candidate in the containment cases
+/// carries: the same package at the same version, so which candidate the
+/// search reached is the only thing that can separate two observations.
+const BUNDLE_MANIFEST: &[u8] = br#"{"name":"@deepseek-ai/dsh-base","version":"0.1.5-rc.2"}"#;
+
+/// The refusal a listed bundle earns when the candidate the search
+/// reached lands outside both canonical roots.
+fn outside_both_roots(name: &str, dir: &Path) -> String {
+    format!(
+        "the DSH layout is unreadable: bundle '{name}' resolves outside the core root \
+         and the profile ({})",
+        dir.canonicalize().unwrap().display()
+    )
+}
+
+/// A bundle reached through a SYMLINK is judged where the link lands.
+///
+/// The boundary is canonical, so a candidate whose own spelling sits
+/// inside the profile and whose target does not earns its target's
+/// refusal, named by the canonical path. No fallback and no string-prefix
+/// comparison cures it.
+///
+/// Unix only: the symlink is the input, and Linux and macOS are the only
+/// hosts (decision 0063).
+#[cfg(unix)]
+#[test]
+fn a_bundle_directory_that_is_a_symlink_is_judged_where_it_lands() {
+    let install = Synthetic::new();
+    let installed = install
+        .profile()
+        .join("node_modules")
+        .join("@deepseek-ai/dsh-base");
+    fs::remove_dir_all(&installed).unwrap();
+
+    let elsewhere = install.dir.path().join("elsewhere/@deepseek-ai/dsh-base");
+    write(&elsewhere, "package.json", BUNDLE_MANIFEST);
+    std::os::unix::fs::symlink(&elsewhere, &installed).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        outside_both_roots("@deepseek-ai/dsh-base", &elsewhere),
+        "the candidate's own spelling is inside the profile; its target is not"
+    );
+
+    // The control: the same symlinked candidate whose target lands INSIDE
+    // the profile resolves, so the refusal above is the target's and not
+    // the link's.
+    fs::remove_file(&installed).unwrap();
+    let vendored = install.profile().join("vendor/@deepseek-ai/dsh-base");
+    write(&vendored, "package.json", BUNDLE_MANIFEST);
+    std::os::unix::fs::symlink(&vendored, &installed).unwrap();
+    assert_eq!(
+        install.composite().profile_bundles,
+        vec!["@deepseek-ai/dsh-base", "dsh-plugin-cli-session"]
+    );
+}
+
+/// The bundle search order D6 preserves, read off the producer: the core
+/// package's Node lookup, then the global folders, then the profile's own
+/// Node lookup from the RAW anchor upward.
+///
+/// Each position holds one candidate outside both canonical roots, so the
+/// refusal names the candidate the search reached first and removing it
+/// hands the next position its turn. Steps one and two are also the two
+/// shapes a listed general bundle escapes through — an ancestor
+/// `node_modules` and an injected global folder — and the contained copy
+/// the profile ships is present throughout, so no refusal here is a
+/// bundle the search simply could not find.
+#[test]
+fn the_bundle_search_order_is_core_ancestors_then_globals_then_the_profile() {
+    let install = Synthetic::new();
+    let root = install.dir.path().to_path_buf();
+    let bundle = "@deepseek-ai/dsh-base";
+
+    // An ancestor `node_modules` of the core package, above the core root
+    // `<root>/core` and outside the profile.
+    let ancestor = root.join("node_modules").join(bundle);
+    write(&ancestor, "package.json", BUNDLE_MANIFEST);
+    // An injected global folder, searched after the core's ancestors.
+    let global = root.join("global");
+    write(&global.join(bundle), "package.json", BUNDLE_MANIFEST);
+    // An ancestor `node_modules` of the home, above the profile boundary.
+    let above_profile = install.seams.home.join("node_modules").join(bundle);
+    write(&above_profile, "package.json", BUNDLE_MANIFEST);
+    // The contained copy the fixture ships, which the search prefers only
+    // when it is reached.
+    let contained = install.profile().join("node_modules").join(bundle);
+    assert!(contained.join("package.json").is_file());
+    let globals = [global.clone()];
+
+    // 1. The core package's own Node lookup is first.
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &globals
+        )),
+        outside_both_roots(bundle, &ancestor)
+    );
+
+    // 2. The global folders come next.
+    fs::remove_dir_all(root.join("node_modules")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &globals
+        )),
+        outside_both_roots(bundle, &global.join(bundle))
+    );
+
+    // 3. Then the profile's own lookup from the raw anchor, whose first
+    //    candidate is the contained copy: the layout composes, and the
+    //    candidate above the profile is never reached.
+    fs::remove_dir_all(global.join(bundle)).unwrap();
+    assert_eq!(
+        dsh_composite_with(&install.seams, &install.node(), &globals)
+            .unwrap()
+            .profile_bundles,
+        vec![bundle, PLUGIN_BUNDLE]
+    );
+
+    // 4. With the contained copy gone that walk climbs, and the candidate
+    //    above the profile is where it lands — outside both roots, and
+    //    still a refusal rather than a bundle taken from above.
+    fs::remove_dir_all(&contained).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &globals
+        )),
+        outside_both_roots(bundle, &above_profile)
+    );
 }
 
 // ---------------------------------------------------------------------------
