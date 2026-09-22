@@ -105,12 +105,12 @@ const PANEL_REVIEW: &Roster = &[
     ),
     (
         "implement",
-        "claude-opus-5",
+        "claude-opus-5-5",
         "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
     ),
     (
         "review:correctness",
-        "gpt-5.6-sol",
+        "gpt-6-sol",
         "7d11cd3201c6bf9464b7092e456ad0e432772aa7cf0fee28d3b18782733b172b",
     ),
     (
@@ -123,14 +123,14 @@ const PANEL_REVIEW: &Roster = &[
 const TRIAGE: &Roster = &[
     (
         "implement:design",
-        "claude-opus-5",
+        "claude-opus-5-5",
         // Moved by proposed decision 0056 ruling 10: the SDD smith's
         // charter gained the progress-timing and recovery clauses.
         "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
     ),
     (
         "review:design:positions:spec-compliance",
-        "claude-opus-5",
+        "claude-opus-5-5",
         "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
     ),
     (
@@ -150,14 +150,14 @@ const TRIAGE: &Roster = &[
     ),
     (
         "tasks:author",
-        "claude-opus-5",
+        "claude-opus-5-5",
         // Moved by proposed decision 0056 ruling 10: the SDD smith's
         // charter gained the progress-timing and recovery clauses.
         "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
     ),
     (
         "clarify:judge",
-        "claude-opus-5",
+        "claude-opus-5-5",
         "5028f0624c92272ce12a4cc50fd771e86591436dd912d31b2127687a3d233fa7",
     ),
     (
@@ -167,12 +167,12 @@ const TRIAGE: &Roster = &[
     ),
     (
         "design:positions:simplicity",
-        "claude-opus-5",
+        "claude-opus-5-5",
         "81a14dffa301d38f2d523d0a828fd7ce5accf38a0e75dc3995f9682c9cf72b0d",
     ),
     (
         "design:positions:robustness",
-        "gpt-5.6-sol",
+        "gpt-6-sol",
         "696802b3d981e7d487926500a749c699e1697b05a0d7e5686639f8dd09067533",
     ),
 ];
@@ -184,7 +184,7 @@ const SELF: &Roster = &[
     ),
     (
         "implement",
-        "claude-opus-5",
+        "claude-opus-5-5",
         "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
     ),
     (

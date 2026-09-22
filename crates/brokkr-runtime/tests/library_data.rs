@@ -394,9 +394,9 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
         .unwrap();
     for (abstract_name, concrete) in [
         ("astra", "gpt-6-astra"),
-        ("sol", "gpt-5.6-sol"),
+        ("sol", "gpt-6-sol"),
         ("terra", "gpt-5.6-terra"),
-        ("luna", "gpt-5.6-luna"),
+        ("luna", "gpt-6-luna"),
     ] {
         assert_eq!(
             codex.models.get(abstract_name).map(String::as_str),

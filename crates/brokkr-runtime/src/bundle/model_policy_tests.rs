@@ -281,7 +281,7 @@ fn seat(provider: &str, class: Option<&str>, secrets: Option<Value>) -> Value {
             provider,
             "--",
             "--model",
-            "gpt-5.6-sol",
+            "gpt-6-sol",
             "--effort",
             "medium",
             "true"
@@ -2245,7 +2245,10 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // installed codex-cli 0.148.0 listed the three gpt-5.6 slugs, and the
     // 0.153.2 catalog adds `gpt-6-astra` at priority 1 (visibility
     // "list", supported_in_api true; decision 0045), so the mapping is
-    // transcribed, not remembered. The abstract names are codex's own family words —
+    // transcribed, not remembered. On 2026-09-22 (codex-cli 0.154.0)
+    // `sol` and `luna` moved to `gpt-6-sol` and `gpt-6-luna`, each probed
+    // with a `codex exec` turn; the `gpt-6.0-*` spellings are refused for
+    // a ChatGPT-account codex. `terra` has no 6 release and stays. The abstract names are codex's own family words —
     // NOT claude tiers, so no fallback chain written for one provider
     // can quietly land on the other.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
@@ -2256,7 +2259,7 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     );
     assert_eq!(
         codex.models.get("sol").map(String::as_str),
-        Some("gpt-5.6-sol")
+        Some("gpt-6-sol")
     );
     assert_eq!(
         codex.models.get("terra").map(String::as_str),
@@ -2264,7 +2267,7 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     );
     assert_eq!(
         codex.models.get("luna").map(String::as_str),
-        Some("gpt-5.6-luna")
+        Some("gpt-6-luna")
     );
     for claude_tier in ["opus", "sonnet", "haiku", "fable"] {
         assert!(

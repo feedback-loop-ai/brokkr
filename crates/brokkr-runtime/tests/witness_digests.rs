@@ -214,34 +214,39 @@ fn workspace() -> PathBuf {
 /// value is this tree's actual compile, and the nine others — including
 /// `recipes/night-shift` and `recipes/gpt-flash`, which derive from triage
 /// but seat their own implementers — reported no movement.
+/// The 2026-09-22 roster move re-points three aliases the operator named:
+/// `opus` to `claude-opus-5-5`, `sol` to `gpt-6-sol` and `luna` to
+/// `gpt-6-luna`, each probed live that day. An adapter's model map is
+/// bundle data, so every witness that resolves a seat through the claude
+/// or codex adapter moves; each digest below is the actual compile.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "a3e7ded619b34de0c0da1c77e75fbae7802e9849e65219ae80716ddf3dd80585",
+        "e3dd70ff4f27e2f2f430b862e8ac1be53abde0a84d596651421b0fa48df37167",
     ),
     (
         "recipes/node",
-        "90657517bcd4637c92b53ce393e17cb7effae88cb75d6b2fa9a8e5e8a45fae64",
+        "78e2479943d50c1387aebdfa2f192fbfd8e177fdaafd346d61298aae8404d0fe",
     ),
     (
         "recipes/preflight",
-        "25841ed9f558a47e62bcad431fc405eb4a7b794f7546744d73ba4cf148464d76",
+        "08a7a8cc20e7ef41f23fd741b3eacc226466e7bd0e41e7106e229f8f80e4fbea",
     ),
     (
         "recipes/night-shift",
-        "cce3966a4c3dbf90b394f73c49b28e4337407696efab697c2d96c1fead2aea10",
+        "a5d6bec3c8d1564a6aba36e7df83f5e06ffb3c588bb8fdcead47e054c95f64ca",
     ),
     (
         "recipes/wager-harness",
-        "85652a81d79810b3bc5a76138a2e547a323d05fe2ccbfd954c6f16d7dbe96ec4",
+        "2571a2670f180bfda3770ff291ab18cb7162ec9dedaca83972b191a87696bff2",
     ),
     (
         "recipes/triage",
-        "2343cd5dff8bda10a14798dedd8d46195aeca31ed416b9bba0abf57d9658fe7f",
+        "b10ef3adde8cb42cd7daba79a813305aaa005462eb2884cab52a6d44195cde27",
     ),
     (
         "recipes/research",
-        "bf5fafe1c0f988fd917db62c1c1267789aa1fec87e8e36e4c4136542d766de7a",
+        "2e51d8a9b4419335ab9b4949427c00da584e541a037c8a3c9ccbbded0497ad5a",
     ),
     (
         "recipes/research-dsh",
@@ -249,11 +254,11 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "f53241869ec9fbd0eafc5c32b743ddeb3396b9fd9f96c76e1f31de4470727f3b",
+        "7ce71d8b645012eeb02979293f5aa6c7f7ba846e41608d0c3a36e69b11e1348c",
     ),
     (
         "bundles/verify",
-        "0ce8628510a1c4d2b2e99c63883d536b58937fa0e43b311faecf4a43342fb4ac",
+        "2f8dcb68465609461aa063a90bf762f2b1b1ca990924c2a4f9f974af8f14fb0d",
     ),
 ];
 
