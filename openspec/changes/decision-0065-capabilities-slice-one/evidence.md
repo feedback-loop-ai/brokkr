@@ -9,19 +9,20 @@ The two implementation visits below are historical observations. The repair
 design and tasks addenda below supersede their completion/permission conclusions;
 it does not rewrite their measurements or turn masked assertions into passes.
 
-## Current status — second security hold, design return
+## Current status — second security hold, tasks return
 
-Run `build-decision-0065-slice-one-th-80bfd784`, chief design seat,
-2026-09-22. Adopted source/specification HEAD `49fda5e6` includes every prior
-repair commit, notably `f97b7e77` and `3b31c5de`. Read both complete chief
-rulings, both current design positions, proposed 0066 and the revised six
-deltas; checked the cited parser/composer, active-input, dispatch, prompt and
-doctor seams in source. No behavioral reproduction, implementation fix or
-removal experiment was performed by this seat.
+Run `build-decision-0065-slice-one-th-80bfd784`, tasks smith,
+2026-09-22. Adopted HEAD `90bf9d44` retains specification `49fda5e6` and all
+prior repair history, including `f97b7e77` and `3b31c5de`. Read both complete
+chief rulings, decisions 0065/0066, the revised proposal/specifications/design
+and the tasks/return dialect instructions; inspected the cited source and
+existing launch tests. This visit changes the task breakdown and this evidence
+only. No behavioral reproduction, implementation fix, removal experiment or
+fresh provider measurement was performed by this seat.
 
 The second council remains **SECURITY-HOLD**: second H1–H6 HIGH, M1–M3 and V1
 MEDIUM, L1 LOW. `has_security_residual=true`; H5/H6 `spec_defect=true`.
-Design drafting/strict validation is not finding closure.
+Design/task drafting and strict validation are not finding closure.
 
 The current supplied exact-coverage baseline is the second chief's failing
 rerun on `3b31c5de`: **source lines 34897/35073; branches 5730/5744; logical
@@ -29,13 +30,15 @@ functions 3443/3453; exit 1**. The all-covered figures later in this file are
 historical first-repair measurements. They are preserved, not substituted for
 that failure or for a fresh final repaired-head result. No uncovered added
 production line and no established regression cause waives the whole-workspace
-gate. This design visit's gate attempts are recorded in its addendum below.
+gate. Each artifact visit's gate attempts are recorded in its own addendum below.
 
 The amended design/proposed 0066 specify closed provider parsing, explicit
 restrictive/subtractive semantics, actual filesystem resolution and owner-bound
 charter verification with the same consumed buffer, plus provider-aware doctor
-assessment. Task rows were reopened for those mechanisms and their final-launch,
-dispatch and final-head proofs. Their checked predecessors are not closure:
+assessment. Task rows remain open for those mechanisms and their final-launch,
+dispatch and final-head proofs. The tasks return orders prerequisites before consumers
+and keeps separate admission, final-command and removal outputs. Their checked
+predecessors are not closure:
 
 | Prior claim | Correct current scope |
 | --- | --- |
@@ -739,3 +742,56 @@ consume `rust-nightly-version.txt`; neither pin nor gate was changed. Final
 commit-bound strict validation and the authorized exact-gate attempt are
 recorded in this seat's run-local result/logs after committing these artifacts,
 without rewriting historical evidence or including scratch logs in the commit.
+
+
+## Second-hold task breakdown and validation — 2026-09-22
+
+This tasks-only visit adopted design `90bf9d44` without changing its decisions,
+the proposal, six specification deltas or proposed 0066. No earlier-artifact
+change was found necessary to write the breakdown. M3's supported production
+transport remains an explicit evidence prerequisite in 0.3, before grammar or
+positive-fixture implementation; no support for the old fictitious flag is
+asserted by this task draft.
+
+The ledger now separates provider grammar construction from migration of its
+consumers, puts filesystem resolution before charter binding and dispatch,
+and supplies verified prompt text before final-launch proofs. Admission and
+identity for a restriction (4.4), compiled cold/resume final commands (7.6),
+and independent removal/restoration at each final path (9.2) have distinct
+completion criteria. The finding audit precedes final gates without claiming
+V1 closed; 11.5 binds that closure to the final committed head. Historical
+task references remain historical. Disputed rows 6.3, 7.4/7.5, 9.2 and 11.4,
+and operator-held archive task 12.1, remain unchecked.
+
+The requirement/ledger audit found **62 tasks: 22 retained historical checks
+and 40 open tasks**. Every task names and links its served requirement;
+**all 44 requirement headings** across the six deltas are cited, their links
+resolve, task IDs are unique and numerically ordered, and no new implementation
+tick was added. The previously uncited doctor MCP/no-invocation requirement
+has an explicit preservation check in 8.5. The second-finding index maps each
+finding to its repair, consuming proof and removal/closure rows.
+
+Strict `openspec validate --all --strict --no-interactive` passed **16 items,
+zero failures**, and `git diff --check` passed. Existing informational
+long-requirement and unrelated issue-226 archive notices are not failures.
+Only this evidence and tasks are changed; no protected surface, production or
+test source, dependency, grant, decision status, witness or coverage gate was
+modified. CI, release admission and coverage still read the shared nightly pin.
+
+Formatting, locked all-target/all-feature clippy, all seven crate-scoped
+suites, both workspace test commands and self/verify compiles were attempted
+through workspace hands. None could start because `cargo` is absent from
+PATH (exit 127). The authorized `bash scripts/coverage-exact.sh` likewise
+stopped at line 33, `cargo: command not found`, exit **127**. Fresh coverage
+counts are **source lines unavailable; branches unavailable; logical functions
+unavailable**. No current Rust, bundle or exact-coverage pass is claimed.
+The second-chief failed counts above remain the supplied baseline; no report
+from a prior run substitutes for this attempt. Required repaired-head and
+macOS/remote results remain pending. This is a drafted task artifact, not
+implementation completion or clearance of the security hold.
+
+The attempt details are in the run-local task-validation record. Final
+committed-head OpenSpec/diff checks and the authorized exact-gate attempt are
+recorded with that SHA in run-local logs/result, outside tracked inputs.
+No archive or push was performed; panel prose has not selected a phase or
+lowered `has_security_residual=true` or H5/H6 `spec_defect=true`.
