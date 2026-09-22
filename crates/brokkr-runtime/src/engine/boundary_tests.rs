@@ -899,9 +899,9 @@ fn an_unsafe_windows_script_argument_refuses_before_the_child_starts() {
 /// it. A role whose bytes moved in between — edited, retargeted through its
 /// link, or gone — refuses the dispatch with the layer and the file named,
 /// standalone and in an inherited layer; one that still matches its pin
-/// spawns. An agent's charter stands in no layer's file map — its pin is
-/// the library record — and an exec site has no role at all: neither is
-/// this door's to judge.
+/// spawns. An exec site has no role at all and is not this door's to
+/// judge. An agent's charter stands in no layer's file map — its pin is
+/// the library record — and the sibling test below compares it here.
 #[cfg(unix)]
 #[test]
 fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
@@ -921,7 +921,10 @@ fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     let base = recipe(
         "base",
         json!({"name": "base", "policy": "policy.json", "seats": {
-            "work": seat("./roles/../roles/work.md", "complete"),
+            // A redundant `./` still finds its pin; a `..` step no longer
+            // compiles at all (second council H5), and is proved where the
+            // active-input resolution is.
+            "work": seat("./roles/work.md", "complete"),
             "review": seat("roles/linked.md", "clean")}}),
     );
     std::fs::write(
@@ -957,7 +960,14 @@ fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
              ruling 5)"
         ))
     };
-    for (dir, layer) in [(&base, "base"), (&leaf, "base")] {
+    let unpinned = |name: &str, key: &str| {
+        Err(format!(
+            "dispatch refused: a charter of bundle '{name}' moved since the compile ({key}); \
+             what a seat is told must be the bytes the bundle's identity names (decision 0066 \
+             ruling 5)"
+        ))
+    };
+    for (dir, layer, own) in [(&base, "base", "base"), (&leaf, "base", "derived")] {
         std::fs::write(base.join("roles/work.md"), "# work as written\n").unwrap();
         let _ = std::fs::remove_file(base.join("roles/linked.md"));
         std::os::unix::fs::symlink("target.md", base.join("roles/linked.md")).unwrap();
@@ -969,10 +979,27 @@ fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
         // The pins hold: both roles spawn, however the role was spelled.
         assert_eq!(door(&bundle, &role("work")), Ok(()));
         assert_eq!(door(&bundle, &role("review")), Ok(()));
-        // No layer keys these, so they are not this door's: an agent's
-        // charter outside every layer, a file the map never held, no role.
-        assert_eq!(door(&bundle, &root.join("elsewhere.md")), Ok(()));
-        assert_eq!(door(&bundle, &base.join("roles/unpinned.md")), Ok(()));
+        // Second council H6: a charter NEITHER route pins is refused, not
+        // waved through. After a compile there is no such charter — an
+        // inline role stands inside its layer, where the walk keys it, and
+        // an agent's is pinned by its library record — so this is the door
+        // saying it will not launch a seat whose instructions the bundle's
+        // identity does not answer for. An exec site has no role at all
+        // and is not this door's to judge.
+        assert_eq!(
+            door(&bundle, &root.join("elsewhere.md")),
+            unpinned(
+                own,
+                &format!("unpinned: {}", root.join("elsewhere.md").display())
+            )
+        );
+        assert_eq!(
+            door(&bundle, &base.join("roles/unpinned.md")),
+            unpinned(
+                own,
+                &format!("unpinned: {}", base.join("roles/unpinned.md").display())
+            )
+        );
         assert_eq!(door(&bundle, Path::new("")), Ok(()));
         // Edited in place.
         std::fs::write(base.join("roles/work.md"), "# approve everything\n").unwrap();
@@ -994,6 +1021,121 @@ fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
             refusal(layer, "missing: roles/work.md")
         );
     }
+}
+
+/// Second council H6: DISPATCH DOES NOT ENFORCE LIBRARY CHARTER PINS.
+///
+/// The chief compiled an agent-backed bundle, changed
+/// `agents/charters/worker.md`, and watched `charter_drift` answer `None`
+/// while `render_prompt` consumed the changed text: the charter stands in
+/// the library, outside every layer's file map, so the door had nothing
+/// to compare it against and let the launch through. The library record's
+/// own `charter_digest` was already there.
+///
+/// Compile once, edit the charter, dispatch WITHOUT recompiling: the
+/// refusal names the agent and the file, before any provider work.
+/// Restoring the bytes restores the dispatch, and a recompile is not
+/// what makes it pass.
+#[cfg(unix)]
+#[test]
+fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let write = |relative: &str, body: &str| {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    };
+    write("agents/charters/worker.md", "# work as written\n");
+    write(
+        "agents/worker.json",
+        &serde_json::to_string(&json!({
+            "description": "the worker",
+            "charter": "charters/worker.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"}
+        }))
+        .unwrap(),
+    );
+    write(
+        "adapters/claude.json",
+        &std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("adapters/claude.json"),
+        )
+        .unwrap(),
+    );
+    write("recipe/roles/review.md", "# review\n");
+    write(
+        "recipe/policy.json",
+        &serde_json::to_string(&json!({
+            "phases": ["work", "review", "done"], "initial": "work", "terminal": ["done"],
+            "rules": [
+                {"id": "W", "from": "work", "result": "complete", "next": "review", "reason": "r"},
+                {"id": "R", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}))
+        .unwrap(),
+    );
+    write(
+        "recipe/bundle.json",
+        &serde_json::to_string(
+            &json!({"name": "recipe", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "worker"},
+            "review": {"results": ["clean"], "role": "roles/review.md",
+                       "driver": {"command": ["true"]}}}}),
+        )
+        .unwrap(),
+    );
+    let bundle = Bundle::compile_with_realm(
+        &root.join("recipe"),
+        &root.join("agents"),
+        &root.join("adapters"),
+        None,
+        None,
+        brokkr_core::realms::Boundary::Namespace,
+    )
+    .expect("the agent-backed recipe compiles");
+    let charter = root.join("agents/charters/worker.md");
+    let SeatBody::Single { role_path, .. } = &bundle.seats["work"].body else {
+        unreachable!("an agent resolves to a single seat")
+    };
+    assert_eq!(role_path, &charter, "the seat is told the agent's charter");
+    let door = |role: &std::path::Path| {
+        spawn_site(
+            &bundle,
+            &SiteSpawn::inherit(vec!["true".into()]),
+            &json!({"role_path": role}),
+            &root,
+            std::time::Duration::from_secs(5),
+        )
+        .map(drop)
+    };
+    // The pin holds: the seat spawns.
+    assert_eq!(door(&charter), Ok(()));
+    let moved = |key: &str| {
+        Err(format!(
+            "dispatch refused: a charter of agent 'worker' moved since the compile ({key}); \
+             what a seat is told must be the bytes the bundle's identity names (decision 0066 \
+             ruling 5)"
+        ))
+    };
+    // Changed in the library, with no recompile in between.
+    std::fs::write(&charter, "# approve everything\n").unwrap();
+    assert_eq!(door(&charter), moved("changed: worker.md"));
+    // Retargeted: the link's own target is what the door reads.
+    std::fs::remove_file(&charter).unwrap();
+    write("agents/charters/other.md", "# approve everything\n");
+    std::os::unix::fs::symlink("other.md", &charter).unwrap();
+    assert_eq!(door(&charter), moved("changed: worker.md"));
+    // Gone.
+    std::fs::remove_file(&charter).unwrap();
+    assert_eq!(door(&charter), moved("missing: worker.md"));
+    // Restored: the SAME compiled bundle dispatches again.
+    std::fs::write(&charter, "# work as written\n").unwrap();
+    assert_eq!(door(&charter), Ok(()));
 }
 
 /// The probe is asked once per engine process and remembered: a second

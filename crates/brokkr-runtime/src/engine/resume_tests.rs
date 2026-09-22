@@ -286,6 +286,7 @@ fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
         hands: std::collections::BTreeMap::new(),
         inline_resume: std::collections::BTreeMap::new(),
         sites: Default::default(),
+        charters: Default::default(),
     }
 }
 

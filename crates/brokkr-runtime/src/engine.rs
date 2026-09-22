@@ -4215,12 +4215,17 @@ fn spawn_site(
     // file it is handed, so the file is judged here, against the pin the
     // compile took, immediately before the driver that will read it.
     let role = input["role_path"].as_str().unwrap_or_default();
-    if let Some((layer, key)) = charter_drift(bundle, Path::new(role)) {
-        return Err(format!(
-            "dispatch refused: a charter of layer '{layer}' moved since the compile ({key}); \
-             what a seat is told must be the bytes the bundle's identity names (decision 0066 \
-             ruling 5)"
-        ));
+    // An exec site has no charter to load into a prompt; everything else
+    // answers to a pin, the layer's file map or the library record
+    // (second council H6).
+    if !role.is_empty() {
+        if let Some((owner, key)) = charter_drift(bundle, Path::new(role)) {
+            return Err(format!(
+                "dispatch refused: a charter of {owner} moved since the compile ({key}); what a \
+                 seat is told must be the bytes the bundle's identity names (decision 0066 \
+                 ruling 5)"
+            ));
+        }
     }
     if let Some(layer) = &spawn.rewalk {
         if let Some((layer, key)) = layer_drift(bundle, layer) {

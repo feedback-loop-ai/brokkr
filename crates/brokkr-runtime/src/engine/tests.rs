@@ -78,6 +78,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         hands: BTreeMap::new(),
         inline_resume: BTreeMap::new(),
         sites: Default::default(),
+        charters: Default::default(),
     }
 }
 

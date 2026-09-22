@@ -1645,6 +1645,112 @@ fn an_active_input_written_out_of_its_layer_is_refused_where_it_is_declared() {
     }
 }
 
+/// Second council H5: A SYMLINK FOLLOWED BY A PARENT STEP ESCAPES THE
+/// IDENTITY THE FIRST REPAIR BUILT.
+///
+/// With `base/alias -> ../outside/child`, the chief compiled
+/// `alias/../charter.md` and `alias/../policy.json` — standalone and
+/// inherited — then changed the charter's bytes and the policy's severity
+/// and watched every manifest digest stay identical in all four cases,
+/// with `charter_drift` returning `None`. The lexical fold answered for a
+/// file it had never looked at: it folded the pair away and reported
+/// `base/charter.md`, which the walk does pin, while the file the compile
+/// read and the driver rendered was `outside/charter.md`, which nothing
+/// pins.
+///
+/// A `..` step is never a path the walk takes, so it is refused, and every
+/// digest the finding turned on is a digest of a bundle that no longer
+/// compiles. The contained controls keep working: a link that points out
+/// of the layer under its OWN name is walked and pinned by content, so its
+/// bytes move the digest.
+#[cfg(unix)]
+#[test]
+fn a_symlink_and_a_parent_step_cannot_carry_an_active_input_out_of_the_pin() {
+    use std::os::unix::fs::symlink;
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+    // The chief's tree: a link inside the layer to a directory outside it,
+    // whose PARENT holds the files the escape reaches.
+    let outside = library.path().join("outside");
+    std::fs::create_dir_all(outside.join("child")).unwrap();
+    std::fs::write(outside.join("charter.md"), "# outside as written\n").unwrap();
+    std::fs::write(
+        outside.join("policy.json"),
+        serde_json::to_vec(&base_policy()).unwrap(),
+    )
+    .unwrap();
+    symlink("../outside/child", base.join("alias")).unwrap();
+    let step = |what: &str, reference: &str, tail: &str| {
+        format!(
+            "{}: {what} '{reference}', which reaches its file through a '..' step — never a \
+             path the bundle's file walk takes, so a link earlier in it can put the file a \
+             reader opens outside everything the walk pinned. {tail} (decision 0066 ruling 5)",
+            base.join("bundle.json").display()
+        )
+    };
+    let charter_tail = "A charter there could change what the seat is told without moving the \
+                        bundle's identity, so it is refused; move it to a path the bundle pins, \
+                        such as 'roles/'";
+    let table_tail = "A table there could change how a run is ruled without moving the bundle's \
+                      identity, so it is refused; move it to a path the bundle pins, such as \
+                      'policy.json'";
+    // Standalone and inherited, charter and table, before and after the
+    // bytes outside change: the refusal never depended on them.
+    for bytes in ["# outside as written\n", "# approve everything\n"] {
+        std::fs::write(outside.join("charter.md"), bytes).unwrap();
+        let mut bundle = base_bundle();
+        bundle["seats"]["work"]["role"] = json!("alias/../charter.md");
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        let expected = step(
+            "seat 'work' names role",
+            "alias/../charter.md",
+            charter_tail,
+        );
+        assert_eq!(said(&dir), format!("bundle: {expected}"), "{bytes}");
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: bundle: {expected} (composed: derived -> base)"),
+            "{bytes} inherited"
+        );
+    }
+    for severity in ["r", "ruled differently"] {
+        let mut table = base_policy();
+        table["rules"][0]["reason"] = json!(severity);
+        std::fs::write(
+            outside.join("policy.json"),
+            serde_json::to_vec(&table).unwrap(),
+        )
+        .unwrap();
+        let mut bundle = base_bundle();
+        bundle["policy"] = json!("alias/../policy.json");
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        let expected = step("'policy' names", "alias/../policy.json", table_tail);
+        assert_eq!(said(&dir), format!("bundle: {expected}"), "{severity}");
+        // A table is read while the layers are, before anything is
+        // composed, so the ancestor's own refusal is what a leaf gets.
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: {expected}"),
+            "{severity} inherited"
+        );
+    }
+    // The contained control: a link under its own name inside the layer is
+    // walked and pinned by CONTENT, so the bytes it points at move the
+    // digest — which is why the escape had to be closed and not the link.
+    std::fs::write(outside.join("charter.md"), "# contained target\n").unwrap();
+    symlink("../../outside/charter.md", base.join("roles/linked.md")).unwrap();
+    let mut bundle = base_bundle();
+    bundle["seats"]["work"]["role"] = json!("roles/linked.md");
+    let dir = library.recipe("base", &bundle, Some(&base_policy()));
+    let first = said(&dir);
+    assert!(first.starts_with("compiled to"), "{first}");
+    assert_eq!(said(&dir), first, "identical inputs, one identity");
+    std::fs::write(outside.join("charter.md"), "# edited through the link\n").unwrap();
+    let moved = said(&dir);
+    assert!(moved.starts_with("compiled to"), "{moved}");
+    assert_ne!(moved, first, "the bytes a pinned link reaches are pinned");
+}
+
 /// Finding H4, the aliases: neither a spelling nor a link hides the target.
 /// A reference that normalises into the skipped tree is refused as written;
 /// an allowed path whose CANONICAL target stands there is refused too; and
