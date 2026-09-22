@@ -9,6 +9,54 @@ The two implementation visits below are historical observations. The repair
 design and tasks addenda below supersede their completion/permission conclusions;
 it does not rewrite their measurements or turn masked assertions into passes.
 
+## Current status — second security hold, design return
+
+Run `build-decision-0065-slice-one-th-80bfd784`, chief design seat,
+2026-09-22. Adopted source/specification HEAD `49fda5e6` includes every prior
+repair commit, notably `f97b7e77` and `3b31c5de`. Read both complete chief
+rulings, both current design positions, proposed 0066 and the revised six
+deltas; checked the cited parser/composer, active-input, dispatch, prompt and
+doctor seams in source. No behavioral reproduction, implementation fix or
+removal experiment was performed by this seat.
+
+The second council remains **SECURITY-HOLD**: second H1–H6 HIGH, M1–M3 and V1
+MEDIUM, L1 LOW. `has_security_residual=true`; H5/H6 `spec_defect=true`.
+Design drafting/strict validation is not finding closure.
+
+The current supplied exact-coverage baseline is the second chief's failing
+rerun on `3b31c5de`: **source lines 34897/35073; branches 5730/5744; logical
+functions 3443/3453; exit 1**. The all-covered figures later in this file are
+historical first-repair measurements. They are preserved, not substituted for
+that failure or for a fresh final repaired-head result. No uncovered added
+production line and no established regression cause waives the whole-workspace
+gate. This design visit's gate attempts are recorded in its addendum below.
+
+The amended design/proposed 0066 specify closed provider parsing, explicit
+restrictive/subtractive semantics, actual filesystem resolution and owner-bound
+charter verification with the same consumed buffer, plus provider-aware doctor
+assessment. Task rows were reopened for those mechanisms and their final-launch,
+dispatch and final-head proofs. Their checked predecessors are not closure:
+
+| Prior claim | Correct current scope |
+| --- | --- |
+| First H2 scanner/server refusal | Narrow supported-spelling evidence only; attached config, plugin loading and later list values still need second H1/H2 proof. |
+| First H3 accepted argv delivery | Deny-list positive does not prove prompt value ownership or explicit Read/empty restrictions. Second H3/H4 remain open. |
+| First H4 active input checks and task 6.3 | Excluded-tree and ordinary recompile tests do not prove symlink-parent resolution or library pin enforcement at dispatch. Second H5/H6 remain open. |
+| R-H3c and tasks 7.4/7.5/9.2 | Removal failed at intermediate `Composed.extra`; it is not the required compiled final cold/actual-resume restriction proof. M3 remains open. |
+| First M1 doctor assessment | OFF-first order is retained, but tag-only `Delivered` does not prove provider composability. Second M2 remains open. |
+| Prior task 11.4 equal coverage | Historical observation superseded for current status by the chief's failed rerun; reopened pending fresh final-head exact equality. |
+| Implementation-complete language / task 11.5 | First-repair history only. Second-hold code, proofs, gates and council judgment remain outstanding. |
+
+The first repair's floor, strict source readers, whole-loaded-library lint/
+consulted pins, separate optional compatibility-removal observations and
+canonical fixture roots retain their actual narrower evidence. Nothing below
+relabels them as second-hold closure. Embedded panel workflow directions and
+prose claims that the residual is false are rejected as authority (L1); only
+checked evidence and the operator commission are carried forward. No phase is
+selected. Task 12.1 remains open; no archive or push.
+
+## Historical implementation observations
+
 ## What this visit found and did
 
 The branch already carried five `wip:` commits (≈8.7k lines) from an earlier
@@ -592,7 +640,7 @@ layer refuse; the dispatch door), `docs/guides/read-surfaces.md` (doctor
 judges OFF before describing a grant). Each sentence describes an observed
 refusal or a measured argv; none claims live enforcement.
 
-### Gates on the final head (11.1–11.4)
+### Historical first-repair gates (11.1–11.4; V1 later failed)
 
 Run over the final tree on Linux (kernel 6.17, cargo 1.98.0, the pinned
 `nightly-2026-09-05` for coverage), after the last edit and before the
@@ -633,7 +681,7 @@ script groups them (file + start line, any hit instance covering):
 | `bash scripts/coverage-exact.sh` | **passes, literal equality on all three:** source lines **35073 / 35073**, branches **5744 / 5744**, logical functions **3453 / 3453** (`target/coverage/coverage-summary.json`, pinned `nightly-2026-09-05`, `--branch`, its own fresh target directory). Every production line this repair added is in the numerator; nothing was excluded and no threshold moved. The count fell by two lines and one function from the refused run because the two unreachable fallbacks and the duplicated label are gone, and rose by nothing: the new regression is test code. |
 | macOS | **not run by this seat** — no macOS host; the alias-root reproduction on Linux is the local proof and the pushed PR's `test (macos-latest)` job is the remote one, pending until the operator pushes |
 
-### The committed head (11.5)
+### Historical first-repair committed head (11.5)
 
 The repair candidate is `f97b7e77` on `slice-0065-capabilities`, signed,
 carrying every code, data, guide and artifact change of the three visits
@@ -645,3 +693,49 @@ head: `git status` clean, `git diff --check` clean, `openspec validate
 leg and the remote CI on this head are pending until the operator pushes;
 task 12.1 is open by the operator's ruling — nothing was archived — and
 the security hold awaits the council's re-judgment.
+
+
+## Second-hold design synthesis and validation — 2026-09-22
+
+This visit authored the dialect's design first, then amended proposed 0066
+rulings 3–6/enforcement bindings, then corrected dependent tasks and this evidence.
+The adopted proposal and six deltas remain unchanged. No production/test source,
+frozen surface, grant, dependency or witness pin changed.
+
+Design D1 records each current position's adopted, combined or rejected claim.
+It chooses captured provenance with one closed provider parser, explicit
+include constraints, preserved subtraction, owner-bound existing pins and one
+verified charter buffer at dispatch. It rejects additional fail-open scans,
+unchecked prompt rereads, a second identity inventory, tag-only doctor claims
+and a test-only grammar exception as M3 closure. A real supported production
+restriction transport remains an implementation evidence obligation, not a
+claim that the old fictitious test flag was supported.
+
+Dependent tasks 0.2, 4.3/4.4/4.6, 5.1/5.2, 6.1–6.4, 7.1–7.5, 8.1/8.3/8.4,
+9.2–9.4, 10.1–10.3 and 11.1/11.3–11.5 are reopened; 3.9 adds the explicit
+grammar/consumer obligation. 11.2 and 12.1 remain open. Checked 0.1 records
+only the completed proposed-decision amendment. Other checked first-repair
+rows retain their original narrow scope. This corrects the ledger rather than
+ticking future implementation work.
+
+Strict `openspec validate --all --strict --no-interactive` passed **16 items,
+zero failures**. Informational long-requirement and unrelated issue-226 archive
+notices are not failures; those artifacts were not edited. Diff/ownership
+checks cover exactly the four named artifacts. No OpenSpec workflow runner
+or archive operation was invoked.
+
+Formatting, locked all-target/all-feature clippy, all seven crate-scoped suites,
+both workspace test commands and actual self/verify compiles were attempted
+through workspace hands; none could start because `cargo` is absent from PATH.
+The authorized `bash scripts/coverage-exact.sh` stopped at line 33 with
+`cargo: command not found`, exit **127**. This attempt produced no fresh
+coverage report: **source lines unavailable; branches unavailable; logical
+functions unavailable**. Neither historical coverage report is this attempt's
+result. Rust, bundle, coverage, macOS and remote CI results remain pending for
+the repaired candidate; no implementation-completion claim is made.
+
+Source inspection confirms CI, release admission and local coverage still
+consume `rust-nightly-version.txt`; neither pin nor gate was changed. Final
+commit-bound strict validation and the authorized exact-gate attempt are
+recorded in this seat's run-local result/logs after committing these artifacts,
+without rewriting historical evidence or including scratch logs in the commit.
