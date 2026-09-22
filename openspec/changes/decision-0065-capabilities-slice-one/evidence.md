@@ -632,3 +632,16 @@ script groups them (file + start line, any hit instance covering):
 | `git diff --check` | clean |
 | `bash scripts/coverage-exact.sh` | **passes, literal equality on all three:** source lines **35073 / 35073**, branches **5744 / 5744**, logical functions **3453 / 3453** (`target/coverage/coverage-summary.json`, pinned `nightly-2026-09-05`, `--branch`, its own fresh target directory). Every production line this repair added is in the numerator; nothing was excluded and no threshold moved. The count fell by two lines and one function from the refused run because the two unreachable fallbacks and the duplicated label are gone, and rose by nothing: the new regression is test code. |
 | macOS | **not run by this seat** — no macOS host; the alias-root reproduction on Linux is the local proof and the pushed PR's `test (macos-latest)` job is the remote one, pending until the operator pushes |
+
+### The committed head (11.5)
+
+The repair candidate is `f97b7e77` on `slice-0065-capabilities`, signed,
+carrying every code, data, guide and artifact change of the three visits
+over the adopted `wip:` history. Every gate in the table above was run on
+exactly the tree that commit carries, after its last edit; this section is
+the one change after it, and it touches only this file. On the committed
+head: `git status` clean, `git diff --check` clean, `openspec validate
+--all --strict --no-interactive` 16 passed and 0 failed. Task 11.2's macOS
+leg and the remote CI on this head are pending until the operator pushes;
+task 12.1 is open by the operator's ruling — nothing was archived — and
+the security hold awaits the council's re-judgment.
