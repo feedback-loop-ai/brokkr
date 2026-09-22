@@ -23,7 +23,12 @@ macro_rules! absolute {
     };
 }
 
-static ADAPTER_ENV: Mutex<()> = Mutex::new(());
+/// The one lock every adapter test that MUTATES or READS the process
+/// environment takes. It is reachable from the sibling composite suite
+/// because a reader there is as much a party to the race as a writer
+/// here: the process has one `DSH_HOME`, and a reader that skips this
+/// lock observes another test's temporary home.
+pub(in crate::adapters) static ADAPTER_ENV: Mutex<()> = Mutex::new(());
 
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
@@ -475,23 +480,70 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
     ));
 }
 
+/// The staging sibling's own name: short, unique within this run, and
+/// derived from NOTHING about the destination.
+///
+/// The composite matrix probes the layout's own length bounds, so some of
+/// its destinations reach `NAME_MAX` exactly; a staging name built by
+/// decorating the destination's would be the one name in that directory
+/// which could not be created, and the fixture would fail as
+/// `ENAMETOOLONG` rather than as the layout under test.
+#[cfg(unix)]
+pub(crate) fn staging_name() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STAGED: AtomicU64 = AtomicU64::new(0);
+    format!(
+        ".stage-{}-{}",
+        std::process::id(),
+        STAGED.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 #[cfg(unix)]
 fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    // Written beside the target and renamed into place, never written at
-    // the target itself. `exec` refuses a file any process still holds
-    // open for writing with ETXTBSY, and a suite this parallel forks
-    // constantly: a child forked between this thread's open and close
-    // inherits the write descriptor and holds it until it execs. Rename is
-    // atomic and the destination never carried a writer, so the race has
-    // nowhere to happen (#255).
-    let staging = dir.join(format!(".{name}.staging"));
-    std::fs::write(&staging, body).unwrap();
+    let staging = dir.join(staging_name());
+    // The house fix for #255, both halves. The shim is installed by
+    // RENAME from a temporary sibling, so the pathname anything execs
+    // never names a partially written file — and there is no retry loop.
+    // And the sibling's bytes are written by a CHILD, so this process
+    // never holds a write descriptor on the inode the rename delivers:
+    // `exec` refuses with ETXTBSY while an inode's write count is above
+    // zero, `rename` moves the inode with that count intact, and a suite
+    // this parallel forks constantly — a child forked between this
+    // thread's open and close inherits the descriptor and holds it until
+    // it execs. Both facts are measured in `composite::tests`'s own
+    // `a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none`.
+    let mut child = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg("cat > \"$0\"")
+        .arg(&staging)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|error| panic!("staging {}: {error}", path.display()));
+    child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(body.as_bytes())
+        .unwrap_or_else(|error| panic!("staging {}: {error}", path.display()));
+    let status = child.wait().unwrap();
+    assert!(
+        status.success(),
+        "staging {} exited {status}",
+        path.display()
+    );
+    // `chmod` opens nothing: only a WRITE descriptor is what exec counts.
+    // The mode is set on the sibling, so the destination is complete and
+    // executable the instant it exists.
     let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&staging, permissions).unwrap();
-    std::fs::rename(&staging, &path).unwrap();
+    std::fs::rename(&staging, &path)
+        .unwrap_or_else(|error| panic!("installing {}: {error}", path.display()));
     path
 }
 
@@ -1150,11 +1202,17 @@ fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
         sealed.contains("could not write the dsh seat settings"),
         "{sealed}"
     );
+    // The reason, not `is_err()`: a settings path that spans a line is
+    // refused by the field that owns it, and the path itself stays out of
+    // the diagnostic (privacy is asserted whole in
+    // `dsh_storage_refusals_name_their_field_and_never_the_path_they_tried`).
     for bad in ["/tmp/a\nb", "/tmp/a\rb"] {
+        let refused = dsh_settings_row(std::path::Path::new(bad)).unwrap_err();
         assert!(
-            dsh_settings_row(std::path::Path::new(bad)).is_err(),
-            "{bad:?}"
+            refused.contains("settings path") && refused.contains("spans more than one line"),
+            "{bad:?}: {refused}"
         );
+        assert!(!refused.contains("/tmp/a"), "{bad:?}: {refused}");
     }
     assert!(dsh_settings_row(std::path::Path::new("/tmp/it's"))
         .unwrap()
@@ -4408,20 +4466,41 @@ fn dsh_controls_that_decide_the_session_or_a_restriction_are_refused() {
         "--profile",
         "--json-schema",
         "--dump-config",
+        "--dump-default-config",
+        "--help",
+        "-h",
         "--from-default-profile",
         "--verbose",
         "--",
         "--unknown",
+        "--settings",
         "--session=session-9",
+        // Short, joined and clustered spellings of the same controls.
+        "-nrl",
+        "-osession-9",
+        "-s=session-9",
+        "-v",
         "positional",
+        "",
     ] {
         let argv = vec![control.to_string()];
-        assert!(dsh_control_conflict(&argv).is_some(), "{control}");
+        assert!(dsh_control_conflict(&argv).is_some(), "{control:?}");
     }
     // The category is fixed and never echoes the rejected token.
-    for marker in ["--session", "--unknown", "zzz-residual-token"] {
+    for marker in [
+        "--session",
+        "--unknown",
+        "--zzz-residual-token",
+        "-zzz-residual-token",
+        "zzz-residual-token",
+        "--session=zzz-residual-token",
+    ] {
         let category = dsh_control_conflict(&[marker.to_string()]).unwrap();
         assert!(!category.contains(marker), "{marker} echoed in {category}");
+        assert!(
+            !category.contains("zzz-residual-token"),
+            "{marker}: the value echoed in {category}"
+        );
     }
 }
 
@@ -4792,87 +4871,1789 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
     }
 }
 
+/// A settled DSH launch over a synthetic store and a synthetic child, so
+/// the Pass C confirmation cases drive production's own
+/// `invoke_dsh_launch` without an installed provider.
 #[cfg(unix)]
-#[test]
-fn a_dsh_init_event_is_the_only_root_confirmation() {
-    let digest = "a".repeat(64);
-    let plan = |rejoining: Option<&str>| LaunchPlan {
-        command: Vec::new(),
+fn dsh_stream_launch(
+    shim: &std::path::Path,
+    root: &std::path::Path,
+    rejoining: Option<&str>,
+    first_seq: Option<u64>,
+) -> DshLaunch {
+    DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
         rejoining: rejoining.map(str::to_string),
         refusal: None,
-        sandbox: None,
-        kind: "dsh-session",
-        harness_version: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: Some(digest.clone()),
-        persistent: true,
-        confirms_from_locator: false,
-        effort: None,
-    };
-    // A result envelope alone confirms nothing.
-    let mut hold = LaunchHold::new("deepseek", plan(Some("session-1")));
-    let mut meta = Map::new();
-    let mut emitted = Vec::new();
-    fold_dsh_stream_event(
-        &json!({"type":"result","subtype":"success","session_id":"session-1"}),
-        &mut hold,
-        &mut meta,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert!(emitted.is_empty());
-    assert_eq!(hold.terminal(), LaunchTerminal::Unconfirmed);
-
-    // The post-resume init event naming the offered root confirms it.
-    fold_dsh_stream_event(
-        &json!({"type":"system","subtype":"init","session_id":"session-1"}),
-        &mut hold,
-        &mut meta,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert_eq!(hold.terminal(), LaunchTerminal::Resumed);
-    let launch = emitted
-        .iter()
-        .find(|row| row["step"] == "harness-started")
-        .expect("the init event publishes the one launch row");
-    assert_eq!(launch["launch"], "resumed");
-    assert_eq!(launch["root_session"]["kind"], "dsh-session");
-    assert_eq!(launch["root_session"]["id"], "session-1");
-    assert_eq!(launch["root_session"]["harness_version"], "0.1.5-rc.1");
-    assert_eq!(launch["root_session"]["wrapper_digest"], digest);
-
-    // A different root is a mismatch and publishes nothing.
-    let mut mismatched = LaunchHold::new("deepseek", plan(Some("session-1")));
-    let mut out = Vec::new();
-    fold_dsh_stream_event(
-        &json!({"type":"system","subtype":"init","session_id":"session-2"}),
-        &mut mismatched,
-        &mut meta,
-        &mut |value| out.push(value.clone()),
-    );
-    assert!(out.is_empty());
-    assert_eq!(mismatched.terminal(), LaunchTerminal::Mismatch);
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: Some("a".repeat(64)),
+        stream_json: true,
+        effortless: false,
+        facts: crate::hands::GitFacts::default(),
+        staged: None,
+        first_seq,
+        locator: "seat".to_string(),
+        root: root.to_path_buf(),
+        overlay: dsh_seat_overlay_with(None, None, root, None, None).unwrap(),
+    }
 }
 
-/// The qualified stream-json exchange end to end: a synthetic child emits
-/// the init event and appends one current event past the offered root's
-/// own sequence, and the driver confirms the exact root and counts only
-/// that event.
+/// Run one synthetic stream-json child through production's dispatch and
+/// report the invocation beside every row it published.
+#[cfg(unix)]
+fn run_dsh_stream(launch: DshLaunch, workdir: &std::path::Path) -> (Invocation, Vec<Value>) {
+    let mut emitted = Vec::new();
+    let invocation = invoke_dsh_launch(
+        launch,
+        "the prompt",
+        workdir.to_str().unwrap(),
+        &mut |value| emitted.push(value.clone()),
+        |_| panic!("the qualified arm does not poll the child"),
+    )
+    .unwrap();
+    (invocation, emitted)
+}
+
+#[cfg(unix)]
+fn transcript_rows(emitted: &[Value]) -> Vec<&Value> {
+    emitted
+        .iter()
+        .filter(|row| row["step"] == "transcript")
+        .collect()
+}
+
+/// The DSH arm of LE1/AS1: the request-derived `session_id` is the value
+/// this driver ASKED for, echoed back, so neither it nor the result
+/// envelope is confirmation. A different root is a mismatch that publishes
+/// nothing at all (task 8.8(d), Pass C; design D7).
+#[cfg(unix)]
+#[test]
+fn a_dsh_init_event_alone_is_never_the_root_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+
+    // A result envelope naming the offered root confirms nothing, and an
+    // init event naming it confirms nothing either while the store has
+    // not moved: the id is request-derived.
+    let quiet = executable(
+        dir.path(),
+        "dsh-stream-quiet",
+        "#!/bin/sh\n\
+         printf '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"session-1\"}\\n'\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
+    );
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&quiet, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed);
+    assert!(
+        launch_rows(&emitted).is_empty(),
+        "an echoed session id publishes no launch row"
+    );
+    assert!(
+        transcript_rows(&emitted).is_empty(),
+        "an unconfirmed rejoin publishes no transcript locator"
+    );
+
+    // A DIFFERENT root is a mismatch: nothing published, and the root is
+    // never relabelled as the requested session.
+    let other = executable(
+        dir.path(),
+        "dsh-stream-other",
+        "#!/bin/sh\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-2\"}\\n'\n",
+    );
+    let (mismatched, rows) = run_dsh_stream(
+        dsh_stream_launch(&other, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(mismatched.launch, LaunchTerminal::Mismatch);
+    assert!(launch_rows(&rows).is_empty() && transcript_rows(&rows).is_empty());
+}
+
+/// The DSH arm of LE1/LE3/AS4/D7, case by case: the launch hold stays
+/// closed until ALL FOUR observations agree, and each is load-bearing on
+/// its own. Every case here ends failed or indeterminate — no
+/// `root_session`, no transcript locator, no launch row — and none of
+/// them authorizes a cold replacement, whether the child exits clean or
+/// leaves an otherwise valid delivered result file behind (task 8.8(d),
+/// Pass C; design D6/D7).
+///
+/// These are NOT 7.9's or 9.7's generic cross-adapter cases: no other
+/// adapter exercises a DSH child's init event against a retained store.
+#[cfg(unix)]
+#[test]
+fn the_dsh_launch_hold_needs_every_confirmation_before_it_publishes() {
+    let init =
+        "printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n";
+    // Each case names the one fact it withholds; everything else about
+    // the exchange is the confirmed control's.
+    let cases: [(&str, bool, bool, bool, bool); 7] = [
+        // (case, emit init, advance the sequence, plant a sibling,
+        //  carry the prior header's boundary)
+        ("no prior depth-zero header", true, true, false, false),
+        ("no init event at all", false, true, false, true),
+        ("no sequence past the boundary", true, false, false, true),
+        ("a fresh sibling session", true, true, true, true),
+        ("a sibling and a delivered result", true, true, true, true),
+        ("no init and a delivered result", false, true, false, true),
+        ("a second header naming the offer", true, true, false, true),
+    ];
+    for (index, (case, emits_init, advances, sibling, boundary)) in cases.into_iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("seat");
+        plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        if case.starts_with("a second header") {
+            // The store changed between the plan's selection and this
+            // one: ambiguous evidence is refused, never resolved to a
+            // substitute. BOTH candidates sit past the offered boundary,
+            // so whichever the enumeration reaches first would confirm if
+            // ambiguity were resolved instead of refused.
+            plant_dsh_session(dir.path(), "seat", "--other--", "session-1", 99);
+        }
+        let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+        let result = dir.path().join("result.json");
+        let delivers = case.ends_with("delivered result");
+        let mut body = "#!/bin/sh\n".to_string();
+        if emits_init {
+            body.push_str(init);
+        }
+        if sibling {
+            // A COMPLETE fresh session, so the store still censuses
+            // cleanly and it is the sibling itself — not an unreadable
+            // walk — that withholds the confirmation. It is planted
+            // BEFORE the sequence advances, so no reading of this store
+            // can ever see the advance without the sibling beside it.
+            let fresh = root.join("--w--").join("session-9");
+            body.push_str(&format!(
+                "mkdir -p '{fresh}'\n\
+                 printf '{{\"type\":\"session\",\"version\":3,\"id\":\"session-9\",\
+                 \"delegationDepth\":0}}\\n' > '{fresh}/{name}'\n\
+                 printf '{{\"type\":\"permission/preset\",\"seq\":0}}\\n' >> '{fresh}/{name}'\n",
+                fresh = fresh.display(),
+                name = DSH_TRANSCRIPT
+            ));
+        }
+        if advances {
+            body.push_str(&format!(
+                "printf '{{\"type\":\"assistant/message\",\"seq\":28,\"data\":{{\"message\":\
+                 {{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\
+                 \"outputTokens\":2}}}}}}\\n' >> '{file}'\n",
+                file = file.display()
+            ));
+        }
+        if delivers {
+            body.push_str(&format!(
+                "printf '{{\"result\":\"delivered\"}}' > '{result}'\n",
+                result = result.display()
+            ));
+        }
+        body.push_str(
+            "printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+             \"session_id\":\"session-1\"}\\n'\n",
+        );
+        let shim = executable(dir.path(), &format!("dsh-hold-{index}"), &body);
+        let (invocation, emitted) = run_dsh_stream(
+            dsh_stream_launch(&shim, &root, Some("session-1"), boundary.then_some(27u64)),
+            dir.path(),
+        );
+        assert!(
+            invocation.launch.is_unsettled(),
+            "{case}: an incomplete evidence set never settles the rejoin"
+        );
+        assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed, "{case}");
+        assert!(
+            launch_rows(&emitted).is_empty(),
+            "{case}: no launch row and no root_session: {emitted:?}"
+        );
+        assert!(
+            transcript_rows(&emitted).is_empty(),
+            "{case}: no transcript locator: {emitted:?}"
+        );
+        assert!(
+            invocation.refusal.is_none(),
+            "{case}: dsh classifies no machine session rejection, so ruling 8's \
+             single replacement is never authorized"
+        );
+        assert!(
+            !emitted
+                .iter()
+                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            "{case}: and no work row either — an unconfirmed rejoin's fold \
+             would address a session this driver cannot name: {emitted:?}"
+        );
+        if delivers {
+            assert!(
+                std::fs::metadata(&result).is_ok(),
+                "{case}: the delivered file is retained for diagnosis"
+            );
+        }
+    }
+}
+
+/// The interleaving an event-by-event fold makes reachable, and the one
+/// D7's ordering exists to forbid: sequence activity that lands in the
+/// offered root BEFORE the plugin's init event names it.
+///
+/// The pinned plugin emits its init event immediately after
+/// `await agents.resume`, ahead of the session's first current turn, so
+/// activity that precedes it was not produced by a rejoin this driver has
+/// confirmed — and an init event arriving afterwards cannot adopt it
+/// retroactively. Before the repair, the first folded line drained that
+/// work into the journal with the hold still closed, and the later init
+/// then published the locator, the launch row and `root_session` BEHIND
+/// its own work rows and returned `Resumed`, walking straight past
+/// `run_seat`'s unsettled-result guard.
+///
+/// The attempt latches unconfirmed instead: the fold publishes nothing at
+/// all while the hold is closed, and a hold closed by pre-confirmation
+/// work never opens again — whether the child exits clean or leaves an
+/// otherwise valid delivered result behind (task 8.8(d), Pass C; design
+/// D7).
+#[cfg(unix)]
+#[test]
+fn dsh_work_before_the_init_event_is_never_adopted_by_it() {
+    for delivers in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("seat");
+        plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+        let result = dir.path().join("result.json");
+        let mut body = format!(
+            "#!/bin/sh\n\
+             printf '{{\"type\":\"assistant/message\",\"seq\":28,\"data\":{{\"message\":\
+             {{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\
+             \"outputTokens\":2}}}}}}\\n' >> '{file}'\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"other\"}}\\n'\n",
+            file = file.display()
+        );
+        if delivers {
+            body.push_str(&format!(
+                "printf '{{\"result\":\"delivered\"}}' > '{result}'\n",
+                result = result.display()
+            ));
+        }
+        // The init event the whole sequence was staged to launder: it
+        // names the offered root exactly, and every other observation
+        // agrees with it.
+        body.push_str(
+            "printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n\
+             printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+             \"session_id\":\"session-1\"}\\n'\n",
+        );
+        let shim = executable(dir.path(), &format!("dsh-prework-{delivers}"), &body);
+        let (invocation, emitted) = run_dsh_stream(
+            dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+            dir.path(),
+        );
+        let label = if delivers { "with a result" } else { "clean" };
+        assert_eq!(
+            invocation.launch,
+            LaunchTerminal::Unconfirmed,
+            "{label}: the later init event adopts none of the work ahead of it"
+        );
+        assert!(
+            launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty(),
+            "{label}: no launch row, no root_session and no locator: {emitted:?}"
+        );
+        assert!(
+            !emitted
+                .iter()
+                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            "{label}: and no work row was drained before the hold released: {emitted:?}"
+        );
+        assert!(
+            invocation.refusal.is_none(),
+            "{label}: and no cold replacement is authorized"
+        );
+        if delivers {
+            assert!(
+                std::fs::metadata(&result).is_ok(),
+                "{label}: the delivered file is retained for diagnosis and is \
+                 not this attempt's accepted work"
+            );
+        }
+    }
+}
+
+/// The same interleaving, with the pre-confirmation reading left
+/// UNCERTAIN rather than advanced — the half a later reading used to
+/// cure.
+///
+/// A child can present its confirmation with a store that agrees with it
+/// completely and still have denied the one reading that could have
+/// refused it: disturb the offered root while the hold is closed — a
+/// half-written trailing row, which the boundary reader refuses whole
+/// rather than reporting a lower maximum
+/// (`dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum`);
+/// a root that is not there to be censused; a second depth-zero header
+/// naming the offer — then restore it, advance it and emit the init
+/// event.
+///
+/// Before the repair each of those readings was dropped rather than
+/// latched: the pre-init observation asked only whether it could SEE work,
+/// so a reading that could see nothing refused nothing, and the init
+/// behind it confirmed, published the locator, the launch row and
+/// `root_session`, and folded the work in front of it — adopting
+/// pre-confirmation work contrary to D7 and walking past `run_seat`'s
+/// unsettled-result guard.
+///
+/// An unobserved fact is never a satisfied one. A reading that cannot
+/// prove the offered root unmoved latches exactly as observed work does,
+/// and no later readable snapshot cures it. Both endings — a clean exit
+/// and an otherwise valid delivered result file — stay failed or
+/// indeterminate and authorize no cold replacement (task 8.8(d), Pass C;
+/// design D7).
+#[cfg(unix)]
+#[test]
+fn dsh_uncertainty_before_the_init_event_is_never_cured_by_a_later_reading() {
+    // Each case disturbs the offered root so the driver's pre-init
+    // reading cannot prove it unmoved, then puts the store back and
+    // advances it — the snapshot the init event arrives with agrees
+    // completely, and it is the earlier one that already refused.
+    //
+    // (case, what a pre-init reading cannot do, whether a result lands)
+    let cases: [(&str, bool); 4] = [
+        ("a half-written trailing row", false),
+        ("a half-written trailing row", true),
+        ("a store it cannot census", false),
+        ("a second header naming the offer", false),
+    ];
+    for (index, (case, delivers)) in cases.into_iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("seat");
+        plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        if case.starts_with("a second header") {
+            // Planted BEHIND the offered boundary, so the ambiguity is
+            // the only thing a pre-init reading can object to: neither
+            // header has moved past `firstSeq` yet.
+            plant_dsh_session(dir.path(), "seat", "--other--", "session-1", 5);
+        }
+        let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+        let result = dir.path().join("result.json");
+        let work = "printf '{\"type\":\"assistant/message\",\"seq\":28,\"data\":{\"message\":\
+                    {\"source\":{\"model\":\"deepseek-flash\"}},\"usage\":{\"inputTokens\":5,\
+                    \"outputTokens\":2}}}'";
+        // The stdout line is what drives the driver's pre-init reading,
+        // and the wait is what keeps that reading on the disturbed store.
+        // A reading that arrives late instead sees the advance the
+        // restoration leaves behind and refuses on that, so every case
+        // here can only ever end unconfirmed — the wait decides WHICH
+        // refusal it proves, never whether it refuses.
+        let (disturb, restore) = match case {
+            // Appended without its terminating newline: the boundary
+            // reader refuses a half-written tail whole rather than
+            // reporting a lower maximum, and the child's own newline is
+            // what completes it into the advance.
+            "a half-written trailing row" => (
+                format!("{work} >> '{file}'\n", file = file.display()),
+                format!("printf '\\n' >> '{file}'\n", file = file.display()),
+            ),
+            // The retained root is not there to be walked at all.
+            "a store it cannot census" => (
+                format!("mv '{root}' '{root}.away'\n", root = root.to_string_lossy()),
+                format!(
+                    "mv '{root}.away' '{root}'\n{work} >> '{file}'\nprintf '\\n' >> '{file}'\n",
+                    root = root.to_string_lossy(),
+                    file = file.display()
+                ),
+            ),
+            // Two depth-zero headers name the offer, so which root the
+            // plan selected is no longer a fact this reading holds.
+            _ => (
+                String::new(),
+                format!(
+                    "rm -rf '{other}'\n{work} >> '{file}'\nprintf '\\n' >> '{file}'\n",
+                    other = root.join("--other--").to_string_lossy(),
+                    file = file.display()
+                ),
+            ),
+        };
+        let mut body = format!(
+            "#!/bin/sh\n\
+             {disturb}\
+             printf '{{\"type\":\"system\",\"subtype\":\"other\"}}\\n'\n\
+             sleep 1\n\
+             {restore}"
+        );
+        if delivers {
+            body.push_str(&format!(
+                "printf '{{\"result\":\"delivered\"}}' > '{result}'\n",
+                result = result.display()
+            ));
+        }
+        body.push_str(
+            "printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n\
+             printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+             \"session_id\":\"session-1\"}\\n'\n",
+        );
+        let shim = executable(dir.path(), &format!("dsh-uncertain-{index}"), &body);
+        let (invocation, emitted) = run_dsh_stream(
+            dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+            dir.path(),
+        );
+        let ending = if delivers { "with a result" } else { "clean" };
+        let label = format!("{case}, {ending}");
+        assert_eq!(
+            invocation.launch,
+            LaunchTerminal::Unconfirmed,
+            "{label}: a restored store does not cure the reading that refused"
+        );
+        assert!(
+            launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty(),
+            "{label}: no launch row, no root_session and no locator: {emitted:?}"
+        );
+        assert!(
+            !emitted
+                .iter()
+                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            "{label}: and the work in front of the init event is never folded: {emitted:?}"
+        );
+        assert!(
+            invocation.refusal.is_none(),
+            "{label}: and no cold replacement is authorized"
+        );
+        if delivers {
+            assert!(
+                std::fs::metadata(&result).is_ok(),
+                "{label}: the delivered file is retained for diagnosis and is \
+                 not this attempt's accepted work"
+            );
+        }
+    }
+}
+
+/// The same terminal rule for the OTHER unsettled shape: an init event
+/// naming a different root, followed by an otherwise valid delivered
+/// result file, is a mismatch and never an accepted successful launch.
+#[cfg(unix)]
+#[test]
+fn a_dsh_root_mismatch_that_delivers_a_result_is_still_a_mismatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+    let result = dir.path().join("result.json");
+    let shim = executable(
+        dir.path(),
+        "dsh-mismatch-delivering",
+        &format!(
+            "#!/bin/sh\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-2\"}}\\n'\n\
+             printf '{{\"type\":\"assistant/message\",\"seq\":28,\"data\":{{\"message\":\
+             {{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\
+             \"outputTokens\":2}}}}}}\\n' >> '{file}'\n\
+             printf '{{\"result\":\"delivered\"}}' > '{result}'\n\
+             printf '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}}\\n'\n",
+            file = file.display(),
+            result = result.display()
+        ),
+    );
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Mismatch);
+    assert_eq!(
+        invocation.exit_code, 0,
+        "the child exited clean all the same"
+    );
+    assert!(std::fs::metadata(&result).is_ok(), "the file is retained");
+    assert!(launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty());
+    assert!(
+        invocation.refusal.is_none(),
+        "and no replacement is authorized"
+    );
+}
+
+/// The exact terminal reason `run_seat` gives a rejoin that never
+/// confirmed. Asserted whole: a refusal is proved by its reason, never by
+/// `is_err()` or a non-success status.
+#[cfg(unix)]
+const DSH_NEVER_CONFIRMED: &str =
+    "provider never confirmed the offered session; refusing to accept the invocation";
+
+/// The vocabulary every latch child is written in. The store verbs write
+/// whole rows in ONE `printf`, so a reading that races the child sees the
+/// row or does not see it, never half of it — `row` without `newline` is
+/// the one deliberate half-written tail. `await` blocks until the parent's
+/// observer has acknowledged a COMPLETED production observation, and a
+/// child that waits out its bound says so instead of hanging the suite.
+#[cfg(unix)]
+const DSH_LATCH_PRELUDE: &str = r#"#!/bin/sh
+ROOT='@ROOT@'
+HERE='@HERE@'
+NAME='@NAME@'
+DELIVERS=@DELIVERS@
+printf 'x\n' >> "$HERE/spawns"
+init() { printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$1"; }
+event() { printf '{"type":"system","subtype":"other"}\n'; }
+garbage() { printf 'this line is not JSON\n'; }
+nonutf8() { printf '\377\n'; }
+session() {
+  mkdir -p "$ROOT/$1/$2"
+  printf '{"type":"session","version":3,"id":"%s","delegationDepth":0}\n{"type":"permission/preset","seq":0}\n' "$3" > "$ROOT/$1/$2/$NAME"
+}
+row() {
+  printf '{"type":"assistant/message","seq":%s,"data":{"message":{"source":{"model":"deepseek-flash"}},"usage":{"inputTokens":5,"outputTokens":2}}}' "$2" >> "$ROOT/$1/session-1/$NAME"
+}
+newline() { printf '\n' >> "$ROOT/$1/session-1/$NAME"; }
+work() {
+  printf '{"type":"assistant/message","seq":%s,"data":{"message":{"source":{"model":"deepseek-flash"}},"usage":{"inputTokens":5,"outputTokens":2}}}\n' "$2" >> "$ROOT/$1/session-1/$NAME"
+}
+await() {
+  n=0
+  while [ ! -e "$HERE/ack" ]; do
+    n=$((n+1))
+    if [ "$n" -gt 3000 ]; then : > "$HERE/timed-out"; exit 9; fi
+    sleep 0.01
+  done
+  rm -f "$HERE/ack"
+}
+deliver() {
+  if [ "$DELIVERS" = 1 ]; then
+    printf '{"result":"complete","inputs":{},"notes":"delivered"}' > "$HERE/result.json"
+  fi
+}
+finish() {
+  deliver
+  printf '{"type":"result","subtype":"success","is_error":false,"session_id":"session-1"}\n'
+}
+"#;
+
+/// One latch exchange: the store before the spawn, the child's steps in
+/// the prelude's vocabulary, and which completed observations release the
+/// child's `await`s.
+#[cfg(unix)]
+struct DshLatchCase {
+    name: &'static str,
+    plant: fn(&Path),
+    /// `None` rejoins nothing (a cold launch); otherwise the offer is
+    /// `session-1` with this boundary.
+    offer: Option<Option<u64>>,
+    steps: &'static str,
+    acknowledge: fn(&DshObservation) -> bool,
+    /// How many matching observations are acknowledged, in order. The
+    /// child consumes one per `await`.
+    acks: usize,
+}
+
+/// What one real synthetic child left behind after production's OWN
+/// terminal body: every wire body `run_seat_with` sent, and every
+/// completed observation the watcher reported, in order.
+#[cfg(unix)]
+struct DshLatchRun {
+    _dir: tempfile::TempDir,
+    here: std::path::PathBuf,
+    root: std::path::PathBuf,
+    bodies: Vec<Body>,
+    observations: Vec<DshObservation>,
+    acknowledged: usize,
+}
+
+#[cfg(unix)]
+impl DshLatchRun {
+    fn checkpoints(&self) -> Vec<&Value> {
+        self.bodies
+            .iter()
+            .filter_map(|body| match body {
+                Body::Checkpoint { data, .. } => Some(data),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The terminal result: whether it succeeded, its payload, its error.
+    fn terminal(&self) -> (bool, Option<&Value>, Option<&str>) {
+        match self.bodies.last() {
+            Some(Body::Result {
+                status,
+                result,
+                error,
+                ..
+            }) => (
+                matches!(status, ResultStatus::Succeeded),
+                result.as_ref(),
+                error.as_deref(),
+            ),
+            other => panic!("the exchange ends in a result: {other:?}"),
+        }
+    }
+
+    /// The canonical address the reader reports for one stored session.
+    fn file(&self, project: &str, session: &str) -> std::path::PathBuf {
+        self.root.join(project).join(session).join(DSH_TRANSCRIPT)
+    }
+
+    /// The proof contract of every contrary-evidence exchange (design D7):
+    /// the named refusal, no payload, nothing published, one child, the
+    /// delivered file retained, and a child that really passed each
+    /// `await` on an acknowledged observation rather than timing out.
+    fn assert_refused(&self, label: &str, delivers: bool, acks: usize) {
+        let (succeeded, result, error) = self.terminal();
+        assert_eq!(
+            error,
+            Some(DSH_NEVER_CONFIRMED),
+            "{label}: the named terminal refusal: {:?}",
+            self.bodies
+        );
+        assert!(
+            !succeeded && result.is_none(),
+            "{label}: failed, with no payload"
+        );
+        for row in self.checkpoints() {
+            assert!(
+                row.get("root_session").is_none()
+                    && row.get("transcript").is_none()
+                    && row.get("launch").is_none(),
+                "{label}: no root_session, transcript locator or launch row: {row}"
+            );
+            assert!(
+                !begins_work(row["step"].as_str().unwrap_or_default()),
+                "{label}: no held work row and no session-finished row escapes: {row}"
+            );
+        }
+        assert_eq!(
+            self.bodies
+                .iter()
+                .filter(|body| matches!(body, Body::Accepted { .. }))
+                .count(),
+            1,
+            "{label}: the ordinary wire `accepted` keeps its meaning and order"
+        );
+        self.assert_one_child(label, acks);
+        assert_eq!(
+            std::fs::read_to_string(self.here.join("result.json")).ok(),
+            delivers
+                .then(|| r#"{"result":"complete","inputs":{},"notes":"delivered"}"#.to_string()),
+            "{label}: a delivered file is retained for diagnosis, never accepted"
+        );
+    }
+
+    fn assert_one_child(&self, label: &str, acks: usize) {
+        assert_eq!(
+            std::fs::read_to_string(self.here.join("spawns")).unwrap(),
+            "x\n",
+            "{label}: exactly one child, and no cold replacement"
+        );
+        assert_eq!(
+            self.acknowledged, acks,
+            "{label}: every awaited observation was really completed"
+        );
+        assert!(
+            !self.here.join("timed-out").exists() && !self.here.join("ack").exists(),
+            "{label}: the child passed each await on its acknowledgment"
+        );
+    }
+
+    fn dispositions(&self) -> Vec<DshDisposition> {
+        self.observations
+            .iter()
+            .map(|observation| observation.disposition)
+            .collect()
+    }
+}
+
+/// How many admitted occurrences in one observed census name `id`.
+#[cfg(unix)]
+fn census_count(observation: &DshObservation, id: &str) -> usize {
+    observation
+        .census
+        .iter()
+        .flatten()
+        .filter(|(header, _)| header == id)
+        .count()
+}
+
+#[cfg(unix)]
+fn plant_offer(home: &Path) {
+    plant_dsh_session(home, "seat", "--w--", "session-1", 27);
+}
+
+#[cfg(unix)]
+fn plant_offer_and_old_sibling(home: &Path) {
+    plant_offer(home);
+    plant_dsh_session(home, "seat", "--old--", "session-9", 3);
+}
+
+#[cfg(unix)]
+fn never(_: &DshObservation) -> bool {
+    false
+}
+
+/// Drive one case's REAL child through `run_seat_with` — production's own
+/// prompt, checkpoint buffer, delivered-file fact and unsettled-launch
+/// guard — observing exactly what the watcher consumed.
+#[cfg(unix)]
+fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
+    let dir = tempfile::tempdir().unwrap();
+    let here = dir.path().canonicalize().unwrap();
+    let root = here.join("seat");
+    (case.plant)(&here);
+    let body = DSH_LATCH_PRELUDE
+        .replace("@ROOT@", root.to_str().unwrap())
+        .replace("@HERE@", here.to_str().unwrap())
+        .replace("@NAME@", DSH_TRANSCRIPT)
+        .replace("@DELIVERS@", if delivers { "1" } else { "0" })
+        + case.steps;
+    let shim = executable(&here, "dsh-latch", &body);
+    let launch = dsh_stream_launch(
+        &shim,
+        &root,
+        case.offer.map(|_| "session-1"),
+        case.offer.flatten(),
+    );
+    let start = json!({
+        "effect_id": "effect", "attempt_id": "attempt",
+        "input": {"workdir": here, "result_path": here.join("result.json"),
+                  "allowed_results": ["complete"], "feature": "f", "phase": "work"}
+    });
+    let mut bodies = Vec::new();
+    let mut observations = Vec::new();
+    let mut acknowledged = 0usize;
+    run_seat_with(
+        AdapterKind::Dsh,
+        &start,
+        &mut |body| bodies.push(body),
+        |prompt, input, _bindings, mut emit| {
+            invoke_dsh_launch_observed(
+                launch,
+                prompt,
+                input["workdir"].as_str().unwrap(),
+                &mut emit,
+                |_| panic!("the qualified arm does not poll the child"),
+                &mut |observation: &DshObservation| {
+                    observations.push(observation.clone());
+                    if acknowledged < case.acks && (case.acknowledge)(observation) {
+                        acknowledged += 1;
+                        std::fs::write(here.join("ack"), b"observed").unwrap();
+                    }
+                },
+            )
+        },
+    );
+    DshLatchRun {
+        _dir: dir,
+        here,
+        root,
+        bodies,
+        observations,
+        acknowledged,
+    }
+}
+
+/// Run one contrary-evidence case on BOTH endings — a clean exit, and an
+/// otherwise valid delivered result file — under the whole proof contract,
+/// then hand each run to the case's own witness of what was consumed.
+///
+/// BOTH endings always run, and every failed ending is reported: a removal
+/// proof has to show what each ending loses, and an ending that never ran
+/// behind the first panic would show nothing.
+#[cfg(unix)]
+fn refused_on_both_endings(
+    cases: &[DshLatchCase],
+    witness: impl Fn(&DshLatchCase, &DshLatchRun, &str),
+) {
+    let failed: Vec<String> = cases
+        .iter()
+        .flat_map(|case| [(case, false), (case, true)])
+        .filter_map(|(case, delivers)| {
+            let ending = if delivers {
+                "delivered result"
+            } else {
+                "clean exit"
+            };
+            let label = format!("{}, {ending}", case.name);
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let run = run_dsh_latch(case, delivers);
+                run.assert_refused(&label, delivers, case.acks);
+                assert_eq!(
+                    run.dispositions().last(),
+                    Some(&DshDisposition::Refused),
+                    "{label}: and the watcher itself ended refused"
+                );
+                witness(case, &run, &label);
+            }))
+            .err()
+            .map(|_| label)
+        })
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "endings that lost their proof contract (each reported above): {failed:?}"
+    );
+}
+
+/// R1 (task 8.8(d), Pass C; design D7): output this driver could not read
+/// BEFORE the init event is not noise to skip on a rejoin. The child
+/// appends `assistant/message` 28 to the offered root, emits a line that
+/// is not JSON, and only then the matching init event — with no valid
+/// pre-init event in front, so no other guard can be the one refusing.
+/// Skipping the line skipped the one observation that would have seen the
+/// work, and the init behind it confirmed, published and folded it.
+///
+/// The second case keeps the store UNMOVED when the malformed line is
+/// read, and advances it only once that line's observation is complete —
+/// so a rule that merely looked at the store on a malformed line cannot
+/// stand in for the refusal.
+#[cfg(unix)]
+#[test]
+fn dsh_malformed_output_before_the_init_event_refuses_the_rejoin_for_good() {
+    refused_on_both_endings(
+        &[
+            DshLatchCase {
+                name: "R1 malformed pre-init work",
+                plant: plant_offer,
+                offer: Some(Some(27)),
+                steps: "work --w-- 28\ngarbage\ninit session-1\nfinish\n",
+                acknowledge: never,
+                acks: 0,
+            },
+            DshLatchCase {
+                name: "malformed pre-init output, store unmoved",
+                plant: plant_offer,
+                offer: Some(Some(27)),
+                steps: "garbage\nawait\nwork --w-- 28\ninit session-1\nevent\nfinish\n",
+                acknowledge: |observation| observation.line == DshStreamLine::Malformed,
+                acks: 1,
+            },
+        ],
+        |_, run, label| {
+            assert_eq!(
+                run.observations[0],
+                DshObservation {
+                    line: DshStreamLine::Malformed,
+                    census: None,
+                    last_seq: None,
+                    disposition: DshDisposition::Refused,
+                },
+                "{label}: the line itself refused, before and without any store reading"
+            );
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28),
+                "{label}: and the final store satisfies every positive fact"
+            );
+        },
+    );
+}
+
+/// R2: a contradiction that was OBSERVED is not retried away. The matching
+/// init event arrives beside a fresh `session-9`, with the offer still at
+/// its boundary. The child then waits for the watcher's completed reading
+/// of exactly that census before it deletes the sibling, advances the
+/// offer to 28 and emits another event — so the final store satisfies
+/// every positive confirmation fact, and the only thing refusing is the
+/// reading already taken.
+#[cfg(unix)]
+#[test]
+fn dsh_an_observed_fresh_sibling_refuses_the_rejoin_after_it_disappears() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "R2 disappearing sibling",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-9 session-9\ninit session-1\nawait\n\
+                    rm -rf \"$ROOT/--w--/session-9\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| census_count(observation, "session-9") == 1,
+            acks: 1,
+        }],
+        |_, run, label| {
+            let seen = &run.observations[0];
+            assert_eq!(
+                (seen.line, seen.disposition, seen.last_seq),
+                (DshStreamLine::Event, DshDisposition::Refused, None),
+                "{label}: the init line's own census refused, ahead of any sequence read"
+            );
+            let mut census = seen.census.clone().unwrap();
+            census.sort();
+            assert_eq!(
+                census,
+                vec![
+                    ("session-1".to_string(), run.file("--w--", "session-1")),
+                    ("session-9".to_string(), run.file("--w--", "session-9")),
+                ],
+                "{label}: the contradictory census the watcher really consumed"
+            );
+            // The repaired store confirms on every positive fact.
+            assert!(!run.file("--w--", "session-9").exists());
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28)
+            );
+            assert_eq!(
+                dsh_depth_zero_sessions(&run.root).unwrap(),
+                vec![("session-1".to_string(), run.file("--w--", "session-1"))]
+            );
+        },
+    );
+}
+
+/// R3, kept apart from R2: the census has to be able to SEE the
+/// contradiction. `session-9` already exists under `--old--`; the child
+/// opens another `session-9` under `--new--`. The set of session ids is
+/// unchanged, exactly one header names the offer and its sequence
+/// advances, the store stays readable and the stream valid — and it is
+/// still a fresh depth-zero entry, because entries are counted by address.
+#[cfg(unix)]
+#[test]
+fn dsh_a_fresh_entry_reusing_a_sibling_id_at_a_new_address_refuses_the_rejoin() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "R3 repeated id at a new address",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "session --new-- session-9 session-9\nwork --w-- 28\n\
+                    init session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        }],
+        |_, run, label| {
+            let seen = &run.observations[0];
+            let mut addresses: Vec<_> = seen
+                .census
+                .iter()
+                .flatten()
+                .filter(|(id, _)| id == "session-9")
+                .map(|(_, file)| file.clone())
+                .collect();
+            addresses.sort();
+            assert_eq!(
+                addresses,
+                vec![
+                    run.file("--new--", "session-9"),
+                    run.file("--old--", "session-9")
+                ],
+                "{label}: two admitted addresses behind one id"
+            );
+            assert_eq!(census_count(seen, "session-1"), 1, "{label}: one offer");
+            assert_eq!(seen.disposition, DshDisposition::Refused, "{label}");
+        },
+    );
+}
+
+/// The rule behind R2, at every other site that used to answer "not yet"
+/// to evidence that already said "never": each case shows the watcher a
+/// contradiction — or denies it a required reading — AFTER the matching
+/// init event, waits for that completed observation, then restores a store
+/// that satisfies every positive fact and emits another event.
+///
+/// The ambiguity is built at a BASELINE address (the old sibling's file is
+/// relabelled to name the offer), so no new-address reading can stand in
+/// for header cardinality; the sequence is otherwise nonconfirming while
+/// it is observed.
+#[cfg(unix)]
+#[test]
+fn dsh_contradictions_after_the_init_event_are_never_restored_away() {
+    let cases = [
+        DshLatchCase {
+            name: "offered header missing after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "mv \"$ROOT/--w--/session-1\" \"$HERE/hidden\"\ninit session-1\nawait\n\
+                    mv \"$HERE/hidden\" \"$ROOT/--w--/session-1\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| {
+                observation.census.is_some() && census_count(observation, "session-1") == 0
+            },
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "offered header ambiguous after init",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "session --old-- session-9 session-1\ninit session-1\nawait\n\
+                    session --old-- session-9 session-9\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| census_count(observation, "session-1") == 2,
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "census fails after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "mv \"$ROOT\" \"$ROOT.away\"\ninit session-1\nawait\n\
+                    mv \"$ROOT.away\" \"$ROOT\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| observation.census.is_none(),
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "offered sequence unreadable after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "row --w-- 28\ninit session-1\nawait\nnewline --w--\nevent\nfinish\n",
+            acknowledge: |observation| {
+                observation.census.is_some() && observation.last_seq.is_none()
+            },
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "fresh sibling read on a malformed line after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "init session-1\nawait\nsession --w-- session-9 session-9\ngarbage\nawait\n\
+                    rm -rf \"$ROOT/--w--/session-9\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| {
+                observation.line == DshStreamLine::Malformed
+                    || observation.disposition == DshDisposition::Pending
+            },
+            acks: 2,
+        },
+    ];
+    refused_on_both_endings(&cases, |case, run, label| {
+        let refused = run
+            .observations
+            .iter()
+            .find(|observation| observation.disposition == DshDisposition::Refused)
+            .unwrap();
+        assert!(
+            (case.acknowledge)(refused),
+            "{label}: the awaited reading is the one that refused: {refused:?}"
+        );
+        if case
+            .name
+            .starts_with("fresh sibling read on a malformed line")
+        {
+            assert_eq!(
+                (refused.line, census_count(refused, "session-9")),
+                (DshStreamLine::Malformed, 1),
+                "{label}: the store WAS read behind the malformed line"
+            );
+        }
+        // Every positive fact holds in the store the child left.
+        assert_eq!(
+            dsh_depth_zero_sessions(&run.root)
+                .unwrap()
+                .iter()
+                .filter(|(id, _)| id == "session-1")
+                .count(),
+            1,
+            "{label}"
+        );
+        assert_eq!(
+            dsh_session_last_seq(&run.file("--w--", "session-1")),
+            Some(28),
+            "{label}"
+        );
+    });
+}
+
+/// The pre-init half of the same rule. The retired pre-init reading asked
+/// only whether the offered sequence had moved, so a fresh sibling beside
+/// an unmoved offer refused nothing: the child could delete it, and the
+/// init event and activity behind it confirmed. One rule now reads the
+/// store on both sides of the init event.
+#[cfg(unix)]
+#[test]
+fn dsh_a_fresh_sibling_observed_before_the_init_event_refuses_the_rejoin_for_good() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "fresh sibling before init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-9 session-9\nevent\nawait\n\
+                    rm -rf \"$ROOT/--w--/session-9\"\ninit session-1\nwork --w-- 28\nevent\n\
+                    finish\n",
+            acknowledge: |observation| census_count(observation, "session-9") == 1,
+            acks: 1,
+        }],
+        |_, run, label| {
+            let seen = &run.observations[0];
+            assert_eq!(
+                (seen.line, seen.disposition, census_count(seen, "session-9")),
+                (DshStreamLine::Event, DshDisposition::Refused, 1),
+                "{label}: valid non-init JSON reached the shared rule"
+            );
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28)
+            );
+        },
+    );
+}
+
+/// A stdout line the reader could not return ends the stream, as it always
+/// has — but a PENDING rejoin is refused before that break, so the settle
+/// behind the child's exit cannot confirm on a store the child advanced
+/// after the line nobody read.
+#[cfg(unix)]
+#[test]
+fn dsh_an_unreadable_stream_line_refuses_a_pending_rejoin_before_the_stream_ends() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "unreadable line while pending",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "init session-1\nnonutf8\nawait\nwork --w-- 28\ndeliver\nexit 0\n",
+            acknowledge: |observation| observation.line == DshStreamLine::Unreadable,
+            acks: 1,
+        }],
+        |_, run, label| {
+            assert_eq!(
+                run.dispositions(),
+                vec![
+                    DshDisposition::Pending,
+                    DshDisposition::Refused,
+                    DshDisposition::Refused
+                ],
+                "{label}: pending on the init line, refused on the unread one, and \
+                 the end of the stream reopens nothing"
+            );
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28),
+                "{label}: the store the final settle would have confirmed on"
+            );
+        },
+    );
+}
+
+/// Fact 1 is history, and history is not supplied later. An offer with no
+/// boundary, a store that could not be censused before the spawn, no
+/// baseline header naming the offer, or two of them is refused BEFORE the
+/// child runs — every observation reports it refused and reads nothing —
+/// whatever store the child builds afterwards. The ambiguous baseline is
+/// made unique both ways round, so resolving it to either header would
+/// confirm one of the two.
+#[cfg(unix)]
+#[test]
+fn dsh_a_rejoin_without_its_pre_spawn_baseline_is_refused_before_the_child_runs() {
+    fn plant_nothing(_: &Path) {}
+    fn plant_only_a_sibling(home: &Path) {
+        plant_dsh_session(home, "seat", "--old--", "session-9", 3);
+    }
+    fn plant_two_offers(home: &Path) {
+        plant_offer(home);
+        plant_dsh_session(home, "seat", "--other--", "session-1", 27);
+    }
+    let cases = [
+        DshLatchCase {
+            name: "no boundary beside the offer",
+            plant: plant_offer,
+            offer: Some(None),
+            steps: "init session-1\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "baseline census failed",
+            plant: plant_nothing,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-1 session-1\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "no baseline header names the offer",
+            plant: plant_only_a_sibling,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-1 session-1\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "ambiguous baseline, the other header removed",
+            plant: plant_two_offers,
+            offer: Some(Some(27)),
+            steps: "rm -rf \"$ROOT/--other--\"\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "ambiguous baseline, the first header removed",
+            plant: plant_two_offers,
+            offer: Some(Some(27)),
+            steps: "rm -rf \"$ROOT/--w--\"\nwork --other-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+    ];
+    refused_on_both_endings(&cases, |case, run, label| {
+        assert!(
+            !run.observations.is_empty()
+                && run.observations.iter().all(|observation| {
+                    observation.disposition == DshDisposition::Refused
+                        && observation.census.is_none()
+                }),
+            "{label}: refused from the first observation, and the store is \
+                 never consulted for history it cannot supply: {:?}",
+            run.observations
+        );
+        let survivor = if case.name.ends_with("first header removed") {
+            "--other--"
+        } else {
+            "--w--"
+        };
+        let mut expected = vec![("session-1".to_string(), run.file(survivor, "session-1"))];
+        if case.name.starts_with("no baseline header") {
+            expected.push(("session-9".to_string(), run.file("--old--", "session-9")));
+        }
+        let mut found = dsh_depth_zero_sessions(&run.root).unwrap();
+        found.sort();
+        assert_eq!(
+            found, expected,
+            "{label}: exactly one header names the offer"
+        );
+        assert_eq!(
+            dsh_session_last_seq(&run.file(survivor, "session-1")),
+            Some(28),
+            "{label}: a store that would otherwise confirm"
+        );
+    });
+}
+
+/// The remaining identity comparisons of the counted census, each with a
+/// readable store, a valid stream, one offered header and an advanced
+/// sequence: an admitted ALIAS repeats an exact canonical `(id, file)`
+/// occurrence, which a set of pairs would absorb; a REPLACEMENT moves a
+/// sibling to a new address while the unique ids and the entry count stay
+/// what they were; and the OFFERED header itself moves, which the retained
+/// offered address refuses on its own. These compare the admitted census;
+/// they are not Pass D's containment or inode-identity matrix.
+#[cfg(unix)]
+#[test]
+fn dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids() {
+    let cases = [
+        DshLatchCase {
+            name: "an alias repeats one canonical occurrence",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "ln -s session-9 \"$ROOT/--old--/alias\"\nwork --w-- 28\n\
+                    init session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "a sibling is replaced at a new address",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "mkdir \"$ROOT/--moved--\"\n\
+                    mv \"$ROOT/--old--/session-9\" \"$ROOT/--moved--/session-9\"\n\
+                    work --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "the offered header moves to a new address",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "mkdir \"$ROOT/--moved--\"\n\
+                    mv \"$ROOT/--w--/session-1\" \"$ROOT/--moved--/session-1\"\n\
+                    work --moved-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+    ];
+    refused_on_both_endings(&cases, |case, run, label| {
+        let seen = &run.observations[0];
+        assert_eq!(seen.disposition, DshDisposition::Refused, "{label}");
+        let mut census = seen.census.clone().unwrap();
+        census.sort();
+        let expected = match case.name {
+            "an alias repeats one canonical occurrence" => vec![
+                ("session-1".to_string(), run.file("--w--", "session-1")),
+                ("session-9".to_string(), run.file("--old--", "session-9")),
+                ("session-9".to_string(), run.file("--old--", "session-9")),
+            ],
+            "a sibling is replaced at a new address" => vec![
+                ("session-1".to_string(), run.file("--w--", "session-1")),
+                ("session-9".to_string(), run.file("--moved--", "session-9")),
+            ],
+            _ => vec![("session-1".to_string(), run.file("--moved--", "session-1"))],
+        };
+        assert_eq!(
+            census, expected,
+            "{label}: the occurrences the watcher consumed"
+        );
+    });
+}
+
+/// The latch is not unconditional rejection, and containment is not
+/// whole-store equality. Through the same terminal body: valid pre-init
+/// noise, an unchanged unrelated sibling and delayed activity wait and
+/// then confirm, with both pending snapshots observed in order; an
+/// ordinary init event consumed AFTER its current activity was stored
+/// confirms at once; losing an unrelated baseline sibling alone refuses
+/// nothing; and malformed noise after the init event supplies no fact but
+/// still lets the store behind it confirm.
+#[cfg(unix)]
+#[test]
+fn dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body() {
+    let cases = [
+        DshLatchCase {
+            name: "pre-init noise, a sibling and delayed activity",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "event\nawait\ninit session-1\nawait\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| observation.disposition == DshDisposition::Pending,
+            acks: 2,
+        },
+        DshLatchCase {
+            name: "init consumed after its activity was stored",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "work --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "an unrelated baseline sibling is gone",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "rm -rf \"$ROOT/--old--\"\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "malformed noise after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "init session-1\nawait\ngarbage\nawait\nwork --w-- 28\ngarbage\ngarbage\n\
+                    finish\n",
+            acknowledge: |observation| observation.disposition == DshDisposition::Pending,
+            acks: 2,
+        },
+    ];
+    for case in &cases {
+        let run = run_dsh_latch(case, true);
+        let label = case.name;
+        let (succeeded, result, error) = run.terminal();
+        assert!(
+            succeeded && error.is_none(),
+            "{label}: a confirmed rejoin is accepted: {:?}",
+            run.bodies
+        );
+        assert_eq!(result.unwrap()["result"], "complete", "{label}");
+        run.assert_one_child(label, case.acks);
+        let rows = run.checkpoints();
+        let order: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row["step"].as_str())
+            .filter(|step| matches!(*step, "transcript" | "harness-started" | "seat-turn"))
+            .collect();
+        // The fold still takes the FIRST depth-zero transcript the
+        // enumeration reaches, not the offered one, so beside an unrelated
+        // sibling which file it tails is the filesystem's choice. That is
+        // 9.6's warm retained-store integration, not this confirmation:
+        // the work row is asserted only where the store holds one session.
+        let sibling = case.name.starts_with("pre-init noise");
+        assert_eq!(
+            order[..2],
+            ["transcript", "harness-started"],
+            "{label}: one launch, in D7's order: location, then launch"
+        );
+        assert!(
+            order[2..].iter().all(|step| *step == "seat-turn") && (sibling || order.len() == 3),
+            "{label}: and current work only behind them: {order:?}"
+        );
+        let launch = rows
+            .iter()
+            .find(|row| row["step"] == "harness-started")
+            .unwrap();
+        let located = rows.iter().find(|row| row["step"] == "transcript").unwrap();
+        assert_eq!(launch["launch"], "resumed", "{label}");
+        assert_eq!(launch["root_session"]["id"], "session-1", "{label}");
+        assert_eq!(
+            launch["transcript"], located["transcript"],
+            "{label}: the root and its exact admitted address on ONE checkpoint"
+        );
+        assert_eq!(launch["transcript"]["locator"], "seat", "{label}");
+        assert_eq!(
+            run.dispositions().last(),
+            Some(&DshDisposition::Confirmed),
+            "{label}"
+        );
+        match case.name {
+            "pre-init noise, a sibling and delayed activity" => {
+                let baseline = {
+                    let mut entries = vec![
+                        ("session-1".to_string(), run.file("--w--", "session-1")),
+                        ("session-9".to_string(), run.file("--old--", "session-9")),
+                    ];
+                    entries.sort();
+                    entries
+                };
+                let facts: Vec<_> = run.observations[..3]
+                    .iter()
+                    .map(|observation| {
+                        let mut census = observation.census.clone().unwrap();
+                        census.sort();
+                        assert_eq!(census, baseline, "{label}: the unchanged census");
+                        (
+                            observation.line,
+                            observation.last_seq,
+                            observation.disposition,
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    facts,
+                    vec![
+                        (DshStreamLine::Event, Some(27), DshDisposition::Pending),
+                        (DshStreamLine::Event, Some(27), DshDisposition::Pending),
+                        (DshStreamLine::Event, Some(28), DshDisposition::Confirmed),
+                    ],
+                    "{label}: both pending snapshots, in order, then the confirmation"
+                );
+            }
+            "malformed noise after init" => {
+                let confirmed = run
+                    .observations
+                    .iter()
+                    .find(|observation| observation.disposition == DshDisposition::Confirmed)
+                    .unwrap();
+                assert_eq!(
+                    (confirmed.line, confirmed.last_seq),
+                    (DshStreamLine::Malformed, Some(28)),
+                    "{label}: the store behind the noise is what confirmed"
+                );
+                assert_eq!(
+                    (
+                        run.observations[1].line,
+                        run.observations[1].disposition,
+                        run.observations[1].last_seq
+                    ),
+                    (DshStreamLine::Malformed, DshDisposition::Pending, Some(27)),
+                    "{label}: and consistent noise only waits"
+                );
+            }
+            "an unrelated baseline sibling is gone" => assert_eq!(
+                run.observations[0].census,
+                Some(vec![(
+                    "session-1".to_string(),
+                    run.file("--w--", "session-1")
+                )]),
+                "{label}: containment, not whole-store equality"
+            ),
+            _ => assert_eq!(
+                (
+                    run.observations[0].last_seq,
+                    run.observations[0].disposition
+                ),
+                (Some(28), DshDisposition::Confirmed),
+                "{label}: the init line's own reading confirmed"
+            ),
+        }
+    }
+}
+
+/// What the latch leaves exactly where it was, through the same terminal
+/// body: a cold launch has no offered root to contradict, so a malformed
+/// line is skipped and a non-UTF-8 line ends the stream, and both are
+/// accepted cold; and a DIFFERENT root keeps its own terminal reason on
+/// both endings, distinct from a rejoin that never confirmed.
+#[cfg(unix)]
+#[test]
+fn dsh_cold_noise_and_a_root_mismatch_keep_their_terminal_behaviour() {
+    fn plant_root(home: &Path) {
+        std::fs::create_dir_all(home.join("seat")).unwrap();
+    }
+    for (name, steps, rooted) in [
+        (
+            "cold malformed line",
+            "garbage\ninit session-7\nfinish\n",
+            true,
+        ),
+        ("cold non-UTF-8 line", "nonutf8\ndeliver\nexit 0\n", false),
+    ] {
+        let run = run_dsh_latch(
+            &DshLatchCase {
+                name,
+                plant: plant_root,
+                offer: None,
+                steps,
+                acknowledge: never,
+                acks: 0,
+            },
+            true,
+        );
+        let (succeeded, result, error) = run.terminal();
+        assert!(succeeded && error.is_none(), "{name}: {:?}", run.bodies);
+        assert_eq!(result.unwrap()["result"], "complete", "{name}");
+        run.assert_one_child(name, 0);
+        assert!(
+            run.dispositions()
+                .iter()
+                .all(|disposition| *disposition == DshDisposition::Cold),
+            "{name}: a cold launch is never refused, pending or confirmed"
+        );
+        let rows = run.checkpoints();
+        let launch = rows
+            .iter()
+            .find(|row| row["step"] == "harness-started")
+            .unwrap();
+        assert_eq!(launch["launch"], "cold", "{name}");
+        assert_eq!(
+            launch.get("root_session").is_some(),
+            rooted,
+            "{name}: the init behind a skipped line names the root; nothing \
+             behind an unreadable one is read"
+        );
+    }
+    for delivers in [false, true] {
+        let run = run_dsh_latch(
+            &DshLatchCase {
+                name: "root mismatch",
+                plant: plant_offer,
+                offer: Some(Some(27)),
+                steps: "init session-2\nwork --w-- 28\nevent\nfinish\n",
+                acknowledge: never,
+                acks: 0,
+            },
+            delivers,
+        );
+        let (succeeded, result, error) = run.terminal();
+        assert_eq!(
+            error,
+            Some(
+                "provider named a different session than the offered root; \
+                 refusing to accept the invocation"
+            ),
+            "the mismatch keeps its own reason"
+        );
+        assert!(!succeeded && result.is_none());
+        run.assert_one_child("root mismatch", 0);
+        assert!(run.checkpoints().iter().all(|row| {
+            row.get("root_session").is_none()
+                && row.get("transcript").is_none()
+                && row.get("launch").is_none()
+        }));
+        assert!(
+            run.dispositions()
+                .iter()
+                .all(|disposition| *disposition == DshDisposition::Mismatched),
+            "a settled mismatch is never reopened: {:?}",
+            run.observations
+        );
+    }
+}
+
+/// AS4's unstructured-DSH-error case and LE3's cannot-classify-a-refusal
+/// case: a nonzero exit carrying stderr prose is not a measured machine
+/// session rejection, so the driver classifies nothing and performs no
+/// automatic cold replacement. The child is spawned exactly once.
+#[cfg(unix)]
+#[test]
+fn dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let spawns = dir.path().join("spawns");
+    let shim = executable(
+        dir.path(),
+        "dsh-prose",
+        &format!(
+            "#!/bin/sh\n\
+             printf 'x\\n' >> '{spawns}'\n\
+             printf 'dsh: the session could not be opened\\n' >&2\n\
+             exit 7\n",
+            spawns = spawns.display()
+        ),
+    );
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.exit_code, 7);
+    assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed);
+    assert!(
+        invocation.refusal.is_none(),
+        "prose is not a machine-readable session rejection"
+    );
+    assert!(
+        invocation.stderr.contains("could not be opened"),
+        "the harness line survives for the park to read: {:?}",
+        invocation.stderr
+    );
+    assert!(launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty());
+    assert_eq!(
+        std::fs::read_to_string(&spawns).unwrap(),
+        "x\n",
+        "exactly one child: no automatic cold replacement"
+    );
+}
+
+/// A deadline expiring — or a cancellation arriving — while the launch
+/// hold is still open fabricates nothing: the hold never releases, no
+/// confirmed-session checkpoint is written, and no replacement starts
+/// (8.10's cancellation/deadline case; design D7).
+///
+/// The kill is EXTERNAL and timer-driven, not the shim's own `kill $$`: a
+/// watchdog thread waits out a real deadline and then kills the provider
+/// child, which is what the runtime's own process-tree kill reaches when
+/// a DSH seat exceeds its deadline or the run is cancelled
+/// (`process::kill_driver`; design D7 keeps termination there and adds no
+/// asynchronous cancel protocol). The child publishes its pid and then
+/// `exec`s its stall, so the kill lands on the process holding the
+/// stream, exactly as the tree kill does.
+///
+/// The moment it lands is pinned by construction: the init event has been
+/// read (the hold is open, waiting on the retained store) and the store
+/// has not moved past the offered boundary, so the hold is provably still
+/// closed when the child dies. The engine-level half — `deadline_killed`
+/// and the driver's held checkpoints — is proved over the real watchdog
+/// and the built driver in `brokkr-cli`'s
+/// `a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement`.
+#[cfg(unix)]
+#[test]
+fn a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+    let pidfile = dir.path().join("child.pid");
+    let shim = executable(
+        dir.path(),
+        "dsh-stalled",
+        &format!(
+            "#!/bin/sh\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}}\\n'\n\
+             printf '%s\\n' \"$$\" > '{pidfile}.tmp'\n\
+             mv '{pidfile}.tmp' '{pidfile}'\n\
+             exec sleep 120\n",
+            pidfile = pidfile.display()
+        ),
+    );
+
+    // The watchdog: the deadline is measured from here, and the kill is
+    // delivered to the child rather than requested of it.
+    let deadline = Duration::from_millis(250);
+    let killed = std::sync::Arc::new(AtomicBool::new(false));
+    let watchdog = {
+        let killed = std::sync::Arc::clone(&killed);
+        let pidfile = pidfile.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(60) {
+                if let Ok(pid) = std::fs::read_to_string(&pidfile) {
+                    let pid = pid.trim().to_string();
+                    if !pid.is_empty() {
+                        if let Some(remaining) = deadline.checked_sub(started.elapsed()) {
+                            std::thread::sleep(remaining);
+                        }
+                        let status = std::process::Command::new("/bin/sh")
+                            .arg("-c")
+                            .arg(format!("kill -KILL {pid}"))
+                            .status()
+                            .expect("the host signals a process");
+                        killed.store(status.success(), Ordering::SeqCst);
+                        return;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        })
+    };
+
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    watchdog.join().unwrap();
+    assert!(
+        killed.load(Ordering::SeqCst),
+        "the watchdog's deadline really expired and really killed the child"
+    );
+    assert_eq!(
+        invocation.exit_code, -1,
+        "a signalled child reports no exit code of its own"
+    );
+    // The hold was genuinely OPEN at the moment of the kill: the init
+    // event had been read, and the one fact it was still waiting on —
+    // sequence activity past the offered boundary — had not arrived.
+    assert_eq!(
+        invocation.session_meta["session_id"], "session-1",
+        "the init event was read before the kill landed"
+    );
+    assert_eq!(
+        dsh_session_last_seq(&file),
+        Some(27),
+        "and the offered root never moved past its recorded boundary"
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed);
+    assert!(
+        launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty(),
+        "nothing is fabricated from a hold that never released: {emitted:?}"
+    );
+    assert!(
+        !emitted
+            .iter()
+            .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+        "and no confirmed-session checkpoint: {emitted:?}"
+    );
+    assert!(invocation.refusal.is_none(), "and no replacement starts");
+}
+
+/// The cancellation half at the seam that actually carries it. `serve_io`
+/// invokes synchronously and the runtime watchdog owns termination
+/// (design D7's own adopted row), so a `cancel` is answered on the
+/// message loop: the DSH driver replies `Cancelled` and stops. It
+/// launches nothing, publishes no launch row, no `root_session` and no
+/// transcript locator, and starts no replacement — and no start ever ran,
+/// so the loop cannot have left a half-published launch behind it.
+///
+/// The in-flight case is the kill above, because that is what cancelling
+/// a running DSH seat actually does to it.
+#[test]
+fn a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing() {
+    let hello = serde_json::to_string(&Message::new(Body::Hello {
+        engine_version: "test".into(),
+    }))
+    .unwrap();
+    let cancel = serde_json::to_string(&Message::new(Body::Cancel {
+        effect_id: "fx".into(),
+    }))
+    .unwrap();
+    let mut output = Vec::new();
+    serve_io(
+        AdapterKind::Dsh,
+        &[],
+        format!("{hello}\n{cancel}\n").as_bytes(),
+        &mut output,
+    )
+    .unwrap();
+    let messages: Vec<Message> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(matches!(messages[0].body, Body::Capabilities { .. }));
+    assert!(matches!(
+        messages[1].body,
+        Body::Cancelled { ref effect_id } if effect_id == "fx"
+    ));
+    assert_eq!(
+        messages.len(),
+        2,
+        "and nothing else: no checkpoint, no launch row, no result: {messages:?}"
+    );
+}
+
+/// The DSH arm of LE1/LE3, confirmed: a synthetic child emits the
+/// post-`await agents.resume` init event naming the offered root and
+/// appends one current event past that root's own sequence, in a store
+/// that gained no sibling session. Only then does the driver publish the
+/// locator, the launch row and `root_session` — in that order and once —
+/// and it counts only the current event.
+///
+/// The confirmed launch also has to leave a root the NEXT attempt can
+/// rejoin, so the address it published is fed straight back into
+/// production's own admission reader here (design D6).
 #[cfg(unix)]
 #[test]
 fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    // The admitted home IS the tempdir, so the locator this launch
+    // records resolves back to the planted store: the round trip below
+    // reads the same address a later attempt would be handed.
+    std::env::set_var("DSH_HOME", dir.path());
     let root = dir.path().join("seat");
-    let session = root.join("--w--").join("session-1");
-    std::fs::create_dir_all(&session).unwrap();
-    let file = session.join(DSH_TRANSCRIPT);
-    let mut history =
-        "{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\"delegationDepth\":0}\n"
-            .to_string();
-    for seq in 0..=27 {
-        history.push_str(&format!(
-            "{{\"type\":\"permission/preset\",\"seq\":{seq}}}\n"
-        ));
-    }
-    std::fs::write(&file, history).unwrap();
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
     let shim = executable(
         dir.path(),
         "dsh-stream",
@@ -4887,45 +6668,74 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
             file = file.display()
         ),
     );
-    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-    let launch = DshLaunch {
-        command: vec![shim.to_string_lossy().into_owned()],
-        rejoining: Some("session-1".to_string()),
-        refusal: None,
-        observed: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: Some("a".repeat(64)),
-        stream_json: true,
-        effortless: false,
-        facts: crate::hands::GitFacts::default(),
-        staged: None,
-        first_seq: Some(27),
-        locator: "seat".to_string(),
-        root: root.clone(),
-        overlay,
-    };
-    let mut hold = LaunchHold::new("deepseek", launch.plan());
-    let mut meta = Map::new();
-    let mut emitted = Vec::new();
-    let invocation = invoke_dsh_stream_json(
-        &launch.command,
-        &launch,
-        dir.path().to_str().unwrap(),
-        &mut hold,
-        &mut meta,
-        &mut |value| emitted.push(value.clone()),
-    )
-    .unwrap();
-    assert_eq!(hold.terminal(), LaunchTerminal::Resumed);
-    let row = emitted
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Resumed);
+    let rows = launch_rows(&emitted);
+    assert_eq!(rows.len(), 1, "one launch row per executing model site");
+    assert_eq!(rows[0]["launch"], "resumed");
+    assert_eq!(rows[0]["root_session"]["kind"], "dsh-session");
+    assert_eq!(rows[0]["root_session"]["id"], "session-1");
+    assert_eq!(rows[0]["root_session"]["harness_version"], "0.1.5-rc.1");
+    assert_eq!(rows[0]["root_session"]["wrapper_digest"], "a".repeat(64));
+    // D6's atomic association, and what makes this launch REUSABLE: the
+    // locator and the home are published on the SAME checkpoint as the
+    // root they address, and are the exact admitted transcript this
+    // invocation recorded — not a second address composed here.
+    //
+    // The engine reads a DSH offer's three coordinates off one row and
+    // one row only (`engine::resume::eligible_offer`, pinned by the
+    // runtime's `a_stamped_row_is_offered_only_to_its_own_site_owner_\
+    // and_persistent_root`), so a launch row carrying `root_session`
+    // alone hands a two-coordinate planner an address it must decline as
+    // `unverified-harness` — a confirmed launch that establishes no
+    // reusable root, which is exactly what D6 forbids.
+    let address = transcript_rows(&emitted)[0]["transcript"].clone();
+    assert_eq!(address["kind"], "dsh-session");
+    assert_eq!(address["locator"], "seat");
+    assert_eq!(address["home"], dir.path().to_string_lossy().as_ref());
+    assert_eq!(
+        rows[0]["transcript"], address,
+        "the launch row carries the exact admitted transcript"
+    );
+    // And the address is USABLE, not merely present: the three
+    // coordinates off this one row, handed back as the owned target a
+    // later attempt would carry, re-admit the same retained store
+    // through production's own reader — at the boundary this invocation
+    // left behind, so the next rejoin folds past its own work.
+    let offered = json!({
+        "resume_context": {"owned_target": {
+            "provider_id": rows[0]["root_session"]["id"].clone(),
+            "persistence_locator": rows[0]["transcript"]["locator"].clone(),
+            "persistence_home": rows[0]["transcript"]["home"].clone(),
+        }}
+    });
+    let (rejoined, boundary) = owned_dsh_root(dir.path(), &offered, "session-1", &dsh_session_file)
+        .expect("the published address re-admits its own root");
+    assert_eq!(rejoined, root);
+    assert_eq!(
+        boundary, 28,
+        "the current work is the next offer's baseline"
+    );
+    // D7's order: the held location fact, then the launch row, then the
+    // first work checkpoint.
+    let order: Vec<&str> = emitted
         .iter()
-        .find(|row| row["step"] == "harness-started")
-        .expect("the init event publishes one launch row");
-    assert_eq!(row["launch"], "resumed");
-    assert_eq!(row["root_session"]["id"], "session-1");
+        .filter_map(|row| row["step"].as_str())
+        .filter(|step| matches!(*step, "transcript" | "harness-started" | "seat-turn"))
+        .collect();
+    assert_eq!(order, vec!["transcript", "harness-started", "seat-turn"]);
     // Only the event past the offered boundary is counted.
     assert_eq!(invocation.session_meta["num_turns"], 1);
     assert_eq!(invocation.session_meta["input_tokens"], 5);
     assert_eq!(invocation.session_meta["output_tokens"], 2);
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 /// A qualified stream-json launch whose stdout carries a line the plugin's
@@ -4980,6 +6790,16 @@ fn a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms() {
         .find(|row| row["step"] == "harness-started")
         .expect("the confirmed launch publishes its row");
     assert_eq!(row["launch"], "cold");
+    // A seat's FIRST qualified launch is this one, and the root it
+    // confirms here is what the next attempt is offered. So the cold row
+    // carries the same atomic association a warm row does: the exact
+    // admitted transcript beside the root it addresses (design D6).
+    assert_eq!(row["root_session"]["id"], "session-1");
+    assert_eq!(
+        row["transcript"], invocation.session_meta["transcript"],
+        "the cold launch row carries the address its root was opened at"
+    );
+    assert_eq!(row["transcript"]["locator"], "seat");
 }
 
 /// The same qualified dispatch when the child never names a root: the init
@@ -5037,6 +6857,14 @@ fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation()
         .find(|row| row["step"] == "harness-started")
         .expect("the held launch row is flushed even without a confirmation");
     assert_eq!(row["launch"], "cold");
+    // The address is published with the root it addresses or not at all:
+    // a launch row that confirms no root offers nothing to rejoin, so a
+    // locator on it would be an address with no session behind it.
+    assert!(row.get("root_session").is_none());
+    assert!(
+        row.get("transcript").is_none(),
+        "no root, no address: {row}"
+    );
 }
 
 /// A stdout line that is not valid UTF-8 is a read error, not a JSON line to
@@ -5055,47 +6883,12 @@ fn a_qualified_stream_json_launch_ends_on_a_non_utf8_line() {
          printf '\\377\\n'\n\
          printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
     );
-    // `Text file busy` is not this test's subject. A shim written moments
-    // ago can still be held open for writing by a concurrently forked
-    // child, and `exec` then refuses with ETXTBSY (#255); the window
-    // widens under the instrumented coverage run, which is where it has
-    // actually been seen. The plan owns its overlay and cannot be cloned,
-    // so each attempt builds its own, and every other error is raised
-    // untouched on the first try.
-    let mut attempt = 0;
-    let (invocation, _emitted) = loop {
-        let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-        let launch = DshLaunch {
-            command: vec![shim.to_string_lossy().into_owned()],
-            rejoining: None,
-            refusal: None,
-            observed: Some("0.1.5-rc.1".to_string()),
-            wrapper_digest: None,
-            stream_json: true,
-            effortless: true,
-            facts: crate::hands::GitFacts::default(),
-            staged: None,
-            first_seq: None,
-            locator: "seat".to_string(),
-            root: root.clone(),
-            overlay,
-        };
-        let mut round = Vec::new();
-        match invoke_dsh_launch(
-            launch,
-            "the prompt",
-            dir.path().to_str().unwrap(),
-            &mut |value| round.push(value.clone()),
-            |_| panic!("the qualified arm does not poll the child"),
-        ) {
-            Ok(invocation) => break (invocation, round),
-            Err(problem) if problem.contains("Text file busy") && attempt < 20 => {
-                attempt += 1;
-                std::thread::sleep(std::time::Duration::from_millis(25));
-            }
-            Err(problem) => panic!("{problem}"),
-        }
-    };
+    // The inherited `Text file busy` retry that stood here is gone with
+    // its cause: `executable` no longer opens the shim's inode for
+    // writing in this process, so no fork of ours can be holding a
+    // descriptor when `exec` counts them (#255).
+    let (invocation, _emitted) =
+        run_dsh_stream(dsh_stream_launch(&shim, &root, None, None), dir.path());
     assert_eq!(invocation.launch, LaunchTerminal::Cold);
     assert!(
         invocation.session_meta.get("session_id").is_none(),
@@ -5175,6 +6968,111 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
         rows[1]["resume_refusal"], "unsupported-resume",
         "an offer reached the one arm that has no supported route for it: {}",
         rows[1]
+    );
+}
+
+/// The one DSH-specific LOCAL-decline path, end to end: an offer the
+/// standing assessment does not support is declined here, before the
+/// provider is reached, and permits exactly ONE independently safe cold
+/// launch — one child, no `--session`, no `--new`, no `--output-format`,
+/// no offerable root, and no recursive fallback. The declined root is
+/// never read back as this launch's confirmation (task 8.8(d), Pass C;
+/// design D7; safety / AS4).
+#[cfg(unix)]
+#[test]
+fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
+    let argv = dir.path().join("argv");
+    let result = dir.path().join("result.json");
+    // No installed provider: a shim that records every invocation's argv,
+    // writes the seat's result and says nothing about any session.
+    let shim = executable(
+        dir.path(),
+        "dsh-declined",
+        // One line per invocation, the prompt excluded: it is the last
+        // argument and spans many lines of its own.
+        &format!(
+            "#!/bin/sh\nprintf '%s|%s|%s|%s|%s\\n' \"$#\" \"$1\" \"$2\" \"$3\" \"$4\" >> '{argv}'\n\
+             printf '{{\"result\":\"complete\"}}' > '{result}'\nexit 0\n",
+            argv = argv.display(),
+            result = result.display()
+        ),
+    );
+    std::env::set_var("BROKKR_DSH_BIN", &shim);
+    std::env::remove_var("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Dsh,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+        }),
+        Some("session-019c4b7e"),
+        &mut |body| messages.push(body),
+    );
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+
+    let spawned = std::fs::read_to_string(&argv).unwrap();
+    assert_eq!(
+        spawned.lines().count(),
+        1,
+        "exactly one cold launch, never a second: {spawned:?}"
+    );
+    assert!(
+        !spawned.contains("--session")
+            && !spawned.contains("--new")
+            && !spawned.contains("--output-format"),
+        "the cold launch carries nothing of the declined offer: {spawned:?}"
+    );
+    assert!(
+        spawned.starts_with("5|--profile|headless|--patch|"),
+        "the shipped cold argv, and only the prompt behind it: {spawned:?}"
+    );
+    let rows: Vec<&Value> = messages
+        .iter()
+        .filter_map(|body| match body {
+            Body::Checkpoint { data, .. } => Some(data),
+            _ => None,
+        })
+        .collect();
+    let launches: Vec<&&Value> = rows
+        .iter()
+        .filter(|row| row["step"] == "harness-started")
+        .collect();
+    assert_eq!(launches.len(), 1, "one launch row: {rows:?}");
+    assert_eq!(launches[0]["launch"], "cold");
+    assert_eq!(launches[0]["resume_refusal"], "unsupported-resume");
+    assert!(
+        launches[0].get("root_session").is_none(),
+        "a declined offer supplies no offerable root: {}",
+        launches[0]
+    );
+    assert!(
+        messages.iter().any(|body| matches!(
+            body,
+            Body::Result {
+                status: ResultStatus::Succeeded,
+                ..
+            }
+        )),
+        "and the independently safe cold launch is a real seat: {messages:?}"
     );
 }
 
@@ -5735,11 +7633,16 @@ fn the_seat_overlay_reports_a_file_it_cannot_stage_or_write() {
     );
     // YAML is the overlay's grammar for the root as much as the model:
     // a path that could open a line of its own is refused, not written.
+    // The refusal names its own field and carries no byte of the path.
     for bad in ["/tmp/a\nb", "/tmp/a\rb"] {
+        let refused = dsh_transcript_row(std::path::Path::new(bad))
+            .err()
+            .unwrap_or_else(|| panic!("{bad:?} must be refused"));
         assert!(
-            dsh_transcript_row(std::path::Path::new(bad)).is_err(),
-            "{bad:?} must be refused"
+            refused.contains("transcript root") && refused.contains("spans more than one line"),
+            "{bad:?}: {refused}"
         );
+        assert!(!refused.contains("/tmp/a"), "{bad:?}: echoed in {refused}");
     }
     // A quote in the path is doubled inside the single-quoted scalar,
     // so it closes nothing.
@@ -8249,109 +10152,265 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     }
 }
 
+/// Which fixed diagnostic a rejected spelling must name: the residual
+/// category `dsh_control_conflict` returns, or the field of the splitter
+/// that owns the malformed control.
+enum DshAdmission {
+    Control,
+    Field(&'static str),
+}
+
+/// 8.10's complete admission ledger for the planner's own inputs. After
+/// the engine's `--model`, the shared effort splitter's level and the one
+/// authorized `--patch` are extracted, EVERY other argument is refused:
+/// the plugin's value and bare selectors, the launcher's own controls, an
+/// unknown name, the option terminator, short, joined and clustered
+/// spellings and bare positional text alike. The malformed spellings of
+/// the three authorized controls are refused by their own splitters. Each
+/// refusal precedes the route read, the version probe, the composite
+/// producer, retained-root allocation and overlay staging, on the cold,
+/// offered and disabled paths alike — an error alone does not establish
+/// that nothing was staged, so the private staging counter reads zero.
+///
+/// Every rejected spelling carries the private marker below in an option
+/// name, an equals-joined value, the pinned model, a selector value, a
+/// patch value or positional text: no diagnostic may echo it
+/// (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
 #[cfg(unix)]
 #[test]
 fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
+    use DshAdmission::{Control, Field};
+    // A plain identifier, so it is also a VALID model id: the control
+    // cases pin it, and no control refusal may name it.
+    const MARK: &str = "zzz-9f31c7-marker";
+
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    // The fixture root is canonicalized once and every path below is
+    // derived from it: on macOS the temporary directory is reached
+    // through `/var` → `/private/var`, and a home, workdir or shim
+    // spelled the other way is a different path to the admission
+    // comparisons this ledger drives.
+    let root = dir.path().canonicalize().unwrap();
     let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
-    let marker = dir.path().join("m-controls");
-    let shim = dsh_recording_version_shim(dir.path(), "dsh-ctl", "0.1.5-rc.1", &marker);
+    std::env::set_var("DSH_HOME", &root);
+    let marker = root.join("m-controls");
+    let shim = dsh_recording_version_shim(&root, "dsh-ctl", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
     let digest = "b".repeat(64);
-    let mut enabled = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let mut enabled = dsh_enabled_input("0.1.5-rc.1", &digest, &root);
     // A route binding that would fail to read: every control refusal must
     // precede the route read and any provider observation, on every path.
     enabled["resume_context"]["route_overlay"] =
         json!({"value": "does-not-exist.yml", "digest": "a".repeat(64)});
     let disabled = json!({
-        "workdir": dir.path(),
+        "workdir": root,
         "resume_context": {
             "route_overlay": {"value": "does-not-exist.yml", "digest": "a".repeat(64)},
         },
     });
 
-    let s = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
-    for (path, input, session) in [
-        ("disabled", disabled, None),
-        ("offered", enabled.clone(), Some("session-1")),
-        ("enabled", enabled, None),
-    ] {
-        for (case, control, extra) in [
+    let unknown_name = format!("--{MARK}");
+    let joined_model = format!("--model={MARK}");
+    let malformed_model = format!("{MARK} bad");
+    let flag_value = format!("-{MARK}");
+    let patch_value = format!("{MARK}.yml");
+    let joined_patch = format!("--patch={MARK}.yml");
+    let joined_session = format!("--session={MARK}");
+    let joined_short = format!("-o{MARK}");
+    let equals_short = format!("-s={MARK}");
+    // The shared splitter clamps a level to one bounded word that starts
+    // with an alphanumeric; a spelling outside that clamp stays in the
+    // argv rather than being dropped in silence, and is refused here.
+    let unclamped_effort = format!("_{MARK}");
+    let joined_effort = format!("--effort={MARK}/x");
+
+    // The seat's own argv verbatim, and the same behind a valid pin: the
+    // control cases must refuse the residual, not a missing model.
+    let raw = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+    let pinned = |parts: &[&str]| {
+        let mut argv = vec!["--model".to_string(), MARK.to_string()];
+        argv.extend(parts.iter().map(|part| part.to_string()));
+        argv
+    };
+    let ledger = || {
+        vec![
+            // Residual arguments, every category the admission rule names.
             (
-                "unknown option",
-                true,
-                s(&[
-                    "--model",
-                    "deepseek-v4-flash",
-                    "--patch",
-                    "does-not-exist.yml",
-                    "--unknown",
-                ]),
+                "unknown option beside a readable-looking route",
+                Control,
+                pinned(&["--patch", "does-not-exist.yml", &unknown_name]),
             ),
-            (
-                "option terminator",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--", "x"]),
-            ),
-            (
-                "unverified verbose",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--verbose"]),
-            ),
+            ("option terminator", Control, pinned(&["--", MARK])),
+            ("unverified verbose", Control, pinned(&["--verbose"])),
             (
                 "from-default-profile",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--from-default-profile"]),
+                Control,
+                pinned(&["--from-default-profile"]),
+            ),
+            ("competing session", Control, pinned(&["--session", MARK])),
+            ("joined session", Control, pinned(&[&joined_session])),
+            ("short session", Control, pinned(&["-s", MARK])),
+            (
+                "short session joined by equals",
+                Control,
+                pinned(&[&equals_short]),
+            ),
+            ("new", Control, pinned(&["--new"])),
+            ("short new", Control, pinned(&["-n"])),
+            ("resume", Control, pinned(&["--resume"])),
+            ("list", Control, pinned(&["--list"])),
+            ("clustered shorts", Control, pinned(&["-nrl"])),
+            (
+                "profile override",
+                Control,
+                pinned(&["--profile", "headless"]),
+            ),
+            ("workdir override", Control, pinned(&["--workdir", MARK])),
+            ("short workdir", Control, pinned(&["-w", MARK])),
+            (
+                "output override",
+                Control,
+                pinned(&["--output-format", "stream-json"]),
             ),
             (
-                "competing session",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--session", "session-9"]),
+                "short output joined to its value",
+                Control,
+                pinned(&[&joined_short]),
             ),
-            ("joined model", false, s(&["--model=deepseek-v4-flash"])),
+            ("json schema", Control, pinned(&["--json-schema", MARK])),
+            ("dump config", Control, pinned(&["--dump-config"])),
             (
-                "positional text",
-                true,
-                s(&["--model", "deepseek-v4-flash", "extra"]),
+                "dump default config",
+                Control,
+                pinned(&["--dump-default-config"]),
+            ),
+            ("help", Control, pinned(&["-h"])),
+            ("settings override", Control, pinned(&["--settings", MARK])),
+            ("positional text", Control, pinned(&[MARK])),
+            // Effort spellings the shared splitter leaves in the argv
+            // rather than dropping a pin in silence.
+            (
+                "duplicate effort",
+                Control,
+                pinned(&["--effort", "high", "--effort", "low"]),
+            ),
+            (
+                "mixed effort spellings",
+                Control,
+                pinned(&["--effort", "high", "--effort=low"]),
+            ),
+            ("valueless effort", Control, pinned(&["--effort"])),
+            (
+                "effort level outside the clamp",
+                Control,
+                pinned(&["--effort", &unclamped_effort]),
+            ),
+            (
+                "joined effort outside the clamp",
+                Control,
+                pinned(&[&joined_effort]),
+            ),
+            // The three authorized controls' own malformed spellings.
+            ("joined model", Field("--model"), raw(&[&joined_model])),
+            (
+                "duplicate model",
+                Field("--model"),
+                raw(&["--model", "deepseek-v4-flash", "--model", MARK]),
+            ),
+            ("valueless model", Field("--model"), raw(&["--model"])),
+            ("empty model value", Field("--model"), raw(&["--model", ""])),
+            (
+                "flag-shaped model value",
+                Field("--model"),
+                raw(&["--model", &flag_value]),
+            ),
+            (
+                "malformed model",
+                Field("the pinned model"),
+                raw(&["--model", &malformed_model]),
             ),
             (
                 "duplicate patch",
-                false,
-                s(&[
-                    "--model",
-                    "deepseek-v4-flash",
-                    "--patch",
-                    "a.yml",
-                    "--patch",
-                    "b.yml",
-                ]),
+                Field("--patch"),
+                pinned(&["--patch", "a.yml", "--patch", &patch_value]),
+            ),
+            ("bare patch", Field("--patch"), pinned(&["--patch"])),
+            ("joined patch", Field("--patch"), pinned(&[&joined_patch])),
+            (
+                "odd patch spelling",
+                Field("--patch"),
+                pinned(&["--patchy", &patch_value]),
             ),
             (
-                "bare patch",
-                false,
-                s(&["--model", "deepseek-v4-flash", "--patch"]),
+                "flag-shaped patch value",
+                Field("--patch"),
+                pinned(&["--patch", &flag_value]),
             ),
-            ("effort without model", false, s(&["--effort", "high"])),
             (
-                "duplicate effort",
-                true,
-                s(&[
-                    "--model",
-                    "deepseek-v4-flash",
-                    "--effort",
-                    "high",
-                    "--effort",
-                    "low",
-                ]),
+                "effort without a model",
+                Field("--effort"),
+                raw(&["--effort", "high"]),
             ),
-        ] {
+            // Adjacency in the argv the SEAT wrote, not in what survives
+            // an earlier extraction pass. Each of these puts a later
+            // authorized control in an earlier control's value slot, so
+            // removing that later control's pair would leave a shape that
+            // reads as valid and would swallow the trailing positional
+            // text as a level or an overlay path.
+            (
+                "effort claiming a later model control",
+                Field("--effort"),
+                raw(&["--effort", "--model", MARK, "high"]),
+            ),
+            (
+                "patch claiming a later model control",
+                Field("--patch"),
+                raw(&["--patch", "--model", MARK, &patch_value]),
+            ),
+            (
+                "patch claiming a later effort control",
+                Field("--patch"),
+                pinned(&["--patch", "--effort", "high", &patch_value]),
+            ),
+            (
+                "patch claiming a joined effort control",
+                Field("--patch"),
+                pinned(&["--patch", "--effort=high", &patch_value]),
+            ),
+            // The COMPLETE payload the CLI hands this driver. The
+            // operator's outer `--` is clap's own; an inner one stays in
+            // the argv as a residual, and everything behind it is still
+            // the seat's. These two are the exact argv the returned
+            // review reproduced through the built driver: while the CLI
+            // cut the payload at that inner terminator, the first
+            // launched with no pin at all and the second launched on the
+            // second model. Now the whole argv reaches this rule.
+            (
+                "effort claiming a later model control, trailing terminator",
+                Field("--effort"),
+                raw(&["--effort", "--model", MARK, "high", "--"]),
+            ),
+            (
+                "a second model behind an inner terminator",
+                Field("--model"),
+                raw(&["--model", "deepseek-v4-flash", "--", "--model", MARK]),
+            ),
+        ]
+    };
+
+    for (path, input, session) in [
+        ("disabled", disabled, None),
+        ("offered", enabled.clone(), Some("session-1")),
+        ("cold", enabled, None),
+    ] {
+        for (case, names, extra) in ledger() {
             let calls = std::cell::Cell::new(0u32);
+            reset_dsh_staging_calls();
             let result = dsh_launch_with(
                 &shim_text,
                 &extra,
-                dir.path().to_str().unwrap(),
+                root.to_str().unwrap(),
                 session,
                 &input,
                 || {
@@ -8364,31 +10423,378 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
                 .unwrap_or_else(|| panic!("{path}/{case} must refuse"));
             assert_eq!(calls.get(), 0, "{path}/{case}: no producer call");
             assert!(!marker.exists(), "{path}/{case}: no version probe");
+            assert_eq!(
+                dsh_staging_calls(),
+                0,
+                "{path}/{case}: no staged overlay ({error})"
+            );
             assert!(
                 !error.contains("route"),
-                "{path}/{case}: the control refusal precedes the route read: {error}"
+                "{path}/{case}: the admission refusal precedes the route read: {error}"
             );
-            if control {
-                assert!(
+            match names {
+                Control => assert!(
                     error.contains("the seat's arguments carry"),
-                    "{path}/{case}: the control category: {error}"
-                );
+                    "{path}/{case}: the fixed residual category: {error}"
+                ),
+                Field(field) => assert!(
+                    error.contains(field),
+                    "{path}/{case}: the fixed field {field}: {error}"
+                ),
             }
-            for echo in ["does-not-exist", "session-9", "deepseek-v4-flash", "a.yml"] {
+            for echo in [MARK, "does-not-exist", "deepseek-v4-flash", "a.yml"] {
                 assert!(
                     !error.contains(echo),
                     "{path}/{case}: {echo} echoed in {error}"
                 );
             }
         }
-        // Every refusal on this path precedes retained-root allocation and
-        // overlay staging, so the seat's own store was never created.
+        // Every refusal on this path precedes retained-root allocation, so
+        // the seat's own store was never created either.
+        assert!(!root.join("sessions").exists(), "{path}: no retained root");
+    }
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// The counter the ledger's zero assertions read against is calibrated on
+/// a positive plan: both admitted effort spellings — the separate
+/// `--effort <level>` and the equals-joined `--effort=<level>` the shared
+/// splitter already takes — compose the same seat settings document and
+/// each stage exactly one overlay. No alias is guessed beside them
+/// (task 8.10; answer U's R3).
+#[cfg(unix)]
+#[test]
+fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    // Derived from one canonicalized root, for the reason the ledger
+    // above states: `/var` and `/private/var` are not the same path.
+    let root = dir.path().canonicalize().unwrap();
+    std::env::set_var("DSH_HOME", &root);
+    let marker = root.join("m-effort");
+    let shim = dsh_recording_version_shim(&root, "dsh-effort", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let disabled = json!({"workdir": root});
+    let workdir = root.to_str().unwrap();
+
+    let plan = |case: &str, extra: &[String]| {
+        let calls = std::cell::Cell::new(0u32);
+        reset_dsh_staging_calls();
+        let launch = dsh_launch_with(&shim_text, extra, workdir, None, &disabled, || {
+            calls.set(calls.get() + 1);
+            Ok(synthetic_dsh_composite(&"b".repeat(64)))
+        })
+        .unwrap_or_else(|error| panic!("{case}: {error}"));
+        assert_eq!(
+            calls.get(),
+            0,
+            "{case}: a disabled gate reaches no producer"
+        );
+        assert_eq!(dsh_staging_calls(), 1, "{case}: exactly one staged overlay");
+        let settings = launch
+            .overlay
+            .settings
+            .as_ref()
+            .unwrap_or_else(|| panic!("{case}: a settings document beside the patch"));
+        std::fs::read_to_string(settings.path()).unwrap()
+    };
+
+    let s = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+    let separate = plan(
+        "separate",
+        &s(&["--model", "dashscope/qwen3.8-max", "--effort", "xhigh"]),
+    );
+    let joined = plan(
+        "equals-joined",
+        &s(&["--model", "dashscope/qwen3.8-max", "--effort=xhigh"]),
+    );
+    assert_eq!(
+        separate, joined,
+        "both admitted spellings compose the same document"
+    );
+    assert!(separate.contains("reasoningEffort: 'xhigh'"), "{separate}");
+    assert!(!marker.exists(), "a disabled gate probes no version");
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// A transcript root the overlay cannot write as one YAML scalar refuses
+/// the seat by FIELD, never by path. That root is composed beneath the
+/// admitted DSH home, so its every byte is the operator's own — the
+/// home's name, the harness layout, the seat directory. Interpolating it
+/// into the diagnostic publishes all of it into the seat's error on the
+/// cold, offered and disabled paths alike, so the refusal names the
+/// field it owns and nothing else (safety / AS3, evidence / LE2;
+/// tasks 8.8(d)/8.10).
+#[cfg(unix)]
+#[test]
+fn a_dsh_transcript_root_refusal_names_its_field_and_never_the_root() {
+    // A private marker in the home, beside the newline the overlay row
+    // cannot write: no diagnostic may carry either back to the seat.
+    const MARK: &str = "zzz-4a0e13-home";
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join(format!("{MARK}\nline"));
+    std::fs::create_dir_all(&home).unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &home);
+    let marker = root.join("m-transcript");
+    let shim = dsh_recording_version_shim(&root, "dsh-root", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let digest = "b".repeat(64);
+    let enabled = dsh_enabled_input("0.1.5-rc.1", &digest, &root);
+    let disabled = json!({"workdir": root});
+    let workdir = root.to_str().unwrap();
+
+    for (path, input, session) in [
+        ("disabled", disabled, None),
+        ("offered", enabled.clone(), Some("session-1")),
+        ("cold", enabled, None),
+    ] {
+        let error = dsh_launch_with(&shim_text, &[], workdir, session, &input, || {
+            Ok(synthetic_dsh_composite(&digest))
+        })
+        .err()
+        .unwrap_or_else(|| panic!("{path}: a root that spans a line must refuse the seat"));
         assert!(
-            !dir.path().join("sessions").exists(),
-            "{path}: no retained root or staged overlay"
+            error.contains("transcript root") && error.contains("spans more than one line"),
+            "{path}: the fixed field: {error}"
+        );
+        assert!(!error.contains(MARK), "{path}: the home echoed in {error}");
+        assert!(
+            !error.contains(root.to_str().unwrap()),
+            "{path}: the root path echoed in {error}"
         );
     }
 
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// A REAL path-bearing allocation failure: `tempfile` wraps the host's
+/// own errno with the directory it tried, so every refusal built from
+/// one carries that directory unless the diagnostic keeps it out. The
+/// error is the host's, never a literal errno number.
+fn absent_tempfile_error(absent: &Path) -> std::io::Error {
+    tempfile::Builder::new()
+        .prefix("brokkr-dsh-privacy-")
+        .tempfile_in(absent)
+        .expect_err("an absent directory cannot take a temporary file")
+}
+
+/// Every DSH storage refusal names its own field or category and the
+/// host's errno text, and never the path it tried.
+///
+/// These are the seat's own overlay, its settings document and its
+/// retained transcript root — all three composed beneath the operator's
+/// `TMPDIR` or admitted DSH home. `tempfile` reports an allocation
+/// failure with the directory it attempted, so passing that error
+/// through the shared `io_context` published the whole path into a
+/// `Result.error` the seat reads: the harness layout, the home's name
+/// and whatever the operator's temporary root is called. The settings
+/// row's one-line requirement echoed its path outright.
+///
+/// The source error is asserted path-bearing FIRST, so these privacy
+/// assertions cannot pass on an error that never carried a path. The
+/// write halves carry no path of their own — the host reports a failed
+/// write on an open descriptor — and are asserted to prove it rather
+/// than assumed (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
+#[cfg(unix)]
+#[test]
+fn dsh_storage_refusals_name_their_field_and_never_the_path_they_tried() {
+    const MARK: &str = "zzz-7c02be-store";
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let absent = root.join(format!("{MARK}-absent"));
+    let source = absent_tempfile_error(&absent);
+    assert!(
+        source.to_string().contains(MARK),
+        "the source error must carry the path it tried: {source}"
+    );
+    // The errno text this host words a failure with, taken from its own
+    // `io::Error` rather than assembled from a number.
+    let errno = |error: &std::io::Error| std::io::Error::from(error.kind()).to_string();
+    let absent_errno = errno(&source);
+
+    let private = |refused: &str, field: &str, errno: &str| {
+        assert!(
+            refused.contains(field),
+            "the fixed field {field}: {refused}"
+        );
+        assert!(!refused.contains(MARK), "the path echoed in {refused}");
+        assert!(
+            !refused.contains(root.to_str().unwrap()),
+            "the temporary root echoed in {refused}"
+        );
+        assert!(refused.contains(errno), "the host's errno text: {refused}");
+    };
+
+    // The one per-seat overlay's own allocation.
+    private(
+        &dsh_seat_overlay_in(None, None, &root, None, None, || {
+            Err(absent_tempfile_error(&absent))
+        })
+        .unwrap_err(),
+        "could not stage the dsh seat overlay",
+        &absent_errno,
+    );
+    // The settings document beside it.
+    private(
+        &dsh_effort_settings_in("dashscope/qwen3.8-max", "high", || {
+            Err(absent_tempfile_error(&absent))
+        })
+        .unwrap_err(),
+        "could not stage the dsh seat settings",
+        &absent_errno,
+    );
+    // The retained transcript root under the admitted home.
+    private(
+        &dsh_transcript_root_in(|| Err(absent_tempfile_error(&absent))).unwrap_err(),
+        "could not stage the dsh session transcript root",
+        &absent_errno,
+    );
+
+    // A RAW host error keeps the host's own words, `(os error n)` and
+    // all: that is the arm a `tempfile`-wrapped error cannot reach,
+    // because the wrapper is a custom error with no raw code of its own.
+    // std reports a failed open without the path, so this one was never
+    // the disclosure — it is here to prove the rendering is the host's
+    // and not this driver's paraphrase.
+    let raw = std::fs::File::open(&absent).expect_err("an absent path cannot be opened");
+    assert!(raw.raw_os_error().is_some(), "a raw host errno: {raw}");
+    assert!(!raw.to_string().contains(MARK), "std adds no path: {raw}");
+    let refused =
+        dsh_transcript_root_in(|| Err(std::fs::File::open(&absent).unwrap_err())).unwrap_err();
+    private(
+        &refused,
+        "could not stage the dsh session transcript root",
+        &raw.to_string(),
+    );
+
+    // The settings row's one-line requirement: the field, never the
+    // path, exactly as the transcript row's is.
+    for line in ['\n', '\r'] {
+        let bad = root.join(format!("{MARK}{line}second"));
+        let refused = dsh_settings_row(&bad).unwrap_err();
+        assert!(
+            refused.contains("settings path") && refused.contains("spans more than one line"),
+            "the fixed field: {refused}"
+        );
+        assert!(!refused.contains(MARK), "the path echoed in {refused}");
+    }
+
+    // The write halves are path-bearing too, which is why they are
+    // asserted rather than assumed: `tempfile` wraps a failed write on
+    // its own handle with the file it holds, so a sealed handle reports
+    // the staged path exactly as a failed allocation reports the
+    // directory.
+    let readonly = || -> std::io::Result<tempfile::NamedTempFile> {
+        let staged = tempfile::Builder::new()
+            .prefix(&format!("{MARK}-"))
+            .tempfile_in(&root)?;
+        let (_, path) = staged.into_parts();
+        let opened = std::fs::File::open(&path)?;
+        Ok(tempfile::NamedTempFile::from_parts(opened, path))
+    };
+    let sealed = readonly()
+        .and_then(|mut file| std::io::Write::write_all(&mut file, b"x").map(|()| file))
+        .expect_err("a read-only handle cannot take bytes");
+    assert!(
+        sealed.to_string().contains(MARK),
+        "the source write error must carry the path it holds: {sealed}"
+    );
+    let sealed_errno = errno(&sealed);
+    private(
+        &dsh_seat_overlay_in(None, None, &root, None, None, readonly).unwrap_err(),
+        "could not write the dsh seat overlay",
+        &sealed_errno,
+    );
+    private(
+        &dsh_effort_settings_in("dashscope/qwen3.8-max", "high", readonly).unwrap_err(),
+        "could not write the dsh seat settings",
+        &sealed_errno,
+    );
+}
+
+/// The retained root the seat writes its transcript under is allocated
+/// beneath the ADMITTED DSH home, so a failure there is a real
+/// path-bearing one on the cold, offered and disabled planner paths
+/// alike — and it happens under otherwise valid planner inputs, after
+/// the identity observations, which is why the zero-call rule does not
+/// apply to it. The refusal names its field; the home stays the
+/// operator's (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
+#[cfg(unix)]
+#[test]
+fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
+    use std::os::unix::fs::PermissionsExt;
+    const MARK: &str = "zzz-1e84fa-retained";
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join(MARK);
+    // The base exists as a directory, so `create_dir_all` succeeds and the
+    // per-seat allocation inside it is what the host refuses — with the
+    // path it tried in the error.
+    let base = home.join("sessions").join("brokkr");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let source = absent_tempfile_error(&base);
+    assert!(
+        source.to_string().contains(MARK),
+        "the source error must carry the home it tried: {source}"
+    );
+
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &home);
+    let marker = root.join("m-retained");
+    let shim = dsh_recording_version_shim(&root, "dsh-retained", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let digest = "b".repeat(64);
+    let enabled = dsh_enabled_input("0.1.5-rc.1", &digest, &root);
+    let disabled = json!({"workdir": root});
+    let workdir = root.to_str().unwrap();
+
+    for (path, input, session) in [
+        ("disabled", disabled, None),
+        ("offered", enabled.clone(), Some("session-1")),
+        ("cold", enabled, None),
+    ] {
+        reset_dsh_staging_calls();
+        let error = dsh_launch_with(&shim_text, &[], workdir, session, &input, || {
+            Ok(synthetic_dsh_composite(&digest))
+        })
+        .err()
+        .unwrap_or_else(|| panic!("{path}: a root that cannot be allocated must refuse the seat"));
+        assert!(
+            error.contains("could not stage the dsh session transcript root"),
+            "{path}: the fixed field: {error}"
+        );
+        assert!(!error.contains(MARK), "{path}: the home echoed in {error}");
+        assert!(
+            !error.contains(root.to_str().unwrap()),
+            "{path}: the root path echoed in {error}"
+        );
+        // The refusal precedes staging: the root is settled before the
+        // one overlay is composed.
+        assert_eq!(dsh_staging_calls(), 0, "{path}: no staged overlay");
+    }
+
+    // Writable again, so the fixture's own directory can be reaped.
+    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
         None => std::env::remove_var("DSH_HOME"),
@@ -10144,24 +12550,65 @@ fn recordable_digests_admit_digits_and_letters_and_refuse_everything_else() {
 
 #[test]
 fn the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes() {
+    // The marker rides every rejected value: each splitter's diagnostic is
+    // its own fixed field and never the value it refused (AS3; task 8.10).
+    const MARK: &str = "zzz-4be20d-splitter";
+    let refused_model = |argv: &[&str]| {
+        let argv = argv.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+        let error = split_dsh_model(&argv)
+            .err()
+            .unwrap_or_else(|| panic!("{argv:?} must refuse"));
+        assert!(!error.contains(MARK), "{argv:?}: {MARK} echoed in {error}");
+        error
+    };
+    let refused_patch = |argv: &[&str]| {
+        let argv = argv.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+        let error = split_dsh_patch(&argv)
+            .err()
+            .unwrap_or_else(|| panic!("{argv:?} must refuse"));
+        assert!(!error.contains(MARK), "{argv:?}: {MARK} echoed in {error}");
+        error
+    };
+    let joined_model = format!("--model={MARK}");
+    let joined_patch = format!("--patch={MARK}.yml");
+    let flag_value = format!("-{MARK}");
+    let patch_value = format!("{MARK}.yml");
+
     // `--model` needs a non-empty, non-flag id, once, in its separate form.
-    assert!(split_dsh_model(&["--model".into(), String::new()]).is_err());
-    assert!(split_dsh_model(&["--model".into(), "--x".into()]).is_err());
-    assert!(
-        split_dsh_model(&["--model".into(), "a".into(), "--model".into(), "b".into()]).is_err()
+    let arity = "dsh driver: --model needs a model id after it";
+    assert_eq!(refused_model(&["--model", ""]), arity);
+    assert_eq!(refused_model(&["--model"]), arity);
+    assert_eq!(refused_model(&["--model", &flag_value]), arity);
+    assert_eq!(refused_model(&[&joined_model]), arity);
+    assert_eq!(
+        refused_model(&["--model", "a", "--model", MARK]),
+        "dsh driver: --model given twice"
     );
-    assert!(split_dsh_model(&["--model=a".into()]).is_err());
-    // `--patch` needs a non-empty, non-flag value, once, in its separate form.
-    assert!(split_dsh_patch(&["--patch".into(), String::new()]).is_err());
-    assert!(split_dsh_patch(&["--patch".into(), "--x".into()]).is_err());
-    assert!(split_dsh_patch(&[
-        "--patch".into(),
-        "a.yml".into(),
-        "--patch".into(),
-        "b.yml".into()
-    ])
-    .is_err());
-    assert!(split_dsh_patch(&["--patch=a.yml".into()]).is_err());
+    // `--patch` needs a non-empty, non-flag value, once, in its separate
+    // form: a single-dash spelling is as flag-shaped as a double-dash one.
+    let arity = "dsh driver: --patch needs an overlay path after it";
+    assert_eq!(refused_patch(&["--patch", ""]), arity);
+    assert_eq!(refused_patch(&["--patch"]), arity);
+    assert_eq!(refused_patch(&["--patch", "--x"]), arity);
+    assert_eq!(refused_patch(&["--patch", &flag_value]), arity);
+    assert_eq!(
+        refused_patch(&["--patch", "a.yml", "--patch", &patch_value]),
+        "dsh driver: --patch given twice"
+    );
+    assert_eq!(
+        refused_patch(&[&joined_patch]),
+        "dsh driver: only the one separate `--patch <overlay>` spelling is admitted"
+    );
+    assert_eq!(
+        refused_patch(&["--patchy", &patch_value]),
+        "dsh driver: only the one separate `--patch <overlay>` spelling is admitted"
+    );
+    // A malformed id names the field, not the id.
+    let error = parse_dsh_model(&format!("{MARK} bad"))
+        .err()
+        .expect("a malformed id must refuse");
+    assert!(error.contains("the pinned model is not"), "{error}");
+    assert!(!error.contains(MARK), "{MARK} echoed in {error}");
     // The admitted shapes pass the other arguments through verbatim.
     let (model, rest) = split_dsh_model(&["--model".into(), "p/m".into(), "--x".into()]).unwrap();
     assert_eq!(model.as_deref(), Some("p/m"));

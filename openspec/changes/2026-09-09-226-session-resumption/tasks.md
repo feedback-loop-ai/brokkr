@@ -1,56 +1,543 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current tasks visit, 2026-09-21: **the final targeted DSH composite R1–R4
-repair**, run `dsh-composite-identity-issue-226-e291e076`. Adopt every commit
-on `slice-dsh-composite-b` through design HEAD
-`136f918305d4f75ccb5f6148527291323c0fa187`, including commissioned baseline
-`81d7fe87`, proposal/specification `be8cd9d8`, the clean resolver port and
-its narrowings. Proposal **AT**, AS1's five added scenarios and the current
-D6/D10/D11 design precede this breakdown. No `returned_from` is supplied;
-the commission carries chief run `124cca78`'s four findings. No earlier
-artifact must change before an honest breakdown can be drafted.
+Current tasks visit, 2026-09-21: **8.8(d), Pass C, the three surviving
+MEDIUMs R1–R3**, run `dsh-launch-planner-issue-226-tas-bff4c1e2`.
+Adopt every commit on `slice-dsh-planner-d` (PR #313) through commissioned
+`5dc0f4f3`, specification `cd384791` and design
+`6b817cad508662623bf5d8b18c60ba3b3153cefa`. Proposal **AU**, the amended
+LE1/LE3/LE5 and AS4 deltas, and design **D7/D10/D11** precede this breakdown.
+No `returned_from` is supplied; the commission supplies the final chief's
+R1–R3. Predecessor `dsh-launch-planner-issue-226-tas-ed4ff1bc` remains parked
+`REVIEW-REFORGE-EXHAUSTED-MEDIUM` for the operator. No upstream artifact
+must change before this plan can be executed.
 
-Only **8.8(a)–(c)** and exactly **R1–R4** are commissioned. Execute the
-unchecked repair clauses below in numbered order. The native cursor walk,
-reached-cwd barrier, existing causes, fixed rc.2 inputs, sole producer and
-sound earlier repairs are adopted. Prior proofs remain attributed history;
-new guards, invocation carriage and pre-probe admission need their own tests
-and removal/restoration evidence. This plan supersedes the previous
-verification-only visit; dated accounts remain history.
+Execute only new clauses **8.8.9.1–8.8.15.1**, in printed order. They are
+subtasks of the still-open 8.8(d)/8.10 acceptance, not new whole-change work.
+The earlier composite breakdown and dated delivery records below are adopted
+history and remaining debt, not instructions to repeat or broaden this visit.
+The prior 104 DSH protocol and 24 built-driver passes do not prove R1–R3.
+Preserve Pass B admission, D1's independently observed staging, D2's rename
+staging after the writer is reaped without retry, same-checkpoint root/address
+publication, the pre-init unreadability latch and every inherited guard.
 
-All fourteen local addresses and their **5 complete / 9 pending** states are
-preserved. All 101 change-wide addresses remain **84 complete / 17 pending**:
-**115 numbered rows, 89 complete / 26 pending** in total. With 18 retained
-historical checkbox rows, the file remains **133 checkbox rows, 105 complete /
-28 pending**. No checkbox changes in this tasks phase. **8.8 stays unchecked**.
-The five capability deltas have **20 requirements / 224 scenarios**; specify
-already authored the five new scenarios.
+Entry inventory, counted from the file rather than its stale opening summary:
+**133 checkbox rows, 108 checked / 25 unchecked**; of these **115 numbered
+rows, 92 checked / 23 unchecked**, plus 18 historical checkbox rows. This
+breakdown adds **19 unchecked numbered rows**, yielding **152 checkbox rows,
+108 checked / 44 unchecked** and **134 numbered rows, 92 checked / 42
+unchecked**. All inherited checkbox states and addresses remain unchanged.
+The five deltas retain **20 requirements / 236 scenarios**. **8.8, 8.10 and
+9.6 stay unchecked**, including after this bounded repair is delivered.
+After the implement visit recorded under "Implementation delivery" below,
+17 of those 19 are ticked: **125 checked / 27 unchecked**. 8.8.14.2 and
+8.8.15.1 stay open for the one smith gate that visit could not run.
 
-Every local task serves **safety / AS1 — Resume support is measured per
-adapter and execution shape**, in the
-[safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
-Scenario bindings appear below. Change-wide requirement citations and archive
-ordering are preserved. This is a breakdown checkpoint, not implementation
-completion, a council verdict or acceptance of debt.
+Only `tasks.md` is a tracked output of this phase. Implementation belongs in
+`crates/brokkr-protocol/src/adapters.rs` and `adapters/tests.rs`; retain the
+existing `crates/brokkr-cli/tests/driver_conformance.rs` coverage. A change to
+that suite must prove a distinct inherited observation, not build a new
+qualified provider installation. No new production file, dependency, schema,
+public seam, provider call, qualification, digest, route enablement or release.
+`contracts/`, `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` stay byte-identical;
+**0056 stays proposed and the DSH route stays disabled**.
 
-Keep `contracts/`, `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
-`reference/`, `extensions/dsh/` and `docs/decisions/` byte-identical to the
-adopted head; **0056 stays proposed**. Part **(d)**, **8.10**, **9.6**,
-**10.6–10.8**, **11.1–11.4** and **groups 14–15** are excluded. No planner
-completion, new crate/dependency, public resolver, YAML AST, identity format,
-persisted field, production trial execution or installation change follows.
-Production repair stays in the existing Rust protocol and doctor surfaces
-and their tests. Use owned harmless fixtures and isolated child environments;
-`.forge/` is evidence, never identity input.
+Hosts are Linux and macOS. Every remaining native-Windows lookup/matrix,
+doctor, `GetBinaryTypeW`, Windows MSRV and Windows CI obligation in this
+ledger is **withdrawn by decision 0063**, not pending; dated actual executions
+remain historical facts. Native macOS, applicable MSRV/source-pin/Node debt
+and final-head remote evidence keep their existing owners without widening
+this repair. Canonicalize temporary roots, use host `io::Error` errno text,
+and echo no option, value, model, ID, path or malformed bytes in diagnostics.
 
-Native macOS/Windows/MSRV, immutable Apple/env source pins and the retained-
-Node absent-PATH positive/removals remain pending under their existing owners,
-without becoming new work in this final repair. Capable-host exact coverage
-and final-head remote CI retain their own pending results. The change is
-already active, so no reopen is needed. The dialect archive/fold remains the
-final whole-change operation in group 15; this partial slice performs none.
+Pass D's composite/containment/retained-storage matrix, 9.6, 10.x, 11.x and
+whole-change groups 14–15 remain outside scope. The change is already active;
+no reopen is needed. Its dialect archive/fold remains the final whole-change
+operation under group 15, after the other obligations; this partial repair
+neither archives nor folds unfinished deltas into living truth.
 
 ## Decisions
+
+Adopt AU and D7's existing `DshRootWatch`/`LaunchHold` representation. One
+absorbing refusal transition sets `settled` without `released`; mismatch
+keeps its distinct terminal outcome. One required-store observation rule
+serves both sides of matching init. Retain the immutable pre-spawn census,
+exactly one offered header and its canonical address, and counted
+`(header ID, canonical PathBuf)` occurrences. Require current occurrences to
+fit within the baseline counts; removing an unrelated baseline sibling alone
+is allowed. Neither unique-ID sets, pair sets, total counts, refreshed
+baselines nor whole-store equality implements that rule.
+
+Decode an event before observing its associated store so a valid matching
+init is processed first. Malformed pre-init output and pending line-read
+failure permanently refuse an offered invocation. Malformed post-init output
+while pending still requires observation, but readable consistent evidence
+may wait or confirm. Cold noise behavior is preserved. Every exit from `new`,
+`named`, `settle`, the pre-init helper, stream decode/read and final drain must
+have D7's explicit pending/refused/mismatch/confirmed disposition.
+
+Use the private invocation seam selected by D7: production `run_seat`
+delegates to its same body with the existing `invoke`, while tests invoke
+real synthetic `DshLaunch` children through that body. Keep prompt/binding
+setup, checkpoint buffering, delivered-file detection and the actual terminal
+guard. Add a per-invocation observer of completed production observations.
+Acknowledge a transient only after the decision and all required reads, on
+all outcomes, including pending under removal. For decode/read errors witness
+the completed stream observation. No second census, sleep-only witness,
+global observer, fake `Invocation`, public bypass or diagnostic checkpoint.
+These are adopted design choices; no new ambiguity or semantic decision is
+introduced. An earlier-artifact counterexample must return `upstream`.
+
+**Proof contract for every contrary-evidence child case below.** Run separate
+clean-exit and valid-delivered-result endings through the shared terminal body.
+Require `Failed`, `result: None`, and the exact error
+`provider never confirmed the offered session; refusing to accept the invocation`.
+Assert no checkpoint carries `root_session`, any transcript locator/address or
+`launch`, no held work checkpoint or successful session-finished path escapes,
+and exactly one child runs with no cold replacement. Retain the delivered
+file for diagnosis. Ordinary wire `Accepted` is not successful-work acceptance
+and retains its existing ordering. Mismatch controls assert the distinct
+existing different-session reason. Assert reasons, never bare `is_err()`.
+
+For **each new regression and each ending**, record the applicable compiling
+production mutation, exact command/filter, nonzero selected test count,
+intended failed behavioral assertion, exact restoration and green rerun.
+Keep observation/acknowledgment active under removal so a repaired store can
+reach later false confirmation; a timeout does not prove refusal. Where
+cardinality and identity guards overlap, isolate and disclose the joint
+semantic protection removed. Positive/comparison controls need applicable
+removal evidence too. Compile errors, fixture failures, unrelated guards,
+sleeps, zero-test filters or historical removals supply no proof. Restore each
+mutation before the next; commit none. Tasks name verification below, and the
+delivery account must replace planned proof descriptions with actual evidence.
+
+Requirement references used in every current checkbox resolve to these exact
+owning requirements:
+
+- [LE1 — Every model adapter reports actual launch outcomes][LE1].
+- [LE2 — Launch evidence stays within a versioned closed vocabulary][LE2].
+- [LE3 — Launch reporting preserves first-work acceptance and refusal semantics][LE3].
+- [LE5 — Launch conformance covers every site and historical compatibility][LE5].
+- [AS4 — A refused resume permits only one proven pre-work cold replacement][AS4].
+- [PM1 — Task progress is persisted when work is completed][PM1].
+- [PM4 — Task completion does not stand in for delivery proof][PM4].
+
+[LE1]: specs/adapter-launch-evidence/spec.md#requirement-le1-every-model-adapter-reports-actual-launch-outcomes
+[LE2]: specs/adapter-launch-evidence/spec.md#requirement-le2-launch-evidence-stays-within-a-versioned-closed-vocabulary
+[LE3]: specs/adapter-launch-evidence/spec.md#requirement-le3-launch-reporting-preserves-first-work-acceptance-and-refusal-semantics
+[LE5]: specs/adapter-launch-evidence/spec.md#requirement-le5-launch-conformance-covers-every-site-and-historical-compatibility
+[AS4]: specs/adapter-resume-safety/spec.md#requirement-as4-a-refused-resume-permits-only-one-proven-pre-work-cold-replacement
+[PM1]: specs/sdd-progress-markers/spec.md#requirement-pm1-task-progress-is-persisted-when-work-is-completed
+[PM4]: specs/sdd-progress-markers/spec.md#requirement-pm4-task-completion-does-not-stand-in-for-delivery-proof
+
+## 8.8.9. Establish real terminal and observation proofs
+
+- [x] 8.8.9.1 Add D7's private `run_seat` invocation seam and extend the existing
+      `dsh_stream_launch`/`invoke_dsh_launch` test helpers to return the actual
+      wire results and checkpoints from one real child. Verify ordinary
+      confirmed warm and qualified cold controls through the shared terminal
+      body, including the exact root/address on one checkpoint and location /
+      launch / current-work order. Preserve existing built-driver D1/deadline
+      cases; no synthetic terminal implementation or qualified install fixture.
+      Prove the controls' publication/terminal assertions by applicable removal
+      and restored rerun. **Requirements: [LE1], [LE3], [LE5].**
+- [x] 8.8.9.2 Add the per-invocation completed-observation seam and bounded
+      child/parent acknowledgment described under Decisions. Retain immutable
+      actual census/read/stream facts before the child may restore or advance;
+      notify on all completed outcomes, not only in the refusal branch. Verify
+      a consistent pending-to-confirmed child observes both snapshots in order
+      and reaps cleanly; that same witness remains operational when the
+      later refusal mutations leave an observation pending. Record exact
+      observed facts, not a separate walk or child-created proof marker.
+      **Requirements: [LE1], [LE5].**
+
+## 8.8.10. Repair the shared watcher rule and retained identity
+
+- [x] 8.8.10.1 Centralize the absorbing refusal transition and initialize it
+      when an offered launch lacks `first_seq`, a successful baseline census
+      or exactly one baseline offered header. Retain the complete baseline
+      and offered canonical address; never replace missing history later.
+      Audit `named` and settled outcomes so init, EOF or delivery cannot reset
+      refused/mismatched/confirmed state. Verify focused state transitions and
+      baseline-repair controls with applicable compiling removals, restoring
+      the repair green. **Requirements: [LE1], [LE3].**
+- [x] 8.8.10.2 Replace both ID-set reductions with counted pair containment
+      over the bounded reader's admitted `(ID, PathBuf)` occurrences. Check
+      current offered-header cardinality first, then its retained address,
+      then current counts against immutable baseline counts. Keep duplicate
+      canonical occurrences visible; a changed identity/address or excess
+      occurrence refuses, while an unrelated old sibling's disappearance
+      alone does not. Refresh comments and verify focused new-address,
+      equal-pair multiplicity, equal-total replacement and old-sibling-removal
+      controls with applicable removals/restoration. Preserve containment,
+      budgets, delegated-header exclusion and whole-walk errors. **Requirements:
+      [LE1], [LE5].**
+- [x] 8.8.10.3 Unify pre-init and post-init store evaluation using those retained
+      facts and one offered-sequence read per observation. Census/read failure,
+      missing/ambiguous/replaced header and new/excess entry refuse on either
+      side of init. Before init, `last > first_seq` refuses; after init only
+      readable consistent `last <= first_seq` waits, and `last > first_seq`
+      confirms. Retire the weaker pre-init predicate or delegate it entirely.
+      Verify each former early return against D7's disposition table with
+      focused controls/removals. Preserve `record_locator` -> `hold.address`
+      -> root/launch confirmation -> drain, `may_fold` and final-drain guards.
+      **Requirements: [LE1], [LE3], [AS4].**
+
+## 8.8.11. Give every stream exit the same refusal boundary
+
+- [x] 8.8.11.1 Refuse malformed pre-init output even with no observed sequence
+      advance, before its current `continue`; refuse pending line-read errors
+      before `break`. Keep cold malformed/non-UTF-8 behavior and settled states.
+      Process valid init before its store observation and allow valid non-init
+      JSON to reach the shared rule. Verify decode-before-advance and pending
+      line-read failure on both endings using completed-stream acknowledgments,
+      repaired otherwise-confirming stores and the proof contract; each removal
+      must fail the intended terminal assertion, not time out. **Requirements:
+      [LE1], [LE2], [LE3], [LE5].**
+- [x] 8.8.11.2 On malformed post-init output while pending, apply the common
+      store observation before skipping without blanket JSON refusal. Verify
+      consistent noise can still confirm, and a contradictory census consumed
+      on that malformed line remains refused after restoration, on both
+      endings. Remove only the observation-before-skip protection while keeping
+      witness acknowledgment active; require the terminal assertion to fail,
+      then restore green. Verify EOF/post-wait settlement and drain cannot
+      reverse any absorbing outcome. **Requirements: [LE1], [LE3], [LE5].**
+
+## 8.8.12. Prove each surviving finding independently on both endings
+
+- [x] 8.8.12.1 Prove **R1**: baseline `session-1`/27, append `assistant/message`
+      28, emit non-JSON and then matching init, with no valid pre-init event
+      that could trigger another guard. Execute both exact LE1 scenarios
+      **R1 Malformed pre-init work with clean exit** and **with delivered
+      result**, asserting the entire proof contract. Remove malformed pre-init
+      refusal and observe each terminal/publication assertion fail; restore
+      and rerun both green. Keep 8.8.11.1's no-advance case distinct so a
+      store-only check cannot stand in for the rule. **Requirements: [LE1],
+      [LE3], [LE5], [AS4].**
+- [x] 8.8.12.2 Prove **R2**: matching init arrives with fresh `session-9` and
+      offer still at 27. Witness the completed contradictory production census
+      before permitting deletion; then advance offer to 28 and emit another
+      event. Establish that the repaired final store satisfies every positive
+      confirmation fact. Execute LE1's **R2 An observed fresh sibling disappears
+      with clean exit** and **with delivered result**, asserting the proof
+      contract and observed sibling. Remove only the permanent contradiction
+      transition, retaining observations/acknowledgments; each ending must
+      reach later false confirmation and fail the intended assertion. Restore
+      and rerun green. **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [x] 8.8.12.3 Prove **R3** separately: baseline has `session-9` under `--old--`;
+      retain it and add the same ID under `--new--`, keeping exactly one
+      offered `session-1`, advanced from 27 to 28, and valid matching init.
+      Execute LE1's **R3 A new storage entry reuses an existing sibling ID with
+      clean exit** and **with delivered result**, asserting the proof contract
+      and two admitted addresses. Mutate counted containment to the former
+      ID-only comparison; both endings must lose their claimed refusal / no
+      publication assertion. Restore green; no transient R2 case or Pass D
+      storage-admission matrix substitutes. **Requirements: [LE1], [LE3],
+      [LE5], [AS4].**
+
+## 8.8.13. Close the bounded rule audit and preservation controls
+
+- [x] 8.8.13.1 Prove LE1's **Post-init offered-header contradictions cannot be
+      restored away**: observe missing and ambiguous offered headers after
+      matching init, then restore uniqueness and advance. Use only baseline
+      storage addresses for ambiguity, with the offered sequence otherwise
+      nonconfirming, and assert the completed cardinality observation on both
+      endings. Apply the proof contract and isolate/disclose overlapping
+      cardinality/identity protection in removals so another guard cannot
+      provide the claimed refusal. Restore all four cases green.
+      **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [x] 8.8.13.2 Prove LE1's **Required post-init evidence cannot become readable
+      later to cure refusal**: independently fail the census and offered
+      sequence read after init, witness each actual failed observation, then
+      repair the store to permit confirmation. Also drive missing boundary,
+      failed baseline census, missing baseline header and ambiguous baseline
+      later made unique through real children. Run both endings, with named
+      terminal/no-publication assertions and applicable guard removals that
+      permit later false confirmation. Restore green; pre-init partial-tail
+      evidence remains independently covered. **Requirements: [LE1], [LE3],
+      [LE5], [AS4].**
+- [x] 8.8.13.3 Prove LE1's **A fresh sibling observed before init also latches
+      refusal** on valid non-init JSON with the offered sequence unchanged.
+      Acknowledge that census, remove the sibling, then supply matching init
+      and activity. Run both endings under the proof contract and remove the
+      pre-init contradiction protection to expose later false confirmation.
+      Retain valid-JSON pre-init work and unreadable/partial-tail controls;
+      replace sleep-only causal evidence for any transient case newly credited
+      here. Restore green. **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [x] 8.8.13.4 Prove the remaining identity comparisons through focused child
+      exchanges: an additional admitted alias repeats the exact canonical
+      `(ID, file)` occurrence; separately, a replacement changes a retained
+      address while unique IDs and total entry count remain unchanged. On
+      both endings witness the consumed occurrence/address evidence and
+      assert the proof contract. Use applicable pair-set/occurrence-reuse and
+      equal-total/identity mutations, disclosing overlapping offered-address
+      protection where applicable. Restore green. These compare the admitted
+      census and add no Pass D containment or inode-identity matrix.
+      **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [x] 8.8.13.5 Complete LE1's **A consistent pending rejoin can still confirm**
+      and **Cold stream noise keeps its existing behavior** using the same
+      terminal route: valid pre-init noise, unchanged unrelated sibling,
+      delayed activity, ordinary init consumed after its current activity was
+      already stored, and removal of an unrelated baseline sibling alone.
+      Retain post-init consistent-noise, cold malformed/non-UTF-8 and mismatch
+      controls, distinct mismatch reason, root/address re-admission, D1, D2
+      and real deadline/cancel coverage. Verify one correctly ordered launch
+      for positives, exact reasons for refusals and no replacement; run
+      applicable removals on new assertions to exclude unconditional refusal
+      or whole-census equality. **Requirements: [LE1], [LE3], [LE5], [AS4].**
+
+## 8.8.14. Validate the restored repair, sequentially
+
+- [x] 8.8.14.1 Audit every D7 transition/early return and both census conversions
+      against a task -> scenario -> actual test/ending -> mutation -> failed
+      assertion -> restored pass ledger. Require all six headline proofs and
+      every additional rule/control above; retain observed transient facts
+      alongside them. Run the restored focused DSH protocol cases and existing
+      built-driver conformance suite, recording exact commands, nonzero test
+      counts and actual outcomes. Inspect the diff to ensure no mutation,
+      admission relaxation, diagnostic leak or rename retry survives.
+      **Requirements: [LE1], [LE3], [LE5], [AS4], [PM4].**
+- [ ] 8.8.14.2 On the restored candidate run each D11 gate separately, in order:
+      `cargo fmt --all -- --check`;
+      `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`;
+      `cargo test -p brokkr-core --all-features --locked`, followed by the same
+      crate-scoped command for `brokkr-store`, `brokkr-protocol`,
+      `brokkr-runtime`, `brokkr-view`, `brokkr-bridge`, then `brokkr-cli`,
+      completing each before starting the next;
+      `openspec validate --all --strict`;
+      `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`;
+      `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify`.
+      Record command, revision and result; tick only when all these checks
+      execute green. An unavailable tool is not a pass. The recipe's separate
+      workspace verify exec remains required by its design, not a smith-selected
+      command or finding. **Requirements: [LE5], [PM4].**
+- [x] 8.8.14.3 Prepare the unchanged external exact-coverage handoff for the
+      candidate: `bash scripts/coverage-exact.sh` on CI/a host that can create
+      the boundary namespace. Verify no pin, gate, exclusion, denominator or
+      test-selection change; CI, release admission and local coverage still
+      consume `rust-nightly-version.txt`. Record revision/environment and actual
+      covered/total lines, branches and functions when supplied, otherwise
+      explicitly pending/unavailable. Likewise retain native macOS and final-head
+      remote results as pending until observed. This task verifies preparation
+      and truthful handoff only; its tick is not a green coverage or remote gate.
+      **Requirements: [LE5], [PM4].**
+
+## 8.8.15. Record this slice and commit its reviewed bytes
+
+- [ ] 8.8.15.1 After the scoped implementation/proofs and local gates above pass,
+      record actual R1–R3 delivery, per-ending removal results, restored test
+      results and external pending evidence. Tick each finished scoped task
+      beside its evidence, preserving open whole-task 8.8/8.10/9.6 and all
+      excluded groups. Pass D still owes composite/doctor/adaptation drift,
+      worked lock-dialect vectors, byte order/equality, containment and retained
+      storage; 9.6 still owes cold/warm retained-store integration, historical /
+      current multi-message/tool/retry intervals, output/tool/target filtering,
+      usage deduplication, per-message versus cumulative accounting, omission
+      of unattributable totals and legacy compatibility. No latch proof credits
+      those debts. Verify `git diff --check`, strict active-change validation,
+      requirement/checkbox inventory and only intended Rust/test/task changes,
+      with all frozen surfaces unchanged, 0056 proposed and DSH disabled. Tick
+      this artifact-readiness clause before the commit; then commit the exact
+      staged repair and ledger using the repository's message style, verify
+      the commit and clean worktree, and hand off its hash without another
+      tracked write. Do not report delivery before that commit or represent
+      pending external gates as passed. Never push. **Requirements: [LE5],
+      [PM1], [PM4].**
+
+The final whole-change archive/fold remains group 15's last operation, after
+all of its prerequisites; it is not an action or completion claim of 8.8.15.
+
+## Tasks-phase validation — Pass C R1–R3, 2026-09-21
+
+Adopted design `6b817cad`, specification `cd384791` and every commit through
+commissioned `5dc0f4f3` on `slice-dsh-planner-d`. Read the dialect manifest,
+its tasks/return/archive instructions and rendered tasks instructions through
+workspace hands. D7's current Open Questions contain no unresolved behavior
+choice. Source tracing covers the malformed-line skip/read-error break, both
+census reductions, pre-init predicate, post-init early returns, fold gates,
+terminal guard and existing child helpers. No upstream amendment is needed.
+
+The current breakdown orders proof seams, immutable latch/census, stream
+handling, each headline repair's terminal proof, remaining rule controls,
+sequential gates and the scoped commit. The scenario coverage is explicit:
+
+| LE1 acceptance | Current task coverage |
+|---|---|
+| R1 malformed pre-init work, clean exit and delivered result | 8.8.11.1, 8.8.12.1 |
+| R2 observed fresh sibling disappears, clean exit and delivered result | 8.8.10.3, 8.8.12.2 |
+| R3 new storage entry reuses sibling ID, clean exit and delivered result | 8.8.10.2, 8.8.12.3 |
+| Post-init offered-header contradictions cannot be restored away | 8.8.13.1 |
+| Required post-init evidence cannot become readable later to cure refusal | 8.8.10.1, 8.8.13.2 |
+| A fresh sibling observed before init also latches refusal | 8.8.13.3 |
+| Malformed pre-init evidence is not a pending warm observation | 8.8.11.1 |
+| A consistent pending rejoin can still confirm | 8.8.9.2, 8.8.13.5 |
+| Cold stream noise keeps its existing behavior | 8.8.9.1, 8.8.13.5 |
+
+D7's additional pending read-error/post-init noise, immutable-baseline,
+address replacement and equal-pair multiplicity controls belong to
+8.8.10.1–8.8.11.2 and 8.8.13.2/8.8.13.4. LE3's terminal/privacy rule and
+AS4's no-replacement rule apply to every contrary-evidence exchange. LE5's
+actual observation and per-ending removal evidence is required throughout;
+8.8.14.1 reconciles the final evidence, not just a table of planned tests.
+PM1/PM4 keep progress, candidate validation and external evidence distinct.
+
+Validation performed by this tasks seat:
+
+- `openspec validate --all --strict`: **exit 0, 15 passed / 0 failed**.
+  Strict active-change validation also passes. Existing informational
+  archive-readiness notices for adapter-resume-safety and sdd-progress-markers
+  remain whole-change archive debt; no archive, delta-kind change or living
+  truth edit belongs to this slice. OpenSpec's complete planning status does
+  not report the implementation complete.
+- `git diff --check` and the artifact/requirement audit pass. Of **743 tracked
+  files**, only `tasks.md` changes; the other **742** preserve their entry
+  hashes, including production/tests, proposal/design, all five deltas and
+  every frozen surface. All inherited task addresses/states are preserved;
+  **19 new tasks are unchecked**, for **152 checkbox rows (108 checked /
+  44 unchecked)**, **134 numbered rows** and **270 Markdown headings**.
+  Every new checkbox cites requirements with resolving links and names its
+  verification. The deltas still contain **20 requirements / 236 scenarios**.
+  Whole-change groups 10, 11, 14 and 15 are byte-identical; 8.8/8.10/9.6
+  remain open. Decision 0056 stays proposed and DSH stays disabled.
+- Fresh fmt, locked all-target/all-feature clippy, seven separate locked
+  all-feature crate suites in order, and both bundle compile attempts each
+  exit **127**, `cargo: command not found`. No Rust command executed, no
+  removal ran, and no Rust gate is green evidence from this visit. The smith
+  attempted no workspace-suite command; the recipe's own verify exec remains
+  required and is not a finding.
+- Exact coverage is external/pending because this box cannot create the
+  required boundary namespace. Current covered/total lines, branches and
+  functions are **unavailable**, not inherited or adjusted totals. The exact
+  script/gate is unchanged; CI, release admission and coverage consume
+  `rust-nightly-version.txt`. Native macOS and final-head remote results are
+  pending until their actual results exist; Windows obligations are withdrawn
+  by 0063.
+
+Run-local command logs, entry hashes and the structural audit are under
+`.forge/validation/dsh-bff4c1e2-tasks/`; they are not committed artifacts.
+Delivered by this phase: the ordered requirement-linked breakdown and the
+narrow 8.8(d)/8.10/9.6/history reconciliation. Pending: Rust repair, all new
+child/removal proofs, green executable gates and external evidence. Pass D
+and 9.6 retain all obligations named above. This is a **drafted tasks
+artifact**, not implementation completion or clearance of the predecessor's
+park. The phase commit contains only this file; the required result and
+post-commit hash evidence are written through workspace hands outside tracked
+artifacts.
+
+## Implementation delivery — Pass C R1–R3, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-bff4c1e2`, implement seat. Adopted every
+commit through tasks `a4780c22`. The repair is commit
+`f88535acedea6a5b42b92752e9feef0ca5d004ea` (signed), touching only
+`crates/brokkr-protocol/src/adapters.rs` and `adapters/tests.rs`;
+`driver_conformance.rs` is unchanged and its 24 cases are retained. No
+dependency, schema, contract, policy, fixture, reference, extension or decision
+byte moved; 0056 stays proposed and the DSH route stays disabled. Never pushed.
+
+**What was built.** One absorbing `DshRootWatch::refuse` (settled, never
+released; nothing clears it). An immutable pre-spawn `DshBaseline` — boundary,
+the ONE offered header's canonical address, and every admitted
+`(header id, canonical file)` occurrence — whose absence refuses the launch in
+`new`. One required-store rule, `dsh_read_offered_store`, on both sides of the
+init event: census, offered-header cardinality, retained address, counted
+sub-multiset containment (`dsh_census_within`), then one sequence read. The
+separate pre-init predicate is retired. The stream loop decodes before it
+observes; `unread` refuses a malformed line before init and an unreadable line
+while pending, and leaves a cold launch alone. Two private seams:
+`run_seat_with` (production `run_seat` delegates to it) and
+`invoke_dsh_launch_observed`, whose per-invocation observer receives each
+completed `DshObservation` after every read, on every outcome.
+
+**Removal ledger.** Every row was run with
+`cargo test -p brokkr-protocol --all-features --locked --lib -- <the ten new
+test names>` (10 selected; M12 added the inherited cold control, 11 selected).
+`refused_on_both_endings` runs BOTH endings behind `catch_unwind`, so each
+ending's own failed assertion is in the log. "False confirmation" below means
+the named-reason assertion failed with `left:` =
+`seat wrote no result file (the result contract was not met)` on the clean
+exit and `left: None` (a `Succeeded` result) on the delivered result — the
+guard at the old line 5568 was walked past, and the held locator/launch rows
+were published. No removal timed out except M10, noted there. Each mutation
+was restored before the next; the restored file is SHA-256
+`252cb0f7…029ef5`, byte-identical to the committed one, and no mutation is in
+any commit.
+
+| # | Production mutation (compiling) | Tests and endings that failed, and how | Tasks |
+|---|---|---|---|
+| M1a | The former skip whole: no `unread` refusal before init, and no store reading behind a malformed pre-init line | **R1** clean + delivered, and "store unmoved" clean + delivered: false confirmation | 8.8.11.1, 8.8.12.1 |
+| M1b | Only the `unread` pre-init refusal removed (a store-only check) | "store unmoved" clean + delivered: false confirmation. R1's two endings stay refused by the store reading and lose only the witness that the LINE refused (`census: None`) — so R1's headline is jointly protected, and M1a is its removal | 8.8.11.1 |
+| M2 | `unread` no longer refuses `Unreadable` | "unreadable line while pending" clean + delivered: false confirmation at the settle behind the exit | 8.8.11.1 |
+| M3 | A post-init refusal becomes a pending return (`_ if self.named_the_offer => {}`), observer untouched | **R2** clean + delivered; offered header missing, offered header ambiguous, census fails, sequence unreadable, sibling read on a malformed line — each clean + delivered: false confirmation after the acknowledged repair. (R3 and the identity cases stay terminally refused, pending for ever, and lose only the watcher-state assertion) | 8.8.10.3, 8.8.11.2, 8.8.12.2, 8.8.13.1, 8.8.13.2 |
+| M4 | Containment skipped before init (the retired predicate's blind spot) | "fresh sibling before init" clean + delivered: false confirmation | 8.8.10.3, 8.8.13.3 |
+| M5 | `dsh_census_within` reduced to the former id-set comparison | **R3** clean + delivered; alias clean + delivered; sibling replaced at a new address clean + delivered: false confirmation. "Offered header moves" stays refused — the retained address holds alone | 8.8.10.2, 8.8.12.3, 8.8.13.4 |
+| M5b | Pair SET (`baseline.contains`, occurrences reused) | alias clean + delivered: false confirmation; nothing else | 8.8.10.2, 8.8.13.4 |
+| M5+M7 | M5 and the retained offered-address check removed together | adds "offered header moves" clean + delivered: false confirmation. Disclosed overlap: counted containment alone also refuses a moved offer, so the address check is only separable jointly | 8.8.10.2, 8.8.13.4 |
+| M6 | The refusal in `new` removed | all five baseline cases, both endings, lose `ended refused` (`left: Some(Pending)`). Disclosed: the terminal reason does NOT change — pending for ever and refused are the same `Unconfirmed` ending, as they were before this repair; the observation's disposition is what tells them apart | 8.8.10.1, 8.8.13.2 |
+| M6′ | Baseline offered header resolved to its first match | "ambiguous baseline, the first header removed" clean + delivered: false confirmation (the other variant loses its state assertion; which variant confirms follows enumeration order, which is why both are run) | 8.8.10.1, 8.8.13.2 |
+| M8 | No store reading behind a malformed post-init line; acknowledgment still fires | "sibling read on a malformed line" clean + delivered: false confirmation; the positive "malformed noise after init" loses `confirmed on Malformed` | 8.8.11.2 |
+| M9 | Containment tightened to whole-store equality | positive "an unrelated baseline sibling is gone": `a confirmed rejoin is accepted` fails (`Failed`) | 8.8.10.2, 8.8.13.5 |
+| M10 | Consistent-but-incomplete evidence refuses instead of waiting | positive "pre-init noise, a sibling and delayed activity" fails accepted; the unreadable-line case loses its `[Pending, Refused, Refused]` order. One child here waited out its 30 s bound and FAILED on `every awaited observation was really completed` — a timeout is reported, never read as a refusal | 8.8.9.1, 8.8.9.2, 8.8.13.5 |
+| M12 | `unread` allowed to refuse a cold launch | new cold terminal control (`rooted`) and the inherited `a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms` both fail | 8.8.9.1, 8.8.13.5 |
+
+Not separately removable, and said so: the CURRENT offered-header cardinality
+check after init. Its ambiguity case is built at a baseline address as D7
+asks, where the relabelled pair is also outside the baseline, and resolving it
+to a first match confirms or refuses by enumeration order; M3 proves its
+permanence, not its independence. The inherited sleep-gated pre-init cases
+(`dsh_uncertainty_before_the_init_event_…`) are retained unchanged and are
+credited with nothing new here; every transient case credited above waits on
+the observer.
+
+**Restored results, this candidate (`f88535ac`).**
+
+- Focused ten: `10 passed; 0 failed` (397 filtered out).
+- `cargo fmt --all -- --check`: clean.
+  `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`: clean.
+- Crate suites, separately and in order, `cargo test -p <crate> --all-features
+  --locked`, counted as `test result: ok` lines with zero `FAILED`/`panicked`
+  in each log: core 5 (lib 73); store 7 (lib 58); protocol 3 (lib **407**,
+  then 99 with 2 ignored, then 1); runtime 24 (lib 441); view 2 (243, 3
+  ignored); bridge 2 (13); cli 32, including `driver_conformance`
+  **24 passed**.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `… bundles/verify`: both exit 0.
+- `git diff --check`: clean. Frozen surfaces, `scripts/`, workflows and
+  `rust-nightly-version.txt` show no diff against `a4780c22`; CI, release
+  admission and `coverage-exact.sh` all still consume the pin.
+- **NOT RUN: `openspec validate --all --strict`.** This seat's permission grant
+  withholds `openspec` (refused by name and by absolute path). It was not
+  reached by another route. That is why **8.8.14.2 and 8.8.15.1 stay
+  unticked**: an unavailable tool is not a pass. The tasks seat's 15/0 was
+  over a tree in which only checkbox states and this section have since moved.
+- **PENDING, external:** `bash scripts/coverage-exact.sh` (also withheld here,
+  and by design run outside the box) — covered/total lines, branches and
+  functions unavailable; native macOS; final-head remote CI.
+
+Inventory: 152 checkbox rows, now **125 checked / 27 unchecked**; 134 numbered
+rows, **109 checked / 25 unchecked**. **8.8, 8.10 and 9.6 stay unticked.**
+
+**Observed while proving, owed by 9.6, not repaired here.** The fold's
+`find_dsh_transcript` takes the FIRST depth-zero transcript the enumeration
+reaches, not the offered one. Beside an unrelated retained sibling a confirmed
+rejoin can therefore tail the sibling's file and fold no current work. The
+positive control with a sibling asserts launch order only and says why; this
+is 9.6's warm retained-store integration.
+
+**Still owed.** Pass D: composite/doctor/adaptation drift, worked lock-dialect
+vectors, byte order/equality, containment and the retained-storage matrix.
+9.6: cold/warm retained-store integration (including the item above),
+historical/current multi-message/tool/retry intervals, output/tool/target
+filtering, usage deduplication, per-message versus cumulative accounting,
+omission of unattributable totals and legacy compatibility. No latch proof
+credits either. Run-local logs are under
+`.forge/validation/dsh-bff4c1e2-implement/`, outside the committed artifact.
+
+## Historical composite decisions and execution clauses
+
+The following composite scope, task states, verification commands and dated
+records are retained under their original owners. The current R1–R3 plan above
+supersedes conflicting visit-relative instructions, retries and Windows debt;
+it does not reopen composite work or claim its pending evidence passed.
 
 Adopt **AT** and **D10, Final R1–R4 council reconciliation**. R1 consumes
 supported structural ASCII separation before scalar admission. R3 bounds raw
@@ -101,7 +588,7 @@ recorded for the operator's debt ruling, without further repair, self-granted
 waiver or another automatic reforge assignment. No clause licenses work beyond
 R1–R4.
 
-### Execution order and requirement coverage
+### Historical composite execution order and requirement coverage
 
 Preserved clauses constrain the work; they do not assign old mutations again.
 Broad task owners remain unchecked for inherited pending evidence even after
@@ -196,8 +683,9 @@ do not narrow full acceptance to earn a tick. AS1 names the requirement above.
   differential matrix and independent inventory in
   `native_executable_resolution_matches_command_matrix` and
   `terminal_path_lengths_refuse_before_doctor_probe`; no cursor rewrite,
-  matrix expansion or old-removal replay follows. Native macOS/Windows matrix,
-  GetBinaryTypeW, Windows MSRV and source-pin cells retain their original
+  matrix expansion or old-removal replay follows. Native Windows matrix,
+  doctor/GetBinaryTypeW and Windows MSRV are withdrawn by decision 0063.
+  Native macOS matrix and applicable source-pin cells retain their original
   pending acceptance — safety / AS1: Resume support is measured per adapter
   and execution shape.
 
@@ -3628,12 +4116,14 @@ saved for the phase commit.
       it, keep the wrapper and its capture marker, gate the planner
       separately and never substitute plain Claude to make resume
       work — safety / AS1, evidence / LE4.
-- [ ] 8.8 Current final targeted repair is only R1–R4 within (a)–(c),
-      in the ordered local groups 8.8.1–8.8.8 above under proposal AT and
-      the current D10 sitting. Historical closure claims do not discharge
-      these four findings or erase inherited evidence debts. The remaining
-      text records whole-change acceptance, including excluded (d), not this
-      slice's execution order. This checkbox remains open.
+- [ ] 8.8 Current repair is only R1–R3 in (d), Pass C, under proposal AU
+      and design D7/D10/D11. Execute local groups 8.8.9–8.8.15 above; adopt
+      the prior composite, Pass B and Pass C commits and proofs. Historical
+      closure claims neither discharge these three findings nor erase
+      inherited debt. The remaining text records whole-change acceptance;
+      it does not commission live qualification, Pass D or enablement here.
+      This whole-task checkbox remains open — evidence / LE1, LE3, LE5;
+      safety / AS4.
       After 1.1, 6.4, 11.5 and 13.1 establish the corrected disabled
       truth and 10.7's live half commits the adaptation, implement 10.3's
       forward-pinned DSH route for N1's resolved official core,
@@ -3893,8 +4383,9 @@ saved for the phase commit.
       the overlay's and the fetch grant is the composed profile's own (decision
       0044 ruling 5's erratum). Do not move the roster assertion, `bundle.json`,
       `research-web.yml`, compiled staffing or research-dsh witness digest.
-      The remaining launch half of (d) belongs to Pass C, after B; preserve its
-      inherited partial implementation without extending or crediting it here.
+      Pass C's delivered launch half and subsequent repairs are adopted
+      history. Current AU/D7 repair clauses 8.8.9.1–8.8.15.1 alone are
+      commissioned here; they enforce invocation-wide refusal before release.
       Confirm the launched root before publishing: do not treat the
       plugin's request-derived `session_id` value by itself as
       confirmation. Require a valid prior depth-zero header retained at
@@ -3907,11 +4398,22 @@ saved for the phase commit.
       model-recall device (design D6): it is never planted in a prompt or
       read at run time, and this run-time confirmation names only the
       mechanically observable header, init event, sibling-root and
-      sequence facts above. A missing or different root, whether followed
-      by a clean child exit
-      or by a delivered result file, remains failed or indeterminate
-      under D7: it publishes no `root_session`, no `transcript` locator
-      and no launch row, and authorizes no cold replacement by itself.
+      sequence facts above. Retain the immutable pre-spawn census of admitted
+      `(header ID, canonical file)` occurrences, exactly one baseline offered
+      header and its address; require current counted occurrences to fit the
+      baseline without collapsing IDs, addresses or multiplicity. Run one
+      observation rule before and after matching init: missing baseline or
+      failed required evidence, missing/ambiguous/replaced offered headers,
+      fresh/excess entries, pre-init work, malformed pre-init output and pending
+      stream-read failure permanently refuse. Only readable consistent waiting
+      is retryable; later init, repaired storage, EOF or delivery never cures
+      refusal. Preserve post-init consistent-noise and cold behavior. R1–R3
+      end failed with LE3's exact unconfirmed-session reason on both endings,
+      no accepted result, root, locator, launch or work publication and no cold
+      replacement; retain delivery on disk. A different-root mismatch keeps
+      its distinct existing reason. Verify the six headline child proofs,
+      completed-observation witnesses and all D7 rule controls/removals through
+      the real terminal body under the current numbered clauses.
       Never forward the launcher's TUI example, treat the retained
       directory as a provider handle, alter the live global pin/profile, add
       an SDK runner or admit hands. If 10.7 demonstrates that the documented
@@ -3968,10 +4470,12 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 This whole-change acceptance remains pending and is not a new
-      implementation task in CODEX, END TO END. Reuse its landed Codex test
-      seams under 11.1; do not repeat AA's production repairs or open C/D
-      — safety / AS1, AS2; site / SR1; evidence / LE5.
+- [ ] 8.10 This whole-change acceptance remains pending. For the current
+      AU/D7 Pass C repair, execute only 8.8.9.1–8.8.15.1: R1–R3 plus the
+      bounded watcher-rule controls, both terminal endings, completed production
+      observations, independent compiling removals and positive/cold preservation
+      — evidence / LE1, LE3, LE5; safety / AS4. Do not repeat adopted Codex or
+      Pass B work, open Pass D's unrelated matrix or tick this whole task.
       Earlier THE PROOFS scope: execute only AA/D10's two items in clauses 1–6
       below: six wrapped/unwrapped compiled Codex gate decisions and supported
       exact-root exchanges, then `bundle.rs`'s two reachable refusal tests and
@@ -4019,9 +4523,9 @@ saved for the phase commit.
       acceptance detail under safety / AS1, AS2, AS3 and AS4, site / SR1, SR2,
       SR3 and SR5, and evidence / LE1, LE2, LE3, LE4 and LE5. The following
       Pass B breakdown is inherited acceptance,
-      not work to repeat; C/D paragraphs remain pending and unscheduled.
-      Verify each applicable case alongside its 8.8(d) implementation before
-      advancing; the full 8.10 checkbox still awaits C/D.
+      not work to repeat. Only AU's Pass C repair is scheduled by the
+      current clauses; Pass D remains pending and unscheduled. Verify each
+      current case alongside 8.8(d); full 8.10 remains unchecked.
       First repair R2 in `engine/resume_tests.rs::dsh_model_driver`: use
       `serde_json` to serialize one complete checkpoint-data JSONL row per
       declared invocation, including that invocation's ID, into a temporary
@@ -4038,7 +4542,8 @@ saved for the phase commit.
       `an_offered_dsh_start_carries_the_recorded_home_at_the_single_site` and
       `an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member` on
       their actual temporary homes. This is portable transport evidence;
-      native Windows/macOS evidence stays pending controller CI (site / SR2,
+      native macOS evidence stays pending controller CI; native Windows
+      proof is withdrawn by decision 0063 (site / SR2,
       site / SR3, site / SR5, safety / AS2, evidence / LE2).
       Then prove the originating-home carrier in
       `crates/brokkr-runtime/src/engine/resume.rs`'s existing
@@ -4233,8 +4738,14 @@ saved for the phase commit.
       `crates/brokkr-cli/tests/driver_conformance.rs` is added only if it proves
       a distinct planner observation; no child-confirmation acceptance is added
       in B (safety / AS1, safety / AS2, safety / AS3, evidence / LE1).
-      Pass C, after B, owns the following DSH stream-json confirmation cases
-      design D6 and D7 name; do not implement or credit them in B. Each uses a
+      Preserve the following delivered Pass C confirmation cases and
+      repair only AU/D7's remaining rule under 8.8.9.1–8.8.15.1. The current
+      proofs require actual synthetic children through production terminal
+      handling, the immutable address/occurrence census, permanent refusal,
+      both endings with exact LE3 reasons and no publication/replacement,
+      completed-observation acknowledgment for transient evidence and each
+      regression/ending's compiling removal/restoration. D7's additional
+      watcher controls do not open Pass D. Each inherited case uses a
       captured synthetic child transcript with no installed provider: a post-`await agents.resume`
       init event confirming the offered root, no fresh sibling
       root/session and new sequence activity past the recorded
@@ -4370,7 +4881,10 @@ saved for the phase commit.
       fall back to legacy fields to evade confirmation — site / SR3,
       evidence / LE4.
 - [ ] 9.6 After 8.8 and 8.10, extend the existing accounting and compatibility
-      tests with the selected DSH route. The current operator-ruling slice's
+      tests with the selected DSH route. AU's current R1–R3 latch repair
+      establishes publication timing only and discharges none of this task's
+      accounting/compatibility acceptance. It remains unchecked and outside
+      the current slice. The historical operator-ruling slice's
       low-1 clause below verifies only the adopted sequence-zero fix
       and its actual planner-to-drain input (evidence / LE4). It is authorized
       before those whole-task dependencies finish, leaves 9.6 unticked and
@@ -11963,3 +12477,1438 @@ groups 14–15 were not touched. `contracts/`,
 `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
 `reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
 decision 0056 keeps its `proposed` status. Nothing was pushed.
+
+## Implement visit — 8.8(d) Pass B, argument admission, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-3d08ce19` on
+`slice-dsh-planner-d`, stacked on `slice-dsh-composite-b` (PR #311) and
+adopting every one of its commits. This visit owns exactly the FIRST
+paragraph of Pass B — admission of the planner's own inputs, before any
+route read, version probe, composite call or staging — and its matching
+8.10 cases. Everything after identity agreement in the (d) text, and
+the whole launch half, stays where it was.
+
+### What the admission surface already proved, and what it did not
+
+The planner's order was already right: `split_dsh_model`, the shared
+`split_effort`, `split_dsh_patch`, then `dsh_control_conflict` over the
+WHOLE residual, then model validation and the effort/model
+relationship, and only then `route_overlay::claim`. The inherited
+selector-only deny-list is already gone: `dsh_control_conflict` refuses
+every residual by fixed category.
+
+What was missing was the observation. The inherited matrix drove
+eleven spellings on three paths; 8.10's ledger names roughly forty, and
+it requires the private staging counter to read zero on each — an
+error and an absent retained directory do not establish that nothing
+was staged. It also requires the private marker to sit IN the rejected
+spellings, which the inherited vectors did not do.
+
+### The one production repair, and the failure that demanded it
+
+`split_dsh_patch` refused a value starting with `--` and admitted one
+starting with a single `-`. Its own contract says "non-empty, non-flag
+value", and `split_dsh_model` beside it refuses any leading `-`. So
+`--patch -<anything>` — every short launcher spelling — passed arity
+and was carried into the route read, where it refused for a DIFFERENT
+reason, in a diagnostic naming the route.
+
+Demonstrated first, before the line moved:
+
+```
+disabled/flag-shaped patch value: the admission refusal precedes the
+route read: refusing to invoke the dsh driver: the route overlay
+binding disagrees with the `--patch` value
+  adapters/tests.rs:8504
+```
+
+The repair is one character of predicate (`"--"` → `'-'`) with its
+reason beside it, and it is the ONLY production line this visit moves.
+Restoring the old predicate reproduces that panic and a second one,
+`["--patch", "-zzz-4be20d-splitter"] must refuse` at
+`adapters/tests.rs:10366`; restoring the repair passes both.
+
+### Removal proofs
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `split_dsh_patch`'s flag predicate back to `"--"` | `dsh_residual_and_joined_controls_refuse_before_any_observation`, `the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes` | "the admission refusal precedes the route read"; `must refuse` |
+| the `dsh_control_conflict` block moved BELOW `route_overlay::claim` | `dsh_residual_and_joined_controls_refuse_before_any_observation` | `disabled/unknown option beside a readable-looking route`: the refusal read `route_overlay file is unreadable` |
+| the staging counter's `+ 1` at `dsh_seat_overlay_in` entry | `both_dsh_effort_spellings_are_admitted_and_stage_one_overlay` | `separate: exactly one staged overlay`, left 0 right 1 |
+
+The third is D10's calibration: the ledger's forty-odd zero assertions
+are only evidence because a positive plan makes the same counter read
+one.
+
+### The ledger
+
+`dsh_residual_and_joined_controls_refuse_before_any_observation` now
+drives every category 8.10 names, on the disabled, offered and cold
+paths, each against a route binding that would fail to read:
+
+- the plugin's value and bare selectors, long and short —
+  `--session`/`-s`, `--new`/`-n`, `--resume`, `--list`,
+  `--workdir`/`-w`, `--output-format`, `--json-schema`,
+  `--profile`, `--dump-config`, `--dump-default-config`, `-h`;
+- joined and clustered spellings — `--session=…`, `-s=…`, `-o…`,
+  `-nrl`;
+- the launcher's own unverified controls — `--from-default-profile`,
+  `--verbose`; a settings override; an unknown option name; the option
+  terminator; bare positional text;
+- the effort spellings the shared splitter deliberately leaves in the
+  argv rather than dropping a pin in silence — duplicate, mixed
+  separate/joined, valueless, and a level outside its clamp in either
+  spelling;
+- the three authorized controls' own malformed shapes, refused by
+  their own splitters with their own fixed field — joined, duplicate,
+  valueless, empty-valued and flag-shaped `--model`; a malformed id;
+  duplicate, bare, joined, `--patch…`-prefixed and flag-shaped
+  `--patch`; effort without a model.
+
+Each case asserts: a refusal; zero producer calls; no version probe
+(the recording shim's marker); `dsh_staging_calls() == 0`; no retained
+root under the home; the refusal names its fixed category or fixed
+field; and the refusal contains neither the private marker nor the
+route value.
+
+The marker `zzz-9f31c7-marker` is a PLAIN IDENTIFIER, so it is also a
+valid model id: the control cases pin it as the seat's model and carry
+it in option names, equals-joined values, selector values, patch values
+and positional text at once. No diagnostic echoes it.
+
+One correction to the commission's own reading: there is no closed
+effort VOCABULARY at this boundary. `effort_token` is a shape clamp —
+one bounded word of at most forty characters starting with an
+alphanumeric — so `--effort <any-plain-word>` is admitted by design and
+the invalid-effort vectors are the ones outside that clamp.
+
+`both_dsh_effort_spellings_are_admitted_and_stage_one_overlay` keeps
+both admitted spellings as positive cases with no guessed alias: the
+separate `--effort xhigh` and the equals-joined `--effort=xhigh`
+compose the identical settings document and each stage exactly one
+overlay.
+
+`dsh_controls_that_decide_the_session_or_a_restriction_are_refused`
+and `the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes`
+grew the same way at unit level. The second no longer asserts
+`is_err()`: every refusal is now compared to its exact reason, and the
+marker is checked absent from each.
+
+### An inherited test race, repaired
+
+`adapters::composite::tests::dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one`
+READS the process `DSH_HOME` and asserts what it read, without taking
+the `ADAPTER_ENV` lock every planner test takes when it sets a
+temporary one. It is an inherited race, not this visit's: two tests
+that both exist at `1f60fdf4`, run together, reproduce it —
+
+```
+left: "/tmp/.tmpOgldUg"  right: "/home/vyanakiev/.dsh"
+```
+
+— with none of this visit's new tests running in that filter. Two more
+`DSH_HOME` writers made it fire on the ordinary crate run, so the
+reader now takes the same lock; `ADAPTER_ENV` became
+`pub(in crate::adapters)` to make that possible. A reader is as much a
+party to the race as a writer.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue
+#255):
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-protocol` | 485 (385 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-runtime` | 534 across 24 binaries, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+`openspec validate --all --strict` COULD NOT RUN in this box: the
+binary is installed at `~/.volta/bin/openspec` but the sandbox refused
+the invocation. This visit adds no `openspec/specs` delta and touches
+only this tasks file under `openspec/`, but that is not a substitute
+for the check. `bash scripts/coverage-exact.sh` did not run here
+either; it is not lowered.
+
+### What Pass C still owes, and what the rest of B does
+
+Pass C — launch-root confirmation before publishing — is untouched and
+uncredited: no `root_session`, `transcript` locator or launch row may
+be published before the pinned plugin's post-`await agents.resume`
+init event names the offered root on the selected persistence root,
+with a valid prior depth-zero header retained at the resolved locator,
+no fresh sibling root or session in the retained store, and new
+sequence activity past the recorded `firstSeq`. A request-derived
+`session_id` is not that event. The inherited partial implementation
+stands exactly as it was.
+
+The REST of Pass B — the route binding beyond admission, the
+gate-before-probe matrix, the identity comparisons and the owned-storage
+boundary — was already delivered on `slice-dsh-composite-b` and its
+suites pass here unchanged; this visit neither extended nor re-derived
+them.
+
+8.8 and 8.10 stay unchecked, and no sub-clause was ticked: the owners
+run through C and D. 9.6, 10.x, 11.1–11.4 and groups 14–15 were not
+touched. `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
+`fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/`
+have no diff; decision 0056 keeps its `proposed` status; the DSH route
+stays disabled. The research-dsh roster assertion, `bundle.json`,
+`research-web.yml`, compiled staffing and every witness digest are
+unmoved — `git status` names three files, all under
+`crates/brokkr-protocol/src/`, plus this record. Nothing was pushed.
+
+No Windows handling was added anywhere. Where the (d) text names a
+Windows obligation it is withdrawn by decision 0063 (accepted
+2026-09-21): the hosts are Linux and macOS. The new fixtures build on
+temporary roots and take no literal errno.
+
+## Implement visit — the returned review's R1–R4, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-3d08ce19`, returned from review
+with two MEDIUMs and two LOWs against `1f60fdf4..d7fe5e18`. The
+security residual is R1 and it is real: the previous visit's own claim
+that "the planner's order was already right" is withdrawn here.
+
+### R1 — sequential extraction dissolved the argv's own adjacency
+
+The three extractions run in sequence and each removes its flag WITH
+its value before the next one looks. So a control standing in a LATER
+control's value slot vanishes before that slot is read, and the
+positional text behind it slides into the emptied slot:
+
+| the seat's argv | what admission made of it |
+| --- | --- |
+| `--effort --model p/m high` | model `p/m`, effort `high` — both invented |
+| `--patch --model p/m <path>` | model `p/m`, overlay `<path>` |
+| `--model p/m --patch --effort high <path>` | effort `high`, overlay `<path>` |
+| `--model p/m --patch --effort=high <path>` | the same, joined spelling |
+
+None of those argv offers an effort level or an overlay path. Every
+one was admitted past the admission rule and refused only later, by
+the route read — which is exactly what Pass B's first paragraph
+forbids, and the review reproduced all four through the built driver
+on the disabled, cold and offered paths.
+
+Demonstrated here before any line moved, with the four cases added to
+8.10's ledger:
+
+```
+disabled/effort claiming a later model control: the admission refusal
+precedes the route read: refusing to invoke the dsh driver: the route
+overlay binding disagrees with the `--patch` value
+  adapters/tests.rs:8541
+```
+
+The repair is `dsh_input_boundaries`, a DSH-LOCAL pass over the argv
+the seat actually wrote, run first in `dsh_launch_with`. It walks once:
+`--model`, `--patch` and `--effort` each claim the one part after
+them, and a claimed slot holding a flag-shaped token is refused by the
+field that owns the slot. An EMPTY slot is not its business — a bare
+`--model` or `--patch` is still refused by arity in its own splitter,
+and a bare `--effort` still stays in the argv as the residual the
+shared splitter declines to drop in silence, so the inherited reasons
+for those are unchanged.
+
+Why one pass over the original argv is sufficient: the only tokens an
+earlier splitter removes are a flag and the value adjacent to it, and
+every such flag is itself flag-shaped. A later control's occupant can
+therefore only be dissolved if it is flag-shaped, which is precisely
+what this pass refuses. The occupant can never be consumed as a
+preceding `--model`'s id either, because that would require `--model`
+to sit where `--patch`/`--effort` sits.
+
+The shared `split_effort` is NOT touched: it keeps its behaviour for
+codex and every other adapter, and no other arm calls this pass.
+
+### R2 — the transcript-root refusal published the operator's home
+
+`dsh_transcript_row` interpolated the whole root into its LF/CR
+refusal. That root is composed beneath the admitted DSH home, so the
+diagnostic handed the seat the home's name and the harness layout in a
+`Result.error` it can read. Demonstrated first:
+
+```
+disabled: the home echoed in dsh driver: transcript root
+"/tmp/.tmpKCVDn0/zzz-4a0e13-home\nline/sessions/brokkr/seat-vJlncI"
+spans more than one line
+  adapters/tests.rs:8683
+```
+
+The message is now fixed and names its field only. The inherited
+assertion at `adapters/tests.rs:1061` still passes unchanged; the
+inherited `is_err()` helper beside `dsh_transcript_row` now compares
+the exact reason and checks the path absent.
+
+### R3 — the new fixtures now derive from a canonicalized root
+
+`dsh_residual_and_joined_controls_refuse_before_any_observation` and
+`both_dsh_effort_spellings_are_admitted_and_stage_one_overlay`
+canonicalize the temporary root once and derive `DSH_HOME`, the
+workdir and the shim from it. On macOS `/var` reaches the temporary
+directory through `/private/var`, and the admission comparisons these
+fixtures drive read those as two paths. No native macOS failure is
+claimed; this is the rule, applied.
+
+### R4 — the recorded `cargo test --workspace` attempt
+
+`.forge/results/20687277-…-checks.json` stands as written: it records
+an attempt this commission's #255 restriction forbids, and erasing it
+would hide that. This visit's gates were crate-scoped and sequential
+throughout, as the table below shows.
+
+### Removal proofs
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `dsh_input_boundaries(extra)?` → `let _ = dsh_input_boundaries(extra)` | `dsh_residual_and_joined_controls_refuse_before_any_observation` | `disabled/effort claiming a later model control: the admission refusal precedes the route read` |
+| `dsh_transcript_row`'s fixed diagnostic back to the interpolating `format!` | `a_dsh_transcript_root_refusal_names_its_field_and_never_the_root` | `disabled: the home echoed in …` |
+
+Both restored; both green after.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue
+#255):
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-protocol` | 486 (386 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime` | 534 across 24 binaries, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+Two `-p brokkr-protocol` attempts FAILED before the green one above,
+both on issue #255's ETXTBSY and neither on anything this visit wrote.
+The first showed 63 failures, every one of them a poisoned
+`ADAPTER_ENV` acquired after some other thread panicked. The second is
+kept whole at
+`.forge/tasks/controller-etxtbsy-protocol-2026-09-21.log`, and names
+the root directly:
+
+```
+adapters::composite::tests::spawn_node_runtime_reads_one_version_line_and_refuses_the_rest
+left: "the DSH layout is unreadable: node --version: Text file busy (os error 26)"
+```
+
+A single-threaded run (`-- --test-threads=1`, 386 passed) and two more
+ordinary runs are green, which is the #255 signature. The failed
+attempts are recorded, not erased.
+
+`openspec validate --all --strict` COULD NOT RUN in this seat: the
+sandbox refused the invocation under every spelling tried. This visit
+adds no `openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute for the check, and it stays
+owed. `bash scripts/coverage-exact.sh` did not run here either — its
+boundary tests need a namespace the box refuses to nest — and it is
+not lowered. Native macOS and remote CI on the final head remain
+pending; the parent PR's green checks do not establish them for this
+head.
+
+### Scope
+
+Two files moved, both under `crates/brokkr-protocol/src/`, plus this
+record. Production gained one function and two lines that call or
+replace something: `dsh_input_boundaries`, its call site, and
+`dsh_transcript_row`'s diagnostic. The shared effort splitter, the
+production staging location, the planner signature, the staging
+counter's seam, the route binding, the gate-before-probe order, the
+identity comparisons and the owned-storage boundary are untouched.
+
+Pass C is untouched and uncredited; it still owes everything the
+previous record names — a valid prior depth-zero header retained at
+the resolved locator for the offered ID, the pinned plugin's
+post-`await agents.resume` init event read from the stream-json child
+on the selected persistence root, no fresh sibling root or session in
+the retained store, and new sequence activity past the recorded
+`firstSeq`, before any `root_session`, transcript locator or launch
+row is published. A request-derived `session_id` is not that event.
+
+8.8 and 8.10 stay unchecked and no sub-clause was ticked. 9.6, 10.x,
+11.1–11.4 and groups 14–15 were not touched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays
+disabled. The research-dsh roster assertion, `bundle.json`,
+`research-web.yml`, compiled staffing and every witness digest are
+unmoved. No live provider was called. Nothing was pushed.
+
+No Windows handling was added. Decision 0063 (accepted 2026-09-21)
+withdraws every Windows obligation the (d) text names.
+
+## Implement visit — the returned review's R1 and R2, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-3d08ce19`, returned from review a
+second time with two MEDIUMs and two LOWs against `1f60fdf4..aeafc02f`.
+Both MEDIUMs are real and both are closed here. The previous visit's
+claim that the admission rule "runs first in `dsh_launch_with`" was true
+and still insufficient: the rule only ever judged what the CLI handed
+it, and the CLI was handing it less than the operator typed.
+
+### R1 — the CLI cut the payload before admission could see it
+
+`driver_extra_args` searched the WHOLE argument vector for `--` and
+returned everything after the first hit. Clap consumes the operator's
+outer separator itself, so the only terminator that can still be
+standing there is one the SEAT wrote — and cutting at it hands the
+adapter a shorter argv than was typed:
+
+| the operator's command line | what the adapter received | what it did |
+| --- | --- | --- |
+| `driver dsh -- --effort --model p/m high --` | nothing at all | launched with no pin |
+| `driver dsh -- --model p/m -- --model second` | `--model second` | launched on the second model |
+
+Demonstrated first, through clap's own parse, before any line moved:
+
+```
+assertion `left == right` failed
+  left: []
+ right: ["--effort", "--model", "p/m", "high", "--"]
+  crates/brokkr-cli/src/tests.rs:1165
+```
+
+and through the BUILT binary, where the refusal the admission rule owes
+arrives as the launcher's own exit instead:
+
+```
+an effort slot claimed by a later model control, trailing terminator:
+the fixed field: agent CLI exited 1
+  crates/brokkr-cli/tests/driver_conformance.rs:324
+```
+
+The repair is the hands box's rule, for the reason its own comment
+already gives — a command may carry its own `--`: only a LEADING
+separator is the CLI's, and nothing else is dropped. Admission belongs
+to the driver, and `dsh_control_conflict` already refuses a terminator
+as a residual, so the complete payload now reaches a rule that judges
+it.
+
+The two argv above joined 8.10's admission ledger as cases on all three
+planner paths, refused by `--effort`'s slot and by `--model`'s duplicate
+arity, with zero probes, zero producer calls, zero staging and no
+retained root. The built-driver case asserts the same refusal plus two
+observations an error alone cannot supply: the shim's launch marker was
+never written and the admitted home grew no `sessions` directory. No
+other adapter's payload handling changed — the leading separator is
+still consumed for all five.
+
+### R2 — the DSH storage refusals published the path they tried
+
+Every place this driver allocates storage allocates it beneath the
+operator's own layout: the seat overlay and its settings document under
+`TMPDIR`, the retained transcript root under the admitted DSH home.
+`tempfile` reports both halves of a failure — the allocation AND a
+failed write on its own handle — as `<errno> at path "<path>"`, and the
+shared `io_context` interpolated the whole thing into an error the seat
+reads back. The settings row echoed its path outright.
+
+Demonstrated first, at each site:
+
+```
+the path echoed in could not stage the dsh seat overlay: No such file
+or directory (os error 2) at path
+"/tmp/.tmpVtKQBs/zzz-7c02be-store-absent/brokkr-dsh-privacy-CPoLwv"
+
+the path echoed in could not write the dsh seat overlay: Bad file
+descriptor (os error 9) at path
+"/tmp/.tmpiFSXb3/zzz-7c02be-store-Wd2bhP"
+
+disabled: the home echoed in could not stage the dsh session transcript
+root: Permission denied (os error 13) at path
+"/tmp/.tmphpxrrF/zzz-1e84fa-retained/sessions/brokkr/seat-U38UfZ"
+```
+
+The write halves were assumed safe when this visit began — the host
+reports a write on an open descriptor — and the test disproved that
+assumption before any of them was changed. That is why all five sites
+moved and not two.
+
+The repair is `dsh_storage_context`, DSH-local: the same categories,
+followed by the errno text the HOST words the failure with and nothing
+else — the raw OS error where the host gave one, else the kind's own
+words, which is what a wrapped error keeps. No literal errno number is
+written anywhere, and the vocabulary and storage ownership semantics are
+unchanged. `dsh_settings_row` now names its field exactly as
+`dsh_transcript_row` does.
+
+The retained-root case is proved under otherwise valid planner inputs on
+the cold, offered and disabled paths, which is where the home is really
+at stake; it follows the identity observations, so the pre-observation
+zero-call rule is not applied to it. The inherited bare `is_err()` at
+`adapters/tests.rs:1159` now compares the reason and checks the path
+absent.
+
+### R3 — the LOW on the recorded workspace run
+
+`.forge/results/442a91e5-…-checks.json` stands as written. This visit's
+gates were crate-scoped and sequential throughout; `cargo test
+--workspace` was never run.
+
+### P1 — the LOW on instruction-bearing panel prose
+
+Recorded as the review recorded it: panel notes carry no authority here
+and reduced nothing. The two MEDIUMs were answered on their source
+evidence, not on their prose.
+
+### Removal proofs
+
+Each mutation compiled, ran alone, failed at the named assertion with a
+nonzero test count, and was restored green before the next.
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `driver_extra_args`'s leading-separator match → back to `position("--")` | `the_driver_payload_keeps_every_argument_past_the_leading_separator` | `left: []` against the whole payload |
+| the same line | `the_dsh_admission_rule_reads_the_whole_payload_the_command_line_carried` | `the fixed field: agent CLI exited 1` |
+| overlay allocation `dsh_storage_context` → `io_context` | `dsh_storage_refusals_name_their_field_and_never_the_path_they_tried` | `the path echoed in could not stage the dsh seat overlay` |
+| settings allocation `dsh_storage_context` → `io_context` | the same | `the path echoed in could not stage the dsh seat settings` |
+| transcript-root `dsh_storage_context` → `io_context` | the same | `the path echoed in could not stage the dsh session transcript root` |
+| the same line | `a_dsh_retained_root_refusal_names_its_field_and_never_the_home` | `disabled: the home echoed in …` |
+| overlay write `dsh_storage_context` → `io_context` | `dsh_storage_refusals_name_their_field_and_never_the_path_they_tried` | `the path echoed in could not write the dsh seat overlay` |
+| settings write `dsh_storage_context` → `io_context` | the same | `the path echoed in could not write the dsh seat settings` |
+| `dsh_settings_row`'s fixed diagnostic → back to the interpolating `format!` | the same | `the path echoed in dsh driver: settings path "…"` |
+| the same line | `dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it` | `"/tmp/a\nb": dsh driver: settings path "…"` |
+
+Each new privacy assertion is guarded by its own source-error check: the
+test asserts the `tempfile` error IS path-bearing before asserting the
+driver's rendering is not, so none of them can pass vacuously.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue
+#255):
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-protocol` | 488 (388 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime` | 24 binaries, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+No ETXTBSY attempt was needed on this candidate: every crate suite above
+passed on its first run. The gate log is kept at
+`.forge/tasks/controller-planner-d-passb-2026-09-21.md`.
+
+`openspec validate --all --strict` COULD NOT RUN in this seat again. The
+binary is installed (`/usr/local/bin/openspec` → `@fission-ai/openspec`)
+and the sandbox refused every spelling of the invocation, including
+`node` on the package's own entry point. This visit adds no
+`openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute, and the check stays owed. `bash
+scripts/coverage-exact.sh` did not run here either — its boundary tests
+need a namespace the box refuses to nest — and it is not lowered. Native
+macOS and remote CI on the final head remain pending; the parent PR's
+green checks do not establish them for this head.
+
+### Scope
+
+Four files moved, plus this record. Production gained one function and
+changed six lines: `dsh_storage_context` and the five sites that call
+it, `dsh_settings_row`'s diagnostic, and `driver_extra_args`'s separator
+rule. The shared `io_context` keeps every other caller. The shared
+effort splitter, `dsh_input_boundaries`, the production staging
+location, the planner signature, the staging counter's seam, the route
+binding, the gate-before-probe order, the identity comparisons and the
+owned-storage boundary are untouched.
+
+Pass C is untouched and uncredited; it still owes exactly what the
+previous record names — a valid prior depth-zero header retained at the
+resolved locator for the offered ID, the pinned plugin's
+post-`await agents.resume` init event read from the stream-json child on
+the selected persistence root, no fresh sibling root or session in the
+retained store, and new sequence activity past the recorded `firstSeq`,
+before any `root_session`, transcript locator or launch row is
+published. A request-derived `session_id` is not that event, and
+`confirms_from_locator: false` stays.
+
+8.8 and 8.10 stay unchecked and no sub-clause was ticked. 9.6, 10.x,
+11.1–11.4 and groups 14–15 were not touched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled.
+The research-dsh roster assertion, `bundle.json`, `research-web.yml`,
+compiled staffing and every witness digest are unmoved. No live provider
+was called. Nothing was pushed.
+
+No Windows handling was added. Decision 0063 (accepted 2026-09-21)
+withdraws every Windows obligation the (d) text names, including the
+native lookup oracle, GetBinaryTypeW, the native matrix, Windows MSRV
+and the Windows-specific transport obligation.
+
+## Implement visit — the surviving terminator MEDIUM, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-10abd37c`, on `slice-dsh-planner-d`
+at `d65f0784`. The previous run
+(`dsh-launch-planner-issue-226-tas-3d08ce19`) parked
+REVIEW-REFORGE-EXHAUSTED-MEDIUM on one finding and stays as it is for the
+operator; this visit repairs that finding and the LOW beside it. Every
+existing commit is adopted.
+
+### R1 — the repair the previous visit made was half of one
+
+The previous visit stopped `driver_extra_args` from searching the WHOLE
+vector, and kept the deletion of a LEADING `--`. But clap consumes the
+operator's outer separator ITSELF. Nothing the CLI receives is that
+separator — so the surviving deletion was not a boundary at all, it was a
+normalisation, and it swallowed exactly the token the DSH admission rule
+exists to refuse:
+
+| the operator's command line | what admission received | what it did |
+| --- | --- | --- |
+| `brokkr driver dsh -- --` | nothing at all | launched, staged, retained a root |
+| `brokkr driver dsh -- -- --model p/m` | `--model p/m` | launched on that model |
+
+The rule, not the instance: after clap parsing the DSH adapter's
+admission sees every payload token exactly as given — leading, interior
+and trailing alike. An adapter can only refuse what it receives.
+
+Every separator site in `brokkr-cli` was audited and each ruled on its
+own:
+
+| Site | What it does | Ruling |
+| --- | --- | --- |
+| `lib.rs` `driver_extra_args` | drops one LEADING `--` from a driver payload | kept for claude, lanetally, codex, exec; DSH opts out |
+| `lib.rs` `Cmd::Driver` dispatch | called it for all five | now calls `driver_payload(kind, args)` |
+| `lib.rs` `HandsCommand::Exec` | drops one LEADING `--` from a boxed command | untouched — a separate command boundary |
+
+`git grep '"--"' -- crates/brokkr-cli/src` returns seven hits and no
+eighth site: the two removals above, four `init.rs` scaffold strings that
+WRITE a `--` into a generated recipe, and `recipes.rs`'s `git clone`
+terminator.
+
+The opt-out is `driver_payload`, a two-arm match on `AdapterKind`. The
+shared helper is untouched and still owns the other four, so their
+behaviour cannot move under a DSH repair — and it did not move: their own
+suites ran green, including `conformance_across_all_builtin_adapters`,
+the three codex rejoin proofs and every adapter's refusal shape (22
+passed in `driver_conformance`, 0 failed). That is executed evidence, not
+an assertion in prose.
+
+### The built-CLI proof
+
+`a_residual_terminator_refuses_on_every_dsh_path_wherever_it_stands`
+drives the BUILT binary 18 times: six payloads on each of disabled,
+enabled-cold and offered. Bare `--`; a leading `--` before an admissible
+pin; an interior `--`; a trailing `--`; and the two route-ordering cases
+below. Each asserts the fixed option-terminator reason — never
+`is_err()`, never a status — and asserts the diagnostic echoes none of
+the model id, the route value, the offered session id, any `--` spelling
+at all, the workdir, the DSH home, the operator HOME or the shim path.
+
+Zero provider observations in all 18, each one an owned-shim or
+filesystem fact an error string cannot supply: no `--version` probe, no
+child, nothing staged, no retained root under `$DSH_HOME/sessions/brokkr`,
+no checkpoint.
+
+**Corrected 2026-09-21 (Pass C, D1).** The staging half of that sentence
+originally read "no staged overlay (the shim copies whatever `--patch`
+hands it)", and the parenthetical was the whole of its evidence: the
+`overlay` log is written only by a LAUNCHED shim, so an empty log said
+"no child copied an overlay out", not "no overlay was staged". Staging
+that happened and was then cleaned up without any child execution would
+have read identically. The observation is now independent of child
+execution: the driver child is given its own `TMPDIR`, the seat overlay's
+home, and that directory is emptied and stamped into 1990 with POSIX
+`touch -t` before each run, so any create OR unlink inside it moves the
+stamp to now and a transient file is as visible as a surviving one.
+`assert_no_provider_work` asserts the stamp did not move; the positive
+control in `assert_provider_work` asserts it did AND that nothing was
+left behind. `dsh_overlay_staging_is_observed_without_any_child_execution`
+supplies the shape no shim log can report — a fixture pointed at a `dsh`
+that does not exist stages its overlay, spawns nothing, cleans up, and
+the stamp still reports it — beside the negative control on the same
+fixture, an admission refusal that stages nothing. Removal proof:
+replacing the child's `TMPDIR` with an unused variable name fails that
+test at "and the staging directory still reports the overlay this driver
+staged" and fails
+`the_dsh_launch_paths_the_terminator_proof_runs_on_are_the_ones_it_names`
+at "disabled: the driver staged into its temporary directory"; restored,
+`cargo test -p brokkr-cli --test driver_conformance` is 23/23.
+
+The last two payloads bind `resume_context.route_overlay` to a file that
+is never created, so an argv that reaches route resolution refuses in the
+route's own words. Both also assert the error never says `route_overlay`:
+the terminator refuses first from either position.
+
+`the_dsh_launch_paths_the_terminator_proof_runs_on_are_the_ones_it_names`
+proves the fixtures are what they claim, each path identified by an
+observation only that path produces: disabled probes no version at all;
+an open gate probes it exactly once and ships `cold`, because the
+declared wrapper digest is not this host's composite; an open gate handed
+a session back declines it as `resume_refusal: unverified-harness`. All
+three launch a child, stage the overlay and retain one root. Without this
+test the 18 refusals could have passed over a fixture that refused for
+some unrelated reason.
+
+### R2 — the fixture's temporary roots
+
+`canonical_root()` returns one `tempfile::TempDir` and its canonical
+path; `DshFixture` keeps the owner beside the path and derives the
+workdir, shim, logs, `DSH_HOME` and operator `HOME` from the canonical
+form, once each. macOS resolves the system temporary directory through
+`/var`, a symlink to `/private/var`, so a raw root and the path the
+driver canonicalizes are two strings for one directory. The old
+`drive_dsh` helper, which derived from raw roots, is gone; the retained
+`the_dsh_admission_rule_reads_the_whole_payload_…` keeps both its cases
+and its fixed-field assertions on the new fixture, with the full
+zero-observation set added. Executed on Linux only; no native macOS
+execution occurred and none is claimed.
+
+### Removal proofs
+
+The deletion was restored (`AdapterKind::Dsh => driver_extra_args(args)`),
+each test run alone, then the fix restored and every test re-run green.
+The final tree carries the fix.
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `driver_payload`'s DSH arm → back to the shared helper | `the_driver_payload_keeps_every_argument_the_dsh_command_line_carried` | `tests.rs:1186` — `left: []` against `right: ["--"]` |
+| the same line | `a_residual_terminator_refuses_on_every_dsh_path_wherever_it_stands` | `driver_conformance.rs:370` — `Disabled/a bare terminator alone: the fixed option-terminator reason: agent CLI exited 1` |
+| the same line, with the route case moved to the head of the list | the same | the same assertion — `Disabled/a leading terminator with a bound, absent route overlay: … refusing to invoke the dsh driver: route_overlay file is unreadable` |
+
+`agent CLI exited 1` is the shim's own exit: the payload was ADMITTED and
+a child ran. The third row is the reviewer's ordering finding reproduced
+exactly — a leading terminator reaching route-file resolution.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue #255:
+the verify exec is the controller's and is not a seat's choice).
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-protocol` | 488 (388 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime` | 24 binaries, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+No ETXTBSY attempt was needed: every crate suite passed on its first run.
+The evidence log is kept at
+`.forge/tasks/dsh-pass-b-terminator-delivery.md`.
+
+`openspec validate --all --strict` COULD NOT RUN in this seat, as on the
+previous visits: every spelling was refused, and the binary's own
+directory is outside the seat's allowed paths. This visit adds no
+`openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute and the check stays owed. `bash
+scripts/coverage-exact.sh` did not run here either — its boundary tests
+need a namespace the box refuses to nest — and it is not lowered. Native
+macOS and remote CI on the final head remain pending.
+
+### Scope
+
+Three files moved, plus this record. Production changed by one function:
+`driver_payload`, and the one dispatch line that now calls it.
+`driver_extra_args` keeps its body and its four callers' behaviour. The
+protocol crate has no diff at all: `dsh_control_conflict` already
+categorised a residual `--` as `the option terminator` before any route
+read, version probe, composite call or staging, and this visit only made
+sure the token reaches it.
+
+Pass C is untouched and uncredited. It still owes, before any
+`root_session`, transcript locator or launch row is published: a valid
+prior depth-zero header retained at the resolved locator for the offered
+ID; the pinned plugin's post-`await agents.resume` init event read from
+the stream-json child on the selected persistence root; no fresh sibling
+root or session in the retained store; and new sequence activity past the
+recorded `firstSeq`. A request-derived `session_id` is not that event,
+and `confirms_from_locator: false` stays.
+
+8.8 and 8.10 stay unchecked and no sub-clause was ticked. 9.6, 10.x, 11.x
+and groups 14–15 were not touched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled.
+No live provider was called. No Windows handling was added (decision
+0063). Nothing was pushed.
+
+## Pass C — the launch-root confirmation (2026-09-21)
+
+Historical delivery account from the predecessor, retained as evidence of
+what that visit built and tested. Its whole-Pass-C closure and ID-set census
+claims below are superseded by AU/D7 and current clauses 8.8.9.1–8.8.15.1.
+The four facts now require an immutable admitted address/header-occurrence
+baseline and permanent refusal of contrary or unreadable pending evidence;
+the six R1–R3 terminal proofs and bounded rule controls remain to be delivered.
+
+Run `dsh-launch-planner-issue-226-tas-ed4ff1bc`, on `slice-dsh-planner-d`
+over Pass B's judged tree. This visit delivers 8.8(d)'s remaining launch
+half and the 8.10 cases assigned to it, plus the two landing debts D1 and
+D2. **8.8 and 8.10 stay unticked**, and no sub-clause was ticked: Pass D
+and 9.6 still owe what the last section names.
+
+### What the hold now waits for
+
+`fold_dsh_stream_event` used to call `LaunchHold::confirm` straight off
+the init event's `session_id`. That value is REQUEST-DERIVED — it is the
+id this driver asked for, echoed back — so on its own it confirmed
+nothing but the echo. A new private `DshRootWatch` in `adapters.rs` now
+stands between the stream and the hold, and releases it only when four
+mechanically observable facts agree:
+
+1. a valid prior depth-zero header retained at the resolved locator for
+   the offered id. Its pre-spawn half is the boundary `owned_dsh_root`
+   read off that header (`first_seq`), which no later reading can
+   supply; its settle-time half re-selects the header under the settled
+   root and requires EXACTLY ONE to name the offered id, so a store that
+   changed between the two reads refuses instead of resolving to a
+   substitute;
+2. the pinned plugin's post-`await agents.resume` init event, read from
+   the stream-json child, naming that same root;
+3. no fresh sibling root or session in the retained store. The store's
+   depth-zero session ids are censused BEFORE the child spawns, and any
+   id present afterwards that was not there before is the plugin opening
+   a new session rather than rejoining the offered one. A census this
+   driver could not take is fact 3 unobserved, not fact 3 satisfied;
+4. new sequence activity past the recorded `firstSeq` in that same root.
+
+Same-root nonce continuity stays 10.7's probe-only model-recall device
+(design D6): it is not planted in a prompt and not read at run time, and
+this confirmation names only the four facts above.
+
+Until all four agree the watch publishes NOTHING — no `root_session`, no
+launch row, and **no transcript locator either**. The locator was
+formerly recorded before the spawn on every route; a rejoin now holds it
+beside the launch row, because a row addressing a session this driver
+cannot say it was in is exactly what D7 refuses. A cold launch still
+records it before the spawn, unchanged.
+
+`settle` runs before EVERY transcript drain, not only on the init event,
+so the sequence activity that completes the confirmation publishes the
+locator and the launch row ahead of the work row it produces. D7's order
+— location, launch, first work — is asserted directly.
+
+The retained-store walk was refactored once: `dsh_session_file_reading`
+is now a filter over a new `dsh_depth_zero_sessions_reading`, which
+returns every `(id, file)` pair under one bounded walk. Every
+containment, budget and header rule, and every refusal string, is the
+admission's own and unchanged; the census and the exactly-one selection
+are two readings of the same walk.
+
+### Removal proofs
+
+Each production guard was removed as a COMPILING mutation and the named
+case observed failing at its own assertion, then restored green.
+
+| Guard removed | Mutation | Failing case |
+| --- | --- | --- |
+| fact 1, the prior header's boundary | `let Some(first_seq) = self.first_seq else { return }` → `self.first_seq.unwrap_or(0)` | `no prior depth-zero header` |
+| fact 2, the init event | `if self.settled \|\| !self.named_the_offer` → `if self.settled` | `no init event at all` |
+| fact 3, the pre-spawn census | `if !present.is_subset(&prior) { return; }` → `let _ = …` | `a fresh sibling session` |
+| fact 1', exactly one header at the locator | `if named.next().is_some() { return; }` → `let _ = …` | `a second header naming the offer` |
+| fact 4, the sequence advance | `if last <= first_seq { return; }` → `let _ = …` | `no sequence past the boundary` |
+| the held locator | `if !watch.confirming()` → `if true` | `an unconfirmed rejoin publishes no transcript locator`, and five sibling DSH cases |
+
+The first five all fail inside
+`the_dsh_launch_hold_needs_every_confirmation_before_it_publishes` at
+"an incomplete evidence set never settles the rejoin", each naming its
+own case. Both halves of the ambiguity case sit past the offered
+boundary, so whichever the enumeration reaches first would confirm if
+ambiguity were resolved instead of refused.
+
+### The DSH arm of LE1/LE3/AS4/D7
+
+Every case below drives a captured SYNTHETIC child transcript over
+temporary retained storage with no installed provider, through
+production's own `invoke_dsh_launch`. None of them is a restatement of
+7.9's or 9.7's generic cross-adapter coverage, which exercises no DSH
+child init event.
+
+- `a_qualified_dsh_child_confirms_the_root_and_folds_current_only` —
+  confirmation then current work: exactly one launch row, `resumed`,
+  carrying `root_session`, published only after the init event and only
+  once, in the order `transcript`, `harness-started`, `seat-turn`, and
+  counting only the event past the boundary.
+- `a_dsh_init_event_alone_is_never_the_root_confirmation` — a result
+  envelope naming the offered root, and an init event naming it with a
+  store that has not moved, each confirm nothing; an init naming a
+  DIFFERENT root is a mismatch that publishes nothing.
+- `the_dsh_launch_hold_needs_every_confirmation_before_it_publishes` —
+  seven cases, each withholding one fact: no prior header, no init event,
+  no sequence advance, a fresh sibling, a sibling plus a delivered
+  result file, no init plus a delivered result file, and a second header
+  naming the offer. Each ends `Unconfirmed`, publishes no launch row, no
+  `root_session` and no locator, authorises no replacement, and retains
+  the delivered file on disk where there is one.
+- `a_dsh_root_mismatch_that_delivers_a_result_is_still_a_mismatch` — the
+  mismatch's other ending: a clean exit with an otherwise valid delivered
+  result file is still `Mismatch`, with nothing published and no
+  replacement.
+- `dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement` —
+  AS4's unstructured-DSH-error case and LE3's cannot-classify-a-refusal
+  case: exit 7 with harness prose on stderr classifies nothing
+  (`refusal: None`), the prose survives for a park to read, and the
+  spawn counter shows exactly one child.
+- `a_dsh_kill_inside_the_open_launch_hold_fabricates_nothing` — the shim
+  terminates itself after the init event and before any sequence
+  activity, the shape a cancellation or watchdog deadline kill presents
+  to the adapter: no exit code of its own, nothing published, no
+  checkpoint that `begins_work`, no replacement. **Superseded by the
+  returned review's R3 below: a shim's own `kill $$` is not a deadline
+  and not a cancellation, and this case could observe neither
+  `deadline_killed` nor the driver's held checkpoints. It is replaced by
+  a timer-driven external kill and a built-driver watchdog case.**
+- `an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch`
+  — the one DSH-specific LOCAL-decline path, driven end to end through
+  `run_seat` over the built shipped route with no installed provider:
+  one child and one only, argv exactly `--profile headless --patch
+  <overlay> <prompt>` with no `--session`, `--new` or `--output-format`,
+  one launch row `cold` carrying `resume_refusal: unsupported-resume`
+  and no `root_session`, and a succeeded result — so the decline really
+  does buy one independently safe cold launch and no recursion.
+
+For the current repair, D7's private real-invocation seam supersedes
+this historical division: every new contrary-evidence proof must reach the
+actual `run_seat` guard and exact terminal diagnostic. No installed provider
+is needed and hold-state assertions alone do not satisfy LE5.
+
+The shared `run_seat` terminal guard that refuses an unsettled launch end
+to end is unchanged and still proven by
+`an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result`
+and its claude sibling. The DSH arm cannot reach `run_seat` on the
+QUALIFIED route without an installed provider — the gate resolves real
+seams and a real composite there — so the DSH cases assert the adapter's
+own `LaunchTerminal` and the rows it published, and the guard behind it
+is the existing cross-adapter proof. That division is a fact about the
+seam, recorded rather than papered over.
+
+### D2 — #255, and why staging by rename is not the whole cure
+
+> **Corrected 2026-09-21 by the returned review's R4.** This section
+> originally read "why staging by rename was NEVER the cure" and dropped
+> the rename entirely. The measurement below is right about what rename
+> does not fix, but the conclusion overreached: the house fix is a
+> temporary sibling, closed, then renamed into place, and abandoning the
+> rename gave up atomic installation for nothing. The helpers now do
+> both — the sibling's bytes are written by a child AND the sibling is
+> renamed in. Read every sentence below with that correction applied.
+
+The named fixture already staged by rename, and still failed in the box
+on this branch: `spawn_node_runtime_reads_one_version_line_and_refuses_
+the_rest` at the `node-multiline` case with "node --version: Text file
+busy (os error 26)", 385 of 386 protocol tests passing beside it.
+
+`execve` refuses while the inode's write count is above zero, and
+`rename` moves the INODE — write count and all. A destination renamed in
+from a staging file therefore inherits exactly the descriptor the staging
+file carried, so staging-and-renaming addresses nothing: the descriptor
+a sibling thread's fork inherited between this thread's open and close is
+on that same inode either way. Measured on this host, eight forking
+threads and 4000 rounds per mode:
+
+| staging discipline | ETXTBSY |
+| --- | --- |
+| write in place, then exec | 436 / 4000 |
+| write beside, chmod, rename in, then exec | 471 / 4000 |
+| write the bytes from a CHILD, then exec | 0 / 4000 |
+
+So the repair is the third: `stage_executable` in
+`adapters/composite/tests.rs`, `executable` in `adapters/tests.rs` and
+`make_shim` in `driver_conformance.rs` now hand the bytes to `/bin/sh
+-c 'cat > "$0"'` — which every shim in these suites already depends on
+for its own shebang — under the staging child's own `PATH`, so this
+process never opens the exec'd inode for writing and no fork of ours can
+be holding a descriptor when `exec` counts them. The mode is set by the
+parent afterwards, because `chmod` opens nothing. No retry loop and no
+sleep was added, and the inherited ETXTBSY retry inside
+`a_qualified_stream_json_launch_ends_on_a_non_utf8_line` was REMOVED with
+its cause. `spawn_retrying_etxtbsy` survives untouched: its subject is
+`current_exe`, a file no thread of this run writes, so it is neither the
+repair nor evidence of it.
+
+`a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none` pins
+the mechanism deterministically rather than leaving it to a race: a
+renamed shim whose writer this process still holds open is refused with
+`os error 26`, and the helper's product — whose bytes this process never
+opened for writing — runs.
+
+The named fixture keeps asserting each refusal by its REASON, not by a
+bare `is_err()`, so the version-line behaviour under test is what the
+test observes.
+
+### Gates
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core --all-features --locked` | 86, 0 failed |
+| `cargo test -p brokkr-store --all-features --locked` | 64, 0 failed |
+| `cargo test -p brokkr-protocol --all-features --locked` | 494 (394 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime --all-features --locked` | 24 binaries, 0 failed |
+| `cargo test -p brokkr-view --all-features --locked` | 243, 0 failed |
+| `cargo test -p brokkr-bridge --all-features --locked` | 13, 0 failed |
+| `cargo test -p brokkr-cli --all-features --locked` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+Every crate suite passed on its first run and no ETXTBSY attempt was
+needed, which is the point of the D2 repair rather than evidence of it.
+
+`openspec validate --all --strict` COULD NOT RUN in this seat, as on
+every previous visit: every spelling was refused, including the resolved
+absolute path under the operator's Volta directory. This visit adds no
+`openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute and the check stays owed. `bash
+scripts/coverage-exact.sh` did not run here either — its boundary tests
+need a namespace the box refuses to nest — and it is not lowered. Native
+macOS and remote CI on the final head remain pending.
+
+### Scope
+
+Four files moved, plus this record: `crates/brokkr-protocol/src/
+adapters.rs`, its `adapters/tests.rs` and `adapters/composite/tests.rs`,
+and `crates/brokkr-cli/tests/driver_conformance.rs`. Production changed
+in one crate and in one place: the `DshRootWatch` between the stream and
+the launch hold, the held locator, and the walk refactor beneath both.
+Pass B's admission is untouched; every inherited guard, the exact-root
+latch, `confirms_from_locator: false`, the bounded storage reads, the
+private diagnostics and the generic terminal guard stand.
+
+Hosts are Linux and macOS (decision 0063): temporary roots are
+canonicalised by the fixtures that need them, errno wording comes from
+the host's own `io::Error`, and no Windows handling was added.
+`contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
+`fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/` have
+no diff; decision 0056 keeps its `proposed` status; the DSH route stays
+disabled; no live provider was called; no new digest producer and no new
+public planner seam was added. Nothing was pushed.
+
+### What Pass D and 9.6 still owe
+
+**Pass D** owns the whole remaining composite / containment / doctor /
+adaptation-bytes / retained-storage matrix of 8.10, untouched here: that
+core, Node, dependency, plugin, patch, composed-profile or optional
+extension drift yields `unverified-harness` before any provider work; the
+canonical composite's byte form with one worked vector per lock dialect
+(the npm lockfile-3 hidden lock and pnpm lockfile 9.0) including the
+nested-group, malformed-intermediate and deduplication cases; the plugin
+component's bytewise path order and equal composites across two homes,
+two overlays and a symlinked ancestor; general bundle, plugin and
+synthetic conditional-extension containment against the canonical
+profile, with the unresolvable boundary, escaping symlink, `headless-
+extra` near-prefix and outside-first-hit refusals; and the outstanding
+locator/storage matrix. Pass C extended none of it and credited none of
+it.
+
+**9.6** owns full DSH accounting and compatibility, still pending: the
+cold and warm retained-store integration, historical versus current
+multi-message / tool / retry intervals, output / tool / target filtering,
+usage deduplication, per-message versus cumulative accounting, the
+omission of unattributable totals, and legacy behaviour. Pass C folds
+only past `firstSeq` exactly as Pass B settled it and establishes no
+accounting fact; the already-adopted sequence-zero and planner-to-drain
+proof does not complete 9.6.
+
+10.x, 11.x and groups 14–15 were not opened.
+
+## Pass C, the returned review — R1 to R4 (2026-09-21)
+
+Run `dsh-launch-planner-issue-226-tas-ed4ff1bc` returned from review with
+four deduplicated findings against the section above: one MEDIUM security
+residual, two MEDIUM, one LOW. No high or critical finding and no
+specification defect was established, and D1 was confirmed addressed.
+This visit answers all four. **8.8 and 8.10 remain unticked.**
+
+### R1 (MEDIUM, security residual) — the fold ran ahead of the hold
+
+`settle` could withhold the confirmation while `drain_dsh_transcript`
+published the seat-turn and tool rows anyway. The sequence the review
+traced, and which now has a deterministic regression:
+
+1. the child appends `assistant/message` seq 28 to the offered root,
+   past the retained `firstSeq` of 27;
+2. it emits a line the envelope does not name;
+3. that line's `settle` withholds — no init event yet — and the drain
+   behind it publishes the work;
+4. the init event then arrives naming the offered root exactly, every
+   remaining observation agrees, and the hold releases: the locator, the
+   launch row and `root_session` reach the journal BEHIND their own work
+   rows, and the invocation returns `Resumed`, walking straight past
+   `run_seat`'s unsettled-result guard.
+
+An append landing between the settle and the drain produced the same
+inversion without any hostile shape at all. Nothing latched the
+work-before-confirmation as uncertain.
+
+Two guards, both in `adapters.rs`, each proved by removal:
+
+| Guard | What it does | Removal mutation | Failing case and assertion |
+| --- | --- | --- | --- |
+| `DshRootWatch::may_fold` | withholds EVERY drain while the hold is closed, so a rejoin publishes no work row before its locator and launch row | `!self.confirming() \|\| self.released` → `self.released \|\| true` | `dsh_work_before_the_init_event_is_never_adopted_by_it` at "and no work row was drained before the hold released", and `the_dsh_launch_hold_needs_every_confirmation_before_it_publishes` at "and no work row either" |
+| `DshRootWatch::refuse_work_before_confirmation` | latches the attempt permanently unconfirmed when the offered root has already moved past `firstSeq` before the init event names it | `if advanced` → `if advanced && false` | `dsh_work_before_the_init_event_is_never_adopted_by_it` at "the later init event adopts none of the work ahead of it" (`Resumed` where D7 requires `Unconfirmed`) |
+
+The latch is the fail-closed reading of D7's refusal to accept
+pre-confirmation work: the pinned plugin emits its init event
+immediately after `await agents.resume`, ahead of the session's first
+current turn, so sequence activity that PRECEDES it was not produced by
+a rejoin this driver has confirmed, and an init event arriving afterwards
+cannot adopt it retroactively. Latching `settled` without setting
+`released` leaves `LaunchHold::outcome` at `None`, so `terminal()` is
+`Unconfirmed`, `run_seat` refuses the invocation, and no locator, launch
+row or `root_session` is ever published. A store this driver cannot
+census, and an offer admitted without a prior boundary, observe nothing
+here — an unobserved fact is never a satisfied one, and both already
+withhold the confirmation in `settle`.
+
+`dsh_work_before_the_init_event_is_never_adopted_by_it` drives both
+endings: a clean exit, and the same sequence leaving an otherwise valid
+delivered result file, which is retained for diagnosis and is not the
+attempt's accepted work. Each asserts `Unconfirmed`, no launch row, no
+`root_session`, no locator, no work row and `refusal: None`.
+
+One consequence recorded rather than hidden: an unsettled rejoin now
+folds nothing at all, so its `num_turns` and token counts are never
+populated. That is correct — those rows would have named a session the
+driver cannot establish it was in — and `run_seat` refuses the attempt
+regardless.
+
+One question for 10.7, recorded where the measurement will answer it:
+this latch assumes the plugin's init event reaches stdout before
+`agents.resume` appends anything past `firstSeq` to the retained root.
+If 10.7 measures the real exchange writing a resume marker into the
+transcript ahead of that line, the latch would refuse a legitimate
+rejoin and the ordering — not the latch — is what would need revisiting.
+The fail-closed direction is deliberate: a false refusal is a park, a
+false confirmation is accepted work from an unnamed session.
+
+### R2 (MEDIUM) — an errno that is not portable to macOS
+
+`a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none` was
+`#[cfg(unix)]` and asserted `raw_os_error() == Some(26)` unconditionally.
+Apple's `exec_check_permissions` does not apply the writer-count check at
+all ([XNU `bsd/kern/kern_exec.c`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exec.c#L6340-L6349)),
+so on a supported macOS host that `unwrap_err()` would have been an
+`unwrap` on `Ok`. The mechanism half is now `#[cfg(target_os = "linux")]`
+and the successful-staging control runs on both supported hosts, which is
+the assertion every fixture in that file actually depends on. Recorded
+from the XNU source; this seat is Linux and did not run the macOS leg.
+
+### R3 (MEDIUM) — a shim killing itself is neither a deadline nor a cancel
+
+The superseded case ran `kill -TERM $$` inside the provider shim through
+`invoke_dsh_launch`. It cancelled no driver or process tree, created no
+watchdog deadline, and could verify neither `deadline_killed` nor the
+driver's held checkpoints. The delivery claim above is corrected in
+place. Design D7 adopts no asynchronous cancel protocol — `serve_io`
+invokes synchronously and the runtime watchdog owns process termination —
+so cancelling or timing out a running DSH seat IS the watchdog's kill,
+and 8.10's clause is now covered from both sides:
+
+- `a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing`
+  (`adapters/tests.rs`) — the adapter side, over the real stream-json
+  hold. The synthetic child emits the init event naming the offered
+  root, publishes its pid and `exec`s its stall, so the kill lands on the
+  process holding the stream exactly as a tree kill does. A watchdog
+  thread waits out a real 250 ms deadline and then delivers `SIGKILL`
+  from outside. The moment of the kill is pinned by construction: the
+  test asserts the init event was read (`session_meta["session_id"]`) and
+  that the offered root never moved past its recorded boundary
+  (`dsh_session_last_seq == Some(27)`), so the hold is provably still
+  closed when the child dies. It then asserts the watchdog really fired,
+  `exit_code == -1`, `Unconfirmed`, no launch row, no locator, no
+  checkpoint that `begins_work`, and `refusal: None`.
+- `a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement`
+  (`crates/brokkr-cli/tests/driver_conformance.rs`) — the engine side,
+  over the REAL watchdog and the REAL built driver. `DriverProcess` is
+  spawned on `brokkr driver dsh` with a 4 s deadline and an explicit
+  environment; the fixture's shim answers the version probe, records its
+  launch and `exec`s a stall. The attempt ends `Failed` naming the
+  deadline, `report.deadline_killed` is true, one version probe and
+  exactly one child were ever run — no replacement followed the kill —
+  and `report.accepted` is false with `report.checkpoints` EMPTY: the
+  pre-session rows decision 0053 buffers were still held, and a deadline
+  kill does not flush them as a fabricated launch row, locator or
+  `root_session`.
+- `a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing`
+  (`adapters/tests.rs`) — the cancellation at the seam that carries it:
+  `serve_io(AdapterKind::Dsh, …)` answers `Cancelled` for the named
+  effect and stops, emitting exactly two messages in total, launching
+  nothing and publishing no launch row, `root_session` or locator.
+
+The division is a fact about the seam and is recorded rather than papered
+over: the built-driver case cannot reach the QUALIFIED stream-json route,
+because that route resolves real seams and a real composite and no test
+here installs a provider — so the engine-level facts are proved on the
+shipped route and the open-hold facts on the injected one. Neither test
+claims the other's evidence.
+
+### R4 (LOW) — the rename D2 asked for
+
+The three staging helpers — `stage_executable` in
+`adapters/composite/tests.rs`, `executable` in `adapters/tests.rs` and
+`make_named_shim` in `driver_conformance.rs` — had dropped the rename
+entirely and written the final pathname from the child. Writing from a
+child is the right answer to ETXTBSY, but it does not require abandoning
+atomic installation. All three now write the temporary sibling IN THAT
+CHILD, reap it, set the mode on the sibling, and `rename` it into place.
+No retry loop and no sleep was added, and `spawn_retrying_etxtbsy`
+remains inherited, untouched and not counted as evidence.
+
+The sibling's name is short, unique within the run and derived from
+nothing about the destination (`.stage-<pid>-<n>`): the composite matrix
+probes its own length bounds and some destinations reach `NAME_MAX`
+exactly, so a name built by decorating the destination's would be the one
+name in that directory which could not be created — the first attempt at
+this repair failed exactly that way, in
+`the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`
+and the native matrix, as `ENAMETOOLONG` rather than as the subject under
+test.
+
+Removal proof for the rename: `fs::rename` → `fs::copy` fails
+`a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none` at
+"the temporary sibling was renamed into place, not left beside it",
+naming the surviving `.stage-…` entry. Restored, green. The ETXTBSY half
+keeps its own deterministic Linux proof in the same test.
+
+### Gates, this visit
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-store --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-protocol --all-features --locked` | 496 (396 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-view --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-bridge --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-cli --all-features --locked` | 32 binaries, 0 failed (driver conformance 24/24) |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+| `git diff --check` | clean |
+
+`openspec validate --all --strict` COULD NOT RUN in this seat again:
+every spelling, including `npx`, was refused before execution. This visit
+adds no `openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute and the check stays owed. `bash
+scripts/coverage-exact.sh` did not run here either — its boundary tests
+need a namespace the box refuses to nest — and it is not lowered. Native
+macOS and remote CI on the final head remain pending until their own
+results exist.
+
+### Scope, this visit
+
+The same four files, plus this record. Production changed in one crate
+and in one place: `DshRootWatch`'s `may_fold` gate, its
+`refuse_work_before_confirmation` latch, and the `released` field the two
+share. Pass B's admission, the exact-root latch,
+`confirms_from_locator: false`, the bounded storage reads, the private
+diagnostics and the generic terminal guard are untouched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled;
+no live provider was called; no new digest producer and no new public
+planner seam was added; no Windows handling was added (decision 0063).
+Nothing was pushed.
+
+Pass D and 9.6 still owe exactly what the section above names; this visit
+opened neither, and opened no part of 10.x, 11.x or groups 14–15.
+
+## Pass C, the second returned review — R1 and SEC-1 (2026-09-21)
+
+Run `dsh-launch-planner-issue-226-tas-ed4ff1bc` returned from review a
+second time with two surviving MEDIUM findings against the four commits
+`a760322e..1374515b`: one correctness finding and one security residual.
+No high or critical finding and no specification defect was established,
+and D1's independent staging observation and D2's rename repair were
+confirmed addressed and are not reopened here. This visit answers both.
+**8.8 and 8.10 remain unticked.**
+
+### R1 (MEDIUM) — the confirmed launch addressed no reusable root
+
+`settle` recorded the transcript and then confirmed the launch, and
+`LaunchHold::publish` built a fresh `harness-started` row carrying
+`root_session` and nothing else. Two rows, two facts. The engine reads a
+DSH offer's three coordinates off ONE checkpoint — `eligible_offer` in
+`crates/brokkr-runtime/src/engine/resume.rs` takes `persistence_locator`
+and `persistence_home` from the same row that carried the root, and
+borrows neither from a neighbour — so a launch this driver confirmed
+published a root whose address was not on it, and `owned_dsh_root`
+declined the NEXT offer as `unverified-harness` for want of a locator.
+A confirmed DSH launch could therefore never establish a reusable root,
+which is exactly the atomic association design D6 requires.
+
+The repair is one seam on the hold and one hand-over beside it:
+
+- `LaunchHold::address` retains the exact transcript object the
+  invocation admitted and recorded — handed over, never composed a
+  second time — and `publish` writes it onto the launch row INSIDE the
+  `confirmed` arm. No root, no address: a row that confirms nothing
+  offers nothing to rejoin, so a locator on it would address a session
+  nobody established.
+- `DshRootWatch::record_locator` hands that object over at both call
+  sites, so the cold route's pre-spawn locator and the warm route's
+  held one reach the hold by the same path. The cold arm matters most:
+  a seat's FIRST qualified launch is cold, and the root it confirms is
+  what the next attempt is offered.
+- Claude and codex supply none and are untouched. Their session
+  identifier IS their locator (`confirms_from_locator`), so their root
+  already carries the whole address; DSH is the one built-in provider
+  that needs both coordinates. The v5 checkpoint shape already admits
+  `transcript` on any step, so no contract moved and no frozen byte was
+  touched.
+
+Failing first, then removal-proved:
+
+- `a_qualified_dsh_child_confirms_the_root_and_folds_current_only`
+  (`adapters/tests.rs`) now asserts the launch row carries the exact
+  admitted transcript — `kind`, `locator` and the admitted `home` — and
+  then proves the address is USABLE rather than merely present: the
+  three coordinates off that one row are handed back as the owned
+  target a later attempt would carry, and production's own
+  `owned_dsh_root` re-admits the same retained store at boundary 28,
+  the work this invocation left behind. The case now runs under
+  `ADAPTER_ENV` with `DSH_HOME` set to its tempdir, so the locator it
+  records resolves back to the planted store rather than to the
+  operator's home.
+- `a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms`
+  asserts the same association on the COLD confirmed row.
+- `a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation`
+  asserts the other side: a launch row with no `root_session` carries no
+  `transcript` either.
+- Removal proofs: dropping the `row.insert("transcript", …)` inside the
+  confirmed arm fails both positive cases at "the launch row carries the
+  exact admitted transcript" and "the cold launch row carries the
+  address its root was opened at", `left: Null`. Dropping only the
+  hand-over in `record_locator` fails the same two, identically.
+  Restored, green.
+
+The runtime consumer half needed no change and is not re-proved here:
+`a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root`
+already pins that the locator and home travel off the same checkpoint as
+the root, that a row without them offers the provider ID alone, and that
+an older row's home is never borrowed.
+
+### SEC-1 (MEDIUM, security residual) — uncertainty before the init event
+
+`refuse_work_before_confirmation` asked only whether it could SEE work:
+it kept the roots whose boundary it could read and refused on an advance.
+A reading that could read nothing therefore refused nothing. The boundary
+reader deliberately refuses a file whose last row is half-written — a
+truncated tail is not a lower maximum to report — so a child could append
+a partial work row, let the hold's one pre-init reading fall on it,
+complete the row, and only then emit the init event. `settle` found all
+four facts in agreement, confirmed `Resumed`, published the locator, the
+launch row and `root_session`, and folded the work in front of the
+confirmation: pre-init work adopted contrary to D7, and `run_seat`'s
+unsettled-result guard walked straight past. Reproduced before the
+repair, as the reviewer described: `left: Resumed, right: Unconfirmed`.
+
+The repair states the reading as what it has to PROVE rather than what it
+has to catch: the offered root stands exactly where the plan left it — a
+store this driver can census, exactly one depth-zero header naming the
+offer, a boundary the reader accepts whole, and nothing past the recorded
+one. Anything else is a reading that could not rule out work in front of
+the confirmation, and it latches `settled` without releasing the hold, so
+the attempt stays permanently `Unconfirmed`. Uncertainty latches exactly
+as observed work does, and no later readable snapshot cures it, because
+the snapshot that could have refused is the one already taken.
+
+`dsh_uncertainty_before_the_init_event_is_never_cured_by_a_later_reading`
+(`adapters/tests.rs`) drives four cases through production's own
+`invoke_dsh_launch` over a synthetic child and no installed provider.
+Each disturbs the offered root while the hold is closed, then restores
+it, advances it past `firstSeq` and emits the init event naming the
+offer, so the snapshot the confirmation arrives with agrees completely:
+a half-written trailing row (both endings — a clean exit and an otherwise
+valid delivered result file); a root moved aside so it cannot be
+censused; and a second depth-zero header naming the offer, planted
+BEHIND the boundary so ambiguity is the only thing the reading can
+object to. Every case asserts `Unconfirmed`, no launch row, no
+`root_session`, no locator, no checkpoint that `begins_work`,
+`refusal: None` — no cold replacement is authorized — and the delivered
+file retained for diagnosis.
+
+The staging is honest about its one timing dependency and is recorded
+rather than hidden. The child's stdout line is what drives the driver's
+pre-init reading and a one-second wait is what keeps that reading on the
+disturbed store; there is no handshake, because the driver has no
+observable side effect for a shim to wait on. A reading that arrives
+LATE instead sees the advance the restoration leaves behind and refuses
+on that, so with the repair in place every case can only ever end
+unconfirmed — the wait decides which refusal the case proves, never
+whether it refuses. It is the removal direction that depends on the
+timing.
+
+Removal proof, one clause at a time by running each case first under the
+restored permissive predicate: the half-written row (clean) fails
+`left: Resumed`; the store it cannot census fails; the second header
+fails; the half-written row with a delivered result fails. Restored,
+green; the whole DSH suite is 104 cases and the protocol crate 397 + 99 +
+1 doc, 0 failed.
+
+### Gates, this visit
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-store --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-protocol --all-features --locked` | 497 (397 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-view --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-bridge --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-cli --all-features --locked` | 32 binaries, 0 failed (driver conformance 24/24) |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+| `git diff --check` | clean |
+
+`openspec validate --all --strict` COULD NOT RUN in this seat again:
+both spellings, the bare `openspec` and `npx @fission-ai/openspec@1.12.0`,
+were refused before execution. This visit adds no `openspec/specs` delta
+and touches only this tasks file under `openspec/`; that is not a
+substitute and the check stays owed. `bash scripts/coverage-exact.sh` did
+not run here either — its boundary tests need a namespace the box refuses
+to nest — and it is not lowered. Native macOS and remote CI on the final
+head remain pending until their own results exist.
+
+### Scope, this visit
+
+Two files, plus this record: `crates/brokkr-protocol/src/adapters.rs` and
+its test module. Production changed in one crate and in three places:
+`LaunchHold`'s `address` field, its setter and the insertion inside
+`publish`'s confirmed arm; `record_locator`'s hand-over at both call
+sites; and `refuse_work_before_confirmation`'s single unmoved-or-refuse
+predicate. Pass B's admission, the exact-root latch, the `may_fold` gate,
+`confirms_from_locator: false`, the bounded storage reads, the private
+diagnostics and the generic terminal guard are untouched, and the claude,
+codex, LaneTally and exec arms have no behavioural diff. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled;
+no live provider was called; no new digest producer and no new public
+planner seam was added; no Windows handling was added (decision 0063).
+Nothing was pushed.
+
+Pass D and 9.6 still owe exactly what the two sections above name; this
+visit opened neither, and opened no part of 10.x, 11.x or groups 14–15.

@@ -69,9 +69,9 @@ impl Transcript {
         locator: &str,
         session_meta: &mut Map<String, Value>,
         emit: &mut impl FnMut(&Value),
-    ) {
+    ) -> Value {
         self.locator = locator.chars().take(LOCATOR_LIMIT).collect();
-        self.publish(session_meta, emit);
+        self.publish(session_meta, emit)
     }
 
     /// Every invocation reports the row, including `none` and a harness
@@ -118,11 +118,19 @@ impl Transcript {
         })
     }
 
-    fn publish(&mut self, session_meta: &mut Map<String, Value>, emit: &mut impl FnMut(&Value)) {
+    /// Returns the row it published, so a caller that must carry the
+    /// address elsewhere takes it from here instead of reading it back
+    /// out of `session_meta` through a lookup that cannot miss.
+    fn publish(
+        &mut self,
+        session_meta: &mut Map<String, Value>,
+        emit: &mut impl FnMut(&Value),
+    ) -> Value {
         let transcript = self.value();
         session_meta.insert("transcript".into(), transcript.clone());
         emit(&json!({"step": "transcript", "transcript": transcript}));
         self.journaled = true;
+        transcript
     }
 }
 
