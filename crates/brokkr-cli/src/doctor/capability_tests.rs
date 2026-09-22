@@ -378,6 +378,106 @@ fn a_matching_grant_never_promises_a_denial_the_launch_does_not_deliver() {
     );
 }
 
+/// Second council M2: THE DOCTOR SAYS ONLY WHAT THE COMPOSER DELIVERS.
+///
+/// `NativeCapability::denial` read the OFF disposition and nothing else,
+/// so every declared `Argv` or `Selection` was reported `Delivered`. The
+/// chief supplied Codex OFF as a tool SELECTION: the readout said every
+/// seat is launched with it switched off, while the same fixture's
+/// compilation refused a representation its provider cannot consume.
+///
+/// The assessment is asked of the harness now, through the same composer
+/// the compiler uses, so the readout carries the compiler's own cause —
+/// under a scoped grant, an empty-office grant, an unused grant, and no
+/// grant at all.
+#[test]
+fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
+    // The exact cause the production composer answers with, taken from
+    // the composer itself rather than restated here.
+    let cause = {
+        let list = |flag: &str| brokkr_protocol::native_controls::ListFlag {
+            flag: flag.to_string(),
+            separator: ",".to_string(),
+        };
+        brokkr_protocol::native_controls::compose_for_provider(
+            "codex",
+            &[],
+            &[],
+            &brokkr_protocol::native_controls::Controls {
+                provider: "codex".into(),
+                harness: "codex".into(),
+                inventory: brokkr_protocol::native_controls::Inventory::Known,
+                denied: vec!["web-search".into()],
+                selection: brokkr_protocol::native_controls::Selection {
+                    deny: vec!["web_search".into()],
+                    flags: Some([
+                        list("--tools"),
+                        list("--allowedTools"),
+                        list("--disallowedTools"),
+                    ]),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .expect_err("codex consumes no tool selection")
+        .cause
+    };
+    let selecting_codex = || {
+        let list = |flag: &str| json!({"flag": flag, "separator": ","});
+        let mut declared = native(json!({"selection": {
+            "include": [], "allow": [], "deny": ["web_search"]}}));
+        declared["selection"] = json!({
+            "include": list("--tools"), "allow": list("--allowedTools"),
+            "deny": list("--disallowedTools")});
+        declared
+    };
+    for (grant, held) in [
+        (
+            Some(json!({"dialect": "codex-native-search", "offices": ["researcher"]})),
+            Some("offices [researcher] only"),
+        ),
+        (
+            Some(json!({"dialect": "codex-native-search", "offices": []})),
+            Some("no offices"),
+        ),
+        (
+            Some(json!({"dialect": "codex-native-search", "tools": []})),
+            Some("all requesting offices"),
+        ),
+        (None, None),
+    ] {
+        let realms = json!([realm(
+            "private",
+            grant.map(|grant| json!({"web-search": grant}))
+        )]);
+        let dir = workspace_with(Some(realms));
+        // The codex adapter's own invocation dispatches the codex driver,
+        // and its OFF is declared as a tool selection.
+        write(dir.path(), "adapters/codex.json", &{
+            let mut adapter = adapter("codex", Some(selecting_codex()));
+            adapter["driver"] = json!(["{brokkr}", "driver", "codex", "--"]);
+            adapter
+        });
+        let (_, lines) = lines(dir.path(), &installed(&["codex"]));
+        let expected = match held {
+            Some(scope) => format!(
+                "warn     capabilities private native codex 'web-search': granted to {scope} \
+                 through dialect 'codex-native-search', and its declared OFF control cannot be \
+                 composed for provider 'codex' ({cause}): a seat on codex that does not hold \
+                 it refuses compilation, and no denial is claimed"
+            ),
+            None => format!(
+                "warn     capabilities private native codex 'web-search': NOT granted here, \
+                 and its declared OFF control cannot be composed for provider 'codex' \
+                 ({cause}): seating codex in this realm refuses compilation, and no denial is \
+                 claimed"
+            ),
+        };
+        assert_eq!(lines.last(), Some(&expected), "{held:?}");
+    }
+}
+
 /// Finding M1, the restriction paragraph: a grant whose restriction the
 /// provider cannot express drops a want — and whether the native power is
 /// then OFF is, again, the OFF disposition's to say, not the grant's.

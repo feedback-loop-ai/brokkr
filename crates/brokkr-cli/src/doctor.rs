@@ -951,9 +951,14 @@ fn report_capabilities(
             let bound = adapters
                 .as_ref()
                 .and_then(|adapters| adapters.adapter(provider))
-                .map(|adapter| &adapter.native);
+                .map(|adapter| {
+                    (
+                        &adapter.native,
+                        brokkr_runtime::capabilities::harness_of(&adapter.driver),
+                    )
+                });
             let unusable = match bound {
-                Some(NativeInventory::Known { known, .. }) => known
+                Some((NativeInventory::Known { known, selection }, harness)) => known
                     .get(key)
                     .filter(|native| {
                         !grant.restrictions.is_empty()
@@ -962,8 +967,10 @@ fn report_capabilities(
                     .map(|native| {
                         // What becomes of the seat that dropped the want is
                         // the OFF disposition's to say, never the grant's
-                        // (finding M1): the same assessment the launch uses.
-                        let dropped = match native.denial() {
+                        // (finding M1) — asked of the provider that would
+                        // deliver it (second council M2): the same
+                        // assessment the launch uses.
+                        let dropped = match native.denial_on(harness, selection.as_ref()) {
                             Denial::Delivered => {
                                 "one that wants it drops it with the native capability OFF"
                                     .to_string()
@@ -977,6 +984,11 @@ fn report_capabilities(
                                  native capability's OFF control is unmeasured ({reason}) and \
                                  no denial is claimed"
                             ),
+                            Denial::Refused(cause) => format!(
+                                "one that wants it drops it and is then refused, because the \
+                                 native capability's declared OFF control cannot be composed \
+                                 for this provider ({cause}) and no denial is claimed"
+                            ),
                         };
                         format!(
                             " · provider '{provider}' cannot express restriction '{}': a seat \
@@ -986,7 +998,7 @@ fn report_capabilities(
                         )
                     })
                     .unwrap_or_default(),
-                Some(NativeInventory::Unmeasured(reason)) => format!(
+                Some((NativeInventory::Unmeasured(reason), _)) => format!(
                     " · provider '{provider}' declares its native capabilities unmeasured \
                      ({reason}): no seat can hold the capability through this grant, and no \
                      native denial is claimed"
@@ -1010,8 +1022,13 @@ fn report_capabilities(
         }
         for adapter in &installed {
             let provider = &adapter.provider;
-            let natives = match &adapter.native {
-                NativeInventory::Known { known, .. } => known,
+            // Second council M2: the readout asks the HARNESS that would
+            // serve the seat whether the declared control can be composed,
+            // through the same composer the compiler uses. The driver kind
+            // an adapter dispatches is what its own invocation names.
+            let harness = brokkr_runtime::capabilities::harness_of(&adapter.driver);
+            let (natives, flags) = match &adapter.native {
+                NativeInventory::Known { known, selection } => (known, selection.as_ref()),
                 NativeInventory::Unmeasured(reason) => {
                     report.warn(
                         &format!("{what} native {provider}"),
@@ -1050,7 +1067,7 @@ fn report_capabilities(
                 match (
                     held_by,
                     unread.contains(capability.as_str()),
-                    native.denial(),
+                    native.denial_on(harness, flags),
                 ) {
                     (Some(held_by), _, Denial::Delivered) => report.ok(
                         &line,
@@ -1108,6 +1125,25 @@ fn report_capabilities(
                             "NOT granted here: every seat on {provider} is launched with it \
                              switched off by the adapter's declared control · {evidence}"
                         ),
+                    ),
+                    // Second council M2: a control the serving provider's
+                    // launch cannot consume denies nothing. The readout
+                    // says what the compiler will say, and says why.
+                    (held_by, _, Denial::Refused(cause)) => report.warn(
+                        &line,
+                        match held_by {
+                            Some(held_by) => format!(
+                                "{held_by}, and its declared OFF control cannot be composed for \
+                                 provider '{provider}' ({cause}): a seat on {provider} that \
+                                 does not hold it refuses compilation, and no denial is claimed"
+                            ),
+                            None => format!(
+                                "NOT granted here, and its declared OFF control cannot be \
+                                 composed for provider '{provider}' ({cause}): seating \
+                                 {provider} in this realm refuses compilation, and no denial is \
+                                 claimed"
+                            ),
+                        },
                     ),
                 }
             }

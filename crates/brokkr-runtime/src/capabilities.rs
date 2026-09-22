@@ -792,19 +792,33 @@ pub struct NativeCapability {
 /// assessment launch admission and `brokkr doctor` share, so a readout can
 /// never promise a denial the launch does not deliver — a grant changes who
 /// holds the power, never what happens to everyone who does not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Denial<'a> {
-    /// The adapter declares a control that switches it off.
+    /// The adapter declares a control that switches it off, and the
+    /// serving provider's launch can compose it.
     Delivered,
     /// Measured: it cannot be switched off. The seat is refused.
     Impossible(&'a str),
     /// Nobody measured its OFF control. No denial is claimed, and the seat
     /// is refused rather than launched on a guess.
     Unmeasured(&'a str),
+    /// The adapter declares a control the serving provider's launch cannot
+    /// consume, so nothing reaches the final command: the compile refuses,
+    /// with this cause (second council M2).
+    Refused(String),
 }
 
 impl NativeCapability {
-    pub fn denial(&self) -> Denial<'_> {
+    /// What the OFF disposition SAYS, with no question asked of the
+    /// provider that would have to deliver it.
+    ///
+    /// Second council M2: this is not what a reader may be told. A
+    /// declared `Argv` or `Selection` is only a denial if the serving
+    /// harness's launch consumes that representation — Codex takes no
+    /// tool selection at all — so a readout that stops here promises a
+    /// denial the compiler refuses. Use [`Self::denial_on`] wherever a
+    /// provider is known.
+    pub fn declared_denial(&self) -> Denial<'_> {
         match &self.off {
             Disposition::Unsupported(reason) => Denial::Impossible(reason),
             Disposition::Unmeasured(reason) => Denial::Unmeasured(reason),
@@ -812,6 +826,72 @@ impl NativeCapability {
                 Denial::Delivered
             }
         }
+    }
+
+    /// The same assessment, asked of the harness that would serve it, with
+    /// the adapter's own selection mapping — through the SAME composer the
+    /// compiler and the driver use, so a readout cannot promise what a
+    /// launch refuses (second council M2).
+    pub fn denial_on(&self, harness: &str, flags: Option<&SelectionFlags>) -> Denial<'_> {
+        use brokkr_protocol::native_controls as launch;
+        let declared = self.declared_denial();
+        let list = |list: &ListFlag| launch::ListFlag {
+            flag: list.flag.clone(),
+            separator: list.separator.clone(),
+        };
+        let mapped =
+            flags.map(|flags| [list(&flags.include), list(&flags.allow), list(&flags.deny)]);
+        let (argv, selection) = match &self.off {
+            Disposition::Argv(switch) => (
+                switch.clone(),
+                launch::Selection {
+                    flags: mapped,
+                    ..Default::default()
+                },
+            ),
+            Disposition::Selection(lists) => (
+                Vec::new(),
+                launch::Selection {
+                    include: lists.include.clone(),
+                    allow: lists.allow.clone(),
+                    deny: lists.deny.clone(),
+                    flags: mapped,
+                },
+            ),
+            // Nothing to compose: a measured default, or a disposition
+            // that already answers for itself.
+            _ => return declared,
+        };
+        // Every known power of this harness is answered OFF, so the floor
+        // is satisfied and the only question left is the one being asked:
+        // can this representation reach the final command?
+        let controls = launch::Controls {
+            provider: harness.to_string(),
+            harness: harness.to_string(),
+            inventory: launch::Inventory::Known,
+            held: Vec::new(),
+            denied: launch::known_powers(harness)
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
+            argv,
+            selection,
+            guards: Vec::new(),
+        };
+        match launch::compose_for_provider(harness, &[], &[], &controls) {
+            Ok(_) => declared,
+            Err(refusal) => Denial::Refused(refusal.cause),
+        }
+    }
+}
+
+/// The driver KIND an adapter's own invocation dispatches, which is the
+/// harness whose grammar and launch a seat on that provider consumes.
+/// [`OPAQUE_HARNESS`] for a command that dispatches no built-in driver.
+pub fn harness_of(driver: &[String]) -> &str {
+    match driver {
+        [_, marker, name, ..] if marker == "driver" => name,
+        _ => OPAQUE_HARNESS,
     }
 }
 
@@ -1645,8 +1725,12 @@ impl Authority {
             // What becomes of a seat that does not hold the power is the
             // one assessment `brokkr doctor` reads too ([`Denial`]): a
             // declared control composes below, and the other two refuse.
-            match (holding, native.denial()) {
-                (Some(_), _) | (None, Denial::Delivered) => {}
+            // Whether the composition can actually deliver it is settled
+            // by `admit` over the whole plan, which is where the
+            // provider-aware answer belongs; here the declaration is what
+            // decides ON versus OFF.
+            match (holding, native.declared_denial()) {
+                (Some(_), _) | (None, Denial::Delivered | Denial::Refused(_)) => {}
                 // The refusal carries its own warrant: who measured that
                 // the power cannot be removed, and over what — so an
                 // operator can tell a finding about one CLI version from a
