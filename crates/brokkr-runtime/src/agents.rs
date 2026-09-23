@@ -106,8 +106,15 @@ pub struct Agent {
     /// therefore the vocabulary — is known.
     pub efforts: BTreeMap<String, String>,
     /// `None` declares NO tool restriction; `Some` is ordered, and that
-    /// order is the provider flag's order.
+    /// order is the provider flag's order. `Some(vec![])` is an EXPLICIT
+    /// empty local allow set (decision 0065 slice one, design D5): it is
+    /// distinct from omission and is never rewritten to it.
     pub allow: Option<Vec<String>>,
+    /// The local sandbox class the office declares (design D5), `None`
+    /// where it declares no restriction. A requested local execution
+    /// restriction under the realm's boundary authority — never a
+    /// boundary, never a capability grant.
+    pub sandbox: Option<Sandbox>,
     /// Decision 0065 ruling 1: the capabilities this office asks for, by
     /// abstract name, each `requires` or `wants`. A request, never a
     /// grant: it names no dialect, server, provider or tool.
@@ -123,6 +130,148 @@ pub struct Agent {
     pub digest: String,
     /// The definition as written, for `brokkr agents show`.
     pub source: Value,
+}
+
+impl Agent {
+    /// The office's local declaration as one value (design D5.2): the two
+    /// fields are stored where they were always stored, and this assembles
+    /// them for the narrower rather than keeping a duplicate beside them.
+    pub fn local(&self) -> LocalTools {
+        LocalTools {
+            allow: self.allow.clone(),
+            sandbox: self.sandbox,
+        }
+    }
+}
+
+/// The three local sandbox classes a typed `tools.sandbox` may name
+/// (decision 0065 slice one, design D5): Codex's own restriction axis, as
+/// an ABSTRACT request. A class is a requested local execution restriction
+/// checked against decision 0046's realm/boundary authority; it is never a
+/// boundary, never a capability grant, and never bypasses hands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sandbox {
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+impl Sandbox {
+    /// The closed vocabulary, spelled once for every refusal.
+    pub const VOCABULARY: &'static str = "read-only, workspace-write, danger-full-access";
+
+    pub fn parse(word: &str) -> Option<Sandbox> {
+        Some(match word {
+            "read-only" => Sandbox::ReadOnly,
+            "workspace-write" => Sandbox::WorkspaceWrite,
+            "danger-full-access" => Sandbox::DangerFullAccess,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Sandbox::ReadOnly => "read-only",
+            Sandbox::WorkspaceWrite => "workspace-write",
+            Sandbox::DangerFullAccess => "danger-full-access",
+        }
+    }
+
+    /// How far the class lets a seat reach: read-only < workspace-write <
+    /// danger-full-access. Written out, never derived from the words'
+    /// spelling and never from the boundary vocabulary's order.
+    fn reach(self) -> u8 {
+        match self {
+            Sandbox::ReadOnly => 0,
+            Sandbox::WorkspaceWrite => 1,
+            Sandbox::DangerFullAccess => 2,
+        }
+    }
+
+    /// Does `self` reach wider than `office`? Equal is not wider.
+    pub fn widens(self, office: Sandbox) -> bool {
+        self.reach() > office.reach()
+    }
+}
+
+/// One typed local declaration (design D5.2): an optional ordered allow
+/// list and an optional sandbox class. `None` in a field is "unspecified",
+/// which inherits; `Some(vec![])` is an explicit empty allow set. Private
+/// compile data, not a manifest field and not a grant.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LocalTools {
+    pub allow: Option<Vec<String>>,
+    pub sandbox: Option<Sandbox>,
+}
+
+impl LocalTools {
+    /// A declaration that leaves both fields unspecified — what a site that
+    /// writes no `tools`, or `tools: {}`, requests.
+    pub fn unspecified() -> LocalTools {
+        LocalTools::default()
+    }
+
+    pub fn is_unspecified(&self) -> bool {
+        self.allow.is_none() && self.sandbox.is_none()
+    }
+
+    /// Narrow this office's declaration by a site's `requested` one, field
+    /// by field (design D5.2). An unspecified requested field inherits the
+    /// office's. A requested allow list keeps its written order and names
+    /// and must be a subset of the office's list where the office declares
+    /// one; an unspecified office list may be restricted, and an empty
+    /// office list permits only empty. A requested class may equal or
+    /// reduce the office's reach; widening is refused, never clamped. The
+    /// refusal names the field and the exact addition or widening.
+    pub fn narrow(&self, requested: &LocalTools) -> Result<LocalTools, (String, String)> {
+        let allow = match (&self.allow, &requested.allow) {
+            (office, None) => office.clone(),
+            (None, Some(list)) => Some(list.clone()),
+            (Some(office), Some(list)) => {
+                if let Some(added) = list.iter().find(|name| !office.contains(name)) {
+                    return Err((
+                        "allow".to_string(),
+                        format!(
+                            "names '{added}', which the office's 'tools.allow' {office:?} does \
+                             not; a site subtracts from its office and never adds to it"
+                        ),
+                    ));
+                }
+                Some(list.clone())
+            }
+        };
+        let sandbox = match (self.sandbox, requested.sandbox) {
+            (office, None) => office,
+            (None, Some(class)) => Some(class),
+            (Some(office), Some(class)) => {
+                if class.widens(office) {
+                    return Err((
+                        "sandbox".to_string(),
+                        format!(
+                            "requests '{}', which reaches wider than the office's '{}'; the \
+                             classes reach read-only < workspace-write < danger-full-access, \
+                             and a site narrows its office rather than being clamped to it",
+                            class.name(),
+                            office.name()
+                        ),
+                    ));
+                }
+                Some(class)
+            }
+        };
+        Ok(LocalTools { allow, sandbox })
+    }
+}
+
+/// Decode one site's typed `tools` object (design D5.2) through the same
+/// strict decoder an agent's definition is read with, so a bundle and a
+/// library cannot drift over what the vocabulary means. `what` names the
+/// site the way every other refusal of that site does.
+pub(crate) fn decode_local_tools(
+    what: &str,
+    site: &serde_json::Map<String, Value>,
+) -> Result<LocalTools, String> {
+    load::parse_tools(site, what).map_err(|problem| problem.to_string())
 }
 
 /// How a provider expresses a tool-permission narrowing on its command
@@ -646,6 +795,17 @@ pub enum ResolveError {
          [{chain}] resolves to a provider this machine reports as unavailable"
     )]
     NoneAvailable { agent: String, chain: String },
+    /// A site's typed local declaration would widen its office (design
+    /// D5.2): the field and the exact addition or widening are named.
+    #[error(
+        "the site's 'tools.{field}' {cause}; an agent-backed site only narrows the \
+         restrictions of agent '{agent}' (decision 0065 slice one, design D5)"
+    )]
+    LocalTools {
+        agent: String,
+        field: String,
+        cause: String,
+    },
 }
 
 /// One chain entry as the resolver sees it: the shared derivation behind
@@ -808,8 +968,42 @@ fn compose(
         }
     };
 
+    // Decision 0065, no grandfathering: an allow entry that maps to a tool
+    // of one of this harness's NATIVE capabilities was a second way to
+    // hold it, and only the realm grants one. It is refused by name with
+    // the way out, never composed and never silently dropped from the
+    // office's restriction — beside hands too (design D5.2), where the
+    // list is dormant but a mapped alias is still a claim on a power.
+    let native_alias = |tool: &str, name: &str| -> Result<(), ResolveError> {
+        match adapter.native.capability_of(name) {
+            Some(capability) => Err(capability_gap(
+                agent,
+                adapter,
+                model,
+                format!(
+                    "tool permission '{tool}' maps to '{name}', a tool of the provider's \
+                     native capability '{capability}'; a legacy allow entry cannot \
+                     authorize a capability, so request '{capability}' by name under \
+                     'capabilities' and let the realm grant it through a tool dialect \
+                     (decision 0065 ruling 3)"
+                ),
+            )),
+            None => Ok(()),
+        }
+    };
+
     let mut hands_fragment = Vec::new();
     if agent.hands.is_some() {
+        // The list is dormant beside hands (decision 0043 ruling 2): no
+        // direct mapping is required for it and no direct flag is added.
+        // Only an entry the adapter DOES map onto a native tool is refused.
+        if let (Some(allow), Some(permissions)) = (&agent.allow, &adapter.tool_permissions) {
+            for tool in allow {
+                if let Some(name) = permissions.names.get(tool) {
+                    native_alias(tool, name)?;
+                }
+            }
+        }
         if boxed {
             // Decision 0043 ruling 2: the box expresses the restriction. The
             // tool list is not consulted; what the provider must be able to
@@ -833,6 +1027,23 @@ fn compose(
             hands_fragment = fragment.clone();
         }
     } else if let Some(allow) = &agent.allow {
+        // Design D5.3: an explicit empty allow set is decoded exactly and
+        // stays refused here until the owning lowering delivers it —
+        // joining no names into an empty flag value is not proof of an
+        // empty tool surface, whatever the provider declares.
+        if allow.is_empty() {
+            return Err(capability_gap(
+                agent,
+                adapter,
+                model,
+                "the effective 'tools.allow' is explicitly empty, and no serving path yet \
+                 expresses an empty local allow set as a delivered restriction (joining no \
+                 names into an empty flag value proves nothing); the declaration is kept \
+                 exactly and refused rather than run unrestricted, until decision 0065 slice \
+                 one's lowering proves its delivery (design D5.3)"
+                    .to_string(),
+            ));
+        }
         let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
             // A measured gap names the axis the provider DOES have; a
             // bare `"unsupported"` names nothing, because nothing was
@@ -863,25 +1074,7 @@ fn compose(
                     format!("the provider maps no tool permission named '{tool}'"),
                 )
             })?;
-            // Decision 0065, no grandfathering: an allow entry that maps
-            // to a tool of one of this harness's NATIVE capabilities was
-            // a second way to hold it, and only the realm grants one. It
-            // is refused by name with the way out, never composed and
-            // never silently dropped from the office's restriction.
-            if let Some(capability) = adapter.native.capability_of(name) {
-                return Err(capability_gap(
-                    agent,
-                    adapter,
-                    model,
-                    format!(
-                        "tool permission '{tool}' maps to '{name}', a tool of the provider's \
-                         native capability '{capability}'; a legacy allow entry cannot \
-                         authorize a capability, so request '{capability}' by name under \
-                         'capabilities' and let the realm grant it through a tool dialect \
-                         (decision 0065 ruling 3)"
-                    ),
-                ));
-            }
+            native_alias(tool, name)?;
             expressed.push(name.clone());
         }
         argv.push(permissions.flag.clone());
@@ -961,13 +1154,48 @@ pub(crate) fn report_under(
     name: &str,
     boundary: brokkr_core::realms::Boundary,
 ) -> Result<Report, ResolveError> {
-    let agent = library
+    report_narrowed(
+        library,
+        adapters,
+        availability,
+        name,
+        boundary,
+        &LocalTools::unspecified(),
+    )
+}
+
+/// [`report_under`] for one executable site's own typed `tools`
+/// declaration (design D5.2): `requested` is applied to a PRIVATE clone of
+/// the office before composition, so the report's chain is composed from
+/// the effective declaration and two sites hiring one office cannot affect
+/// one another. The clone's source and digest are the office's, untouched;
+/// `Report::agent` carries the effective local fields.
+pub(crate) fn report_narrowed(
+    library: &Library,
+    adapters: &Adapters,
+    availability: &Availability,
+    name: &str,
+    boundary: brokkr_core::realms::Boundary,
+    requested: &LocalTools,
+) -> Result<Report, ResolveError> {
+    let mut agent = library
         .agent(name)
         .ok_or_else(|| ResolveError::UnknownAgent {
             name: name.to_string(),
             known: library.names().join(", "),
         })?
         .clone();
+    let effective =
+        agent
+            .local()
+            .narrow(requested)
+            .map_err(|(field, cause)| ResolveError::LocalTools {
+                agent: agent.name.clone(),
+                field,
+                cause,
+            })?;
+    agent.allow = effective.allow;
+    agent.sandbox = effective.sandbox;
     let entries: Vec<ChainEntry> = agent
         .models
         .iter()

@@ -409,6 +409,13 @@ pub struct SiteFacts {
     /// carried outside the manifest, because the path is the host's and
     /// bundle identity is not.
     pub charter: Option<CharterPin>,
+    /// Decision 0065 slice one (design D5.2): the EFFECTIVE typed local
+    /// declaration of this executable site — the office's narrowed by the
+    /// site's, or the inline site's own. `None` is a site the local pass
+    /// never visited; `Some` with both fields unspecified is a visited site
+    /// that declared nothing. Containers never own one. Private compile
+    /// data: not a manifest field and not a grant.
+    pub local: Option<crate::agents::LocalTools>,
 }
 
 /// Every agent charter one compile bound, keyed by the path the seat will
@@ -554,13 +561,17 @@ fn mentions_agent(value: &Value) -> bool {
 /// declared secret binding needs it too, even in a bundle that names no
 /// agent at all (`bundles/verify` and `recipes/fast` are exactly that).
 /// A bundle with none of the three has nothing to check and still
-/// compiles with no `adapters/` directory in sight.
+/// compiles with no `adapters/` directory in sight. A typed `tools`
+/// declaration (decision 0065 slice one, design D5.2) is judged against
+/// what an adapter can represent, so it opens the adapters too — through
+/// this same fallible context, never a swallowed load.
 fn needs_adapters(value: &Value) -> bool {
     match value {
         Value::Object(map) => {
             map.contains_key("agent")
                 || map.contains_key("dialect")
                 || map.contains_key("secrets")
+                || map.contains_key("tools")
                 || map.get("class").and_then(Value::as_str) == Some("gate")
                 || map.values().any(needs_adapters)
         }
@@ -1322,7 +1333,8 @@ impl Bundle {
                         "{e}; the adapter data is where a driver's model mapping \
                          (decision 0016) and its trust tier and binding grant \
                          (decision 0021) are declared, and this bundle names an \
-                         agent, seats a gate, or declares a secret binding"
+                         agent, seats a gate, declares a secret binding or declares \
+                         typed tools"
                     ))
                 })?,
                 egress_minimum,
@@ -1440,6 +1452,9 @@ impl Bundle {
                      panel, sequence, or select"
                 )));
             }
+            if has_panel || has_sequence || has_select {
+                refuse_tools_on_container(phase, raw)?;
+            }
             let secrets = parse_secrets(phase, raw)?;
             let agent_seat = match has_agent {
                 false => None,
@@ -1510,6 +1525,7 @@ impl Bundle {
                     },
                 )?
             } else {
+                record_inline_tools(phase, raw, &mut sites)?;
                 SeatBody::Single {
                     role_path: parse_role(dir, phase, raw)?,
                     command: parse_command(dir, phase, raw, &secrets)?,
@@ -2327,14 +2343,21 @@ fn resolve_reference(
         .library
         .as_ref()
         .expect("a bundle mentioning an agent opens the library");
-    let report = crate::agents::report_under(
+    // Decision 0065 slice one (design D5.2): the site's own typed `tools`
+    // narrows a PRIVATE clone of the office before composition. Shape is
+    // judged here, narrowing inside the resolver, and the effective value
+    // is what the chain below is composed from.
+    let requested = decode_site_tools(what, raw)?;
+    let report = crate::agents::report_narrowed(
         library,
         &context.adapters,
         &Availability::unspecified(),
         name,
         boundary,
+        &requested,
     )
     .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
+    let effective = report.agent.local();
     // D33: judge every mapped hands link before resolving capability gaps.
     // In particular dsh/LaneTally earn the tier refusal under namespace,
     // and the missing harness.gate refusal under harness. An unmapped
@@ -2421,6 +2444,9 @@ fn resolve_reference(
     // The capability pass judges exactly the chain this site will run
     // (decision 0065): one outcome per candidate, never their union.
     site_facts(sites, site_key).chain = candidates.clone();
+    // The effective local declaration, beside the site's other facts
+    // (design D5.2): a checked value even where nothing was declared.
+    site_facts(sites, site_key).local = Some(effective);
     Ok(ResolvedSeat {
         role_path: resolution.charter.clone(),
         command: candidates[0].argv.clone(),
@@ -2487,6 +2513,7 @@ const SEAT_KEYS: &[&str] = &[
     "driver",
     "hands",
     "capabilities",
+    "tools",
     "panel",
     "aggregate",
     "sequence",
@@ -2500,6 +2527,7 @@ const BODY_KEYS: &[&str] = &[
     "driver",
     "hands",
     "capabilities",
+    "tools",
     "panel",
     "aggregate",
     "sequence",
@@ -2509,7 +2537,15 @@ const BODY_KEYS: &[&str] = &[
 /// has no `results`, `limits`, `inputs` or `secrets` of its own — the
 /// seat above it does — which is why an agent declaring them at a member
 /// site is already refused rather than silently discarded.
-const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver", "hands", "capabilities"];
+const MEMBER_KEYS: &[&str] = &[
+    "class",
+    "agent",
+    "role",
+    "driver",
+    "hands",
+    "capabilities",
+    "tools",
+];
 
 /// The keys a SEQUENCE STEP may write: a member's, plus its name, plus
 /// the two a step needs to be a panel of its own.
@@ -2522,10 +2558,236 @@ const STEP_KEYS: &[&str] = &[
     "driver",
     "hands",
     "capabilities",
+    "tools",
     "panel",
     "aggregate",
     "dialect",
 ];
+
+/// Decode one site's typed `tools` (decision 0065 slice one, design D5.2)
+/// through the agents' strict decoder, naming the site as every other
+/// refusal of it does. A site that writes no `tools` requests nothing.
+fn decode_site_tools(what: &str, raw: &Value) -> Result<crate::agents::LocalTools, CompileError> {
+    match raw.as_object() {
+        Some(site) => crate::agents::decode_local_tools(&format!("seat '{what}'"), site)
+            .map_err(CompileError::Invalid),
+        None => Ok(crate::agents::LocalTools::unspecified()),
+    }
+}
+
+/// A `tools` declaration beside a panel, sequence or select is refused
+/// (design D5.2): a local declaration belongs to the site that executes,
+/// and a container that carried one could only share it as a grant or
+/// drop it — so even an empty object is refused here.
+fn refuse_tools_on_container(what: &str, raw: &Value) -> Result<(), CompileError> {
+    match raw.get("tools") {
+        None => Ok(()),
+        Some(_) => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares 'tools' beside a panel, sequence or select; a local \
+             declaration belongs to the site that executes — the member, step or case body — \
+             and a container cannot own one, even an empty object, because it would either \
+             become a shared grant or be ignored (decision 0065 slice one, design D5)"
+        ))),
+    }
+}
+
+/// Decode, judge and record the typed local declaration of a site whose
+/// command no office composes — an inline driver site or a dialect-generated
+/// check (design D5.3). Decoding is not runnable admission: no serving path
+/// yet lowers a typed local list or sandbox class into an authored command,
+/// so a nonempty field is kept exactly and refused rather than recorded
+/// beside an unchanged command. An unspecified declaration is recorded as
+/// a checked value, distinct from a site never visited.
+fn record_inline_tools(
+    what: &str,
+    raw: &Value,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
+    let local = decode_site_tools(what, raw)?;
+    for (field, present) in [
+        ("allow", local.allow.is_some()),
+        ("sandbox", local.sandbox.is_some()),
+    ] {
+        if present {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' declares 'tools.{field}' on a site whose command no office \
+                 composes; the engine does not yet lower a typed local {field} into an authored \
+                 command, so the restriction would be recorded and not delivered — it is kept \
+                 exactly and refused rather than run unrestricted, until decision 0065 slice \
+                 one's lowering and origin transport prove its delivery (design D5.3); an \
+                 authored flag cannot stand in for it"
+            )));
+        }
+    }
+    site_facts(sites, what).local = Some(local);
+    Ok(())
+}
+
+/// The one `--sandbox` class an argv expresses under the codex grammar, or
+/// `None` where it names none. Read through the public protocol grammar
+/// rather than by token matching, so a joined, attached or aliased spelling
+/// is the same option. Anything the grammar cannot place refuses — an
+/// unreadable contribution is uncertainty, and uncertainty refuses typed
+/// admission — as does a configuration assignment into `sandbox_mode`,
+/// which is the same control through an opaque door.
+fn expressed_sandbox(
+    what: &str,
+    link: usize,
+    part: &str,
+    argv: &[String],
+) -> Result<Option<String>, CompileError> {
+    use brokkr_protocol::native_controls::grammar;
+    let command = match grammar::parse("codex", argv) {
+        Some(Ok(command)) => command,
+        Some(Err(problem)) => {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} it \
+                 would be judged against cannot be read: {problem}"
+            )))
+        }
+        None => unreachable!("the codex grammar is modelled"),
+    };
+    let mut expressed = None;
+    for node in &command.nodes {
+        if node.name() == "--sandbox" {
+            expressed = node.values.first().cloned();
+        }
+        if node.spec.effect == grammar::Effect::Config
+            && node
+                .values
+                .iter()
+                .any(|value| grammar::config_under(&grammar::config_key(value), "sandbox_mode"))
+        {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                 assigns 'sandbox_mode' through the harness's configuration, a second door to \
+                 the same control that no typed class can be checked against — refused \
+                 (design D5.3)"
+            )));
+        }
+    }
+    Ok(expressed)
+}
+
+/// Design D5.3: a typed `tools.sandbox` is admitted only where an EXISTING
+/// engine fragment already expresses exactly that class, and refused
+/// everywhere else — never dropped, clamped or called narrower. Runs after
+/// every standing refusal of the site (the hands law, the gate tier, the
+/// judges list, the egress bar), so those keep their precedence. The
+/// admitted shapes are actual codex dispatch with hands: `hands.workspace`
+/// under a boxed boundary, `hands.harness.gate` for a gate and
+/// `hands.harness.work` for a work seat under `harness`. Every link of the
+/// chain is judged, so a later candidate cannot hide behind the primary.
+fn admit_local_sandbox(
+    what: &str,
+    raw: &Value,
+    candidates: &[Candidate],
+    law: SiteLaw<'_>,
+    adapters: Option<&Adapters>,
+    sites: &BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
+    let Some(requested) = sites
+        .get(what)
+        .and_then(|facts| facts.local.as_ref())
+        .and_then(|local| local.sandbox)
+    else {
+        return Ok(());
+    };
+    let class = requested.name();
+    let boundary = law.boundary;
+    if law.agent_hands.is_none() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' requests 'tools.sandbox' '{class}' without hands; no engine path \
+             expresses a sandbox class for a site without hands, so the class would be recorded \
+             and not delivered — refused under the `{boundary}` boundary until decision 0065 \
+             slice one's lowering proves it (design D5.3)"
+        )));
+    }
+    let seat_class = parse_class(what, raw)?;
+    let adapters = adapters.expect("an agent-resolved site opened the adapters (needs_adapters)");
+    for (index, candidate) in candidates.iter().enumerate() {
+        let link = index + 1;
+        let provider = &candidate.provider;
+        // The HARNESS is what the command dispatches, read off the command
+        // itself: a provider label is not evidence of a sandbox class.
+        let harness = dispatch_driver(&candidate.argv)
+            .unwrap_or_else(|| crate::capabilities::OPAQUE_HARNESS.to_string());
+        if harness != "codex" {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' but dispatches the \
+                 '{harness}' harness through provider '{provider}'; only the codex harness's own \
+                 `--sandbox` fragments express a sandbox class today, and a provider label, a \
+                 permission mode or an unmodelled driver is not evidence of one — refused under \
+                 the `{boundary}` boundary (design D5.3)"
+            )));
+        }
+        let adapter = adapters
+            .adapter(provider)
+            .expect("resolution mapped every link of the chain");
+        let (part, fragment): (&str, &[String]) = if boundary.is_boxed() {
+            ("`hands.workspace` fragment", &candidate.hands_fragment)
+        } else if boundary == Boundary::Harness {
+            match seat_class {
+                SeatClass::Gate => (
+                    "`hands.harness.gate` fragment",
+                    adapter.harness.gate.as_deref().unwrap_or(&[]),
+                ),
+                SeatClass::Work => (
+                    "`hands.harness.work` fragment",
+                    adapter.harness.work.as_deref().unwrap_or(&[]),
+                ),
+            }
+        } else {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the `open` \
+                 boundary, where a work seat runs at the harness's own default and no engine \
+                 fragment expresses a class; a presumed provider default is not a representation \
+                 — refused (design D5.3)"
+            )));
+        };
+        if fragment.is_empty() {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the \
+                 `{boundary}` boundary, but provider '{provider}' supplies no {part} to express \
+                 it; a missing fragment is not a representation — refused (design D5.3)"
+            )));
+        }
+        match expressed_sandbox(what, link, part, fragment)? {
+            Some(found) if found == class => {}
+            Some(found) => {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} \
+                     the engine selects for provider '{provider}' under the `{boundary}` boundary \
+                     expresses '{found}'; a fragment is neither called narrower nor clamped, the \
+                     typed class must match it exactly — refused (design D5.3)"
+                )))
+            }
+            None => {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} \
+                     the engine selects for provider '{provider}' under the `{boundary}` boundary \
+                     names no `--sandbox` class at all; a fragment that expresses nothing is not a \
+                     representation — refused (design D5.3)"
+                )))
+            }
+        }
+        // The other contributions must not carry a competing control: the
+        // authored part of the command is read after brokkr's own dispatch
+        // tokens, under the same grammar.
+        let (authored, _) = candidate.parts();
+        let authored = brokkr_protocol::native_controls::harness_arguments(authored);
+        if let Some(found) = expressed_sandbox(what, link, "authored command", authored)? {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the authored \
+                 command of provider '{provider}' already carries `--sandbox` '{found}', a \
+                 competing control the selected {part} would stand beside; authored bytes cannot \
+                 supply or contest a typed representation — refused under the `{boundary}` \
+                 boundary (design D5.3)"
+            )));
+        }
+    }
+    Ok(())
+}
 
 /// The vocabulary of a site object is CLOSED, because since decision
 /// 0021 a dropped key is a dropped refusal. `class` is read by absence —
@@ -2667,6 +2929,30 @@ fn enforce_model_policy(
         law,
         agents.as_ref().map(|context| &context.adapters),
     )?;
+    enforce_route_policy(what, raw, candidates, secrets, agents, sites)?;
+    // Design D5.3, LAST: a typed sandbox class is admitted only where an
+    // existing engine fragment expresses it exactly, after every standing
+    // refusal above has had its say, so none of them loses precedence.
+    admit_local_sandbox(
+        what,
+        raw,
+        candidates,
+        law,
+        agents.as_ref().map(|context| &context.adapters),
+        sites,
+    )
+}
+
+/// Decision 0021's two prohibitions proper — the gate tier, the judges
+/// list and the egress bar — at one site, after the hands law has spoken.
+fn enforce_route_policy(
+    what: &str,
+    raw: &Value,
+    candidates: &[Candidate],
+    secrets: &[String],
+    agents: &mut Option<AgentContext>,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
     let class = parse_class(what, raw)?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
@@ -3724,6 +4010,9 @@ fn parse_selected_body(
             "seat '{what}' must be exactly one of role+driver, agent, panel, or sequence"
         )));
     }
+    if has_panel || has_sequence {
+        refuse_tools_on_container(what, raw)?;
+    }
     if has_agent {
         let resolved = resolve_reference(
             agents,
@@ -3759,6 +4048,7 @@ fn parse_selected_body(
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Sequence { steps })
     } else {
+        record_inline_tools(what, raw, sites)?;
         let law = SiteLaw {
             boundary,
             dir,
@@ -3951,12 +4241,15 @@ fn parse_panel(
         }
         refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
         let (role_path, command, candidates, agent_hands) = match member_raw.get("agent") {
-            None => (
-                parse_role(dir, &site, member_raw)?,
-                parse_command(dir, &site, member_raw, secrets)?,
-                Vec::new(),
-                None,
-            ),
+            None => {
+                record_inline_tools(&site, member_raw, sites)?;
+                (
+                    parse_role(dir, &site, member_raw)?,
+                    parse_command(dir, &site, member_raw, secrets)?,
+                    Vec::new(),
+                    None,
+                )
+            }
             Some(_) => {
                 let resolved = resolve_reference(
                     agents,
@@ -4064,6 +4357,9 @@ fn parse_sequence(
             )));
         }
         refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
+        if has_panel {
+            refuse_tools_on_container(&what, step_raw)?;
+        }
         let final_step = index + 1 == steps_raw.len();
         if final_step && step_raw.get("results").is_some() {
             return Err(CompileError::Invalid(format!(
@@ -4131,6 +4427,17 @@ fn parse_sequence(
             })?;
             let Some(command) = dialect.validation(phase) else {
                 if operation == "check" {
+                    // No executable site is compiled for an unsupported
+                    // check, so a `tools` declaration here would have no
+                    // owner and could only be discarded (design D5.2).
+                    if step_raw.get("tools").is_some() {
+                        return Err(CompileError::Invalid(format!(
+                            "sequence step '{what}' declares 'tools' on a dialect step whose \
+                             '{operation}' the dialect does not supply; no executable site \
+                             exists to own the declaration, so it could only be discarded — \
+                             refused (decision 0065 slice one, design D5)"
+                        )));
+                    }
                     continue;
                 }
                 return Err(CompileError::Invalid(format!(
@@ -4139,6 +4446,10 @@ fn parse_sequence(
                 )));
             };
             let synthetic = dialect_gate_site(&what, boundary)?;
+            // The dialect's validator is an exec-generated check: it can
+            // own a checked empty declaration and represents no nonempty
+            // local field (design D5.2).
+            record_inline_tools(&what, step_raw, sites)?;
             let law = SiteLaw {
                 boundary,
                 dir,
@@ -4183,6 +4494,7 @@ fn parse_sequence(
             )?;
             StepBody::Panel { members, aggregate }
         } else {
+            record_inline_tools(&what, step_raw, sites)?;
             StepBody::Single {
                 role_path: parse_role(dir, &what, step_raw)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,

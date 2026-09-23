@@ -816,3 +816,192 @@ fixtures, reference and extensions retain the adopted bytes. The engine result
 is a separate gitignored run-local JSON record with result `drafted` and
 inputs.change; its notes record the committed SHA and final document checks.
 No push or archive occurs.
+
+
+## Unit 2 — implementation, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-9f0b932b`, phase `implement`, based on
+`308a8a28e5bf7f753c44ab389e249b4e917d0b61` on `slice-0065-capabilities`. The
+worktree began clean; every preceding commit is adopted and nothing was
+replayed. The run context has no `returned_from`. This visit executes unit 2
+alone: D5 typed `tools.allow` / `tools.sandbox` decoding and strict local
+admission in the three named production files, proved in the two owning
+suites. Nothing later in the Rebuild units order is touched.
+
+### Production, inside the allowlist
+
+- `crates/brokkr-runtime/src/agents.rs`: the three-case `Sandbox` enum with
+  an explicit `reach` (read-only < workspace-write < danger-full-access,
+  never lexical); the two-field `LocalTools` value with `narrow`, which
+  inherits per field, keeps written order, refuses an addition by name and a
+  widening by class, and never clamps; `Agent.sandbox` beside the retained
+  `Agent.allow`, assembled by `Agent::local`; `decode_local_tools`, the narrow
+  exposure of the loader's decoder for bundle use; `ResolveError::LocalTools`;
+  `report_narrowed`, which applies a site's declaration to a PRIVATE clone
+  before composition (`report_under` keeps its five-argument signature, so
+  `engine/boundary_tests.rs`, outside the allowlist, did not move); in
+  `compose`, the explicit-empty allow set is refused with the D5.3
+  unsupported-representation cause, and the native-alias refusal is one
+  closure applied both on the direct path and beside hands.
+- `crates/brokkr-runtime/src/agents/load.rs`: `parse_tools` returns
+  `LocalTools` and is `pub(crate)`; vocabulary `allow`, `sandbox`, `mcp`;
+  presence before type; explicit `[]` is a value; duplicates refuse; the
+  sandbox word decodes exactly or refuses with the vocabulary; the strict
+  reader `read_request_source` is unchanged.
+- `crates/brokkr-runtime/src/bundle.rs`: `SiteFacts.local`; `needs_adapters`
+  opens the adapters for a `tools` key (message extended); `tools` admitted in
+  SEAT/BODY/MEMBER/STEP key lists; `decode_site_tools`,
+  `refuse_tools_on_container`, `record_inline_tools`, `expressed_sandbox` (the
+  public codex grammar, exactly one `--sandbox`, the `sandbox_mode`
+  configuration door refused) and `admit_local_sandbox` (D5.3 rows);
+  `resolve_reference` narrows through `report_narrowed` and stores the
+  effective value; every inline executable branch (seat loop, selected body,
+  panel member, sequence step, dialect validator) records a checked value or
+  refuses a nonempty field; containers refuse the key; a dialect step with no
+  supplied check refuses the key; `enforce_model_policy` is now hands law →
+  `enforce_route_policy` (the unchanged remainder, extracted) → admission
+  last.
+
+No new module, dependency, `Candidate` field, public contract, shipped JSON,
+grant, pin or frozen byte. `git status` lists exactly the five allowed Rust
+files plus tasks.md and this file.
+
+### Baseline observed before repair
+
+- At `308a8a28` the loader table test
+  `the_library_loader_names_the_file_and_the_key_it_refuses` passed (1
+  passed, 506 filtered). After the production change and before any test
+  edit, the runtime lib suite ran 506 passed, 1 failed: that test panicked at
+  `agents/tests.rs:65:45` (`library_error` `unwrap_err` on `Ok`) on its
+  `{"allow": []}` row — explicit empty now decodes instead of refusing. The
+  row was replaced by allow-null, duplicate and unknown-sandbox rows.
+- Source observations at the adopted head, as the specification visit
+  recorded: no sandbox field existed and no key list admitted `tools`, so the
+  positive declarations had no baseline to run against. Each new test is
+  bound by an independent compiling mutation instead (ledger below); no
+  compiler error is counted as proof anywhere.
+
+### New and changed tests
+
+`agents/tests.rs` (7 new; one table amended):
+`typed_tools_decode_exactly_and_keep_empty_distinct_from_omission`,
+`typed_tools_decoding_refuses_each_malformed_field_with_its_full_cause`,
+`repeated_tools_keys_refuse_from_the_original_source_even_when_equal`,
+`narrowing_inherits_per_field_and_refuses_each_widening_exactly`,
+`report_narrowed_composes_from_a_private_clone_and_leaves_the_office_untouched`,
+`an_explicit_empty_allow_set_is_kept_and_refused_until_lowering_delivers_it`,
+`hands_keep_their_replacement_and_still_refuse_a_mapped_native_alias`.
+
+`bundle/agent_tests.rs` (9 new): `AgentFixture` now canonicalises its
+temporary root once and derives every path from it, and gains
+`compile_under` / `compile_with_policy`;
+`an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_value`,
+`an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`,
+`a_typed_declaration_needs_the_adapter_context_and_a_missing_one_is_named`,
+`repeated_tools_keys_in_a_bundle_refuse_from_the_original_source`,
+`tools_beside_a_container_refuse_at_every_container_form`,
+`every_executable_form_owns_its_local_declaration` (ordinary seat, panel
+member, sequence step, selected case, selected default, inherited base
+layer),
+`two_sites_sharing_one_office_keep_their_own_effective_fields_in_either_order`,
+`a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly`
+(boxed read-only; harness gate read-only; harness work workspace-write; each
+other class per row; open work; open gate precedence; missing gate fragment
+precedence; classless fragment; unreadable fragment; configuration door;
+competing authored control; provider labelled codex dispatching another
+harness; claude with hands; later candidate; unchanged holdings, native OFF,
+hands and boundary),
+`a_seat_narrows_a_boxed_office_and_admission_judges_the_effective_class`,
+`a_dialect_step_owns_only_a_checked_empty_declaration`.
+
+Every assertion is a complete `assert_eq!` on the effective value, the
+composed argv, the selected fragment or the full diagnostic; no `is_err()`
+and no substring stands as a commissioned proof. Fixtures live under
+`tempfile` roots; the dialect test reads the repository's shipped
+`dialects/openspec.json`, `agents/` and `adapters/` exactly as the existing
+generated-validator test does. No test reads `.forge/`, discovers a provider
+or starts a model.
+
+### Mutation ledger
+
+Each mutation is a compiling edit inside the three production files, applied
+alone against its target tests (batches group mutations whose targets are
+disjoint), observed, then reverted. After every batch the marker grep over
+the three files was empty and the suites were green again.
+
+| Batch | Mutation (file, change) | Test | Observed failure |
+| --- | --- | --- | --- |
+| A | load.rs: duplicate-name find guarded by `name.is_empty()` | `typed_tools_decoding_refuses_each_malformed_field_with_its_full_cause`; loader table | panicked `agents/tests.rs:65:45` (`unwrap_err` on `Ok`) at the `["cargo","git","cargo"]` row; earlier rows are untouched by the edit |
+| A | agents.rs `narrow`: subset find guarded by `name.is_empty()` | `narrowing_inherits_per_field_and_refuses_each_widening_exactly` | `tests.rs:3095` left `Ok(LocalTools { allow: Some(["cargo", "make"]), sandbox: Some(WorkspaceWrite) })`, right `Err(("allow", "names 'make', which the office's 'tools.allow' [\"cargo\", \"git\"] does not; …"))` |
+| A | agents.rs `compose`: explicit-empty guard conjoined with a false term | `an_explicit_empty_allow_set_is_kept_and_refused_until_lowering_delivers_it` | panicked `tests.rs:123:6` (`refusal` `unwrap_err` on `Ok`): composition produced a command |
+| A | bundle.rs `needs_adapters`: key `tools-never` | `a_typed_declaration_needs_the_adapter_context_and_a_missing_one_is_named` | panicked `agent_tests.rs:9:18` "expected compilation to fail" |
+| A | bundle.rs `refuse_tools_on_container`: reads `tools-never` | `tools_beside_a_container_refuse_at_every_container_form` | panicked `agent_tests.rs:9:18` |
+| A | bundle.rs dialect no-check refusal: reads `tools-never` | `a_dialect_step_owns_only_a_checked_empty_declaration` | panicked `agent_tests.rs:9:18` at the `clarify:check` assertion |
+| B | agents.rs `Sandbox::parse`: `"loose"` maps to `ReadOnly` | decoding table (loose rows); loader table | panicked `tests.rs:65:45` at the first `loose` row |
+| B | agents.rs `reach`: `WorkspaceWrite => 3` | `narrowing_inherits_per_field_and_refuses_each_widening_exactly` | `tests.rs:3104` left `Ok(… sandbox: Some(DangerFullAccess))`, right `Err(("sandbox", "requests 'danger-full-access', which reaches wider than the office's 'workspace-write'; …"))` |
+| B | agents.rs hands branch: alias lookup filtered to empty names | `hands_keep_their_replacement_and_still_refuse_a_mapped_native_alias` | panicked `tests.rs:123:6`: the fallback link composed instead of refusing |
+| B | bundle.rs `record_inline_tools`: presence conditions falsified | `an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field` | panicked `agent_tests.rs:9:18` at the `allow: []` row |
+| B | bundle.rs `resolve_reference`: local stored only when unspecified | `an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_value`; `two_sites_sharing_one_office_keep_their_own_effective_fields_in_either_order` | `agent_tests.rs:1065` left `None`, right `Some(LocalTools { allow: Some(["cargo", "git"]), sandbox: None })`; `agent_tests.rs:1483` left `None`, right `Some(LocalTools { allow: Some(["git"]), sandbox: None })` |
+| C | load.rs: explicit `[]` returned as unspecified | `typed_tools_decode_exactly_and_keep_empty_distinct_from_omission` | `tests.rs:2886` left `None`, right `Some([])` (this edit also failed `every_executable_form_owns_its_local_declaration` at its ordinary-seat empty row — a cross-effect, so that test is bound separately in batch D) |
+| C | agents.rs `narrow`: subset arm replaced by an office-ordered intersection | `narrowing_inherits_per_field_and_refuses_each_widening_exactly` | `tests.rs:3093` left `Ok(… allow: Some(["cargo", "git"]) …)`, right `Ok(… allow: Some(["git", "cargo"]) …)` |
+| C | bundle.rs `admit_local_sandbox`: authored competing check filtered away | `a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly` | panicked `agent_tests.rs:9:18` at the competing-control row; every earlier row is untouched by the edit |
+| C | load.rs `parse_agent`: source read through the non-strict `read_json` | `repeated_tools_keys_refuse_from_the_original_source_even_when_equal` | panicked `tests.rs:65:45`: the repeated key loaded |
+| D | bundle.rs `MEMBER_KEYS` without `tools` | `every_executable_form_owns_its_local_declaration` | panicked `agent_tests.rs:1396:58` (`unwrap` on the panel-member compile, unknown key `tools`) after the ordinary-seat form passed |
+| D | bundle.rs no-hands guard conjoined with `class.is_empty()` | `an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_value` | `agent_tests.rs:1116` left `"bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only' but dispatches the 'claude' harness …"`, right `"bundle: seat 'work' requests 'tools.sandbox' 'read-only' without hands; …"` |
+| D | bundle.rs fragment match accepts any nonempty class | `a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly`; `a_seat_narrows_a_boxed_office_and_admission_judges_the_effective_class` | both panicked `agent_tests.rs:9:18`: the boxed workspace-write row, and the read-only-at-harness-work row, compiled |
+| E | agents.rs `report_narrowed`: effective allow not applied to the clone | `report_narrowed_composes_from_a_private_clone_and_leaves_the_office_untouched` | `tests.rs:3190` left `LocalTools { allow: Some(["cargo", "git"]), sandbox: None }`, right `LocalTools { allow: Some(["git"]), sandbox: None }` |
+| E | bundle.rs admission judges only the first candidate | `a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly` | panicked `agent_tests.rs:9:18` at the later-candidate row |
+| F | bundle.rs `open` routed through the harness fragments | same | `agent_tests.rs:1603` left `"… the \`hands.harness.work\` fragment … under the \`open\` boundary expresses 'workspace-write' …"`, right `"… under the \`open\` boundary, where a work seat runs at the harness's own default …"` |
+| G | bundle.rs configuration door keyed `sandbox_mode_never` | same | panicked `agent_tests.rs:9:18` at the configuration-door row |
+| H | bundle.rs admission inserted BEFORE the hands law | same | **passed** (1 passed). Finding: an agent-backed site with hands is judged by the resolver's D33 pre-check before its local fact is stored, so the standing refusals precede admission whatever its position inside `enforce_model_policy`. |
+| H | the same plus the local fact stored before the D33 pre-check | same | `agent_tests.rs:1610` left the open-work admission refusal, right `"bundle: seat 'work' is a gate with hands under the \`open\` boundary, … \`open\` never holds a model gate (decision 0046 ruling 4)"` |
+
+The precedence proof therefore rests on two retained facts: the D33
+pre-check runs before the local fact exists, and admission is the last
+statement of `enforce_model_policy`. Both stand in the delivered code.
+
+Honest limits of the ledger:
+
+- `repeated_tools_keys_in_a_bundle_refuse_from_the_original_source` passes
+  at baseline: its reader is `bundle/compose.rs::read_layers`, outside the
+  allowlist, and no in-scope caller can weaken it, so it carries no mutation.
+  The agent-side reader was mutated (batch C) and is bound.
+- The canonical-root habit in `AgentFixture` is by construction on this
+  Linux host, whose temporary root is not an alias; macOS is not observed.
+- Where a mutation silences a refusal, the failure is the test's refusal
+  helper panicking on `Ok` (`agents/tests.rs:65:45`, `:123:6`,
+  `bundle/agent_tests.rs:9:18`); the row reached is the first row the edit
+  can affect, named above. Where the mutation changes a value, the exact
+  left/right is recorded.
+
+### Gates on the restored tree
+
+All on `308a8a28` plus this working tree, after every mutation was reverted
+(marker grep over the three files: empty).
+
+- `cargo fmt --all -- --check`: **passed**, after `cargo fmt --all`
+  reformatted only the five touched files.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: **passed**, after two test-only findings were repaired (a type
+  alias for the forms table; `contains_key`).
+- `cargo test -p brokkr-runtime --all-features --locked`: **passed** — 524
+  lib tests and every integration binary.
+- `cargo test --workspace --all-features --locked`: **passed** — 77 green
+  result lines, no failure (`.forge/ws-test-all-features.log`).
+- `cargo test --workspace`: **passed** — 77 green result lines, no failure.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `… bundles/verify`: **passed**, each printing its manifest.
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**
+  before the document edits; rerun after them and recorded in the run-local
+  result.
+- `git diff --check`: **passed**.
+- External exact coverage (`scripts/coverage-exact.sh`), macOS and remote
+  CI: **pending**, not observed here; nothing is called fully green on their
+  account, and unit 1's pending results stay pending.
+
+What remains open, by owner: lowering and origin transport for the typed
+values (units 3–4), the shipped migrations (units 6–8), authored-flag refusal
+(unit 12), and the final-command proofs (units 13–21). Unit 2 accepts no
+typed restriction it cannot yet deliver: inline direct lists, direct explicit
+empty and every non-matching sandbox class refuse compilation with the
+owning site, field and cause.

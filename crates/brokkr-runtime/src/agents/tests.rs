@@ -996,8 +996,18 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
-                   "tools": {"allow": []}}),
-            "ambiguous between 'no restriction' and 'restrict to nothing'",
+                   "tools": {"allow": null}}),
+            "'tools' needs 'allow' as an array of strings",
+        ),
+        (
+            json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
+                   "tools": {"allow": ["cargo", "cargo"]}}),
+            "'tools.allow' names 'cargo' twice",
+        ),
+        (
+            json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
+                   "tools": {"sandbox": "loose"}}),
+            "'tools.sandbox' is 'loose'",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
@@ -2818,5 +2828,585 @@ fn an_edited_resume_assessment_moves_the_adapter_digest() {
             .resume
             .shape("work-site")
             .is_none()
+    );
+}
+
+// ------------------------------------------- typed local declarations (D5)
+
+/// The file an agent refusal names, derived from the canonical root.
+fn tester_file(tree: &Tree) -> String {
+    tree.library_root()
+        .join("tester.json")
+        .display()
+        .to_string()
+}
+
+/// Decision 0065 slice one, design D5.2 (SCM "Strict typed decoding
+/// preserves exact local values"): `tools.allow` keeps its written order
+/// and names, `tools.sandbox` keeps exactly the class it names, and an
+/// explicit empty allow list is a value of its own — never rewritten to
+/// omission, and omission never rewritten to it.
+#[test]
+fn typed_tools_decode_exactly_and_keep_empty_distinct_from_omission() {
+    let decode = |tools: Option<Value>| -> Agent {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        match tools {
+            Some(tools) => body["tools"] = tools,
+            None => {
+                body.as_object_mut().unwrap().remove("tools");
+            }
+        }
+        tree.write("agents/tester.json", &body);
+        tree.library().agent("tester").unwrap().clone()
+    };
+    let declared = decode(Some(
+        json!({"allow": ["git", "cargo"], "sandbox": "read-only"}),
+    ));
+    assert_eq!(
+        declared.allow,
+        Some(vec!["git".to_string(), "cargo".to_string()])
+    );
+    assert_eq!(declared.sandbox, Some(Sandbox::ReadOnly));
+    assert_eq!(
+        declared.local(),
+        LocalTools {
+            allow: Some(vec!["git".to_string(), "cargo".to_string()]),
+            sandbox: Some(Sandbox::ReadOnly),
+        }
+    );
+    // Each class independently, exactly as named.
+    for (word, class) in [
+        ("read-only", Sandbox::ReadOnly),
+        ("workspace-write", Sandbox::WorkspaceWrite),
+        ("danger-full-access", Sandbox::DangerFullAccess),
+    ] {
+        let agent = decode(Some(json!({"allow": ["git", "cargo"], "sandbox": word})));
+        assert_eq!(agent.sandbox, Some(class), "{word}");
+        assert_eq!(class.name(), word);
+        assert_eq!(Sandbox::parse(word), Some(class));
+    }
+    // Explicit empty is `Some([])`; omission and `{}` are `None`.
+    let empty = decode(Some(json!({"allow": []})));
+    assert_eq!(empty.allow, Some(Vec::new()));
+    assert_eq!(empty.sandbox, None);
+    let omitted = decode(None);
+    assert_eq!(omitted.allow, None);
+    assert_eq!(omitted.sandbox, None);
+    assert!(omitted.local().is_unspecified());
+    let braces = decode(Some(json!({})));
+    assert_eq!(braces.local(), LocalTools::unspecified());
+    // The harmless legacy `mcp: []` stays admitted beside both fields.
+    let legacy = decode(Some(
+        json!({"allow": ["cargo"], "sandbox": "workspace-write", "mcp": []}),
+    ));
+    assert_eq!(legacy.allow, Some(vec!["cargo".to_string()]));
+    assert_eq!(legacy.sandbox, Some(Sandbox::WorkspaceWrite));
+}
+
+/// SCM "Malformed tools cannot become defaults": every malformed field
+/// refuses with its complete cause, naming the agent and the file, and a
+/// valid sibling never substitutes for the broken field.
+#[test]
+fn typed_tools_decoding_refuses_each_malformed_field_with_its_full_cause() {
+    let cases: Vec<(Value, String)> = vec![
+        (json!(null), "'tools' must be a JSON object".to_string()),
+        (json!([]), "'tools' must be a JSON object".to_string()),
+        (
+            json!({"invented": 1}),
+            "'tools' has unknown key 'invented'; known keys: allow, sandbox, mcp".to_string(),
+        ),
+        (
+            json!({"allow": null}),
+            "'tools' needs 'allow' as an array of strings".to_string(),
+        ),
+        (
+            json!({"allow": "cargo"}),
+            "'tools' needs 'allow' as an array of strings".to_string(),
+        ),
+        (
+            json!({"allow": [1]}),
+            "'tools' 'allow' must hold strings only".to_string(),
+        ),
+        (
+            json!({"allow": ["cargo", "git", "cargo"]}),
+            "'tools.allow' names 'cargo' twice; a local allow list is duplicate-free".to_string(),
+        ),
+        (
+            json!({"allow": ["Bash(cargo:*)"]}),
+            "'tools.allow' names 'Bash(cargo:*)', which does not match ^[a-z][a-z0-9-]*$"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": null}),
+            "'tools.sandbox' must be a string naming one of read-only, workspace-write, \
+             danger-full-access, got null"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": 1}),
+            "'tools.sandbox' must be a string naming one of read-only, workspace-write, \
+             danger-full-access, got 1"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": {"kind": "read-only"}}),
+            "'tools.sandbox' must be a string naming one of read-only, workspace-write, \
+             danger-full-access, got {\"kind\":\"read-only\"}"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": "loose"}),
+            "'tools.sandbox' is 'loose', which is not one of read-only, workspace-write, \
+             danger-full-access"
+                .to_string(),
+        ),
+        // A valid sibling does not stand in for the broken field.
+        (
+            json!({"allow": ["cargo"], "sandbox": "loose"}),
+            "'tools.sandbox' is 'loose', which is not one of read-only, workspace-write, \
+             danger-full-access"
+                .to_string(),
+        ),
+        (
+            json!({"allow": null, "sandbox": "read-only"}),
+            "'tools' needs 'allow' as an array of strings".to_string(),
+        ),
+        // Nonempty legacy MCP still refuses with the migration reason.
+        (
+            json!({"allow": ["cargo"], "sandbox": "read-only", "mcp": [{"server": "github"}]}),
+            "'tools.mcp' names an MCP server; an agent no longer names one, because a server \
+             an office could name would be a door a pulled bundle could open. Request the \
+             capability by abstract name under 'capabilities' (\"requires\" or \"wants\") and \
+             let realms.json grant it through a tool dialect (decision 0065 rulings 1 and 3)"
+                .to_string(),
+        ),
+    ];
+    for (tools, cause) in cases {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        body["tools"] = tools.clone();
+        tree.write("agents/tester.json", &body);
+        assert_eq!(
+            tree.library_error(),
+            format!("agent 'tester' ({}) {cause}", tester_file(&tree)),
+            "{tools}"
+        );
+    }
+}
+
+/// SCM "Malformed tools cannot become defaults", last clause: a `tools`,
+/// `allow` or `sandbox` key written twice in the ORIGINAL bytes refuses
+/// from the strict reader, even when both copies are equal — an ordinary
+/// map would keep the second and say nothing. The position is the byte the
+/// parser stood on when it saw the repeat, derived from the fixture text.
+#[test]
+fn repeated_tools_keys_refuse_from_the_original_source_even_when_equal() {
+    let head = r#"{"description":"d","charter":"charters/c.md","models":["opus"],"#;
+    // The parser reports the column one past the token that closed the
+    // repeated value: it has consumed that token and stands after it.
+    type Column = fn(&str) -> usize;
+    let cases: [(String, &str, Column); 3] = [
+        (
+            format!(r#"{head}"tools":{{"allow":["cargo"],"allow":["cargo"]}}}}"#),
+            "allow",
+            // The second `["cargo"]` closes at the last `]`.
+            |text| text.rfind(']').unwrap() + 2,
+        ),
+        (
+            format!(r#"{head}"tools":{{"allow":["cargo"]}},"tools":{{"allow":["cargo"]}}}}"#),
+            "tools",
+            // The second `{...}` closes at the inner `}` before the last.
+            |text| text.len(),
+        ),
+        (
+            format!(r#"{head}"tools":{{"sandbox":"read-only","sandbox":"read-only"}}}}"#),
+            "sandbox",
+            // The second `"read-only"` closes at its quote before `}}`.
+            |text| text.len() - 1,
+        ),
+    ];
+    for (text, key, column) in cases {
+        let tree = Tree::new();
+        tree.raw("agents/tester.json", &text);
+        assert_eq!(
+            tree.library_error(),
+            format!(
+                "{}: key '{key}' is written twice at line 1 column {}",
+                tester_file(&tree),
+                column(&text)
+            )
+        );
+    }
+    // The control: the same document with each key once loads.
+    let tree = Tree::new();
+    tree.raw(
+        "agents/tester.json",
+        &format!(r#"{head}"tools":{{"allow":["cargo"],"sandbox":"read-only"}}}}"#),
+    );
+    assert_eq!(
+        tree.library().agent("tester").unwrap().local(),
+        LocalTools {
+            allow: Some(vec!["cargo".to_string()]),
+            sandbox: Some(Sandbox::ReadOnly),
+        }
+    );
+}
+
+fn local(allow: Option<&[&str]>, sandbox: Option<Sandbox>) -> LocalTools {
+    LocalTools {
+        allow: allow.map(|names| names.iter().map(|name| name.to_string()).collect()),
+        sandbox,
+    }
+}
+
+/// SCM "Field omission inherits while an explicit empty list subtracts"
+/// and "A local override cannot widen its agent", as the pure narrower
+/// alone: each field inherits when unspecified, an explicit list keeps its
+/// written order and must be a subset, an explicit empty list stays
+/// empty, and a class may equal or reduce the office's reach — never
+/// exceed it, never be clamped.
+#[test]
+fn narrowing_inherits_per_field_and_refuses_each_widening_exactly() {
+    let office = local(Some(&["cargo", "git"]), Some(Sandbox::WorkspaceWrite));
+    let ok: Vec<(LocalTools, LocalTools)> = vec![
+        (local(None, None), office.clone()),
+        (
+            local(None, Some(Sandbox::ReadOnly)),
+            local(Some(&["cargo", "git"]), Some(Sandbox::ReadOnly)),
+        ),
+        (
+            local(Some(&[]), None),
+            local(Some(&[]), Some(Sandbox::WorkspaceWrite)),
+        ),
+        (
+            local(Some(&["git"]), None),
+            local(Some(&["git"]), Some(Sandbox::WorkspaceWrite)),
+        ),
+        // Written order is kept; nothing is sorted or intersected.
+        (
+            local(Some(&["git", "cargo"]), None),
+            local(Some(&["git", "cargo"]), Some(Sandbox::WorkspaceWrite)),
+        ),
+        // The same class is not wider.
+        (
+            local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)),
+            local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)),
+        ),
+    ];
+    for (requested, expected) in ok {
+        assert_eq!(office.narrow(&requested), Ok(expected), "{requested:?}");
+    }
+    assert_eq!(
+        office.narrow(&local(Some(&["cargo", "make"]), None)),
+        Err((
+            "allow".to_string(),
+            "names 'make', which the office's 'tools.allow' [\"cargo\", \"git\"] does not; a \
+             site subtracts from its office and never adds to it"
+                .to_string()
+        ))
+    );
+    assert_eq!(
+        office.narrow(&local(None, Some(Sandbox::DangerFullAccess))),
+        Err((
+            "sandbox".to_string(),
+            "requests 'danger-full-access', which reaches wider than the office's \
+             'workspace-write'; the classes reach read-only < workspace-write < \
+             danger-full-access, and a site narrows its office rather than being clamped to it"
+                .to_string()
+        ))
+    );
+    // Each field is judged independently: a valid sandbox does not
+    // forgive an added name, and a valid list does not forgive a widening.
+    assert_eq!(
+        office
+            .narrow(&local(Some(&["make"]), Some(Sandbox::ReadOnly)))
+            .unwrap_err()
+            .0,
+        "allow"
+    );
+    assert_eq!(
+        office
+            .narrow(&local(Some(&["git"]), Some(Sandbox::DangerFullAccess)))
+            .unwrap_err()
+            .0,
+        "sandbox"
+    );
+    // An empty office list permits only empty.
+    let empty = local(Some(&[]), Some(Sandbox::ReadOnly));
+    assert_eq!(
+        empty.narrow(&local(Some(&[]), None)),
+        Ok(local(Some(&[]), Some(Sandbox::ReadOnly)))
+    );
+    assert_eq!(
+        empty.narrow(&local(Some(&["git"]), None)),
+        Err((
+            "allow".to_string(),
+            "names 'git', which the office's 'tools.allow' [] does not; a site subtracts from \
+             its office and never adds to it"
+                .to_string()
+        ))
+    );
+    // An unrestricted office may be narrowed by either field.
+    let unrestricted = local(None, None);
+    assert_eq!(
+        unrestricted.narrow(&local(Some(&["git"]), Some(Sandbox::DangerFullAccess))),
+        Ok(local(Some(&["git"]), Some(Sandbox::DangerFullAccess)))
+    );
+    // Every ordered pair of classes: reach read-only < workspace-write <
+    // danger-full-access, compared by that order alone.
+    let classes = [
+        Sandbox::ReadOnly,
+        Sandbox::WorkspaceWrite,
+        Sandbox::DangerFullAccess,
+    ];
+    for (i, requested) in classes.iter().enumerate() {
+        for (j, office_class) in classes.iter().enumerate() {
+            let office = local(None, Some(*office_class));
+            let outcome = office.narrow(&local(None, Some(*requested)));
+            if i <= j {
+                assert_eq!(outcome, Ok(local(None, Some(*requested))));
+            } else {
+                assert_eq!(outcome.unwrap_err().0, "sandbox");
+            }
+        }
+    }
+}
+
+/// D5.2: a site's declaration narrows a PRIVATE clone of the office before
+/// composition. The report's chain is composed from the effective value,
+/// the office in the library keeps its own, and its source and digest are
+/// untouched; a widening refuses with the site's field, the addition and
+/// the agent named.
+#[test]
+fn report_narrowed_composes_from_a_private_clone_and_leaves_the_office_untouched() {
+    let tree = ready();
+    let library = tree.library();
+    let adapters = tree.adapters();
+    let report = report_narrowed(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(Some(&["git"]), None),
+    )
+    .unwrap();
+    assert_eq!(report.agent.local(), local(Some(&["git"]), None));
+    assert_eq!(
+        report.entries[0].argv,
+        vec![
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+            "--allowedTools",
+            "Bash(git:*)"
+        ]
+    );
+    let office = library.agent("tester").unwrap();
+    assert_eq!(
+        office.allow,
+        Some(vec!["cargo".to_string(), "git".to_string()])
+    );
+    assert_eq!(report.agent.digest, office.digest);
+    assert_eq!(report.agent.source, office.source);
+    // The plain report is the unnarrowed one.
+    let plain = report_under(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+    )
+    .unwrap();
+    assert_eq!(plain.agent.local(), office.local());
+
+    let widened = report_narrowed(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(Some(&["git", "make"]), None),
+    )
+    .unwrap_err();
+    assert_eq!(
+        widened.to_string(),
+        "the site's 'tools.allow' names 'make', which the office's 'tools.allow' [\"cargo\", \
+         \"git\"] does not; a site subtracts from its office and never adds to it; an \
+         agent-backed site only narrows the restrictions of agent 'tester' (decision 0065 \
+         slice one, design D5)"
+    );
+    // The office declares no class, so a class may be introduced: the
+    // clone carries it and composition, which lowers no class yet, is
+    // unchanged. Whether a site may RUN with it is the bundle's question.
+    let classed = report_narrowed(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(None, Some(Sandbox::ReadOnly)),
+    )
+    .unwrap();
+    assert_eq!(
+        classed.agent.local(),
+        local(Some(&["cargo", "git"]), Some(Sandbox::ReadOnly))
+    );
+    assert_eq!(classed.entries[0].argv, plain.entries[0].argv);
+}
+
+/// SCM "Decoding cannot admit a runnable unrestricted command", the direct
+/// explicit-empty row of D5.3: `allow: []` is kept exactly and refused at
+/// composition with the full cause, on the primary and on a later link
+/// alike; it is never joined into an empty flag value.
+#[test]
+fn an_explicit_empty_allow_set_is_kept_and_refused_until_lowering_delivers_it() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["tools"] = json!({"allow": []});
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    assert_eq!(
+        tree.library().agent("tester").unwrap().allow,
+        Some(Vec::new())
+    );
+    let empty_refusal = |provider: &str, model: &str| {
+        format!(
+            "agent 'tester' cannot be served by provider '{provider}' on model '{model}': the \
+             effective 'tools.allow' is explicitly empty, and no serving path yet expresses an \
+             empty local allow set as a delivered restriction (joining no names into an empty \
+             flag value proves nothing); the declaration is kept exactly and refused rather \
+             than run unrestricted, until decision 0065 slice one's lowering proves its \
+             delivery (design D5.3). A capability the provider cannot express fails \
+             compilation here rather than degrading silently at run time"
+        )
+    };
+    assert_eq!(refusal(&tree, "tester"), empty_refusal("claude", "opus"));
+    // The same through a site's narrowing of a nonempty office: the
+    // effective value is empty, and the later link refuses even though the
+    // primary would too — every link is judged, and the first gap names
+    // itself.
+    let tree = ready();
+    let report = report_narrowed(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+        brokkr_core::realms::Boundary::Namespace,
+        &local(Some(&[]), None),
+    )
+    .unwrap();
+    assert_eq!(report.agent.allow, Some(Vec::new()));
+    assert_eq!(
+        report.entries[1].gap.as_ref().map(ToString::to_string),
+        Some(empty_refusal("claude", "sonnet"))
+    );
+    assert_eq!(
+        resolve_report(report, &tree.adapters())
+            .unwrap_err()
+            .to_string(),
+        empty_refusal("claude", "opus")
+    );
+}
+
+/// SCM "Existing hands semantics do not require direct-tool support": with
+/// hands, the list is dormant — no direct mapping is required, no direct
+/// flag is added, an empty list does not disable hands — while a mapped
+/// native alias still refuses with its migration cause, on whichever link
+/// maps it (whole-chain, SC8).
+#[test]
+fn hands_keep_their_replacement_and_still_refuse_a_mapped_native_alias() {
+    let fragment = json!({"workspace": ["--tools", "", "--mcp-config", "{hands_mcp_json}"]});
+    // A dormant list needs no mapping: `make` is mapped nowhere.
+    let tree = Tree::new();
+    let mut agent = boxed_agent();
+    agent["tools"] = json!({"allow": ["cargo", "make"]});
+    tree.write("agents/tester.json", &agent);
+    let mut claude = claude_body();
+    claude["hands"] = fragment.clone();
+    tree.write("adapters/claude.json", &claude);
+    let resolution = resolved(&tree, &Availability::unspecified());
+    assert_eq!(
+        resolution.candidates[0].argv,
+        vec![
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+            "--tools",
+            "",
+            "--mcp-config",
+            "{hands_mcp_json}"
+        ]
+    );
+    assert_eq!(
+        resolution.candidates[0].hands_fragment,
+        vec!["--tools", "", "--mcp-config", "{hands_mcp_json}"]
+    );
+    // An empty list beside hands composes the same fragment.
+    agent["tools"] = json!({"allow": []});
+    tree.write("agents/tester.json", &agent);
+    let emptied = resolved(&tree, &Availability::unspecified());
+    assert_eq!(emptied.candidates[0].argv, resolution.candidates[0].argv);
+    assert!(emptied.hands.is_some());
+    // The syntax check still runs beside hands.
+    agent["tools"] = json!({"allow": ["cargo", "cargo"]});
+    tree.write("agents/tester.json", &agent);
+    assert_eq!(
+        tree.library_error(),
+        format!(
+            "agent 'tester' ({}) 'tools.allow' names 'cargo' twice; a local allow list is \
+             duplicate-free",
+            tester_file(&tree)
+        )
+    );
+    // A mapped native alias refuses even beside hands — on the fallback
+    // link only, so the primary's clean composition hides nothing.
+    agent["tools"] = json!({"allow": ["cargo", "websearch"]});
+    tree.write("agents/tester.json", &agent);
+    claude["models"] = json!({"opus": "claude-opus-5"});
+    tree.write("adapters/claude.json", &claude);
+    let mut second = claude_body();
+    second["provider"] = json!("second");
+    second["binary"] = json!("second");
+    second["models"] = json!({"sonnet": "second-sonnet"});
+    second["hands"] = fragment;
+    second["tool_permissions"]["names"]["websearch"] = json!("WebSearch");
+    second["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["WebSearch"],
+        "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+        "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+        "restrictions": {"unsupported": "no native restriction transport is established"},
+        "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+        "selection": {"include": {"flag": "--tools", "separator": ","},
+                      "allow": {"flag": "--allowedTools", "separator": ","},
+                      "deny": {"flag": "--disallowedTools", "separator": ","}}});
+    tree.write("adapters/second.json", &second);
+    let chain = report(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap();
+    assert!(chain.entries[0].gap.is_none(), "{:?}", chain.entries[0].gap);
+    assert_eq!(
+        refusal(&tree, "tester"),
+        "agent 'tester' cannot be served by provider 'second' on model 'sonnet': tool permission \
+         'websearch' maps to 'WebSearch', a tool of the provider's native capability \
+         'web-search'; a legacy allow entry cannot authorize a capability, so request \
+         'web-search' by name under 'capabilities' and let the realm grant it through a tool \
+         dialect (decision 0065 ruling 3). A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
     );
 }

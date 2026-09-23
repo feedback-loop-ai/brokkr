@@ -18,9 +18,9 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 use super::{
-    valid_name, Adapter, Agent, EgressClass, HarnessHands, McpSupport, ResultDoor,
-    ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus, ToolPermissions,
-    TrustTier, NAME_GRAMMAR,
+    valid_name, Adapter, Agent, EgressClass, HarnessHands, LocalTools, McpSupport, ResultDoor,
+    ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus, Sandbox,
+    ToolPermissions, TrustTier, NAME_GRAMMAR,
 };
 use crate::bundle::Limits;
 
@@ -552,7 +552,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
             ));
         }
     }
-    let allow = parse_tools(map, &what)?;
+    let LocalTools { allow, sandbox } = parse_tools(map, &what)?;
     // Decision 0043: one boxed tool instead of a list. Refused at the
     // same place a malformed tool list is, naming the agent.
     let hands = match map.get("hands") {
@@ -575,6 +575,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         models,
         efforts,
         allow,
+        sandbox,
         capabilities,
         hands,
         limits,
@@ -604,27 +605,63 @@ fn contained(root: &Path, relative: &str, what: &str) -> Result<PathBuf, Library
     Ok(canonical)
 }
 
-fn parse_tools(map: &Map<String, Value>, what: &str) -> Result<Option<Vec<String>>, LibraryError> {
+/// The one strict decoder of a typed `tools` object (decision 0065 slice
+/// one, design D5.2), shared by an agent's definition and every executable
+/// site of a bundle. The vocabulary is closed — `allow`, `sandbox` and the
+/// harmless legacy `mcp: []` — and presence is checked before type: an
+/// absent field is unspecified, a present one must decode exactly or the
+/// whole declaration is refused. Nothing is coerced, ignored or read as
+/// omitted.
+pub(crate) fn parse_tools(
+    map: &Map<String, Value>,
+    what: &str,
+) -> Result<LocalTools, LibraryError> {
     let Some(raw) = map.get("tools") else {
-        return Ok(None);
+        return Ok(LocalTools::unspecified());
     };
     let tools = object(raw, &format!("{what} 'tools'"))?;
-    only_keys(tools, &["allow", "mcp"], &format!("{what} 'tools'"))?;
+    only_keys(
+        tools,
+        &["allow", "sandbox", "mcp"],
+        &format!("{what} 'tools'"),
+    )?;
     let allow = match tools.get("allow") {
-        // Absent declares NO restriction. `[]` is rejected as ambiguous
-        // between "no restriction" and "restrict to nothing".
+        // Absent declares NO restriction; `[]` is an explicit EMPTY local
+        // allow set, kept distinct from omission (design D5).
         None => None,
         Some(_) => {
             let names = string_array(tools, "allow", &format!("{what} 'tools'"))?;
-            if names.is_empty() {
+            named(&names, "tools.allow", what)?;
+            if let Some(twice) = names
+                .iter()
+                .enumerate()
+                .find(|(index, name)| names[..*index].contains(name))
+                .map(|(_, name)| name)
+            {
                 return invalid(format!(
-                    "{what} 'tools.allow' is empty, which is ambiguous between \
-                     'no restriction' and 'restrict to nothing'; omit the key to \
-                     declare no restriction"
+                    "{what} 'tools.allow' names '{twice}' twice; a local allow list is \
+                     duplicate-free"
                 ));
             }
-            named(&names, "tools.allow", what)?;
             Some(names)
+        }
+    };
+    let sandbox = match tools.get("sandbox") {
+        None => None,
+        Some(Value::String(word)) => match Sandbox::parse(word) {
+            Some(class) => Some(class),
+            None => {
+                return invalid(format!(
+                    "{what} 'tools.sandbox' is '{word}', which is not one of {}",
+                    Sandbox::VOCABULARY
+                ))
+            }
+        },
+        Some(other) => {
+            return invalid(format!(
+                "{what} 'tools.sandbox' must be a string naming one of {}, got {other}",
+                Sandbox::VOCABULARY
+            ))
         }
     };
     // Decision 0065 ruling 3: an agent requests and only a realm grants.
@@ -639,7 +676,7 @@ fn parse_tools(map: &Map<String, Value>, what: &str) -> Result<Option<Vec<String
              and let realms.json grant it through a tool dialect (decision 0065 rulings 1 and 3)"
         ));
     }
-    Ok(allow)
+    Ok(LocalTools { allow, sandbox })
 }
 
 fn parse_limits(map: &Map<String, Value>, what: &str) -> Result<Option<Limits>, LibraryError> {
