@@ -10592,6 +10592,59 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
         );
     }
 
+    // Unreadable version output: bytes that are not valid UTF-8 on exit
+    // 0, carrying the matching version beside them, so the decline is the
+    // unreadability's alone and not a missing number's. It observes
+    // nothing, never reaches the producer and plans the cold route under
+    // the current home (tasks 5302–5306; `qualify`'s contract).
+    for (case, printed, expected) in [
+        (
+            "invalid line after the version",
+            "0.1.5-rc.1\\n\\377\\376",
+            &b"0.1.5-rc.1\n\xff\xfe\n"[..],
+        ),
+        (
+            "invalid byte beside the version",
+            "0.1.5-rc.1 \\377",
+            &b"0.1.5-rc.1 \xff\n"[..],
+        ),
+    ] {
+        let shim = dsh_version_shim(home, "dsh-id-unreadable", printed);
+        let output = std::process::Command::new(&shim)
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{case}");
+        assert_eq!(output.stdout, expected, "{case}: the shim's exact bytes");
+        assert!(std::str::from_utf8(&output.stdout).is_err(), "{case}");
+        let declined = dsh_launch_with(
+            &shim.to_string_lossy(),
+            &[],
+            workdir,
+            Some("session-1"),
+            &warm,
+            || panic!("{case}: an unreadable probe never reaches the producer"),
+        )
+        .unwrap();
+        assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
+        assert_eq!(declined.observed, None, "{case}");
+        assert_eq!(declined.wrapper_digest, None, "{case}");
+        assert!(!declined.stream_json, "{case}");
+        assert_eq!(declined.rejoining, None, "{case}");
+        assert_eq!(declined.first_seq, None, "{case}");
+        assert_ne!(declined.root, offered_root, "{case}");
+        assert_eq!(
+            declined.root.parent(),
+            Some(home.join("sessions/brokkr").as_path()),
+            "{case}: the cold root is fresh under the current home"
+        );
+        assert!(
+            !declined.command.contains(&"--session".to_string()),
+            "{case}: {:?}",
+            declined.command
+        );
+    }
+
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
         None => std::env::remove_var("DSH_HOME"),

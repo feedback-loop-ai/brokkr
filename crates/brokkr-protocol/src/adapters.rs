@@ -1007,7 +1007,11 @@ fn observed_version(command: &[String]) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    // Strictly decoded: output that is not valid UTF-8 is unreadable, and
+    // an unreadable answer observes no version even where the bytes also
+    // carry one (tasks 5302–5306). A lossy read would substitute and
+    // qualify the matching number beside the garbage.
+    let text = std::str::from_utf8(&output.stdout).ok()?;
     // The version token, not the banner around it. All three installed
     // CLIs put the number in a different place on the line, and the
     // three shapes are measured rather than guessed
