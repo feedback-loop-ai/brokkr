@@ -399,6 +399,29 @@ field SHALL be coerced, ignored or treated as omitted.
 - **AND** a harness work fragment expressing workspace-write cannot satisfy a read-only request by being called narrower, and a boxed read-only fragment cannot satisfy a different requested class by silently clamping it
 - **AND** a missing fragment, an open work default, an opaque driver named codex, or a Claude permission mode is not evidence of sandbox-class support; the unsupported combination refuses
 
+#### Scenario: Resolved native contributions cannot compete with a typed sandbox
+
+- **GIVEN** a Codex site has an otherwise admissible typed sandbox and a matching selected hands fragment
+- **WHEN** its resolved native web-search OFF argv independently adds `--add-dir=/srv/shared` at a harness workspace-write site, `--dangerously-bypass-approvals-and-sandbox` at a harness read-only gate, or `sandbox_workspace_write.network_access=true` at a harness workspace-write site
+- **THEN** compilation refuses each competing sandbox effect with the complete bounded option-naming cause and no option value; a legitimate denial beside the competing control does not make the contribution admissible
+- **AND** the same admission rule checks actual resolved native ON and restriction contributions as well as OFF contributions; engine provenance or a capability's disposition label supplies no exemption
+- **AND** this is a compile-admission obligation of unit 2-fix, independent of later final-launch validation
+
+#### Scenario: Canonical root-changing options cannot contest a typed sandbox
+
+- **GIVEN** a Codex harness work site has typed workspace-write and a matching hands fragment
+- **WHEN** each of `--cd /`, `--cd=/`, `-C /` and `-C/` occurs independently in authored argv or the selected hands fragment
+- **THEN** each of those eight cases refuses at compilation with the complete bounded cause naming canonical `--cd`, never the path value
+- **AND** every checked resolved native ON/OFF/restriction contribution obeys the same refusal for every spelling
+- **AND** a grammar classification of inert or an assumed priority between repeated root selectors cannot make uncertain competing root control admissible
+
+#### Scenario: Valid native denial preserves matching typed sandboxes
+
+- **GIVEN** otherwise admissible Codex harness sites request read-only at a gate and workspace-write at a work site, under empty realm grants
+- **WHEN** their resolved native web-search OFF contribution is exactly `-c`, `web_search="disabled"`, without a competing sandbox or root control
+- **THEN** both compile with the exact requested class, matching selected hands fragment, empty holdings and unchanged native OFF facts
+- **AND** checking resolved contributions preserves every valid native denial control; blanket refusal of native configuration cannot satisfy the competing-control rule
+
 #### Scenario: Site-local narrowing cannot contaminate a shared office
 
 - **GIVEN** two executable sites reference the same office and declare different valid local subsets
@@ -556,3 +579,18 @@ bounded sandbox representation for unit 2, as enumerated in design D5.3;
 unknown or conflicting representations refuse. These are compile-admission
 proofs, not provider live measurements or final-launch proof. Unit 2 does not
 change the three sandbox classes, realm grants or the accepted unit order.
+
+Unit 2-fix specification adoption (2026-09-23, based on 6a7044e5): adopt the
+chief's third-review S1/A1 findings as omissions against D5.3/D5.5 and SCM's
+existing no-competing-control scenario. The explicit scenarios above record
+the commissioned acceptance cases, without changing sandbox classes, grants,
+provider support or the accepted unit order. S1 requires checking resolved
+native contributions while preserving their valid denial meaning; neither an
+engine origin exemption nor blanket native-config refusal answers it. A1 uses
+the existing canonical option identity across all checked contributions.
+Reject the panel's unestablished claim that a later `-C` necessarily wins:
+the demonstrated fault is admission of an uncertain competing root selector,
+not a proven provider escape. No provider was launched in the chief's cold
+command reproduction. No new design choice or upstream specification fault
+is introduced; implementation and independent refusal proofs remain open in
+2-fix, not deferred to units 13–15. Decision 0066 remains proposed.

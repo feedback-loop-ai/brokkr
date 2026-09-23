@@ -1856,3 +1856,128 @@ restored.
 - External exact coverage (`scripts/coverage-exact.sh`), macOS and remote
   CI: **pending**, not observed here; nothing is called fully green on
   their account, and unit 1's pending results stay pending.
+
+
+## Unit 2-fix — specification adoption, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-11592690`, phase `specify`, adopts
+`decision-0065-capabilities-slice-one` at
+`6a7044e5292a86b877a0e11a1c66ab8a255fcabf` on `slice-0065-capabilities`.
+The worktree began clean. Ancestry checks returned 0 for `5a47b090`,
+`d9816374`, `4a6a2288`, `308a8a28`, `f9a691cf`, `368bc34e`, `107c4d17`,
+`0444421d`, `ca2c9156`, `4a441bf7` and `6a7044e5`. Every adopted commit is
+retained; no replay or branch change occurred. The supplied context has no
+`returned_from`. The commission carries the chief's third-review findings
+from `build-decision-0065-slice-one-re-e332dc8d`; that residual was not accepted.
+
+Read the operator ruling/addendum, accepted Rebuild units preamble and unit 2,
+then task 2.1 and its SCM/SC8/RGR/NCR requirements, D5.3–D5.5 and the earlier
+unit 2 evidence. Also read README, decisions 0004/0005/0009/0065 and proposed
+0066, `dialects/openspec.json`, its specify/return instructions, and the
+rendered OpenSpec proposal then specs instructions. Inspected the named
+production/suite sources and the existing grammar read-only. No workflow
+runner, council or provider was invoked.
+
+### Findings adopted and scope of the answer
+
+**S1 (medium, security):** the chief reproduced native OFF contributions
+carrying an added filesystem root, sandbox bypass and workspace-write network
+access beside valid denial. Source inspection agrees: the typed admission
+checks the selected hands fragment and candidate-authored argv in bundle.rs,
+while `record_capabilities` resolves the native plan afterwards. The native
+plan assembles the selected ON/OFF disposition and resolved restriction argv
+in capabilities.rs. Checking only earlier contributions cannot answer this
+finding. The repair must judge the actual resolved contributions, preserving
+every valid denial control; blanket rejection of native configuration would
+break the legitimate `-c`, `web_search="disabled"` denial positive.
+
+**A1 (medium, security):** the chief reproduced all four root-selector
+spellings in authored argv and hands.harness.work. The existing grammar
+already canonicalizes them to `--cd` (alias `-C`, split/equals/attached forms)
+and classifies that option Inert. `expressed_sandbox` explicitly refuses
+`--add-dir` but does not inspect `--cd`. The required repair can therefore
+use the existing canonical identity without widening to grammar.rs. The
+panel's assertion that a later `-C` necessarily wins is unestablished and is
+not adopted. The demonstrated omission is uncertain competing root authority
+being admitted, not a proven live escape.
+
+No specification defect or new semantic choice was found. Adopted the
+proposal before amending the owning seat delta with explicit S1/A1 and valid
+native-denial scenarios. Its `## Decisions` records the acceptance and the
+reasoned refusal of origin/priority exemptions and blanket denial rejection.
+These instantiate D5.3/D5.5 and SCM's existing no-competing-control rule;
+the other deltas, design and accepted unit order remain coherent unchanged.
+Decision 0066 remains proposed. There is no reason for an `upstream` result.
+
+Tasks.md records **2-fix under unit 2** and reopens only aggregate 2.1 and its
+2.1.5 admission, 2.1.6 proof and 2.1.7 fresh-gate portions for this repair.
+Earlier decoder/narrowing/site facts and all recorded observations survive.
+Production remains bounded to bundle.rs and, only if exposure of resolved
+native contributions requires it, capabilities.rs. The sole owning suite is
+bundle/agent_tests.rs. Any larger actual scope requires a split before work;
+units 13–15 cannot absorb this compile-admission omission.
+
+### Chief's reproductions and intended independent assertions
+
+These are the supplied chief observations, **not new executions by this
+specify seat**. The chief used a canonical temporary fixture through
+`Bundle::compile_under` → `engine::compose_site` → `adapters::codex_command`
+and compared complete expected cold argv. All eleven defect cases and the
+two baseline controls matched; no provider was launched. Implementation must
+first execute the exact refusal regressions on the adopted guard and retain
+its own observed baseline, compiling mutation failure and restored pass per
+row. No unexecuted result below is claimed as a baseline red.
+
+| Case | Contribution / matching typed path | Independent refusal to bind |
+| --- | --- | --- |
+| S1.1 | Native web-search OFF; harness workspace-write work | Added `--add-dir=/srv/shared` beside legitimate denial refuses. |
+| S1.2 | Native OFF; harness read-only gate | `--dangerously-bypass-approvals-and-sandbox` beside legitimate denial refuses. |
+| S1.3 | Native OFF; harness workspace-write work | `sandbox_workspace_write.network_access=true` beside legitimate denial refuses. |
+| A1.1 | Authored argv; harness workspace-write work | `--cd /` refuses as canonical `--cd`. |
+| A1.2 | Authored argv; harness workspace-write work | `--cd=/` refuses as canonical `--cd`. |
+| A1.3 | Authored argv; harness workspace-write work | `-C /` refuses as canonical `--cd`. |
+| A1.4 | Authored argv; harness workspace-write work | `-C/` refuses as canonical `--cd`. |
+| A1.5 | hands.harness.work; matching workspace-write | `--cd /` refuses as canonical `--cd`. |
+| A1.6 | hands.harness.work; matching workspace-write | `--cd=/` refuses as canonical `--cd`. |
+| A1.7 | hands.harness.work; matching workspace-write | `-C /` refuses as canonical `--cd`. |
+| A1.8 | hands.harness.work; matching workspace-write | `-C/` refuses as canonical `--cd`. |
+
+Each refusal needs its full bounded cause without the option value. Extend
+these proofs to the actual resolved native ON/OFF/restriction contributions
+and root-selector spellings, retaining matching gate/work positives with
+exact typed class, hands fragment, empty holdings and native OFF facts.
+Every newly claimed row must independently reach its own intended failing
+assertion under a compiling in-scope mutation, then pass after restoration.
+The existing canonical AgentFixture and each_row helper are available;
+no new suite, .forge fixture reads or installed provider is commissioned.
+No Rust test or production edit, mutation, restored pass or security closure
+is claimed in this specification visit.
+
+### Observed validation and limits
+
+- `openspec validate decision-0065-capabilities-slice-one --strict --no-interactive`:
+  **passed**.
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Existing informational length and unrelated archive-target advisories remain;
+  no archive was attempted.
+- `git diff --check`: **passed**.
+- Artifact/link audit: **passed**. Exactly the four intended artifact paths
+  changed; the six proposal capabilities resolve to their deltas, all eight
+  reopened/new task entries are unchecked, and each 2-fix requirement link
+  resolves to its owning requirement.
+- Fresh format, locked all-target/all-feature clippy, runtime all-feature tests,
+  `cargo test --workspace`, locked all-feature workspace tests and self/verify
+  bundle compiles: **unavailable**. Each exact command in tasks.md's local-gate
+  list was attempted via subprocess and raised `FileNotFoundError` for `cargo`.
+  No Rust command ran, and the reporting script's exit 0 is not a gate pass.
+  No host-shell fallback or existing target binary was substituted.
+- External exact coverage, macOS and remote CI: **pending**, unchanged; prior
+  local results remain historical. No fully green or unit-complete claim is made.
+
+Only proposal.md, specs/seat-capability-resolution/spec.md, tasks.md and this
+evidence file change. No production, test, pin, grant, shipped data, frozen
+contract, policy, fixture, reference or extension bytes change. The engine
+result is written through workspace hands to its commissioned run-local file,
+not committed as a fifth artifact. The final commit and post-commit checks
+belong in that result so recording them does not move the validated head.
+No push occurs.

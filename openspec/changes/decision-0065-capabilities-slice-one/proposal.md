@@ -2,15 +2,18 @@ Status: proposed specification of accepted decision 0065, slice one.
 Change: decision-0065-capabilities-slice-one.
 Adopted: slice-0065-capabilities at 44430402, specification draft a84197cd
 and design revision 3c5402be; every commit is retained, including the replay
-and unit 1b through 5a47b090. This specification visit adopts that head and
-clarifies only rebuild unit 2 (task 2.1).
+and unit 1b through 5a47b090, and unit 2 through 6a7044e5. This specification
+visit adopts that history and records only rebuild unit 2-fix under task 2.1.
+The third review left S1/A1 implementation omissions; their residual is not
+accepted. D5.3/D5.5 and the existing refusal requirements remain authoritative.
 Authority: [operator ruling, 2026-09-23](operator-ruling-2026-09-23.md).
 
 ## Why
 
 Three councils exposed adjacent failures in reconciling recipe-authored harness
 flags with engine controls. The operator has ruled “refuse, never reconcile”;
-this highest-priority revision corrects the specification and plans the rebuild.
+the rebuild follows that ruling. Unit 2-fix repairs the remaining native-control
+and root-selector admission omissions against the existing specification.
 
 ## What Changes
 
@@ -39,6 +42,9 @@ this highest-priority revision corrects the specification and plans the rebuild.
   and executable sites: distinguish omission from empty, admit only local
   narrowing, and preserve realm/boundary authority with complete refusal causes.
   These are the D5 prerequisites for the later lowering and migration units.
+  Unit 2-fix applies their existing no-competing-control rule to actual resolved
+  native ON/OFF/restriction contributions and canonical root-changing options
+  (`--cd` / `-C`), preserving valid native denial controls at compile admission.
 - Migrate shipped inline tool and permission flags to typed declarations
   before refusal lands. The file-by-file inventory is in design's Migration
   Plan, including preflight, fast, node, verify and Codex recipe modes.
@@ -66,20 +72,24 @@ None; these six deltas remain the adopted slice's new capabilities.
 
 The complete adopted change retains this proposal, six deltas, design, tasks,
 evidence and proposed decision 0066. This specify visit amends the proposal,
-the owning seat-capability-resolution delta, task 2.1's acceptance detail and
-evidence. The other deltas and the accepted Rebuild units order remain adopted.
-The clarification applies D5 and the operator ruling; it does not replace them.
+the owning seat-capability-resolution delta's acceptance scenarios and Decisions,
+and tasks/evidence for **2-fix**. No specification defect or new semantic ruling
+was found. The other deltas and accepted Rebuild units order remain adopted.
 
-Unit 2's implementation is bounded to `crates/brokkr-runtime/src/agents.rs`,
-`agents/load.rs` and `bundle.rs`, with `agents/tests.rs` and
-`bundle/agent_tests.rs` in the same src root. It must capture baseline reds,
-compiling enforcement removals and restored passes there. Task 2.1 remains open
-in this specification visit. Lowering/origin carriage, shipped migrations,
-authored-option refusal and final-launch proof retain their later units.
+Unit 2-fix's production scope is `crates/brokkr-runtime/src/bundle.rs` and,
+only if exposing resolved native contributions requires it, `capabilities.rs`
+in that src root. Tests stay in `bundle/agent_tests.rs`. Preserve the existing
+decoder, narrowing, authority checks and matching sandbox positives. Record
+each of the chief's eleven defect cases as an exact refusal regression with
+its own compiling mutation and restored pass. Reopen task 2.1's aggregate and
+its admission/proof/fresh-gate portions only for this repair; no implementation
+or proof is claimed by this specification visit. Exceeding these files or this
+scope requires a split before implementation. Units 13–15 cannot absorb it.
 
-The current run has no `returned_from`; no council is reconvened here. Existing
-council dispositions and security holds retain their recorded scope. Unit 1's
-pending external gates stay pending. Supported hosts are Linux and macOS
-(decision 0063); grants and frozen contracts, fixtures, policy, reference and
-extensions do not change. Decision 0066 stays proposed; only the operator can
-accept it. No archive, push or release is authorized.
+The current run has no `returned_from`; it carries the chief's supplied S1/A1
+findings from run `build-decision-0065-slice-one-re-e332dc8d`. No council is
+reconvened here. Historical passes retain their tested scope, while external
+exact coverage, macOS and remote CI remain pending. Supported hosts are Linux
+and macOS (decision 0063); grants and frozen contracts, fixtures, policy,
+reference and extensions do not change. Decision 0066 stays proposed; only
+the operator can accept it. No archive, push or release is authorized.
