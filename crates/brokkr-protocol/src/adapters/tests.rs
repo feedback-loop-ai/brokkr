@@ -3838,6 +3838,219 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
     }
 }
 
+/// The LaneTally wrapper's own resume plan: the same argv rule as
+/// claude's, spent on the WRAPPER's shape and the WRAPPER's binary.
+///
+/// The wrapper shares claude's parsing and planner but is qualified on
+/// its own `wrapper-work-site` entry (design D6; proposed decision 0056
+/// ruling 5). This suite proved the wrapper's capture identity, its
+/// legacy override and its ledger, and proved the argv rule at claude's
+/// shape — but never at this one, so nothing here said that a claude
+/// measurement cannot open a wrapper session, or that plain claude never
+/// stands in for a missing wrapper. The cases below are that statement:
+/// exact cold and warm argv with the wrapper at argv[0], the current
+/// class/model/effort restrictions travelling as the generated fragment,
+/// and the four refusals — another shape's measurement, unsupported
+/// hands, a forged identifier and a nonpersistent shape — each landing
+/// on the same cold argv (task 8.8(d), Pass D; safety / AS1, AS3).
+// Unix only: the version probe stands behind a `#!/bin/sh` shim, and
+// `executable`/`version_preamble` are Unix-only helpers.
+#[cfg(unix)]
+#[test]
+fn the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary() {
+    const WRAPPER_VERSION: &str = "2.1.266";
+    let dir = tempfile::tempdir().unwrap();
+    // The wrapper, never plain claude: a missing wrapper is not cured by
+    // substituting the CLI it wraps, which would silently un-capture the
+    // session (proposed decision 0056 ruling 5).
+    let wrapper = executable(
+        dir.path(),
+        "claude-lanetally",
+        &format!(
+            "#!/bin/sh\n{}exit 1\n",
+            version_preamble(&format!("{WRAPPER_VERSION} (Claude Code)"))
+        ),
+    );
+    let wrapper = wrapper.to_str().unwrap();
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+
+    // The engine's generated restriction fragment: the current class,
+    // model and effort, and the provider-specific restrictions beside
+    // them. It travels in order and unaltered.
+    let restrictions = s(&[
+        "--permission-mode",
+        "acceptEdits",
+        "--model",
+        "claude-opus-5",
+        "--effort",
+        "high",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/run/hands.json",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ]);
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    let enabled = enabled_input(LANETALLY_SHAPE, WRAPPER_VERSION, std::path::Path::new("/w"));
+
+    let cold = claude_launch(
+        wrapper,
+        &restrictions,
+        None,
+        &enabled,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        cold.command[..5],
+        [
+            wrapper.to_string(),
+            "-p".into(),
+            "--output-format".into(),
+            "stream-json".into(),
+            "--verbose".into()
+        ],
+        "the wrapper's own binary opens the argv"
+    );
+    assert_eq!(
+        cold.command[5..],
+        restrictions[..],
+        "the generated fragment travels in order and unaltered"
+    );
+    assert!(cold.rejoining.is_none() && cold.refusal.is_none());
+
+    // The warm argv is that, plus exactly one owned selector.
+    let warm = claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &enabled,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    let mut expected = cold.command.clone();
+    expected.push("--resume".into());
+    expected.push(session.to_string());
+    assert_eq!(warm.command, expected);
+    assert_eq!(warm.rejoining.as_deref(), Some(session));
+    assert!(warm.refusal.is_none());
+    assert_eq!(
+        warm.command
+            .iter()
+            .filter(|part| *part == "--resume")
+            .count(),
+        1
+    );
+
+    // A claude measurement is not a wrapper measurement: the same input
+    // read at claude's shape enables, and at the wrapper's it does not.
+    let claude_only = enabled_input(CLAUDE_SHAPE, WRAPPER_VERSION, std::path::Path::new("/w"));
+    assert!(claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &claude_only,
+        CLAUDE_SHAPE,
+        None
+    )
+    .unwrap()
+    .refusal
+    .is_none());
+    let borrowed = claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &claude_only,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(borrowed.refusal, Some("unsupported-resume"));
+    assert!(borrowed.rejoining.is_none());
+
+    // Unsupported hands stay unsupported: a wrapper measured with no
+    // hands cannot open a session at a site whose hands Brokkr built.
+    let mut elsewhere = enabled_assessment(LANETALLY_SHAPE, WRAPPER_VERSION, "namespace", "none");
+    elsewhere["workdir"] = json!("/w");
+    elsewhere["hands"] = json!("boxed");
+    let unsupported = claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &elsewhere,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(unsupported.refusal, Some("restrictions-unavailable"));
+    assert!(unsupported.rejoining.is_none());
+
+    // A forged identifier and a nonpersistent shape, each landing on the
+    // same cold argv the wrapper would have run anyway.
+    for (case, extra, offered, refusal) in [
+        (
+            "a forged identifier never reaches an argv",
+            restrictions.clone(),
+            "--dangerously-skip-permissions",
+            "invalid-session-id",
+        ),
+        (
+            "an explicitly nonpersistent wrapper has no root to rejoin",
+            [restrictions.clone(), s(&["--no-session-persistence"])].concat(),
+            session,
+            "nonpersistent-session",
+        ),
+    ] {
+        let launch = claude_launch(
+            wrapper,
+            &extra,
+            Some(offered),
+            &enabled,
+            LANETALLY_SHAPE,
+            None,
+        )
+        .unwrap();
+        assert_eq!(launch.refusal, Some(refusal), "{case}");
+        assert!(launch.rejoining.is_none(), "{case}");
+        assert!(
+            !launch.command.iter().any(|part| part == "--resume"),
+            "{case}: the cold argv carries no selector"
+        );
+        assert!(
+            !launch
+                .command
+                .iter()
+                .any(|part| part.contains("dangerously")),
+            "{case}: a forged identifier never reaches an argv: {:?}",
+            launch.command
+        );
+    }
+
+    // An ambient continuation is refused at the wrapper too, cold and
+    // warm alike, before any provider work.
+    for offered in [None, Some(session)] {
+        let Err(error) = claude_launch(
+            wrapper,
+            &[restrictions.clone(), s(&["--continue"])].concat(),
+            offered,
+            &enabled,
+            LANETALLY_SHAPE,
+            None,
+        ) else {
+            panic!("an ambient continuation must refuse before any provider work");
+        };
+        assert!(error.contains("'--continue'"), "{error}");
+        assert!(
+            error.contains("refused before any provider work"),
+            "{error}"
+        );
+    }
+}
+
 /// AS3's rule that invocation settings cannot weaken a resume: each
 /// authoritative claude restriction control is named at most once, with a
 /// value where the measured grammar requires one. A second spelling — or
