@@ -711,6 +711,37 @@ exist.
    The remedy is a production refusal at the `claim` boundary for a pin
    without `/`, then this unit re-run whole; the probes were reverted.
 
+   **Re-run landed 2026-09-23 at `7b26d186`; both new classes refuse — no
+   Pass-B finding.** The matrix now breaches a route it first proves
+   `validate` admits for `deepseek/deepseek-v4-flash`, one class per vector,
+   and asserts each reason whole on disabled, offered and cold with
+   `dsh_staging_calls() == 0`, zero producer calls, no probe marker and no
+   echo of a `leaked` sentinel carried in every breaching value: the ten
+   reader-only `baseURL` breaches and a non-ASCII host (`baseURL leaves the
+   closed endpoint grammar`); `__jsExpr` (line 6 key not a plain
+   identifier), alias, block and quoted scalar (line 6 reserved character),
+   tab and control character (line 6), a document marker opening a second
+   document (line 10); a second top-level entry (`route overlay must hold
+   exactly one top-level entry`); and an absent `--model` pin (the claim
+   boundary's pin reason). 2c-fix's segment-less vector is kept, not
+   duplicated. At the reader,
+   `the_endpoint_grammar_decides_the_positive_and_every_refusal` gains a
+   non-ASCII host and path segment and asserts every refusal whole, and
+   `a_route_document_carrying_a_second_entry_is_refused` refuses the shipped
+   route repeated and followed by a `settings` row. Five mutations, compiled,
+   run red and reverted: a sequence of any length admitted parts the reader
+   case at `route_overlay.rs:743` (`Ok(())`) and the matrix at
+   `tests.rs:12830` (`second top-level entry/disabled must refuse`); Unicode
+   host letters part `route_overlay.rs:721` (`"https://hóst/x"`, `Ok(())`)
+   and `non-ASCII endpoint/disabled`; `%` admitted in a segment parts `:721`
+   (`percent%2fescape`) and `percent-escape endpoint/disabled`; the lexer's
+   control-character half removed parts `control character/disabled`; the
+   planner defaulting a missing pin before `claim` parts `absent model
+   pin/disabled`. `cargo fmt --all -- --check`, `cargo clippy --workspace
+   --all-targets --all-features --locked -- -D warnings` and `cargo test -p
+   brokkr-protocol --all-features --locked` (428 + 99 + 1 passed, 0 failed)
+   are green. Tests only; the DSH route stays disabled; no checkbox moved.
+
 3. **Complete the undriven variation matrices.** Closes A42, B60, B27's
    mistyped half and B71's two missing positives. Touches
    `crates/brokkr-protocol/src/adapters/tests.rs` and
