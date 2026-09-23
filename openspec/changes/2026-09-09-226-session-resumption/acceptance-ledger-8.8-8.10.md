@@ -1960,8 +1960,8 @@ symlink fixture and twenty planner vectors.
      entries 11, 12 and 13-fix's records are required for a B5 yes, and
      after a no no entry owns their replay (disclosed, no entry extended).
      C3: all five ignored tests are listed (two protocol, three
-     `brokkr-view`). C4: S4's M9 assertion is A:6630–6634. Docs only; no
-     ruling recorded, no checkbox moved.
+     `brokkr-view`). C4: S4's M9 assertion is A:6630–6634. Docs only, at
+     `feeb2921`; no ruling recorded, no checkbox moved.
 
 18. **If 17 rules no: replay the terminal-body removals.** Added by the
    remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,
