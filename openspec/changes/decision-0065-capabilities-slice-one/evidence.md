@@ -258,3 +258,40 @@ load/final-delivery work. This draft does not invent that transport or mark it d
 The phase result is a drafted breakdown, not a fully green implementation or
 a documentation-gate completion claim. The unavailable formatting command is
 preserved explicitly for the next workspace/host validation visit.
+
+## Implement visit, 2026-09-23
+
+This commission is documentation only; its one implementation task is 0.1.
+Audited the adopted artifacts at 955f588c against the commission's four
+deliverables and changed none of them:
+
+- The ruling's four parts own their requirements: authored refusal and the
+  exhaustive per-harness catalogue in the realm delta, including split, `=`,
+  attached `-xVALUE` and alias forms and all five Codex config spellings;
+  load-time ON/OFF parsing and final-command proof in the native delta;
+  containment refusal with the pinned-outward-link permission revoked in the
+  manifest delta; and whole-plan doctor submission in the doctor delta.
+  Proposed 0066's ruling 2 states the total principle and it stays proposed.
+- Re-ran the recursive inventory over adapters/, recipes/, agents/, bundles/
+  and extensions/. It matches design's Migration Plan file for file: seven
+  bundle files author inline flags (fast, node, preflight, verify, standby,
+  review-first, wager-harness), no agents/*.json does, and the DSH extension
+  hits are CLI examples only.
+- `git log HEAD..origin/main` on the local ref still lists the seven
+  commits unit 1 names (#313, #315, #320, #321, #322, #323, #326). No fetch
+  was made, so remote freshness is still for unit 1 to record.
+- Rebuild units: unit 1 is the rebase. Migration units 6–8 come before
+  refusal in unit 12. No feature unit names more than three production files.
+
+Gates on this visit's candidate:
+
+- `git diff --check`: passed, exit 0.
+- `cargo fmt --all -- --check`: passed, exit 0. This supersedes the two
+  earlier unavailable attempts for this documentation head only.
+- `openspec validate --all --strict`: not run. The seat's command
+  permissions refused the invocation before it started. No pass is claimed.
+  The last observed result is the tasks visit's pass (16 items). This visit
+  changes only this Markdown file, so no delta or task structure moved.
+
+No production, test, shipped data, frozen or witness bytes changed. Every
+implementation obligation from unit 1 onward remains open.
