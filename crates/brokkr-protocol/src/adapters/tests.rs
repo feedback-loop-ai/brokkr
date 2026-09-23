@@ -14154,6 +14154,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                 "#!/bin/sh\n\
                  case \"$1\" in --version) printf '0.1.5-rc.2\\n'; exit 0 ;; esac\n\
                  cp \"$4\" '{seen}'\n\
+                 printf 'dsh child {case} wrote this\\n' >&2\n\
                  printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"{id}\"}}\\n'\n\
                  {append}\
                  printf '{{\"result\":\"complete\"}}' > '{result}'\n\
@@ -14191,6 +14192,10 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
         }
         let start = json!({"effect_id": "effect", "attempt_id": "attempt", "input": input});
         let mut messages: Vec<Body> = Vec::new();
+        // The invocation's stderr, whose tail `run_seat_with` re-emits and
+        // the engine journals on a failed or indeterminate attempt — the
+        // one surface a wire message does not carry.
+        let mut stderr: Option<String> = None;
         run_seat_with(
             AdapterKind::Dsh,
             &start,
@@ -14204,7 +14209,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                     input,
                     &install.seams,
                 );
-                invoke_dsh_launch(
+                let invocation = invoke_dsh_launch(
                     launch,
                     prompt,
                     &workdir,
@@ -14214,7 +14219,9 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                             .try_wait()
                             .map(|status| status.map(|status| status.code().unwrap_or(-1)))
                     },
-                )
+                );
+                stderr = invocation.as_ref().ok().map(|done| done.stderr.clone());
+                invocation
             },
         );
 
@@ -14325,6 +14332,24 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                 );
             }
         }
+        // The stderr carries none of them either, and is exactly the
+        // child's own line: the driver adds no byte to it.
+        let text = stderr
+            .as_deref()
+            .unwrap_or_else(|| panic!("{case}: the invocation ran"))
+            .to_lowercase();
+        for needle in needles {
+            assert_eq!(
+                text.find(&needle.to_lowercase()),
+                None,
+                "{case}: the stderr carries {needle}: {text}"
+            );
+        }
+        assert_eq!(
+            stderr.as_deref(),
+            Some(format!("dsh child {case} wrote this\n").as_str()),
+            "{case}: the invocation's stderr"
+        );
         assert!(
             matches!(
                 messages.last(),

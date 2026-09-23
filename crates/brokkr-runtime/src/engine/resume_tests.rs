@@ -2568,6 +2568,234 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
     }
 }
 
+/// Set in the environment of this suite's own binary when the engine
+/// spawns it as a driver: the case below then serves the production DSH
+/// adapter on its stdin and stdout instead of running as a test.
+#[cfg(unix)]
+const SERVE_DSH: &str = "BROKKR_RESUME_TESTS_SERVE_DSH";
+
+/// Unit 4a, the seam the two halves meet at (review of `e428ad23`, C1 +
+/// SEC-1): the engine drives the REAL DSH adapter — production's
+/// `adapters::serve`, spawned as this very test binary — on a seat whose
+/// `--patch` route binds, and the journal that attempt appends is read.
+/// The gate is closed, as it ships, so this is the cold route production
+/// runs today. The first attempt fails with stderr, so the stderr tail the
+/// engine journals on a failed attempt is read too; the retry succeeds.
+///
+/// The route reaches the child on both attempts, and the private context
+/// the driver was started with holds the binding and the assessment; the
+/// journal — each launch row, the failed attempt's stderr tail, every
+/// other event — carries none of the route's content, its path, its
+/// digest, the binding or a private carrier, and the stderr tail is
+/// exactly the child's own bytes.
+#[cfg(unix)]
+#[test]
+fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
+    if std::env::var_os(SERVE_DSH).is_some() {
+        let extra = std::env::var(format!("{SERVE_DSH}_EXTRA")).unwrap();
+        let extra = extra.split(' ').map(str::to_string).collect();
+        let served =
+            brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind::Dsh, extra);
+        // Nothing of the harness may follow the protocol on stdout.
+        std::process::exit(if served.is_ok() { 0 } else { 70 });
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("dsh-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let (layer, digest) = marked_route_layer(&root);
+    // The dsh child the adapter launches as `dsh --profile headless
+    // --patch <overlay> <prompt>`: it keeps the overlay it was handed,
+    // writes one stderr line, and fails its first invocation without a
+    // result; the second writes the result the prompt names.
+    let dsh = root.join("dsh");
+    std::fs::write(
+        &dsh,
+        format!(
+            "#!/bin/sh\n\
+             n=$(cat '{count}' 2>/dev/null || echo 0)\n\
+             n=$((n+1))\n\
+             printf '%s' \"$n\" > '{count}'\n\
+             cp \"$4\" '{seen}'-\"$n\"\n\
+             printf 'dsh child %s wrote this\\n' \"$n\" >&2\n\
+             [ \"$n\" = 1 ] && exit 3\n\
+             result=$(printf '%s\\n' \"$5\" | grep '/.forge/results/' | head -n 1 | sed 's/^ *//')\n\
+             printf '{{\"result\":\"complete\"}}' > \"$result\"\n",
+            count = root.join("dsh.count").display(),
+            seen = root.join("seen").display(),
+        ),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dsh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    // The driver: this binary, filtered to this case, in the serving role.
+    // Its stdin is logged the way the shim drivers' is, so the start it
+    // was sent can be read back, and only protocol lines leave its stdout
+    // (the harness announces itself there first).
+    let this = format!(
+        "{}::the_real_dsh_driver_journals_no_route_byte_and_no_carrier",
+        module_path!().split_once("::").unwrap().1
+    );
+    let script = format!(
+        "unset DSH_PERMISSION_MODE\n\
+         tee -a '{log}' | {SERVE_DSH}=1 {SERVE_DSH}_EXTRA=\"$*\" DSH_HOME='{home}' \
+         HOME='{root}' BROKKR_DSH_BIN='{dsh}' '{exe}' '{this}' --exact --nocapture \
+         --test-threads=1 -q | grep --line-buffered '^{{'\n",
+        log = root.join("work.log").display(),
+        home = home.display(),
+        root = root.display(),
+        dsh = dsh.display(),
+        exe = std::env::current_exe().unwrap().display(),
+    );
+    let argv: Vec<String> = [
+        "sh",
+        "-c",
+        &script,
+        "sh",
+        "--model",
+        "deepseek/deepseek-v4-flash",
+        "--patch",
+        "recipe/route.yml",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    // The shipped declaration, read by the production loader: `unmeasured`,
+    // so the adapter's gate is closed and it runs the shipped cold route.
+    let shipped = crate::Adapters::load(&workspace_root().join("adapters"))
+        .expect("the shipped adapters load")
+        .adapter("dsh")
+        .expect("the shipped dsh adapter")
+        .resume
+        .clone();
+    let candidate = Candidate {
+        agent: "implementer".into(),
+        model: "deepseek/deepseek-v4-flash".into(),
+        effort: None,
+        provider: "dsh".into(),
+        argv: argv.clone(),
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume: shipped,
+    };
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(single(argv, vec![candidate]), &["complete"], 2),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    let events = run(&root, bundle);
+
+    // Both attempts ran the real adapter, which bound the route and handed
+    // it to the child.
+    let starts: Vec<Value> = received(&root, "work")
+        .into_iter()
+        .filter(|message| message["type"] == "start")
+        .collect();
+    assert_eq!(starts.len(), 2, "the failing first attempt is retried");
+    for (index, start) in starts.iter().enumerate() {
+        let private = &start["input"]["resume_context"];
+        assert_eq!(
+            private["route_overlay"],
+            json!({"value": "recipe/route.yml", "digest": digest}),
+            "start {index}"
+        );
+        assert_eq!(
+            private["assessment"]["headless-work"]["status"], "unmeasured",
+            "start {index}: {private}"
+        );
+        let handed = std::fs::read_to_string(root.join(format!("seen-{}", index + 1))).unwrap();
+        assert_eq!(handed.matches(ROUTE_MARKER).count(), 2, "{handed}");
+    }
+
+    // The two attempts, as journaled: a launch row each, the first failed
+    // with a stderr tail and the second succeeded. Each surface exists
+    // before its exclusion is read, so the search below is not run over
+    // nothing.
+    let attempts: Vec<&str> = starts
+        .iter()
+        .map(|start| start["attempt_id"].as_str().unwrap())
+        .collect();
+    let launch_rows = |attempt: &str| -> Vec<Value> {
+        events
+            .iter()
+            .filter(|event| event.attempt_id.as_deref() == Some(attempt))
+            .filter(|event| event.event_type == EventType::EffectCheckpointed)
+            .map(|event| event.payload["checkpoint"].clone())
+            .filter(|row| row["step"] == "harness-started")
+            .collect()
+    };
+    for attempt in &attempts {
+        assert_eq!(launch_rows(attempt).len(), 1, "{attempt}: one launch row");
+    }
+    let failed: Vec<&EventEnvelope> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectFailed)
+        .collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed[0].attempt_id.as_deref(), Some(attempts[0]));
+    assert!(
+        failed[0].payload["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("; stderr tail: ")),
+        "the failed attempt journals a stderr tail: {}",
+        failed[0].payload
+    );
+    assert!(
+        events.iter().any(|event| {
+            event.event_type == EventType::EffectSucceeded
+                && event.attempt_id.as_deref() == Some(attempts[1])
+        }),
+        "the retry succeeded"
+    );
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
+
+    // And each is exactly what the adapter and the engine own: the stderr
+    // tail is the child's own line, nothing added, and the launch row is
+    // the shipped route's vocabulary plus the engine's three stamps, whose
+    // two references are hashes.
+    assert_eq!(
+        failed[0].payload["error"],
+        "agent CLI exited 3; stderr tail: dsh child 1 wrote this\n"
+    );
+    for attempt in &attempts {
+        let rows = launch_rows(attempt);
+        let mut row = rows[0].clone();
+        for stamp in ["site_ref", "instance_ref"] {
+            let value = row.as_object_mut().unwrap().remove(stamp);
+            assert_eq!(
+                value.as_ref().and_then(Value::as_str).map(str::len),
+                Some(64),
+                "{attempt}: {stamp}: {}",
+                rows[0]
+            );
+        }
+        assert_eq!(
+            row,
+            json!({
+                "step": "harness-started",
+                "harness": "deepseek",
+                "launch": "cold",
+                "model": "not reported",
+                "effort": "not applicable",
+                "boundary": "not applicable",
+            }),
+            "{attempt}"
+        );
+    }
+}
+
 /// Run one shim command the way the engine does: hand it the first line
 /// and the start message whose `*start*` arm breaks its read loop, then
 /// collect what it wrote to stdout and stderr.
