@@ -888,7 +888,7 @@ numbers. The map:
 | 9 | 3b-fix | landed `6a5f1bc9` |
 | 10 | 3b | landed `cb5bbd9a` (after a stop) |
 | 11 | — (new: unit 7's unproved half) | landed `6e1e7066`, `471bc740` |
-| 12 | — (new: N2/N4 unasserted cells) | open |
+| 12 | — (new: N2/N4 unasserted cells) | landed `36b16922` |
 | 13 | — (new: source retrieval) | open, externally owned |
 | 14 | 4 | open |
 | 15 | 5 | open, externally owned |
@@ -1644,6 +1644,21 @@ symlink fixture and twenty planner vectors.
    Expected to be evidence only. A pass is not a finding. A search, a probe
    or an admission on current bytes is a production finding, and the unit
    reports it.
+
+   **Landed 2026-09-23 at `36b16922`; both cells hold on current production
+   bytes, so there is no production finding.** N2: the admitted launcher's
+   invocation runs with `PATH` emptied from a cwd holding no `dsh` and prints
+   the alias; `invocation.program` set to the bare name in `lookup_in`, and
+   separately `command()` running `argv0`, each part `composite/tests.rs:3040`
+   (`Err(NotFound)`). N4:
+   `an_env_launcher_without_a_program_reaches_neither_doctor_callback` drives
+   the real selection (`DshSeams::selected`, in a re-executed child, since
+   `select_in` is private to the protocol suite) over bare and blank env
+   launchers with panicking callbacks and asserts the exact missing-program
+   cause; blank-tail `Ok(None)` parts the child's probe at
+   `doctor/tests.rs:2836` with nothing spawned, M4's callback failure. Tests
+   only; fmt, clippy, `-p brokkr-protocol` and `-p brokkr-cli` green; no
+   checkbox moved.
 
 13. **Retrieve, pin and verify the Apple and env sources.** Added by the
    remediation (third return, finding 1). **Externally owned**: it needs a
