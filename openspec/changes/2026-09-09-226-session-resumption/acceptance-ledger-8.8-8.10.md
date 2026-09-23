@@ -1972,8 +1972,8 @@ symlink fixture and twenty planner vectors.
      production's per-target table (musl, Apple and FreeBSD literals,
      `confstr` for Linux/glibc only). C7: the path inventories count this
      brief (thirteen against `origin/main`, three documents since
-     `be1ecf77`) and give the pre-brief counts at `0af3a3c9`. Docs only; no
-     ruling recorded, no checkbox moved.
+     `be1ecf77`) and give the pre-brief counts at `0af3a3c9`. Docs only, at
+     `2c3081bc`; no ruling recorded, no checkbox moved.
 
 18. **If 17 rules no: replay the terminal-body removals.** Added by the
    remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,
