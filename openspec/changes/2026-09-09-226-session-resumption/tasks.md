@@ -1250,6 +1250,20 @@ do not narrow full acceptance to earn a tick. AS1 names the requirement above.
   inherited acceptance, outside the repair — safety / AS1: Resume support
   is measured per adapter and execution shape.
 
+  *Source pins delivered 2026-09-23, acceptance-ledger entry 13.*
+  `source-pins-2026-09-23.md` pins Apple Libc `gen/FreeBSD/exec.c`,
+  `sys/posix_spawn.c` and `include/paths.h` at Libc-1752.120.2
+  (`4e34d055`), and xnu `bsd/sys/syslimits.h` and `bsd/sys/param.h` at
+  xnu-12377.121.6 (`ac9718fb`), each with its SHA-256. Every ported Apple
+  range was re-read at that pin. The walk, the overflow branch, the
+  continue arms, the EACCES `default` (repaired by entry 13-fix,
+  `1d2763cf`), exhaustion, `PATH_MAX` and `_PATH_DEFPATH` all agree.
+  Citations were corrected in comments only: `strchrnul` for `strsep`,
+  the pinned ranges for D10's moving-`main` ones, `_execvpe` for the
+  default search, and `paths.h` line 65. The Apple source-pin half of
+  this clause's inherited acceptance is therefore met. Native macOS
+  execution is **still pending**, and the box stays unticked.
+
 - [ ] 8.8.1.2 After 8.8.1.1, extend protocol selection tests, doctor unit
   seams and `crates/brokkr-cli/tests/doctor_dsh_selection.rs` with both R2
   alias forms and direct env under the same isolated child environment.
@@ -1284,6 +1298,29 @@ do not narrow full acceptance to earn a tick. AS1 names the requirement above.
   Immutable env source pins and missing native platform proof remain inherited
   debts — safety / AS1: Resume support is measured per adapter and execution
   shape.
+
+  *Source pins delivered 2026-09-23, acceptance-ledger entry 13.*
+  `source-pins-2026-09-23.md` pins, each with its SHA-256:
+  - GNU coreutils `src/env.c` and `src/coreutils.c` at v9.12;
+  - gnulib `lib/progname.c` at v1.0;
+  - Apple `env/env.c` at shell_cmds-329, the path that revision holds,
+    since `usr.bin/env/env.c` does not exist there;
+  - uutils `src/bin/coreutils.rs` and `src/common/validation.rs` at
+    0.12.0, and `src/bin/coreutils.rs` at 0.2.2;
+  - Ubuntu rust-coreutils 0.2.2-0ubuntu2.1's
+    `require-utility-to-be-invoked-at-matching-path.patch`;
+  - busybox `libbb/appletlib.c` at 1_36_1;
+  - Linux `fs/binfmt_script.c` at v7.2.
+
+  Every cited dispatch and argument range agrees with the port except one
+  attribution. The renamed-symlink `Security violation` refusal is
+  Ubuntu's AppArmor patch on uutils 0.2.2, which is this host's `env`.
+  Upstream uutils has no such check at either 0.2.2 or 0.12.0. The
+  implementations therefore disagree, and `env_dispatch`'s refusal is kept
+  as decision 0004's fail-closed reading. Only its attribution was
+  corrected, in comments. design.md's matching prose is recorded for
+  entry 22. The env source-pin debt is therefore met. Native platform
+  proof is **still pending**, and the box stays unticked.
 
 - [ ] 8.8.2.2 After 8.8.2.1, test bare and spaces/tabs-only env shebangs
   through protocol selection/producer, injected doctor probes and the built

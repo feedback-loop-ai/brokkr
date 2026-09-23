@@ -345,7 +345,8 @@ enum Expect {
     WorkingDirectory,
     /// Apple's PRE-ATTEMPT bound: `posix_spawnp` sizes each candidate
     /// against its 1,024-byte buffer before building it (`lp + ln + 2 >
-    /// sizeof(buf)`, `sys/posix_spawn.c`) and answers `ENAMETOOLONG`
+    /// sizeof(buf)`, `sys/posix_spawn.c` 131–134 at Libc-1752.120.2) and
+    /// answers `ENAMETOOLONG`
     /// there, having handed `execve` nothing. Native therefore reports
     /// ENAMETOOLONG for a candidate that was never constructed, and the
     /// resolver names the BOUND rather than a stop the kernel never
@@ -742,8 +743,9 @@ fn cell_id(name: usize, layout: usize, form: &str) -> String {
 
 /// Whether Apple's walk can BUILD the candidate this slot and name make:
 /// `lp + ln + 2 > sizeof(buf)` with `buf` PATH_MAX, an empty token
-/// counted as the `.` Apple substitutes for it (`gen/FreeBSD/exec.c`,
-/// `sys/posix_spawn.c`, design D10). The bound is per candidate and
+/// counted as the `.` Apple substitutes for it (`gen/FreeBSD/exec.c`
+/// 194–197 and 215, `sys/posix_spawn.c` 110–113 and 131, both at
+/// Libc-1752.120.2, `4e34d055`). The bound is per candidate and
 /// applies to every token, so it is asked of every token rather than
 /// assumed of the one the matrix pads.
 fn apple_overflows(root: &Path, cwd: &Path, index: usize, slot: Slot, name: &str) -> bool {
@@ -996,7 +998,8 @@ fn compare(
             // per library and per position — so the wording owed is too,
             // and asserting glibc's on every host is what PR #311's
             // macOS leg kept failing on. Apple's switch CONTINUES past
-            // both ELOOP and ENAMETOOLONG (`sys/posix_spawn.c`), so on
+            // both ELOOP and ENAMETOOLONG (`sys/posix_spawn.c` 146–150,
+            // `gen/FreeBSD/exec.c` 232–235 at Libc-1752.120.2), so on
             // that arm a SEARCHED name can only end on one of them by
             // exhausting its entries, and the refusal is the exhaustion
             // it is; a DIRECT name, which no switch governs, names the
