@@ -37,16 +37,21 @@ fn write(root: &Path, relative: &str, value: &Value) {
 /// `web-search` definition and Codex dialect, a second dialect serving the
 /// same capability, a library with one searching office on a Claude →
 /// Codex chain, and a bundle directory beside them.
+/// Every fixture path derives from the canonicalised root, so it is the
+/// one the filesystem resolves (macOS's `/var` is `/private/var`).
 struct Operator {
-    dir: tempfile::TempDir,
+    _dir: tempfile::TempDir,
+    root: PathBuf,
 }
 
 impl Operator {
     fn new() -> Operator {
+        let dir = tempfile::tempdir().unwrap();
         let operator = Operator {
-            dir: tempfile::tempdir().unwrap(),
+            root: std::fs::canonicalize(dir.path()).unwrap(),
+            _dir: dir,
         };
-        let root = operator.dir.path();
+        let root = operator.root();
         for shipped in [
             "capabilities/web-search.json",
             "capabilities/web-fetch.json",
@@ -107,7 +112,7 @@ impl Operator {
     }
 
     fn root(&self) -> &Path {
-        self.dir.path()
+        &self.root
     }
 
     /// The realm `private` under a v6 map granting `capabilities`.

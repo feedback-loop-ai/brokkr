@@ -4354,18 +4354,27 @@ impl SiteSpawn {
         self.argv[index] = token;
     }
 
-    /// Where the driver's extras begin: after the driver verb's own `--`,
-    /// exactly as the driver will read them; an argv with none is read
-    /// whole from its fourth token, and a shorter one is empty.
+    /// Where the driver's extras begin, exactly as the driver will read
+    /// them. The driver's launch starts behind whatever the engine put in
+    /// front of it for the boundary — the box's exec prefix, the network
+    /// prefix — which composition carries as the leading `hands` segments,
+    /// never found by searching the flattened argv. Its extras follow the
+    /// three-token `<engine> driver <kind>` verb, less an escape `--`
+    /// directly behind the verb, which the driver's trailing-argument
+    /// parser drops; any later `--` is an argument. An argv that ends at
+    /// the verb has none.
     fn extras_start(&self) -> usize {
-        match self.argv.get(3..) {
+        let launch: usize = self
+            .segments
+            .iter()
+            .take_while(|segment| segment.origin == Origin::Hands)
+            .map(|segment| segment.argv.len())
+            .sum();
+        let verb = launch + 3;
+        match self.argv.get(verb) {
             None => self.argv.len(),
-            Some(arguments) => {
-                3 + arguments
-                    .iter()
-                    .position(|part| part == "--")
-                    .map_or(0, |separator| separator + 1)
-            }
+            Some(escape) if escape == "--" => verb + 1,
+            Some(_) => verb,
         }
     }
 

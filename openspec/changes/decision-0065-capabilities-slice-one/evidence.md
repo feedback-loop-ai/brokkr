@@ -3496,3 +3496,134 @@ and the door's comparison with the spawn the engine holds, not from its
 bytes. Final authored-counterfeit refusal stays in 15.2, and the serving
 command's final parse and state check stay in units 12–15. Decision 0066 stays
 proposed. Nothing is pushed.
+
+## Unit 4 — review return, 2026-09-23
+
+This is the same run, `triage-directive-operator-ruling-dbc7463e`, returned
+from review (`REVIEW-REFORGE`, residual, medium). The reviewed head was
+`07d88b44`, and it is kept. The visit answers C1, SC1, SC2 and SC3. It edited
+only `engine.rs`, `engine/boundary_tests.rs`, `engine/capability_tests.rs`,
+`tests/capability_launch.rs` and these two records. 4.1 and 4.2 are unticked
+while C1 is open.
+
+### C1: the commission and the settled design disagree
+
+The commission's verbatim unit 4 allows `engine.rs` and `bundle.rs`, the three
+suites, and a STOP-and-split rule. The settled design says otherwise. Rebuild
+unit 4, as amended by D5.7 and accepted with the design, names `agents.rs` as
+the third production file for `Candidate` storage and the `resolve_report`
+projection. It also names `engine/tests.rs`, `engine/agent_tests.rs` and
+`engine/resume_tests.rs` for the `Candidate` literal migration. D5.7 forbids
+recovering the lowering from `Candidate::parts`, bytes or the legacy pair, so
+the transport cannot be built inside the narrower allowlist. `07d88b44`
+followed the design. This visit cannot resolve the conflict by editing:
+reverting those files breaks D5.7, and keeping them breaks the commission's
+text. The implement seat reports `blocked` and names the split. The operator
+rules either:
+
+- that D5.7's inventory governs unit 4, which admits the edits already on the
+  branch; or
+- that `Candidate` storage, `resolve_report` and the constructor migration
+  become their own unit before unit 4, which re-lands them as that unit's
+  commit.
+
+### SC1: the extras cut is structural
+
+`SiteSpawn::extras_start` searched the flattened argv for the first `--` after
+index 3. Behind the box's exec prefix, that `--` is the box's own, so the
+record carried the inner `brokkr driver exec --` launcher. Behind the real
+eight-token network prefix, argv[3] is the prefix's `--`, so the record
+carried `sh -c <script> sh` and the launcher. An authored
+`[brokkr, driver, dsh, --model, p/m, --, --effort, high]` lost `--model p/m`.
+
+The cut now works like this:
+
+- The driver's launch starts after the leading run of `hands` segments. That
+  run is the engine's prefix, carried by composition: `behind` for the box,
+  and the network arm.
+- The extras follow the three-token verb. Only an escape `--` directly behind
+  the verb is dropped, as the driver's `trailing_var_arg` parser drops it.
+- An argv that ends at the verb has no extras.
+
+`seal()`, `launch_arguments()` and `verify_record()`'s reassembly share this
+cut.
+
+Baseline reds, observed at `07d88b44` with the new tests:
+
+- `the_driver_extras_begin_after_the_engines_prefix_and_the_verbs_own_escape`
+  failed at `boundary_tests.rs:561`. Left: `[Authored ["/usr/local/bin/brokkr",
+  "driver", "exec", "--", "bash", "/runtime/bundle/scripts/verify.sh",
+  "{prompt_file}"]]`. Right: the last three tokens.
+- `a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone` failed at
+  `capability_tests.rs:795`. The record's segments were `[hands ["sh", "-c",
+  <script>, "sh"], authored ["/bin/brokkr", "driver", "exec", "--", "bash",
+  "/b/check.sh", "--", "x"]]` against `[authored ["bash", "/b/check.sh", "--",
+  "x"]]`.
+
+### SC2: exact namespace expectations
+
+`every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands` now
+compares whole segment lists against literals:
+
+- For the namespace link, the full MCP argument is
+  `mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]`.
+- For the namespace exec, the box prefix is `[<exe>, hands, exec, --workdir,
+  /work, --spec, {"binds":[],"kind":"workspace","network":false},
+  --bundle-root, /bundle, --]`. The author's command maps its script to
+  `/runtime/bundle/scripts/verify.sh`.
+
+This replaces the `starts_with`, partial-slice and `assert_ne` checks.
+
+### SC3: canonical fixture roots
+
+`capability_launch`'s `Operator` now holds a canonicalised `root`, and every
+fixture path derives from it. The four unit-4 engine tests (A, B, C and the
+new P) use `canonical_engine`, a copy of `tests::engine` over a canonicalised
+root, defined in `capability_tests.rs` because `engine/tests.rs` is outside
+this visit's allowlist.
+
+As a removal control, the suites ran with `TMPDIR` spelled
+`.forge/scratch/sc3-real/../sc3-real`, set through `cargo --config env.TMPDIR`
+because the seat cannot set the variable directly. `capability_launch` passed
+19/19 with the canonicalisation and also 19/19 without it (the mutation was
+restored). The engine filters passed 41/41 with it. No behaviour on this host
+observes the difference, so no test binds SC3, and none is claimed. macOS's
+`/private/var` leg stays pending.
+
+### Mutation ledger (review return)
+
+Each mutation below is one compiling edit. Each was observed failing and then
+restored.
+
+| # | File | Mutation | Failing test and assertion (observed) |
+| --- | --- | --- | --- |
+| R1 | engine.rs | the leading `hands` prefix is never skipped | T1 `boundary_tests.rs:561` (launcher in the box extras); P `capability_tests.rs:795` (wrapper and launcher in the record) |
+| R2 | engine.rs | the escape directly behind the verb is kept | T1 561; E 452 (gate legacy pair); G `capability_tests.rs:99`; A 488; P 795; B 605 |
+| R3 | engine.rs | the token after the verb is always dropped | T1 `boundary_tests.rs:596`: left `["p/m", "--", "--effort", "high"]`, right with `--model` first; G 196 (`["flash"]` against `["--model", "flash"]`) |
+| R4 | engine.rs | `verify_record` reassembles from one token earlier | P `capability_tests.rs:810`: "first differ at argument 0 (4 recorded, 5 supplied)" against `Ok(())` |
+| R5 | engine.rs | the MCP TOML stops escaping `"` | E `boundary_tests.rs:371`; the old `starts_with` check would have passed |
+| R6 | engine.rs | the script maps under `/runtime`, not `SANDBOX_BUNDLE` | E `boundary_tests.rs:397`; the old `assert_ne` would have passed |
+| R7 | engine.rs | the box prefix drops `--bundle-root /bundle` | E `boundary_tests.rs:397`; the old `[1..3]`/last-token checks would have passed |
+
+T1 is `the_driver_extras_begin_after_the_engines_prefix_and_the_verbs_own_escape`
+(new, boundary_tests). P is
+`a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone` (new,
+capability_tests). E, A, B and G are the rows named in the previous ledger.
+
+After the last restore, the whole `brokkr-runtime` suite passed.
+
+### Gates on the restored tree (review return)
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | passed |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | passed |
+| `cargo test -p brokkr-runtime --all-features --locked` | passed; lib 548, `capability_launch` 19, 25 result lines, all ok |
+| `cargo test --workspace --all-features --locked` | passed; 77 result lines, all ok, exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | exit 0 |
+| `openspec validate --all --strict --no-interactive` | 18 passed, 0 failed |
+| `git diff --check` | passed |
+
+**Pending, not claimed:** the operator's C1 scope ruling, external
+`bash scripts/coverage-exact.sh`, macOS, and remote CI.

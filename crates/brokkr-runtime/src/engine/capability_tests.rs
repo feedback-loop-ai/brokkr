@@ -476,7 +476,7 @@ fn marked(engine: &Engine, link: &Candidate, input: Value) -> (SiteSpawn, Value)
 /// own, never its primary's.
 #[test]
 fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
-    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
     engine
         .bundle
         .sites
@@ -545,7 +545,7 @@ fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
 /// expected state cannot be sealed.
 #[test]
 fn the_dispatch_door_admits_only_the_record_sealed_for_its_spawn() {
-    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
     engine
         .bundle
         .sites
@@ -699,7 +699,7 @@ fn a_refused_record_stops_the_launch_before_the_driver_starts() {
     let captured = std::fs::canonicalize(captures.path())
         .unwrap()
         .join("start.json");
-    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
     engine
         .bundle
         .sites
@@ -739,6 +739,106 @@ fn a_refused_record_stops_the_launch_before_the_driver_starts() {
          D5.7)"
     );
     assert!(!captured.exists(), "the driver never started");
+}
+
+/// Unit 4 (design D5.7): an inline exec dispatch behind the network prefix
+/// is sealed with exactly the author's driver extras — none of the
+/// prefix's wrapper and none of the dispatched launcher — and the door
+/// reassembles the record against those extras alone.
+#[test]
+fn a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone() {
+    let (_dir, mut engine) = canonical_engine(single_body(vec!["driver".into()]));
+    let site = engine.bundle.sites.entry("work".into()).or_default();
+    site.capabilities = Some(two_candidates());
+    site.local = Some(crate::agents::LocalTools {
+        allow: None,
+        sandbox: None,
+    });
+    site.hands = crate::bundle::HandsState::Hands(HandsSpec::default());
+    let prefix = strings(&[
+        "unshare",
+        "--map-root-user",
+        "--net",
+        "--",
+        "sh",
+        "-c",
+        "ip link set lo up && exec unshare --map-user=1000 --map-group=1000 -- \"$@\"",
+        "sh",
+    ]);
+    let command = strings(&[
+        "/bin/brokkr",
+        "driver",
+        "exec",
+        "--",
+        "bash",
+        "/b/check.sh",
+        "--",
+        "x",
+    ]);
+    let mut spawn = compose_site(
+        BuiltBoundary::Harness,
+        SeatClass::Gate,
+        command,
+        Some(&HandsSpec::default()),
+        None,
+        Path::new("/w"),
+        &[],
+        "/w/result.json",
+        Some(&Unboxed {
+            env: BTreeMap::new(),
+            prefix,
+        }),
+    );
+    let mut input = json!({});
+    engine.mark_capabilities("work", None, Some(&mut spawn), &mut input);
+    assert_eq!(spawn.refusal, None);
+    assert_eq!(
+        input[LAUNCH_RECORD],
+        json!({
+            "segments": [{"origin": "authored", "argv": ["bash", "/b/check.sh", "--", "x"]}],
+            "expected": {
+                "identity": {"provider": "codex", "harness": "codex",
+                             "model": {"kind": "named", "name": "astra"}},
+                "native": {"kind": "known", "held": [], "denied": ["web-search"]},
+                "local": {"allow": {"kind": "unspecified"},
+                          "sandbox": {"kind": "unspecified"},
+                          "application": {"kind": "unrestricted"}},
+                "hands": {"kind": "required"},
+            },
+        })
+    );
+    assert_eq!(verify_record(&spawn, &input), Ok(()));
+    // An extras token changed after sealing no longer reassembles; the
+    // index counts from the driver's extras, not from the prefix.
+    let mut moved = spawn.clone();
+    moved.argv[15] = "y".into();
+    assert_eq!(
+        verify_record(&moved, &input),
+        Err(
+            "refusing the private launch record: its segments do not reassemble the arguments \
+             supplied; they first differ at argument 3 (4 recorded, 4 supplied), and an argument \
+             whose origin is not recorded is never trusted by its bytes (decision 0065 slice \
+             one, design D5.7)"
+                .to_string()
+        )
+    );
+}
+
+/// [`engine`] over a canonicalised temporary root, so every fixture path
+/// is the one the filesystem resolves (macOS's `/var` is `/private/var`).
+fn canonical_engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    std::fs::create_dir(root.join("work")).unwrap();
+    let store = Store::open(&root.join("forge.db")).unwrap();
+    let engine = Engine::start(
+        store,
+        bundle(&root, body),
+        "Feature: exact!",
+        Some(root.join("work")),
+    )
+    .unwrap();
+    (dir, engine)
 }
 
 fn world_granting(dir: &Path, repo: &Path, capabilities: Value) -> crate::realms::World {

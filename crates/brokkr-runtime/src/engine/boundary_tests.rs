@@ -361,36 +361,71 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
             .collect::<Vec<_>>()
     };
 
+    // The default workspace spec as the box and the server are told it.
+    let spec_json = r#"{"binds":[],"kind":"workspace","network":false}"#;
+
     // `namespace`, a boxed link: the template and its hands, each over its
-    // own expanded tokens.
+    // own expanded tokens — the MCP server's arguments spelled in full.
     let boxed = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
     let spawn = compose(BuiltBoundary::Namespace, boxed.argv.clone(), Some(&boxed));
-    assert_eq!(origins(&spawn), [Origin::Template, Origin::Hands]);
     assert_eq!(
-        spawn.segments[0].argv,
-        strings(&[&exe, "driver", "codex", "--", "--model", "m-1"])
+        spawn.segments,
+        [
+            Segment::new(
+                Origin::Template,
+                &strings(&[&exe, "driver", "codex", "--", "--model", "m-1"])
+            ),
+            Segment::new(
+                Origin::Hands,
+                &strings(&[
+                    "--sandbox",
+                    "read-only",
+                    "-c",
+                    r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#,
+                ])
+            ),
+        ]
     );
-    assert_eq!(
-        spawn.segments[1].argv[..3],
-        strings(&["--sandbox", "read-only", "-c"])
-    );
-    assert!(spawn.segments[1].argv[3].starts_with("mcp_servers.brokkr.args=["));
-    assert_eq!(spawn.segments[1].argv.len(), 4);
     assert_eq!(spawn.refusal, None);
 
     // `namespace`, an inline exec dispatch: the box's own prefix is the
-    // engine's, the dispatched command stays the author's.
+    // engine's, the dispatched command stays the author's — over its own
+    // tokens, the script mapped into the box and every other token as
+    // written.
     let exec = exec_dispatch(Path::new("/bundle/scripts/verify.sh"));
     let spawn = compose(BuiltBoundary::Namespace, exec.clone(), None);
-    assert_eq!(origins(&spawn), [Origin::Hands, Origin::Authored]);
-    assert_eq!(spawn.segments[0].argv[1..3], strings(&["hands", "exec"]));
-    assert_eq!(spawn.segments[0].argv.last().unwrap(), "--");
-    // The author's command over its own tokens: the script is mapped into
-    // the box, every other token is as written.
-    assert_eq!(spawn.segments[1].argv.len(), exec.len());
-    assert_eq!(spawn.segments[1].argv[..5], exec[..5]);
-    assert_ne!(spawn.segments[1].argv[5], exec[5]);
-    assert_eq!(spawn.segments[1].argv[6], "{prompt_file}");
+    assert_eq!(
+        spawn.segments,
+        [
+            Segment::new(
+                Origin::Hands,
+                &strings(&[
+                    &exe,
+                    "hands",
+                    "exec",
+                    "--workdir",
+                    "/work",
+                    "--spec",
+                    spec_json,
+                    "--bundle-root",
+                    "/bundle",
+                    "--",
+                ])
+            ),
+            Segment::new(
+                Origin::Authored,
+                &strings(&[
+                    "/usr/local/bin/brokkr",
+                    "driver",
+                    "exec",
+                    "--",
+                    "bash",
+                    "/runtime/bundle/scripts/verify.sh",
+                    "{prompt_file}",
+                ])
+            ),
+        ]
+    );
 
     // `harness`, the unboxed link: its template, then the gate fragment the
     // engine appended, expanded — the legacy pair's managed half.
@@ -475,6 +510,112 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
         spawn.segments,
         [Segment::new(Origin::Authored, &unboxed.argv)]
     );
+}
+
+/// Unit 4 (design D5.7): the driver's extras begin where the driver itself
+/// reads them — after whatever the engine put in front of the launch for
+/// the boundary, carried as its leading `hands` segments, and after the
+/// driver verb, dropping only an escape `--` directly behind the verb, as
+/// its trailing-argument parser does. A later `--` is an argument, and a
+/// wrapper's own `--` is never the driver's.
+#[test]
+fn the_driver_extras_begin_after_the_engines_prefix_and_the_verbs_own_escape() {
+    let spec = HandsSpec::default();
+    let strings = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    // The real prefix's eight tokens, spelled here for uid and gid 1000.
+    let prefix = strings(&[
+        "unshare",
+        "--map-root-user",
+        "--net",
+        "--",
+        "sh",
+        "-c",
+        "ip link set lo up && exec unshare --map-user=1000 --map-group=1000 -- \"$@\"",
+        "sh",
+    ]);
+    let compose = |boundary, command: Vec<String>| {
+        compose_site(
+            boundary,
+            SeatClass::Gate,
+            command,
+            Some(&spec),
+            None,
+            Path::new("/work"),
+            &[PathBuf::from("/bundle")],
+            "/r/p.json",
+            Some(&Unboxed {
+                env: BTreeMap::new(),
+                prefix: prefix.clone(),
+            }),
+        )
+    };
+    let exec = exec_dispatch(Path::new("/bundle/scripts/verify.sh"));
+
+    // Inside the box: neither the box's prefix nor the dispatched launcher.
+    let boxed = compose(BuiltBoundary::Namespace, exec.clone());
+    assert_eq!(
+        boxed.extras(),
+        [Segment::new(
+            Origin::Authored,
+            &strings(&["bash", "/runtime/bundle/scripts/verify.sh", "{prompt_file}"])
+        )]
+    );
+    // Behind the network prefix: neither its wrapper nor the launcher.
+    let unboxed = compose(BuiltBoundary::Harness, exec.clone());
+    assert_eq!(unboxed.argv[..8], prefix[..]);
+    assert_eq!(
+        unboxed.extras(),
+        [Segment::new(
+            Origin::Authored,
+            &strings(&["bash", "/bundle/scripts/verify.sh", "{prompt_file}"])
+        )]
+    );
+    assert_eq!(
+        unboxed.launch_arguments(),
+        json!({"authored": ["bash", "/bundle/scripts/verify.sh", "{prompt_file}"],
+               "managed": []})
+    );
+
+    // An authored driver argument before a later `--` is the driver's.
+    let inline = strings(&[
+        "/bin/brokkr",
+        "driver",
+        "dsh",
+        "--model",
+        "p/m",
+        "--",
+        "--effort",
+        "high",
+    ]);
+    let spawn = compose(BuiltBoundary::Open, inline);
+    assert_eq!(
+        spawn.extras(),
+        [Segment::new(
+            Origin::Authored,
+            &strings(&["--model", "p/m", "--", "--effort", "high"])
+        )]
+    );
+    // Only the escape directly behind the verb is the parser's.
+    let escaped = compose(
+        BuiltBoundary::Open,
+        strings(&["/bin/brokkr", "driver", "dsh", "--", "--", "x"]),
+    );
+    assert_eq!(
+        escaped.extras(),
+        [Segment::new(Origin::Authored, &strings(&["--", "x"]))]
+    );
+    // An argv that ends at the verb, or at its escape, hands no extras.
+    for bare in [
+        strings(&["/bin/brokkr", "driver", "dsh"]),
+        strings(&["/bin/brokkr", "driver", "dsh", "--"]),
+    ] {
+        assert_eq!(compose(BuiltBoundary::Open, bare).extras(), []);
+    }
 }
 
 /// Unit 4 (design D5.7): the compile expands `{brokkr}` and `./` one
