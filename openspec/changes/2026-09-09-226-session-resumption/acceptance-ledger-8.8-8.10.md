@@ -575,6 +575,29 @@ exist.
    recorded digest with `assert_ne!` against a hash of the resolved file
    (changed bytes), read off the real `Start.input`.
 
+   **Landed 2026-09-23 at `17b5b4d2`.** Two cases in `resume_tests.rs`, both
+   reading the real `Start.input`:
+   `a_non_binding_route_overlay_withholds_the_member_at_the_single_site`
+   drives the nonmember shape through `run_driver` and asserts the context is
+   an object carrying no `route_overlay` key at all, and
+   `a_changed_route_overlay_member_carries_the_manifest_digest_at_the_panel_member`
+   drives the changed-bytes member through `MemberRun`, asserting the
+   manifest's recorded digest and `assert_ne!` against a hash of the file as
+   it now stands on disk. Two mutations, compiled, run red and reverted:
+   `None` for the member's binding at `engine.rs:1917` parts the panel case at
+   `resume_tests.rs:1958` (`Null` against `"recipe/route.yml"`) while the
+   single-site case stays green — which is what makes the new case evidence
+   for that call site; and a `files` lookup falling back to a literal digest
+   instead of refusing a nonmember parts the single-site case at
+   `resume_tests.rs:1859`
+   (`Some({"digest":"unrecorded","value":"recipe/other.yml"})` against
+   `None`). `cargo fmt --all -- --check`, `cargo clippy --workspace
+   --all-targets --all-features --locked -- -D warnings` and `cargo test -p
+   brokkr-runtime --all-features --locked` (458 lib plus 85 integration
+   passed, 0 failed) are green. Tests only; no production line moved;
+   B38(ii)'s compiled-member escaping symlink stays with unit 2b; no checkbox
+   moved.
+
 2b. **Build the compiled-member escaping-symlink vector.** Closes the shape of
    B38(ii) that no fixture in the tree expresses (F2b). Touches
    `crates/brokkr-runtime/src/engine/resume_tests.rs` only. The fixture the
