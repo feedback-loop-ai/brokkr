@@ -89,6 +89,18 @@ rooted at one canonical temporary directory and no provider or `.forge/` reads.
 Each new test needs its own compiling removal failure at the intended assertion
 and restored pass. Units 3–4 own lowering/origins; no later unit closes here.
 
+Unit 2 design visit, 2026-09-23, adopted head d9816374: D5.1–D5.4 reconcile
+both current council positions and answer the representation/handoff questions.
+Implement the shared decoder and per-field narrowing without changing Candidate;
+keep checked local facts with the site. Apply D5.3's exact admission/refusal
+table: an unimplemented lowering path must refuse runnable compilation, while
+pure decode/narrow tests retain every class and explicit empty. Preserve the
+standing hands replacement and constitutional error precedence. Cover distinct
+sites sharing an office, incompatible later candidates and selected engine
+fragments with complete assertions. Every new test still owes its compiling
+mutation failure and restored pass in the two named suites. The design adds no
+implementation, gate completion or task tick; 2.1 and later units remain open.
+
 ## 3. Unit 3 — Lower typed tools and define private origins
 
 - [ ] 3.1 Unit 3 defines typed lowering and private segment decoding/reassembly, with expected state independent of generated argv. Verify exact mappings and identical-byte origin distinction in agents/native-controls suites; no public schema. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; both design positions. (previous 3.20)

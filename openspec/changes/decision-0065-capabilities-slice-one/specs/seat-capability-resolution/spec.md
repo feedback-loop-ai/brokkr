@@ -376,6 +376,42 @@ field SHALL be coerced, ignored or treated as omitted.
 - **THEN** each has the same effective local values or complete owning-site refusal
 - **AND** placing tools on the enclosing panel, sequence or selection container refuses its non-executable placement; it does not create a shared grant or an ignored restriction
 
+#### Scenario: Decoding cannot admit a runnable unrestricted command
+
+- **GIVEN** a typed local declaration is syntactically valid and narrows its office, but the current serving path cannot yet express it
+- **WHEN** unit 2 validates inline direct allow, direct explicit empty, or a sandbox requiring new lowering
+- **THEN** the pure decoder/narrower preserves the exact value and runnable compilation refuses with the owning site, field and complete unsupported-representation cause
+- **AND** authored flags cannot satisfy the missing representation; the refusal remains until the owning lowering and transport work proves delivery
+
+#### Scenario: Existing hands semantics do not require direct-tool support
+
+- **GIVEN** an agent has a valid workspace hands fragment and a syntactically valid local list, while its adapter declares direct tool_permissions unsupported
+- **WHEN** a seat inherits or narrows that list under existing hands authority
+- **THEN** declaration syntax, duplicates and subset checks still run and the effective value remains exact, while the existing hands replacement supplies no direct local flags
+- **AND** the list does not filter broker commands or disable hands when empty; no direct mapping is invented or required for that dormant list
+- **AND** where an adapter does map an entry to a native capability, that alias refuses with its migration cause even beside hands; malformed or widened declarations cannot disappear in the hands branch
+
+#### Scenario: An existing sandbox fragment must match the typed request
+
+- **GIVEN** an agent actually dispatches through Codex and all independent model, hands and boundary checks admit it
+- **WHEN** it requests read-only at a harness gate or boxed site, or workspace-write at a harness work site
+- **THEN** admission additionally requires the selected engine fragment to express exactly that class without a competing control; the exact effective value and selected fragment are retained
+- **AND** a harness work fragment expressing workspace-write cannot satisfy a read-only request by being called narrower, and a boxed read-only fragment cannot satisfy a different requested class by silently clamping it
+- **AND** a missing fragment, an open work default, an opaque driver named codex, or a Claude permission mode is not evidence of sandbox-class support; the unsupported combination refuses
+
+#### Scenario: Site-local narrowing cannot contaminate a shared office
+
+- **GIVEN** two executable sites reference the same office and declare different valid local subsets
+- **WHEN** they are compiled in either traversal order
+- **THEN** each checked site fact retains exactly its own effective fields and identity, and the office's authored source and digest remain unchanged
+- **AND** an unspecified checked value is distinct from an unvisited site, and wrapper relocation carries the local value with the other site facts
+
+#### Scenario: An incompatible later candidate cannot hide behind selection
+
+- **GIVEN** the primary candidate can express the effective direct local restriction and a later candidate cannot
+- **WHEN** the later candidate is unavailable or capability wants would otherwise be dropped
+- **THEN** compilation still refuses the later candidate's complete local restriction cause after existing constitutional checks, rather than accepting only the primary's compatibility
+
 #### Scenario: Typed permissions preserve limits without inline options
 
 - **WHEN** a migrated Claude seat requests its local command subset, or a migrated Codex seat declares its existing sandbox restriction as typed data
@@ -507,3 +543,16 @@ proofs. Retaining an explicit empty value is a decoding obligation; proving
 that the provider actually receives an empty restriction remains a separate
 obligation in the named later units. No success may claim enforcement by merely
 accepting and discarding the typed declaration.
+
+Unit 2 design answers (2026-09-23, based on d9816374): the new scenarios apply
+SCM's unrepresentable-restriction refusal to intermediate commits too. Pure
+value acceptance cannot mean runnable acceptance while lowering is absent.
+The existing SC7 hands meaning is retained: direct mapping support is required
+where direct restrictions apply, not merely because an agent with hands still
+carries a dormant list. Reject the blanket requirement to invent direct-tool
+support for hands; reject using that exception to skip syntax, narrowing or
+a known native-alias refusal. A matching existing Codex engine fragment is the
+bounded sandbox representation for unit 2, as enumerated in design D5.3;
+unknown or conflicting representations refuse. These are compile-admission
+proofs, not provider live measurements or final-launch proof. Unit 2 does not
+change the three sandbox classes, realm grants or the accepted unit order.

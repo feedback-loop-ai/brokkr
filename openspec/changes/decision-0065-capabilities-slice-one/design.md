@@ -2,23 +2,33 @@
 
 Status: proposed design; decision 0066 remains proposed.
 Adopted: every commit through 44430402, specification draft a84197cd and
-design revision 3c5402be on slice-0065-capabilities. This tasks visit preserves
-the design and aligns the ledger and all current task references with it.
+design revision 3c5402be on slice-0065-capabilities; the replay, unit 1b and
+unit 2 specification through d98163740e24839deb5ddccd1a9e5d563f804b18 are
+adopted intact. This design visit addresses unit 2/task 2.1 only.
 Authority: [the complete operator ruling](operator-ruling-2026-09-23.md).
 This visit authors documents only. No behavioral finding or security hold is closed.
 
 ## Context
 
-See proposal.md for the four governing changes. This revision adopts the first
-and second chief rulings and reads all three completed third-council positions
+See proposal.md for the four governing changes. The earlier whole-rebuild
+revision adopted the first and second chief rulings and read all three
+completed third-council positions
 in `.forge/tasks/council-positions-80bfd784.md`. The third adversarial position
 was blocked twice; no position or chief judgment is invented for it. The run
 context has no returned_from. The named ruling supplies the return obligations.
 
 Local origin/main is 072cdd9b, seven commits beyond the shared branch ancestry:
 #313, #315, #320 (model generations), #321 (v0.11.0), #322, #323 and #326.
-The rebase is future unit 1, not work performed by this documentation visit.
-Production remains Rust under crates/. Hosts remain Linux and macOS (0063).
+Unit 1 has since replayed the branch onto that main; unit 1b bound the guard
+order. Their observed results and outstanding external gates remain in
+evidence.md. Neither is replayed here. Production remains Rust under crates/.
+Hosts remain Linux and macOS (0063).
+
+For this unit, agents/load.rs::parse_tools rejects empty allow and knows no
+sandbox field; bundle.rs rejects tools at its executable key lists.
+agents::compose deliberately substitutes hands for direct local tools.
+There is no general sandbox-class mapping in Adapter. These facts bound the
+decoder/admission design below; see proposal.md for motivation.
 
 ## Goals / Non-Goals
 
@@ -69,9 +79,11 @@ subtraction merge is expressly rejected by ruling 1; M2 maps to D8; M3 to D10.
 V1 stays pending; L1's rejection of embedded workflow directions remains valid.
 Panel prose is evidence, never authority to change this commission or its gates.
 
-Both current design positions were read whole: `.forge/design/positions/robustness.md`
-and `.forge/design/positions/simplicity.md`. Their pass verdicts do not prove the
-rebuild. Reconcile their concrete claims as follows:
+The following table retains the earlier whole-rebuild council synthesis
+accepted before unit 1. Its run-local position paths have since been replaced
+by unit 2 positions; it is historical, not a description of those new files.
+The current unit 2 synthesis follows under D5.1. Earlier pass verdicts did not
+prove the rebuild:
 
 | Position claims | Decision and evidence |
 | --- | --- |
@@ -322,6 +334,154 @@ inherits; an explicit unchanged-meaning subset narrows, including empty.
 None changes native OFF or grants a capability. Preserve command patterns
 exactly: pytest is `.venv/bin/pytest`, not another executable of that name.
 
+### D5.1. Unit 2 council disposition and bounded implementation
+
+Run `build-decision-0065-slice-one-re-9f0b932b`, adopted head `d9816374`.
+Both current positions were read in full from
+`.forge/design/positions/robustness.md` and
+`.forge/design/positions/simplicity.md`. There is no `returned_from` finding.
+The decisions below refine D5; the accepted Rebuild units order stays intact.
+Decision 0066 remains proposed. Task 2.1 remains open until implementation
+and its own observed proofs exist.
+
+| Current position claims | Disposition and evidence |
+| --- | --- |
+| Both: one decoder, independent presence, ordered narrowing | Adopt. `parse_tools` is the existing decoder; `Some([])` must survive and object replacement would erase an inherited sibling. Use it for agents and executable sites, with no normalization or second JSON parser. |
+| Simplicity: consolidate Agent.allow; robustness: retaining it is acceptable | Retain `Agent.allow` and add the sandbox enum field. A small local value returned by the shared decoder/narrower is assembled from those fields, not stored beside a duplicate allow field. This avoids an unnecessary public storage rename; there remains one authoritative value per field. |
+| Both: validate the complete chain and keep authority separate | Adopt. `resolve_report` already refuses a gap even in an unavailable fallback. Apply the site override to the cloned office before composition; retain existing model-policy/hands precedence over candidate compatibility gaps. |
+| Both: strict validation beside hands; robustness: no tool_permissions requirement for existing hands | Combine with a precise boundary: syntax and subset checks always run; direct mapping support is required where the direct list applies. Reject a mapped native alias even beside hands. Reject the interpretation that every hands agent needs a direct-tool mapping: `hands_replace_the_tool_list_with_the_adapters_fragment` explicitly proves the opposite. A dormant list supplies neither direct tools nor a broker policy. |
+| Both: existing site facts and executable paths; robustness: distinguish unchecked from unrestricted | Adopt a defaulted optional local fact in `SiteFacts`: absent means not visited, present with two absent fields means checked and unspecified. Containers never own it. Whole-value relocation already exists; avoid a new visitor or parallel map. |
+| Robustness: specify sandbox support, actual driver identity and work/boxed cases | Adopt the bounded table in D5.3. Adapter prose, provider labels and a vaguely similar permission mode are not support evidence. The current Codex hands fragments and existing grammar are sufficient for the few matching cases; all other explicit sandbox combinations refuse for now. |
+| Robustness: intermediate runnable acceptance must fail closed; simplicity: emission stays in unit 3 | Combine in D5.3. Admit only restrictions already represented by the existing path. Otherwise retain pure decoding/narrowing positives and refuse runnable compilation until the owning lowering/transport work exists. Reject acceptance that merely stores a restriction next to an unchanged command. |
+| Both: exact proofs, canonical fixtures, no scope expansion | Adopt D5.4. Reject new schemas, modules, dependency changes, Candidate fields, shipped data edits or provider probes in this unit. No broad cleanup or later-unit completion follows from this design. |
+
+### D5.2. Shared decoding, narrowing and site ownership
+
+Define the three-case sandbox enum and a small two-field local value in
+`agents.rs`: optional ordered allow and optional sandbox. Expose
+`agents/load.rs::parse_tools` narrowly through agents for bundle use; decode
+only allow, sandbox and absent/exactly-empty legacy MCP. MCP has no retained
+field. Use presence before type checks, preserve exact names/order and reject
+semantic duplicates. `read_request_source`, not the ordinary `read_json`
+helper, is the current strict agent reader; recipe layers already use
+`compose::read_layers`. Keep both strict readers and test duplicate keys from
+raw bytes without changing bundle/compose.rs.
+
+Narrow each field independently. Omission, `{}` and an omitted sibling inherit;
+explicit empty stays empty. Membership checks never reorder or silently
+intersect a list. An office empty list permits only empty; an unspecified
+list can be restricted. Compare sandbox reach explicitly as read-only <=
+workspace-write <= danger-full-access, never lexically and never as boundary
+ordering. Equal or narrower requests retain their exact requested class;
+widening refuses rather than clamping. Keep office source/digest unchanged;
+apply the override to a private clone, so two sites cannot affect one another.
+
+Factor `report_under` only enough to compose this effective clone. Do not first
+resolve a broader office command and then attach narrower facts. Preserve
+whole-chain compatibility, including unavailable fallbacks, and existing
+hands/model-policy error priority. Optional capability handling cannot forgive
+malformed local input, widening or an inexpressible direct restriction.
+Where direct tools apply, resolve each name using that candidate's
+`ToolPermissions.names` and reuse the `native.capability_of` check, including
+arbitrary aliases of native tools. Unknown mappings refuse; no raw name is
+passed through. With agent hands, the standing replacement rule still applies:
+validate declaration shape and narrowing, reject native aliases when mapped,
+and retain the declaration without describing it as broker-command filtering.
+Do not require otherwise-unused direct-tool support or append local flags
+beside the workspace fragment. Empty local entries do not disable hands.
+
+In `bundle.rs`, admit the tools key in SEAT_KEYS/BODY_KEYS/MEMBER_KEYS/STEP_KEYS
+and explicitly reject its presence on containers, even `{}`. Use the existing
+ordinary/member/step/selected-body paths, including every case/default and
+inherited body. A panel-valued step remains a container. A dialect step with
+no executable check cannot own tools; an exec-generated check cannot represent
+nonempty local fields and refuses them. No synthetic path may discard them.
+Typed declarations needing adapter validation must obtain the existing
+fallible adapter context; extend needs_adapters without opening an unused
+agent library or swallowing load failures. Validate shape/placement before
+asking an adapter to represent a declaration.
+
+Store the effective value beside the execution site's other facts, using
+existing labels/source roots. It is private compile data, not a manifest field
+or a new capability grant. Unrestricted executable sites still receive a
+checked empty value. Wrapper relocation moves the entire fact. Error messages
+retain source/site, field and full cause; dependent errors add office,
+provider/model and resolved boundary as applicable. No value-dependent raw
+flag reconciliation or change to later refusal activation belongs here.
+
+### D5.3. Existing representations and the fail-closed handoff
+
+Decoding is not runnable admission. An explicit restriction must already be
+represented by the selected serving path, or bundle compilation refuses with
+the owning field and unsupported-representation cause. This implements SCM's
+existing unrepresentable-restriction rule; it is not an exception to it.
+The guard concerns typed declarations only, not unit 12's general authored-flag
+campaign. Authored flags can never supply the missing representation.
+
+| Effective declaration/path | Unit 2 admission boundary |
+| --- | --- |
+| Both fields unspecified | Preserve the existing local default and all independent authority checks. |
+| Agent direct nonempty allow, no sandbox | Existing compose mapping applies to the effective clone, across every candidate. Preserve literal mapping values and existing native-alias refusal. |
+| Inline direct allow, or direct explicit empty | Decode/narrow exactly, then refuse until exact lowering exists. Joining empty names into an empty flag value is not an empty-tool proof. |
+| Agent hands and local allow, no sandbox | Preserve existing replacement semantics and strict local validation from D5.2; never add direct flags or reinterpret the list as authority inside the broker. |
+| Agent with hands, actual Codex dispatch, harness gate | Only read-only matching the existing valid gate fragment can be admitted; missing fragment and open-gate authority refusals retain precedence. Workspace-write and danger-full-access conflict with the gate. |
+| Agent with hands, actual Codex dispatch, harness work | Only workspace-write matching the existing work fragment can be admitted. Read-only would require replacing the writable fragment; danger-full-access would contradict it. Both refuse in this unit. |
+| Agent with hands, actual Codex dispatch, boxed boundary | Only read-only matching the existing workspace fragment can be admitted, with the box and hands policy unchanged. Other explicit classes refuse; harness.work cannot substitute for missing workspace support. |
+| Open work with hands; any no-hands sandbox; inline sandbox | No existing typed emission path supplies the requested class. Refuse, including danger-full-access: a presumed provider default is not a representation. |
+| Claude/LaneTally/DSH, exec or opaque dispatch with explicit sandbox | No established mapping to these three classes in current data. Refuse; acceptEdits is not evidence of a Codex sandbox class. |
+
+Recognize the actual driver, not the adapter's provider label. For the admitted
+Codex cases, inspect the selected engine fragment through the existing public
+protocol grammar: exactly one sandbox option with exactly the requested class.
+The shipped workspace/gate fragments use `--sandbox read-only`; work uses
+`--sandbox workspace-write`. Inspect the other command contributions for a
+competing sandbox control or opaque configuration that could defeat this
+check; uncertainty refuses typed admission. Do not add another parser, infer
+support from diagnostic prose, reconcile duplicates, or treat authored bytes
+as engine provenance. The current harness path appends the selected fragment;
+no new engine wiring is commissioned. Boxed host availability remains the
+existing start-time obligation, not evidence obtained by decoding.
+
+These admitted cases assert existing fragment selection and exact compile
+facts only. They do not close cold/resume/final-command proof. Units 3–4 own
+new lowering and transport: a guard may be removed only for a path whose
+restriction reaches its command with preserved origin. If that needs both
+units, keep that path refused until both land. All three enum values have
+positive decoding/narrowing tests even when a particular runnable path refuses.
+Compiled positive scenarios are conditional on representation, as SCM already
+requires. There is no unresolved unit 2 design question or request to accept and discard
+typed data.
+
+### D5.4. Proof, migration and scope controls for unit 2
+
+Keep production in agents.rs, agents/load.rs and bundle.rs, and tests in
+agents/tests.rs and bundle/agent_tests.rs. Keep Candidate and public contracts
+unchanged. Use the existing canonical Tree and a retained, once-canonicalized
+bundle fixture root; new inline roles contain bytes inside their bundle.
+No test reads .forge/, discovers a provider or starts a model.
+
+Record baseline behavior before repair, then an independent compiling mutation
+for every new test, its failing exact assertion and restoration/pass. Required
+cases cover each malformed field/duplicate, empty versus omission, each class,
+partial inheritance, ordered subsets, independent allow/sandbox widenings,
+unknown/native mappings, fallback-only failures, unchanged hands semantics,
+each table admission/refusal, every executable/container form and two sites
+sharing an office in opposite traversal orders. Assert full effective facts,
+selected fragments, source/field causes and unchanged holdings/native OFF.
+A table's first failed row does not bind later rows. Existing strict readers
+may already pass baseline; report that honestly and mutate their in-scope
+caller/reader independently, never bundle/compose.rs to evade the budget.
+
+The implementation visit must run the runtime suite, workspace tests, self
+bundle compile, format, locked all-target/all-feature clippy, strict all-item
+OpenSpec and diff checks. External exact coverage stays pending until actual
+host/CI evidence exists. A fourth production file, another suite or pin edit
+requires an inventoried split before editing. Later audits inspect these
+records; they do not replace the owning unit's proof. Rollback this unit's
+new admission if necessary; never fall back to unrestricted compilation.
+Shipped migrations, broader sandbox support and new origins remain in their
+assigned later units.
+
 ### D6. Refuse authored controls; validate declared and final meaning
 
 Ruling 1 says “Nothing is merged.” The exhaustive supported refusal catalogue,
@@ -462,6 +622,14 @@ final head. No leftover mutation, threshold reduction or stale report may discha
 
 ## Risks / Trade-offs
 
+- A decoder may accept data that the current command cannot express → D5.3
+  keeps runnable admission refused until its lowering/transport is proven.
+- Hands and local restrictions can be mistaken for the same policy → D5.2
+  retains hands replacement and explicitly limits direct mapping checks.
+- A sandbox label may appear compatible while a different fragment runs →
+  D5.3 validates each candidate's actual selected fragment and refuses unknown
+  representations; later final-command proof remains independently required.
+
 - Refusal breaks shipped inline permissions → migrate every inventoried file
   before enabling refusal; prove preserved local limits and empty realm grants.
 - Grammar/provider disagreement → bound supported syntax, reject ambiguous
@@ -516,10 +684,10 @@ to revert the release, never a hidden reconciliation compatibility mode.
   final-proof work depends on it. If none exists, return upstream with evidence
   and amend the owning requirement/scenarios before proceeding; do not accept
   arbitrary settings or mark 21.2 complete from hand-built Controls.
-- **Current main and rebase conflicts (1.1, unit 1): execution evidence owed.**
-  The seven local-ref commits are known; remote freshness and the actual
-  conflict set must be recorded during unit 1. Additional production conflicts
-  require an explicit bounded split of the plan, not a silent fourth file.
+- **Unit 1 outstanding proof (1.1):** replay and the inventoried guard-order
+  split are recorded in evidence.md; unit 1b has landed. Its pending external
+  results remain pending. Unit 2 neither replays the branch nor substitutes
+  its local checks for those results.
 - **Host and provider measurements:** final-head Linux/macOS, external exact
   coverage and remote CI remain unobserved on the rebuilt candidate. DSH and
   LaneTally retain independent uncertainty and Codex live evidence stays cold

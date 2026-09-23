@@ -653,3 +653,80 @@ this evidence file change. Production, tests, pins, grants, frozen contracts,
 policy/schemas, policy/phase-machine.json, fixtures, reference and extensions
 retain their adopted bytes. The engine result is a run-local file, not a fifth
 committed artifact. No push is authorized or performed.
+
+
+## Unit 2 — chief design synthesis, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-9f0b932b`, phase `design`, adopted
+`d98163740e24839deb5ddccd1a9e5d563f804b18` on `slice-0065-capabilities`.
+The working tree began clean. Every prior commit is retained; no replay,
+implementation, task closure, new council or push occurs in this phase.
+The run context has no `returned_from`.
+
+Read the operator ruling/addendum, Rebuild units preamble/unit 2, task 2.1,
+framing and its SC7/SCM/SC8/RGR requirements, README and decisions
+0004/0005/0009/0065, the relevant 0046 ruling, 0063 and proposed 0066.
+Read `dialects/openspec.json`, its design/return instructions, the current
+proposal and rendered `openspec instructions design --change
+ decision-0065-capabilities-slice-one`. No workflow runner was invoked.
+Read both current positions in full, robustness.md and simplicity.md under
+`.forge/design/positions/`, and checked their claims against the three named
+production files, both owning suites, the existing Codex/Claude data and
+read-only dispatch/grammar seams. Those run-local reads are design evidence;
+new tests may not read .forge/.
+
+### Decisions and amended artifacts
+
+Design D5.1 explicitly adopts, combines or rejects the current positions'
+claims. It preserves the earlier whole-rebuild council table as historical,
+rather than misattributing it to the replacement unit 2 position files.
+D5.2 chooses one strict decoder, independent field inheritance, a retained
+Agent.allow plus typed sandbox, and a checked local value in SiteFacts.
+Source search found Agent's only construction in agents/load.rs; existing
+out-of-scope SiteFacts literals use Default, avoiding a Candidate or test-file
+expansion merely to add these facts.
+
+D5.3 answers both robustness questions: sandbox admission is bounded to
+matching existing Codex engine fragments under the existing hands/boundary
+law; any new inline/direct-empty/sandbox path without representation refuses
+runnable compilation until lowering/transport exists. No unsupported class is
+silently dropped or clamped. Pure decoding/narrowing still proves all three
+classes. The existing hands replacement rule wins over a blanket demand for
+direct tool_permissions support: syntax/narrowing and mapped native-alias
+checks remain, but a dormant list is not broker policy. Evidence is the two
+named hands regressions and the current composition branch; no new live
+provider semantics are claimed.
+
+In dependency order, amended design.md, the owning seat-capability-resolution
+scenarios/Decisions, task 2.1's notes, and this evidence. The added scenarios
+bind the intermediate refusal, matching sandbox fragments, unchanged hands,
+shared-office isolation and whole-chain compatibility. The proposal, other
+five deltas, accepted Rebuild units order and proposed decision 0066 remain
+coherent without edits. This visit does not change grants, production, tests,
+pins, contracts, policy, fixtures, reference or extensions.
+
+### Observed checks and remaining proof
+
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Existing long-requirement and unrelated archive-target informational notices
+  remain; there were no failed items.
+- `git diff --check`: **passed** after the design/scenario/task changes.
+- Each of `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`,
+  `cargo test -p brokkr-runtime --all-features --locked`,
+  `cargo test --workspace`, and
+  `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` was
+  attempted and **unavailable**, shell command-not-found (127). Cargo does not
+  resolve in this chief seat; the positions' availability observations belong
+  to those seats and do not establish availability here.
+- No Rust test was added, no baseline red or mutation was executed, and no
+  implementation/removal/restoration proof is claimed. D5.4 and task 2.1 retain
+  every such obligation in the two authorized suites.
+- External exact coverage, macOS and remote CI remain **pending**. No new host
+  result was observed, and the unit 1 obligations/security hold remain open.
+
+Only design.md, specs/seat-capability-resolution/spec.md, tasks.md and
+evidence.md belong in this design commit. The mandatory chief result is a
+separate gitignored run-local record with inputs.change. Final committed-head
+OpenSpec/diff checks and scope verification are recorded there after commit;
+these document checks cannot establish a fully green implementation.
