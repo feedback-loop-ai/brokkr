@@ -4521,28 +4521,211 @@ fn dsh_session_ids_and_composite_digests_use_their_closed_grammars() {
 #[test]
 fn dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
+    let home = std::fs::canonicalize(dir.path()).unwrap();
+    let home = home.as_path();
     plant_dsh_session(home, "sessions/brokkr/seat-1", "--w--", "session-1", 27);
+
+    // The round trip: the admitted locator names the ORIGINAL root — the
+    // home as it was spelled, joined with the locator as it was recorded
+    // — and the stored boundary read from it is the planted one.
     let root = resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-1").unwrap();
+    assert_eq!(root, home.join("sessions/brokkr/seat-1"));
+    let file = dsh_session_file(&root, "session-1").unwrap();
     assert_eq!(
-        dsh_session_last_seq(&dsh_session_file(&root, "session-1").unwrap()),
-        Some(27)
+        file,
+        home.join("sessions/brokkr/seat-1/--w--/session-1")
+            .join(DSH_TRANSCRIPT)
     );
-    // Absolute, traversal, missing and id-mismatched locators all refuse.
-    assert!(resolve_dsh_root(home, "/sessions/brokkr/seat-1", "session-1").is_err());
-    assert!(resolve_dsh_root(home, "sessions/../seat-1", "session-1").is_err());
-    assert!(resolve_dsh_root(home, "sessions/brokkr/absent", "session-1").is_err());
-    assert!(resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-2").is_err());
+    assert_eq!(dsh_session_last_seq(&file), Some(27));
 
-    // A second depth-zero file naming the same id is ambiguous.
+    // Each refusal by its own reason, because the reasons are how an
+    // operator tells a locator that escaped from one that was never
+    // spelled as a bounded relative path (evidence / LE2).
+    for (case, locator, id, reason) in [
+        (
+            "empty",
+            "",
+            "session-1",
+            "dsh driver: the owned target carries no persistence locator",
+        ),
+        (
+            "absolute",
+            "/sessions/brokkr/seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded relative path",
+        ),
+        (
+            "traversal",
+            "sessions/../seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded, round-tripping \
+             relative path",
+        ),
+        (
+            "a leading current-directory component",
+            "./sessions/brokkr/seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded, round-tripping \
+             relative path",
+        ),
+        (
+            "a component carrying the separator the shared clamp rewrites",
+            "sessions/brokkr\\seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded, round-tripping \
+             relative path",
+        ),
+        (
+            "absent",
+            "sessions/brokkr/absent",
+            "session-1",
+            "dsh driver: the owned persistence locator does not resolve",
+        ),
+        (
+            "another id",
+            "sessions/brokkr/seat-1",
+            "session-2",
+            "dsh driver: no stored depth-zero session names the offered id",
+        ),
+    ] {
+        assert_eq!(
+            resolve_dsh_root(home, locator, id).unwrap_err(),
+            reason,
+            "{case}"
+        );
+    }
+
+    // A locator naming a FILE is not a directory, which is its own reason
+    // rather than the enumeration failure behind it.
+    std::fs::write(home.join("sessions/brokkr/plain"), b"not a root\n").unwrap();
+    assert_eq!(
+        resolve_dsh_root(home, "sessions/brokkr/plain", "session-1").unwrap_err(),
+        "dsh driver: the owned persistence locator is not a directory"
+    );
+
+    // Ambiguity: a second depth-zero file naming the same id under the
+    // same root selects neither. The bounded selection is of exactly ONE
+    // matching depth-zero header, so two is a refusal and not a choice.
     plant_dsh_session(home, "sessions/brokkr/seat-1", "--x--", "session-1", 3);
-    assert!(dsh_session_file(&root, "session-1").is_err());
+    assert_eq!(
+        dsh_session_file(&root, "session-1").unwrap_err(),
+        "dsh driver: more than one stored session names the offered id"
+    );
+    assert_eq!(
+        resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-1").unwrap_err(),
+        "dsh driver: more than one stored session names the offered id",
+        "the ambiguity reaches the caller through the same locator"
+    );
 
-    // A symlink to an equal-shaped tree outside the home is an escape.
+    // A symlink to an equal-shaped tree outside the home is an escape:
+    // canonical home ownership, not a comparison of spellings.
     let outside = tempfile::tempdir().unwrap();
     plant_dsh_session(outside.path(), "tree", "--w--", "session-9", 1);
     std::os::unix::fs::symlink(outside.path().join("tree"), home.join("escape")).unwrap();
-    assert!(resolve_dsh_root(home, "escape", "session-9").is_err());
+    assert_eq!(
+        resolve_dsh_root(home, "escape", "session-9").unwrap_err(),
+        "dsh driver: the owned persistence locator escapes the dsh home"
+    );
+    // And the same tree planted INSIDE the home resolves, so the refusal
+    // above is the escape's and not the fixture's shape.
+    plant_dsh_session(home, "inside", "--w--", "session-9", 1);
+    assert_eq!(
+        resolve_dsh_root(home, "inside", "session-9").unwrap(),
+        home.join("inside")
+    );
+}
+
+/// A retained directory is never a provider handle.
+///
+/// A seat whose home already holds a complete, readable retained root —
+/// a depth-zero session file with a sequence behind it — still launches
+/// COLD when the offer names nothing: the directory on disk supplies no
+/// session id, the plan carries no `--session`, and the row records no
+/// rejoin. The control is the same store with the address actually
+/// offered, which does rejoin (task 8.8(d), Pass D; site / SR3).
+#[cfg(unix)]
+#[test]
+fn a_retained_dsh_directory_alone_never_supplies_a_provider_handle() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let home = dir.path();
+    let digest = "b".repeat(64);
+    let shim = dsh_version_shim(home, "dsh-retained", "0.1.5-rc.1");
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = home.to_str().unwrap();
+
+    // A complete retained root sits in the home, readable and current.
+    plant_dsh_session(home, "sessions/brokkr/seat-1", "--w--", "session-1", 9);
+    assert_eq!(
+        dsh_session_last_seq(
+            &dsh_session_file(&home.join("sessions/brokkr/seat-1"), "session-1").unwrap()
+        ),
+        Some(9)
+    );
+
+    // No offer: the directory is not read as one. The qualified cold
+    // route spells `--new` explicitly, its root is a FRESH one this
+    // launch allocated, and the fold has no stored boundary to start
+    // past — the retained root's nine sequences are not adopted.
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, home);
+    let cold = dsh_launch_with(&shim_text, &[], workdir, None, &input, || {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_eq!(cold.refusal, None);
+    assert_eq!(cold.rejoining, None);
+    assert_eq!(cold.first_seq, None);
+    assert_ne!(cold.root, home.join("sessions/brokkr/seat-1"));
+    assert!(cold.command.contains(&"--new".to_string()));
+    assert!(
+        !cold.command.contains(&"--session".to_string()),
+        "{:?}",
+        cold.command
+    );
+
+    // An id offered with no recorded address is still not a handle: the
+    // store holds that very id, and the offer is declined rather than
+    // matched against the directory.
+    let idless = dsh_launch_with(&shim_text, &[], workdir, Some("session-1"), &input, || {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_eq!(idless.refusal, Some("unverified-harness"));
+    assert!(!idless.stream_json);
+    assert_eq!(idless.rejoining, None);
+    assert_ne!(idless.root, home.join("sessions/brokkr/seat-1"));
+
+    // The control: the complete recorded address over the same store
+    // rejoins, so the two declines above are the missing ADDRESS's.
+    let mut offered = input.clone();
+    offered["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    offered["resume_context"]["originating_wrapper_digest"] = json!(digest);
+    offered["resume_context"]["owned_target"] = json!({
+        "provider_id": "session-1",
+        "persistence_locator": "sessions/brokkr/seat-1",
+        "persistence_home": home.to_str().unwrap(),
+    });
+    let warm = dsh_launch_with(
+        &shim_text,
+        &[],
+        workdir,
+        Some("session-1"),
+        &offered,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(warm.refusal, None);
+    assert!(warm.stream_json);
+    assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
+    assert_eq!(warm.first_seq, Some(9));
+    assert_eq!(warm.root, home.join("sessions/brokkr/seat-1"));
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 #[cfg(unix)]
@@ -11785,13 +11968,30 @@ fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
     let valid = format!("sessions/brokkr/{}", "a".repeat(64));
     assert_eq!(valid.chars().count(), 80, "the prefix itself is the bound");
     plant_dsh_session(dir.path(), &valid, "--p--", "session-80", 2);
-    assert!(resolve_dsh_root(dir.path(), &valid, "session-80").is_ok());
+    assert_eq!(
+        resolve_dsh_root(dir.path(), &valid, "session-80").unwrap(),
+        dir.path().join(&valid),
+        "the locator AT the bound round-trips to its own root"
+    );
 
     // One character beyond the bound names no admissible locator: the
-    // valid 80-character prefix is never selected by truncation.
+    // valid 80-character prefix is never selected by truncation. The
+    // reason is the bound's own, so an overlong locator is never reported
+    // as one whose root merely failed to resolve.
     let overlong = format!("{valid}x");
     assert_eq!(overlong.chars().count(), 81);
-    assert!(resolve_dsh_root(dir.path(), &overlong, "session-80").is_err());
+    assert_eq!(
+        resolve_dsh_root(dir.path(), &overlong, "session-80").unwrap_err(),
+        "dsh driver: the owned persistence locator exceeds the admitted bound"
+    );
+    // The truncated evidence is unresolved, not resolved-to-the-prefix:
+    // the 81st character names a directory that does not exist, and that
+    // is a SEPARATE refusal from the bound's, reached only when the
+    // overlong one is read as a shorter valid address.
+    assert!(
+        !dir.path().join(&overlong).exists(),
+        "the overlong address names nothing on disk"
+    );
 
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-prefix", "0.1.5-rc.1");
