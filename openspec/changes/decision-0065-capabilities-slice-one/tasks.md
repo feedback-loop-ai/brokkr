@@ -667,6 +667,28 @@ tests (2465 passed), both bundle compiles, `openspec validate` and `git diff
 denies nothing still compiles, and doctor does not see it. **Not fully
 green:** external exact coverage, macOS and remote CI are pending.
 
+## 5b. Unit 5b — Lower typed local tools at inline Claude and LaneTally sites
+
+- [x] 5b.1 Unit 5b lowers a typed `tools.allow` at an inline Claude or LaneTally site onto its adapter's tool permissions, through unit 3's lowering and unit 4's origin transport, as the engine's own `local` segment behind the authored command. The D5.3 guard is lifted only for that shape, and every other inline shape keeps an exact refusal. Verify exact compiled facts, sealed records and the final Claude command, with an independent compiling mutation for each new test and row. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the unit 6 split)
+
+Observed 2026-09-24 (evidence.md, "Unit 5b — typed local tools at inline
+Claude and LaneTally sites"), run `triage-directive-operator-ruling-b31f0b89`.
+The design settles the allow's flag, origin and native composition (D5, D5.7,
+D6, D5.3). The lowering is `agents::lower_allow`, which the agent path now
+calls too. The compiler records it as `SiteFacts.inline_local`, and
+`engine::compose_site_at` appends it behind the authored command. The
+expected state seals it as listed/direct. One new agent_tests test (18 rows)
+and four claude rows in the forms test were added. Obsolete D5.3 rows now carry
+exact driver and sandbox causes. Two new capability_launch tests cover the
+final Claude command and the LaneTally spawn and record. M1–M18 each bound and
+were restored. fmt, clippy, the brokkr-runtime suite, both bundle compiles,
+`openspec validate` and `git diff --check` passed. **Owed:** a dispatch-level
+test in `engine/capability_tests.rs` that binds the label `Engine::compose_at`
+hands over (unit 20's suite; outside this unit's inventory). **Open, operator's
+to rule before unit 6:** how the adapter's acceptEdits template reaches an
+inline command once ruling 1 removes the authored `--permission-mode`. **Not
+fully green:** external exact coverage, macOS and remote CI are pending.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

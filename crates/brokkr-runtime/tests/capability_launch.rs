@@ -238,12 +238,14 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
     };
     // Composed by the engine's own function, so the boundary's fragment —
     // the box's tokens, or the harness's own sandbox under `harness` — is
-    // in the argv exactly as it is at a real spawn.
+    // in the argv exactly as it is at a real spawn, and an inline site's
+    // lowered allow is the engine's own segment, as dispatch composes it.
     let built = match bundle.boundary.is_boxed() {
         true => brokkr_runtime::engine::BuiltBoundary::Namespace,
         false => brokkr_runtime::engine::BuiltBoundary::Harness,
     };
-    let spawn = brokkr_runtime::engine::compose_site(
+    let spawn = brokkr_runtime::engine::compose_site_at(
+        Some(facts),
         built,
         brokkr_runtime::SeatClass::Work,
         argv,
@@ -290,7 +292,8 @@ fn sealed(
         true => brokkr_runtime::engine::BuiltBoundary::Namespace,
         false => brokkr_runtime::engine::BuiltBoundary::Harness,
     };
-    let mut spawn = brokkr_runtime::engine::compose_site(
+    let mut spawn = brokkr_runtime::engine::compose_site_at(
+        Some(facts),
         built,
         brokkr_runtime::SeatClass::Work,
         argv,
@@ -740,6 +743,161 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
         json!({"provider": "claude", "harness": "claude",
                "model": {"kind": "named", "name": "opus"}})
     );
+}
+
+/// Rebuild unit 5b (design D5.3, D5.7): an inline Claude seat that declares
+/// a typed allow and writes no capability flag compiles, and the engine
+/// appends the adapter's exact mapped limits behind the authored command as
+/// its own `local` segment. The authored command is never rewritten, the
+/// sealed record carries both origins and the typed expectation, and the
+/// final Claude command carries the lowered list beside the native OFF.
+#[test]
+fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_local_limits() {
+    let operator = Operator::new();
+    let authored = [
+        "{brokkr}",
+        "driver",
+        "claude",
+        "--",
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "high",
+    ];
+    one_inline_seat(&operator, &authored);
+    typed_allow(&operator, json!(["pytest", "cargo"]));
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
+        panic!("work is a single seat");
+    };
+    // Every observed fact at once, so a mutation reports each one it moves.
+    let (spawn, input) = sealed(&bundle, "work", 0);
+    let record = &input["launch_record"];
+    assert_eq!(
+        json!({
+            "authored command": command,
+            "spawn": spawn.argv,
+            "segments": record["segments"],
+            "expected": record["expected"],
+            "final": solo(&operator, &workspace().join("adapters"), &context),
+        }),
+        json!({
+            "authored command": [&exe, "driver", "claude", "--",
+                                 "--model", "claude-opus-5-5", "--effort", "high"],
+            "spawn": [&exe, "driver", "claude", "--", "--model", "claude-opus-5-5",
+                      "--effort", "high",
+                      "--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"],
+            "segments": [
+                {"origin": "authored",
+                 "argv": ["--model", "claude-opus-5-5", "--effort", "high"]},
+                {"origin": "local",
+                 "argv": ["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]},
+            ],
+            "expected": {
+                "identity": {"provider": "claude", "harness": "claude",
+                             "model": {"kind": "none"}},
+                "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
+                "local": {"allow": {"kind": "listed", "names": ["pytest", "cargo"]},
+                          "sandbox": {"kind": "unspecified"},
+                          "application": {"kind": "direct",
+                                          "limits": ["Bash(.venv/bin/pytest:*)",
+                                                     "Bash(cargo:*)"]}},
+                "hands": {"kind": "none"},
+            },
+            "final": format!(
+                "launched {:?}",
+                [
+                    "claude",
+                    "-p",
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                    "--model",
+                    "claude-opus-5-5",
+                    "--effort",
+                    "high",
+                    "--allowedTools",
+                    "Bash(.venv/bin/pytest:*),Bash(cargo:*)",
+                    "--disallowedTools",
+                    "WebFetch,WebSearch"
+                ]
+            ),
+        })
+    );
+}
+
+/// Rebuild unit 5b at a LaneTally seat, which shares Claude's composition
+/// path: its typed allow is lowered onto LaneTally's own tool permissions
+/// and reaches the spawn and its sealed record as the engine's `local`
+/// segment. The shipped LaneTally inventory is unmeasured, which refuses
+/// every LaneTally seat on its own terms, so this fixture copies Claude's
+/// measured native declarations into it — the lowering is under test, not
+/// the wrapper's confinement.
+#[test]
+fn an_inline_lanetally_seats_typed_allow_reaches_its_spawn_as_the_engines_local_limits() {
+    let operator = Operator::new();
+    let adapters = copied_adapters();
+    let claude: Value =
+        serde_json::from_slice(&std::fs::read(adapters.path().join("claude.json")).unwrap())
+            .unwrap();
+    edit_adapter(adapters.path(), "lanetally", |adapter| {
+        adapter["native_capabilities"] = claude["native_capabilities"].clone();
+    });
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "lanetally",
+            "--",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+        ],
+    );
+    typed_allow(&operator, json!(["git", "gh-pr-view"]));
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, adapters.path(), &context).unwrap();
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let (spawn, input) = sealed(&bundle, "work", 0);
+    let record = &input["launch_record"];
+    assert_eq!(
+        json!({
+            "spawn": spawn.argv,
+            "segments": record["segments"],
+            "local": record["expected"]["local"],
+        }),
+        json!({
+            "spawn": [&exe, "driver", "lanetally", "--", "--model", "claude-opus-5-5",
+                      "--effort", "high", "--allowedTools", "Bash(git:*),Bash(gh pr view:*)"],
+            "segments": [
+                {"origin": "authored",
+                 "argv": ["--model", "claude-opus-5-5", "--effort", "high"]},
+                {"origin": "local", "argv": ["--allowedTools", "Bash(git:*),Bash(gh pr view:*)"]},
+            ],
+            "local": {"allow": {"kind": "listed", "names": ["git", "gh-pr-view"]},
+                      "sandbox": {"kind": "unspecified"},
+                      "application": {"kind": "direct",
+                                      "limits": ["Bash(git:*)", "Bash(gh pr view:*)"]}},
+        })
+    );
+}
+
+/// Declare `allow` as the solo work seat's typed local list.
+fn typed_allow(operator: &Operator, allow: Value) {
+    let path = operator.root().join("solo/bundle.json");
+    let mut bundle: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    bundle["seats"]["work"]["tools"] = json!({"allow": allow});
+    write(operator.root(), "solo/bundle.json", &bundle);
 }
 
 /// Ruling 5's launch on the RESUME argv, from compiled seats rather than a

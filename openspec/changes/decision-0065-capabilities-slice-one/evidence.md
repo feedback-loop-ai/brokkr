@@ -3870,3 +3870,179 @@ checked against the three-file ceiling when framed. Its tests are
 `bundle/agent_tests.rs` (the inline refusal rows move) and
 `tests/capability_launch.rs`. Unit 7's verify reviewer is also an inline
 Claude site with the same dependency.
+
+## Unit 5b — typed local tools at inline Claude and LaneTally sites, 2026-09-24
+
+Run `triage-directive-operator-ruling-b31f0b89`, triage `chore`, phase
+implement, sole seat. The base was `2171140f` on `slice-0065-capabilities`,
+clean. There is no `returned_from`. Production: `agents.rs`, `bundle.rs` and
+`engine.rs` under `crates/brokkr-runtime/src`. Tests: `bundle/agent_tests.rs`
+and `crates/brokkr-runtime/tests/capability_launch.rs`. No recipe, adapter,
+pin, contract, fixture or policy byte moved.
+
+### Step 0: what the design settles
+
+The commission asked where the settled design says how a typed local allow
+reaches an inline command, meaning the flag spelling, the origin segment and
+the composition with native OFF.
+
+- **Vocabulary.** D5: "Typed inline tools use the agent vocabulary
+  `tools.allow` (abstract local command names, no native capability
+  aliases)".
+- **Flag spelling.** D5.7: "Ordered concrete limits are obtained from
+  ToolPermissions.names before joining … With allow [pytest, cargo], retain
+  [Bash(.venv/bin/pytest:*), Bash(cargo:*)] and emit exactly
+  ["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]." The flag
+  and separator are the adapter's `tool_permissions`, never an authored
+  spelling.
+- **Origin.** D5.7: "direct mapped limits are local … A copied recipe command
+  is authored". D5: "Separate authored inert argv, adapter templates, typed
+  local permissions, engine hands and realm-derived native controls before
+  flattening".
+- **Composition with native OFF.** D6: "The engine alone lowers typed local
+  tools, realm-derived native controls and hands." D5.7: "engine-only
+  composition and final semantic comparison remain units 12–15". Until those
+  units, an inline site's local segment meets native OFF in the same driver
+  composer that an agent-backed local segment meets today.
+- **When the guard may lift.** D5.3: "a guard may be removed only for a path
+  whose restriction reaches its command with preserved origin."
+
+**Not settled, and left alone:** how the adapter's permission-mode template
+(`--permission-mode acceptEdits`) reaches an inline command. D5.7 defines the
+template origin only "at agent composition", where `adapter.driver` opens the
+command. The adapter declares the mode only inside `driver`, whose first four
+tokens (`{brokkr} driver claude --`) an inline command authors itself. D5
+forbids recognising engine ownership by equal bytes. Ruling 1 and the
+Migration Plan remove the authored `--permission-mode` from fast, node and
+preflight, and SCM requires "Claude permission templates preserve
+`acceptEdits`". Unit 6 therefore needs an operator ruling. The question is
+whether an inline Claude/LaneTally site receives the adapter's permission
+template, and if so how it stands beside the authored dispatch prefix, and
+whether that applies to every inline site or only a typed-tools one. This
+unit composes no template, and its final command carries no permission mode.
+
+### What changed
+
+- `agents.rs`: `compose`'s direct-allow lowering is factored into
+  `pub fn lower_allow(adapter, allow, holder) -> Result<LocalLowering,
+  String>`. It holds the empty refusal, the unsupported, unmapped and
+  native-alias causes, and the `local` segment with limits kept before
+  joining. The agent path calls it and wraps the cause as before, so every
+  existing agent message is byte-identical. `native_alias` is now a free
+  function shared by the hands branch.
+- `bundle.rs`: `record_inline_tools` now takes the site's command, its
+  adapters and the bundle dir. A typed allow goes to `lower_inline_allow`,
+  which refuses in this order: a driver other than claude or lanetally;
+  hands; an authored command the grammar cannot parse; an authored tool list
+  of any kind, named canonically without its value (ruling 1: never merged);
+  no adapter for the driver; then `lower_allow`'s own causes. The sandbox
+  refusal is unchanged. The lowered segment is expanded like an agent
+  composition (`expand_command`) and stored as `SiteFacts.inline_local`. The
+  authored `SeatBody` command is never rewritten. The dialect validator's
+  tools are judged against the validator's own command (`exec`).
+- `engine.rs`: `pub fn compose_site_at(facts, …)` composes an inline site
+  that has `inline_local` from `[Authored(command), inline_local.segment]`
+  through the existing `compose_segments`. Every other site goes to
+  `compose_site` unchanged. Dispatch calls it through
+  `Engine::compose_at(Some(label), …)` at all four sites (single, member,
+  step, dialect step). `expected_state` seals `Listed(names)` and
+  `Direct(limits)` for a lowered inline allow and keeps the refusal for any
+  other inline declaration. `engine/boundary_tests.rs` calls the old private
+  `compose` directly and is outside this unit's files, so a `#[cfg(test)]`
+  `compose` remains that delegates with no site facts. Production never
+  calls it.
+
+### Baseline
+
+At `2171140f`, every inline typed allow was refused with the single D5.3
+message. Unit 6's probe recorded it for preflight's reviewer, and it was
+bound by `inline_refusal(…, "allow")` rows in three agent_tests tests. The new
+positive behaviour had no compiling baseline: `LocalLowering`,
+`inline_local` and `compose_site_at` did not exist, so it is unavailable as
+a compiling red (D5.7). The obsolete rows were replaced with exact causes:
+`undelivered_allow` for opaque and `exec` commands, and
+`inline_sandbox_refusal` for the unchanged sandbox rows.
+
+### Tests
+
+- `bundle/agent_tests.rs::an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses`
+  has 18 rows. Positives: claude, lanetally, and a bundle-relative mapping
+  (exact `LocalTools`, `LocalLowering` and the untouched authored command).
+  Refusals: lanetally with no adapter; codex, dsh and exec; explicit empty;
+  beside a sandbox; beside hands; unmapped name; unreadable authored argv;
+  `--allowedTools`, `--allowed-tools=`, `--tools` and `--disallowedTools`
+  authored; native alias; `tool_permissions` unsupported.
+- `every_inline_executable_form_records_or_refuses_its_own_declaration` now
+  has 32 rows. It adds a claude row per form (panel member, sequence step,
+  selected case, default), each recorded at its own label.
+- `an_inline_site_records_…` and `a_dialect_step_owns_only_…` rows now carry
+  the exact driver cause.
+- `tests/capability_launch.rs`: `try_launch` and `sealed` compose through
+  `compose_site_at`, as dispatch does.
+  `an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_local_limits`
+  asserts one JSON value covering the authored command, the spawn argv, the
+  record segments, the whole expected state and the final Claude command
+  `claude -p --output-format stream-json --verbose --model claude-opus-5-5
+  --effort high --allowedTools Bash(.venv/bin/pytest:*),Bash(cargo:*)
+  --disallowedTools WebFetch,WebSearch`, under empty grants with shipped
+  adapters.
+  `an_inline_lanetally_seats_typed_allow_reaches_its_spawn_as_the_engines_local_limits`
+  asserts the spawn, the segments and the local expectation. The shipped
+  LaneTally inventory is unmeasured, which refuses every LaneTally seat on
+  its own terms, so its fixture copies Claude's native declarations. The
+  lanetally harness command is built by a private protocol function, so the
+  spawn the driver receives is the final command asserted here.
+
+### Mutations (each alone, compiling, restored, then rerun green)
+
+| # | Mutation | Failing test: rows / assertion (actual) |
+| --- | --- | --- |
+| M1 | driver gate admits any driver | inline-lowers: codex, dsh, exec (left: "…for driver 'codex', which no loaded adapter declares…"); dialect: validate allow [], [cargo] |
+| M2 | an opaque command is read as claude | records-checked: 3 allow rows; forms: 8 opaque allow rows (left: "…its arguments do not parse: … argument 1 ('driver')…") |
+| M3 | hands check off | inline-lowers: beside hands (left: compiled) |
+| M4 | authored list check off | inline-lowers: all four list rows (left: compiled) |
+| M5 | grammar failure ignored | inline-lowers: unreadable authored argv (left: the later capability pass's "(office 'review') in realm '<unmapped>'" cause) |
+| M6 | adapter lookup always claude | inline-lowers: lanetally without an adapter, no tool permissions (left: compiled) |
+| M7 | empty refusal off in `lower_allow` | inline-lowers: explicit empty; plus the agent rows in narrows-per-field, every-form and inherited body (shared lowering) |
+| M8 | native alias ignored | inline-lowers: native alias (left: compiled) |
+| M9 | unmapped names skipped | inline-lowers: unmapped name (left: compiled) |
+| M10 | holder "agent" at inline | inline-lowers: no tool permissions (left: "…so the agent's restriction…") |
+| M11 | sandbox refusal skipped once lowered | inline-lowers: beside a sandbox (left: the later "requests 'tools.sandbox' 'read-only' without hands" cause) |
+| M12 | lowering not recorded | inline-lowers: claude, lanetally, bundle-relative; forms: 4 claude rows; both launch tests (sealing refuses "…no inline command lowers") |
+| M13 | no expansion | inline-lowers: bundle-relative mapping (left argv `./bin/tool`) |
+| M14 | dialect step judged on its step JSON | dialect: validate allow [], [cargo] (left: "dispatches no built-in driver") |
+| M15 | `compose_site_at` ignores the lowering | both launch tests: spawn lacks `--allowedTools`; the Claude final command loses it too (left `… high --disallowedTools WebFetch,WebSearch`) |
+| M16 | expected state ignores the lowering | both launch tests: local expectation `unspecified`/`unrestricted` |
+| M17 | lowering labelled `authored` | both launch tests and unit 4's agent-backed record test: segment origin |
+| M18 | local segment before the authored command | both launch tests: spawn begins `--allowedTools …` |
+
+M15 was first run while M14 was still applied, because a restore missed. It
+was rerun alone with the same two failures. M16–M18 were run before the
+launch tests were merged into one JSON assertion; M15 was rerun afterwards
+and shows the final-command component moving.
+
+### Gates
+
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings`, `cargo test -p brokkr-runtime
+--all-features --locked` (lib 549 and every integration suite green),
+`cargo test -p brokkr-cli --all-features --locked` (33 suites green; not
+touched, run because it consumes the runtime), both `compile --bundle
+bundles/self` and `bundles/verify`, `openspec validate --all --strict` (18
+passed) and `git diff --check` all passed after restoration. The disk
+filled twice during the unit, from outside this worktree. This worktree's own
+`target/` was cleaned to continue, and the gates were run on a clean build.
+
+### Owed and open
+
+- **Owed:** a dispatch-level test that binds the label `Engine::compose_at`
+  hands to `compose_site_at` at the four dispatch sites. A mutation passing
+  `None` there is caught by no test in this unit's suites, which call
+  `compose_site_at` directly as unit 4's call `compose_site`. Its suite,
+  `engine/capability_tests.rs`, is unit 20's.
+- **Open, for the operator before unit 6:** the acceptEdits template
+  question above. Without a ruling, migrating fast, node and preflight either
+  keeps an authored `--permission-mode` (refused at unit 12) or drops
+  acceptEdits (SCM forbids).
+- **Pending:** external exact coverage, macOS and remote CI on the committed
+  head. Nothing is pushed.

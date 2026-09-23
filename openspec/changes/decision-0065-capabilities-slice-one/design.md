@@ -1186,6 +1186,35 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    npm/npx/node plus narrow gh-pr-view/gh-run-view mappings. Tests:
    crates/brokkr-runtime/tests/library_data.rs, crates/brokkr-cli/tests/init_stacks.rs
    and init_doctor.rs there; generated typed restrictions add no grant.
+   **5b. Lower typed local tools at inline Claude and LaneTally sites.**
+   Inserted before unit 6 by operator commission (run
+   `triage-directive-operator-ruling-b31f0b89`), because unit 6 stopped
+   blocked at `c10fc837`: every seat it migrates is inline, and D5.3 still
+   refused a typed allow there. Close 5b.1. Production:
+   `crates/brokkr-runtime/src/agents.rs`, `bundle.rs`, `engine.rs` in that
+   src root. The design settles the allow. D5 says that typed inline tools
+   use `tools.allow`. D5.7 says that "direct mapped limits are local", with
+   the concrete limits obtained from `ToolPermissions.names` before joining,
+   emitting exactly `["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]`,
+   and that "a copied recipe command is authored". D6 says that "the engine
+   alone lowers typed local tools, realm-derived native controls and hands".
+   D5.3 says that "a guard may be removed only for a path whose restriction
+   reaches its command with preserved origin". Reuse unit 3's lowering
+   (factored as `agents::lower_allow`, which the agent path also calls) and
+   unit 4's transport. The compiler records the lowered segment beside the
+   site's facts, and dispatch appends it behind the authored command as its
+   own `local` segment. The authored command is never rewritten. Lift the
+   D5.3 guard only for a command that dispatches the claude or lanetally
+   driver, with no hands, no authored tool list and a nonempty list the
+   adapter maps. Every other inline shape keeps an exact refusal, including
+   empty allow, inline sandbox, other drivers, hands, an authored tool list,
+   unparseable argv, and an unmapped, unsupported or native-alias name.
+   Native OFF composes as it does for agent-backed local limits, until units
+   12–15. Tests: bundle/agent_tests.rs and
+   crates/brokkr-runtime/tests/capability_launch.rs. Migrate no recipe here.
+   The design does not settle how the adapter's permission-mode template
+   (acceptEdits) reaches an inline command, which unit 6 needs; that is the
+   operator's to rule (evidence.md, "Unit 5b").
 6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,

@@ -417,6 +417,12 @@ pub struct SiteFacts {
     /// that declared nothing. Containers never own one. Private compile
     /// data: not a manifest field and not a grant.
     pub local: Option<crate::agents::LocalTools>,
+    /// Rebuild unit 5b (design D5.3, D5.7): an inline Claude or LaneTally
+    /// site's typed allow, lowered by the engine onto its adapter's tool
+    /// permissions. The engine appends it behind the authored command as
+    /// its own `local` segment at dispatch; the authored command never
+    /// carries it. `None` at every other site.
+    pub inline_local: Option<crate::agents::LocalLowering>,
 }
 
 /// Every agent charter one compile bound, keyed by the path the seat will
@@ -1526,7 +1532,14 @@ impl Bundle {
                     },
                 )?
             } else {
-                record_inline_tools(phase, raw, &mut sites)?;
+                record_inline_tools(
+                    dir,
+                    phase,
+                    raw,
+                    &command_parts(raw),
+                    agents.as_ref().map(|context| &context.adapters),
+                    &mut sites,
+                )?;
                 SeatBody::Single {
                     role_path: parse_role(dir, phase, raw)?,
                     command: parse_command(dir, phase, raw, &secrets)?,
@@ -1817,7 +1830,14 @@ impl Bundle {
             // other visited executable it records that as a CHECKED
             // unspecified value rather than an unvisited one (design
             // D5.2; review return F3).
-            record_inline_tools(dialect_site, &synthetic, &mut sites)?;
+            record_inline_tools(
+                law.dir,
+                dialect_site,
+                &synthetic,
+                &command_parts(&synthetic),
+                agents.as_ref().map(|context| &context.adapters),
+                &mut sites,
+            )?;
             relocate_verify_facts(&mut sites, &moved);
             let prior = SequenceStep {
                 name: "checks".into(),
@@ -2603,34 +2623,123 @@ fn refuse_tools_on_container(what: &str, raw: &Value) -> Result<(), CompileError
 
 /// Decode, judge and record the typed local declaration of a site whose
 /// command no office composes — an inline driver site or a dialect-generated
-/// check (design D5.3). Decoding is not runnable admission: no serving path
-/// yet lowers a typed local list or sandbox class into an authored command,
-/// so a nonempty field is kept exactly and refused rather than recorded
-/// beside an unchanged command. An unspecified declaration is recorded as
-/// a checked value, distinct from a site never visited.
+/// check (design D5.3), whose command is `command`. Decoding is not runnable
+/// admission. A typed allow at an inline Claude or LaneTally site is lowered
+/// onto its adapter's tool permissions by unit 3's own lowering (rebuild
+/// unit 5b), and recorded for the engine to append as its `local` segment;
+/// every other nonempty field is kept exactly and refused rather than
+/// recorded beside an unchanged command. An unspecified declaration is
+/// recorded as a checked value, distinct from a site never visited.
 fn record_inline_tools(
+    dir: &Path,
     what: &str,
     raw: &Value,
+    command: &[String],
+    adapters: Option<&crate::agents::Adapters>,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
     let local = decode_site_tools(what, raw)?;
-    for (field, present) in [
-        ("allow", local.allow.is_some()),
-        ("sandbox", local.sandbox.is_some()),
-    ] {
-        if present {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' declares 'tools.{field}' on a site whose command no office \
-                 composes; the engine does not yet lower a typed local {field} into an authored \
-                 command, so the restriction would be recorded and not delivered — it is kept \
-                 exactly and refused rather than run unrestricted, until decision 0065 slice \
-                 one's lowering and origin transport prove its delivery (design D5.3); an \
-                 authored flag cannot stand in for it"
+    let lowered = match &local.allow {
+        Some(allow) => Some(lower_inline_allow(what, raw, command, allow, adapters)?),
+        None => None,
+    };
+    if local.sandbox.is_some() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' declares 'tools.sandbox' on a site whose command no office \
+             composes; the engine does not yet lower a typed local sandbox into an authored \
+             command, so the restriction would be recorded and not delivered — it is kept \
+             exactly and refused rather than run unrestricted, until decision 0065 slice \
+             one's lowering and origin transport prove its delivery (design D5.3); an \
+             authored flag cannot stand in for it"
+        )));
+    }
+    let facts = site_facts(sites, what);
+    facts.local = Some(local);
+    // Expanded as an agent's composition is, segment by segment, so the
+    // engine's contribution names this machine's paths as the command does.
+    facts.inline_local = lowered.map(|lowered| crate::agents::LocalLowering {
+        segment: Segment {
+            origin: lowered.segment.origin,
+            argv: expand_command(dir, &lowered.segment.argv),
+        },
+        limits: lowered.limits,
+    });
+    Ok(())
+}
+
+/// Rebuild unit 5b (design D5.3, D5.7): the one inline shape whose typed
+/// allow the engine delivers — a command that dispatches the claude or
+/// lanetally driver, with no hands and no tool list of its author's, whose
+/// adapter maps every name. The list is lowered by the same function that
+/// lowers an agent's, and every other shape refuses with its own cause.
+fn lower_inline_allow(
+    what: &str,
+    raw: &Value,
+    command: &[String],
+    allow: &[String],
+    adapters: Option<&crate::agents::Adapters>,
+) -> Result<crate::agents::LocalLowering, CompileError> {
+    let refuse = |cause: String| {
+        CompileError::Invalid(format!("seat '{what}' declares 'tools.allow' {cause}"))
+    };
+    let driver = match dispatch_driver(command) {
+        Some(kind) if kind == "claude" || kind == "lanetally" => kind,
+        other => {
+            let dispatches = match other {
+                Some(kind) => format!("dispatches the '{kind}' driver"),
+                None => "dispatches no built-in driver".to_string(),
+            };
+            return Err(refuse(format!(
+                "on an inline site whose command {dispatches}; the engine lowers a typed local \
+                 allow into an inline command only for the claude and lanetally drivers, whose \
+                 adapters map it onto their tool permissions, so here the restriction would be \
+                 recorded and not delivered — it is kept exactly and refused rather than run \
+                 unrestricted (decision 0065 slice one, design D5.3); an authored flag cannot \
+                 stand in for it"
             )));
         }
+    };
+    if raw.get("hands").is_some() {
+        return Err(refuse(
+            "beside the site's own hands; hands replace the harness's tools, so a direct local \
+             list at an inline site would stand beside the box's restriction rather than express \
+             it — it is kept exactly and refused (decision 0065 slice one, design D5.3)"
+                .to_string(),
+        ));
     }
-    site_facts(sites, what).local = Some(local);
-    Ok(())
+    // Operator ruling 1 of 2026-09-23: the engine composes the typed list
+    // as its own contribution, and nothing it composes is merged with an
+    // author's list, read under the harness's own grammar.
+    let authored = brokkr_protocol::native_controls::parse_origin(
+        &driver,
+        brokkr_protocol::native_controls::harness_arguments(command),
+        true,
+    )
+    .map_err(|refusal| CompileError::Invalid(refusal.at_compile(&format!("seat '{what}'"))))?;
+    if let Some(node) = authored
+        .iter()
+        .flat_map(|parsed| &parsed.nodes)
+        .find(|node| node.list().is_some())
+    {
+        return Err(refuse(format!(
+            "while its authored command carries '{}', a tool list; the engine composes the typed \
+             list as its own contribution and never merges it with an authored one, so the site \
+             is refused rather than reconciled (operator ruling 1 of 2026-09-23; decision 0065 \
+             slice one, design D5.3)",
+            node.name()
+        )));
+    }
+    let adapter = adapters
+        .and_then(|adapters| adapters.adapter(&driver))
+        .ok_or_else(|| {
+            refuse(format!(
+                "for driver '{driver}', which no loaded adapter declares; with no tool permission \
+                 mapping the restriction cannot be expressed, so it is refused rather than run \
+                 unrestricted (decision 0065 slice one, design D5.3)"
+            ))
+        })?;
+    crate::agents::lower_allow(adapter, allow, "site")
+        .map_err(|cause| CompileError::Invalid(format!("seat '{what}': {cause}")))
 }
 
 /// Which contribution [`expressed_sandbox`] judges (design D5.6): bytes an
@@ -4273,7 +4382,14 @@ fn parse_selected_body(
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Sequence { steps })
     } else {
-        record_inline_tools(what, raw, sites)?;
+        record_inline_tools(
+            dir,
+            what,
+            raw,
+            &command_parts(raw),
+            agents.as_ref().map(|context| &context.adapters),
+            sites,
+        )?;
         let law = SiteLaw {
             boundary,
             dir,
@@ -4467,7 +4583,14 @@ fn parse_panel(
         refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
         let (role_path, command, candidates, agent_hands) = match member_raw.get("agent") {
             None => {
-                record_inline_tools(&site, member_raw, sites)?;
+                record_inline_tools(
+                    dir,
+                    &site,
+                    member_raw,
+                    &command_parts(member_raw),
+                    agents.as_ref().map(|context| &context.adapters),
+                    sites,
+                )?;
                 (
                     parse_role(dir, &site, member_raw)?,
                     parse_command(dir, &site, member_raw, secrets)?,
@@ -4673,8 +4796,16 @@ fn parse_sequence(
             let synthetic = dialect_gate_site(&what, boundary)?;
             // The dialect's validator is an exec-generated check: it can
             // own a checked empty declaration and represents no nonempty
-            // local field (design D5.2).
-            record_inline_tools(&what, step_raw, sites)?;
+            // local field (design D5.2), judged against the command the
+            // validator actually runs.
+            record_inline_tools(
+                dir,
+                &what,
+                step_raw,
+                &command_parts(&synthetic),
+                agents.as_ref().map(|context| &context.adapters),
+                sites,
+            )?;
             let law = SiteLaw {
                 boundary,
                 dir,
@@ -4719,7 +4850,14 @@ fn parse_sequence(
             )?;
             StepBody::Panel { members, aggregate }
         } else {
-            record_inline_tools(&what, step_raw, sites)?;
+            record_inline_tools(
+                dir,
+                &what,
+                step_raw,
+                &command_parts(step_raw),
+                agents.as_ref().map(|context| &context.adapters),
+                sites,
+            )?;
             StepBody::Single {
                 role_path: parse_role(dir, &what, step_raw)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,

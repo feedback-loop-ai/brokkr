@@ -1156,7 +1156,8 @@ impl Engine {
         // whether a prior session may be handed back to it.
         let runtime_hands = self.runtime_hands(&site_name);
         let mut single = match body {
-            ExecutableBody::Single { command, .. } => Some(self.compose(
+            ExecutableBody::Single { command, .. } => Some(self.compose_at(
+                Some(&site_name),
                 &attempt_id,
                 gate,
                 argv_for(&selection, &None, command).to_vec(),
@@ -1596,9 +1597,13 @@ impl Engine {
     /// over the facts the engine holds, with the unboxed exec dispatch's
     /// fixed environment and network prefix prepared here — the two
     /// private directories created under the run's scratch, the probe
-    /// asked once per engine process and remembered.
-    fn compose(
+    /// asked once per engine process and remembered. `label` names the
+    /// compiled site whose facts the composition reads — an inline site's
+    /// lowered allow among them (rebuild unit 5b).
+    #[allow(clippy::too_many_arguments)]
+    fn compose_at(
         &mut self,
+        label: Option<&str>,
         attempt_id: &str,
         gate: bool,
         command: Vec<String>,
@@ -1622,7 +1627,8 @@ impl Engine {
         } else {
             SeatClass::Work
         };
-        compose_site(
+        compose_site_at(
+            label.and_then(|label| self.bundle.sites.get(label)),
             boundary,
             class,
             command,
@@ -1633,6 +1639,21 @@ impl Engine {
             result_path,
             unboxed.as_ref(),
         )
+    }
+
+    /// [`Self::compose_at`] over argv no compiled site owns: the boundary
+    /// tests' door, which composes a command for the boundary alone.
+    #[cfg(test)]
+    fn compose(
+        &mut self,
+        attempt_id: &str,
+        gate: bool,
+        command: Vec<String>,
+        hands: Option<&HandsSpec>,
+        link: Option<&Candidate>,
+        result_path: &str,
+    ) -> SiteSpawn {
+        self.compose_at(None, attempt_id, gate, command, hands, link, result_path)
     }
 
     /// What an unboxed exec dispatch starts in (design DD10, DD15): the
@@ -2051,7 +2072,8 @@ impl Engine {
                 self.mark_hands(&label, &mut input);
                 self.mark_delivery(&label, gate, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
-                let mut spawn = self.compose(
+                let mut spawn = self.compose_at(
+                    Some(&label),
                     attempt_id,
                     gate,
                     argv_for(selection, &site, &member.command).to_vec(),
@@ -2364,7 +2386,8 @@ impl Engine {
                     let step_gate = step.class == SeatClass::Gate;
                     self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
                     let hands = self.hands_for(&step_label);
-                    let mut spawn = self.compose(
+                    let mut spawn = self.compose_at(
+                        Some(&step_label),
                         attempt_id,
                         step_gate,
                         argv_for(selection, &site, command).to_vec(),
@@ -2518,7 +2541,8 @@ impl Engine {
                     // the compiler refuses it under `harness` and `open`
                     // (design DD8), so no unboxed arm is reached here.
                     let hands = self.hands_for(&step_label);
-                    let mut spawn = self.compose(
+                    let mut spawn = self.compose_at(
+                        Some(&step_label),
                         attempt_id,
                         true,
                         argv_for(selection, &site, &command).to_vec(),
@@ -4495,19 +4519,31 @@ pub fn expected_state(
             let local = facts
                 .and_then(|facts| facts.local.as_ref())
                 .ok_or_else(|| refused("the site's local declaration was never judged"))?;
-            if local.allow.is_some() || local.sandbox.is_some() {
-                return Err(refused(
-                    "the inline site declares a typed local restriction no inline command lowers",
-                ));
-            }
+            // Rebuild unit 5b: an allow the compiler lowered is expected
+            // as its declared names and the limits kept before they were
+            // joined — never read back from the segment it produced.
+            let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
+            let (allow, application) = match (&local.allow, lowered, local.sandbox) {
+                (None, None, None) => (AllowIntent::Unspecified, Application::Unrestricted),
+                (Some(names), Some(lowered), None) => (
+                    AllowIntent::Listed(names.clone()),
+                    Application::Direct(lowered.limits.clone()),
+                ),
+                _ => {
+                    return Err(refused(
+                        "the inline site declares a typed local restriction no inline command \
+                         lowers",
+                    ))
+                }
+            };
             let hands = match facts.map(|facts| &facts.hands) {
                 Some(HandsState::Hands(_)) => HandsIntent::Required,
                 _ => HandsIntent::None,
             };
             let local = LocalExpectation {
-                allow: AllowIntent::Unspecified,
+                allow,
                 sandbox: SandboxIntent::Unspecified,
-                application: Application::Unrestricted,
+                application,
             };
             (local, hands)
         }
@@ -4762,6 +4798,57 @@ pub fn compose_site(
     );
     spawn.refusal = spawn.refusal.or(refusal);
     spawn
+}
+
+/// [`compose_site`] at a compiled site, with its facts: an inline site
+/// whose typed allow the compiler lowered (rebuild unit 5b; design D5.3,
+/// D5.7) is composed from its authored command and, behind it, the
+/// engine's own `local` segment, carried as the compiler recorded it and
+/// never recognised in the argv. Every other site is [`compose_site`]
+/// exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_site_at(
+    facts: Option<&SiteFacts>,
+    boundary: BuiltBoundary,
+    class: SeatClass,
+    command: Vec<String>,
+    hands: Option<&HandsSpec>,
+    candidate: Option<&Candidate>,
+    workdir: &Path,
+    roots: &[PathBuf],
+    result_path: &str,
+    unboxed: Option<&Unboxed>,
+) -> SiteSpawn {
+    match (
+        candidate,
+        facts.and_then(|facts| facts.inline_local.as_ref()),
+    ) {
+        (None, Some(lowered)) => compose_segments(
+            boundary,
+            class,
+            vec![
+                Segment::new(Origin::Authored, &command),
+                lowered.segment.clone(),
+            ],
+            hands,
+            None,
+            workdir,
+            roots,
+            result_path,
+            unboxed,
+        ),
+        _ => compose_site(
+            boundary,
+            class,
+            command,
+            hands,
+            candidate,
+            workdir,
+            roots,
+            result_path,
+            unboxed,
+        ),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -1074,29 +1074,7 @@ fn compose(
         }
     };
 
-    // Decision 0065, no grandfathering: an allow entry that maps to a tool
-    // of one of this harness's NATIVE capabilities was a second way to
-    // hold it, and only the realm grants one. It is refused by name with
-    // the way out, never composed and never silently dropped from the
-    // office's restriction — beside hands too (design D5.2), where the
-    // list is dormant but a mapped alias is still a claim on a power.
-    let native_alias = |tool: &str, name: &str| -> Result<(), ResolveError> {
-        match adapter.native.capability_of(name) {
-            Some(capability) => Err(capability_gap(
-                agent,
-                adapter,
-                model,
-                format!(
-                    "tool permission '{tool}' maps to '{name}', a tool of the provider's \
-                     native capability '{capability}'; a legacy allow entry cannot \
-                     authorize a capability, so request '{capability}' by name under \
-                     'capabilities' and let the realm grant it through a tool dialect \
-                     (decision 0065 ruling 3)"
-                ),
-            )),
-            None => Ok(()),
-        }
-    };
+    let gap = |cause: String| capability_gap(agent, adapter, model, cause);
 
     let application = if agent.hands.is_some() {
         // The list is dormant beside hands (decision 0043 ruling 2): no
@@ -1105,7 +1083,7 @@ fn compose(
         if let (Some(allow), Some(permissions)) = (&agent.allow, &adapter.tool_permissions) {
             for tool in allow {
                 if let Some(name) = permissions.names.get(tool) {
-                    native_alias(tool, name)?;
+                    native_alias(adapter, tool, name).map_err(gap)?;
                 }
             }
         }
@@ -1134,66 +1112,9 @@ fn compose(
         // intent, and its concrete mapping is inapplicable, not absent.
         Application::Dormant
     } else if let Some(allow) = &agent.allow {
-        // Design D5.3: an explicit empty allow set is decoded exactly and
-        // stays refused here until the owning lowering delivers it —
-        // joining no names into an empty flag value is not proof of an
-        // empty tool surface, whatever the provider declares.
-        if allow.is_empty() {
-            return Err(capability_gap(
-                agent,
-                adapter,
-                model,
-                "the effective 'tools.allow' is explicitly empty, and no serving path yet \
-                 expresses an empty local allow set as a delivered restriction (joining no \
-                 names into an empty flag value proves nothing); the declaration is kept \
-                 exactly and refused rather than run unrestricted, until decision 0065 slice \
-                 one's lowering proves its delivery (design D5.3)"
-                    .to_string(),
-            ));
-        }
-        let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
-            // A measured gap names the axis the provider DOES have; a
-            // bare `"unsupported"` names nothing, because nothing was
-            // recorded. Either way the attempt refuses here.
-            let declared = match &adapter.tool_permissions_gap {
-                Some(reason) => {
-                    format!("the provider declares tool_permissions unsupported ({reason})")
-                }
-                None => "the provider declares tool_permissions unsupported".to_string(),
-            };
-            capability_gap(
-                agent,
-                adapter,
-                model,
-                format!(
-                    "{declared}, so the agent's restriction to {allow:?} cannot be \
-                     expressed and the agent would run with MORE power than it declares"
-                ),
-            )
-        })?;
-        let mut expressed = Vec::with_capacity(allow.len());
-        for tool in allow {
-            let name = permissions.names.get(tool).ok_or_else(|| {
-                capability_gap(
-                    agent,
-                    adapter,
-                    model,
-                    format!("the provider maps no tool permission named '{tool}'"),
-                )
-            })?;
-            native_alias(tool, name)?;
-            expressed.push(name.clone());
-        }
-        // The concrete limits are kept in the declared order before they
-        // are joined, so the expectation never has to split a flag value.
-        segments.push(Segment::new(
-            Origin::Local,
-            &[
-                permissions.flag.clone(),
-                expressed.join(&permissions.separator),
-            ],
-        ));
-        Application::Direct(expressed)
+        let lowered = lower_allow(adapter, allow, "agent").map_err(gap)?;
+        segments.push(lowered.segment);
+        Application::Direct(lowered.limits)
     } else {
         Application::Unrestricted
     };
@@ -1207,6 +1128,93 @@ fn compose(
         intent,
         application,
     })
+}
+
+/// A direct allow list lowered onto one adapter's tool permissions (design
+/// D5.7): the `local` segment the engine contributes, and the ordered
+/// concrete limits kept before they were joined, so an expectation never
+/// has to split a flag value. One lowering serves an agent's composition
+/// and an inline Claude or LaneTally site (rebuild unit 5b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalLowering {
+    pub segment: Segment,
+    pub limits: Vec<String>,
+}
+
+/// Lower `allow` through `adapter`'s tool permissions, or name the cause
+/// that refuses it. `holder` names whose restriction it is — the agent's,
+/// or an inline site's — in the cause.
+pub fn lower_allow(
+    adapter: &Adapter,
+    allow: &[String],
+    holder: &str,
+) -> Result<LocalLowering, String> {
+    // Design D5.3: an explicit empty allow set is decoded exactly and
+    // stays refused here until the owning lowering delivers it — joining
+    // no names into an empty flag value is not proof of an empty tool
+    // surface, whatever the provider declares.
+    if allow.is_empty() {
+        return Err(
+            "the effective 'tools.allow' is explicitly empty, and no serving path yet \
+             expresses an empty local allow set as a delivered restriction (joining no \
+             names into an empty flag value proves nothing); the declaration is kept \
+             exactly and refused rather than run unrestricted, until decision 0065 slice \
+             one's lowering proves its delivery (design D5.3)"
+                .to_string(),
+        );
+    }
+    let permissions = adapter.tool_permissions.as_ref().ok_or_else(|| {
+        // A measured gap names the axis the provider DOES have; a bare
+        // `"unsupported"` names nothing, because nothing was recorded.
+        // Either way the attempt refuses here.
+        let declared = match &adapter.tool_permissions_gap {
+            Some(reason) => {
+                format!("the provider declares tool_permissions unsupported ({reason})")
+            }
+            None => "the provider declares tool_permissions unsupported".to_string(),
+        };
+        format!(
+            "{declared}, so the {holder}'s restriction to {allow:?} cannot be expressed and \
+             the {holder} would run with MORE power than it declares"
+        )
+    })?;
+    let mut limits = Vec::with_capacity(allow.len());
+    for tool in allow {
+        let name = permissions
+            .names
+            .get(tool)
+            .ok_or_else(|| format!("the provider maps no tool permission named '{tool}'"))?;
+        native_alias(adapter, tool, name)?;
+        limits.push(name.clone());
+    }
+    Ok(LocalLowering {
+        segment: Segment::new(
+            Origin::Local,
+            &[
+                permissions.flag.clone(),
+                limits.join(&permissions.separator),
+            ],
+        ),
+        limits,
+    })
+}
+
+/// Decision 0065, no grandfathering: an allow entry that maps to a tool of
+/// one of this harness's NATIVE capabilities was a second way to hold it,
+/// and only the realm grants one. It is refused by name with the way out,
+/// never composed and never silently dropped from the restriction — beside
+/// hands too (design D5.2), where the list is dormant but a mapped alias is
+/// still a claim on a power.
+fn native_alias(adapter: &Adapter, tool: &str, name: &str) -> Result<(), String> {
+    match adapter.native.capability_of(name) {
+        Some(capability) => Err(format!(
+            "tool permission '{tool}' maps to '{name}', a tool of the provider's native \
+             capability '{capability}'; a legacy allow entry cannot authorize a capability, so \
+             request '{capability}' by name under 'capabilities' and let the realm grant it \
+             through a tool dialect (decision 0065 ruling 3)"
+        )),
+        None => Ok(()),
+    }
 }
 
 fn entry_for(

@@ -1058,16 +1058,58 @@ fn empty_refusal(site: &str, agent: &str, provider: &str, model: &str) -> String
     )
 }
 
-/// The complete inline-representation refusal at a site.
-fn inline_refusal(site: &str, field: &str) -> String {
+/// The complete inline sandbox refusal at a site: no inline command lowers
+/// a typed sandbox class (design D5.3).
+fn inline_sandbox_refusal(site: &str) -> String {
     format!(
-        "bundle: seat '{site}' declares 'tools.{field}' on a site whose command no office \
-         composes; the engine does not yet lower a typed local {field} into an authored \
+        "bundle: seat '{site}' declares 'tools.sandbox' on a site whose command no office \
+         composes; the engine does not yet lower a typed local sandbox into an authored \
          command, so the restriction would be recorded and not delivered — it is kept exactly \
          and refused rather than run unrestricted, until decision 0065 slice one's lowering and \
          origin transport prove its delivery (design D5.3); an authored flag cannot stand in for \
          it"
     )
+}
+
+/// The complete refusal of a typed allow at an inline site whose command
+/// `dispatches` a driver the engine lowers no allow into (rebuild unit 5b).
+fn undelivered_allow(site: &str, dispatches: &str) -> String {
+    format!(
+        "bundle: seat '{site}' declares 'tools.allow' on an inline site whose command \
+         {dispatches}; the engine lowers a typed local allow into an inline command only for the \
+         claude and lanetally drivers, whose adapters map it onto their tool permissions, so here \
+         the restriction would be recorded and not delivered — it is kept exactly and refused \
+         rather than run unrestricted (decision 0065 slice one, design D5.3); an authored flag \
+         cannot stand in for it"
+    )
+}
+
+/// An inline Claude command pinned as every inline built-in must be, with
+/// `extra` authored behind the pins.
+fn claude_inline(driver: &str, extra: &[&str]) -> Value {
+    let mut command = vec![
+        "{brokkr}",
+        "driver",
+        driver,
+        "--",
+        "--model",
+        "claude-opus-5",
+        "--effort",
+        "high",
+    ];
+    command.extend(extra);
+    json!(command)
+}
+
+/// The fixture's one Claude mapping, lowered as the engine's own segment.
+fn cargo_lowering() -> Option<crate::agents::LocalLowering> {
+    Some(crate::agents::LocalLowering {
+        segment: Segment::new(
+            brokkr_protocol::native_controls::Origin::Local,
+            &["--allowedTools".to_string(), "Bash(cargo:*)".to_string()],
+        ),
+        limits: vec!["Bash(cargo:*)".to_string()],
+    })
 }
 
 /// The complete container refusal at a site.
@@ -1250,30 +1292,32 @@ fn an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_
         })
         .collect();
     // Shape is judged before representation: a malformed field names its
-    // own cause; a well-formed nonempty field names the missing lowering.
+    // own cause; a well-formed nonempty field names the missing lowering —
+    // this site's command dispatches no driver the engine lowers into.
+    let opaque = "dispatches no built-in driver";
     let refusals: Vec<(Value, String)> = vec![
-        (json!({"allow": []}), inline_refusal("review", "allow")),
+        (json!({"allow": []}), undelivered_allow("review", opaque)),
         (
             json!({"allow": ["cargo"]}),
-            inline_refusal("review", "allow"),
+            undelivered_allow("review", opaque),
         ),
         (
             json!({"sandbox": "read-only"}),
-            inline_refusal("review", "sandbox"),
+            inline_sandbox_refusal("review"),
         ),
         (
             json!({"sandbox": "workspace-write"}),
-            inline_refusal("review", "sandbox"),
+            inline_sandbox_refusal("review"),
         ),
         (
             json!({"sandbox": "danger-full-access"}),
-            inline_refusal("review", "sandbox"),
+            inline_sandbox_refusal("review"),
         ),
-        // Both fields present: the first field in vocabulary order names
-        // itself; neither is dropped for the other.
+        // Both fields present: the allow is judged first and names itself;
+        // neither is dropped for the other.
         (
             json!({"allow": ["cargo"], "sandbox": "read-only"}),
-            inline_refusal("review", "allow"),
+            undelivered_allow("review", opaque),
         ),
         (
             json!({"allow": ["Bash(cargo:*)"]}),
@@ -1301,6 +1345,252 @@ fn an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_
             expected,
         ));
     }
+    each_row(rows);
+}
+
+/// Rebuild unit 5b (design D5.3, D5.7): an inline site whose command
+/// dispatches the claude or lanetally driver has its typed allow lowered by
+/// unit 3's own lowering onto its adapter's tool permissions and recorded
+/// as the engine's `local` segment — the authored command untouched — and
+/// every other inline shape refuses with its own complete cause.
+#[test]
+fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses() {
+    let fixture = AgentFixture::new();
+    let compiled = |command: Value, tools: Value, hands: bool| {
+        let mut config = fixture.config();
+        config["seats"]["review"]["driver"]["command"] = command;
+        config["seats"]["review"]["tools"] = tools;
+        if hands {
+            config["seats"]["review"]["hands"] =
+                json!({"kind": "workspace", "network": false, "binds": []});
+        }
+        fixture.compile(config)
+    };
+    // The lowered facts, and the command the author wrote, exactly.
+    let lowered = |result: Result<Bundle, CompileError>| match result {
+        Ok(bundle) => format!(
+            "{:?} {:?} {:?}",
+            bundle.sites["review"].local,
+            bundle.sites["review"].inline_local,
+            command_of(&bundle, "review")[1..].to_vec()
+        ),
+        Err(error) => error.to_string(),
+    };
+    let authored = |driver: &str| {
+        format!(
+            "{:?} {:?} {:?}",
+            Some(local(Some(&["cargo"]), None)),
+            cargo_lowering(),
+            [
+                "driver",
+                driver,
+                "--",
+                "--model",
+                "claude-opus-5",
+                "--effort",
+                "high"
+            ]
+        )
+    };
+    let mut lanetally = claude();
+    lanetally["provider"] = json!("lanetally");
+    lanetally["driver"] = json!(["{brokkr}", "driver", "lanetally", "--"]);
+    lanetally["models"] = json!({"opus-tallied": "claude-opus-5"});
+    let allow = json!({"allow": ["cargo"]});
+    let mut rows: Vec<Row<String>> = vec![(
+        "claude".to_string(),
+        lowered(compiled(claude_inline("claude", &[]), allow.clone(), false)),
+        authored("claude"),
+    )];
+    // No adapter declares lanetally yet: nothing maps the list.
+    rows.push((
+        "lanetally without an adapter".to_string(),
+        outcome(compiled(
+            claude_inline("lanetally", &[]),
+            allow.clone(),
+            false,
+        )),
+        "bundle: seat 'review' declares 'tools.allow' for driver 'lanetally', which no loaded \
+         adapter declares; with no tool permission mapping the restriction cannot be \
+         expressed, so it is refused rather than run unrestricted (decision 0065 slice one, \
+         design D5.3)"
+            .to_string(),
+    ));
+    fixture.write("adapters/lanetally.json", lanetally.clone());
+    rows.push((
+        "lanetally".to_string(),
+        lowered(compiled(
+            claude_inline("lanetally", &[]),
+            allow.clone(),
+            false,
+        )),
+        authored("lanetally"),
+    ));
+    // Every other driver refuses, naming what its command dispatches.
+    for (driver, command) in [
+        ("codex", claude_inline("codex", &[])),
+        ("dsh", claude_inline("dsh", &[])),
+        (
+            "exec",
+            json!(["{brokkr}", "driver", "exec", "--", "bash", "x.sh"]),
+        ),
+    ] {
+        rows.push((
+            driver.to_string(),
+            outcome(compiled(command, allow.clone(), false)),
+            undelivered_allow("review", &format!("dispatches the '{driver}' driver")),
+        ));
+    }
+    let site = |cause: &str| format!("bundle: seat 'review': {cause}");
+    let refusals: Vec<(&str, Value, Value, bool, String)> = vec![
+        (
+            "explicit empty",
+            claude_inline("claude", &[]),
+            json!({"allow": []}),
+            false,
+            site(
+                "the effective 'tools.allow' is explicitly empty, and no serving path yet \
+                 expresses an empty local allow set as a delivered restriction (joining no names \
+                 into an empty flag value proves nothing); the declaration is kept exactly and \
+                 refused rather than run unrestricted, until decision 0065 slice one's lowering \
+                 proves its delivery (design D5.3)",
+            ),
+        ),
+        (
+            "beside a sandbox",
+            claude_inline("claude", &[]),
+            json!({"allow": ["cargo"], "sandbox": "read-only"}),
+            false,
+            inline_sandbox_refusal("review"),
+        ),
+        (
+            "beside hands",
+            claude_inline("claude", &[]),
+            allow.clone(),
+            true,
+            "bundle: seat 'review' declares 'tools.allow' beside the site's own hands; hands \
+             replace the harness's tools, so a direct local list at an inline site would stand \
+             beside the box's restriction rather than express it — it is kept exactly and \
+             refused (decision 0065 slice one, design D5.3)"
+                .to_string(),
+        ),
+        (
+            "unmapped name",
+            claude_inline("claude", &[]),
+            json!({"allow": ["git"]}),
+            false,
+            site("the provider maps no tool permission named 'git'"),
+        ),
+        (
+            "unreadable authored argv",
+            claude_inline("claude", &["stray"]),
+            allow.clone(),
+            false,
+            site(
+                "its arguments do not parse: the 'claude' command grammar cannot place argument \
+                 5 ('stray'): it is a bare word, and no positional argument is part of the \
+                 supported shape. A harness brokkr launches is parsed against a model of its \
+                 options, and a token that grammar cannot place is refused rather than passed \
+                 through, because a control nobody can read is a control nobody can rule on \
+                 (decision 0066 ruling 6)",
+            ),
+        ),
+    ];
+    for (label, command, tools, hands, expected) in refusals {
+        rows.push((
+            label.to_string(),
+            outcome(compiled(command, tools, hands)),
+            expected,
+        ));
+    }
+    // An authored tool list of any kind, in any spelling, is refused beside
+    // the typed one rather than merged with it (operator ruling 1).
+    for (written, canonical) in [
+        (vec!["--allowedTools", "Bash(git:*)"], "--allowedTools"),
+        (vec!["--allowed-tools=Bash(git:*)"], "--allowedTools"),
+        (vec!["--tools", "Bash"], "--tools"),
+        (vec!["--disallowedTools", "WebSearch"], "--disallowedTools"),
+    ] {
+        rows.push((
+            written.join(" "),
+            outcome(compiled(
+                claude_inline("claude", &written),
+                allow.clone(),
+                false,
+            )),
+            format!(
+                "bundle: seat 'review' declares 'tools.allow' while its authored command carries \
+                 '{canonical}', a tool list; the engine composes the typed list as its own \
+                 contribution and never merges it with an authored one, so the site is refused \
+                 rather than reconciled (operator ruling 1 of 2026-09-23; decision 0065 slice \
+                 one, design D5.3)"
+            ),
+        ));
+    }
+    // The adapter's own gaps: a mapped native alias, and no mapping at all.
+    let mut aliased = claude();
+    aliased["tool_permissions"]["names"]["webfetch"] = json!("WebFetch");
+    aliased["tool_permissions"]["names"]["tool"] = json!("./bin/tool");
+    fixture.write("adapters/claude.json", aliased);
+    // A bundle-relative mapping is expanded in the engine's segment as an
+    // agent's composition is, and kept as mapped in the limits.
+    rows.push((
+        "bundle-relative mapping".to_string(),
+        lowered(compiled(
+            claude_inline("claude", &[]),
+            json!({"allow": ["tool"]}),
+            false,
+        )),
+        format!(
+            "{:?} {:?} {:?}",
+            Some(local(Some(&["tool"]), None)),
+            Some(crate::agents::LocalLowering {
+                segment: Segment::new(
+                    brokkr_protocol::native_controls::Origin::Local,
+                    &[
+                        "--allowedTools".to_string(),
+                        fixture.bundle().join("bin/tool").display().to_string(),
+                    ],
+                ),
+                limits: vec!["./bin/tool".to_string()],
+            }),
+            [
+                "driver",
+                "claude",
+                "--",
+                "--model",
+                "claude-opus-5",
+                "--effort",
+                "high"
+            ]
+        ),
+    ));
+    rows.push((
+        "native alias".to_string(),
+        outcome(compiled(
+            claude_inline("claude", &[]),
+            json!({"allow": ["webfetch"]}),
+            false,
+        )),
+        site(
+            "tool permission 'webfetch' maps to 'WebFetch', a tool of the provider's native \
+             capability 'web-fetch'; a legacy allow entry cannot authorize a capability, so \
+             request 'web-fetch' by name under 'capabilities' and let the realm grant it through \
+             a tool dialect (decision 0065 ruling 3)",
+        ),
+    ));
+    lanetally["tool_permissions"] = json!("unsupported");
+    fixture.write("adapters/lanetally.json", lanetally);
+    rows.push((
+        "no tool permissions".to_string(),
+        outcome(compiled(claude_inline("lanetally", &[]), allow, false)),
+        site(
+            "the provider declares tool_permissions unsupported, so the site's restriction to \
+             [\"cargo\"] cannot be expressed and the site would run with MORE power than it \
+             declares",
+        ),
+    ));
+    assert_eq!(rows.len(), 18);
     each_row(rows);
 }
 
@@ -1698,9 +1988,15 @@ fn with_tools(mut site: Value, value: Option<Value>) -> Value {
 #[test]
 fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
     let fixture = AgentFixture::new();
+    // The command of the body under test; its siblings keep the opaque one.
+    let command = std::cell::RefCell::new(json!(["driver"]));
     let inline = |tools: Option<Value>| {
+        let command = match tools {
+            Some(_) => command.borrow().clone(),
+            None => json!(["driver"]),
+        };
         with_tools(
-            json!({"role": "roles/work.md", "driver": {"command": ["driver"]}}),
+            json!({"role": "roles/work.md", "driver": {"command": command}}),
             tools,
         )
     };
@@ -1768,18 +2064,38 @@ fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
         rows.push((
             format!("{label} allow [cargo]"),
             outcome(compiled(Some(json!({"allow": ["cargo"]})))),
-            inline_refusal(label, "allow"),
+            undelivered_allow(label, "dispatches no built-in driver"),
         ));
         rows.push((
             format!("{label} allow []"),
             outcome(compiled(Some(json!({"allow": []})))),
-            inline_refusal(label, "allow"),
+            undelivered_allow(label, "dispatches no built-in driver"),
         ));
         rows.push((
             format!("{label} sandbox"),
             outcome(compiled(Some(json!({"sandbox": "workspace-write"})))),
-            inline_refusal(label, "sandbox"),
+            inline_sandbox_refusal(label),
         ));
+        // Rebuild unit 5b: the same body dispatching the claude driver has
+        // its allow lowered, recorded at its own label and nowhere else.
+        let claude = |result: Result<Bundle, CompileError>| match result {
+            Ok(bundle) => format!(
+                "{:?} {:?}",
+                bundle.sites[*label].local, bundle.sites[*label].inline_local
+            ),
+            Err(error) => error.to_string(),
+        };
+        *command.borrow_mut() = claude_inline("claude", &[]);
+        rows.push((
+            format!("{label} claude allow [cargo]"),
+            claude(compiled(Some(json!({"allow": ["cargo"]})))),
+            format!(
+                "{:?} {:?}",
+                Some(local(Some(&["cargo"]), None)),
+                cargo_lowering()
+            ),
+        ));
+        *command.borrow_mut() = json!(["driver"]);
         rows.push((
             format!("{label} malformed"),
             outcome(compiled(Some(json!({"allow": [1]})))),
@@ -1794,7 +2110,7 @@ fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
             ),
         ));
     }
-    assert_eq!(rows.len(), 28);
+    assert_eq!(rows.len(), 32);
     each_row(rows);
 }
 
@@ -3582,17 +3898,17 @@ fn a_dialect_step_owns_only_a_checked_empty_declaration() {
         (
             "validate allow []".to_string(),
             outcome(compile(Some(json!({"allow": []})), None)),
-            inline_refusal("design:validate", "allow"),
+            undelivered_allow("design:validate", "dispatches the 'exec' driver"),
         ),
         (
             "validate allow [cargo]".to_string(),
             outcome(compile(Some(json!({"allow": ["cargo"]})), None)),
-            inline_refusal("design:validate", "allow"),
+            undelivered_allow("design:validate", "dispatches the 'exec' driver"),
         ),
         (
             "validate sandbox".to_string(),
             outcome(compile(Some(json!({"sandbox": "read-only"})), None)),
-            inline_refusal("design:validate", "sandbox"),
+            inline_sandbox_refusal("design:validate"),
         ),
         (
             "check without a supplied check".to_string(),
