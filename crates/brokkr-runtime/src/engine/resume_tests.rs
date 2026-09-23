@@ -1770,40 +1770,50 @@ fn a_valid_route_overlay_binds_at_the_panel_member() {
 }
 
 /// Every shape whose binding the engine withholds yields the SAME
-/// outcome — no `route_overlay` member — never a start failure. Each
-/// member of one panel carries one shape, and every member still starts
-/// and is sent its context. The single-site half of "at either call
-/// site" is the nonmember case and the remaining-shape case below.
+/// outcome — a private context carrying no `route_overlay` member — never
+/// a start failure. Each member of one panel carries one shape, on a
+/// canonical root, and every member still starts and is sent its context.
+/// Every value names bytes a lookup could find, so each shape is withheld
+/// by its own rule and not by a missing file: the shadow and the ancestor
+/// file are spelled `route.yml` beside a member of that name, the ancestor
+/// records its file in its own `files`, and the `..` value and the
+/// absolute `./` expansion both resolve to the member itself. The
+/// single-site half of "at either call site" is the nonmember case and
+/// the remaining-shape case below.
 #[test]
 fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
     let dir = tempfile::tempdir().unwrap();
-    let work = dir.path().join("work");
+    let root = dir.path().canonicalize().unwrap();
+    let work = root.join("work");
     let layer = work.join("recipe");
     let ancestor = work.join("base");
     std::fs::create_dir_all(&layer).unwrap();
     std::fs::create_dir_all(&ancestor).unwrap();
     let member_bytes = b"route: member\n";
+    let ancestor_bytes = b"route: ancestor\n";
     std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
     // A same-shaped file at the working-directory path, not inside the
     // layer: the shadow of the bundled path.
     std::fs::write(work.join("route.yml"), b"route: shadow\n").unwrap();
     // A file inside the layer the manifest does not record.
     std::fs::write(layer.join("other.yml"), b"route: other\n").unwrap();
-    // An ancestor layer's file, bindable only through that ancestor's
-    // aggregate digest.
-    std::fs::write(ancestor.join("ancestor.yml"), b"route: ancestor\n").unwrap();
+    // An ancestor layer's same-named file, recorded in that ancestor's
+    // own `files`.
+    std::fs::write(ancestor.join("route.yml"), ancestor_bytes).unwrap();
     // An in-layer symlink whose target resolves outside the layer but
     // inside the working directory.
     std::fs::write(work.join("outside.yml"), b"route: outside\n").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(work.join("outside.yml"), layer.join("link.yml")).unwrap();
 
+    // What `./route.yml` expands to in a compiled command (`bundle.rs`'s
+    // `dir.join(rel)`): already absolute.
     let absolute = layer.join("route.yml").display().to_string();
     let shapes: Vec<(&str, String)> = vec![
         ("nonmember", "recipe/other.yml".into()),
         ("shadow", "route.yml".into()),
-        ("ancestor", "base/ancestor.yml".into()),
-        ("traversal", "../escape.yml".into()),
+        ("ancestor", "base/route.yml".into()),
+        ("traversal", "../work/recipe/route.yml".into()),
         ("absolute", absolute),
     ];
     #[cfg(unix)]
@@ -1815,40 +1825,51 @@ fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
 
     let members: Vec<PanelMember> = shapes
         .iter()
-        .map(|(tag, value)| member(tag, patched(driver(dir.path(), tag, &["complete"]), value)))
+        .map(|(tag, value)| member(tag, patched(driver(&root, tag, &["complete"]), value)))
         .collect();
     let mut seats = BTreeMap::new();
     seats.insert("work".into(), seat(panel(members), &["complete"], 1));
     seats.insert(
         "review".into(),
         seat(
-            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            single(driver(&root, "review", &["clean"]), Vec::new()),
             &["clean"],
             1,
         ),
     );
     let mut bundle = bundle(&layer, seats);
     bundle.roots = vec![layer.clone(), ancestor.clone()];
+    let mut ancestor_files = serde_json::Map::new();
+    ancestor_files.insert("route.yml".into(), json!(overlay_digest(ancestor_bytes)));
     bundle.chain = vec![crate::Ancestor {
         name: "base".into(),
         reached_as: None,
         dir: ancestor.clone(),
         digest: "c".repeat(64),
-        files: serde_json::Map::new(),
+        files: ancestor_files,
     }];
     // The manifest records only the real member, so the shadow, the
     // nonmember and the ancestor file are all non-members.
     bundle.manifest["files"] = json!({ "route.yml": overlay_digest(member_bytes) });
 
-    run(dir.path(), bundle);
+    run(&root, bundle);
 
+    let mut bound = Vec::new();
     for (tag, _) in &shapes {
-        let binding = route_binding(dir.path(), tag);
+        let context = route_start(&root, tag)["input"]["resume_context"].clone();
         assert!(
-            binding.is_null() || binding.get("value").is_none(),
-            "{tag}: a non-binding --patch must carry no route_overlay, got {binding}"
+            context.is_object(),
+            "{tag}: the panel member still receives its private context, got {context}"
         );
+        if let Some(binding) = context.get("route_overlay") {
+            bound.push((*tag, binding.clone()));
+        }
     }
+    assert_eq!(
+        bound,
+        Vec::<(&str, Value)>::new(),
+        "a non-binding --patch must carry no route_overlay at the panel member"
+    );
 }
 
 /// The SINGLE site withholds the member for the same shapes. The panel
