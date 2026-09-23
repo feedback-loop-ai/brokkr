@@ -6,6 +6,7 @@
 //! id of its own per invocation, and answers. What the engine offered is
 //! therefore read off the wire the driver actually saw, never inferred.
 
+use super::tests::templated;
 use super::*;
 use crate::agents::Candidate;
 use crate::bundle::{Limits, Seat};
@@ -393,15 +394,18 @@ fn a_retry_and_a_re_entry_both_resume_the_thread_the_seat_last_held() {
 #[test]
 fn a_chain_fallback_is_handed_no_session_at_all() {
     let dir = tempfile::tempdir().unwrap();
-    let candidate = |model: &str, command: Vec<String>| Candidate {
-        agent: "implementer".into(),
-        model: model.into(),
-        effort: Some("medium".into()),
-        provider: "codex".into(),
-        argv: command,
-        hands_fragment: Vec::new(),
-        harness: HarnessHands::default(),
-        resume: Default::default(),
+    let candidate = |model: &str, command: Vec<String>| {
+        templated(Candidate {
+            agent: "implementer".into(),
+            model: model.into(),
+            effort: Some("medium".into()),
+            provider: "codex".into(),
+            argv: command,
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
+            resume: Default::default(),
+            lowering: Lowering::Unavailable,
+        })
     };
     // The first link fails to START on its first invocation and behaves
     // on every one after it: that is what lets the second link open a
@@ -1414,7 +1418,7 @@ fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
     assert_ne!(left.digest(), right.digest());
 
     // Every owner axis, one at a time.
-    let candidate = Candidate {
+    let candidate = templated(Candidate {
         agent: "implementer".into(),
         model: "opus".into(),
         effort: Some("high".into()),
@@ -1423,7 +1427,8 @@ fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
-    };
+        lowering: Lowering::Unavailable,
+    });
     let manifest = json!({"engine":"0.10.0", "files":{}, "hands":{"work":{}}});
     let owner = |candidate: &Candidate,
                  chain: Option<usize>,
@@ -1876,7 +1881,7 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         model_driver(dir.path(), "work", &["fail", "complete"]),
         "recipe/route.yml",
     );
-    let candidate = Candidate {
+    let candidate = templated(Candidate {
         agent: "implementer".into(),
         model: "deepseek-v4-flash".into(),
         effort: Some("medium".into()),
@@ -1885,7 +1890,8 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
-    };
+        lowering: Lowering::Unavailable,
+    });
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
@@ -1949,7 +1955,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         &home_text,
         2,
     );
-    let candidate = Candidate {
+    let candidate = templated(Candidate {
         agent: "implementer".into(),
         model: "deepseek-v4-flash".into(),
         effort: Some("medium".into()),
@@ -1961,7 +1967,8 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         // optional member, so the private start context can be read for
         // it on the real single-site path beside the owned target.
         resume: dsh_assessment_declaring(Some(&"c".repeat(64))),
-    };
+        lowering: Lowering::Unavailable,
+    });
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
@@ -2047,7 +2054,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
     let mut alpha = member("alpha", argv.clone());
     // Task 8.8(a): the panel member's own SELECTED declaration, so the
     // second production `start_context` call site is read too.
-    alpha.candidates = vec![Candidate {
+    alpha.candidates = vec![templated(Candidate {
         agent: "implementer".into(),
         model: "deepseek-v4-flash".into(),
         effort: Some("medium".into()),
@@ -2056,7 +2063,8 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: dsh_assessment_declaring(Some(&"d".repeat(64))),
-    }];
+        lowering: Lowering::Unavailable,
+    })];
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
@@ -2345,7 +2353,7 @@ fn a_declared_wrapper_digest_reaches_the_private_start_context() {
     let carried = |resume: crate::agents::ResumeAssessment| {
         let dir = tempfile::tempdir().unwrap();
         let argv = driver(dir.path(), "work", &["complete"]);
-        let candidate = Candidate {
+        let candidate = templated(Candidate {
             agent: "implementer".into(),
             model: "deepseek-v4-flash".into(),
             effort: Some("medium".into()),
@@ -2354,7 +2362,8 @@ fn a_declared_wrapper_digest_reaches_the_private_start_context() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume,
-        };
+            lowering: Lowering::Unavailable,
+        });
         let mut seats = BTreeMap::new();
         seats.insert(
             "work".into(),

@@ -261,6 +261,52 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
     }
 }
 
+/// One compiled site and candidate composed as [`try_launch`] composes it,
+/// then sealed exactly as dispatch seals it — the site's facts and the
+/// serving outcome, through the engine's own functions — with the input
+/// the driver is handed, which the dispatch door admits.
+fn sealed(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+) -> (brokkr_runtime::engine::SiteSpawn, Value) {
+    use brokkr_runtime::engine::{expected_state, verify_record, LAUNCH_RECORD};
+    let facts = &bundle.sites[label];
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let link = facts.chain.get(candidate);
+    let argv: Vec<String> = match link {
+        Some(link) => link.argv.clone(),
+        None => match &bundle.seats[label].body {
+            SeatBody::Single { command, .. } => command.clone(),
+            _ => panic!("{label} is a single seat"),
+        },
+    };
+    let built = match bundle.boundary.is_boxed() {
+        true => brokkr_runtime::engine::BuiltBoundary::Namespace,
+        false => brokkr_runtime::engine::BuiltBoundary::Harness,
+    };
+    let mut spawn = brokkr_runtime::engine::compose_site(
+        built,
+        brokkr_runtime::SeatClass::Work,
+        argv,
+        bundle.hands.get(label),
+        link,
+        Path::new("/w"),
+        &[],
+        "/w/result.json",
+        None,
+    );
+    assert_eq!(spawn.refusal, None, "{label}[{candidate}]");
+    spawn.seal(expected_state(outcome, link, Some(facts)).unwrap());
+    let input = json!({LAUNCH_RECORD: spawn.launch_record()});
+    assert_eq!(
+        verify_record(&spawn, &input),
+        Ok(()),
+        "{label}[{candidate}]"
+    );
+    (spawn, input)
+}
+
 fn off_pairs(argv: &[String]) -> usize {
     argv.windows(2).filter(|pair| *pair == OFF).count()
 }
@@ -471,6 +517,224 @@ fn a_codex_seat_that_holds_search_is_launched_without_the_off_pair() {
         );
         assert!(chain.outcomes[1].notices.is_empty());
     }
+}
+
+/// Unit 4 (design D5.7), from production-compiled seats: a link's
+/// template, model and effort emissions and the engine's hands reach the
+/// sealed launch record by who supplied them — through the compile's
+/// `{brokkr}` expansion, the harness fragment and the box's placeholder
+/// expansion, for a primary and its fallback alike — beside the serving
+/// outcome's expected state. An inline seat whose arguments spell the very
+/// same bytes stays the author's.
+#[test]
+fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_authored() {
+    use brokkr_protocol::native_controls::{flatten, Origin, Segment};
+    use brokkr_runtime::agents::Lowering;
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let strings = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let origins = |record: &Value| -> Vec<Value> {
+        record["segments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|segment| segment["origin"].clone())
+            .collect()
+    };
+    let head =
+        |list: &Value, count: usize| Value::Array(list.as_array().unwrap()[..count].to_vec());
+    let unboxed = operator
+        .compile(&context, Boundary::Harness, None, Some(json!({})))
+        .unwrap();
+
+    // The compile expanded `{brokkr}` segment by segment: the link's
+    // template names this binary, and its segments are its argv.
+    let link = &unboxed.sites["agent"].chain[0];
+    let Lowering::Composed(composition) = &link.lowering else {
+        panic!("a resolved link carries its composition");
+    };
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        composition.segments[0],
+        Segment::new(Origin::Template, &strings(&[&exe, "driver", "codex", "--"]))
+    );
+    assert_eq!(flatten(&composition.segments), link.argv);
+
+    // `harness`: the agent-backed link's model and effort are the
+    // adapter's template, its work fragment the engine's hands.
+    let (agent, input) = sealed(&unboxed, "agent", 0);
+    let record = &input["launch_record"];
+    assert_eq!(
+        record["segments"],
+        json!([
+            {"origin": "template", "argv": ["--model", "gpt-6-astra"]},
+            {"origin": "template", "argv": ["--effort", "high"]},
+            {"origin": "hands", "argv": ["--sandbox", "workspace-write"]},
+        ])
+    );
+    assert_eq!(
+        record["expected"],
+        json!({
+            "identity": {"provider": "codex", "harness": "codex",
+                         "model": {"kind": "named", "name": "astra"}},
+            "native": {"kind": "known", "held": [], "denied": ["web-search"]},
+            "local": {"allow": {"kind": "unspecified"}, "sandbox": {"kind": "unspecified"},
+                      "application": {"kind": "dormant"}},
+            "hands": {"kind": "required"},
+        })
+    );
+    // The inline seat spells the same arguments byte for byte, and every
+    // one of them is authored.
+    let (inline, input) = sealed(&unboxed, "inline", 0);
+    let copied = &input["launch_record"];
+    assert_eq!(
+        copied["segments"],
+        json!([{"origin": "authored",
+                "argv": ["--model", "gpt-6-astra", "--effort", "high",
+                         "--sandbox", "workspace-write"]}])
+    );
+    assert_eq!(inline.argv[1..], agent.argv[1..]);
+    assert_eq!(
+        copied["expected"]["local"],
+        json!({"allow": {"kind": "unspecified"}, "sandbox": {"kind": "unspecified"},
+               "application": {"kind": "unrestricted"}})
+    );
+    assert_eq!(copied["expected"]["hands"], json!({"kind": "none"}));
+
+    // `namespace`: the Claude primary and its Codex fallback, each under
+    // its own identity, with the box's workspace fragment as hands.
+    let boxed = operator
+        .compile(&context, Boundary::Namespace, None, Some(json!({})))
+        .unwrap();
+    // The boxed inline seat's arguments are all its author's, its hands
+    // the site's own declaration.
+    let (_, input) = sealed(&boxed, "boxed", 0);
+    assert_eq!(
+        input["launch_record"]["segments"],
+        json!([{"origin": "authored",
+                "argv": ["--model", "gpt-6-astra", "--effort", "high",
+                         "--sandbox", "read-only"]}])
+    );
+    assert_eq!(
+        input["launch_record"]["expected"]["hands"],
+        json!({"kind": "required"})
+    );
+    let (_, input) = sealed(&boxed, "chain", 0);
+    let primary = &input["launch_record"];
+    assert_eq!(
+        origins(primary),
+        [
+            json!("template"),
+            json!("template"),
+            json!("template"),
+            json!("hands")
+        ]
+    );
+    assert_eq!(
+        head(&primary["segments"], 3),
+        json!([
+            {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
+            {"origin": "template", "argv": ["--model", "claude-opus-5-5"]},
+            {"origin": "template", "argv": ["--effort", "high"]},
+        ])
+    );
+    assert_eq!(
+        head(&primary["segments"][3]["argv"], 3),
+        json!(["--tools", "", "--strict-mcp-config"])
+    );
+    assert_eq!(
+        primary["expected"]["identity"],
+        json!({"provider": "claude", "harness": "claude",
+               "model": {"kind": "named", "name": "opus"}})
+    );
+    let (_, input) = sealed(&boxed, "chain", 1);
+    let fallback = &input["launch_record"];
+    assert_eq!(
+        origins(fallback),
+        [json!("template"), json!("template"), json!("hands")]
+    );
+    assert_eq!(
+        head(&fallback["segments"][2]["argv"], 3),
+        json!(["--sandbox", "read-only", "-c"])
+    );
+    assert_eq!(
+        fallback["expected"]["identity"],
+        json!({"provider": "codex", "harness": "codex",
+               "model": {"kind": "named", "name": "astra"}})
+    );
+    assert_eq!(
+        fallback["expected"]["native"],
+        json!({"kind": "known", "held": [], "denied": ["web-search"]})
+    );
+}
+
+/// Unit 4 (design D5.7): an office's direct allow list, compiled for an
+/// unboxed Claude seat, reaches the sealed record as the adapter's exact
+/// mapped limits under the `local` origin — beside the template it was
+/// composed after — with the ordered names and limits in the expected
+/// state, independently of the joined flag value.
+#[test]
+fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
+    let operator = Operator::new();
+    write(
+        operator.root(),
+        "agents/limited.json",
+        &json!({
+            "description": "an office limited to two local commands",
+            "charter": "charters/searcher.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"},
+            "tools": {"allow": ["pytest", "cargo"]},
+        }),
+    );
+    one_inline_seat(&operator, &["driver"]);
+    write(
+        operator.root(),
+        "solo/bundle.json",
+        &json!({"name": "solo", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "limited"},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    let bundle = solo_bundle(
+        &operator,
+        &workspace().join("adapters"),
+        &CapabilityContext::no_grants("private", operator.root()),
+    )
+    .unwrap();
+    let (_, input) = sealed(&bundle, "work", 0);
+    let record = &input["launch_record"];
+    assert_eq!(
+        record["segments"],
+        json!([
+            {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
+            {"origin": "template", "argv": ["--model", "claude-opus-5-5"]},
+            {"origin": "template", "argv": ["--effort", "high"]},
+            {"origin": "local",
+             "argv": ["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]},
+        ])
+    );
+    assert_eq!(
+        record["expected"]["local"],
+        json!({"allow": {"kind": "listed", "names": ["pytest", "cargo"]},
+               "sandbox": {"kind": "unspecified"},
+               "application": {"kind": "direct",
+                               "limits": ["Bash(.venv/bin/pytest:*)", "Bash(cargo:*)"]}})
+    );
+    assert_eq!(record["expected"]["hands"], json!({"kind": "none"}));
+    assert_eq!(
+        record["expected"]["identity"],
+        json!({"provider": "claude", "harness": "claude",
+               "model": {"kind": "named", "name": "opus"}})
+    );
 }
 
 /// Ruling 5's launch on the RESUME argv, from compiled seats rather than a

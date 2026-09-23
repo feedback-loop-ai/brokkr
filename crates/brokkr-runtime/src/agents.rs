@@ -733,6 +733,12 @@ pub struct Candidate {
     /// context is built there. Empty for an inline site, which no
     /// adapter answers for.
     pub resume: ResumeAssessment,
+    /// The entry's composition before flattening (design D5.7): who
+    /// supplied each token of `argv`, and the local and hands halves of the
+    /// expected state, carried from the resolver to dispatch. `argv` is its
+    /// flat projection; the record is never recovered from `argv`'s bytes
+    /// or from [`Candidate::parts`].
+    pub lowering: Lowering,
 }
 
 impl Candidate {
@@ -1379,11 +1385,9 @@ pub(crate) fn resolve_report(
         chain: agent.models.join(", "),
     })?;
 
-    // A LOSSY projection, knowingly (design D5.7): a candidate carries the
-    // flat argv and its trailing hands fragment, not the entry's segments
-    // or expected local state. Carrying those onward is the dispatch
-    // transport's work (rebuild unit 4); nothing may reconstruct them from
-    // `Candidate::parts` or from the argv's bytes meanwhile.
+    // Each candidate carries its entry's composition itself (design D5.7,
+    // rebuild unit 4): the flat argv and hands fragment beside it are its
+    // projections, and dispatch reads the segments, never the bytes.
     let candidates: Vec<Candidate> = report.entries[chosen..]
         .iter()
         .filter(|entry| entry.presence != Presence::Unavailable)
@@ -1407,6 +1411,9 @@ pub(crate) fn resolve_report(
                 .and_then(|provider| adapters.adapter(provider))
                 .map(|adapter| adapter.resume.clone())
                 .unwrap_or_default(),
+            // Every entry here composed: a gap or an unmapped model was
+            // refused above.
+            lowering: entry.lowering.clone(),
         })
         .collect();
     let skipped: Vec<Value> = report.entries[..chosen]

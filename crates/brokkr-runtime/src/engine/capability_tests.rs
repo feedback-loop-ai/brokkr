@@ -1,7 +1,9 @@
 //! Decision 0065 at the engine: what one site's driver input carries, and
 //! the fence a run is started behind.
 
-use super::tests::{bundle, capturing_driver_command, engine, member, single_body, state};
+use super::tests::{
+    bundle, capturing_driver_command, engine, member, single_body, state, templated,
+};
 use super::*;
 use crate::capabilities::{Authority, NativeInventory, Serving, SiteAsks, SiteCapabilities};
 
@@ -51,6 +53,7 @@ fn link(provider: &str, model: &str) -> Candidate {
         hands_fragment: Vec::new(),
         harness: Default::default(),
         resume: Default::default(),
+        lowering: Lowering::Unavailable,
     }
 }
 
@@ -62,28 +65,35 @@ fn link(provider: &str, model: &str) -> Candidate {
 fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     // A composed model spawn: the seat's own argv, then the two tokens the
-    // engine appended for the boundary.
-    let mut spawn = SiteSpawn::inherit(
-        [
-            "/bin/brokkr",
-            "driver",
-            "codex",
-            "--",
-            "--sandbox",
-            "read-only",
-            "-c",
-            "mcp_servers.brokkr.command=\"/bin/brokkr\"",
-        ]
-        .iter()
-        .map(|part| part.to_string())
-        .collect(),
-    );
-    spawn.managed = 2;
+    // engine appended for the boundary, each segment by who supplied it.
+    let strings = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let composed = SiteSpawn::of(vec![
+        Segment::new(
+            Origin::Authored,
+            &strings(&[
+                "/bin/brokkr",
+                "driver",
+                "codex",
+                "--",
+                "--sandbox",
+                "read-only",
+            ]),
+        ),
+        Segment::new(
+            Origin::Hands,
+            &strings(&["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\""]),
+        ),
+    ]);
     let parts = json!({"authored": ["--sandbox", "read-only"],
                        "managed": ["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\""]});
-    let spawn = Some(&spawn);
+    let spawn = || Some(composed.clone());
     let mut input = json!({});
-    engine.mark_capabilities("work", None, spawn, &mut input);
+    engine.mark_capabilities("work", None, spawn().as_mut(), &mut input);
     assert_eq!(input["native_controls"], Value::Null);
     assert_eq!(input["capabilities"], Value::Null);
     assert_eq!(input["launch_arguments"], parts);
@@ -103,7 +113,7 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
     // An inline site, or the chosen primary: the first outcome.
     for selected in [None, Some(link("codex", "astra"))] {
         let mut input = json!({});
-        engine.mark_capabilities("work", selected.as_ref(), spawn, &mut input);
+        engine.mark_capabilities("work", selected.as_ref(), spawn().as_mut(), &mut input);
         assert_eq!(
             input["native_controls"]["argv"],
             json!(["-c", "web_search=\"disabled\""])
@@ -120,7 +130,12 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
     }
     // The fallback serves under ITS outcome.
     let mut input = json!({});
-    engine.mark_capabilities("work", Some(&link("dsh", "flash")), spawn, &mut input);
+    engine.mark_capabilities(
+        "work",
+        Some(&link("dsh", "flash")),
+        spawn().as_mut(),
+        &mut input,
+    );
     assert_eq!(
         input["native_controls"],
         json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
@@ -132,7 +147,12 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
         .starts_with("Provider 'dsh' declares its native capabilities unmeasured"));
     // A link the compile never resolved has no authority, and is refused.
     let mut input = json!({});
-    engine.mark_capabilities("work", Some(&link("claude", "opus")), spawn, &mut input);
+    engine.mark_capabilities(
+        "work",
+        Some(&link("claude", "opus")),
+        spawn().as_mut(),
+        &mut input,
+    );
     assert_eq!(input["native_controls"], Value::Null);
 
     // Whatever a capability RETURNS is data: text shaped like an
@@ -149,7 +169,12 @@ fn a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null() {
                                          "mcp_servers.brokkr.command=\"/bin/brokkr\""]},
         "capabilities": {"held": {"web-search": {"tools": ["web_search"]}}},
     });
-    engine.mark_capabilities("work", Some(&link("codex", "astra")), spawn, &mut input);
+    engine.mark_capabilities(
+        "work",
+        Some(&link("codex", "astra")),
+        spawn().as_mut(),
+        &mut input,
+    );
     assert_eq!(
         input["native_controls"]["argv"],
         json!(["-c", "web_search=\"disabled\""])
@@ -230,9 +255,11 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
             .or_default()
             .capabilities = Some(two_candidates());
     }
-    let selected = |provider: &str, model: &str, name: &str, result: &str| Candidate {
-        argv: capturing(name, result),
-        ..link(provider, model)
+    let selected = |provider: &str, model: &str, name: &str, result: &str| {
+        templated(Candidate {
+            argv: capturing(name, result),
+            ..link(provider, model)
+        })
     };
     let mut selection = Selection::new();
     selection.insert(
@@ -309,6 +336,409 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
     assert_eq!(peer["seat"], "work:finish:peer");
     assert_eq!(peer["native_controls"], Value::Null);
     assert_eq!(peer["capabilities"], Value::Null);
+
+    // Unit 4: each spawned driver was handed its OWN sealed launch record
+    // through the nested dispatch — the fallback's expected state, the
+    // primary's — and the member no outcome serves was handed none. The
+    // fixture links are whole templates, so no extras segment survives the
+    // driver verb's cut.
+    let record = |identity: Value, native: Value| {
+        json!({
+            "segments": [],
+            "expected": {
+                "identity": identity,
+                "native": native,
+                "local": {"allow": {"kind": "unspecified"},
+                          "sandbox": {"kind": "unspecified"},
+                          "application": {"kind": "unrestricted"}},
+                "hands": {"kind": "none"},
+            },
+        })
+    };
+    assert_eq!(
+        draft[LAUNCH_RECORD],
+        record(
+            json!({"provider": "dsh", "harness": "dsh",
+                   "model": {"kind": "named", "name": "flash"}}),
+            json!({"kind": "unmeasured", "reason": "never probed"}),
+        )
+    );
+    assert_eq!(
+        nested[LAUNCH_RECORD],
+        record(
+            json!({"provider": "codex", "harness": "codex",
+                   "model": {"kind": "named", "name": "astra"}}),
+            json!({"kind": "known", "held": [], "denied": ["web-search"]}),
+        )
+    );
+    assert_eq!(peer.get(LAUNCH_RECORD), None);
+}
+
+fn strings(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|part| part.to_string()).collect()
+}
+
+/// A link of `provider`/`model` whose composition is spelled here, segment
+/// by segment, as the resolver would have carried it (design D5.7).
+fn composed_link(
+    provider: &str,
+    model: &str,
+    segments: Vec<Segment>,
+    intent: crate::agents::Intent,
+    application: Application,
+) -> Candidate {
+    Candidate {
+        argv: flatten(&segments),
+        lowering: Lowering::Composed(crate::agents::Composition {
+            segments,
+            effort: None,
+            intent,
+            application,
+        }),
+        ..link(provider, model)
+    }
+}
+
+/// The Codex primary: its template, the model the adapter emitted, and the
+/// workspace hands the resolver appended — an office declaring `cargo` and
+/// `read-only`, dormant beside those hands.
+fn codex_primary() -> Candidate {
+    composed_link(
+        "codex",
+        "astra",
+        vec![
+            Segment::new(
+                Origin::Template,
+                &strings(&["/bin/brokkr", "driver", "codex", "--"]),
+            ),
+            Segment::new(Origin::Template, &strings(&["--model", "gpt-6-astra"])),
+            Segment::new(Origin::Hands, &strings(&["--sandbox", "read-only"])),
+        ],
+        crate::agents::Intent {
+            allow: AllowIntent::Listed(strings(&["cargo"])),
+            sandbox: SandboxIntent::ReadOnly,
+            hands: HandsIntent::Required,
+        },
+        Application::Dormant,
+    )
+}
+
+/// The DSH fallback: its template, the model, and a directly lowered local
+/// limit, with no hands.
+fn dsh_fallback() -> Candidate {
+    composed_link(
+        "dsh",
+        "flash",
+        vec![
+            Segment::new(
+                Origin::Template,
+                &strings(&["/bin/brokkr", "driver", "dsh", "--"]),
+            ),
+            Segment::new(Origin::Template, &strings(&["--model", "flash"])),
+            Segment::new(
+                Origin::Local,
+                &strings(&["--allowedTools", "Bash(cargo:*)"]),
+            ),
+        ],
+        crate::agents::Intent {
+            allow: AllowIntent::Listed(strings(&["cargo"])),
+            sandbox: SandboxIntent::Unspecified,
+            hands: HandsIntent::None,
+        },
+        Application::Direct(strings(&["Bash(cargo:*)"])),
+    )
+}
+
+/// One marked site: the link's spawn composed as dispatch composes it, then
+/// marked, with the input the driver would be handed.
+fn marked(engine: &Engine, link: &Candidate, input: Value) -> (SiteSpawn, Value) {
+    let mut spawn = compose_site(
+        BuiltBoundary::Open,
+        SeatClass::Work,
+        link.argv.clone(),
+        None,
+        Some(link),
+        Path::new("/w"),
+        &[],
+        "/w/result.json",
+        None,
+    );
+    let mut input = input;
+    engine.mark_capabilities("work", Some(link), Some(&mut spawn), &mut input);
+    (spawn, input)
+}
+
+/// Unit 4 (design D5.7): the record a spawn is sealed with is the SELECTED
+/// link's own — its segments from the driver's extras on, by who supplied
+/// them, beside the expected state of the outcome that serves it and its
+/// own local and hands intent — written last into the input the driver is
+/// handed, and admitted by the dispatch door. A fallback's record is its
+/// own, never its primary's.
+#[test]
+fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine
+        .bundle
+        .sites
+        .entry("work".into())
+        .or_default()
+        .capabilities = Some(two_candidates());
+
+    let (spawn, input) = marked(&engine, &codex_primary(), json!({}));
+    assert_eq!(
+        input[LAUNCH_RECORD],
+        json!({
+            "segments": [
+                {"origin": "template", "argv": ["--model", "gpt-6-astra"]},
+                {"origin": "hands", "argv": ["--sandbox", "read-only"]},
+            ],
+            "expected": {
+                "identity": {"provider": "codex", "harness": "codex",
+                             "model": {"kind": "named", "name": "astra"}},
+                "native": {"kind": "known", "held": [], "denied": ["web-search"]},
+                "local": {"allow": {"kind": "listed", "names": ["cargo"]},
+                          "sandbox": {"kind": "read-only"},
+                          "application": {"kind": "dormant"}},
+                "hands": {"kind": "required"},
+            },
+        })
+    );
+    assert_eq!(spawn.refusal, None);
+    assert_eq!(
+        spawn.record.as_ref().map(LaunchRecord::value),
+        Some(input[LAUNCH_RECORD].clone())
+    );
+    assert_eq!(verify_record(&spawn, &input), Ok(()));
+    // The legacy pair stays a projection of the same segments.
+    assert_eq!(
+        input["launch_arguments"],
+        json!({"authored": ["--model", "gpt-6-astra"], "managed": ["--sandbox", "read-only"]})
+    );
+
+    let (spawn, input) = marked(&engine, &dsh_fallback(), json!({}));
+    assert_eq!(
+        input[LAUNCH_RECORD],
+        json!({
+            "segments": [
+                {"origin": "template", "argv": ["--model", "flash"]},
+                {"origin": "local", "argv": ["--allowedTools", "Bash(cargo:*)"]},
+            ],
+            "expected": {
+                "identity": {"provider": "dsh", "harness": "dsh",
+                             "model": {"kind": "named", "name": "flash"}},
+                "native": {"kind": "unmeasured", "reason": "never probed"},
+                "local": {"allow": {"kind": "listed", "names": ["cargo"]},
+                          "sandbox": {"kind": "unspecified"},
+                          "application": {"kind": "direct", "limits": ["Bash(cargo:*)"]}},
+                "hands": {"kind": "none"},
+            },
+        })
+    );
+    assert_eq!(verify_record(&spawn, &input), Ok(()));
+}
+
+/// Unit 4 (design D5.7): the dispatch door admits exactly the record sealed
+/// for its spawn. A missing or malformed record, one reordered or
+/// relabelled over equal bytes, one planted in the input before the engine
+/// sealed its own, one planted where none was sealed, and an argv changed
+/// after sealing each refuse with the whole reason; so does a site whose
+/// expected state cannot be sealed.
+#[test]
+fn the_dispatch_door_admits_only_the_record_sealed_for_its_spawn() {
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine
+        .bundle
+        .sites
+        .entry("work".into())
+        .or_default()
+        .capabilities = Some(two_candidates());
+    let (spawn, sealed) = marked(&engine, &codex_primary(), json!({}));
+    let not_sealed = "dispatch refused: the private launch record handed over is not the one the \
+                      engine sealed for this spawn; a record whose segments, origins or expected \
+                      state differ is never trusted by its shape (decision 0065 slice one, design \
+                      D5.7)";
+
+    // Missing, then malformed: the strict reader's own whole causes.
+    let mut missing = sealed.clone();
+    missing.as_object_mut().unwrap().remove(LAUNCH_RECORD);
+    assert_eq!(
+        verify_record(&spawn, &missing),
+        Err(
+            "refusing the private launch record: 'record' is missing; a record is never \
+             repaired into an empty or default one (decision 0065 slice one, design D5.7)"
+                .to_string()
+        )
+    );
+    let mut malformed = sealed.clone();
+    malformed[LAUNCH_RECORD]["segments"] = json!("--model gpt-6-astra");
+    assert_eq!(
+        verify_record(&spawn, &malformed),
+        Err(
+            "refusing the private launch record: 'record.segments' is not an array; a record \
+             is never repaired into an empty or default one (decision 0065 slice one, design \
+             D5.7)"
+                .to_string()
+        )
+    );
+
+    // Reordered: the same segments, the same bytes in another order.
+    let mut reordered = sealed.clone();
+    reordered[LAUNCH_RECORD]["segments"]
+        .as_array_mut()
+        .unwrap()
+        .swap(0, 1);
+    assert_eq!(
+        verify_record(&spawn, &reordered),
+        Err(not_sealed.to_string())
+    );
+    // Relabelled: equal bytes, the engine's hands claimed as the author's.
+    let mut relabelled = sealed.clone();
+    relabelled[LAUNCH_RECORD]["segments"][1]["origin"] = json!("authored");
+    assert_eq!(
+        verify_record(&spawn, &relabelled),
+        Err(not_sealed.to_string())
+    );
+
+    // An argv changed after sealing no longer reassembles.
+    let mut moved = spawn.clone();
+    moved.argv[5] = "gpt-6-luna".into();
+    assert_eq!(
+        verify_record(&moved, &sealed),
+        Err(
+            "refusing the private launch record: its segments do not reassemble the arguments \
+             supplied; they first differ at argument 1 (4 recorded, 4 supplied), and an argument \
+             whose origin is not recorded is never trusted by its bytes (decision 0065 slice \
+             one, design D5.7)"
+                .to_string()
+        )
+    );
+
+    // Planted before sealing — even as the very record the engine seals —
+    // refuses the spawn, and the engine's own is still what is written.
+    let planted = json!({LAUNCH_RECORD: sealed[LAUNCH_RECORD].clone()});
+    let (overridden, input) = marked(&engine, &codex_primary(), planted);
+    assert_eq!(
+        overridden.refusal.as_deref(),
+        Some(
+            "dispatch refused: the input arrived carrying a private launch record \
+             ('launch_record') before the engine sealed one; a recipe, a result or a context \
+             cannot supply the record, even one equal to the engine's (decision 0065 slice one, \
+             design D5.7)"
+        )
+    );
+    assert_eq!(input[LAUNCH_RECORD], sealed[LAUNCH_RECORD]);
+
+    // Planted where no outcome serves the site: nothing was sealed.
+    let unsealed = SiteSpawn::inherit(strings(&["/bin/brokkr", "driver", "exec", "--"]));
+    assert_eq!(verify_record(&unsealed, &json!({})), Ok(()));
+    assert_eq!(
+        verify_record(&unsealed, &json!({LAUNCH_RECORD: Value::Null})),
+        Err(
+            "dispatch refused: the input carries a private launch record ('launch_record') the \
+             engine sealed no record for, and a record is never accepted from anything but the \
+             dispatch that sealed it (decision 0065 slice one, design D5.7)"
+                .to_string()
+        )
+    );
+
+    // No expected state, no record: a link that never composed, and an
+    // inline site whose local declaration was never judged.
+    let cannot = |problem: &str| {
+        format!(
+            "dispatch refused: {problem}, so no launch record can be sealed for this site; a \
+             record is sealed from typed facts and never repaired into a default one (decision \
+             0065 slice one, design D5.7)"
+        )
+    };
+    for (selected, problem) in [
+        (
+            Some(link("codex", "astra")),
+            "the selected candidate carries no composition",
+        ),
+        (None, "the site's local declaration was never judged"),
+    ] {
+        let mut spawn = SiteSpawn::inherit(strings(&["/bin/brokkr", "driver", "codex", "--"]));
+        let mut input = json!({});
+        engine.mark_capabilities("work", selected.as_ref(), Some(&mut spawn), &mut input);
+        assert_eq!(spawn.refusal, Some(cannot(problem)));
+        assert_eq!(spawn.record, None);
+        assert_eq!(input.get(LAUNCH_RECORD), None);
+    }
+    // An inline site whose judged declaration names what no inline command
+    // lowers — an allow list, even an empty one, or a sandbox class — has
+    // no expected state to seal either.
+    for local in [
+        crate::agents::LocalTools {
+            allow: Some(Vec::new()),
+            sandbox: None,
+        },
+        crate::agents::LocalTools {
+            allow: None,
+            sandbox: Some(crate::agents::Sandbox::ReadOnly),
+        },
+    ] {
+        engine.bundle.sites.get_mut("work").unwrap().local = Some(local);
+        let mut spawn = SiteSpawn::inherit(strings(&["/bin/brokkr", "driver", "codex", "--"]));
+        let mut input = json!({});
+        engine.mark_capabilities("work", None, Some(&mut spawn), &mut input);
+        assert_eq!(
+            spawn.refusal,
+            Some(cannot(
+                "the inline site declares a typed local restriction no inline command lowers"
+            ))
+        );
+        assert_eq!(input.get(LAUNCH_RECORD), None);
+    }
+}
+
+/// Unit 4: a refused record stops the launch at the dispatch door, before
+/// any driver — and so any provider — is started.
+#[test]
+fn a_refused_record_stops_the_launch_before_the_driver_starts() {
+    let captures = tempfile::tempdir().unwrap();
+    let captured = std::fs::canonicalize(captures.path())
+        .unwrap()
+        .join("start.json");
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine
+        .bundle
+        .sites
+        .entry("work".into())
+        .or_default()
+        .capabilities = Some(two_candidates());
+    let driver = templated(Candidate {
+        argv: capturing_driver_command(
+            "effect",
+            "attempt",
+            &captured,
+            json!({"result": "pass", "notes": "ran"}),
+        ),
+        ..link("codex", "astra")
+    });
+    let (spawn, mut input) = marked(&engine, &driver, json!({}));
+    input.as_object_mut().unwrap().remove(LAUNCH_RECORD);
+    let run = engine
+        .run_driver(
+            "effect",
+            "attempt",
+            "work",
+            &spawn,
+            input,
+            std::time::Duration::from_secs(10),
+            None,
+            None,
+        )
+        .unwrap();
+    let DriverRun::SpawnFailed(error) = run else {
+        panic!("a launch with no record must not start");
+    };
+    assert_eq!(
+        error,
+        "driver did not spawn: refusing the private launch record: 'record' is missing; a \
+         record is never repaired into an empty or default one (decision 0065 slice one, design \
+         D5.7)"
+    );
+    assert!(!captured.exists(), "the driver never started");
 }
 
 fn world_granting(dir: &Path, repo: &Path, capabilities: Value) -> crate::realms::World {

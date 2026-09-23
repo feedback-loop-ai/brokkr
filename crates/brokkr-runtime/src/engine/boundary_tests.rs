@@ -13,24 +13,40 @@ use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
 
 fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -> Candidate {
-    let mut argv = vec![
-        "{brokkr}".to_string(),
-        "driver".to_string(),
-        provider.to_string(),
-        "--".to_string(),
-        "--model".to_string(),
-        "m-1".to_string(),
-    ];
-    argv.extend(hands_fragment.iter().map(|part| part.to_string()));
+    let template: Vec<String> = ["{brokkr}", "driver", provider, "--", "--model", "m-1"]
+        .iter()
+        .map(|part| part.to_string())
+        .collect();
+    let hands_fragment: Vec<String> = hands_fragment.iter().map(|part| part.to_string()).collect();
+    // The segments the resolver would have carried: the adapter's template,
+    // then the workspace fragment it appended as hands.
+    let mut segments = vec![Segment::new(Origin::Template, &template)];
+    if !hands_fragment.is_empty() {
+        segments.push(Segment::new(Origin::Hands, &hands_fragment));
+    }
+    let hands = match hands_fragment.is_empty() {
+        true => HandsIntent::None,
+        false => HandsIntent::Required,
+    };
     Candidate {
         agent: "judge".into(),
         model: "m".into(),
         effort: Some("high".into()),
         provider: provider.into(),
-        argv,
-        hands_fragment: hands_fragment.iter().map(|part| part.to_string()).collect(),
+        argv: flatten(&segments),
+        hands_fragment,
         harness,
         resume: Default::default(),
+        lowering: Lowering::Composed(crate::agents::Composition {
+            segments,
+            effort: Some("high".into()),
+            intent: crate::agents::Intent {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                hands,
+            },
+            application: Application::Unrestricted,
+        }),
     }
 }
 
@@ -300,6 +316,220 @@ fn a_boundary_this_engine_does_not_build_refuses_at_every_entry_before_any_row()
 
 // ────────────────────────────── gate-boundary-policy: argv composition
 
+/// Unit 4 (design D5.7): every boundary arm carries the selected link's
+/// segments through its own composition — `hands_command`'s placeholder
+/// expansion, the box's exec prefix, the harness fragment, the network
+/// prefix — and labels only what it composed itself as `hands`. An inline
+/// command that spells exactly those bytes stays the author's, and a
+/// command that is not the link's own composition is refused.
+#[test]
+fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
+    let workdir = Path::new("/work");
+    let roots = vec![PathBuf::from("/bundle")];
+    let spec = HandsSpec::default();
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let strings = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let compose = |boundary, command: Vec<String>, link: Option<&Candidate>| {
+        compose_site(
+            boundary,
+            SeatClass::Gate,
+            command,
+            Some(&spec),
+            link,
+            workdir,
+            &roots,
+            "/r/p.json",
+            Some(&Unboxed {
+                env: BTreeMap::new(),
+                prefix: strings(&["unshare", "--net", "--"]),
+            }),
+        )
+    };
+    let origins = |spawn: &SiteSpawn| {
+        spawn
+            .segments
+            .iter()
+            .map(|segment| segment.origin)
+            .collect::<Vec<_>>()
+    };
+
+    // `namespace`, a boxed link: the template and its hands, each over its
+    // own expanded tokens.
+    let boxed = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
+    let spawn = compose(BuiltBoundary::Namespace, boxed.argv.clone(), Some(&boxed));
+    assert_eq!(origins(&spawn), [Origin::Template, Origin::Hands]);
+    assert_eq!(
+        spawn.segments[0].argv,
+        strings(&[&exe, "driver", "codex", "--", "--model", "m-1"])
+    );
+    assert_eq!(
+        spawn.segments[1].argv[..3],
+        strings(&["--sandbox", "read-only", "-c"])
+    );
+    assert!(spawn.segments[1].argv[3].starts_with("mcp_servers.brokkr.args=["));
+    assert_eq!(spawn.segments[1].argv.len(), 4);
+    assert_eq!(spawn.refusal, None);
+
+    // `namespace`, an inline exec dispatch: the box's own prefix is the
+    // engine's, the dispatched command stays the author's.
+    let exec = exec_dispatch(Path::new("/bundle/scripts/verify.sh"));
+    let spawn = compose(BuiltBoundary::Namespace, exec.clone(), None);
+    assert_eq!(origins(&spawn), [Origin::Hands, Origin::Authored]);
+    assert_eq!(spawn.segments[0].argv[1..3], strings(&["hands", "exec"]));
+    assert_eq!(spawn.segments[0].argv.last().unwrap(), "--");
+    // The author's command over its own tokens: the script is mapped into
+    // the box, every other token is as written.
+    assert_eq!(spawn.segments[1].argv.len(), exec.len());
+    assert_eq!(spawn.segments[1].argv[..5], exec[..5]);
+    assert_ne!(spawn.segments[1].argv[5], exec[5]);
+    assert_eq!(spawn.segments[1].argv[6], "{prompt_file}");
+
+    // `harness`, the unboxed link: its template, then the gate fragment the
+    // engine appended, expanded — the legacy pair's managed half.
+    let unboxed = candidate("codex", Vec::new(), codex_harness());
+    let gate = compose(BuiltBoundary::Harness, unboxed.argv.clone(), Some(&unboxed));
+    assert_eq!(
+        gate.segments,
+        [
+            Segment::new(
+                Origin::Template,
+                &strings(&["{brokkr}", "driver", "codex", "--", "--model", "m-1"])
+            ),
+            Segment::new(
+                Origin::Hands,
+                &strings(&[
+                    "--sandbox",
+                    "read-only",
+                    "--output-last-message",
+                    "/r/p.json"
+                ])
+            ),
+        ]
+    );
+    assert_eq!(
+        gate.launch_arguments(),
+        json!({"authored": ["--model", "m-1"],
+               "managed": ["--sandbox", "read-only", "--output-last-message", "/r/p.json"]})
+    );
+
+    // An inline command spelling exactly those bytes is the author's.
+    let copied = compose(BuiltBoundary::Open, gate.argv.clone(), None);
+    assert_eq!(copied.argv, gate.argv);
+    assert_eq!(
+        copied.segments,
+        [Segment::new(Origin::Authored, &gate.argv)]
+    );
+    assert_eq!(
+        copied.launch_arguments(),
+        json!({"authored": ["--model", "m-1", "--sandbox", "read-only",
+                            "--output-last-message", "/r/p.json"],
+               "managed": []})
+    );
+
+    // `harness`, an inline exec dispatch: the network prefix is the
+    // engine's, in front of the author's command.
+    let spawn = compose(BuiltBoundary::Harness, exec.clone(), None);
+    assert_eq!(
+        spawn.segments,
+        [
+            Segment::new(Origin::Hands, &strings(&["unshare", "--net", "--"])),
+            Segment::new(Origin::Authored, &exec),
+        ]
+    );
+    assert_eq!(spawn.rewalk, Some(PathBuf::from("/bundle/scripts")));
+
+    // A command that is not the link's own composition — the boxed link's
+    // command with its hands stripped — keeps its argv, all of it
+    // authored, and is refused; so is a link that never composed.
+    let stripped = compose(BuiltBoundary::Harness, unboxed.argv.clone(), Some(&boxed));
+    assert_eq!(
+        stripped.refusal.as_deref(),
+        Some(
+            "dispatch refused: the command handed to composition is not the selected \
+             candidate's own composition, and an argument whose origin is not carried is never \
+             trusted by its bytes (decision 0065 slice one, design D5.7)"
+        )
+    );
+    assert_eq!(origins(&stripped), [Origin::Authored, Origin::Hands]);
+    let uncomposed = Candidate {
+        lowering: Lowering::Unavailable,
+        ..unboxed.clone()
+    };
+    let spawn = compose(BuiltBoundary::Open, unboxed.argv.clone(), Some(&uncomposed));
+    assert_eq!(
+        spawn.refusal.as_deref(),
+        Some(
+            "dispatch refused: the selected candidate carries no composition, so who supplied \
+             its arguments is unknown (decision 0065 slice one, design D5.7)"
+        )
+    );
+    assert_eq!(
+        spawn.segments,
+        [Segment::new(Origin::Authored, &unboxed.argv)]
+    );
+}
+
+/// Unit 4 (design D5.7): the compile expands `{brokkr}` and `./` one
+/// segment at a time, so every expanded token keeps the origin of the
+/// segment that supplied it; a lowering that never composed stays exactly
+/// what it was, never an empty composition.
+#[test]
+fn the_compiles_expansion_keeps_every_segments_origin() {
+    let exe = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let strings = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let intent = crate::agents::Intent {
+        allow: AllowIntent::Listed(strings(&["cargo"])),
+        sandbox: SandboxIntent::ReadOnly,
+        hands: HandsIntent::Required,
+    };
+    let composed = |segments: Vec<Segment>| {
+        Lowering::Composed(crate::agents::Composition {
+            segments,
+            effort: Some("high".into()),
+            intent: intent.clone(),
+            application: Application::Dormant,
+        })
+    };
+    let written = composed(vec![
+        Segment::new(
+            Origin::Template,
+            &strings(&["{brokkr}", "driver", "codex", "--"]),
+        ),
+        Segment::new(Origin::Local, &strings(&["./scripts/check.sh", ""])),
+        Segment::new(Origin::Hands, &strings(&["--sandbox", "read-only"])),
+    ]);
+    assert_eq!(
+        crate::bundle::expand_lowering(Path::new("/bundle"), &written),
+        composed(vec![
+            Segment::new(Origin::Template, &strings(&[&exe, "driver", "codex", "--"])),
+            Segment::new(Origin::Local, &strings(&["/bundle/scripts/check.sh", ""])),
+            Segment::new(Origin::Hands, &strings(&["--sandbox", "read-only"])),
+        ])
+    );
+    for never in [Lowering::Unavailable, Lowering::Refused(intent.clone())] {
+        assert_eq!(
+            crate::bundle::expand_lowering(Path::new("/bundle"), &never),
+            never
+        );
+    }
+}
+
 #[test]
 fn compose_site_follows_the_boundary_and_the_class() {
     let workdir = Path::new("/work");
@@ -311,6 +541,9 @@ fn compose_site_follows_the_boundary_and_the_class() {
         .into_owned();
     let codex = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
     let base: Vec<String> = codex.argv[..6].to_vec();
+    // The same link resolved unboxed: no workspace fragment composed.
+    let unboxed = candidate("codex", Vec::new(), codex_harness());
+    assert_eq!(unboxed.argv, base);
 
     // A site without hands: its command untouched, under every boundary.
     for boundary in [Boundary::Namespace, Boundary::Harness, Boundary::Open] {
@@ -319,13 +552,20 @@ fn compose_site_follows_the_boundary_and_the_class() {
             SeatClass::Gate,
             base.clone(),
             None,
-            Some(&codex),
+            Some(&unboxed),
             workdir,
             &roots,
             "/r/p.json",
             None,
         );
-        assert_eq!(spawn, SiteSpawn::inherit(base.clone()));
+        // Its tokens keep the origin the link carried them with.
+        assert_eq!(
+            spawn,
+            SiteSpawn {
+                segments: vec![Segment::new(Origin::Template, &base)],
+                ..SiteSpawn::inherit(base.clone())
+            }
+        );
     }
 
     // `namespace`: today's path token for token, for a model site and
@@ -747,6 +987,25 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
             assert_eq!(spawn.refusal, None);
             assert_eq!(spawn.env, SpawnEnv::Inherit);
             assert_eq!(command[5], script.display().to_string());
+            // Unit 4: the same command supplied in two segments. The
+            // respelled script lands in the segment that supplied it, which
+            // keeps its origin, and the segments stay the argv.
+            let split = exec_segments_on(
+                vec![
+                    Segment::new(Origin::Template, &command[..4]),
+                    Segment::new(Origin::Authored, &command[4..]),
+                ],
+                &roots,
+                windows,
+            );
+            assert_eq!(split.argv, expected);
+            assert_eq!(
+                split.segments,
+                [
+                    Segment::new(Origin::Template, &expected[..4]),
+                    Segment::new(Origin::Authored, &expected[4..]),
+                ]
+            );
         }
     }
 
@@ -1259,11 +1518,8 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
     let (layer, pinned) = pinned_layer(dir.path());
     engine.bundle = pinned;
     let spawn = SiteSpawn {
-        argv: vec!["must-not-run".into()],
-        env: SpawnEnv::Inherit,
         rewalk: Some(layer.join("scripts")),
-        refusal: None,
-        managed: 0,
+        ..SiteSpawn::inherit(vec!["must-not-run".into()])
     };
     let run = |engine: &mut Engine| {
         engine
@@ -2227,17 +2483,14 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
         driver_seat: "work:judge".into(),
         boundary: Some(Boundary::Harness),
         spawn: SiteSpawn {
-            argv: driver_command(
+            rewalk: Some(layer.join("scripts")),
+            ..SiteSpawn::inherit(driver_command(
                 "effect",
                 "attempt",
                 AttemptOutcome::Succeeded {
                     result: json!({"result":"pass"}),
                 },
-            ),
-            env: SpawnEnv::Inherit,
-            rewalk: Some(layer.join("scripts")),
-            refusal: None,
-            managed: 0,
+            ))
         },
         offer: None,
         context: None,
@@ -2347,17 +2600,14 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
         Some((5, layer.join("scripts")))
     );
     let spawn = SiteSpawn {
-        argv: driver_command(
+        rewalk: script_directory(&command, &engine.bundle.roots).map(|(_, directory)| directory),
+        ..SiteSpawn::inherit(driver_command(
             "effect",
             "attempt",
             AttemptOutcome::Succeeded {
                 result: json!({"result":"complete"}),
             },
-        ),
-        env: SpawnEnv::Inherit,
-        rewalk: script_directory(&command, &engine.bundle.roots).map(|(_, directory)| directory),
-        refusal: None,
-        managed: 0,
+        ))
     };
     let run = |engine: &mut Engine| {
         engine

@@ -20,10 +20,11 @@ pub mod compose;
 use compose::{Ancestor, COMPOSE_PREFIX};
 
 use crate::agents::{
-    resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass,
-    Library, Sandbox, TrustTier,
+    resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
+    EgressClass, Library, Lowering, Sandbox, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
+use brokkr_protocol::native_controls::Segment;
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const EVENT_SCHEMA: u32 = 1;
@@ -2383,6 +2384,9 @@ fn resolve_reference(
                 // resume assessment is not one of its terms, and this
                 // projection is discarded after that judgment.
                 resume: Default::default(),
+                // The entry's own lowering, refused or composed, never a
+                // valid empty one standing in for it (design D5.7).
+                lowering: entry.lowering.clone(),
             })
             .collect();
         enforce_model_policy(
@@ -2432,6 +2436,7 @@ fn resolve_reference(
             hands_fragment: candidate.hands_fragment.clone(),
             harness: candidate.harness.clone(),
             resume: candidate.resume.clone(),
+            lowering: expand_lowering(dir, &candidate.lowering),
         });
     }
     site_facts(sites, site_key).record = Some(resolution.record.clone());
@@ -4925,6 +4930,28 @@ pub fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// [`expand_command`] over a composition, one segment at a time (design
+/// D5.7): each token keeps the origin of the segment that supplied it, and
+/// because the expansion is token for token, the expanded segments are
+/// exactly the expanded argv, in order. A lowering that never composed
+/// has nothing to expand.
+pub(crate) fn expand_lowering(dir: &Path, lowering: &Lowering) -> Lowering {
+    match lowering {
+        Lowering::Composed(composition) => Lowering::Composed(Composition {
+            segments: composition
+                .segments
+                .iter()
+                .map(|segment| Segment {
+                    origin: segment.origin,
+                    argv: expand_command(dir, &segment.argv),
+                })
+                .collect(),
+            ..composition.clone()
+        }),
+        other => other.clone(),
+    }
 }
 
 fn brokkr_executable(current: std::io::Result<PathBuf>) -> String {

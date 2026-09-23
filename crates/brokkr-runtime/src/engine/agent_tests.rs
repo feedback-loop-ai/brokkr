@@ -6,7 +6,7 @@ use super::*;
 use crate::agents::Candidate;
 use crate::bundle::{PanelMember, SequenceStep};
 
-use super::tests::{engine, single_body};
+use super::tests::{engine, single_body, templated};
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
     EventEnvelope {
@@ -26,7 +26,7 @@ fn event(event_type: EventType, payload: Value) -> EventEnvelope {
 }
 
 fn candidate(agent: &str, model: &str) -> Candidate {
-    Candidate {
+    templated(Candidate {
         agent: agent.into(),
         model: model.into(),
         effort: Some("high".into()),
@@ -35,7 +35,8 @@ fn candidate(agent: &str, model: &str) -> Candidate {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
-    }
+        lowering: Lowering::Unavailable,
+    })
 }
 
 fn failure(effect_id: &str, sites: Value) -> EventEnvelope {
@@ -376,7 +377,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
     let mut selection = Selection::new();
     selection.insert(
         None,
-        Candidate {
+        templated(Candidate {
             agent: "implementer".into(),
             model: "fable".into(),
             effort: Some("high".into()),
@@ -385,7 +386,8 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
             harness: HarnessHands::default(),
             resume: Default::default(),
             argv: vec!["driver".into(), "--model".into(), "fable".into()],
-        },
+            lowering: Lowering::Unavailable,
+        }),
     );
     let reason = "provider refused before the first turn: rate_limit (HTTP 429): \
                   You have reached your limit";

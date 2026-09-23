@@ -17,6 +17,10 @@ use brokkr_core::policy::Outcome;
 use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::native_controls::{
+    flatten, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
+    LocalExpectation, Origin, SandboxIntent, Segment,
+};
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
 use brokkr_store::{SeatRecordError, Store, StoreError};
@@ -25,10 +29,11 @@ use thiserror::Error;
 use uuid::Uuid;
 
 #[allow(unused_imports)]
-use crate::agents::{Candidate, HarnessHands, ResultDoor};
+use crate::agents::{Candidate, HarnessHands, Lowering, ResultDoor};
 use crate::bundle::{
     charter_text, dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState,
-    PanelMember, Seat, SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
+    PanelMember, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, StepBody, ENGINE_VERSION,
+    REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -1150,7 +1155,7 @@ impl Engine {
         // instance this attempt resolves to is part of what decides
         // whether a prior session may be handed back to it.
         let runtime_hands = self.runtime_hands(&site_name);
-        let single = match body {
+        let mut single = match body {
             ExecutableBody::Single { command, .. } => Some(self.compose(
                 &attempt_id,
                 gate,
@@ -1181,7 +1186,7 @@ impl Engine {
         self.mark_capabilities(
             &site_name,
             selection.get(&None),
-            single.as_ref(),
+            single.as_mut(),
             &mut input,
         );
         let mut started = json!({
@@ -1342,24 +1347,56 @@ impl Engine {
     /// its own plan AND its own parts.
     /// A panel or a sequence is no launch of its own — each member and step
     /// is marked with its own spawn — so its seat-level input carries none.
+    ///
+    /// The private launch record is sealed onto the spawn here and written
+    /// beside them (decision 0065 slice one, design D5.7): the spawn's
+    /// segments with the serving outcome's expected state. An input that
+    /// already carries one refuses the spawn rather than being overwritten
+    /// into looking sealed; a site no outcome serves carries none; and a
+    /// site whose expected state cannot be sealed refuses its spawn.
     fn mark_capabilities(
         &self,
         label: &str,
         link: Option<&Candidate>,
-        spawn: Option<&SiteSpawn>,
+        spawn: Option<&mut SiteSpawn>,
         input: &mut Value,
     ) {
-        let outcome = self
-            .bundle
-            .sites
-            .get(label)
+        let facts = self.bundle.sites.get(label);
+        let outcome = facts
             .and_then(|facts| facts.capabilities.as_ref())
             .and_then(|site| {
                 site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
             });
         input["native_controls"] = outcome.map_or(Value::Null, |outcome| outcome.controls());
         input["capabilities"] = outcome.map_or(Value::Null, |outcome| outcome.prompt());
-        input["launch_arguments"] = spawn.map_or(Value::Null, SiteSpawn::launch_arguments);
+        let Some(spawn) = spawn else {
+            input["launch_arguments"] = Value::Null;
+            return;
+        };
+        input["launch_arguments"] = spawn.launch_arguments();
+        if input.get(LAUNCH_RECORD).is_some() {
+            spawn.refusal.get_or_insert_with(|| {
+                format!(
+                    "dispatch refused: the input arrived carrying a private launch record \
+                     ('{LAUNCH_RECORD}') before the engine sealed one; a recipe, a result or a \
+                     context cannot supply the record, even one equal to the engine's (decision \
+                     0065 slice one, design D5.7)"
+                )
+            });
+        }
+        spawn.record = None;
+        let Some(outcome) = outcome else {
+            return;
+        };
+        match expected_state(outcome, link, facts) {
+            Ok(expected) => {
+                spawn.seal(expected);
+                input[LAUNCH_RECORD] = spawn.launch_record();
+            }
+            Err(reason) => {
+                spawn.refusal.get_or_insert(reason);
+            }
+        }
     }
 
     /// The judge's door under `harness` (decision 0046 ruling 4; design
@@ -2014,7 +2051,7 @@ impl Engine {
                 self.mark_hands(&label, &mut input);
                 self.mark_delivery(&label, gate, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
-                let spawn = self.compose(
+                let mut spawn = self.compose(
                     attempt_id,
                     gate,
                     argv_for(selection, &site, &member.command).to_vec(),
@@ -2022,7 +2059,7 @@ impl Engine {
                     selection.get(&site),
                     input["result_path"].as_str().unwrap_or_default(),
                 );
-                self.mark_capabilities(&label, selection.get(&site), Some(&spawn), &mut input);
+                self.mark_capabilities(&label, selection.get(&site), Some(&mut spawn), &mut input);
                 // Each member's OWN offer and stamps, never the panel's:
                 // selection is per site, not per aggregate (proposed
                 // decision 0056 ruling 1).
@@ -2327,7 +2364,7 @@ impl Engine {
                     let step_gate = step.class == SeatClass::Gate;
                     self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
                     let hands = self.hands_for(&step_label);
-                    let spawn = self.compose(
+                    let mut spawn = self.compose(
                         attempt_id,
                         step_gate,
                         argv_for(selection, &site, command).to_vec(),
@@ -2338,7 +2375,7 @@ impl Engine {
                     self.mark_capabilities(
                         &step_label,
                         selection.get(&site),
-                        Some(&spawn),
+                        Some(&mut spawn),
                         &mut input,
                     );
                     // A sequence step now HAS such an identity: proposed
@@ -2481,7 +2518,7 @@ impl Engine {
                     // the compiler refuses it under `harness` and `open`
                     // (design DD8), so no unboxed arm is reached here.
                     let hands = self.hands_for(&step_label);
-                    let spawn = self.compose(
+                    let mut spawn = self.compose(
                         attempt_id,
                         true,
                         argv_for(selection, &site, &command).to_vec(),
@@ -2491,7 +2528,7 @@ impl Engine {
                     );
                     // The generated validator holds nothing, and says so
                     // (decision 0065; design D5).
-                    self.mark_capabilities(&step_label, None, Some(&spawn), &mut input);
+                    self.mark_capabilities(&step_label, None, Some(&mut spawn), &mut input);
                     dialect_attempt_outcome(self.run_driver(
                         effect_id,
                         attempt_id,
@@ -4215,6 +4252,10 @@ fn spawn_site(
     if let Some(reason) = &spawn.refusal {
         return Err(reason.clone());
     }
+    // The input arrives here after its last merge: the launch record in it
+    // must be the one sealed for this spawn, and reassemble the argv about
+    // to be launched (design D5.7).
+    verify_record(spawn, input)?;
     // Decision 0066 ruling 5: the driver renders the prompt from the role
     // file it is handed, so the file is judged here, against the pin the
     // compile took, immediately before the driver that will read it.
@@ -4261,41 +4302,213 @@ pub struct SiteSpawn {
     pub env: SpawnEnv,
     pub rewalk: Option<PathBuf>,
     pub refusal: Option<String>,
-    /// How many TRAILING tokens of `argv` the engine composed for the
-    /// boundary — the adapter's workspace hands under the box, its harness
-    /// fragment unboxed — rather than the recipe or its agent (decision
-    /// 0066 ruling 4). Recorded where the fragment is appended, because the
-    /// flattened argv has lost the difference and an author can spell
-    /// whatever the engine can.
-    pub managed: usize,
+    /// Who supplied each token of `argv`, in order (decision 0065 slice
+    /// one, design D5.7): the selected candidate's own segments, or an
+    /// inline site's authored command, and what the engine composed for the
+    /// boundary as `hands`. Carried from where each contribution is made,
+    /// because the flattened argv has lost the difference and an author can
+    /// spell whatever the engine can. Its concatenation is `argv`.
+    pub segments: Vec<Segment>,
+    /// The private launch record sealed for this spawn — its driver
+    /// extras' segments beside the serving candidate's expected state —
+    /// or `None` where no capability outcome serves the site. The dispatch
+    /// door admits exactly this record and nothing else.
+    pub record: Option<LaunchRecord>,
 }
+
+/// The engine-private input key the sealed launch record rides under,
+/// written after every merge of seat, context and member input.
+pub const LAUNCH_RECORD: &str = "launch_record";
 
 impl SiteSpawn {
     /// An argv in the engine's own environment with no re-walk: what
-    /// every site without hands, and every boxed site, spawns as.
+    /// every site without hands, and every boxed site, spawns as. Every
+    /// token is the author's: nothing here was composed by the engine.
     pub fn inherit(argv: Vec<String>) -> SiteSpawn {
+        SiteSpawn::of(vec![Segment::new(Origin::Authored, &argv)])
+    }
+
+    /// A spawn of exactly these segments, their concatenation its argv.
+    fn of(segments: Vec<Segment>) -> SiteSpawn {
         SiteSpawn {
-            argv,
+            argv: flatten(&segments),
             env: SpawnEnv::Inherit,
             rewalk: None,
             refusal: None,
-            managed: 0,
+            segments,
+            record: None,
         }
     }
 
-    /// The driver's private `launch_arguments`: the arguments after the
-    /// driver verb's `--`, exactly as the driver will read them, in their
-    /// two parts by who wrote them. The driver refuses a launch whose parts
-    /// do not reassemble what it was handed.
-    pub fn launch_arguments(&self) -> Value {
-        let arguments = self.argv.get(3..).unwrap_or_default();
-        let extra = match arguments.iter().position(|part| part == "--") {
-            Some(separator) => &arguments[separator + 1..],
-            None => arguments,
-        };
-        let (authored, managed) = extra.split_at(extra.len().saturating_sub(self.managed));
-        json!({"authored": authored, "managed": managed})
+    /// Replace the token at `index` in `argv` and in the segment that
+    /// supplied it, which keeps its origin.
+    fn replace(&mut self, index: usize, token: String) {
+        let mut start = 0;
+        for segment in &mut self.segments {
+            if index < start + segment.argv.len() {
+                segment.argv[index - start] = token.clone();
+                break;
+            }
+            start += segment.argv.len();
+        }
+        self.argv[index] = token;
     }
+
+    /// Where the driver's extras begin: after the driver verb's own `--`,
+    /// exactly as the driver will read them; an argv with none is read
+    /// whole from its fourth token, and a shorter one is empty.
+    fn extras_start(&self) -> usize {
+        match self.argv.get(3..) {
+            None => self.argv.len(),
+            Some(arguments) => {
+                3 + arguments
+                    .iter()
+                    .position(|part| part == "--")
+                    .map_or(0, |separator| separator + 1)
+            }
+        }
+    }
+
+    /// The segments of the driver's extras, cut at [`Self::extras_start`]
+    /// by position: a segment that ends at or before the cut supplied only
+    /// the verb and is dropped, one that straddles it keeps its tail, and
+    /// every later one — an empty one included — is kept whole.
+    pub fn extras(&self) -> Vec<Segment> {
+        let cut = self.extras_start();
+        let mut start = 0;
+        let mut extras = Vec::new();
+        for segment in &self.segments {
+            let end = start + segment.argv.len();
+            if start >= cut {
+                extras.push(segment.clone());
+            } else if end > cut {
+                extras.push(Segment::new(segment.origin, &segment.argv[cut - start..]));
+            }
+            start = end;
+        }
+        extras
+    }
+
+    /// The driver's private `launch_arguments`: the extras in their two
+    /// legacy parts, the trailing run of `hands` segments the engine
+    /// composed for the boundary and everything before it. A projection of
+    /// the segments, never a count recovered from the flattened argv. The
+    /// driver refuses a launch whose parts do not reassemble what it was
+    /// handed.
+    pub fn launch_arguments(&self) -> Value {
+        let extras = self.extras();
+        let managed_from = extras
+            .iter()
+            .rposition(|segment| segment.origin != Origin::Hands)
+            .map_or(0, |last| last + 1);
+        json!({
+            "authored": flatten(&extras[..managed_from]),
+            "managed": flatten(&extras[managed_from..]),
+        })
+    }
+
+    /// Seal this spawn's private launch record: its extras' segments
+    /// beside the expected state the serving outcome was resolved to.
+    pub fn seal(&mut self, expected: Expected) {
+        self.record = Some(LaunchRecord {
+            segments: self.extras(),
+            expected,
+        });
+    }
+
+    /// The sealed record as the driver input carries it, `null` where none.
+    pub fn launch_record(&self) -> Value {
+        self.record
+            .as_ref()
+            .map_or(Value::Null, LaunchRecord::value)
+    }
+}
+
+/// The dispatch door's judgment of the launch record an input carries
+/// (decision 0065 slice one, design D5.7): exactly the record sealed for
+/// this spawn, decoded strictly and reassembling the extras the driver is
+/// about to be handed. A record where none was sealed, a missing or
+/// malformed one, one whose segments were reordered or relabelled, and one
+/// whose argv no longer reassembles each refuse before any provider work.
+/// Equal bytes prove nothing here: the record is compared with the one the
+/// engine sealed, not recognised by its contents.
+pub fn verify_record(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
+    let handed = input.get(LAUNCH_RECORD);
+    let Some(sealed) = &spawn.record else {
+        return match handed {
+            None => Ok(()),
+            Some(_) => Err(format!(
+                "dispatch refused: the input carries a private launch record ('{LAUNCH_RECORD}') \
+                 the engine sealed no record for, and a record is never accepted from anything \
+                 but the dispatch that sealed it (decision 0065 slice one, design D5.7)"
+            )),
+        };
+    };
+    let record = LaunchRecord::decode(handed)?;
+    if &record != sealed {
+        return Err(
+            "dispatch refused: the private launch record handed over is not the one the engine \
+             sealed for this spawn; a record whose segments, origins or expected state differ is \
+             never trusted by its shape (decision 0065 slice one, design D5.7)"
+                .to_string(),
+        );
+    }
+    reassemble(&record.segments, &spawn.argv[spawn.extras_start()..])
+}
+
+/// The expected state of the site a spawn serves (design D5.7), sealed from
+/// typed facts alone and never read back from any argv: the serving
+/// outcome's identity and native expectation, and the local and hands
+/// halves of the selected candidate's own composition — or, at an inline
+/// site, of the site's judged local declaration and hands. A candidate that
+/// never composed, and an inline site whose local declaration was never
+/// judged or declares what no inline command lowers, has no expected state.
+pub fn expected_state(
+    outcome: &crate::capabilities::Outcome,
+    link: Option<&Candidate>,
+    facts: Option<&SiteFacts>,
+) -> Result<Expected, String> {
+    let refused = |problem: &str| {
+        format!(
+            "dispatch refused: {problem}, so no launch record can be sealed for this site; a \
+             record is sealed from typed facts and never repaired into a default one (decision \
+             0065 slice one, design D5.7)"
+        )
+    };
+    let (local, hands) = match link {
+        Some(link) => match &link.lowering {
+            Lowering::Composed(composition) => (composition.local(), composition.intent.hands),
+            Lowering::Unavailable | Lowering::Refused(_) => {
+                return Err(refused("the selected candidate carries no composition"))
+            }
+        },
+        None => {
+            let local = facts
+                .and_then(|facts| facts.local.as_ref())
+                .ok_or_else(|| refused("the site's local declaration was never judged"))?;
+            if local.allow.is_some() || local.sandbox.is_some() {
+                return Err(refused(
+                    "the inline site declares a typed local restriction no inline command lowers",
+                ));
+            }
+            let hands = match facts.map(|facts| &facts.hands) {
+                Some(HandsState::Hands(_)) => HandsIntent::Required,
+                _ => HandsIntent::None,
+            };
+            let local = LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            };
+            (local, hands)
+        }
+    };
+    Ok(Expected {
+        identity: outcome.identity(),
+        native: outcome.native.expected(),
+        local,
+        hands,
+    })
 }
 
 /// What the engine prepares for an unboxed exec dispatch and hands the
@@ -4347,18 +4560,81 @@ fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<(usize, Pat
 /// spelling. Only the script argv is converted; later arguments are not
 /// judged paths. Unix filename bytes, including backslashes, stay exact.
 /// The explicit platform lets Linux exercise the Windows composition too.
+#[cfg(test)]
 fn exec_spawn_on(command: Vec<String>, roots: &[PathBuf], windows: bool) -> SiteSpawn {
-    let mut spawn = SiteSpawn::inherit(command);
+    exec_segments_on(
+        vec![Segment::new(Origin::Authored, &command)],
+        roots,
+        windows,
+    )
+}
+
+/// [`exec_spawn_on`] over segments: the script argument is respelled in
+/// the segment that supplied it, which keeps its origin.
+fn exec_segments_on(segments: Vec<Segment>, roots: &[PathBuf], windows: bool) -> SiteSpawn {
+    let mut spawn = SiteSpawn::of(segments);
     if is_exec_dispatch(&spawn.argv) {
         if let Some((index, directory)) = script_directory(&spawn.argv, roots) {
             spawn.rewalk = Some(directory);
             match script_argument(&spawn.argv[index], windows) {
-                Ok(argument) => spawn.argv[index] = argument,
+                Ok(argument) => spawn.replace(index, argument),
                 Err(reason) => spawn.refusal = Some(reason),
             }
         }
     }
     spawn
+}
+
+/// Who supplied each token of the command a site is composed from: the
+/// selected candidate's own segments, carried from the resolver — which
+/// must be exactly the command handed over, or the spawn is refused — or,
+/// at an inline site, the author, token for token. Bytes that equal an
+/// engine composition stay authored: origin is carried, never recognised.
+fn supplied(command: &[String], candidate: Option<&Candidate>) -> Result<Vec<Segment>, String> {
+    let Some(candidate) = candidate else {
+        return Ok(vec![Segment::new(Origin::Authored, command)]);
+    };
+    match &candidate.lowering {
+        Lowering::Composed(composition) if flatten(&composition.segments) == command => {
+            Ok(composition.segments.clone())
+        }
+        Lowering::Composed(_) => Err(
+            "dispatch refused: the command handed to composition is not the selected \
+             candidate's own composition, and an argument whose origin is not carried is never \
+             trusted by its bytes (decision 0065 slice one, design D5.7)"
+                .to_string(),
+        ),
+        Lowering::Unavailable | Lowering::Refused(_) => Err(
+            "dispatch refused: the selected candidate carries no composition, so who supplied \
+             its arguments is unknown (decision 0065 slice one, design D5.7)"
+                .to_string(),
+        ),
+    }
+}
+
+/// `mapped`, whose trailing tokens map `segments` token for token behind
+/// an engine-built prefix, as segments: the prefix `hands`, where there is
+/// one, then each supplied segment over its own mapped tokens, by the
+/// lengths it was supplied with.
+fn behind(mapped: Vec<String>, segments: &[Segment]) -> Vec<Segment> {
+    let prefix = mapped.len() - flatten(segments).len();
+    let mut out = engine_hands(&mapped[..prefix]);
+    let mut start = prefix;
+    for segment in segments {
+        let end = start + segment.argv.len();
+        out.push(Segment::new(segment.origin, &mapped[start..end]));
+        start = end;
+    }
+    out
+}
+
+/// What the engine composed for the boundary, as a `hands` segment — none
+/// where it composed nothing.
+fn engine_hands(tokens: &[String]) -> Vec<Segment> {
+    match tokens.is_empty() {
+        true => Vec::new(),
+        false => vec![Segment::new(Origin::Hands, tokens)],
+    }
 }
 
 /// Strip a Windows verbatim prefix only when ordinary Win32 lookup names
@@ -4456,32 +4732,70 @@ pub fn compose_site(
     result_path: &str,
     unboxed: Option<&Unboxed>,
 ) -> SiteSpawn {
+    // Every arm carries these segments through its own composition, so the
+    // spawn says who supplied each token it will launch (design D5.7). A
+    // command that is not the selected candidate's composition keeps its
+    // argv, all of it authored, and is refused at the door.
+    let (segments, refusal) = match supplied(&command, candidate) {
+        Ok(segments) => (segments, None),
+        Err(reason) => (vec![Segment::new(Origin::Authored, &command)], Some(reason)),
+    };
+    let mut spawn = compose_segments(
+        boundary,
+        class,
+        segments,
+        hands,
+        candidate,
+        workdir,
+        roots,
+        result_path,
+        unboxed,
+    );
+    spawn.refusal = spawn.refusal.or(refusal);
+    spawn
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compose_segments(
+    boundary: BuiltBoundary,
+    class: SeatClass,
+    segments: Vec<Segment>,
+    hands: Option<&HandsSpec>,
+    candidate: Option<&Candidate>,
+    workdir: &Path,
+    roots: &[PathBuf],
+    result_path: &str,
+    unboxed: Option<&Unboxed>,
+) -> SiteSpawn {
     let Some(spec) = hands else {
-        let mut spawn = exec_spawn_on(command, roots, cfg!(windows));
+        let mut spawn = exec_segments_on(segments, roots, cfg!(windows));
         spawn.rewalk = None;
         return spawn;
     };
+    let command = flatten(&segments);
     if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
         let unboxed = unboxed.cloned().unwrap_or_default();
-        let mut spawn = exec_spawn_on(command, roots, cfg!(windows));
+        let mut spawn = exec_segments_on(segments, roots, cfg!(windows));
+        // The network prefix is the engine's, composed for the boundary.
+        let mut prefixed = engine_hands(&unboxed.prefix);
+        prefixed.append(&mut spawn.segments);
+        spawn.segments = prefixed;
         spawn.argv.splice(..0, unboxed.prefix);
         spawn.env = SpawnEnv::Exactly(unboxed.env);
         return spawn;
     }
     match boundary {
-        BuiltBoundary::Namespace => {
-            // A model seat's workspace fragment is already in its argv —
-            // `agents::compose` appended it last — and `hands_command`
-            // expands it token for token, so its length is unchanged. An
-            // inline site — an exec dispatch included — has no candidate:
-            // its argv is all the author's.
-            let managed = candidate.map_or(0, |candidate| candidate.hands_fragment.len());
-            let mut spawn = SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots));
-            spawn.managed = managed;
-            spawn
-        }
+        // A model seat's workspace fragment is already in its segments —
+        // `agents::compose` appended it last, as `hands` — and
+        // `hands_command` expands every token in place, behind the box's
+        // own prefix for an exec dispatch, so each segment maps onto its
+        // own tokens. An inline site — an exec dispatch included — has no
+        // candidate: its argv is all the author's.
+        BuiltBoundary::Namespace => SiteSpawn::of(behind(
+            hands_command(command, Some(spec), workdir, roots),
+            &segments,
+        )),
         BuiltBoundary::Harness => {
-            let mut argv = command;
             let brokkr = std::env::current_exe()
                 .unwrap_or_default()
                 .to_string_lossy()
@@ -4490,19 +4804,20 @@ pub fn compose_site(
                 SeatClass::Gate => candidate.harness.gate.as_deref(),
                 SeatClass::Work => candidate.harness.work.as_deref(),
             });
-            let fragment = fragment.unwrap_or(&[]);
-            for token in fragment {
-                argv.push(
+            let fragment: Vec<String> = fragment
+                .unwrap_or(&[])
+                .iter()
+                .map(|token| {
                     token
                         .replace("{result_path}", result_path)
-                        .replace("{brokkr}", &brokkr),
-                );
-            }
-            let mut spawn = SiteSpawn::inherit(argv);
-            spawn.managed = fragment.len();
-            spawn
+                        .replace("{brokkr}", &brokkr)
+                })
+                .collect();
+            let mut segments = segments;
+            segments.extend(engine_hands(&fragment));
+            SiteSpawn::of(segments)
         }
-        BuiltBoundary::Open => SiteSpawn::inherit(command),
+        BuiltBoundary::Open => SiteSpawn::of(segments),
     }
 }
 

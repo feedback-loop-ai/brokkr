@@ -540,9 +540,9 @@ The ledger is evidence's "Unit 3 — second review return: SC1". 3.4, 3.7 and
 
 ## 4. Unit 4 — Wire origins through runtime dispatch
 
-- [ ] 4.1 Unit 4 wires the selected candidate's private segments through engine.rs SiteSpawn, bundle projection, boundary composition, placeholder expansion and final input merging. Verify absent/reordered/overridden records refuse and legitimate typed controls survive. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; robustness runtime evidence. (previous 3.21)
+- [x] 4.1 Unit 4 wires the selected candidate's private segments through engine.rs SiteSpawn, bundle projection, boundary composition, placeholder expansion and final input merging. Verify absent/reordered/overridden records refuse and legitimate typed controls survive. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; robustness runtime evidence. (previous 3.21)
 
-- [ ] 4.2 Units 3–4 lower typed restrictions and carry distinct authored/template/local/hands/native origins end to end through runtime SiteSpawn, boundary/expansion and input assembly. Close only after unit 4 verifies exact limits, selected candidate, reassembly and override refusal; 15.2 owns final authored-counterfeit refusal. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2. (previous 3.15)
+- [x] 4.2 Units 3–4 lower typed restrictions and carry distinct authored/template/local/hands/native origins end to end through runtime SiteSpawn, boundary/expansion and input assembly. Close only after unit 4 verifies exact limits, selected candidate, reassembly and override refusal; 15.2 owns final authored-counterfeit refusal. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2. (previous 3.15)
 
 D5.7's inventoried storage split amends this future unit before implementation:
 production files are runtime agents.rs, bundle.rs and engine.rs (three total).
@@ -558,6 +558,41 @@ richer record from Candidate::parts, raw bytes or the old authored/managed pair.
 Keep 4.1/4.2 open until their full protected-transport proofs pass; final
 serving-command and authored-counterfeit closure stays with 15.2. Any additional
 file or pin dependency requires an inventoried split before editing.
+
+Implementation visit, 2026-09-23, run `triage-directive-operator-ruling-dbc7463e`
+(triage `chore`), baseline `48779b32`. The production files changed are
+exactly runtime `agents.rs`, `bundle.rs` and `engine.rs`. The tests are in the
+three named suites, plus the constructor migrations in `engine/tests.rs`,
+`engine/agent_tests.rs` and `engine/resume_tests.rs`. No new module, pin,
+shipped data or frozen byte moved.
+
+- `Candidate` now carries its entry's `Lowering`. Both bundle constructors
+  carry it: the model-policy projection verbatim, and the expanded candidate
+  through `{brokkr}`/`./` expansion applied segment by segment.
+- `SiteSpawn`'s trailing `managed` count is replaced by ordered `segments`
+  and a sealed `LaunchRecord`. Every boundary arm carries the selected link's
+  segments and labels only what it composed itself as `hands`: the box's
+  placeholder expansion and exec prefix, the harness fragment and the network
+  prefix. A command that is not the link's own composition refuses, and so
+  does a link that never composed. An inline command stays authored, even
+  when its bytes equal an engine composition.
+- The legacy `launch_arguments` pair is now a projection of the extras
+  segments.
+- `mark_capabilities` seals the record last, from the serving outcome and the
+  link's (or inline site's) typed local and hands state. It refuses a record
+  planted before sealing.
+- The dispatch door (`spawn_site` → `verify_record`) admits exactly the
+  sealed record. A missing, malformed, reordered or relabelled record refuses,
+  as does one planted where none was sealed and an argv that no longer
+  reassembles. Each refuses before any driver starts.
+
+Seven new tests and four amended ones are bound by 28 compiling mutations, two
+of them rerun. Each was observed failing its intended row and then restored. All local gates passed.
+4.1 and 4.2 are ticked on that local record. See evidence's "Unit 4 —
+implementation". **Not fully green:** external exact coverage, macOS and
+remote CI are pending. 15.2 still owns final authored-counterfeit refusal, and
+units 12–15 own the serving command's final check. The driver still reads the
+legacy pair; it does not yet read the record.
 
 ## 5. Unit 5 — Supply local mappings and scaffold support
 

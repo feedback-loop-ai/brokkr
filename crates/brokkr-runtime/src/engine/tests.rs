@@ -21,6 +21,24 @@ fn machine() -> Machine {
     .unwrap()
 }
 
+/// A hand-built fixture link whose whole argv its adapter's template
+/// supplied, with no local limits and no hands (design D5.7): the origin
+/// the fixture DECLARES for the argv it spells, not one recovered from a
+/// command. A fixture about origins spells its segments itself.
+pub(super) fn templated(mut candidate: Candidate) -> Candidate {
+    candidate.lowering = Lowering::Composed(crate::agents::Composition {
+        segments: vec![Segment::new(Origin::Template, &candidate.argv)],
+        effort: candidate.effort.clone(),
+        intent: crate::agents::Intent {
+            allow: AllowIntent::Unspecified,
+            sandbox: SandboxIntent::Unspecified,
+            hands: HandsIntent::None,
+        },
+        application: Application::Unrestricted,
+    });
+    candidate
+}
+
 pub(super) fn single_body(command: Vec<String>) -> SeatBody {
     SeatBody::Single {
         role_path: PathBuf::from("role.md"),
@@ -569,7 +587,8 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
     let mut selection = Selection::new();
     selection.insert(
         Some("validate".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -584,7 +603,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
                     result: json!({"result":"drafted"}),
                 },
             ),
-        },
+        }),
     );
     let failing_step = SequenceStep {
         name: "validate".into(),
@@ -655,7 +674,8 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
     let mut selection = Selection::new();
     selection.insert(
         Some("validate".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -670,7 +690,7 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
                     result: json!({"result":"drafted"}),
                 },
             ),
-        },
+        }),
     );
     let steps = [first, validate];
     runtime
@@ -5013,7 +5033,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
     let mut selection = Selection::new();
     selection.insert(
         Some("check".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -5028,7 +5049,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
                     result: json!({"result":"ambiguous"}),
                 },
             ),
-        },
+        }),
     );
     let mut current = state(Some("clarify"), Cursor::Idle);
     current.phase_results.insert(
@@ -5082,7 +5103,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
     let mut selection = Selection::new();
     selection.insert(
         Some("check".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -5097,7 +5119,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
                     result: json!({"result":"clear"}),
                 },
             ),
-        },
+        }),
     );
     let mut current = state(Some("clarify"), Cursor::Idle);
     current.phase_results.insert(
@@ -5147,7 +5169,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
     let mut selection = Selection::new();
     selection.insert(
         Some("check".into()),
-        Candidate {
+        templated(Candidate {
+            lowering: Lowering::Unavailable,
             agent: "dialect".into(),
             model: "none".into(),
             effort: None,
@@ -5162,7 +5185,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
                     result: json!({"result":"drift"}),
                 },
             ),
-        },
+        }),
     );
     let mut current = state(Some("analyze"), Cursor::Idle);
     current.visits.insert("analyze".into(), 1);

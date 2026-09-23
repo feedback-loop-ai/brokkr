@@ -3302,3 +3302,197 @@ reruns two: M13r and M14r. No test uses `is_err()`. No fixture reads
 
 Task 3.10, and therefore 3.1, stays open. 4.2 stays open for unit 4. Nothing is
 pushed.
+
+## Unit 4 — implementation, 2026-09-23
+
+Run `triage-directive-operator-ruling-dbc7463e`. Triage ruled `chore` under the
+operator's directive, so this is phase implement, sole seat. The baseline was
+`48779b32` on `slice-0065-capabilities`, clean. Every adopted commit is kept,
+with no replay. There is no `returned_from`. Cargo was available, but the seat
+could not run the coverage tool (see "Coverage" below).
+
+Scope follows Rebuild unit 4 as amended by D5.7. The production files are
+runtime `engine.rs`, `bundle.rs` and `agents.rs`; D5.7 inventories `agents.rs`
+as the third, for `Candidate` storage. The commission text named two of them.
+The tests are `engine/capability_tests.rs`, `engine/boundary_tests.rs` and
+`tests/capability_launch.rs`. The constructor migrations are in
+`engine/tests.rs`, `engine/agent_tests.rs` and `engine/resume_tests.rs`. No
+other source file changed, and no module, dependency, pin, shipped JSON or
+frozen byte moved.
+
+### What changed
+
+- **`agents.rs`.** `Candidate` gains `lowering: Lowering`, the entry's
+  composition before flattening. `resolve_report` carries `entry.lowering` for
+  every candidate; each one has composed, because a gap or an unmapped model
+  is refused above it. The "lossy projection" note is replaced.
+  `Candidate::parts`, `argv` and `hands_fragment` are unchanged projections.
+- **`bundle.rs`.**
+  - The model-policy projection carries the entry's lowering verbatim, refused
+    or composed.
+  - The expanded-candidate constructor carries it through the new
+    `expand_lowering`. That function applies `expand_command` one segment at a
+    time. Each token keeps its segment's origin, and the expanded segments
+    concatenate to the expanded argv.
+  - A never-composed lowering is returned unchanged.
+- **`engine.rs`.**
+  - `SiteSpawn.managed` is replaced by `segments` (whose concatenation is
+    `argv`) and `record: Option<LaunchRecord>`.
+  - `compose_site` takes its segments from `supplied()`. That is the selected
+    link's own segments, which must equal the command handed over. Otherwise
+    it refuses: "the command handed to composition is not the selected
+    candidate's own composition", or "the selected candidate carries no
+    composition". An inline site's command is all `authored`.
+  - Each boundary arm carries the segments. Under namespace, `hands_command`
+    maps each segment over its own tokens; an exec dispatch's box prefix is
+    `hands`. Under harness, the class fragment is appended as `hands` after
+    placeholder expansion. For an unboxed exec dispatch, the network prefix is
+    `hands`, prepended after the script is respelled in its own segment.
+  - `extras()` cuts the segments at the driver verb's `--`, by position.
+    `launch_arguments()` projects the legacy pair from the extras, taking the
+    trailing run of `hands` segments as managed.
+  - `mark_capabilities` now takes `Option<&mut SiteSpawn>`. After every merge,
+    it seals the record from the serving outcome (identity and native
+    expectation) and the link's own local and hands intent. At an inline site
+    it uses the site's judged local declaration and hands instead. The record
+    is written under `launch_record`. An input that already carries that key
+    refuses the spawn. A site that no outcome serves gets no record. A site
+    whose expected state cannot be sealed refuses its spawn.
+  - `spawn_site` calls the new public `verify_record` first. It admits exactly
+    the sealed record: decoded strictly, equal to the one sealed, and
+    reassembling the extras of the argv about to launch. A record planted
+    where none was sealed refuses.
+  - `expected_state`, `verify_record`, `LAUNCH_RECORD`, `SiteSpawn::seal`,
+    `SiteSpawn::extras` and `SiteSpawn::launch_record` are public so the
+    integration suite can drive the production path.
+- **Tests.** The fixture `Candidate` literals are wrapped in the new
+  `engine/tests.rs::templated`, a fixture whose whole argv is declared as its
+  adapter template. `boundary_tests::candidate` spells its template and hands
+  segments itself. Its `SiteSpawn` literals use `..SiteSpawn::inherit`.
+  - `compose_site_follows_the_boundary_and_the_class` passed a hands-bearing
+    link with its hands stripped from the command, which production never
+    does and which now refuses. Its no-hands loop now uses the same link
+    resolved unboxed, and asserts that the template origin is kept.
+
+The native segment is not in this record. Native controls still ride as
+`native_controls` and are materialized by the driver's composer. The record
+carries the native expectation, and final native-segment checking is units
+12–15. The driver still reads the legacy pair; nothing in protocol changed.
+
+### Baseline (`48779b32`)
+
+- `cargo test -p brokkr-runtime --all-features --locked --lib engine::`: 179
+  passed.
+- `cargo test -p brokkr-runtime --all-features --locked --test
+  capability_launch`: 17 passed.
+
+The new API did not exist at the baseline, so the new tests are unavailable
+there, not compiling reds. After the change the engine filter has 184 tests
+(179 + 5) and `capability_launch` has 19 (17 + 2).
+
+### New and amended tests
+
+| Scenario / row | Test | Suite |
+| --- | --- | --- |
+| A. The selected link's record: segments from the extras on, expected identity/native/local/hands; a fallback seals its own; the legacy pair projects the same segments | `a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state` (new) | capability_tests |
+| B. Door refusals, each with its whole reason: missing, malformed, reordered, relabelled over equal bytes, argv moved after sealing, planted before sealing (even the engine's own bytes), planted where none sealed; no composition, never-judged inline local, inline restricted local (empty allow; sandbox) | `the_dispatch_door_admits_only_the_record_sealed_for_its_spawn` (new) | capability_tests |
+| C. A refused record stops the launch before the driver starts (`DriverRun::SpawnFailed`, capture file absent) | `a_refused_record_stops_the_launch_before_the_driver_starts` (new) | capability_tests |
+| D. Real nested dispatch: fallback step and primary member each handed their own sealed record; the unserved member none | `every_nested_dispatch_hands_its_driver_the_selected_links_own_controls` (amended) | capability_tests |
+| E. Every boundary arm: namespace link (template + hands), namespace exec (box prefix hands + authored), harness gate (template + hands, legacy pair), copied inline bytes all authored, harness exec network prefix, stripped-command refusal, no-composition refusal | `every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands` (new) | boundary_tests |
+| X. The compile's expansion keeps each segment's origin; a refused or unavailable lowering stays as it was | `the_compiles_expansion_keeps_every_segments_origin` (new) | boundary_tests |
+| W. A two-segment exec: the respelled Windows script lands in its own segment | `exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument` (amended) | boundary_tests |
+| G. Legacy pair from segments | `a_driver_input_carries_the_serving_candidates_controls_or_a_refusing_null` (amended) | capability_tests |
+| H. No-hands arms keep the link's template origin | `compose_site_follows_the_boundary_and_the_class` (amended) | boundary_tests |
+| F. Production compile, harness and namespace: expanded template, agent template/hands, inline copy all authored (equal bytes to the agent's), boxed inline hands required, Claude primary and Codex fallback each under their own identity | `a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_authored` (new) | capability_launch |
+| L. Production compile of a direct allow list: `["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]` as `local`, with ordered names and limits in the expected state | `a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits` (new) | capability_launch |
+
+Every refusal assertion compares the whole reason. No test uses `is_err()`.
+The capture root is canonicalized. No test reads `.forge/` or needs an
+installed provider.
+
+### Mutation ledger
+
+Each mutation is one compiling edit. Each was run against the lib `engine::`
+filter and `--test capability_launch`, observed failing, and restored. Line
+numbers are as observed at each run. After the last restore, `git apply
+--check -R` of the pre-mutation diff, limited to the three production files,
+succeeded, so no mutation remains.
+
+| # | File | Mutation | Failing test (row) and observed values |
+| --- | --- | --- | --- |
+| M1 | engine.rs | `extras()` keeps a segment ending at the cut (`end >= cut`) | A (line 488), D (nested records), F (575): left starts `{"argv": [], "origin": "template"}` |
+| M2 | engine.rs | the door skips its sealed-record comparison | B reordered row (590): reassembly cause "first differ at argument 0" instead of the not-sealed cause |
+| M2b | engine.rs | the door compares only flattened bytes and expected state | B relabelled row (597): `Ok(())` vs the not-sealed cause |
+| M3 | engine.rs | a missing record is admitted | B missing row (564): `Ok(())`; C (733): the driver started |
+| M3b | engine.rs | a present malformed record is repaired into the sealed one | B malformed row (574): `Ok(())` vs "'record.segments' is not an array" |
+| M4 | engine.rs | reassembly result discarded | B moved-argv row (605): `Ok(())` vs "first differ at argument 1 (4 recorded, 4 supplied)" |
+| M5 | engine.rs | a record where none was sealed is admitted | B unsealed-plant row (634): `Ok(())` |
+| M6 | engine.rs | `mark_capabilities` drops the planted-record check | B planted row (620): refusal `None` |
+| M7 | engine.rs | `spawn_site` ignores `verify_record` | C (733): the driver started |
+| M8 | engine.rs | a link's local expectation replaced by unspecified/unrestricted | A (488), F (583) |
+| M8r | engine.rs | M8, rerun after L existed | L expected-local row (725): left `unspecified`/`unrestricted` |
+| M9 | engine.rs | a link's hands intent dropped | A (488), F (583) |
+| M10 | engine.rs | an inline site's hands dropped | F boxed-inline row (626): `none` vs `required` |
+| M11 | engine.rs | record sealed from the primary's outcome | A fallback row (519), D (358) |
+| M12 | engine.rs | harness fragment labelled `authored` | E harness row (395), F agent row (575) |
+| M13a | engine.rs | box prefix labelled `authored`, empty included | E namespace-link row (368): `[Authored, Template, Hands]`; reached the model row first, so it was tightened |
+| M13 | engine.rs | a non-empty box prefix labelled `authored` | E namespace-exec row (385): `[Authored, Authored]` |
+| M14 | engine.rs | `behind` partitions from 0 | first run: only existing `compose_site_follows…` (598). E's `flatten == argv` checks were tautological, because argv is built from the segments. They were replaced with literal token checks. |
+| M14r | engine.rs | M14, rerun | E namespace-exec row (391): left starts with the box prefix; `compose_site_follows…` (602) |
+| M15 | engine.rs | inline command labelled `template` | E exec row (385), F copied row (598), existing `retiring_confine…` (842) |
+| M15b | engine.rs | non-exec inline command labelled `template` | E copied-bytes row (426) |
+| M16 | engine.rs | the command/composition guard dropped | E stripped-command row (453): refusal `None`; existing `compose_site_follows…` (633) |
+| M17 | engine.rs | no composition accepted as authored | E no-composition row (467) |
+| M18 | bundle.rs | expanded candidate carries the unexpanded lowering | F expanded-template row (565): `{brokkr}` vs this binary; 5 existing launch tests; `the_shipped_engine_smith…` (2984) |
+| M19 | bundle.rs | expansion relabels every segment `template` | X (517); F namespace primary origins (632); 5 existing launch tests |
+| M19b | bundle.rs | a never-composed lowering expands to `Unavailable` | X refused row (526): `Unavailable` vs `Refused(..)` |
+| M20 | agents.rs | `resolve_report` candidates carry `Lowering::Unavailable` | F (559): "a resolved link carries its composition"; 4 other engine tests (compiled sequences, the smith launch); at least 5 other `capability_launch` tests (the listing was truncated) |
+| M21 | engine.rs | legacy pair never projects a managed half | E gate pair (417), A pair (513), G (99); 5 existing launch tests |
+| M22 | engine.rs | `replace` leaves the supplying segment stale | W two-segment row (1002) |
+| M23 | engine.rs | `supplied()` relabels `local` as `template` | A fallback row (519), L segments row (715) |
+
+That is 28 distinct mutations and two reruns (M8r, M14r). M2/M2b, M3/M3b,
+M13a/M13 and M15/M15b each isolate a row that an earlier row in the same test
+would otherwise mask. No row's proof relies on an earlier row's failure.
+
+Two claims have no mutation of their own. The model-policy projection's
+`lowering` is only read by the hands law, which does not read it, and the
+projection is discarded. So no mutation of it is observable, and none is
+claimed. The Windows respelling is exercised on Linux through `windows: true`
+(W); decision 0063 makes Windows no host.
+
+### Coverage
+
+The seat could not run `scripts/coverage-exact.sh` or a local `cargo llvm-cov`
+diagnostic: the invocation needs an approval this seat does not have. Instead,
+the new branches were enumerated by hand, and a test was added for each gap
+found: the inline restricted-local refusal (B), boxed inline hands (F), both
+arms of `expand_lowering` (X) and `replace` across segments (W).
+`compose_site` now merges refusals with `Option::or` rather than a branch that
+Linux could not take. This is not a coverage measurement.
+
+### Gates on the restored tree
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | passed |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | passed |
+| `cargo test -p brokkr-runtime --all-features --locked` | passed; lib 546, `capability_launch` 19, every result line ok |
+| `cargo test --workspace --all-features --locked` | passed; 77 test binaries ok, 0 failures |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | exit 0 |
+| `openspec validate --all --strict --no-interactive` | 18 passed, 0 failed |
+| `git diff --check` | passed |
+
+**Pending, not claimed:**
+
+- External `bash scripts/coverage-exact.sh`.
+- macOS.
+- Remote CI.
+
+4.1 and 4.2 are ticked on this local record; unit 4 is not fully green until
+those results exist. The record's authenticity comes from write-last sealing
+and the door's comparison with the spawn the engine holds, not from its
+bytes. Final authored-counterfeit refusal stays in 15.2, and the serving
+command's final parse and state check stay in units 12–15. Decision 0066 stays
+proposed. Nothing is pushed.
