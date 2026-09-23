@@ -2058,3 +2058,97 @@ reference or extension edits are made. Final artifact/ancestry checks and the
 committed SHA are recorded in the required run-local result through workspace
 hands, so recording the result cannot move the validated source head. No
 push, security closure or implementation completion follows from this draft.
+
+## Unit 2-fix — ordered tasks adoption, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-11592690`, phase `tasks`, began clean
+at `a4787b2e2ad30bf4a054f2372f3e4ad312a9f70c` on
+`slice-0065-capabilities`. Adopt every commit, including unit 2 through
+`6a7044e5`, specification `e132f678` and design `a4787b2e`. Ancestry checks
+returned 0 for `5a47b090`, `d9816374`, `4a6a2288`, `308a8a28`, `f9a691cf`,
+`368bc34e`, `107c4d17`, `0444421d`, `ca2c9156`, `4a441bf7`, `6a7044e5`,
+`e132f678` and `a4787b2e`. No replay, branch change or push occurred.
+There is no `returned_from`; this visit answers the commissioned S1/A1
+breakdown after specification and council design. Their residual remains
+unaccepted; no implementation or security closure is claimed.
+
+Read the operator ruling/addendum first, then the accepted Rebuild units
+preamble/unit 2, task 2.1, the owning SCM/SC8/RGR/NCR deltas, proposal,
+D5.3–D5.6 and Open questions. Read `dialects/openspec.json`, its tasks/return
+instructions, and the rendered `openspec instructions tasks --change
+ decision-0065-capabilities-slice-one --json`. Inspected the existing
+bundle admission and `record_capabilities` seams, `site_capabilities`,
+`Outcome::controls()`, native selected/restriction argv assembly, the typed
+managed decoder and canonical fixture/row helpers read-only. No provider,
+workflow runner or new council was invoked.
+
+### Executable breakdown and requirement coverage
+
+Only tasks.md and this evidence file change. Numeric tasks **2.2–2.8** replace
+the provisional `2-fix.1`–`2-fix.4` entries under the same unit 2-fix heading;
+each carries its previous entry/portion and names its served requirements.
+The accepted unit order, historical task text outside this subsection,
+checked 2.1.1–2.1.4 and open aggregate 2.1/2.1.5–2.1.7 remain intact.
+The coverage table maps the three adopted S1/A1/denial scenarios and the
+inherited/fallback/preservation/proof obligations to concrete execution tasks.
+
+The order is baseline capture (2.2), shared canonical root refusal (2.3),
+resolved native admission and exact denial preservation (2.4), complete
+contribution/preservation proofs (2.5), ledger audit (2.6), restored local
+gates and commit (2.7), then actual external evidence (2.8). The behavioral
+tasks each require their own independent compiling mutations and restored
+passes before advancing; the ledger audit does not postpone proof. The
+baseline task stages every planned row before production changes, including
+the eleven chief cases and the twelve native ON/OFF/restriction root-spelling
+rows. Already-correct neighbors start with observed passes. None of those
+regressions or mutations was run by this tasks seat.
+
+Source inspection supports D5.6 without another design choice:
+`record_capabilities` receives resolved outcomes before publishing facts and
+notices; `Outcome::controls()` and `native_controls::managed` expose the
+complete selected/substituted argv. Earlier local admission stays ordered,
+and the effective local fact provides inherited sandbox information. The
+planned production file is bundle.rs; capabilities.rs remains conditional
+on an evidenced missing exposure. The exact native-only `web_search` config
+allowance preserves the measured denial pair while all sandbox/root checks
+still apply. No new parser, module, origin machinery, public contract or
+provider qualification is proposed. The sole suite stays bundle/agent_tests.rs.
+
+Open questions belong to unit 9 and external proof; D5.6 explicitly settles
+this repair. A synthetic nonempty restriction refusal does not qualify
+provider support or close unit 9, and cold comparisons do not close units
+13–15. Thus no earlier artifact needs amendment and no `upstream` result is
+warranted. Proposed decision 0066, the specification/design and later units
+remain unchanged. Every repair task is unchecked. The breakdown distinguishes
+a committed local repair from complete, fully green work; pending external
+evidence cannot close aggregate 2.1. Archive remains with conditional 28.1.
+
+### Observed checks and limits
+
+- `openspec validate decision-0065-capabilities-slice-one --strict --no-interactive`:
+  **passed**.
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Existing informational requirement-length and unrelated archive-target
+  advisories remain; no archive operation was run.
+- `git diff --check`: **passed**.
+- Task artifact audit: **passed**. Tasks 2.2–2.8 are ordered, unchecked,
+  requirement-named and traceable to their provisional predecessors. Every
+  cited requirement name and anchor resolves to its delta. The rest of the
+  numbered task groups and prior unit 2 substeps are byte-identical to the
+  adopted head; the checked and reopened states above are preserved.
+- Each of the seven exact cargo commands in tasks.md's local-gate list was
+  attempted: format, locked all-target/all-feature clippy, runtime all-feature
+  tests, `cargo test --workspace`, locked all-feature workspace tests, and
+  self/verify compiles. All were **unavailable**: subprocess raised
+  `FileNotFoundError: cargo` before any cargo process ran. The reporting
+  script's exit 0 is not a Rust gate pass. No host-shell or prebuilt-binary
+  fallback was used. This documentation draft asserts no fresh Rust pass.
+- External exact coverage, macOS and remote CI remain **pending**. Previous
+  gate observations retain their original tested revision and scope.
+
+No production, suite, pin, shipped data, grant, frozen contract, policy,
+fixture, reference or extension bytes change. Final scope/diff checks and
+committed-head evidence go in the mandatory run-local result written through
+workspace hands, so that recording the commit cannot move the validated head.
+The tasks-phase result is a committed **drafted** breakdown, not a completed
+repair or a claim that the security findings are fixed.
