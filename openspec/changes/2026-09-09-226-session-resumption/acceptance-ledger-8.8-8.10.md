@@ -43,8 +43,8 @@ The commission reports PR #326 green. That report is context. Nothing below
 rests on it: where a row says a suite passed, a named seat ran it on a named
 revision, recorded below.
 
-This file has now answered **two** returned reviews, and both were answered by
-opening evidence rather than by trusting the finding.
+This file has now answered **three** returned reviews, and each was answered
+by opening evidence rather than by trusting the finding.
 
 *The first return* (nine findings against the first cut): §1 came into being,
 eleven rows moved from `discharged` to `partially discharged`, one citation was
@@ -73,6 +73,25 @@ Rows 8 and 9 are the ones worth reading twice: both are cases of this ledger
 asserting a *negative* — "no test exists", "the gate has never run" — without
 opening the artefact that would have refuted it. That is the same failure F12
 records against the first cut, committed again in the revision that recorded it.
+
+*The third return* (the chief review of run
+`issue-226-the-8-8-and-8-10-accep-b5a676bf` over `af89511a`, recorded at
+`.forge/tasks/ledger-chief-review-3-b5a676bf.md`) left a medium residual. The
+operator accepted it on 2026-09-23 and ruled that run
+`issue-226-acceptance-ledger-reme-d530d5d2` remediates it. That run first
+adopted `af89511a`'s text on `slice-dsh-8810` beside the record of every unit
+that had landed there (1, 2a, 2b, 2c-fix, 2c, 3, 4a, 2d, 3b-fix, 3b), then
+answered findings 1, 2, 3, 5 and 6. Finding 4 had already been folded into unit
+4a's commission; its answer is 4a's own record, and the A53, B42 and B30 rows now
+say which half 4a did not prove.
+
+| | Change | Finding |
+|---|---|---|
+| 1 | The Apple and env source pins are **blocked retrieval**, not impossible. Every seat that tried was refused the network (`tasks.md` 2389–2394, 2425–2431). An externally owned retrieval-and-verification unit now exists (§6, unit 13), separate from any operator scope change | 1 |
+| 2 | N6a and N6b move to partial: their removals are records. N2 and N4 are graded assertion by assertion. N11's positive **and** its two removals are graded as never performed, which is not the same as a record. Unit 17 now lists every recorded-removal row, and N11 is not one of them | 2 |
+| 3 | 8.10 ticks only on a ruling that covers every removal predicate in its scope, B5's every-test clause, B16's four and B20's one included. After a negative ruling, units 18–21 enumerate the bounded replays | 3 |
+| 4 | Four claims were false and are corrected. The R3 raw-span matrix is not exclusive to the doctor suite. `doctor_dsh_selection.rs` has historical recorded executions. `69cac25d` is D3's returned-review head, not Pass C's. N13 has a failed gate run, so it is not "nothing" | 5 |
+| 5 | §1 is eighteen rows, not sixteen. Unit 17's list is counted. §6 is one numbered list in dependency order, and §7 gives the three one-line answers first | 6 |
 
 ## How to read a row
 
@@ -119,63 +138,99 @@ head; they are not restated as fresh runs on it.
 | `openspec validate --all --strict` | `4d6b15f3` (D1 candidate) | D1 review seat | **exit 0 — 17 passed** (`.forge/results/8d9f4a9e-…`) |
 | `bash scripts/coverage-exact.sh` | `4d6b15f3` | D1 review seat | **exit 1 — FAILED.** 32,626/32,802 lines, 5,494/5,508 branches, 3,181/3,191 functions (`.forge/results/8d9f4a9e-…`) |
 | `cargo clippy --workspace --all-targets --all-features --locked` | `4d6b15f3` | D1 review seat | exit 0 |
-| `openspec validate --all --strict` | `69cac25d` (Pass C head) | Pass C review seat | **exit 0 — 17/17** (`.forge/results/5c0333bc-…`) |
-| `cargo clippy` (workspace, all targets/features, locked) + self-bundle compile | `69cac25d` | Pass C review seat | exit 0 (`.forge/results/5c0333bc-…`) |
+| every gate of the D3 delivery, run in sequence: `cargo fmt`, workspace `clippy`, `cargo test -p` for all seven crates (`brokkr-cli` "467 lib and every integration binary"), `compile --bundle bundles/self` | the D3 candidate | D3 implement seat | PASS, by that seat's delivery record (`tasks.md` 1010–1018). `openspec` and the coverage script were refused (1020–1021); `bundles/verify` is not in the list |
+| the same list, re-run | `1d1d9f17` | D3's returned-review seat | PASS, by its record (`tasks.md` 1093–1099); one `hands::` probe flake recorded as environmental |
+| `openspec validate --all --strict` | `69cac25d` (**D3's returned-review head**, Pass D — the previous revisions said "Pass C head", which was wrong) | the review seat of that head | **exit 0 — 17/17** (`.forge/results/5c0333bc-…`) |
+| `cargo clippy` (workspace, all targets/features, locked) + self-bundle compile | `69cac25d` (Pass D) | the same seat | exit 0 (`.forge/results/5c0333bc-…`) |
 | `openspec validate --all --strict` | **`d73d94d1`** | **review seat** | **exit 0 — 17 passed, 0 failed** (informational notices) |
 | `git diff --check 936c04b6..HEAD` | `d73d94d1` | review seat | clean |
-| `cargo fmt --all -- --check` | `1e1c2f63` + this revision | this seat | exit 0, clean |
-| `git diff --check` | this revision | this seat | clean |
-| `openspec validate --all --strict` | this revision | this seat | **NOT RUN** — refused by this seat's permission grant. `which openspec` resolves to `/home/vyanakiev/.volta/bin/openspec`, so the binary is present and the grant, not the tool, is the blocker. This is the **sixth** dated unavailable-tool report on this change, beside the D1/D2/D3 seats' (`tasks.md` 650–657, 833–848, 1020–1037), the Pass C seat's (507–511) and the previous ledger seat's. Per 8.8.14.2, "an unavailable tool is not a pass" — and per this revision's own F6, it is not a claim that the gate is unrun either: **three review seats have run it green**, most recently on `d73d94d1`, whose tree differs from this one by this file alone. |
+| `openspec validate --all --strict` | `1e1c2f63` (the second revision) | its correctness reviewer | exit 0, as the third chief reports from the `004fcb8b` correctness result. That artefact is in the b5a676bf run's worktree, not this one, so this seat did not open it |
+| `cargo fmt --all -- --check` | `1e1c2f63` + `af89511a` | the `af89511a` ledger seat | exit 0, clean |
+| `git diff --check` | `af89511a` | the `af89511a` ledger seat | clean |
+| `git diff --check 936c04b6..HEAD`, `cargo fmt --all -- --check`, `openspec validate --all --strict` | `af89511a` | the third chief | all passed; strict validation 17 items, 0 failures, by the chief's own record (`.forge/tasks/ledger-chief-review-3-b5a676bf.md:17`, opened here) |
+| `cargo test --workspace`, `compile --bundle bundles/self` | heads on `slice-dsh-8810` after the units | the engine's per-visit checks | pass, e.g. `.forge/results/e8e0e1cf-…-checks.json`: 75 suite summaries, 0 failed. One earlier record, `394405f6-…-checks.json`, is a failure: the `hands::` network-prefix probe, the #255 shape. The records name no revision, so they are reports on this branch and are not tied to a head |
+| `git diff --check`, `cargo fmt --all -- --check` | the remediation revision (this one) | the remediation seat | clean, exit 0 |
+| `openspec validate --all --strict` | the remediation revision | the remediation seat | **NOT RUN.** This seat's permission grant refused it too. The report kept below is the `af89511a` seat's, unchanged |
+| `openspec validate --all --strict` | `af89511a`'s own revision | the `af89511a` ledger seat | **NOT RUN** — refused by that seat's permission grant. `which openspec` resolves to `/home/vyanakiev/.volta/bin/openspec`, so the binary is present and the grant, not the tool, is the blocker. This is the **sixth** dated unavailable-tool report on this change, beside the D1/D2/D3 seats' (`tasks.md` 650–657, 833–848, 1020–1037), the Pass C seat's (507–511) and the previous ledger seat's. Per 8.8.14.2, "an unavailable tool is not a pass" — and per this revision's own F6, it is not a claim that the gate is unrun either: **three review seats have run it green**, most recently on `d73d94d1`, whose tree differs from this one by this file alone. *(Remediation note: the count was five by `af89511a`'s own chief — `4d6b15f3`, `69cac25d`, `d73d94d1`, `1e1c2f63` and `af89511a` — and the remediation seat's refusal is the seventh unavailable-tool report.)* |
 
 **The blanket execution claim is withdrawn (C7).** The previous revision said
 "every test cited below is in one of the four suites that ran green", and that
-is **false**. The four commands above are three `--lib` runs and one named
-integration target. `crates/brokkr-cli/tests/doctor_dsh_selection.rs` is a
-*separate* integration target — one of thirty files in `crates/brokkr-cli/tests/`
-— and no recorded command in this change ran it. Rows N2, N4, N5c and N9 cite
-that suite. Those citations carry **existence and assertion coverage only**, and
-each says so now. Unit 4 is where they gain recorded execution, because
-`cargo test -p brokkr-cli --all-features --locked` builds every target in the
-crate rather than the one `--lib`.
+is **false**. The four ledger-seat commands above are three `--lib` runs and one
+named integration target. `crates/brokkr-cli/tests/doctor_dsh_selection.rs` is
+a *separate* integration target, one of thirty files in
+`crates/brokkr-cli/tests/`, and none of those four commands built it.
 
-So the rule is narrower than the old sentence: a `discharged` row citing
+**Its correction was itself too strong, and is corrected again (third return,
+finding 5).** The previous revision went on to say "no recorded command in this
+change ran it". That is false. The suite has **historical recorded executions**,
+and each is a seat's report on its own revision:
+
+- D3's delivery ran `brokkr-cli` with "467 lib and every integration binary"
+  (`tasks.md` 1015–1016). Its returned review re-ran it on `1d1d9f17` (1098).
+- The composite visits' gate rows name the suite and count it:
+  "`doctor_dsh_selection` 14" passed at `tasks.md` 1940, 2076, 2377, 2596 and
+  2921.
+- The third chief reports that `.forge/results/183c4dda-…` records every CLI
+  integration binary executing during D3. That file is not in this worktree.
+- This branch's engine check records report workspace passes (the table above).
+
+None of these reports is on the candidate that will be ticked, and this ledger
+re-derives none of them. Rows N2, N4, N5b, N5c and N9 therefore carry
+**existence, assertion coverage and historical recorded execution**, the last
+attributed as above. Unit 14 is where they gain recorded execution **on the
+final candidate**, because `cargo test -p brokkr-cli --all-features --locked`
+builds every target in the crate.
+
+So the rule is narrower than the old sentence. A `discharged` row citing
 `composite/tests.rs`, `adapters/tests.rs`, `agents/tests.rs`, `doctor/tests.rs`,
 `route_overlay.rs`, `engine/resume.rs`, `engine/resume_tests.rs`,
-`engine/boundary_tests.rs`, `bundle/tests.rs` or `driver_conformance.rs` carries
-all three evidence kinds; a row citing `doctor_dsh_selection.rs` carries two.
+`engine/boundary_tests.rs`, `bundle/tests.rs` or `driver_conformance.rs`
+carries all three evidence kinds on the ledger seat's revision. A row citing
+`doctor_dsh_selection.rs` carries the third only as a historical report.
 
 ### Prior recorded validation of this change (C8)
 
 The previous revision reported that `openspec validate --all --strict` had never
 run on a candidate before the review seat's run, and that `coverage-exact.sh`
 had never been run as a gate at all. **Both claims were wrong**, and the
-artefacts that refute them were in this worktree the whole time. Opened here:
+artefacts that refute them were in this worktree the whole time. Opened here
+(by the revision seats of run `b5a676bf`, in that run's worktree; the
+remediation seat's worktree does not hold these files, so their rows below are
+that seat's reading, kept as it was):
 
 | Artefact | Revision | What it actually records |
 |---|---|---|
 | `.forge/results/8d9f4a9e-…-positions-correctness.json` | `e50020ac..4d6b15f3` (the **D1** candidate) | `cargo fmt`; workspace `clippy`; `cargo test -p brokkr-protocol` (412 unit, 99 integration, 1 doc; 2 native macOS probes ignored); **`openspec validate --all --strict` — 17 passed**; `git diff --check` |
 | the same artefact, finding C2 | the same | **`bash scripts/coverage-exact.sh` was executed and exited 1** — lines 32,626/32,802, branches 5,494/5,508, functions 3,181/3,191. "All uncovered lines are in unchanged files; no `composite.rs` line is uncovered." |
-| `.forge/results/5c0333bc-…-positions-correctness.json` | `69cac25d` (the **Pass C** head) | `git diff --check`; `cargo fmt`; workspace all-target/all-feature locked `clippy`; `cargo test -p brokkr-protocol` (426 unit, 99 integration, 1 doctest); **self-bundle compilation**; **`openspec validate --all --strict` — 17/17**; and it notes the verify artifact records `cargo test --workspace` passing |
+| `.forge/results/5c0333bc-…-positions-correctness.json` | `69cac25d` (**D3's returned-review head**, Pass D. This row said "the Pass C head", and the third chief found that false against `.forge/ledger/dsh-pass-d-part-three-of-three-d-144c7c79.md`. `git log -1 69cac25d` reads "tasks: record the returned review and what answering it changed", a descendant of D1's `4d6b15f3` through D2 and D3. Pass C is `b0ec5517`, PR #313) | `git diff --check`; `cargo fmt`; workspace all-target/all-feature locked `clippy`; `cargo test -p brokkr-protocol` (426 unit, 99 integration, 1 doctest); **self-bundle compilation**; **`openspec validate --all --strict` — 17/17**; and it notes the verify artifact records `cargo test --workspace` passing |
 
 Three consequences, all of which change rows below:
 
 1. **Strict OpenSpec has passed three times on this change's own candidates** —
-   `4d6b15f3`, `69cac25d`, `d73d94d1` — not once. F6 is rewritten.
+   `4d6b15f3`, `69cac25d`, `d73d94d1` — not once. F6 is rewritten. *(Third
+   return: five, counting `1e1c2f63`'s correctness result and the third
+   chief's run on `af89511a`, both as that chief reports them.)*
 2. **An exact-coverage gate run exists and it FAILED**, on this change's D1
    candidate. The previous revision's "unmeasured by any gate run" was not a
    cautious statement, it was an incorrect one, and it understated the debt: the
    honest position is not "no result" but "the last actual gate run was red".
    F7 is rewritten.
-3. **Clippy and the self-bundle compile have passing results**, on `4d6b15f3`
-   and `69cac25d` respectively — not on a Pass D head. They are recorded as what
-   they are: real results on earlier revisions, which unit 4 must repeat on the
-   candidate that will be ticked.
+3. **Clippy and the self-bundle compile have passing results on Pass D heads.**
+   Clippy passed on `4d6b15f3` (D1) and clippy with the self bundle on
+   `69cac25d` (D3's returned review). The D3 seat and its returned review each
+   recorded clippy, all seven crate suites and the self bundle passing, in
+   sequence (`tasks.md` 1010–1018, 1093–1099). This point first said "not on a
+   Pass D head", which was false: both revisions are Pass D. These are real
+   results on earlier revisions. Unit 14 must repeat them on the candidate that
+   will be ticked.
 
-What survives all of this unchanged: **no seat has ever run 8.8.14.2's or
-8.8.8.2's list in order, on one candidate, into a delivery record.** Those rows
-were open for the ordering and recording, not only for the missing commands, so
-they stay open. Correcting the history does not close a gate; it stops this
-ledger from misreporting which gates have ever been green.
+What survives all of this: **no seat has run 8.8.14.2's or 8.8.8.2's
+*complete* list in order on one candidate into a delivery record.** D3 came
+closest. Its record runs everything up to the self bundle, in order, but
+`openspec validate` was refused and `bundles/verify` is absent (1020–1021).
+Those rows are open for the missing commands and for the ordering on one
+candidate, so they stay open. Correcting the history does not close a gate. It
+stops this ledger misreporting which gates have ever been green.
 
 **What the review seat's `openspec` run does and does not close.** It is one
 command of 8.8.14.2's ordered list and of 8.8.8.2's, run outside their order and
@@ -216,7 +271,9 @@ clause it discharges.
 ## 1. Task 8.8's numbered tasks, 8.8.1.1–8.8.8.4 (1232–1548)
 
 Fourteen numbered tasks, the R1–R4 composite repair group. Six are `[x]`,
-**eight are `[ ]`**. They are graded in **sixteen rows**: 8.8.3.1 carries four
+**eight are `[ ]`**. They are graded in **eighteen rows** (twelve single rows
+plus `N5a`–`N5d` and `N6a`/`N6b`; the previous revision said sixteen, a
+miscount): 8.8.3.1 carries four
 numbered sub-clauses and 8.8.4.1 two extension paragraphs added on return, so
 `N5` became `N5a`–`N5d` and `N6` became `N6a`/`N6b` (C1). A single row could not
 hold them without hiding which half had evidence — and in 8.8.3.1's case the
@@ -227,44 +284,57 @@ clauses 8.8.9.1–8.8.15.1 alone are commissioned here") — but 8.8 cannot be
 ticked over an open one, so each is graded, and each row says who owns it.
 
 Where a row reads *partially discharged — external*, the **code is in the tree
-and opened here**; what stays open is an obligation the task's own words assign
-to evidence nobody in this repository can produce: immutable Apple/env source
-pins and native macOS platform runs.
+and opened here**. What stays open is an obligation the task's own words assign
+to evidence that no seat of this change has been able to reach: immutable
+Apple/env source pins and native macOS platform runs. That is **blocked
+retrieval, not impossibility**. The pins are public upstream source. Every seat
+that tried to fetch them was refused the network: `curl`, `WebFetch`, `gh api`
+and the GitHub MCP (`tasks.md` 2389–2394, 2425–2431). `composite.rs:2628–2631`
+says the same of its own port: "this seat could reach neither the source nor a
+Darwin host". A seat or host whose grant reaches the network can retrieve them,
+and §6 unit 13 is that work. Native macOS runs likewise need a host, not a
+waiver (unit 15).
 
 | Row | Task | Box | Clause | Line | Evidence opened | Status |
 |---|---|---|---|---|---|---|
-| N1 | 8.8.1.1 | `[ ]` | keep "candidate spelling and native argv[0] beside canonical file identity"; `classify_in`/`selected_from` changed so doctor "launches the already-selected invocation"; searched `dsh -> /usr/bin/env` and an absolute alias "refuse before either probe". Closing words: "Immutable Apple source pins and native platform evidence remain this owner's pending inherited acceptance, outside the repair" | 1232–1252 | `composite.rs:2217–2267` — `DshInvocation` is a distinct type carrying the invocation "EXECUTION: a launcher reads the path it was run by"; `:1815–1850` `DshPrepared` holds `invocation` beside the admitted home; `:1956` `selected_from`; `:3276` `classify_in`, whose refusals at `:3327` and `:3330` are spelled "the selected invocation {why}" | **partially discharged — external.** The R2 carriage is implemented and opened. The Apple source pins and native platform evidence the row names at 1248–1250 are unopenable here and are the row's own declared inherited debt |
-| N2 | 8.8.1.2 | `[ ]` | extend protocol selection tests, doctor unit seams and `crates/brokkr-cli/tests/doctor_dsh_selection.rs` with "both R2 alias forms and direct env"; "Independently remove selected-env qualification, then independently restore canonical execution"; "native macOS remains pending, not newly commissioned" | 1253–1271 | `crates/brokkr-cli/tests/doctor_dsh_selection.rs` exists in the tree | **partially discharged — external, with an evidence-verification gap.** The suite exists; its two required removals are recorded, not re-derived (F5). macOS is pending by the row's own words (1269) |
-| N3 | 8.8.2.1 | `[ ]` | change `env_program`'s "successful absence for an empty or ASCII-space/tab-only argument tail to a cause-bearing refusal"; flip the bare `#!/usr/bin/env` row in `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`. Closing words: "Immutable env source pins and missing native platform proof remain inherited debts" | 1273–1287 | `composite.rs:3675–3685` — a blank-tail scan, then `Err("is the platform's env utility given no nonblank program, so the program it would run is the launcher itself")`, with the comment citing run `124cca78`, R4; the same sentence is asserted at `composite/tests.rs:5650` | **partially discharged — external.** The R4 refusal is implemented and its exact cause asserted. The env source pins and native platform proof at 1285–1286 are the row's own inherited debt |
-| N4 | 8.8.2.2 | `[ ]` | test bare and blank env shebangs "through protocol selection/producer, injected doctor probes and the built doctor"; "Native bare/blank reproductions use separate markers and an external process-group timeout"; "**Native Windows matrix, doctor/GetBinaryTypeW and Windows MSRV are withdrawn by decision 0063.** Native macOS matrix and applicable source-pin cells retain their original pending acceptance" | 1288–1308 | `composite/tests.rs:5650` (the producer-side cause); `doctor_dsh_selection.rs` (the doctor side) | **partially discharged.** Its Windows half is **withdrawn by decision 0063** — the row already says so in its own words, so no ledger correction is owed there. Its macOS half and source-pin cells are pending external. Its blank-tail removal is recorded, not re-derived (F5) |
+| N1 | 8.8.1.1 | `[ ]` | keep "candidate spelling and native argv[0] beside canonical file identity"; `classify_in`/`selected_from` changed so doctor "launches the already-selected invocation"; searched `dsh -> /usr/bin/env` and an absolute alias "refuse before either probe". Closing words: "Immutable Apple source pins and native platform evidence remain this owner's pending inherited acceptance, outside the repair" | 1232–1252 | `composite.rs:2217–2267` — `DshInvocation` is a distinct type carrying the invocation "EXECUTION: a launcher reads the path it was run by"; `:1815–1850` `DshPrepared` holds `invocation` beside the admitted home; `:1956` `selected_from`; `:3276` `classify_in`, whose refusals at `:3327` and `:3330` are spelled "the selected invocation {why}" | **partially discharged — external.** The R2 carriage is implemented and opened. The row itself calls the Apple source pins and native platform evidence (1248–1250) "pending inherited acceptance". The pins are **blocked retrieval**: seats were refused the network (2389–2394). Unit 13 retrieves and verifies them, and unit 15 supplies the native macOS evidence. "Adopt resolver removals without replay" (1248) covers its removals |
+| N2 | 8.8.1.2 | `[ ]` | extend protocol selection tests, doctor unit seams and `crates/brokkr-cli/tests/doctor_dsh_selection.rs` with "both R2 alias forms and direct env"; "Independently remove selected-env qualification, then independently restore canonical execution"; "native macOS remains pending, not newly commissioned" | 1253–1271 | Opened assertion by assertion (third return, finding 2). **Built doctor**, `doctor_dsh_selection.rs::a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected` (`:2771–2895`): *direct-env control*, where native `/usr/bin/env --version` is read (`:2788–2798`) and doctor's line is asserted to be that native result. Where env answers, that is `ok … {env_version} · serves` plus `· composite unreadable:` (`:2865–2869`), so the line is **never a readable composite**. Where it does not, the line is the not-found warning (`:2871–2874`). *Both alias forms*, `searched` and `absolute` (`:2810–2850`): zero doctor markers (`:2837`), the line opens with the exact selection cause, "the selected invocation is the platform's env utility invoked under the name 'dsh'…" (`:2804–2808`, `:2838–2843`), and env's version is absent from it (`:2844–2849`). Each native alias result is **recorded, never counted** (`eprintln!` at `:2822–2826`; the uutils result "exit 1… empty stdout" is recorded at `tasks.md` 1650–1651). *No-probe*: the markers are zero, but a silent env leaves none, so the no-probe half rests, as the case says (`:2760–2765`), on `doctor/tests.rs::a_failed_selection_probes_nothing_and_carries_its_cause` (`:2765`, a probe closure that panics, `:2769`). *Admitted launcher control* (`:2877–2894`): the launcher prints `$0`, native runs it by the alias (`:2882–2886`), and doctor's line opens with the alias path, not the launcher's (`:2890–2894`). **Protocol**, `composite/tests.rs::the_selected_invocation_is_not_replaced_by_its_canonical_target` (`:2940`): both alias forms refuse `select_in` and `selected_from` with the same cause (`:2974–2988`). Direct env is selected as its canonical file and invoked as spelled, with status, stdout and stderr equal to native's (`:2999–3016`). The admitted launcher's `path` is the canonical target (`:3026`) and its invocation is `{program: alias, argv0: "dsh"}` (`:3027–3033`), which gives **separate canonical identity** and the retained spelling. **Removals**: M5 "selected-env qualification removed" and M6 "canonical path substituted as invocation" (`tasks.md` 1669–1670) | **partially discharged — external, with an evidence-verification gap and one unasserted predicate.** Assertion coverage holds for direct env, both alias forms, the cause, zero markers and the retained invocation. The cases also have historical recorded execution (see *Recorded execution*). **Recorded but unverified:** the two independent removals (M5, M6) are delivery records (F5), so unit 17 rules them. **Unasserted:** "no second search". The invocation holds the absolute candidate the search found (`:3029–3032`), so the launch should not search again, but no case runs it with the search taken away. Unit 12 adds that. **Never performed:** native macOS, pending by the row's own words (1267–1268). Unit 15 |
+| N3 | 8.8.2.1 | `[ ]` | change `env_program`'s "successful absence for an empty or ASCII-space/tab-only argument tail to a cause-bearing refusal"; flip the bare `#!/usr/bin/env` row in `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`. Closing words: "Immutable env source pins and missing native platform proof remain inherited debts" | 1273–1287 | `composite.rs:3675–3685` — a blank-tail scan, then `Err("is the platform's env utility given no nonblank program, so the program it would run is the launcher itself")`, with the comment citing run `124cca78`, R4; the same sentence is asserted at `composite/tests.rs:5650` | **partially discharged — external.** The R4 refusal is implemented and its exact cause is asserted. The env source pins and native platform proof at 1284–1286 are the row's own "inherited debts". The pins are **blocked retrieval**, not impossible. The env dispatch rule cites GNU `src/env.c`, Apple `usr.bin/env/env.c`, uutils `src/bin/coreutils.rs`, busybox `libbb/appletlib.c` and GNU `src/coreutils.c` by name, but pins none of them (`composite.rs:3598–3608`, beside the kernel's `fs/binfmt_script.c` for `argv[0]`). Unit 13 retrieves and pins them, and unit 15 supplies native macOS |
+| N4 | 8.8.2.2 | `[ ]` | test bare and blank env shebangs "through protocol selection/producer, injected doctor probes and the built doctor"; "Native bare/blank reproductions use separate markers and an external process-group timeout"; "**Native Windows matrix, doctor/GetBinaryTypeW and Windows MSRV are withdrawn by decision 0063.** Native macOS matrix and applicable source-pin cells retain their original pending acceptance" | 1288–1308 | Opened assertion by assertion (third return, finding 2). **Protocol selection**, `composite/tests.rs:5655–5689`: five bare, unterminated and blank env bodies each refuse `select_in` with the exact missing-program cause, naming the launcher, the env interpreter and "no nonblank program" (`:5670–5680`). They also refuse through `DshSeams::selected_from`, so no selection exists and nothing can be probed (`:5683–5689`). **Built doctor**, `doctor_dsh_selection.rs::an_env_launcher_without_a_program_is_refused_before_any_probe` (`:2909–3002`): the *bounded native* reproductions of `bare` and `blank` run under their own `oracle-{tag}` markers and a 2-second external process-group deadline, with kill and reap (`:2916`, `:2926–2943`), and their outcome is **recorded, never asserted** (`eprintln!`, `:2937–2943`). Doctor runs under its own `doctor-{tag}` markers and a 120-second bound that **fails** on expiry ("doctor did not return: it started the loop", `:2946–2955`). It leaves zero markers (`:2956`) and names the exact cause (`:2958–2966`). The *`env sh` control* terminates natively with `v9.9.9-sh` (`:2973–2984`), and doctor probes it once, with markers `["dsh"]` and an `ok` line (`:2985–3000`). **Injected doctor probes:** the failed-selection seam is proved in general by `doctor/tests.rs::a_failed_selection_probes_nothing_and_carries_its_cause` (`:2765`, panicking probe), but over an absent-`PATH` cause (`:2773`). No doctor unit case injects the bare or blank env selection. **Removal:** M4, "blank tail `Ok(None)` restored → classifier: 'expected a refusal' for the bare-env row; nothing spawned" (`tasks.md` 1668) | **partially discharged, with an evidence-verification gap.** The Windows half is **withdrawn by decision 0063**; the row already says so in its own words. Assertion coverage holds for protocol selection, the built doctor, the bounded native evidence and the `env sh` control, and the cases have historical recorded execution. **Unasserted:** the injected-doctor-probe cell for the missing-program cause. Unit 12 adds it. **Recorded but unverified:** M4 (F5), unit 17. M4 records only the selection test failing. The clause also names the "callback tests", and no record opened here shows a callback test failing under that mutation. **Never performed:** the native macOS matrix and the applicable source-pin cells (1304–1305). Units 15 and 13 |
 | N5a | 8.8.3.1(1) | `[x]` | **Shared preparation.** Prepare profile and bounded pnpm observation "before authority for either DSH or Node version probing"; retain declarations, patchReload, raw anchor, canonical boundary and dependencies "in a small privately constructed value"; "Composition consumes them once, without profile/lock rereads"; "Preparation computes no digest"; a located pnpm admission failure "blocks both probes" | 1314–1329 | `composite/tests.rs:3074` `::the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained` — `DshPrepared::admit` returns the retained value, `prepared.invocation()` and `prepared.seams()` are asserted, its `Debug` carries the admitted dependency, and the test's own doc records the repair: "The lock was parsed last — after doctor's DSH probe and the producer's Node probe… Admission is now the selection's, and the producer's own first step" | discharged |
-| N5b | 8.8.3.1(2) | `[x]` | **R1 separation.** At `split_flow_entry` consume "the entire admitted ASCII-space separator run before `flow_scalar` inspects opening syntax"; test `{node:  *missing}`, `{node:  &}`, `{node:  %bad}` "with one, two and additional separator spaces" through the sole producer and built doctor; "One-space and padded numeric controls (`22`) and valid quoted controls remain readable with the same control composite" | 1331–1345 | Producer: `composite/tests.rs:3128–3130` drives `engines: {node:  *missing}` to the exact member cause naming the `'*'` indicator; `::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` (`:4155`) holds the padded controls at `:4497–4499` — `{node:    22}`, `{node:  '>=18',   npm:     "9"}`, `{node:   '  *kept  '}` — each readable. Built doctor: `doctor_dsh_selection.rs::ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor` (`:2256`) drives `{node:      %bad}` to its named cause | discharged for assertion coverage; the built-doctor half has **no recorded execution** (its suite is unrun — see above) |
-| N5c | 8.8.3.1(3) | `[x]` | **R3 raw span.** Bound the original implicit block-key slice before trimming; "Count Unicode characters including quotes and pre-colon spaces"; maximum 1,024; cover "1,024/1,025 ASCII characters; 1,023/1,024 plus one space; and quoted keys with 1,022/1,023 content characters"; "Include otherwise admitted multibyte keys to prove character rather than byte counting, and long scalar values to rule out a blanket line/value cap" | 1346–1359 | `doctor_dsh_selection.rs` — the refusal side at `:2545–2560` (`"k".repeat(1025)` plain, then `.repeat(1024)` plus a pre-colon space, each to `IMPLICIT_KEY_REFUSAL`, whose text at `:2241–2243` names "YAML's implicit-key lookahead limit of 1,024 characters"); the **admitted** side at `:2660–2673`, which is the whole matrix in one list: `repeat(1024)` plain, `repeat(1023)` plus a space, `'{repeat(1022)}'` quoted, **`"\u{e9}".repeat(1024)`** (the multibyte character-not-byte control), a long scalar value, and a 1,024-key *with* a long quoted value — each asserted to keep the control composite | discharged for assertion coverage — the matrix is complete and was opened cell by cell. **No recorded execution**: this is the unrun suite, and it is the only place the raw-span matrix lives |
+| N5b | 8.8.3.1(2) | `[x]` | **R1 separation.** At `split_flow_entry` consume "the entire admitted ASCII-space separator run before `flow_scalar` inspects opening syntax"; test `{node:  *missing}`, `{node:  &}`, `{node:  %bad}` "with one, two and additional separator spaces" through the sole producer and built doctor; "One-space and padded numeric controls (`22`) and valid quoted controls remain readable with the same control composite" | 1331–1345 | Producer: `composite/tests.rs:3128–3130` drives `engines: {node:  *missing}` to the exact member cause naming the `'*'` indicator; `::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` (`:4155`) holds the padded controls at `:4497–4499` — `{node:    22}`, `{node:  '>=18',   npm:     "9"}`, `{node:   '  *kept  '}` — each readable. Built doctor: `doctor_dsh_selection.rs::ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor` (`:2256`) drives `{node:      %bad}` to its named cause | discharged for assertion coverage. The built-doctor half has **historical recorded execution only**, reported by earlier seats and never on the final candidate (see *Recorded execution*; unit 14). An earlier revision called that suite "unrun", which was false |
+| N5c | 8.8.3.1(3) | `[x]` | **R3 raw span.** Bound the original implicit block-key slice before trimming; "Count Unicode characters including quotes and pre-colon spaces"; maximum 1,024; cover "1,024/1,025 ASCII characters; 1,023/1,024 plus one space; and quoted keys with 1,022/1,023 content characters"; "Include otherwise admitted multibyte keys to prove character rather than byte counting, and long scalar values to rule out a blanket line/value cap" | 1346–1359 | `doctor_dsh_selection.rs` — the refusal side at `:2545–2560` (`"k".repeat(1025)` plain, then `.repeat(1024)` plus a pre-colon space, each to `IMPLICIT_KEY_REFUSAL`, whose text at `:2241–2243` names "YAML's implicit-key lookahead limit of 1,024 characters"); the **admitted** side at `:2660–2673`, which is the whole matrix in one list: `repeat(1024)` plain, `repeat(1023)` plus a space, `'{repeat(1022)}'` quoted, **`"\u{e9}".repeat(1024)`** (the multibyte character-not-byte control), a long scalar value, and a 1,024-key *with* a long quoted value — each asserted to keep the control composite. **Producer:** `composite/tests.rs::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`, `:4553–4619`, carries the same matrix through the sole producer. It has fifteen cells: 1,024/1,025 plain; 1,023/1,024 plus one space; a padded-over-limit key; single- and double-quoted 1,022/1,023; multibyte `é` at 1,024/1,025, plus one space, and quoted. Each admitted cell is asserted equal to the body control's composite, and each refused cell to the exact lookahead-limit reason (`:4588–4601`). Three 4,096-byte long values follow, each keeping the control composite (`:4603–4619`) | discharged for assertion coverage at **both** levels. The matrix is complete and was opened cell by cell. **Correction (third return, finding 5):** the previous revisions said the doctor suite "is the only place the raw-span matrix lives". That was false: the producer suite holds it with real equality and refusal assertions, and ran on the ledger seat's revision (`--lib`, 426 passed). The built-doctor half has historical recorded execution only (see *Recorded execution*) |
 | N5d | 8.8.3.1(4) | `[x]` | **Independent proof.** "Restore one-space consumption for R1; remove the raw-span guard for R3; separately move R3's guard after trimming"; "Separately bypass admission before DSH and before Node"; "Separately reopen retained pnpm/profile input after a version probe rewrites it: the retain-and-reuse assertion fails"; "Record each guard/wiring path and focused command, restore one mutation at a time" | 1360–1371 | Nothing in the tree. Five distinct compiling mutations are named and none leaves an artefact | **partially discharged — evidence-verification gap (F5).** The guards these mutations target are opened at N5a–N5c and pass; the five removals are narrative |
-| N6a | 8.8.4.1 | `[x]` | track admitted decoded package headings separately; reject repetitions and conflicting records "with `repeated package key` and the decoded key"; preserve legitimate equal-triple deduplication | 1376–1390 | `composite.rs:1573` emits `a repeated package key '{key}'`; `composite/tests.rs` 5394, 5408, 5414 assert that exact sentence with the decoded key, including the excluded local-tarball key; dedup retention is `::npm_three_group_and_dedup_vectors_retain_distinct_triples` | discharged |
-| N6b | 8.8.4.1, both returns | `[x]` | the two extensions the row acquired on return: "the same singleton rule holds in **every mapping scope** the grammar admits without reading — a flow map, an ignored block body at every depth, a package child spelled twice — **by DECODED key and per block**, so one key in two sibling blocks stays two keys"; then "keys are compared as YAML compares them — the padding before a plain key's colon is the separator's, and **a plain key spelling a typed scalar is refused by its cause before any comparison**, in every admitted scope" | 1391–1401 | All of it in `composite/tests.rs::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` (`:4155–5052`), which is where this ledger had not looked. **Per scope:** `a repeated package child 'cpu'` (`:4397`) and `'peerDependencies'` (`:4401`); a repeat inside an ignored block body, "the entry 'react' at 6 spaces, which repeats a key of its block" (`:4413–4415`). **Padding is the separator's:** that same vector spells the repeat `react : '>=17'`. **Typed scalars refused by cause:** four vectors at `:4419–4439` — `'11', which is a number and not a string`, and `'true', which is a boolean and not a string` — matching `composite.rs:750–757` `mapping_key`, whose doc records the reason ("This grammar resolves no scalar type"); `::pnpm_identity_strings_preserve_the_distinction_from_typed_scalars` (`:5127`) asserts the same shape at `:5184`. **Keys YAML keeps apart:** `:4450–4456` — plain `react` beside quoted `'react '`, and the quoted typed scalars `{'true': a, 'True': b}` and `{'11': 1, '0xB': 2}`, which are strings and therefore two keys each. **Sibling blocks stay two keys:** `:4656` composes a two-importer, two-record lock and asserts `two_records.canonical` equals a lock with no importers at all — "the sibling blocks are admitted and ignored" | **discharged** for assertion coverage, on evidence this ledger's previous revision did not cite and this revision nearly recorded as absent. Only the five removals (D1–D5) are narrative (F5) |
+| N6a | 8.8.4.1 | `[x]` | track admitted decoded package headings separately; reject repetitions and conflicting records "with `repeated package key` and the decoded key"; preserve legitimate equal-triple deduplication | 1376–1390 | `composite.rs:1573` emits `a repeated package key '{key}'`; `composite/tests.rs` 5394, 5408, 5414 assert that exact sentence with the decoded key, including the excluded local-tarball key; dedup retention is `::npm_three_group_and_dedup_vectors_retain_distinct_triples`. **Removal** (third return, finding 2): the clause goes on, "Remove the heading-set rejection and observe those named assertions fail; restore it and rerun positive and negative controls" (1383–1386). The one record of it is M8 at `tasks.md` 12377: "`pnpm_dependencies`: `seen_packages.insert` no longer refuses a repeat" parts `duplicate_decoded_pnpm_package_keys_refuse_before_triple_normalization` (`composite/tests.rs:5337`) with "`identical` was accepted" | **partially discharged — evidence-verification gap.** The rejection, its exact sentence, the decoded key and the dedup retention are opened and asserted. The removal and restoration are **recorded but unverified** (F5), so unit 17 rules them. The previous revisions graded this row `discharged` over a clause whose last two sentences are a removal, which is the grading error F5 exists to prevent |
+| N6b | 8.8.4.1, both returns | `[x]` | the two extensions the row acquired on return: "the same singleton rule holds in **every mapping scope** the grammar admits without reading — a flow map, an ignored block body at every depth, a package child spelled twice — **by DECODED key and per block**, so one key in two sibling blocks stays two keys"; then "keys are compared as YAML compares them — the padding before a plain key's colon is the separator's, and **a plain key spelling a typed scalar is refused by its cause before any comparison**, in every admitted scope" | 1391–1401 | All of it in `composite/tests.rs::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` (`:4155–5052`), which is where this ledger had not looked. **Per scope:** `a repeated package child 'cpu'` (`:4397`) and `'peerDependencies'` (`:4401`); a repeat inside an ignored block body, "the entry 'react' at 6 spaces, which repeats a key of its block" (`:4413–4415`). **Padding is the separator's:** that same vector spells the repeat `react : '>=17'`. **Typed scalars refused by cause:** four vectors at `:4419–4439` — `'11', which is a number and not a string`, and `'true', which is a boolean and not a string` — matching `composite.rs:750–757` `mapping_key`, whose doc records the reason ("This grammar resolves no scalar type"); `::pnpm_identity_strings_preserve_the_distinction_from_typed_scalars` (`:5127`) asserts the same shape at `:5184`. **Keys YAML keeps apart:** `:4450–4456` — plain `react` beside quoted `'react '`, and the quoted typed scalars `{'true': a, 'True': b}` and `{'11': 1, '0xB': 2}`, which are strings and therefore two keys each. **Sibling blocks stay two keys:** `:4656` composes a two-importer, two-record lock and asserts `two_records.canonical` equals a lock with no importers at all — "the sibling blocks are admitted and ignored" | **partially discharged — evidence-verification gap.** Assertion coverage is complete, on evidence the first revision did not cite and the second nearly recorded as absent. But the clause's own words make the removals part of it: "Each scope's guard is **proved by its own removal** (D1–D3)… proved by removals D4–D5" (1395–1401). Those five are **recorded but unverified**: D1–D3 at `tasks.md` 1920–1922, D4–D5 at 2057–2058. Each names the protocol and built-doctor assertion that parted (F5), so unit 17 rules them. The previous revision graded this row `discharged` while saying in the same cell that the removals were narrative. That was incoherent, and the grade has moved |
 | N7 | 8.8.5.1 | `[x]` | replace the loop/hash oracle in `the_plugin_component_is_bytewise_path_order_and_fails_closed` "with a literal recorded from the existing sole production producer"; "no prose/helper/generator computes another component or canonical serialization" | 1405–1417 | That test and `::the_worked_plugin_vector_pins_the_bytewise_path_order_of_the_component`, both opened at A18/B90; `::no_test_reassembles_the_component_stream` is the guard | **partially discharged — evidence-verification gap.** The literal and the guard are opened. Its "alter production path/line ordering in a compiling mutation" half is recorded, not re-derived (F5) |
 | N8 | 8.8.5.2 | `[x]` | "a focused source-conformance assertion… detects restoration of the known competing serialization and concatenation-hash block" | 1418–1432 | `composite/tests.rs::no_test_reassembles_the_component_stream` (A23, A29) | **partially discharged — evidence-verification gap.** The source-conformance assertion is opened. Its restoration mutation is recorded, not re-derived (F5) |
-| N9 | 8.8.6.1 | `[x]` | apply `Safe` at final rendering of the unavailable-binary and retained-selection cause in `doctor.rs`; a built-doctor test with "a newline and ANSI clear-screen sequence"; "assert the recognizable escaped spelling… with no raw injected sequence" | 1433–1447 | `doctor_dsh_selection.rs:1999–2000` — "S2. A nonexistent override carrying a newline and an ANSI clear-screen sequence reaches stdout ESCAPED"; the unit-side sibling at `doctor/tests.rs:3017` | **partially discharged — evidence-verification gap, and no recorded execution.** The built-doctor assertion is opened, but it lives in `doctor_dsh_selection.rs`, which no recorded command ran; the unit-side sibling at `doctor/tests.rs:3017` did run. Its "remove safe rendering in a compiling control" half is recorded, not re-derived (F5) |
+| N9 | 8.8.6.1 | `[x]` | apply `Safe` at final rendering of the unavailable-binary and retained-selection cause in `doctor.rs`; a built-doctor test with "a newline and ANSI clear-screen sequence"; "assert the recognizable escaped spelling… with no raw injected sequence" | 1433–1447 | `doctor_dsh_selection.rs:1999–2000` — "S2. A nonexistent override carrying a newline and an ANSI clear-screen sequence reaches stdout ESCAPED"; the unit-side sibling at `doctor/tests.rs:3017` | **partially discharged — evidence-verification gap.** The built-doctor assertion is opened. It lives in `doctor_dsh_selection.rs`, which has historical recorded execution only, never on the final candidate (see *Recorded execution*; an earlier revision said "no recorded command ran" it, which was false). The unit-side sibling at `doctor/tests.rs:3017` ran on the ledger seat's revision. Its "remove safe rendering in a compiling control" half is recorded, not re-derived (F5) |
 | N10 | 8.8.7.1 | `[x]` | enrich exhausted `resolve_bundle` with `bundle '…' does not resolve: no package.json found`; "Preserve true-absence continuation to a legitimate later hit; unreadable/canonicalization-error/outside first hits still stop" | 1448–1464 | `composite/tests.rs::removing_only_the_plugin_manifest_names_the_drifted_file` (A18); `::a_bundle_candidate_that_cannot_be_inspected_stops_the_search` and `::an_outside_first_bundle_hit_is_not_skipped_for_a_later_inside_one` (B93) | **partially discharged — evidence-verification gap.** The cause and the continuation rule are opened. Its filename-context mutation is recorded, not re-derived (F5) |
-| N11 | 8.8.8.1 | `[ ]` | consolidate R1–R4 tests and removal records from 8.8.1–8.8.3; "Verify all four built-doctor reproductions now end in named refusals"; "**The actual absent-PATH retained-Node positive and its two removals remain pending under this address until their native prerequisite exists; shell failure or NotFound is no positive**" | 1465–1483 | `composite/tests.rs::an_absent_path_is_a_named_refusal_and_never_the_working_directory` and `::the_default_search_path_is_the_c_librarys_own_answer` (A24) are the refusal side. **The positive exists**: `::absent_path_node_identity_is_retained_by_the_composite` at `composite/tests.rs:3489`, opened here in full. It runs `node -p process.execPath` with `PATH` removed and branches on the host. Its `Ok` arm (`:3524–3568`) is the real positive — the retained `node` is the runtime the native default search ran, `composite.node` is that runtime's own `--version` output, and a *different* runtime retained in its place moves the canonical digest (`assert_ne!` at `:3567`). Its `Err` arm (`:3501–3522`) asserts the named refusal instead and prints `PENDING: no node on this host's default search path` | **partially discharged — external.** Correction: the previous revision said "no test in the tree is the absent-PATH retained-Node positive", and that was **wrong** — the test exists and asserts exactly what the clause requires. What is pending is its **execution**, and the test says so itself: on a host with no `node` on the default search path it takes the `Err` arm and records the positive as not established. So this row needs a capable host, not a new test. Its two removals remain narrative (F5), and the consolidation record is narrative too |
-| N12 | 8.8.8.2 | `[ ]` | "On the restored candidate run `cargo fmt --all -- --check` and `cargo clippy…`. Run `cargo test -p <crate>… sequentially, in order`" for all seven crates; plus both `compile --bundle` runs and `openspec validate --all --strict`; "Unavailable tools or failures leave this row pending" | 1484–1503 | The recorded-execution table above: fmt green on both revisions; four of seven crate suites green on `936c04b6`; `openspec` green on `d73d94d1` but only under the **review seat's** grant and outside the ordered list; clippy, three crate suites and both bundles unrun by any seat on a Pass D candidate | **not started as the ordered list.** Its own last sentence keeps it pending. Duplicates S11's gate list; one execution closes both. Unit 4 |
-| N13 | 8.8.8.3 | `[ ]` | "Collect fresh coverage on the committed restored candidate"; the controller "runs unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` on a capable host/CI"; "Require nonzero exact equality for **source lines, branches and functions**"; "Keep this row and final-head remote results pending until actual evidence exists" | 1504–1526 | Nothing. D2/D3 reproduced the script's substance by hand (F7); the row's own text forbids reading that as the gate — "The box cannot execute namespace boundary tests; this is preparation, not a literal gate pass" | **not started — externally owned.** This, not 8.8.14.3, is where the coverage obligation lives. Unit 5 |
-| N14 | 8.8.8.4 | `[ ]` | reconcile R1–R4 delivery; "Tick a task only when its **entire** acceptance is met; broad owners with inherited pending predicates stay open"; "Preserve change-wide states, unchecked 8.8 and proposed 0056"; commit, never push | 1528–1548 | Not begun: 8.8 is `[ ]` at 4735 and 0056 is `proposed`, which is this row's *preservation* requirement, not its delivery | **not started.** It is also the clause that decides N1–N4 and N11: a row whose inherited predicate is pending "stays open with current repair delivery recorded in prose". Unit 7 |
+| N11 | 8.8.8.1 | `[ ]` | consolidate R1–R4 tests and removal records from 8.8.1–8.8.3; "Verify all four built-doctor reproductions now end in named refusals"; "**The actual absent-PATH retained-Node positive and its two removals remain pending under this address until their native prerequisite exists; shell failure or NotFound is no positive**" | 1465–1483 | `composite/tests.rs::an_absent_path_is_a_named_refusal_and_never_the_working_directory` and `::the_default_search_path_is_the_c_librarys_own_answer` (A24) are the refusal side. **The positive exists**: `::absent_path_node_identity_is_retained_by_the_composite` at `composite/tests.rs:3489`, opened here in full. It runs `node -p process.execPath` with `PATH` removed and branches on the host. Its `Ok` arm (`:3524–3568`) is the real positive — the retained `node` is the runtime the native default search ran, `composite.node` is that runtime's own `--version` output, and a *different* runtime retained in its place moves the canonical digest (`assert_ne!` at `:3567`). Its `Err` arm (`:3501–3522`) asserts the named refusal instead and prints `PENDING: no node on this host's default search path` | **partially discharged — external; the positive and both removals were never performed.** Correction: the first revision said "no test in the tree is the absent-PATH retained-Node positive". That was **wrong**, because the test exists and its `Ok` arm asserts what the clause requires. *(Line references in this row are `af89511a`'s. Unit 1 has since moved the test to `composite/tests.rs:3511`, its `Err` arm to `:3523–3545` and its `Ok` arm to `:3546–`.)* **Third return, finding 2: the removals are not records.** The previous revision filed them as "narrative (F5)" and listed N11 for the unit-9 ruling (now unit 17). Opened, they are not narrative. The test's own doc says the positive "with its two removal controls is recorded PENDING, never a passing skip" (`:3503–3505`), and its `Err` arm prints "the absent-PATH retained-Node positive and its two removal controls were not established here" (`:3541–3544`). The only execution account opened says the same: both absent-PATH tests "printed `PENDING: no node on this host's default search path /bin:/usr/bin`" (`tasks.md` 2395–2399). The clause keeps the positive "and its two removals… pending under this address until their native prerequisite exists; shell failure or NotFound is no positive" (1477–1480). So: the positive is written and has **never run its `Ok` arm on any recorded host**; the two removals (unconditional absent-PATH refusal restored, and a distinct wrong Node retained, `:3505–3508`) have **never been performed**, because they need that arm. A ruling can accept a record; there is no record here to accept. Unit 16 performs all three on a capable host. The consolidation record the clause also asks for belongs to unit 23 |
+| N12 | 8.8.8.2 | `[ ]` | "On the restored candidate run `cargo fmt --all -- --check` and `cargo clippy…`. Run `cargo test -p <crate>… sequentially, in order`" for all seven crates; plus both `compile --bundle` runs and `openspec validate --all --strict`; "Unavailable tools or failures leave this row pending" | 1484–1503 | The recorded-execution table above. The ledger seats ran fmt on both revisions and four of seven crate suites on `936c04b6`. The D3 seat and its returned review each report fmt, clippy, all seven crate suites **sequentially** and the self bundle passing on their Pass D heads (`tasks.md` 1010–1018, 1093–1099), but `openspec` was refused there (1020–1021) and `bundles/verify` is absent. `openspec` itself passed five times under review and chief grants, outside the list (see F6). The previous revision said "clippy, three crate suites and both bundles unrun by any seat on a Pass D candidate", which was false | **open as the complete ordered list.** No single candidate has every command of the list recorded green in order: `openspec validate` and `bundles/verify` are missing from the one sequential record. The clause's last sentence keeps it pending: "Unavailable tools or failures leave this row pending". It duplicates S11's gate list, and one execution closes both. Unit 14 |
+| N13 | 8.8.8.3 | `[ ]` | "Collect fresh coverage on the committed restored candidate"; the controller "runs unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` on a capable host/CI"; "Require nonzero exact equality for **source lines, branches and functions**"; "Keep this row and final-head remote results pending until actual evidence exists" | 1504–1526 | **One literal gate run, and it failed.** The D1 review seat ran `bash scripts/coverage-exact.sh` on `4d6b15f3` and it exited 1: lines 32,626/32,802, branches 5,494/5,508, functions 3,181/3,191 (`.forge/results/8d9f4a9e-…`, opened by the `af89511a` seat, F7). D2 and D3 also reproduced the script's substance by hand (F7), and the row's own text forbids reading that as the gate: "The box cannot execute namespace boundary tests; this is preparation, not a literal gate pass". The previous revisions put "Nothing" here and graded the row "not started", which F7 itself contradicted | **open — externally owned, from a red result.** The last literal run on this change failed, so the obligation is to clear a known failure on the final candidate, not to start from nothing. This, not 8.8.14.3, is where the coverage obligation lives. Unit 15 |
+| N14 | 8.8.8.4 | `[ ]` | reconcile R1–R4 delivery; "Tick a task only when its **entire** acceptance is met; broad owners with inherited pending predicates stay open"; "Preserve change-wide states, unchecked 8.8 and proposed 0056"; commit, never push | 1528–1548 | Not begun: 8.8 is `[ ]` at 4735 and 0056 is `proposed`, which is this row's *preservation* requirement, not its delivery | **not started.** It is also the clause that decides N1–N4 and N11: a row whose inherited predicate is pending "stays open with current repair delivery recorded in prose". Unit 23 |
 
 **What §1 changes.** Eight numbered tasks are open. Five of them (N1–N4, N11)
-are open on evidence — Apple/env immutable source pins, native macOS runs, the
-absent-PATH retained-Node positive — that **no local commission can produce**,
-and whose own rows declare them inherited debt rather than this change's work.
-Note what N11's correction does to the shape of that debt: its positive is
-written, compiled and waiting, so it needs a **host**, not a visit. The same is
-true of N5b, N5c and N9, which need `doctor_dsh_selection.rs` to be *run*. None
-of those four is a missing test, and none should be commissioned as one.
-N12 and N13 are gate executions. N14 is the reconciliation that records all of
-it. None can be closed by editing this ledger, and 8.8 cannot be ticked while
-any of them is open unless the operator rules that N1–N4 and N11 may be ticked
-on their delivered-repair half with their inherited predicates recorded — which
-1209–1212 forbids a seat from deciding for itself.
+are open on evidence that **no seat of this change has been granted the reach
+to produce**: Apple/env immutable source pins, native macOS runs and the
+absent-PATH retained-Node positive. Their own rows declare them inherited debt.
+None of it is impossible. The pins are blocked retrieval (unit 13), and the
+macOS legs and N11's positive need a host (units 15 and 16). N11's positive is
+written, compiled and waiting, but its two removals have never been performed
+and have no record for a ruling to accept (unit 16). N5b, N5c and N9 need
+`doctor_dsh_selection.rs` run **on the final candidate**, because it has only
+historical recorded execution (unit 14). N2 and N4 each keep one small
+unasserted cell (unit 12). N12 and N13 are gate executions, and N13's last
+literal run was red. N14 is the reconciliation that records all of it (unit
+23). Among the six ticked rows, N5d, N6a, N6b and N7–N10 rest their removals
+on records, so unit 17 rules them. None of this can be closed by editing this
+ledger. 8.8 cannot be ticked while any of it is open, unless the operator rules
+that N1–N4 and N11 may be ticked on their delivered-repair half with their
+inherited predicates recorded, and 1209–1212 forbids a seat from deciding that
+for itself. That ruling would be a **scope change**, not satisfaction of the
+acceptance, and unit 23 keeps it separate.
 
 ## 2. Task 8.8 — whole-task prose (4735–5074)
 
@@ -282,7 +352,7 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | A10 | "use the plugin's explicit `--new --output-format stream-json` cold form and `--session <owned-id> --output-format stream-json` warm form" | 4766–4769 | `adapters.rs:3705–3720`; `adapters/tests.rs::a_qualified_dsh_launch_uses_the_stream_json_forms_and_records_observed_identity` (cold: `--new`, `--output-format stream-json`, no `--session`), `::a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence` | discharged |
 | A11 | carry `transcript.home` "from the same confirmed checkpoint as the root and locator" as `owned_target.persistence_home` "at both existing callers in `engine.rs`" | 4769–4775 | `engine/resume.rs::the_private_context_carries_the_owned_target_and_originating_digest` (five coordinates); `engine/resume_tests.rs::an_offered_dsh_start_carries_the_recorded_home_at_the_single_site` and `::…_at_the_panel_member` read the home off the `Start.input` the driver actually received | discharged |
 | A12 | "Never borrow a missing field from another checkpoint, site or older owner; missing evidence stays missing" | 4776–4777 | `resume_tests.rs::a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root` 1272–1372: a newer row without a transcript carries `persistence_home: None`; distinct old/new coordinates; a mistyped newest version/digest reads `None`, never the older row's | discharged |
-| A13 | "Verify the runtime unit/integration cases assigned in 8.10 after repairing R2's serialized checkpoint transport" | 4777–4780 | Rows B23–B28 | **partially discharged.** It can be no stronger than the rows it points at, and **B27 is partial** (its mistyped home and locator are undriven) and **B30 is partial** (launch-evidence exclusion and the retained-fields predicate). B23–B26 and B28–B29 are discharged. Closes with unit 3 and unit 4a |
+| A13 | "Verify the runtime unit/integration cases assigned in 8.10 after repairing R2's serialized checkpoint transport" | 4777–4780 | Rows B23–B28 | **partially discharged.** It can be no stronger than the rows it points at, and **B27 is partial** (its mistyped home and locator are undriven) and **B30 is partial** (launch-evidence exclusion and the retained-fields predicate). B23–B26 and B28–B29 are discharged. Units 6 and 7 (recorded as 3 and 4a) have landed. B27 keeps its pre-unit grade until unit 22 regrades it on opened evidence. B30 keeps the half unit 7 did not prove, which is unit 11's |
 | A14 | "Leave `Body::Resume` and driver protocol v1 unchanged, and publish `root_session` plus the complete `transcript` locator atomically on the same stamped launch checkpoint" | 4783–4785 | No protocol file in the branch diff; `adapters/tests.rs::the_dsh_launch_hold_needs_every_confirmation_before_it_publishes`, `::a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing` | discharged |
 | A15 | "Resolve that locator beneath the admitted originating DSH home… decline truncation, ambiguity, `..` or symlink escape without scanning for or creating a substitute root" | 4786–4789 | `adapters/tests.rs::dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root` (empty, absolute, traversal, leading `./`, separator, unresolved, unknown id, file-not-directory, ambiguity, symlink escape + contained control, each by its exact production reason); `::a_dsh_overlong_locator_is_never_truncated_into_another_valid_root` | discharged |
 | A16 | "Land the digest work first, in design D10's order" | 4789–4790 | PR #311 (`e78c1da1`, a–c) precedes PR #313 (`b0ec5517`, d) in history | discharged |
@@ -311,7 +381,7 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | A39 | **(d)** the adapter reads the file once, "require SHA-256 equality with the bound digest before any shape check", then AS3's closed data-only reader and closed six-field set with `apiKeyEnv` required and the `https` endpoint grammar | 4925–4933 | `route_overlay.rs:81–…` (`claim_with`), `::claim_reads_the_bound_file_and_requires_the_digest_before_the_shape`, `::the_route_row_and_provider_are_closed`, `::a_credential_value_or_a_field_outside_the_set_is_refused`, `::the_endpoint_grammar_decides_the_positive_and_every_refusal`; `adapters/tests.rs::a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_staging` | discharged |
 | A40 | **(d)** require the binding and argv agreement before reading; "Every other `--patch` refuses through the existing pre-work failure path, never forwarded or dropped" | 4933–4937 | `route_overlay.rs:89–115` (absent binding with a `--patch`, binding without a `--patch`, disagreement — each a refusal before any read); `adapters/tests.rs::dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path` | discharged |
 | A41 | **(d)** "close every disabled assessment gate before the version probe or composite producer, with or without an offer"; a missing/malformed declared digest also prevents either observation; only a matching `applies_to` reaches the sole producer | 4938–4943 | `adapters.rs:3606–3626`; `adapters/tests.rs::a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route` (ten dispositions × offer/no-offer, counted producer, recording shim marker), `::a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route` (absent and uppercase-malformed declared digest reach neither) | discharged |
-| A42 | **(d)** compare the recomputed composite with the declared; on an offer compare both observations with `originating_harness_version` and `originating_wrapper_digest` "from the same confirmed root"; missing/mistyped/malformed/unreadable/mismatched declines as `unverified-harness` | 4943–4949 | `adapters.rs:3617–3635`; `::a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route` 10527–10556 | partially discharged — the originating comparison is driven with *different* values for both fields and *missing* for the digest alone; *missing version*, and *mistyped* and *malformed* for either field, are not driven independently (see B60, F3) |
+| A42 | **(d)** compare the recomputed composite with the declared; on an offer compare both observations with `originating_harness_version` and `originating_wrapper_digest` "from the same confirmed root"; missing/mistyped/malformed/unreadable/mismatched declines as `unverified-harness` | 4943–4949 | `adapters.rs:3617–3635`; `::a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route` 10527–10556 | partially discharged — the originating comparison is driven with *different* values for both fields and *missing* for the digest alone; *missing version*, and *mistyped* and *malformed* for either field, are not driven independently (see B60, F3). Unit 6 (recorded as 3) has landed. The row keeps this grade until unit 22 regrades it on opened evidence |
 | A43 | **(d)** preserve `root_session.wrapper_digest` → `resume_context.originating_wrapper_digest`; carry the observed version as `harness_version` and the composite as `wrapper_digest` "separately from desired pins" | 4949–4953 | `resume_tests.rs::a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root` 1236–1255 (`originating_root` reads both off the same row); `adapters/tests.rs::a_qualified_dsh_launch_uses_the_stream_json_forms_and_records_observed_identity` (drift records the shim's `9.9.9`, never the requested pin) | discharged |
 | A44 | **(d)** "An origin mismatch follows the current observations; it does not imply zero producer calls" | 4953–4955 | `::a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route` 10527–10556 — the three origin declines run with a producer that RETURNS a matching composite, so one call precedes them | discharged |
 | A45 | **(d)** admit the complete owned target only after identity agreement; canonicalize both homes and require equality "before retained-session reads"; "Never switch homes to honour an offer, even when both homes contain the same ID and locator" | 4956–4962 | `adapters.rs:3766–3800` (`owned_dsh_root`: id grammar, provider id equality, locator, home, canonicalize both, compare); `adapters/tests.rs::a_dsh_retained_root_refusal_names_its_field_and_never_the_home`, `::owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve`, `::a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator` | discharged |
@@ -322,7 +392,7 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | A50 | **(d)** "Preserve the inherited `firstSeq` convention and all current-event folds; B repairs admission reads only" | 4979–4981 | `::a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundary`; `::the_planned_dsh_fold_boundary_reaches_the_transcript_drain` | discharged |
 | A51 | **(d)** "fold the validated route ahead of the transcript/model/settings rows in `dsh_seat_overlay_in` and stage exactly one overlay"; both forms retain the admitted `headless` profile, current workdir and Rust-owned model/effort/settings | 4982–4988 | `adapters.rs:5330–5343` (route bytes, then the model row, then the transcript/settings/sandbox rows); `adapters/tests.rs::the_shipped_route_overlay_folds_ahead_of_the_rust_owned_rows` (index ordering asserted), `::dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows` | discharged |
 | A52 | **(d)** a disabled gate or identity/storage mismatch builds "the shipped `dsh --profile headless --patch <overlay>` cold command under the current home, with no `--new`, `--session` or `--output-format`, no rejoining target and no offerable root. Only a declined offer carries a refusal token; no-offer cold has none" | 4988–4992 | `::a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route` asserts the whole argv and `launch.refusal == session.is_some().then_some(reason)` | discharged |
-| A53 | **(d)** "The bound current route folds on qualified cold, warm and disabled/mismatched cold alike. No route byte or binding enters the composite, launch row or journal. Retain `confirms_from_locator: false`" | 4993–4997 | `::dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows` (all four planner outcomes); `adapters.rs:3500` (`confirms_from_locator: false`) | **partially discharged.** The fold and the flag are proved. The **exclusion** is not: `assert_dsh_planner_overlay` (`adapters/tests.rs:12361–12400`) reads the planned argv and the written overlay file, and `dsh_launch_with` returns a plan — no case in either suite opens an emitted launch row, a journal envelope or a computed composite and asserts it free of route bytes. See F8 and unit 4. **Unit 4a (§6, `3a80b1d8`, `a41ae69e`, `9a3c0746`):** the exclusion is now proved at the composite, and at the launch row and the journal, stderr tail and non-protocol stdout included, for the shipped route, which the real adapter runs under the engine. The journal half rests on `9a3c0746`: at `a41ae69e` the case filtered the adapter's stdout to JSON-looking lines, so a disclosure printed outside the protocol never reached the journal it searched (review of `f5895001`, SEC-2). For the gated shapes it is proved at the wire and the engine separately, not in one process, so it **stays partial** there |
+| A53 | **(d)** "The bound current route folds on qualified cold, warm and disabled/mismatched cold alike. No route byte or binding enters the composite, launch row or journal. Retain `confirms_from_locator: false`" | 4993–4997 | `::dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows` (all four planner outcomes); `adapters.rs:3500` (`confirms_from_locator: false`) | **partially discharged.** The fold and the flag are proved. The **exclusion** is not: `assert_dsh_planner_overlay` (`adapters/tests.rs:12361–12400`) reads the planned argv and the written overlay file, and `dsh_launch_with` returns a plan — no case in either suite opens an emitted launch row, a journal envelope or a computed composite and asserts it free of route bytes. See F8 and unit 4. **Unit 4a (§6, `3a80b1d8`, `a41ae69e`, `9a3c0746`):** the exclusion is now proved at the composite, and at the launch row and the journal, stderr tail and non-protocol stdout included, for the shipped route, which the real adapter runs under the engine. The journal half rests on `9a3c0746`: at `a41ae69e` the case filtered the adapter's stdout to JSON-looking lines, so a disclosure printed outside the protocol never reached the journal it searched (review of `f5895001`, SEC-2). For the gated shapes it is proved at the wire and the engine separately, not in one process, so it **stays partial** there. **What unit 7 (recorded as 4a) proved, against the third chief's finding 4.** The chief found that a `model_driver` shim emitting a fixed claude-session checkpoint, whose route is only `route: offered`, cannot exercise production DSH publication (`adapters.rs:843–883`). Unit 7's record answers that for the **shipped (closed-gate) route**. That case runs production's `adapters::serve(Dsh)` under the engine on a seat whose `--patch` binds, reads the journal and the raw stdout, and a content-copy mutation (`displayName` copied into `effort`) parts it. The engine's offered cases use the DSH-shaped `dsh_model_driver`, which has a `dsh-session` root and a `transcript`. The **gated shapes** (qualified cold, confirmed rejoin, declined offer) are the half it did not prove in one process, because the real adapter's open gate never ran under the engine. **Still partially discharged**, and unit 11 owns that half. The earlier "See … unit 4" is unit 14, the gate run |
 | A54 | "Do not move the roster assertion, `bundle.json`, `research-web.yml`, compiled staffing or research-dsh witness digest" | 4998–5002 | `git diff origin/main --name-only` names none of them | discharged |
 | A55 | "Current AU/D7 repair clauses 8.8.9.1–8.8.15.1 **alone are commissioned here**" | 5002–5005 | Rows S1–S13 | discharged (scope rule) — and read narrowly. It says which clauses *this* repair executes; it does not say 8.8's acceptance is those clauses. §1's fourteen numbered tasks are not commissioned by this slice and are still 8.8's to satisfy (1209–1212) |
 | A56 | "Confirm the launched root before publishing": a valid prior depth-zero header at the resolved locator, the plugin's post-`await agents.resume` init event read from the stream-json child, no fresh sibling root/session, and new sequence activity past `firstSeq`, "before the launch hold releases" | 5005–5013 | `adapters/tests.rs::the_dsh_launch_hold_needs_every_confirmation_before_it_publishes`, `::a_dsh_init_event_alone_is_never_the_root_confirmation`, `::a_qualified_dsh_child_confirms_the_root_and_folds_current_only`, `::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body` | discharged |
@@ -333,10 +403,10 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | A61 | "Verify the six headline child proofs, completed-observation witnesses and all D7 rule controls/removals through the real terminal body" | 5030–5032 | `run_dsh_latch` (`:5999`) drives a real child through production `run_seat_with` + `invoke_dsh_launch_observed`; the six headline proofs are R1/R2/R3 × two endings in `::dsh_malformed_output_before_the_init_event_…`, `::dsh_an_observed_fresh_sibling_…`, `::dsh_a_fresh_entry_reusing_a_sibling_id_…` | **partially discharged — evidence-verification gap.** The six headline proofs and the witnesses carry existence, assertion coverage and execution. The clause's "**and all D7 rule controls/removals**" rests on the twelve-row ledger at `tasks.md` 465–480, which this seat opened and found to be a delivery narrative: it names mutations, endings and a restored SHA-256, and leaves nothing in the tree to re-derive (F5). The first cut graded this row `discharged` while saying the same thing in its own note |
 | A62 | "Never forward the launcher's TUI example, treat the retained directory as a provider handle, alter the live global pin/profile, add an SDK runner or admit hands" | 5033–5035 | `::a_retained_dsh_directory_alone_never_supplies_a_provider_handle`; `::a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle`; no SDK path in `adapters.rs`; `adapters/dsh.json` unchanged | discharged |
 | A63 | "If 10.7 demonstrates that the documented setup or pre-work observation hook is still insufficient… add only the narrow Cordis extension" | 5035–5044 | `tasks.md:5732` — 10.7 is `[x]` and demonstrated no insufficiency; no `extensions/dsh/resume-policy/` was created | discharged — conditional, condition not met |
-| A64 | "Verify with the DSH planner/storage shim cases in 8.10 and 9.6; the route-overlay binding's engine cases in the runtime crate… beside `the_private_context_carries_the_owned_target_and_originating_digest` and in its pattern… and in `engine/resume_tests.rs`, the engine integration cases 8.10 assigns to that suite, read off the `Start.input`… at both call sites, a single site and a panel member" | 5044–5058 | `resume.rs::the_private_context_carries_a_supplied_route_overlay_binding` (sits directly beside the named case, asserts value, digest and absence); `resume_tests.rs` route rows A37/A38 | partially discharged, **on two counts now**. (1) 9.6's shim cases do not exist (row not owned here; see the 9.6 answer). (2) The claim that "every case 8.10 assigns exists and asserts" is withdrawn: it was asserted over rows that are themselves partial. The engine route cases it names ride one call site each (B38, B39), the offered positive has no panel-member twin (B36), and the private-carrier case does not reach launch evidence (B30). Units 2a and 4a |
+| A64 | "Verify with the DSH planner/storage shim cases in 8.10 and 9.6; the route-overlay binding's engine cases in the runtime crate… beside `the_private_context_carries_the_owned_target_and_originating_digest` and in its pattern… and in `engine/resume_tests.rs`, the engine integration cases 8.10 assigns to that suite, read off the `Start.input`… at both call sites, a single site and a panel member" | 5044–5058 | `resume.rs::the_private_context_carries_a_supplied_route_overlay_binding` (sits directly beside the named case, asserts value, digest and absence); `resume_tests.rs` route rows A37/A38 | partially discharged, **on two counts now**. (1) 9.6's shim cases do not exist (row not owned here; see the 9.6 answer). (2) The claim that "every case 8.10 assigns exists and asserts" is withdrawn: it was asserted over rows that are themselves partial. The engine route cases it names ride one call site each (B38, B39), the offered positive has no panel-member twin (B36), and the private-carrier case does not reach launch evidence (B30). Units 2a and 4a, now units 2 and 7 with 3 and 8 beside them, have landed and re-graded B36 and B38. B30 keeps unit 11's half, and B39 awaits unit 22's regrade |
 | A65 | the four loader cases in `agents/tests.rs` | 5059–5063 | `::the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name` — all four in one case: measured without the member loads; a well-formed member loads and is carried; malformed or beside `unknown` is refused naming the field; `assert_ne!` on the adapter content digest | discharged |
 | A66 | "doctor cases… for a matching, differing, undeclared and unreadable composite" | 5063–5064 | `doctor/tests.rs::the_dsh_composite_detail_reports_each_disposition` — all four, plus the warning rule | discharged |
-| A67 | the committed-bytes test: exactly six files; the function's per-file lines carry "the provenance block's path and SHA-256 pairs"; the adapted expression "occurs exactly once"; "the recomputed delta digest equals the note's"; substituting the upstream expression back reproduces `a40b52b3…` | 5064–5071 | `composite/tests.rs::the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta` — asserts the six names, the full digest map against `COMMITTED_PLUGIN_DIGESTS` (`:12039`, which this seat compared line-by-line with `PROVENANCE.md:67–72`), one occurrence, and the upstream SHA-256 | **partially discharged** — four of five. **No test recomputes the delta digest.** `78256d2e…` appears only at `PROVENANCE.md:50`. This seat recomputed it by hand (SHA-256 of `lib/index.js:253\n` + `-` upstream line + `+` adapted line, each newline-terminated) and it reproduces exactly — so the note is true, and what is missing is the assertion, not the fact. See F1 and unit 1 |
+| A67 | the committed-bytes test: exactly six files; the function's per-file lines carry "the provenance block's path and SHA-256 pairs"; the adapted expression "occurs exactly once"; "the recomputed delta digest equals the note's"; substituting the upstream expression back reproduces `a40b52b3…` | 5064–5071 | `composite/tests.rs::the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta` — asserts the six names, the full digest map against `COMMITTED_PLUGIN_DIGESTS` (`:12039`, which this seat compared line-by-line with `PROVENANCE.md:67–72`), one occurrence, and the upstream SHA-256 | **partially discharged** — four of five. **No test recomputes the delta digest.** `78256d2e…` appears only at `PROVENANCE.md:50`. This seat recomputed it by hand (SHA-256 of `lib/index.js:253\n` + `-` upstream line + `+` adapted line, each newline-terminated) and it reproduces exactly — so the note is true, and what is missing is the assertion, not the fact. See F1 and unit 1, which landed at `8f60f06c`. The row keeps this grade until unit 22 regrades it on opened evidence |
 | A68 | "Full 8.8 remains pending through C/D; completing B alone never ticks it" | 5071–5074 | Pass C (`b0ec5517`) and Pass D (D1–D3 on this branch) are both delivered; 8.8 stays `[ ]` | discharged (reading rule) |
 
 ## 3. Task 8.8's commissioned subgroups, 8.8.9–8.8.15 (133–345)
@@ -359,9 +429,9 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | S9d | 8.8.13.4 `[x]` — the remaining identity comparisons: an admitted alias repeating the exact canonical `(ID, file)` occurrence, and a replacement changing a retained address with unique IDs and total count unchanged | 267–276 | `::dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids` | partially discharged — evidence-verification gap: removals M5, M5b and the disclosed joint M5+M7 are narrative (F5) |
 | S9e | 8.8.13.5 `[x]` — "A consistent pending rejoin can still confirm" and "Cold stream noise keeps its existing behavior"; "run applicable removals on new assertions to exclude unconditional refusal or whole-census equality" | 277–287 | `::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body`; `::dsh_cold_noise_and_a_root_mismatch_keep_their_terminal_behaviour` | partially discharged — evidence-verification gap: removals M9, M10 and M12 are narrative (F5) |
 | S10 | 8.8.14.1 `[x]` — the transition/return audit against a "task -> scenario -> actual test/ending -> mutation -> failed assertion -> restored pass ledger"; "Inspect the diff to ensure no mutation… survives" | 291–299 | `tasks.md` 465–489 is that ledger, with twelve mutation rows and their endings; `git diff origin/main` shows no mutation in the tree, and production is `e50020ac`'s | **partially discharged — evidence-verification gap.** "Inspect the diff to ensure no mutation… survives" is discharged, on the opened diff. The audit's own substance — that each transition and return was exercised, per the "task -> scenario -> actual test/ending -> mutation -> failed assertion -> restored pass" ledger — is narrative (F5) |
-| S11 | 8.8.14.2 **`[ ]`** — "run each D11 gate separately, in order: `cargo fmt`…; `openspec validate --all --strict`; `compile --bundle bundles/self`; `… bundles/verify`. Record command, revision and result; tick only when all these checks execute green. **An unavailable tool is not a pass.**" | 300–313 | The recorded-execution table above. Two ledger seats ran fmt and one ran four of seven suites green; both were **refused `openspec`**, as were the D1/D2/D3 seats (`tasks.md` 650–657, 833–848, 1020–1037) and the Pass C seat (507–511). The **review seat** ran `openspec validate --all --strict` green on `d73d94d1`. Clippy, `brokkr-core`, `brokkr-store`, `brokkr-view`, `brokkr-bridge` and both `compile --bundle` runs have no recorded result on a Pass D candidate | **not started** as a complete ordered execution. One gate of the list now has a dated green result on the head, out of order and outside a delivery record; the clause asks for each gate run "separately, in order" on one candidate, and ticking "only when **all** these checks execute green". Duplicated by N12 (8.8.8.2), which adds both bundle compiles. See unit 4 |
+| S11 | 8.8.14.2 **`[ ]`** — "run each D11 gate separately, in order: `cargo fmt`…; `openspec validate --all --strict`; `compile --bundle bundles/self`; `… bundles/verify`. Record command, revision and result; tick only when all these checks execute green. **An unavailable tool is not a pass.**" | 300–313 | The recorded-execution table above. Two ledger seats ran fmt and one ran four of seven suites green; both were **refused `openspec`**, as were the D1/D2/D3 seats (`tasks.md` 650–657, 833–848, 1020–1037) and the Pass C seat (507–511). The **review seat** ran `openspec validate --all --strict` green on `d73d94d1`. *(Corrected, third return: the previous text said clippy, four crate suites and both bundle compiles had "no recorded result on a Pass D candidate". That was false. The D3 seat and its returned review report fmt, clippy, all seven crate suites in sequence and the self bundle passing (`tasks.md` 1010–1018, 1093–1099). `bundles/verify` and `openspec` are absent from those runs)* | **not started** as a complete ordered execution. One gate of the list now has a dated green result on the head, out of order and outside a delivery record; the clause asks for each gate run "separately, in order" on one candidate, and ticking "only when **all** these checks execute green". Duplicated by N12 (8.8.8.2), which adds both bundle compiles. See unit 14 |
 | S13 | 8.8.14.3 **`[x]`** — "Prepare the unchanged external exact-coverage handoff"; verify no pin, gate, exclusion, denominator or test-selection change; "Record revision/environment and actual covered/total lines, branches and functions **when supplied, otherwise explicitly pending/unavailable**"; "This task verifies **preparation and truthful handoff only**; its tick is not a green coverage or remote gate" | 314–326 | `scripts/coverage-exact.sh` and both workflows consume `rust-nightly-version.txt` (the release configuration's own toolchain-agreement extension); the pending external results are recorded as pending at F7 and in the D2/D3 delivery sections | **discharged, and it has no pending half.** The first cut had no row for 8.8.14.3 at all and then, in its remaining work, invented one — assigning the external coverage run to "8.8.14.3's pending half". Its closing sentence forecloses that: the tick is preparation and truthful handoff, already given. The coverage obligation is **N13 (8.8.8.3)**, and recording external evidence as pending is **S12 (8.8.15.1)** |
-| S12 | 8.8.15.1 **`[ ]`** — record the delivery, "Tick each finished scoped task beside its evidence", verify `git diff --check`, strict active-change validation, the requirement/checkbox inventory, "then commit the exact staged repair and ledger"; "Do not report delivery before that commit or represent pending external gates as passed" | 327–345 | The three Pass D delivery records exist (`tasks.md` 535, 703, 879) and the clause's own gate — "After the scoped implementation/proofs **and local gates above pass**" — is S11, which has not | **not started** — blocked on S11 by its own first words. Note what it does and does not require of external evidence: it asks that "external pending evidence" be **recorded**, not completed, so it can close over a pending N13. See unit 6 |
+| S12 | 8.8.15.1 **`[ ]`** — record the delivery, "Tick each finished scoped task beside its evidence", verify `git diff --check`, strict active-change validation, the requirement/checkbox inventory, "then commit the exact staged repair and ledger"; "Do not report delivery before that commit or represent pending external gates as passed" | 327–345 | The three Pass D delivery records exist (`tasks.md` 535, 703, 879) and the clause's own gate — "After the scoped implementation/proofs **and local gates above pass**" — is S11, which has not | **not started** — blocked on S11 by its own first words. Note what it does and does not require of external evidence: it asks that "external pending evidence" be **recorded**, not completed, so it can close over a pending N13. See unit 22 |
 
 ## 4. Task 8.10 (5089–5452)
 
@@ -371,7 +441,7 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | B2 | "execute only 8.8.9.1–8.8.15.1: R1–R3 plus the bounded watcher-rule controls, both terminal endings, completed production observations, independent compiling removals and positive/cold preservation" | 5089–5093 | Rows S1–S13 | partially discharged — S11 and S12 are open, and every removal-bearing row among S1–S9e carries an evidence-verification gap (F5). Note the scope word: 8.10 says "execute **only** 8.8.9.1–8.8.15.1", so §1's numbered tasks are not 8.10's work — they bear on 8.8's tick, not this one's |
 | B3 | "Do not repeat adopted Codex or Pass B work, open Pass D's unrelated matrix or tick this whole task" | 5093–5094 | Pass C's commit touched `adapters.rs` and `adapters/tests.rs` only; 8.10 is `[ ]` | discharged (scope rule) |
 | B4 | "six wrapped/unwrapped compiled Codex gate decisions and supported exact-root exchanges, then `bundle.rs`'s two reachable refusal tests and unreachable census-arm consolidation" | 5095–5098 | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (four shapes: single/no-hands-member × wrapped/unwrapped, each asserting the recorded root, the `resumed` row, no refusal and the exact resume argv) and `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (two) = six; `bundle/tests.rs::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` and `::a_literal_phase_that_aliases_the_injected_validator_is_refused`, with `bundle.rs:2949` `claim_address` as the consolidated arm worded like the final walk's | discharged |
-| B5 | "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass." | 5098–5099 | Recorded mutation ledgers: Pass C's twelve rows (465–480), D1's two (616–623), D2's seven (803–816), D3's six plus one discarded (992–1008), and the returned review's two (1058–1074). Each names the case that parted | **partially discharged — evidence-verification gap.** This is the clause the narrative rule bites hardest: "**Every** new test needs an **observed** compiling mutation failure at its claimed assertion and a restored pass." Every such observation in this change is a delivery record. What is opened here is that no mutation survives (`git diff origin/main`) and that the cases those mutations aimed at exist, assert what is claimed, and pass (F5) |
+| B5 | "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass." | 5098–5099 | Recorded mutation ledgers: Pass C's twelve rows (465–480), D1's two (616–623), D2's seven (803–816), D3's six plus one discarded (992–1008), and the returned review's two (1058–1074). Each names the case that parted | **partially discharged — evidence-verification gap.** This is the clause the narrative rule bites hardest: "**Every** new test needs an **observed** compiling mutation failure at its claimed assertion and a restored pass." Every such observation in this change is a delivery record. What is opened here is that no mutation survives (`git diff origin/main`) and that the cases those mutations aimed at exist, assert what is claimed, and pass (F5). **Scope, third return (finding 3):** "Every new test" covers every suite this change added tests to, not only the terminal body. That includes the Codex bridge and conformance suites, and the tests units 1–10 landed on `slice-dsh-8810`, each of which recorded its own compiling mutations under §6. It closes on a unit-17 ruling that covers it by name, or after units 18–21 all land |
 | B6 | "Extend the existing runtime/protocol/CLI suites using the test-only seam; do not substitute fabricated roots, repaired markers or map assertions." | 5099–5101 | All new cases live in the four existing suites; the seams are `run_seat_with`, `invoke_dsh_launch_observed`, `dsh_launch_with` and `DSH_STAGING_CALLS`, all private | discharged |
 | B7 | "A no-offer refusal is judged by the private production gate with actual composed facts." | 5102–5103 | `::a_closed_dsh_gate_…` drives `dsh_launch_with` with composed `resume_context` inputs and reads `launch.refusal` | discharged |
 | B8 | "Namespace/boxed remains refused; preserve shipping harness/none and no-hands live controls." | 5103–5104 | `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (`restrictions-unavailable`, then a fresh cold launch); `boundary_tests.rs::the_seat_input_names_the_boundary_and_the_marker_only_under_a_box` | discharged |
@@ -379,24 +449,24 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | B10 | "Clauses 5–6 own fresh gates, coverage and the unsigned evidence commit." | 5105–5106 | Rows S11, S12 | partially discharged — the gates and the commit are open |
 | B11 | "Keep this checkbox pending for inherited C/D work" | 5106–5108 | 8.10 is `[ ]` | discharged |
 | B12 | "The following provider-planner and operator-ruling breakdown is inherited acceptance/history, not additional work commissioned by this slice." | 5109–5111 | Reading rule; rows B13–B22 are graded as acceptance all the same | discharged |
-| B13 | "Complete each provider-local planner guard and its tests in `adapters/tests.rs` from the captured grammar, and the engine's private-target and route-binding cases in the runtime suites" | 5111–5114 | Rows A34–A53, B36–B55 | **partially discharged.** Like A13, it is only as strong as the rows it points at, and several are partial: A37, A42 and A53 in the planner group; B36, B38, B39, B42, B47, B49, B50 and B55 in the route group. The guards themselves are opened and green throughout; what is partial is their proof coverage. Units 2a, 2b, 2c, 3 and 4a |
+| B13 | "Complete each provider-local planner guard and its tests in `adapters/tests.rs` from the captured grammar, and the engine's private-target and route-binding cases in the runtime suites" | 5111–5114 | Rows A34–A53, B36–B55 | **partially discharged.** Like A13, it is only as strong as the rows it points at, and several are partial: A37, A42 and A53 in the planner group; B36, B38, B39, B42, B47, B49, B50 and B55 in the route group. The guards themselves are opened and green throughout; what is partial is their proof coverage. Units 2a, 2b, 2c, 3 and 4a (now 2, 3, 5, 6 and 7, with 4, 8, 9 and 10 beside them) have all landed. A37, B36 and B38 were re-graded by their units. The rest keep their pre-unit grade until unit 22 regrades them on opened evidence, except the half of A53, B42 and B30 that unit 11 owns |
 | B14 | "Keep exact arity, duplicate and precedence checks for every authoritative restriction on cold and resume paths without a generic provider grammar" | 5114–5116 | `::claude_refuses_a_duplicate_or_valueless_authoritative_restriction` (eleven spellings × cold and offered); `::only_the_flags_a_resume_can_safely_carry_travel_with_it`; `::a_second_bare_or_odd_patch_is_refused_by_arity` | discharged |
 | B15 | "Preserve the completed Claude cases that independently refuse a second or last-wins permission mode, tools list, strictness/MCP document, allowed/disallowed-tools list (including aliases), model or effort control" | 5116–5119 | `::claude_refuses_a_duplicate_or_valueless_authoritative_restriction` 4074–4123 — permission mode twice and joined+separate, tools twice, `--strict-mcp-config` twice, `--mcp-config` twice, `--allowedTools`/`--allowed-tools`, model twice, effort twice, and three valueless spellings; each on `None` and an offered session | discharged |
-| B16 | the operator-ruling breakdown: "first the composition bridge in `engine/boundary_tests.rs` and the existing agent suites, then the shipped assessment/production-composed argv exchange in CLI `tests/driver_conformance.rs`, with separately observed disabled-status, boxed-hands, harness-fragment and boundary-mark mutation failures" | 5119–5125 | `boundary_tests.rs::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin`; `driver_conformance.rs::the_shipped_codex_harness_work_seat_rejoins_its_retry`, `::the_shipped_inline_codex_work_seat_rejoins_its_retry` | **partially discharged — evidence-verification gap.** The bridge and the exchange are opened and green. The clause's "**separately observed** disabled-status, boxed-hands, harness-fragment and boundary-mark mutation failures" are four narrative records (F5) |
+| B16 | the operator-ruling breakdown: "first the composition bridge in `engine/boundary_tests.rs` and the existing agent suites, then the shipped assessment/production-composed argv exchange in CLI `tests/driver_conformance.rs`, with separately observed disabled-status, boxed-hands, harness-fragment and boundary-mark mutation failures" | 5119–5125 | `boundary_tests.rs::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin`; `driver_conformance.rs::the_shipped_codex_harness_work_seat_rejoins_its_retry`, `::the_shipped_inline_codex_work_seat_rejoins_its_retry` | **partially discharged — evidence-verification gap.** The bridge and the exchange are opened and green. The clause's "**separately observed** disabled-status, boxed-hands, harness-fragment and boundary-mark mutation failures" are four narrative records (F5). They close on a unit-17 ruling that names them, or by unit 19 |
 | B17 | "The full resolved boxed MCP argv stays cold." | 5125 | `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` — the declined offer falls back to a fresh cold launch | discharged |
 | B18 | run `the_seat_input_names_the_boundary_and_the_marker_only_under_a_box` and `no_gate_topology_is_ever_offered_a_session` beside that bridge | 5125–5129 | Both exist (`boundary_tests.rs:1562`, `resume_tests.rs:720`) and both ran green in this seat's `brokkr-runtime` suite (456 passed) | discharged, with recorded execution |
 | B19 | "Then the actual DSH cold planner boundary, Codex refusal cause, Codex cold selector and six-file digest controls, in that order." | 5130–5131 | `::a_closed_dsh_gate_…`; `::a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too`; `::a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`; `::the_committed_plugin_set_…` | discharged |
-| B20 | "pair its selector mutation with the existing protocol adapter test `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, verifying two children, no selector and the retained sandbox in the replacement argv, and one cold launch row" | 5131–5135 | That test exists, asserts two children, no selector, the retained sandbox and one cold launch row, and ran green | **partially discharged — evidence-verification gap.** The test is opened. "**pair its selector mutation with**" that test is a narrative record (F5) |
+| B20 | "pair its selector mutation with the existing protocol adapter test `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, verifying two children, no selector and the retained sandbox in the replacement argv, and one cold launch row" | 5131–5135 | That test exists, asserts two children, no selector, the retained sandbox and one cold launch row, and ran green | **partially discharged — evidence-verification gap.** The test is opened. "**pair its selector mutation with**" that test is a narrative record (F5). It closes on a unit-17 ruling that names it, or by unit 19 |
 | B21 | "Each clause names its tests, requirement and observed failure/pass; retain all inherited fixes and leave 8.10 unchecked." | 5136–5138 | The delivery sections name tests and outcomes throughout; 8.10 is `[ ]` | discharged |
 | B22 | "Only AU's Pass C repair is scheduled by the current clauses; Pass D remains pending and unscheduled. Verify each current case alongside 8.8(d); full 8.10 remains unchecked." | 5140–5144 | Pass D was later commissioned in three runs (`tasks.md` 535, 703, 879), which is the schedule this sentence anticipated | discharged |
 | B23 | R2's transport repair: "use `serde_json` to serialize one complete checkpoint-data JSONL row per declared invocation, including that invocation's ID"; the shim emits its indexed row "as a `%s` argument in a fixed format"; "A missing row fails explicitly, never repeats the last checkpoint. Declare enough rows for panel re-entry" | 5145–5152 | `resume_tests.rs::a_missing_dsh_checkpoint_row_fails_the_shim_without_repeating` (second invocation emits no checkpoint and says `no checkpoint row` on stderr); `::an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member` declares two rows and the panel is re-entered once | discharged |
 | B24 | exercise the emitted bytes "with a representative Windows home and quotes, percent signs, backslashes and an embedded newline; decode JSON and assert exact fields and one JSONL frame per checkpoint. Treat that home as data, without creating a Windows-shaped directory on POSIX" | 5152–5157 | `::a_windows_shaped_dsh_home_survives_the_checkpoint_transport` — the home is `C:\Users\seat\AppData\%TEMP%\"quoted"\nnext` (backslashes, percent, quotes, embedded newline), exactly one `checkpoint` frame, and `data["transcript"]["home"]` decodes back unchanged. No directory is created | discharged — this is decision **0063 ruling 5**'s retained host-agnostic validation of *data*, run on Linux |
 | B25 | "Preserve and run both existing tests `an_offered_dsh_start_carries_the_recorded_home_at_the_single_site` and `…_at_the_panel_member` on their actual temporary homes" | 5157–5160 | Both read, both assert the three owned-target coordinates plus both originating members off the real `Start.input`; both ran green here | discharged, with recorded execution |
 | B26 | "native macOS evidence stays pending controller CI; native Windows proof is withdrawn by decision 0063" | 5160–5163 | `docs/decisions/0063-windows-is-not-a-host.md` rulings 2–3 | **not this slice's** — the Windows half is **withdrawn by decision 0063** (rulings 2 and 3), neither debt nor executed proof. The macOS half is pending "controller CI" by the clause's own words, so it is externally owned and is not a commissionable unit; it is tracked at F7 |
-| B27 | prove the originating-home carrier with "distinct old/new ID, locator, home, version and digest values plus another site's row, then **absent/mistyped** latest fields"; "A **missing/mistyped home or locator** never borrows from an older checkpoint or another site; an incompatible newest owner supplies no offer" | 5164–5174 | `resume_tests.rs::a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root` — `SITE_B` (another site), `OTHER_OWNER` (incompatible newest owner), the `coord` helper's distinct old/new five coordinates at 1295–1337, the newest-row-without-transcript case at 1285–1290 (`persistence_home: None`, `persistence_locator: None`), and the mistyped case at 1340–1372 | **partially discharged.** *Absent* home and locator are proved, and both read `None` rather than the older row's. *Mistyped* home and locator are **not**: in the mistyped journal only `harness_version` and `wrapper_digest` become `json!(7)` and `json!(8)` (`:1354–1355`); `locator` stays `"sessions/brokkr/newer"` and `home` stays `"/new/home"`, both well-typed strings. The clause names home and locator explicitly, so the mistyped half of its own sentence is undriven. See F9 and unit 3 |
+| B27 | prove the originating-home carrier with "distinct old/new ID, locator, home, version and digest values plus another site's row, then **absent/mistyped** latest fields"; "A **missing/mistyped home or locator** never borrows from an older checkpoint or another site; an incompatible newest owner supplies no offer" | 5164–5174 | `resume_tests.rs::a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root` — `SITE_B` (another site), `OTHER_OWNER` (incompatible newest owner), the `coord` helper's distinct old/new five coordinates at 1295–1337, the newest-row-without-transcript case at 1285–1290 (`persistence_home: None`, `persistence_locator: None`), and the mistyped case at 1340–1372 | **partially discharged.** *Absent* home and locator are proved, and both read `None` rather than the older row's. *Mistyped* home and locator are **not**: in the mistyped journal only `harness_version` and `wrapper_digest` become `json!(7)` and `json!(8)` (`:1354–1355`); `locator` stays `"sessions/brokkr/newer"` and `home` stays `"/new/home"`, both well-typed strings. The clause names home and locator explicitly, so the mistyped half of its own sentence is undriven. See F9 and unit 3 (now 6), whose record at `3a2a6785` drives a mistyped `locator` (`9`) and `home` (`10`). The row keeps this grade until unit 22 regrades it on opened evidence |
 | B28 | read actual `Start.input` at both production callers: "an offered start carries the exact five coordinates from its selected checkpoint… and a no-offer start carries no owned target. Directly constructing both context objects in a unit test does not establish their journal association." | 5175–5182 | The two `an_offered_dsh_start_carries_the_recorded_home_at_…` cases drive a real engine run and read what the logging driver received; the first attempt carries no `owned_target` | discharged |
 | B29 | "Retain the two scans unless a failing case requires a B correction." | 5182–5183 | `eligible_offer` and `originating_root` both still exist and are exercised separately at `resume_tests.rs` 1238–1255 | discharged |
-| B30 | assert the private carrier "is absent from rendered prompt/context **and is not copied as `resume_context` or `owned_target` into launch evidence**; retain the existing confirmed `root_session` and `transcript` fields" | 5183–5186 | `resume_tests.rs::an_offered_dsh_start_carries_the_recorded_home_at_the_single_site` 2026–2033 — `starts[1]["context"].get("owned_target").is_none()` and the same for `assessment` | **partially discharged.** The clause has three predicates. *Absent from rendered context* is proved, on the real `Start.input`. *Not copied into launch evidence* is **not**: both assertions read `starts[…]["context"]`, a start message, and nothing in the suite opens an emitted launch row. *Retain `root_session`/`transcript`* is not asserted in these two cases either. See F8 and unit 4. **Unit 4a (§6, `3a80b1d8`):** both halves are now asserted. The journaled launch row of the offered attempt, on a DSH-shaped checkpoint at both call sites, keeps `root_session` and `transcript` exactly and carries no `resume_context`, `owned_target` or `assessment`. The adapter's emitted row does the same on its confirmed shapes. The assertions are landed; running them in the gate is unit 4's job |
+| B30 | assert the private carrier "is absent from rendered prompt/context **and is not copied as `resume_context` or `owned_target` into launch evidence**; retain the existing confirmed `root_session` and `transcript` fields" | 5183–5186 | `resume_tests.rs::an_offered_dsh_start_carries_the_recorded_home_at_the_single_site` 2026–2033 — `starts[1]["context"].get("owned_target").is_none()` and the same for `assessment` | **partially discharged.** The clause has three predicates. *Absent from rendered context* is proved, on the real `Start.input`. *Not copied into launch evidence* is **not**: both assertions read `starts[…]["context"]`, a start message, and nothing in the suite opens an emitted launch row. *Retain `root_session`/`transcript`* is not asserted in these two cases either. See F8 and unit 4 (now 7 and 14). **Unit 4a (§6, `3a80b1d8`):** both halves are now asserted. The journaled launch row of the offered attempt, on a DSH-shaped checkpoint at both call sites, keeps `root_session` and `transcript` exactly and carries no `resume_context`, `owned_target` or `assessment`. The adapter's emitted row does the same on its confirmed shapes. The assertions are landed; running them in the gate is unit 4's job (now unit 14). **Remediation grading (third return, finding 4):** still **partially discharged**. Unit 7 (4a) asserts all three predicates on real surfaces, but for the offered start in two places. The engine journals the launch row that the DSH-shaped `dsh_model_driver` shim emitted. The real adapter's confirmed and declined shapes are checked on its own wire in the protocol suite. No single process runs the production adapter's offered publication under the engine, and the one real-adapter engine case is closed-gate cold, which carries no `owned_target`. That half is unit 11's |
 | B31 | "Preserve gate/no-offer behavior and Pass A's binding cases independently." | 5186–5188 | `::no_gate_topology_is_ever_offered_a_session`; `::every_work_topology_is_offered_its_own_session_and_no_other` | discharged |
 | B32 | D10's counter at `dsh_seat_overlay_in` entry, "Reset it for every synchronous `dsh_launch_with` call and require one on positive plans to calibrate it; every pre-observation control/route refusal requires zero… Use no process-global counter, directory scan or new planner signature. Origin/storage declines can legitimately observe identities and stage one safe cold plan" | 5189–5197 | `adapters.rs:5301–5302` (`#[cfg(test)]` thread-local at entry); `reset_dsh_staging_calls()`/`dsh_staging_calls()` used in the residual, grammar, binding and path matrices — zero on refusals, one on positives, one on the origin/mismatch declines | discharged |
 | B33 | exercise `dsh_launch_with` for exact authorized inputs "and every competing residual category" (the full named list); "Retain both existing effort spellings as positive cases, with no guessed aliases. Exercise cold, offered and disabled paths." | 5198–5206 | `::dsh_residual_and_joined_controls_refuse_before_any_observation` — the ledger covers duplicate/missing/invalid model and effort, equals-joined model, mixed effort spellings, effort without a model, bare/duplicate/joined/odd patch, session/new/resume/list/profile/workdir/output/settings controls, `--from-default-profile`, `--verbose`, unknown names, `--`, positional text and short/joined/clustered forms, driven over `("disabled", …), ("offered", …), ("cold", …)`; `::both_dsh_effort_spellings_are_admitted_and_stage_one_overlay` | discharged |
@@ -405,28 +475,28 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | B36 | the engine-side route cases belong to `resume_tests.rs` "in the pattern of the private-context unit case", built through that suite's `bundle` helper, with a dsh site carrying one `--patch`, the logging driver, the planted file, read off `Start.input` "at both production `start_context` call sites… and for the positive case on a cold start, an offered start and a start under an `unmeasured` assessment alike" | 5213–5229 | `resume_tests.rs` 1640–2379: `overlay_digest`, `patched`, `route_start`, `route_binding`; the cold positives at 1687 (single site) and 1731 (panel member), inline seats whose assessment is `unmeasured`; the offered positives at 2267 (single site, a retry) and 2331 (panel member, a re-entry — unit 2d); the withholding cases at 1784, 1883, 1940, 2061, 2108; the changed-bytes cases at 2165 and 2216 | discharged (corrected by unit 2d). The first grading read `discharged` while the only offered positive went through `single(...)`, so no case showed a binding on an offered **panel** start; `a_valid_route_overlay_binds_on_an_offered_panel_member_start_too` reads both of the member's starts off the real `Start.input` and asserts the same `{value, digest}` on each |
 | B37 | "(i) A valid leaf-manifest member carries the actual argv value and that member's compiled manifest digest." | 5229–5231 | `::a_valid_route_overlay_binds_at_the_single_site` and `::…_at_the_panel_member` — `binding["value"] == "recipe/route.yml"`, `binding["digest"] == overlay_digest(bytes)` | discharged |
 | B38 | "(ii) A same-shaped nonmember outside the layer, a working-directory shadow…, an ancestor-layer file, a `..` component and an in-layer symlink whose target resolves outside the layer directory while remaining inside the working directory (**present at compilation and therefore a `files` member**), and the absolute path produced by `./` expansion each receive no binding… **at either call site**." | 5231–5237 | **Panel member:** `::a_non_binding_route_overlay_withholds_the_member_at_both_call_sites` (`resume_tests.rs:1784`) — six shapes (`nonmember`, `shadow`, `ancestor`, `traversal`, `absolute`, nonmember `symlink`); `::an_escaping_symlink_member_is_withheld_at_the_panel_member` (`:2108`, unit 2b). **Single site:** `::a_non_binding_route_overlay_withholds_the_member_at_the_single_site` (`:1883`, nonmember, unit 2a); `::every_remaining_non_binding_shape_is_withheld_at_the_single_site` (`:1940`, shadow, ancestor, traversal, absolute, unit 2d); `::an_escaping_symlink_member_is_withheld_at_the_single_site` (`:2061`, unit 2b). The `./` half is `bundle.rs:3689`, where a `./`-spelled command part expands to `dir.join(rel)` — an absolute path, which is the `absolute` shape | discharged (corrected by units 2a, 2b and 2d, and 2d's return) — every named shape receives no binding at each call site. Each case reads the real `Start.input`, asserts the context is present, and collects any shape whose context carries a `route_overlay` key, null included; the collection is empty. The escaping symlink is a compiled `files` member at both sites (2b). At both sites every vector names bytes a lookup could find, on a canonical root: the shadow and the ancestor file are spelled `route.yml` beside a member of that name, and the ancestor records its file in its own `files`. The `..` value (`../work/recipe/route.yml`) and the absolute expansion both resolve to the member. A compiling mutation of each rule parts that shape at each site. The first 2d grading read `discharged` while the panel's `..` value (`../escape.yml`) named no file, its ancestor's `files` was empty, and its assertion accepted a null or value-less binding; the `..` and ancestor-fallback mutations left that case green. 2d's return closed all three |
-| B39 | "(iii) A member whose bytes changed after compilation cannot authorize its new bytes: the carried digest is the manifest's recorded value, not a hash of the resolved file, **at either call site**." | 5237–5240 | `::a_changed_route_overlay_member_carries_the_manifest_digest` — asserts the manifest digest and `assert_ne!` against a hash of the changed bytes | **partially discharged** — its seat is `single(…)`, so the case is proved at the **single site** only; the panel member's changed-bytes variant is not driven. The mirror of B38's gap. See unit 2a |
+| B39 | "(iii) A member whose bytes changed after compilation cannot authorize its new bytes: the carried digest is the manifest's recorded value, not a hash of the resolved file, **at either call site**." | 5237–5240 | `::a_changed_route_overlay_member_carries_the_manifest_digest` — asserts the manifest digest and `assert_ne!` against a hash of the changed bytes | **partially discharged** — its seat is `single(…)`, so the case is proved at the **single site** only; the panel member's changed-bytes variant is not driven. The mirror of B38's gap. See unit 2a (now 2), whose record at `17b5b4d2` adds `a_changed_route_overlay_member_carries_the_manifest_digest_at_the_panel_member`. The row keeps this grade until unit 22 regrades it on opened evidence |
 | B40 | the adapter suite owns the rest: `dsh_launch_with` "reusing the existing `route_overlay.rs` reader vectors and the shipped `recipes/research-dsh` overlay as the positive vector on qualified cold, qualified warm and disabled cold, plus identity-mismatch cold… asserting each planned command, exactly one `--patch`, one staging call, unchanged reasoning-level rows and the route rows before every Rust-owned… row" | 5240–5248 | `adapters/tests.rs:12348` reads the shipped `recipes/research-dsh/drivers/research-web.yml`; `::dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows` asserts one `--patch`, `dsh_staging_calls() == 1`, one `reasoningEfforts:` and the row ordering on all four outcomes | discharged |
 | B41 | "Include declared-composite mismatch without an offer (no refusal token) and originating-identity mismatch with an offer (`unverified-harness`), with the version/producer counts appropriate to each comparison." | 5248–5252 | Same test 12504–12551 — the mismatch case asserts `refusal.is_none()` and one staging call; the origin case asserts `Some("unverified-harness")`, cold, one staging call | discharged |
-| B42 | "The resulting overlay is the observation; the existing helper-only ordering test and synthetic `contains` assertions do not discharge it. **Keep the composite, launch row and journal free of route bytes.**" | 5251–5254 | `assert_dsh_planner_overlay` (`adapters/tests.rs:12381–12400`) reads `launch.overlay.path()` off disk and compares row indices; `::the_shipped_route_overlay_folds_ahead_of_the_rust_owned_rows` is retained beside it, not in place of it | **partially discharged.** The first sentence is discharged — the observation really is the written overlay. The second is not: no opened case asserts the composite, an emitted launch row or a journal envelope free of route bytes. See F8 and unit 4. **Unit 4a (§6, `3a80b1d8`, `a41ae69e`, `9a3c0746`):** the second sentence is now proved at the composite, and at the launch row and the journal, stderr tail and non-protocol stdout included, for the shipped route under the real adapter; the journal half rests on `9a3c0746`, as in A53. For the gated shapes the journal half **stays partial**, as in A53 |
+| B42 | "The resulting overlay is the observation; the existing helper-only ordering test and synthetic `contains` assertions do not discharge it. **Keep the composite, launch row and journal free of route bytes.**" | 5251–5254 | `assert_dsh_planner_overlay` (`adapters/tests.rs:12381–12400`) reads `launch.overlay.path()` off disk and compares row indices; `::the_shipped_route_overlay_folds_ahead_of_the_rust_owned_rows` is retained beside it, not in place of it | **partially discharged.** The first sentence is discharged — the observation really is the written overlay. The second is not: no opened case asserts the composite, an emitted launch row or a journal envelope free of route bytes. See F8 and unit 4. **Unit 4a (§6, `3a80b1d8`, `a41ae69e`, `9a3c0746`):** the second sentence is now proved at the composite, and at the launch row and the journal, stderr tail and non-protocol stdout included, for the shipped route under the real adapter; the journal half rests on `9a3c0746`, as in A53. For the gated shapes the journal half **stays partial**, as in A53. That half is unit 11's, and the earlier "unit 4" is unit 14 |
 | B43 | "Run each negative on cold, offered and disabled planning, requiring a pre-staging refusal naming a depth, field or URL part and never a value." | 5254–5258 | `::dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path`, `::dsh_route_binding_matrix_…`, `::dsh_route_overlay_path_refusals_precede_any_probe_or_staging` — each loops `("disabled", …), ("offered", …), ("enabled", …)` and asserts zero staging, zero producer calls, no version probe and no echoed value | discharged as the rule; its per-class coverage is graded at B44–B50 |
 | B44 | "a second or bare `--patch`" | 5258–5259 | The residual ledger's `duplicate patch`, `bare patch`, `joined patch`, `odd patch spelling`, `flag-shaped patch value` and three "patch claiming a later control" vectors, all three planner paths, `Field("--patch")`; plus the splitter-level `::a_second_bare_or_odd_patch_is_refused_by_arity` | discharged |
 | B45 | "an absolute, `..`, symlink-escaping, non-regular, oversized or non-UTF-8 path" | 5259–5260 | `::dsh_route_overlay_path_refusals_precede_any_probe_or_staging` drives symlink-escape, non-regular, oversized and non-UTF-8 on all three paths. Absolute and `..` values receive no engine binding (B38), so at the planner they arrive as "a `--patch` with no bound route overlay", which `::dsh_route_binding_matrix_…` drives on all three paths; their direct spelling refusal is `route_overlay.rs::claim_refuses_absolute_traversal_and_escaping_values` | discharged — jointly, as the clause's own "proven end to end by the two suites together" allows |
 | B46 | "an absent binding beside a present `--patch`, a binding without `--patch`, a disagreeing binding, and a bound digest the bytes read do not hash to… each of those five refusals is proven end to end by the two suites together and never by adapter cases in place of engine ones" | 5259–5266 | `::dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path` — its `Case` list carries `digest before shape`, the absent binding, the binding without `--patch` and the disagreeing binding, each on three paths; the engine half is B38/B39 | discharged |
-| B47 | "a Rust-owned or foreign row ID, **a second entry or provider**, a provider the seat did not pin, an absent model pin or one without a provider segment" | 5266–5269 | The planner matrix's vector labels are exactly `foreign row` (`adapters/tests.rs:12593`), `provider not pinned` (`:12598`), `model not pinned` (`:12603`) and `second provider` (`:12608`). **Absent model pin** and **a model without a provider segment** are proved only at the reader (`route_overlay.rs::a_route_needs_a_model_pin_and_model_item`, `::a_bound_route_needs_a_pin_a_nonempty_value_and_a_readable_workdir`), and `route_overlay.rs:111–115` is the production refusal. A **second entry** vector exists at neither the reader nor the planner | **partially discharged.** Six classes are named. Four run the three planner paths. Two (absent model pin, segment-less model) are reader-only, which line 5285 says is not evidence for the launch paths. One — **a second entry** — has no vector anywhere; the first cut read the clause's "a second entry or provider" as one class and credited `second provider` for both. See F2 and unit 2c |
+| B47 | "a Rust-owned or foreign row ID, **a second entry or provider**, a provider the seat did not pin, an absent model pin or one without a provider segment" | 5266–5269 | The planner matrix's vector labels are exactly `foreign row` (`adapters/tests.rs:12593`), `provider not pinned` (`:12598`), `model not pinned` (`:12603`) and `second provider` (`:12608`). **Absent model pin** and **a model without a provider segment** are proved only at the reader (`route_overlay.rs::a_route_needs_a_model_pin_and_model_item`, `::a_bound_route_needs_a_pin_a_nonempty_value_and_a_readable_workdir`), and `route_overlay.rs:111–115` is the production refusal. A **second entry** vector exists at neither the reader nor the planner | **partially discharged.** Six classes are named. Four run the three planner paths. Two (absent model pin, segment-less model) are reader-only, which line 5285 says is not evidence for the launch paths. One — **a second entry** — has no vector anywhere; the first cut read the clause's "a second entry or provider" as one class and credited `second provider` for both. See F2 and unit 2c (now 5, with 2c-fix as 4), whose records at `289d9c5b` and `7b26d186` claim every class on all three paths. The row keeps this grade until unit 22 regrades it on opened evidence |
 | B48 | "each field outside the closed six-field set, a literal authentication header beside a valid `apiKeyEnv`, and a missing or non-name-shaped `apiKeyEnv`" | 5269–5272 | The grammar matrix's `field outside the set`, `literal auth header`, `missing apiKeyEnv`, `malformed apiKeyEnv` — all three paths | discharged |
-| B49 | "each `baseURL` grammar breach (userinfo, query, fragment, percent-escape, backslash, whitespace, brackets, **non-ASCII**, empty segment, invalid host label or port, `http`, uppercase scheme, schemeless)" | 5272–5274 | `route_overlay.rs::the_endpoint_grammar_decides_the_positive_and_every_refusal`, `:692–718` — its thirteen vectors read, in order: `user:pass@`, `?api_key=1`, `#frag`, `%2f`, `host\x`, `/ space`, `[::1]`, `//x`, `http://`, `HTTPS://`, `host/x`, `-host`, `:123456`. The planner matrix drives **three** (`http endpoint`, `query endpoint`, `backslash endpoint`) | **partially discharged, worse than first recorded.** Ten of the thirteen reader vectors never run the three planner paths, and line 5285 forbids reading helper success as evidence for them. Beyond that, the clause names **fourteen** breaches and the reader enumerates thirteen: **non-ASCII is absent from the reader's own list**, so that breach has no evidence at either level. The first cut said "all thirteen" and matched the count instead of the names. See F2 and unit 2c |
-| B50 | "tabs, control characters, document markers and executable or unrecognized syntax at any depth in either representation (a `!!js` or other tagged scalar, a `__jsExpr` mapping, a flow collection, anchor, alias, merge key or block/quoted scalar)" | 5274–5277 | The planner matrix drives `tagged scalar`, `flow collection`, `anchor` and `merge key`. `route_overlay.rs::executable_or_unrecognized_syntax_is_refused_at_any_depth` and `::the_reader_refuses_every_lexical_shape_it_did_not_recognize` cover `__jsExpr`, alias, block scalar, quoted scalar, tabs, control characters and document markers — at the reader only | **partially discharged** — seven of eleven lexical shapes are reader-only, the same gap as B49. See unit 2c |
+| B49 | "each `baseURL` grammar breach (userinfo, query, fragment, percent-escape, backslash, whitespace, brackets, **non-ASCII**, empty segment, invalid host label or port, `http`, uppercase scheme, schemeless)" | 5272–5274 | `route_overlay.rs::the_endpoint_grammar_decides_the_positive_and_every_refusal`, `:692–718` — its thirteen vectors read, in order: `user:pass@`, `?api_key=1`, `#frag`, `%2f`, `host\x`, `/ space`, `[::1]`, `//x`, `http://`, `HTTPS://`, `host/x`, `-host`, `:123456`. The planner matrix drives **three** (`http endpoint`, `query endpoint`, `backslash endpoint`) | **partially discharged, worse than first recorded.** Ten of the thirteen reader vectors never run the three planner paths, and line 5285 forbids reading helper success as evidence for them. Beyond that, the clause names **fourteen** breaches and the reader enumerates thirteen: **non-ASCII is absent from the reader's own list**, so that breach has no evidence at either level. The first cut said "all thirteen" and matched the count instead of the names. See F2 and unit 2c (now 5), whose record at `7b26d186` claims the ten and a non-ASCII host at both levels. The row keeps this grade until unit 22 regrades it on opened evidence |
+| B50 | "tabs, control characters, document markers and executable or unrecognized syntax at any depth in either representation (a `!!js` or other tagged scalar, a `__jsExpr` mapping, a flow collection, anchor, alias, merge key or block/quoted scalar)" | 5274–5277 | The planner matrix drives `tagged scalar`, `flow collection`, `anchor` and `merge key`. `route_overlay.rs::executable_or_unrecognized_syntax_is_refused_at_any_depth` and `::the_reader_refuses_every_lexical_shape_it_did_not_recognize` cover `__jsExpr`, alias, block scalar, quoted scalar, tabs, control characters and document markers — at the reader only | **partially discharged** — seven of eleven lexical shapes are reader-only, the same gap as B49. See unit 2c (now 5), whose record at `7b26d186` claims all seven on the three paths. The row keeps this grade until unit 22 regrades it on opened evidence |
 | B51 | "Prove the binding and digest check run before any shape check: bytes invalid on both digest and shape axes must yield the digest refusal first, while a bound, digest-matching member with an invalid `baseURL` yields its grammar refusal." | 5277–5281 | `::dsh_route_binding_matrix_…`'s first vector (`digest before shape`: an `apiKeyEnv` of `9LIVE` bound to the VALID bytes' digest) and its `shaped` vector (a digest-matching member with `baseURL: http://host/x`); `::a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_staging` | discharged |
 | B52 | "assert zero entries to the calibrated stager and zero version/producer calls, with a fixed depth/field/URL-part reason and no synthetic private marker echoed. An error or absent retained directory alone does not establish that nothing was staged." | 5281–5285 | All three matrices assert `dsh_staging_calls() == 0`, `calls.get() == 0` and `!marker.exists()` per vector per path | discharged |
 | B53 | "Helper-reader success is not evidence for these three launch paths." | 5285–5286 | This sentence is what makes B47, B49 and B50 partial rather than discharged | discharged as the grading rule this ledger applies |
 | B54 | "Keep one resulting patch, unchanged reasoning levels and current route rows before Rust-owned rows on each positive path, including identity-mismatch cold." | 5286–5289 | `::dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows` — qualified cold, qualified warm, disabled cold, declared mismatch and origin mismatch, each with one `--patch`, one `reasoningEfforts:` and the asserted row order | discharged |
-| B55 | "Retain the existing engine privacy assertions; B's plan is not an emitted launch." | 5288–5290 | B30 (retained, and re-graded there); `dsh_launch_with` returns a `DshLaunch` value, so the planner suite has no launch row to inspect | **partially discharged.** "Retain the existing engine privacy assertions" rides B30, now partial. The first cut also claimed "the tests assert no launch row" — that is unsupported and withdrawn: the tests do not assert the *absence* of a launch row, they simply never emit one, which is a property of the seam, not an assertion. **Unit 4a (§6, `3a80b1d8`, `a41ae69e`):** the existing engine privacy assertions are kept and extended, and emitted launch evidence is now read, both at the wire and as journaled. The assertions are landed; running them in the gate is unit 4's job |
+| B55 | "Retain the existing engine privacy assertions; B's plan is not an emitted launch." | 5288–5290 | B30 (retained, and re-graded there); `dsh_launch_with` returns a `DshLaunch` value, so the planner suite has no launch row to inspect | **partially discharged.** "Retain the existing engine privacy assertions" rides B30, now partial. The first cut also claimed "the tests assert no launch row" — that is unsupported and withdrawn: the tests do not assert the *absence* of a launch row, they simply never emit one, which is a property of the seam, not an assertion. **Unit 4a (§6, `3a80b1d8`, `a41ae69e`):** the existing engine privacy assertions are kept and extended, and emitted launch evidence is now read, both at the wire and as journaled. The assertions are landed; running them in the gate is unit 4's job (now unit 14). *(Its grade still reads partial because "Retain the existing engine privacy assertions" rides B30, and B30 keeps unit 11's half.)* |
 | B56 | the gate-before-probe matrix: "missing/unmeasured/unsupported assessments and missing accounting evidence (`unsupported-resume`), incompatible boundary/hands (`restrictions-unavailable`), missing/mistyped applicable identity and absent/mistyped/malformed declared digest (`unverified-harness`)" | 5291–5295 | `::a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route` — `absent`, `unmeasured`, `unsupported`, `missing-accounting`, `restrictions`, `hands-mismatch`, `no-identity`, `mistyped-identity`, `no-declared-digest`, `mistyped-declared-digest`, each × offer and no-offer, each asserting its exact token; the *malformed* declared digest (`"A"×64`) is driven in `::a_dsh_identity_mismatch_…` 10492–10508 | discharged |
 | B57 | "Use a recording version shim and a panicking or counted composite closure; assert zero calls to both. A nonexistent executable alone does not prove no version attempt." | 5295–5298 | `dsh_recording_version_shim` (`:10218`, touches a marker file on every invocation) and `Cell`-counted or `panic!`ing closures, in every gate case | discharged |
 | B58 | "Assert the complete shipped cold argv and overlay, not merely `stream_json == false`: no `--new`, `--session` or `--output-format`, no rejoining target or offerable-root claim, and a refusal token only when an offer was declined." | 5298–5301 | Same test 10351–10383 — `command[0]`, `command[1..4] == ["--profile","headless","--patch"]`, exactly one `--patch`, none of the three selectors, and the overlay's transcript/compression/model rows read off disk | discharged |
 | B59 | "independently exercise matching observations, absent/malformed/unreadable version output, version-command failure and version drift, producer error and canonical-composite mismatch. A matching version invokes the sole producer once; earlier failures invoke it zero times." | 5302–5306 | `::a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route` 10406–10473 — producer error, composite mismatch, cold `exit 3` and banner, drift with `calls == 0`; on the offer (units 3b-fix, 3b) absent, malformed, unreadable and matching-then-`exit 3` output, each declining `unverified-harness` with `calls == 0`; and `::a_qualified_dsh_launch_…` for the matching case | discharged |
-| B60 | "**independently** vary originating **version and digest** through missing, mistyped, malformed and different values; these declines may follow one producer call" | 5306–5308 | Same test, `adapters/tests.rs:10527–10556` — the loop's three labels are exactly `("originating version", "version")`, `("originating digest", "digest")` and `("missing originating digest", "null")`, mutating to `"0.1.4-rc.1"`, `"d"×64` and `Value::Null` | **partially discharged.** Two fields × four values = eight vectors required; three exist. Driven: different version, different digest, **missing digest**. Undriven: **missing version**, mistyped version, malformed version, mistyped digest, malformed digest. The first cut listed the gap as two (mistyped, malformed) by treating `Value::Null` as covering both fields' missing case; it covers the digest's only. `adapters.rs:1097–1110` reads both through `Value::as_str`, so the undriven five collapse onto the driven two in behaviour — the independent variation the clause asks for is what is missing. See F3 and unit 3 |
+| B60 | "**independently** vary originating **version and digest** through missing, mistyped, malformed and different values; these declines may follow one producer call" | 5306–5308 | Same test, `adapters/tests.rs:10527–10556` — the loop's three labels are exactly `("originating version", "version")`, `("originating digest", "digest")` and `("missing originating digest", "null")`, mutating to `"0.1.4-rc.1"`, `"d"×64` and `Value::Null` | **partially discharged.** Two fields × four values = eight vectors required; three exist. Driven: different version, different digest, **missing digest**. Undriven: **missing version**, mistyped version, malformed version, mistyped digest, malformed digest. The first cut listed the gap as two (mistyped, malformed) by treating `Value::Null` as covering both fields' missing case; it covers the digest's only. `adapters.rs:1097–1110` reads both through `Value::as_str`, so the undriven five collapse onto the driven two in behaviour — the independent variation the clause asks for is what is missing. See F3 and unit 3 (now 6), whose record at `3a2a6785` varies each field through absent, null, mistyped, malformed and different. The row keeps this grade until unit 22 regrades it on opened evidence |
 | B61 | "Require `unverified-harness`, the exact shipped cold route under the current home and no offerable root on any failed qualification. No-offer mismatch has no refusal token. Observed version/digest must not be replaced by requested pins." | 5308–5311 | The same declines assert `refusal`, `!stream_json`, `rejoining.is_none()`; `assert_shipped_cold_command` in `::every_dsh_component_drift_…`; `drifted.observed == Some("9.9.9")` | discharged |
 | B62 | "Retain the producer's existing component-drift suites; extending the full composite/doctor/adaptation matrix below belongs to D." | 5311–5314 | `composite/tests.rs::the_measured_composite_moves_with_every_component_it_names` retained; D's matrix is rows B82–B102 | discharged |
 | B63 | owned storage: "missing/mistyped provider ID, locator or home, ID disagreement, a missing/unresolvable/different home, and two homes holding the identical ID/locator must decline to cold in the current home without reading the other store" | 5315–5319 | `::a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator`; `::dsh_storage_refusals_name_their_field_and_never_the_path_they_tried`; `::a_dsh_retained_root_refusal_names_its_field_and_never_the_home`; `::owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve`; `adapters.rs:3766–3800` | discharged |
@@ -437,7 +507,7 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | B68 | "No lossy conversion or separator rewrite repairs an address." | 5331–5332 | `::dsh_owned_locators_…` drives a component carrying the separator the shared clamp rewrites and asserts its own refusal | discharged |
 | B69 | "Include project-directory, session-directory and `session.v3.jsonl` symlink escapes, including an escape to another root within the same home; contained aliases remain admissible." | 5332–5335 | `::dsh_unsafe_stored_candidates_decline_instead_of_being_skipped`; `::dsh_owned_locators_…`'s symlinked escape with its contained control | discharged |
 | B70 | "Require one matching valid depth-zero header; missing, nonregular, unreadable, malformed/truncated, delegated or ambiguous stored evidence cannot qualify." | 5335–5337 | `::a_session_file_whose_first_row_is_not_the_header_is_unreadable`; `::a_delegated_sub_session_never_becomes_the_one_the_seat_reports`; the ambiguity case in `::dsh_owned_locators_…` | discharged |
-| B71 | "Exercise each finite enumeration/header/sequence budget **at its admitted limit and beyond**, read/iteration failure, malformed or truncated boundary data and a valid prefix followed by invalid data: decline rather than skip an unsafe candidate, use a partial maximum or default to zero." | 5337–5342 | `::dsh_admission_reads_are_complete_within_their_bounds_or_decline` (`adapters/tests.rs:11673–11790`) and `::dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum` (`:11793–11858`), both read line by line; plus `::owned_dsh_root_refuses_a_store_whose_sequence_cannot_be_read` and `::a_retained_project_entry_the_reader_cannot_yield_is_a_bounded_refusal` and its session-level sibling | **partially discharged.** Budget by budget: **header** — both sides, a 16-byte budget declines and `DSH_HEADER_LIMIT` admits, with an exact-at-limit positive whose newline lands on the last byte (`:11692–11701`); **enumeration** — both sides, `dsh_session_file_with(&root, &id, 1).is_err()` beside `(…, 2).is_ok()` (`:11773–11774`); **session-file cap** — refusal only, `set_len(DSH_SESSION_FILE_LIMIT + 1)` (`:11780`), with no file at exactly the cap admitted; **per-row sequence** — refusal only, `dsh_session_last_seq_with(…, 4)` returning `None` (`:11829`), with no row admitted at exactly its injected budget. The failure, malformed, truncated and valid-prefix halves are fully driven. Two of four budgets lack the clause's positive side. See F10 and unit 3 |
+| B71 | "Exercise each finite enumeration/header/sequence budget **at its admitted limit and beyond**, read/iteration failure, malformed or truncated boundary data and a valid prefix followed by invalid data: decline rather than skip an unsafe candidate, use a partial maximum or default to zero." | 5337–5342 | `::dsh_admission_reads_are_complete_within_their_bounds_or_decline` (`adapters/tests.rs:11673–11790`) and `::dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum` (`:11793–11858`), both read line by line; plus `::owned_dsh_root_refuses_a_store_whose_sequence_cannot_be_read` and `::a_retained_project_entry_the_reader_cannot_yield_is_a_bounded_refusal` and its session-level sibling | **partially discharged.** Budget by budget: **header** — both sides, a 16-byte budget declines and `DSH_HEADER_LIMIT` admits, with an exact-at-limit positive whose newline lands on the last byte (`:11692–11701`); **enumeration** — both sides, `dsh_session_file_with(&root, &id, 1).is_err()` beside `(…, 2).is_ok()` (`:11773–11774`); **session-file cap** — refusal only, `set_len(DSH_SESSION_FILE_LIMIT + 1)` (`:11780`), with no file at exactly the cap admitted; **per-row sequence** — refusal only, `dsh_session_last_seq_with(…, 4)` returning `None` (`:11829`), with no row admitted at exactly its injected budget. The failure, malformed, truncated and valid-prefix halves are fully driven. Two of four budgets lack the clause's positive side. See F10 and unit 3 (now 6), whose record at `3a2a6785` adds both admitted-limit positives. The row keeps this grade until unit 22 regrades it on opened evidence |
 | B72 | "Assert no other store changes, history copies or substitute-root search; the sole safe cold plan may allocate its own fresh root, never reuse the refused one." | 5341–5343 | `::a_retained_dsh_directory_alone_never_supplies_a_provider_handle` — a complete readable retained root with nine stored sequences still launches `--new` with a freshly allocated root when the offer names nothing, and an id with no recorded address is declined the same way; the control rejoins at sequence nine | discharged |
 | B73 | "Put synthetic private markers in invalid offered IDs and stored addresses and assert bounded storage diagnostics never echo them." | 5343–5345 | `::dsh_storage_refusals_name_their_field_and_never_the_path_they_tried`; `::a_dsh_transcript_root_refusal_names_its_field_and_never_the_root` | discharged |
 | B74 | "These are pre-spawn admission cases; current-event folding and accounting remain D." | 5345–5347 | Reading rule. Folding and accounting are **9.6**'s (5508–5520) and Pass D's fold work; this row assigns them away | discharged (scope rule) — the folding debt it points at is F4 |
@@ -465,7 +535,7 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | B96 | "A listed bundle resolving outside the core root and the profile…, an executable that is not the core's `env node` script, a missing or malformed `bundles` or `patchReload`, and each unrecognized pnpm construct (tab, comment, document marker, block-form, missing or repeated resolution, key without a version separator) make the identity unreadable." | 5428–5434 | `::the_bundle_search_order_…` steps 1, 2 and 4; `::the_core_executable_must_be_lib_bin_js_with_the_exact_shebang`; `::the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart` (absent/string/object/null/number `bundles`; absent/number/null/empty/array `patchReload`; a well-formed value outside the closed pair); `::the_unrecognized_pnpm_constructs_refuse_through_the_producer` | discharged |
 | B97 | "Every case builds its homes in temporary directories; no test reads `.forge/` or needs an installed provider." | 5434–5435 | `FixtureRoot` (`composite/tests.rs:140–157`) canonicalizes the temporary root once — the macOS `/var`→`/private/var` correction the returned review required (`tasks.md` 1075–1087); no `.forge/` path appears in either suite | discharged |
 | B98 | "Cover bounded locator round-trip and refusal of truncation, ambiguity, traversal and symlink escape; a retained directory is never a handle." | 5435–5437 | Rows B65–B72 | discharged |
-| B99 | "keep 8.8's committed-bytes test pinning the repository-owned adaptation's exact six-file set against its provenance block" | 5437–5439 | Row A67 | partially discharged — see A67 and F1 |
+| B99 | "keep 8.8's committed-bytes test pinning the repository-owned adaptation's exact six-file set against its provenance block" | 5437–5439 | Row A67 | partially discharged — see A67 and F1. Unit 1 has landed. The row keeps this grade until unit 22 regrades it on opened evidence |
 | B100 | "Cover the conditional extension with synthetic absent and present sets, exact four-file path order, changed bytes, missing or extra files, symlinks and resolution outside the profile; absence emits no extension line." | 5439–5442 | `::the_conditional_extension_is_absent_or_composed_from_its_own_four_files` (`WORKED_PAIR_STREAM` with no `extension` line, `WORKED_TRIO_STREAM` with one); `::the_extension_walk_refuses_a_missing_extra_or_symlinked_member`; `::the_extension_s_local_record_leaves_only_when_the_extension_resolves`; `::the_plugin_and_extension_must_resolve_inside_the_profile` | discharged |
 | B101 | "**If the extension is required**, also compare its committed set to its own provenance block through the same function." | 5442–5444 | No extension is required (row A63: 10.7 demonstrated no missing hook), none is commissioned, and B102 forbids creating one | **not this slice's** — conditional with no subject. It cannot be discharged and is not debt; it stays conditional on 8.8's 5035–5044 clause ever firing |
 | B102 | "No speculative extension is created merely to exercise these cases." | 5444 | No `extensions/dsh/resume-policy/` in the tree | discharged |
@@ -480,6 +550,8 @@ in this revision; F6 and F7 were rewritten because they were factually wrong,
 and F2b and F5 were widened.** F6 and F7 are the two worth dwelling on: both
 asserted that something had *never happened*, and the artefacts refuting both
 were sitting in `.forge/results/` in this worktree while they were written.
+*Third return:* F5, F6, F8, F11 and F13 are corrected again, and F12 records
+why.
 
 - **F1 — the delta digest is recorded, never recomputed (A67, B99).** `PROVENANCE.md:50`
   names `78256d2e114f7ae8caec22987c5793b7398018cd59cd24cf36e79d7be011a585`.
@@ -546,6 +618,28 @@ were sitting in `.forge/results/` in this worktree while they were written.
   larger than the previous cut's, because that cut applied the rule to the rows
   it had noticed and not to their neighbours (C2): **N5d, N7, N8, N9, N10, N11,
   A61, S1, S3, S4, S5, S6, S7, S8a–c, S9a–e, S10, B5, B16, B20 and B77**.
+
+  **Third return (finding 2): two kinds of absence, kept apart.** A removal
+  can be *recorded but unverified*: a delivery record names the mutation, the
+  assertion that parted and the restored pass, and nothing in the tree
+  re-derives it. Or it can be *never performed*: no record exists, because the
+  control could not run. A ruling can accept the first kind. It cannot accept
+  the second, because there is no observation for it to accept. Applied to the
+  list above:
+  - **N11 leaves the list.** Its positive and its two removals were never
+    performed (§1, N11): every execution of the test took the `Err` arm and
+    printed PENDING. Unit 16 owns them.
+  - **N2, N4, N6a and N6b join it.** N2's two removals are recorded as M5/M6
+    and N4's as M4 (`tasks.md` 1668–1670). N6a's heading-set removal is M8
+    (12377), and N6b's five scope removals are D1–D5 (1920–1922, 2057–2058).
+    The previous revision graded N6a and N6b `discharged` over them.
+
+  The recorded-but-unverified class is therefore **N2, N4, N5d, N6a, N6b,
+  N7–N10, A61, S1, S3–S7, S8a–c, S9a–e, S10, B5, B16, B20 and B77**:
+  twenty-nine rows. Counted: nine N rows (N2, N4, N5d, N6a, N6b, N7, N8, N9,
+  N10), one A row, sixteen S rows (S1, S3, S4, S5, S6, S7, S8a, S8b, S8c, S9a,
+  S9b, S9c, S9d, S9e, S10, and no S2) and four B rows. The previous revision
+  called its list "twenty-five" while it listed twenty-six.
   S6 deserves a note — its clause does not merely require a removal, it requires
   a *property of the observed failure* ("must fail the intended terminal
   assertion, **not time out**"), which no record can supply after the fact.
@@ -555,37 +649,45 @@ were sitting in `.forge/results/` in this worktree while they were written.
   cannot both be true, since B5 is one of the rows. Three things are true at
   once and the ledger now says all three:
 
-  1. **No clause asks this commission to replay the mutations**, and `tasks.md`
-     is explicit in the other direction at 1248: "**Adopt resolver removals
-     without replay.**" Prescribing a wholesale replay would invent work the
-     change has ruled out.
+  1. **No clause asks this commission to replay the mutations.** `tasks.md` 1248
+     says "**Adopt resolver removals without replay**", but that sentence
+     belongs to 8.8.1.1 and covers the *resolver's* removals alone. The
+     previous revision leaned on it for the whole class, and the third chief
+     rightly rejected that: it resolves no other row's obligation.
   2. **The records are not nothing.** Each names a seat, a revision, a mutation,
      the assertion that parted and the restored pass. What they are not is
      evidence this ledger opened.
-  3. Therefore the gap closes by **decision, not by labour** — and that decision
-     is the operator's. Unit 9 puts it in front of them as a single question
-     over the whole class, rather than leaving twenty-five rows permanently
-     ambiguous, and it is a precondition of unit 6 rather than a suggestion.
+  3. Therefore the gap closes first by **decision**, and that decision is the
+     operator's. Unit 17 puts it to them as one question over the whole class,
+     so twenty-nine rows are not left permanently ambiguous. It is a
+     precondition of unit 22, not a suggestion.
 
-  If the operator rules the records sufficient, every row in the list above
-  becomes `discharged` with no code written. If not, unit 9 carries the bounded
-  alternative: re-derive the **subset whose clauses demand an observed property**
-  — S6's not-a-timeout, and B5's "observed… at its claimed assertion" — which is
-  a handful of mutations, not all twenty-five.
+  If the operator rules the records sufficient **for every row the ruling
+  names**, those rows become `discharged` with no code written. A ruling that
+  names only some rows leaves the rest open. **If the ruling is no, labour
+  follows, and it is bounded but not small** (third return, finding 3). The
+  previous revision offered S6 and B5's terminal-body cases as the whole
+  fallback. That cannot reach B16's four Codex bridge and conformance removals
+  (`tasks.md` 5121–5125), B20's selector mutation (5131–5135), or B5's
+  **every** new test (5098–5099) in the suites outside the terminal body.
+  Units 18–21 enumerate the replays by suite, and each is a single visit.
 - **F6 — strict OpenSpec has passed three times on this change's candidates, and
   both previous cuts misreported that (C8).** The first cut said the gate "has
   never run on a Pass C or Pass D candidate". The second cut corrected that to
   "the first strict validation ever recorded on a candidate", crediting the
   review seat's run on `d73d94d1`. **That correction was itself wrong.** Opened
   above: `openspec validate --all --strict` passed **17/17 on `4d6b15f3`** (the
-  D1 candidate) and **17/17 on `69cac25d`** (the Pass C head), both recorded in
-  `.forge/results/` in this worktree, months before either claim was written.
-  With `d73d94d1` that is three passes. Every dated seat refusal still stands —
-  five implement/ledger seats were denied the binary, and those reports were
-  never the problem; the problem was reasoning from "this seat could not run it"
-  to "nobody has". What remains true, and is what actually keeps N12 and S11
-  open: **no seat has run the ordered list, on one candidate, into a delivery
-  record.**
+  D1 candidate) and **17/17 on `69cac25d`** (D3's returned-review head; this
+  line first said "the Pass C head", which was wrong), both recorded in
+  `.forge/results/` in the b5a676bf run's worktree, before either claim was
+  written. With `d73d94d1` that is three passes. *Third return:* the third
+  chief reports two more, on `1e1c2f63` (the `004fcb8b` correctness result)
+  and its own on `af89511a`, which makes five. Every dated seat refusal still
+  stands, the remediation seat's included. Those reports were never the
+  problem. The problem was reasoning from "this seat could not run it" to
+  "nobody has". What remains true, and what actually keeps N12 and S11 open:
+  **no seat has run the *complete* ordered list, `openspec` and
+  `bundles/verify` included, on one candidate into a delivery record.**
 - **F7 — the exact-coverage gate has run, and it FAILED (C8).** Both previous
   cuts described this obligation as unmeasured by any gate run. The D1 review
   seat executed `bash scripts/coverage-exact.sh` and it **exited 1** — lines
@@ -594,7 +696,7 @@ were sitting in `.forge/results/` in this worktree while they were written.
   uncovered lines are in unchanged files; no `composite.rs` line is uncovered".
   This matters in the direction that hurts: the honest status of N13 is not "no
   result yet" but **"the last real gate run on this change was red"**, and a
-  ledger that reports the weaker statement understates what unit 5 must clear.
+  ledger that reports the weaker statement understates what unit 15 must clear.
   Separately, the hand reproductions D2 and D3 recorded on `1d1d9f17` —
   32,802/32,802 `DA` and 5,508/5,508 `BRDA` — are consistent with the export,
   but their function figure is not the gate's: `tasks.md:1110` quotes the
@@ -608,14 +710,25 @@ were sitting in `.forge/results/` in this worktree while they were written.
   denominator reconciliation against chief `124cca78`'s baseline (32,148/32,324
   lines, 5,434/5,448 branches, 3,125/3,135 functions, failed equality).
   **8.8.14.3 (S13) is not the owner** and has no pending half.
-- **F13 — a suite this ledger leans on has never been executed (C7).** Rows N2,
-  N4, N5b, N5c and N9 cite `crates/brokkr-cli/tests/doctor_dsh_selection.rs`.
-  It is a separate integration target and none of the four recorded commands
-  builds it. N5c is the sharp case: the entire R3 raw-span matrix — the
-  1,024/1,025 boundary, the quoted spellings and the multibyte
-  character-not-byte control — lives only there, fully written and never run in
-  this change. Unit 4's crate-scoped `cargo test -p brokkr-cli` is what executes
-  it, which is one more reason unit 4 is not a formality.
+- **F13 — a suite this ledger leans on has no execution on the final
+  candidate (C7, corrected on the third return).** Rows N2, N4, N5b, N5c and
+  N9 cite `crates/brokkr-cli/tests/doctor_dsh_selection.rs`. It is a separate
+  integration target, and none of the four ledger-seat commands builds it.
+  **This finding's first wording was itself two false negatives**, the class
+  F12 names:
+  - "never executed" is false. D3's delivery ran every `brokkr-cli`
+    integration binary (`tasks.md` 1015–1016), and so did its returned review
+    on `1d1d9f17` (1098). The composite visits count "`doctor_dsh_selection`
+    14" passed at 1940, 2076, 2377, 2596 and 2921. The third chief also
+    reports the D3 result `183c4dda-…`.
+  - "the entire R3 raw-span matrix… lives only there" is false. The producer
+    suite holds the same matrix with real equality and refusal assertions
+    (`composite/tests.rs:4553–4619`; N5c).
+
+  What stands: those executions are **historical reports by other seats, on
+  other revisions**, and none is on the candidate that will be ticked. Unit
+  14's crate-scoped `cargo test -p brokkr-cli` gives the suite its execution
+  on that candidate, which is one more reason unit 14 is not a formality.
 - **F8 — the privacy exclusions are asserted one level too early (A53, B30,
   B42, B55).** Three clauses ask that the private carrier and the route bytes be
   absent from **emitted launch evidence, the journal and the composite**.
@@ -631,6 +744,12 @@ were sitting in `.forge/results/` in this worktree while they were written.
   `confirms_from_locator: false` and the plan-shaped seam are consistent with
   the intended exclusion. The remedy is an assertion, and if it fails, a Pass-B
   production finding.
+  *Since then:* unit 7 (recorded as 4a) asserted the exclusions on current
+  production bytes with no finding, at the composite and the wire. For the
+  shipped route it did so at the journal too, through the real adapter under
+  the engine. A53, B42 and B30 keep one half open: the gated shapes and the
+  offered publication, proved in two processes rather than one. B55 stays
+  partial only because it rides B30. Unit 11 closes that half.
 - **F9 — B27's mistyped half covers two fields of four.** 5170–5172 names
   "a missing/mistyped **home or locator**". `resume_tests.rs:1285–1290` proves
   both *missing* cases read `None`. The mistyped journal at `:1340–1372`
@@ -650,14 +769,19 @@ were sitting in `.forge/results/` in this worktree while they were written.
 - **F11 — eight numbered tasks under 8.8 are open, and they are open for three
   different reasons (N1–N4, N11–N14).** §1 grades them, and the reasons should
   not be run together, because only one of them is work:
-  **(a) unproducible** — N1's and N3's immutable Apple and env source pins,
-  which their own clauses place "outside the repair" and which no seat, host or
-  visit can mint; **(b) a host away** — N2's and N4's macOS legs and N11's
-  retained-Node positive, where the code and the test are written and only
-  execution is missing (F13); **(c) gates and reconciliation** — N12, N13, N14.
-  The previous cut filed (a) and (b) together as "evidence nobody here can
-  produce", which is true of (a) and misleading about (b): N11 in particular was
-  reported as a missing *test* and is not one.
+  **(a) blocked retrieval.** N1's and N3's immutable Apple and env source pins,
+  which their own clauses call pending inherited acceptance "outside the
+  repair". *(Third return, finding 1: this item first read "unproducible… which
+  no seat, host or visit can mint". That was wrong. The sources are public
+  upstream files, and what has been missing is a grant that reaches the
+  network. Every seat that tried was refused, at `tasks.md` 2389–2394 and
+  2425–2431. Unit 13 retrieves and verifies them.)* **(b) a host away.**
+  N2's and N4's macOS legs and N11's retained-Node positive. The code and the
+  test are written and only execution is missing, and N11's two removals have
+  never been performed (units 15 and 16). **(c) gates and reconciliation.**
+  N12, N13, N14. The previous cut filed (a) and (b) together as "evidence
+  nobody here can produce", which was misleading about both. N11 in particular
+  was reported as a missing *test*, and it is not one.
 - **F12 — this ledger is the worked example of its own rule, twice.** The first
   cut set out three evidence kinds, said a checkbox and a delivery note
   discharge nothing, and then discharged A6 on five checkboxes, eleven
@@ -684,39 +808,84 @@ were sitting in `.forge/results/` in this worktree while they were written.
   it". That is the rule this ledger exists to apply, and the reason both cuts
   are recorded here rather than quietly overwritten.
 
+  The third cut repeated the second failure, in the corrections themselves.
+  C7's correction said `doctor_dsh_selection.rs` had never run and that the
+  raw-span matrix lived only there. C8's said `69cac25d` was the Pass C head,
+  and that neither clippy nor the bundle compile had run on a Pass D head. N13
+  read "Nothing" beside the F7 that recorded its failed gate. And "no seat…
+  can mint" the source pins turned a refused network into an impossibility.
+  Each was a negative, or a label, stated without opening the artefact that
+  decides it: `tasks.md`'s own gate tables, `git log`, the producer suite.
+  The third chief found every one. The remediation pass corrected them in
+  place and left the wrong words beside the correction.
+
 ## 6. The exact remaining work
 
-**Twelve labelled entries**, in dependency order, one visit each. The previous
-cut called this "nine units" while listing eleven (C9); the count below is the
-count of entries, and `2a`/`2b`/`2c` and `4a` are full units, not annexes.
+**Twenty-four numbered entries, 1–24, and the numbering is the dependency
+order.** No entry depends on a later one. Where two entries are independent,
+the lower number is only a convenient place in the order, not a prerequisite.
+Each entry is one visit unless it says otherwise. Entries 1–10 have **landed**
+on `slice-dsh-8810`. They keep their dated records verbatim, and their
+headings carry the label each was commissioned and recorded under.
+*(Third return, finding 6: the previous cut put unit 4 before its
+prerequisite 4a, and unit 9 after units 6 and 7, which depend on it. It then
+sent readers to a separate "execution order" paragraph for the real order.
+That paragraph is gone, because the list is now the order.)*
 
-| Kind | Units |
+**Labels.** Text written before this renumbering keeps the labels in force
+when it was written. That means the commissions and dated records under
+entries 1–10 and the notes those units added to rows. There, "unit 4" is
+entry 14 and "unit 3" is entry 6. Everywhere else this ledger uses the new
+numbers. The map:
+
+| New | Recorded as | State |
+|---|---|---|
+| 1 | 1 | landed `8f60f06c` |
+| 2 | 2a | landed `17b5b4d2` |
+| 3 | 2b | landed `a4f7a5e0` |
+| 4 | 2c-fix | landed `289d9c5b` |
+| 5 | 2c | landed `7b26d186` (after a stop) |
+| 6 | 3 | landed `3a2a6785` |
+| 7 | 4a | landed `3a80b1d8`, `a41ae69e`, `9a3c0746` |
+| 8 | 2d | landed `97624edd`, `7900c182` |
+| 9 | 3b-fix | landed `6a5f1bc9` |
+| 10 | 3b | landed `cb5bbd9a` (after a stop) |
+| 11 | — (new: unit 7's unproved half) | open |
+| 12 | — (new: N2/N4 unasserted cells) | open |
+| 13 | — (new: source retrieval) | open, externally owned |
+| 14 | 4 | open |
+| 15 | 5 | open, externally owned |
+| 16 | — (new: N11 on a capable host) | open, externally owned |
+| 17 | 9 | open, an operator ruling |
+| 18–21 | — (new: replays after a negative ruling) | conditional on 17 |
+| 22 | 6 | open |
+| 23 | 7 | open, prepares an operator ruling |
+| 24 | 8 | open, 9.6's, not this change's |
+
+| Kind | Entries |
 |---|---|
-| Missing **evidence** (a test to write) | 1, 2a, 2b, 2c, 3, 4a |
-| **Gate execution** (nothing to write) | 4, 5 |
-| **Record and reconcile** | 6, 7 |
-| **An operator ruling**, not labour | 9 |
-| Missing **behaviour**, and not this change's | 8 |
+| Missing **evidence**, a test to write | 1–10 (landed), 11, 12 |
+| **Externally owned evidence**: a grant or host no seat of this change has had | 13, 15, 16 |
+| **Gate execution**, nothing to write | 14 |
+| **An operator ruling**, not labour | 17 (and 23 prepares one) |
+| **Replays**, only if 17 rules no | 18, 19, 20, 21 |
+| **Record and reconcile** | 22, 23 |
+| Missing **behaviour**, not this change's | 24 |
 
-**Execution order.** The previous cut put unit 4 before unit 4a and then had
-unit 4 declare that it "must follow… 4a" (C9). One order, stated once:
+**What gates what.** Entry 14 runs on the head that will be ticked, so every
+entry that can move a byte comes before it: 11 and 12 write tests, and 13 may
+correct the port's source citations or find a divergence. 17 is ruled against
+that gated head. 22 ticks 8.10 only when 17's ruling covers every 8.10
+removal predicate, or when 18, 19 and 21 have landed. 23 needs 13, 15, 16 and
+17 (or 20). **15 is not a predecessor of 22.** S12 asks that external
+evidence be *recorded*, "when supplied, otherwise explicitly
+pending/unavailable" (314–326). So 22 may close over a pending 15 if it
+reports it as pending. It may not report it as passed, and given F7 it may
+not report it as unrun. 24 follows both ticks.
 
-> 1 · 2a · 2b · 2c · 3 · 4a — write everything first, in any order among
-> themselves → **4** — then run the gate list on that head → **9** — the ruling
-> that decides whether the F5 class is discharged → **6** — record, tick, commit
-> → **7** — prepare the N1–N4/N11 ruling.
->
-> **8 is not in that chain at all** — it is 9.6's, listed only as the debt
-> these two tasks hand on, which is why it appears after unit 9 below.
->
-> **5 runs alongside all of it** and is *not* a predecessor of 6. This is the
-> other ordering the previous cut got wrong: S12 requires external evidence to
-> be **recorded**, not completed — "otherwise explicitly pending/unavailable" —
-> so unit 6 may close over a pending unit 5 provided it reports it as pending.
-> It may not report it as passed, and given F7 it must not report it as unrun.
-
-Unit 2 is split into three because one visit cannot add six call-site variants,
-a compiled-member symlink fixture and twenty planner vectors.
+The first cut's single unit 2 was split three ways (entries 2, 3 and 5),
+because one visit could not add six call-site variants, a compiled-member
+symlink fixture and twenty planner vectors.
 
 1. **Assert the adaptation's delta digest.** Closes A67 and B99 (the one of
    five sub-obligations now open). Touches
@@ -742,7 +911,7 @@ a compiled-member symlink fixture and twenty planner vectors.
    brokkr-protocol --all-features --locked` (426 + 99 + 1 passed, 0 failed)
    are green. Tests only; `extensions/` unchanged; no checkbox moved.
 
-2a. **Give each engine route shape its missing call site.** Closes B38's
+2. *(recorded as 2a)* **Give each engine route shape its missing call site.** Closes B38's
    single-site half, B39's panel-member half, B36's empty matrix cell and
    A37's call-site half. Touches
    `crates/brokkr-runtime/src/engine/resume_tests.rs` only. The previous cut
@@ -796,7 +965,14 @@ a compiled-member symlink fixture and twenty planner vectors.
    B38(ii)'s compiled-member escaping symlink stays with unit 2b; no checkbox
    moved.
 
-2b. **Build the compiled-member escaping-symlink vector.** Closes the shape of
+   *Adoption note (remediation, 2026-09-23).* The commission above is
+   `af89511a`'s, which grew to five single-site shapes and the offered-panel
+   positive. This branch's unit 2a ran on the older one-shape text. The
+   record above lands the nonmember and the panel changed-bytes member. The
+   other four single-site shapes and the offered-panel positive landed with
+   unit 8 (recorded as 2d) and its return.
+
+3. *(recorded as 2b)* **Build the compiled-member escaping-symlink vector.** Closes the shape of
    B38(ii) that no fixture in the tree expresses (F2b). Touches
    `crates/brokkr-runtime/src/engine/resume_tests.rs` only. The fixture the
    clause requires: an in-layer symlink whose target resolves outside the layer
@@ -828,7 +1004,7 @@ a compiled-member symlink fixture and twenty planner vectors.
    lib plus 94 integration passed, 0 failed) are green. Tests only; no
    production line moved; no checkbox moved.
 
-2c-fix. **Refuse a route beside a model pin with no provider segment.** The
+4. *(recorded as 2c-fix)* **Refuse a route beside a model pin with no provider segment.** The
    production remedy for unit 2c's Pass-B finding below, ordered before 2c's
    re-run. Touches `crates/brokkr-protocol/src/adapters/route_overlay.rs`
    (the `claim` boundary and its test module) and
@@ -866,7 +1042,7 @@ a compiled-member symlink fixture and twenty planner vectors.
    are green. The DSH route stays disabled; unit 2c's other classes are
    untouched and 2c re-runs whole; no checkbox moved.
 
-2c. **Drive the reader's remaining classes through the three planner paths, and
+5. *(recorded as 2c)* **Drive the reader's remaining classes through the three planner paths, and
    add the two classes that exist nowhere.** Closes B47, B49 and B50. Touches
    `crates/brokkr-protocol/src/adapters/tests.rs` (extend
    `dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path`) and
@@ -940,7 +1116,7 @@ a compiled-member symlink fixture and twenty planner vectors.
    brokkr-protocol --all-features --locked` (428 + 99 + 1 passed, 0 failed)
    are green. Tests only; the DSH route stays disabled; no checkbox moved.
 
-3. **Complete the undriven variation matrices.** Closes A42, B60, **B59**,
+6. *(recorded as 3)* **Complete the undriven variation matrices.** Closes A42, B60, **B59**,
    B27's mistyped half and B71's two missing positives. Touches
    `crates/brokkr-protocol/src/adapters/tests.rs` and
    `crates/brokkr-runtime/src/engine/resume_tests.rs`. Three groups:
@@ -990,28 +1166,13 @@ a compiled-member symlink fixture and twenty planner vectors.
    brokkr-runtime --all-features --locked` (460 lib plus 94 integration
    passed) are green. Tests only; no checkbox moved.
 
-4. **Run the gate list, in order, on the final candidate.** Closes S11
-   (8.8.14.2), **N12 (8.8.8.2)** and B10's gate half, and supplies A53/B30/B42's
-   execution once unit 4a below has added their assertions. Touches nothing — it
-   is an execution, recorded in a delivery section by unit 6. Commands, in the
-   clause's order: `cargo fmt --all -- --check`; `cargo clippy --workspace
-   --all-targets --all-features --locked -- -D warnings`; `cargo test -p <crate>
-   --all-features --locked` for `brokkr-core`, `brokkr-store`,
-   `brokkr-protocol`, `brokkr-runtime`, `brokkr-view`, `brokkr-bridge`,
-   `brokkr-cli`, each completing before the next; `openspec validate --all
-   --strict`; `cargo run --locked -p brokkr-cli -- compile --bundle
-   bundles/self`; then `… bundles/verify`. **Externally owned prerequisite:** a
-   seat or host whose permission grant reaches `openspec` (F6) — three separate
-   seats' grants did; five implement seats' did not. An unavailable tool is not
-   a pass. Must follow units 1–3 and 4a so it runs on the head that will be
-   ticked.
-   Two things this unit quietly also does, both from C7/C8: the crate-scoped
-   `cargo test -p brokkr-cli` gives **`doctor_dsh_selection.rs` its first
-   execution** in this change, which is what N5b, N5c, N9, N2 and N4 are waiting
-   on (F13); and it is the first time clippy and both bundle compiles are run on
-   a **Pass D** head — earlier passes exist, on `4d6b15f3` and `69cac25d`.
+   *Adoption note (remediation, 2026-09-23).* Group (iv) and the **B59** in
+   this unit's heading are `af89511a`'s text. This branch's unit 3 was
+   commissioned from the older text without them, and its record above covers
+   (i)–(iii) only. Group (iv) was delivered by units 9 and 10 (recorded as
+   3b-fix and 3b), and B59's row cites them.
 
-4a. **Assert the privacy exclusions where the clauses put them.** Closes A53's
+7. *(recorded as 4a)* **Assert the privacy exclusions where the clauses put them.** Closes A53's
    exclusion half, B30's launch-evidence and retained-fields halves, B42's
    second sentence and B55.
 
@@ -1170,7 +1331,7 @@ a compiled-member symlink fixture and twenty planner vectors.
    and B42 at the journal for the gated shapes, as above. Tests only; the
    DSH route stays disabled; no checkbox moved.
 
-2d. **Close the route-binding matrix at the single site.** Added from the
+8. *(recorded as 2d)* **Close the route-binding matrix at the single site.** Added from the
    chief review of run `issue-226-the-8-8-and-8-10-accep-b5a676bf` (C3 +
    SEC-2, 2026-09-23); ordered after 4a. Closes B38 and corrects B36 and
    A37. `tasks.md` 5231–5237 requires **each** named non-binding shape at
@@ -1235,7 +1396,7 @@ a compiled-member symlink fixture and twenty planner vectors.
    gates green (463 lib plus 94 integration, 0 failed). Tests only; no
    checkbox moved.
 
-3b-fix. **An unreadable version output observes no version.** The production
+9. *(recorded as 3b-fix)* **An unreadable version output observes no version.** The production
    remedy for unit 3b's finding below (run
    `issue-226-acceptance-ledger-unit-86b33424`, recorded at `7fb456d2`),
    ordered before 3b's re-run. `tasks.md` 5302–5306 requires unreadable
@@ -1286,7 +1447,7 @@ a compiled-member symlink fixture and twenty planner vectors.
    1 passed, 0 failed) are green. The DSH route stays disabled; no
    checkbox moved.
 
-3b. **Complete B59's version-output matrix.** Added from the chief review of
+10. *(recorded as 3b)* **Complete B59's version-output matrix.** Added from the chief review of
    run `issue-226-the-8-8-and-8-10-accep-b5a676bf` (C6, 2026-09-23); ordered
    after 2d. `tasks.md` 5302–5306 asks for absent, malformed and unreadable
    version output and a version-command failure, each exercised
@@ -1338,158 +1499,395 @@ a compiled-member symlink fixture and twenty planner vectors.
    version output`). fmt, clippy and `cargo test -p brokkr-protocol`
    (429 + 99 + 1) green. B59 discharged; tests only; no checkbox moved.
 
-5. **Obtain the external evidence.** Closes **N13 (8.8.8.3)** and supplies
-   B26's macOS half, N2's and N4's macOS legs and N11's native prerequisite.
-   Touches nothing. `TMPDIR=/tmp bash scripts/coverage-exact.sh` on CI or a host
-   that can create the boundary namespace, recording committed revision,
-   environment and actual covered/total lines, branches and functions, with the
-   denominator reconciled against chief `124cca78`'s fresh baseline; the native
-   macOS leg; remote CI on the final candidate head. **Externally owned**
-   throughout; record each as pending until its own result exists and never as
-   passed.
+11. **Prove the gated shapes' exclusions in one process.** Added by the
+   remediation (third return, findings 2 and 4). Closes the half of **A53**,
+   **B42** and **B30** that entry 7 (recorded as 4a) did not prove. Entry 7
+   proved route-byte and carrier exclusion at the composite and on the
+   adapter's wire for all four shapes. It proved them at the journal only for
+   the **shipped (closed-gate) route**, through the real adapter under the
+   engine. The engine's offered cases journal what the DSH-shaped
+   `dsh_model_driver` shim emits. So for **qualified cold, confirmed rejoin
+   and declined offer**, the production adapter's publication and the
+   engine's journaling are proved in two processes and never in one, and
+   B30's "not copied as `resume_context` or `owned_target` into launch
+   evidence" has no offered start through the real adapter under the engine.
 
-   Three corrections to how the previous cut framed this (C5, C8). **(a) It is
-   not a prerequisite of unit 6.** S12 asks that external evidence be
-   *recorded* — "when supplied, otherwise explicitly **pending/unavailable**"
-   (314–326) — so unit 6 closes over a pending unit 5 by reporting it pending.
-   **(b) The coverage leg starts from a red result, not from nothing**: the last
-   actual gate run on this change exited 1 (F7), so this unit's job is to clear
-   a known failure, and whoever runs it should expect to reconcile
-   32,626/32,802 rather than to confirm a formality. **(c) A capable host also
-   discharges three things nobody had routed anywhere**: running
-   `absent_path_node_identity_is_retained_by_the_composite` on a host with
-   `node` on the default search path takes its `Ok` arm and closes **N11's
-   positive** (the test is written and waiting — F13, N11); and the macOS leg
-   closes N2's and N4's macOS halves and B26's.
+   Touches `crates/brokkr-runtime/src/engine/resume_tests.rs`, extending
+   `the_real_dsh_driver_journals_no_route_byte_and_no_carrier`'s real-adapter
+   harness. Tests only. It needs a synthetic DSH install whose composite the
+   production producer computes, the protocol suite's `Synthetic` rebuilt as
+   a runtime test fixture, and a test-local declaration that measures it
+   (`supported`, its `wrapper_digest`), so the adapter's gate really opens.
+   On a seat whose `--patch` binds distinguishable valid route content (a
+   marked `displayName`, key variable and endpoint), drive through the engine:
+   - a qualified cold start;
+   - an offered start that rejoins a prior DSH checkpoint (`dsh-session` root
+     plus `transcript`) and confirms;
+   - an offered start the adapter declines.
 
-   *Still not commissionable here* — no seat's grant reaches a capable host —
-   so this is a unit in the sense that someone must be **asked**, and the ask is
-   now specific enough to hand over.
+   Proof, for each: read every journaled event, launch row, stderr tail and
+   the raw driver stdout, and find no route content, path, digest, binding,
+   `resume_context`, `owned_target` or `assessment`. The confirmed rejoin's
+   launch row keeps `root_session` and `transcript` exactly. A compiling
+   mutation that copies route content into a launch-row field under
+   **another** name parts the case, and so does one that copies
+   `owned_target`. If the gate cannot be opened from the runtime suite without
+   a production seam, the unit stops and reports `oversized` rather than
+   adding one. A leak on current bytes is a Pass-B security finding, reported
+   and not adjusted.
 
-   **What no unit can reach.** The immutable **Apple and env source pins**
-   (N1 at 1248–1250, N3 at 1285–1286) are not a host problem and not a test
-   problem: they ask for pinned upstream source that this repository does not
-   vendor and cannot mint, and their own clauses call them "this owner's pending
-   inherited acceptance, **outside the repair**". They are therefore **not**
-   listed as work. They are a standing condition on N1 and N3, and unit 7 is
-   where the operator is asked what to do about them — which is the only
-   disposition available, since neither seat nor host can produce them.
+12. **Assert N2's and N4's two unasserted cells.** Added by the remediation
+   (third return, finding 2). Touches
+   `crates/brokkr-protocol/src/adapters/composite/tests.rs` and
+   `crates/brokkr-cli/src/doctor/tests.rs`. Tests only.
+   - **N2, "no second search"** (`tasks.md` 1261–1262). In
+     `the_selected_invocation_is_not_replaced_by_its_canonical_target`, run
+     the admitted launcher's `selected.invocation.command()` with `PATH`
+     emptied and assert it still prints the alias path. The invocation then
+     needs no search to run. A compiling mutation that makes the invocation
+     carry the bare searched name parts it.
+   - **N4, "injected doctor probes"** (1289–1290). A `doctor/tests.rs` case
+     feeds `dsh_provider_line_with` the real `select_in` over staged bare and
+     blank env launchers, with probe and producer closures that panic, and
+     asserts the line carries the exact missing-program cause. Restoring
+     blank-tail `Ok(None)` in a compiling mutation parts it. That also gives
+     M4 the "callback test" failure its record lacks.
 
-6. **Record, tick and commit the D7/Pass-C/Pass-D account.** Closes S12
-   (8.8.15.1) **and with it 8.10** — not 8.8 — **provided unit 9 has been
-   ruled**. That proviso is new and it is not a formality: 8.10's own B5 says
-   "**Every** new test needs an **observed** compiling mutation failure at its
-   claimed assertion and a restored pass", and every such observation in this
-   change is a record (F5). A seat cannot tick 8.10 over a clause it has graded
-   partially discharged; the operator can, by ruling the records sufficient.
-   Touches
-   `openspec/changes/2026-09-09-226-session-resumption/tasks.md` only: a
-   delivery section recording units 1–5 with their actual commands and results,
-   then the checkbox for 8.8.14.2, 8.8.15.1 and 8.10 beside their evidence, with
-   8.8, 9.6, 11.x, §1's numbered rows and group 14/15 untouched. Proof:
-   `git diff --check`, `openspec validate --all --strict`, the
-   requirement/checkbox inventory, frozen surfaces unchanged, 0056 still
-   `proposed`, the DSH route still `unmeasured` — then one commit, never pushed.
+   Expected to be evidence only. A pass is not a finding. A search, a probe
+   or an admission on current bytes is a production finding, and the unit
+   reports it.
 
-7. **Reconcile and close the R1–R4 numbered group.** Closes **N14 (8.8.8.4)**
-   and, with it, whatever N1–N4 and N11 the operator rules closable. Touches
-   `tasks.md` only. It is a separate commission from unit 6 because it answers a
-   different question: 8.8.8.4 says "Tick a task only when its **entire**
-   acceptance is met; broad owners with inherited pending predicates stay open
-   with current repair delivery recorded in prose", and 1209–1212 forbids a seat
-   from narrowing full acceptance to earn a tick. So this unit **prepares a
-   ruling, it does not take one**: for each of N1–N4 and N11 it records the
-   delivered repair (opened at §1), names the inherited predicate still pending
-   (Apple/env source pins, native macOS, the absent-PATH retained-Node
-   positive), and asks the operator to rule whether the row ticks on its
-   delivered half or stays open. Blocked on unit 5 for anything the native legs
-   would close.
+13. **Retrieve, pin and verify the Apple and env sources.** Added by the
+   remediation (third return, finding 1). **Externally owned**: it needs a
+   seat or host whose grant reaches the network. Every seat of this change so
+   far was refused `curl`, `WebFetch`, `gh api` and the GitHub MCP (`tasks.md`
+   2389–2394, 2425–2431). The sources are **retrievable, not impossible**.
+   Closes N1's and N3's source-pin predicates (1248–1250, 1284–1286) and
+   N4's "applicable source-pin cells" (1304–1305).
 
-9. **Put the recorded-removal class to the operator as one question.** Closes
-   the evidence-verification gap on **N5d, N7–N11, A61, S1, S3–S7, S8a–c,
-   S9a–e, S10, B5, B16, B20 and B77** — twenty-five rows, one decision.
+   **Sources**, each at an immutable revision (a release tag with its commit
+   SHA), with the file's SHA-256 recorded:
+   - Apple Libc `gen/FreeBSD/exec.c` and `sys/posix_spawn.c`
+     (`apple-oss-distributions/Libc`). The port cites design D10's
+     moving-`main` ranges 178–218 and 262–297, and 97–143 and 170–195
+     (`composite.rs:2617–2631`; design.md 2953–2960).
+   - The env dispatch sources the resolver's rule names
+     (`composite.rs:3598–3608`): GNU coreutils `src/env.c` and
+     `src/coreutils.c`, Apple's `env/env.c`, uutils `src/bin/coreutils.rs`
+     and busybox `libbb/appletlib.c`. The code says `usr.bin/env/env.c`;
+     proposal.md 3842 links `apple-oss-distributions/shell_cmds`
+     `env/env.c`. The retrieval records which path the pinned revision holds.
+   - The Linux kernel's `fs/binfmt_script.c`, which the same doc comment
+     cites for `argv[0]`.
+
+   Hosts are Linux and macOS only (decision 0063), so every source above
+   applies and no Windows source is owed. glibc's `posix/execvpe.c` is cited
+   to the fixed 2.42 release and N1/N3 do not name it, so it is outside this
+   unit.
+
+   **Files it updates.** The pins go "beside the implementation" (design.md
+   2958–2959): the doc comments at `composite.rs` 2329–2331, 2367–2368, 2417,
+   2617–2631, 2728, 2817, 3104, 3154–3155 and 3598–3608; the source comments
+   at `composite/tests.rs` 2360, 7157, 7476, 7703 and 7799–7800; and
+   `composite/tests/native_matrix.rs` 210, 607–608 and 861. A dated evidence
+   file goes beside `controller-evidence-2026-09-10.md` in this change's
+   directory, with each source, tag, commit, file digest and the exact line
+   ranges re-read against the port. A delivery record in `tasks.md` under
+   8.8.1.1 and 8.8.2.1 cites it.
+
+   **Proof.** Every ported block's cited range is re-read at the pinned
+   revision. Where the port's reading differs from the pinned source, that is
+   a production finding, and the unit stops and reports it rather than
+   editing the port to match. It comes before entry 14 because it moves
+   bytes.
+
+   **Kept separate: an operator scope change.** The operator may instead rule
+   that N1 and N3 tick without the pins, as inherited debt recorded in prose.
+   That would be a change to 8.8's acceptance, not satisfaction of it. It is
+   prepared in entry 23, and it does not replace this entry unless the
+   operator says so.
+
+14. *(recorded as 4)* **Run the gate list, in order, on the final
+   candidate.** Closes S11 (8.8.14.2), **N12 (8.8.8.2)** and B10's gate half.
+   It also runs every assertion entries 1–12 added. Touches nothing. It is an
+   execution, recorded in a delivery section by entry 22. Commands, in the
+   clause's order:
+   1. `cargo fmt --all -- --check`
+   2. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+   3. `cargo test -p <crate> --all-features --locked` for `brokkr-core`,
+      `brokkr-store`, `brokkr-protocol`, `brokkr-runtime`, `brokkr-view`,
+      `brokkr-bridge` and `brokkr-cli`, each completing before the next
+   4. `openspec validate --all --strict`
+   5. `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
+   6. `… bundles/verify`
+
+   **Externally owned prerequisite:** a seat or host whose permission grant
+   reaches `openspec` (F6). Review and chief grants have reached it five
+   times. Implement, ledger and remediation seats have not. An unavailable
+   tool is not a pass. It must follow entries 1–13 so it runs on the head
+   that will be ticked. If 13 is still pending when the operator wants this
+   run, it may run first, but any byte 13 later moves requires this entry
+   again.
+
+   *(Corrected, third return, finding 5.)* This entry first said the
+   crate-scoped `cargo test -p brokkr-cli` gives `doctor_dsh_selection.rs`
+   "its first execution" in this change. It also said this would be "the
+   first time clippy and both bundle compiles are run on a Pass D head".
+   Both were false. The suite has historical recorded executions, clippy
+   passed on D1's `4d6b15f3` and D3's `69cac25d`, and D3's seat recorded the
+   self bundle (see *Recorded execution*). What this entry adds is the
+   **complete ordered list on the one candidate that will be ticked**, which
+   no seat has yet recorded. That list has `openspec` and `bundles/verify` in
+   it, and it runs `doctor_dsh_selection.rs` on that candidate, which is what
+   N2, N4, N5b, N5c and N9 wait on.
+
+15. *(recorded as 5)* **Obtain the external evidence.** Closes **N13
+   (8.8.8.3)** and supplies B26's macOS half and N2's and N4's macOS legs.
+   Touches nothing. Run `TMPDIR=/tmp bash scripts/coverage-exact.sh` on CI or
+   a host that can create the boundary namespace. Record the committed
+   revision, the environment and the actual covered/total lines, branches and
+   functions, with the denominator reconciled against chief `124cca78`'s
+   fresh baseline. Then the native macOS leg, and remote CI on the final
+   candidate head. **Externally owned** throughout. Record each as pending
+   until its own result exists, and never as passed.
+
+   Three corrections to how the first cut framed this (C5, C8):
+   - **(a) It is not a prerequisite of entry 22.** S12 asks that external
+     evidence be *recorded*, "when supplied, otherwise explicitly
+     **pending/unavailable**" (314–326). So entry 22 closes over a pending
+     entry 15 by reporting it pending.
+   - **(b) The coverage leg starts from a red result, not from nothing.** The
+     last literal gate run on this change exited 1 (F7, N13). Whoever runs it
+     should expect to reconcile 32,626/32,802, not to confirm a formality.
+   - **(c) The macOS leg closes N2's, N4's and B26's macOS halves.**
+
+   N11's positive and its two removals moved to entry 16. They need a host
+   with `node` on its default search path, which is a different requirement
+   from macOS, and the removals are work, not a run. The first cut's "What no
+   unit can reach" paragraph on the source pins is withdrawn: entry 13 reaches
+   them.
+
+16. **Run N11's positive and perform its two removals on a capable host.**
+   Added by the remediation (third return, finding 2). **Externally owned**:
+   it needs a Linux or macOS host with a `node` executable on the platform's
+   default search path, which is `/bin:/usr/bin` on the hosts recorded so far
+   (`tasks.md` 2398). Closes N11's positive and both removals (1477–1480).
+   Before this unit they were **never performed**, not merely unverified.
+   Touches nothing in the tree.
+   - Run `composite/tests.rs::absent_path_node_identity_is_retained_by_the_composite`
+     and `doctor_dsh_selection.rs::absent_path_default_search_matches_native_dsh_and_node`,
+     each `--exact`. Require the `Ok` arm, with no `PENDING` line in the
+     output.
+   - Then perform, one at a time, the two compiling removals the test's doc
+     names (`composite/tests.rs:3505–3508`). Restore unconditional absent-PATH
+     refusal: the positive fails while the native child still succeeds. Retain
+     a distinct wrong Node: the retained-identity assertion fails. Restore each
+     exactly and rerun green.
+
+   Record the host, `node`'s path and version, each command and each failing
+   assertion verbatim in a retained log that entry 23 can open. "Shell failure
+   or NotFound is no positive" (1479–1480). A positive that fails on current
+   bytes is a production finding.
+
+17. *(recorded as 9)* **Put the recorded-removal class to the operator as
+   one question.** Closes the evidence-verification gap on **N2, N4, N5d,
+   N6a, N6b, N7–N10, A61, S1, S3–S7, S8a–c, S9a–e, S10, B5, B16, B20 and
+   B77**. That is twenty-nine rows (counted in F5). It also covers the
+   recorded mutations of entries 1–10, which B5's "every new test" reaches.
    Touches `tasks.md` only, and only to record the ruling once it is given.
-   Ordered **after unit 4** (so the ruling is taken against a fully gated
-   candidate) and **before unit 6** (which cannot tick 8.10 without it).
+   It comes after entry 14, so the ruling is taken against a fully gated
+   candidate, and before entries 22 and 23, which cannot tick over it.
 
-   The question, stated so it can be answered yes or no: *a compiling mutation
-   run by a named seat on a named revision, recorded with the assertion that
-   parted and the restored pass but leaving no artefact in the tree — is that
-   acceptance for a clause that asks for an "observed" removal?*
+   *(Third return, finding 2.)* N11 is **not** in this class. Its positive
+   and removals were never performed, so there is no record to rule
+   sufficient (entry 16). N2, N4, N6a and N6b joined the class: their
+   removals are records (§1). The previous revision's count, "twenty-five",
+   was wrong for the twenty-six rows it listed.
 
-   The unit prepares the answer, it does not take it. It presents: the five
-   mutation ledgers (Pass C's twelve at 465–480, D1's two, D2's seven, D3's six
-   plus one discarded, the review's two); the confirmation that **no mutation
-   survives** in the tree (`git diff origin/main`) and that every case the
-   mutations aimed at exists, asserts what is claimed and passes; and
-   `tasks.md:1248`'s standing instruction, "**Adopt resolver removals without
-   replay**", which is why a blanket re-derivation is not proposed.
+   The question, stated so it can be answered yes or no: *a compiling
+   mutation run by a named seat on a named revision, recorded with the
+   assertion that parted and the restored pass but leaving no artefact in the
+   tree — is that acceptance for a clause that asks for an "observed"
+   removal?* The operator may answer per row, and a ruling covers only the
+   rows it names. For 8.10 it must name B5, B16, B20 and B77, and through B2,
+   S1 and S3–S10. Anything short of that leaves 8.10 on entries 18, 19 and
+   21.
 
-   **If the ruling is no**, the bounded fallback is *not* twenty-five replays.
-   It is the subset whose clauses demand a property of the failure itself
-   rather than its existence: **S6** ("each removal must fail the intended
-   terminal assertion, **not time out**") and **B5**'s "at its claimed
-   assertion". Those can be re-derived in one visit each, against
-   `adapters/tests.rs`'s terminal-body cases; the rest would remain open on the
-   operator's terms.
+   The unit prepares the answer and does not take it. It presents:
+   - the mutation ledgers: Pass C's twelve (465–480); D1's two; D2's seven;
+     D3's six plus one discarded; the returned review's two; the R1–R4 group's
+     M1–M9 (1665–1673), D1–D5 (1920–1922, 2057–2058) and the earlier M1–M12
+     (12366–12383); and entries 1–10's own records under §6;
+   - the confirmation that **no mutation survives** in the tree
+     (`git diff origin/main`), and that every case the mutations aimed at
+     exists, asserts what is claimed and passes.
 
-8. **9.6's warm retained-store integration, starting with the fold.** *(Listed
-   last although it is numbered 8: unit 9 was added to this list after unit 8
-   and belongs before unit 6 in execution order, while this entry belongs
-   after everything, being no part of either task. The order to follow is the
-   one stated at the top of this section, not the numbering.)* Not part
-   of 8.8 or 8.10; listed because it is the debt those two hand on. Touches
-   `crates/brokkr-protocol/src/adapters.rs` (`find_dsh_transcript` /
-   `names_the_seats_own_session` must select the OFFERED root's transcript,
-   not the first depth-zero one — F4) and `adapters/tests.rs`. Proof: a
+   It does not rest on `tasks.md:1248`'s "Adopt resolver removals without
+   replay". That sentence governs 8.8.1.1's resolver alone (F5).
+
+18. **If 17 rules no: replay the terminal-body removals.** Added by the
+   remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,
+   S10, A61 and B77, and B5's share for the Pass C tests. Touches nothing that
+   survives. On the final candidate, apply each of Pass C's twelve recorded
+   mutations (`tasks.md` 465–480) to `adapters.rs`, one at a time. Run its
+   named `adapters/tests.rs` case, capture the failing assertion verbatim,
+   restore and rerun green. For S6, record that the failure is the intended
+   terminal assertion and **not a timeout**, with the elapsed time. The logs
+   are retained in a dated evidence file in this change's directory, where
+   the next grader can open them. A mutation that no longer parts its case is
+   a finding, not a skip.
+
+19. **If 17 rules no: replay the Codex bridge and conformance removals.**
+   Added by the remediation (third return, finding 3). Covers **B16's four**:
+   separately observed disabled-status, boxed-hands, harness-fragment and
+   boundary-mark mutation failures, against
+   `engine/boundary_tests.rs::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin`
+   and `tests/driver_conformance.rs`'s two shipped-Codex rejoin cases
+   (`tasks.md` 5121–5125). It also covers **B20's** selector mutation, paired
+   with `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, which
+   must show two children, no selector, the retained sandbox and one cold
+   launch row (5131–5135). This is B5's share for those suites. Same method
+   and evidence file as entry 18.
+
+20. **If 17 rules no: replay the R1–R4 group's removals (8.8 only).** Added
+   by the remediation. Covers N2 (M5, M6), N4 (M4, with entry 12's
+   callback-test half), N5d (M1–M3, M7–M9), N6a (M8), N6b (D1–D5), N7 (the
+   component-ordering mutation), N8 (the restored-oracle mutation), N9 (the
+   `Safe` removal) and N10 (the filename-context removal). The records are at
+   `tasks.md` 1665–1673, 1920–1922, 2057–2058 and 12366–12383. Same method.
+   8.10 does not wait on this entry; 8.8 does.
+
+21. **If 17 rules no: replay the remaining new tests' removals.** Added by
+   the remediation (third return, finding 3). B5's remainder: D1's two, D2's
+   seven, D3's six and the returned review's two recorded mutations (616–623,
+   803–816, 992–1008, 1058–1074), and the compiling mutations entries 1–10
+   recorded under §6. Same method. If one visit cannot hold it, it splits at
+   the protocol/runtime crate boundary, and the ledger records the split.
+
+22. *(recorded as 6)* **Regrade, record, tick and commit the D7/Pass-C/Pass-D
+   account.** Closes S12 (8.8.15.1), S11 (8.8.14.2) beside entry 14's record,
+   and **8.10**, but not 8.8. Touches
+   `openspec/changes/2026-09-09-226-session-resumption/tasks.md` and this
+   ledger.
+
+   **Before any tick**, regrade on opened evidence every row that still
+   carries its pre-unit grade while a landed entry claims to close it: A42,
+   A67, B27, B39, B47, B49, B50, B60, B71 and B99, and A13, A64 and B13,
+   which point at them. It ticks 8.10 only if **all** of these hold:
+   - entry 14 is recorded green;
+   - entry 11 has landed, closing B42's and B30's open half;
+   - entry 17's ruling names every 8.10 removal predicate — B5 over every
+     suite, B16, B20, B77, and S1 and S3–S10 through B2 — or, after a no,
+     entries 18, 19 and 21 have landed;
+   - every 8.10 row reads discharged, withdrawn by decision 0063, or not this
+     slice's by its own words.
+
+   *(Third return, finding 3: the previous cut let 8.10 tick after a negative
+   ruling's two-row fallback, while other clauses stayed open.)* The unit
+   then writes a delivery section recording entries 11–21 with their actual
+   commands and results. It ticks 8.8.14.2, 8.8.15.1 and 8.10 beside their
+   evidence, and leaves 8.8, 9.6, 11.x, §1's numbered rows and groups 14 and
+   15 untouched. Proof: `git diff --check`, `openspec validate --all
+   --strict`, the requirement/checkbox inventory, frozen surfaces unchanged,
+   0056 still `proposed` and the DSH route still `unmeasured`. Then one
+   commit, never pushed.
+
+23. *(recorded as 7)* **Reconcile the R1–R4 numbered group and prepare its
+   ruling.** Closes **N14 (8.8.8.4)** and, with it, whichever of N1–N4 and
+   N11 are closable. Touches `tasks.md` only. It is a separate commission
+   from entry 22 because it answers a different question. 8.8.8.4 says "Tick
+   a task only when its **entire** acceptance is met; broad owners with
+   inherited pending predicates stay open with current repair delivery
+   recorded in prose". 1209–1212 forbids a seat from narrowing full
+   acceptance to earn a tick. It follows entries 13, 15 and 16, and 17 (or
+   20).
+
+   For each of N1–N4 and N11 it records the delivered repair (§1) and the
+   evidence those entries produced: the pinned sources, the native macOS
+   results, N11's positive and removals. It ticks a row only where the whole
+   of that row's acceptance is now met. N11 also needs the consolidation
+   record its clause asks for.
+
+   **Kept separate: the scope change.** For any row still waiting on
+   evidence that could not be obtained, it puts an operator question: tick on
+   the delivered half with the predicate recorded as inherited debt, or stay
+   open. It says plainly that a yes changes 8.8's acceptance. A yes does not
+   satisfy it.
+
+24. *(recorded as 8)* **9.6's warm retained-store integration, starting with
+   the fold.** Not part of 8.8 or 8.10. It is listed because it is the debt
+   those two hand on, and it comes last because it follows both ticks. Its
+   own first words are "After 8.8 and 8.10" (5499). Touches
+   `crates/brokkr-protocol/src/adapters.rs` and `adapters/tests.rs`:
+   `find_dsh_transcript` and `names_the_seats_own_session` must select the
+   OFFERED root's transcript, not the first depth-zero one (F4). Proof: a
    confirmed rejoin beside an unrelated retained sibling folds the offered
-   root's current work; a compiling mutation restoring first-match behaviour
-   parts that case. It carries a `proposed` decision only if it changes
-   semantics beyond the repair. Blocked by 9.6's own first words, "After 8.8
-   and 8.10" (5499).
+   root's current work, and a compiling mutation restoring first-match
+   behaviour parts that case. It carries a `proposed` decision only if it
+   changes semantics beyond the repair.
 
 ## 7. The three answers
 
-- **Can 8.8 be ticked once these units land?** **No** — not on units 1–9 alone,
-  and not by any seat. 8.8's acceptance includes the fourteen numbered tasks at
-  1232–1548, now sixteen rows after N5 and N6 were split, of which **eight tasks
-  are open** (§1). Units 1–6 close 8.8.14.2 and 8.8.15.1; unit 9 rules the
-  removal class; unit 7 prepares N14. What remains after all of that:
-  **N2's and N4's macOS legs and N11's positive need a host** (unit 5) — and
-  N11's is a written, compiled test waiting to be run, not work to be done;
-  **N1's and N3's immutable Apple and env source pins cannot be produced by
-  anyone here**, by their own clauses' wording, and are a standing condition
-  rather than a unit. So 8.8 ticks only if the operator rules that N1 and N3 may
-  close on their delivered-repair half with those pins recorded as inherited
-  pending acceptance — a ruling 1209–1212 ("do not narrow full acceptance to
-  earn a tick") and 8.8.8.4 reserve to the operator. Unit 7 is where that ruling
-  is prepared. The first cut answered "yes" because it had not inventoried the
-  numbered rows at all.
-- **Can 8.10 be ticked once they land?** **Yes if the operator rules on unit 9;
-  not by a seat otherwise.** The previous cut answered an unconditional "yes"
-  and listed the B5 problem underneath it as a "qualification" — which was
-  incoherent, because B5 *is* one of 8.10's clauses and this ledger grades it
-  partially discharged (C5). The conditional answer is the honest one.
-  What is settled: 8.10 scopes itself to "execute **only** 8.8.9.1–8.8.15.1"
-  (5089–5093), so §1's open numbered tasks are not its acceptance; every
-  behavioural clause of its Pass B, Pass C and Pass D matrices is discharged or
-  reduced to a named evidence unit above (1, 2a, 2b, 2c, 3, 4a); its gate half
-  (B10) rides unit 4; and its one undischargeable clause (B101) is conditional
-  by its own words on an extension nobody is permitted to create.
-  What is not settled is B5 — "**Every** new test needs an **observed**
-  compiling mutation failure at its claimed assertion and a restored pass" —
-  where every observation in this change is a record (F5). So: units 1–4a and 4
-  land the evidence and the gates, **unit 9 rules B5**, and unit 6 ticks. If the
-  ruling goes the other way, unit 9's bounded fallback is the path, and 8.10
-  ticks after it.
-- **What does 9.6 still wait on?** Its stated precondition at 5499 is "After 8.8
-  and 8.10", so it waits on both ticks — and therefore on **two** operator
-  rulings (unit 9 for 8.10's B5, unit 7 for 8.8's N1/N3) and on the external
-  evidence of unit 5. Then its own
-  accounting and compatibility acceptance, which is **not started**: cold/warm
-  retained-store integration including the verified first-match fold gap (F4),
-  historical/current multi-message/tool/retry intervals, output/tool/target
-  filtering, usage deduplication, per-message versus cumulative accounting,
-  omission of unattributable totals, and legacy compatibility (5499–5524).
-  Satisfying 9.6's prerequisites completes none of that; units 6 and 7 open
-  9.6's door and do not walk through it.
+- **8.8 — No.** It ticks only after entries 11–16 land, entry 17 rules every
+  recorded removal sufficient (or entries 18–21 replay them), entry 22
+  regrades and records, and entry 23 closes N1–N4, N11 and N14 on the
+  retrieved pins and native results. Ticking N1 and N3 without the pins would
+  be an operator scope change, not satisfaction.
+- **8.10 — Yes, conditionally.** It ticks only after entries 11 and 14 land
+  and entry 17's ruling covers every 8.10 removal predicate: B5 over every
+  suite, B16's four, B20's one, B77, and S1 and S3–S10 through B2. After a
+  negative ruling, it waits for entries 18, 19 and 21 instead. In either case
+  entry 22 regrades the stale rows and ticks it. No seat may tick it
+  otherwise.
+- **9.6 — It waits on both ticks**, its own "After 8.8 and 8.10" (5499). So it
+  waits on everything above, entry 13's source pins and entry 16's host run
+  included, and then on its own unstarted work, starting with entry 24.
+
+**8.8, in detail.** 8.8's acceptance includes the fourteen numbered tasks at
+1232–1548, graded in eighteen rows, of which **eight tasks are open** (§1).
+Entries 14 and 22 close 8.8.14.2 and 8.8.15.1. Entry 11 closes A53's open
+half. Entry 12 closes N2's and N4's unasserted cells. Entry 17 (or 20) rules
+the recorded removals of N2, N4, N5d, N6a, N6b and N7–N10. What then remains
+is external, not impossible. **N1's and N3's Apple and env source pins are
+blocked retrieval** (entry 13): the previous revisions called them "cannot be
+produced by anyone here", and that is withdrawn (finding 1). **N2's and N4's
+macOS legs need a host** (entry 15). **N11's positive and its two removals
+have never been performed** (entry 16). Entry 23 then reconciles N14. The
+operator may instead rule N1/N3 closable on their delivered half, but that is
+a change to the acceptance, and 1209–1212 and 8.8.8.4 reserve it to them.
+The first cut answered "yes" because it had not inventoried the numbered rows
+at all.
+
+**8.10, in detail.** 8.10 scopes itself to "execute **only**
+8.8.9.1–8.8.15.1" (5089–5093), so §1's open numbered tasks are not its
+acceptance. Its behavioural matrices were reduced to evidence entries, and
+all of 1–10 have landed. Entry 11 remains for B42 and B30. Several B rows
+await entry 22's regrade against those landings. Its gate half (B10) rides
+entry 14. Its one undischargeable clause (B101) is conditional, by its own
+words, on an extension nobody is permitted to create. What is not settled is
+the removal class. B5 says "**Every** new test needs an **observed**
+compiling mutation failure at its claimed assertion and a restored pass",
+beside B16's four separately observed failures, B20's paired selector
+mutation, B77, and the S rows B2 brings in. Every observation for them in
+this change is a record (F5). The previous cut's fallback, S6 plus B5 on the
+terminal body, could not reach B16, B20 or B5 in the other suites, and it
+promised a tick over clauses it left open (finding 3). So the answer is the
+conditional one above.
+
+**9.6, in detail.** Its precondition at 5499 is "After 8.8 and 8.10", so it
+waits on both ticks. That means **three** operator rulings: entry 17 for the
+removal class, entry 23 for N1–N4/N11, and any scope change the operator
+chooses there. It also means the externally owned entries 13, 15 and 16.
+Then comes its own accounting and compatibility acceptance, which is **not
+started**:
+- cold/warm retained-store integration, including the verified first-match
+  fold gap (F4, entry 24);
+- historical/current multi-message, tool and retry intervals;
+- output, tool and target filtering;
+- usage deduplication;
+- per-message versus cumulative accounting;
+- omission of unattributable totals;
+- legacy compatibility (5499–5524).
+
+Satisfying 9.6's prerequisites completes none of that. Entries 22 and 23 open
+9.6's door and do not walk through it.
