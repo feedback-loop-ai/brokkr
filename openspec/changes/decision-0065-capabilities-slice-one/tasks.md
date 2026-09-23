@@ -77,6 +77,18 @@ is not green. No archive occurs until the final conditional task is authorized.
 
 - [ ] 2.1 Unit 2 adds D5 typed inline tools/checked sandbox restrictions. Verify agent/seat narrowing, unknown classes, boundary incompatibility and source causes. Requirements: [Legacy concrete permissions cannot grandfather a capability][SC7], [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR]. Reopened/remaining: operator ruling 1–2. (previous 3.14)
 
+Unit 2 specification visit, 2026-09-23, adopted head 5a47b090: task 2.1 stays
+open. Its owning SCM scenarios now spell out strict tools keys/types, duplicate
+and abstract-name checks, per-field inheritance, explicit empty, allow subsets,
+sandbox narrowing and the existing boundary/hands refusal. Use only the three
+production and two test files named in design's unit 2. Capture baseline reds
+for inline tools, empty agent allow and sandbox decoding before implementation;
+source inspection in evidence.md is not an executed red. Check exact decoded
+values and whole invalid/widening causes at each executable body, with fixtures
+rooted at one canonical temporary directory and no provider or `.forge/` reads.
+Each new test needs its own compiling removal failure at the intended assertion
+and restored pass. Units 3–4 own lowering/origins; no later unit closes here.
+
 ## 3. Unit 3 — Lower typed tools and define private origins
 
 - [ ] 3.1 Unit 3 defines typed lowering and private segment decoding/reassembly, with expected state independent of generated argv. Verify exact mappings and identical-byte origin distinction in agents/native-controls suites; no public schema. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; both design positions. (previous 3.20)

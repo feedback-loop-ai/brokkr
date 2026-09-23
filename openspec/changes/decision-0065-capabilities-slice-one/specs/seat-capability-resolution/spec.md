@@ -304,6 +304,78 @@ list SHALL only narrow it, with an empty list subtracting all local entries.
 Neither form grants native powers; independent native OFF remains required.
 Concrete mappings SHALL preserve their exact command-prefix restrictions.
 
+The typed `tools` object SHALL have a closed vocabulary: `allow`, `sandbox`
+and the harmless legacy `mcp: []` only. Null, a non-object or an unknown key
+SHALL refuse. `allow`, when present, SHALL be a duplicate-free ordered array
+of abstract names matching `^[a-z][a-z0-9-]*$`; empty is valid and distinct
+from omission, including in an agent definition. `sandbox`, when present,
+SHALL be one of the three class strings above, never null or an opaque object.
+Malformed declarations SHALL refuse before optional capability handling can
+turn them into a drop. Existing original-source duplicate-key refusal applies.
+
+Inheritance SHALL apply separately to each local field. An omitted `tools`
+object, an empty object, or an omitted field within it SHALL NOT clear an
+agent's corresponding restriction. An explicit allow list SHALL retain its
+written order and names, and SHALL be a subset when the agent declares a list.
+When the agent declares no allow restriction, a seat MAY introduce a local
+list; this only restricts the existing local default. Sandbox narrowing SHALL
+preserve or reduce local execution reach: read-only is narrower than
+workspace-write, which is narrower than danger-full-access. An agent with no
+sandbox restriction MAY be narrowed by a seat's explicit class. These local
+comparisons SHALL NOT replace the realm's boundary, authorize a missing hands
+fragment, or widen a gate's read-only authority.
+
+These declaration rules SHALL apply to agents and every executable inline or
+agent-backed site: ordinary seats, panel members, sequence steps and selected
+case bodies, including inherited/composed bodies. A `tools` declaration beside
+a panel, sequence or selection container SHALL refuse rather than silently
+apply to its children. Refusals SHALL identify the owning agent/source or
+executable site, the offending field and the complete validation or widening
+cause; boundary conflicts SHALL also name the resolved boundary. No invalid
+field SHALL be coerced, ignored or treated as omitted.
+
+#### Scenario: Strict typed decoding preserves exact local values
+
+- **WHEN** an agent or executable site declares `tools: {"allow":["git","cargo"],"sandbox":"read-only"}`
+- **THEN** its local declaration retains exactly the ordered names `["git","cargo"]` and class `read-only`, subject to existing authority checks
+- **AND** replacing the class independently with `workspace-write` and `danger-full-access` retains exactly that class when authority admits it; none becomes a realm boundary or a capability grant
+
+#### Scenario: Malformed tools cannot become defaults
+
+- **WHEN** a declaration supplies a null/non-object tools value, an unknown tools key, null/non-array allow, a non-string allow member, a duplicate or malformed name, or null/non-string/unknown sandbox
+- **THEN** each case refuses its specific field and complete cause, without accepting a valid sibling field as a substitute
+- **AND** a raw harness pattern such as `Bash(cargo:*)` is not an abstract name, and nonempty legacy MCP still refuses with the migration reason
+- **AND** repeated tools, allow or sandbox keys refuse from the original source even when repeated values are equal
+
+#### Scenario: Field omission inherits while an explicit empty list subtracts
+
+- **GIVEN** an agent declares `allow: ["cargo","git"]` and `sandbox: "workspace-write"`
+- **WHEN** its seat omits tools, supplies `tools: {}`, or supplies only `sandbox: "read-only"`
+- **THEN** the effective allow list remains exactly `["cargo","git"]`; sandbox is respectively `workspace-write`, `workspace-write` and `read-only`
+- **AND** `tools: {"allow":[]}` instead retains an explicit empty allow list and inherits `workspace-write`, while `tools: {"allow":["git"]}` retains exactly `["git"]` and inherits that same class
+- **AND** for an inline site or agent with no local declaration, omission remains unspecified while `allow: []` remains explicitly empty; neither is rewritten to the other
+
+#### Scenario: A local override cannot widen its agent
+
+- **GIVEN** an agent declares `allow: ["cargo"]` and `sandbox: "read-only"`
+- **WHEN** a seat independently adds `git`, supplies `workspace-write`, or supplies `danger-full-access`
+- **THEN** each refuses with the site, agent, offending local field and exact addition or widening cause
+- **AND** the same-class sandbox and the same or empty allow set preserve their exact values, while an unrestricted agent can be narrowed by an explicit local list or sandbox class
+
+#### Scenario: A local sandbox cannot replace boundary authority
+
+- **GIVEN** a model gate with hands under the realm's `harness` boundary has an otherwise valid adapter read-only fragment
+- **WHEN** it requests typed `workspace-write` or `danger-full-access`
+- **THEN** compilation refuses the sandbox/boundary conflict with the complete site and boundary cause instead of replacing the gate restriction
+- **AND** typed `read-only` preserves that restriction; it cannot supply a missing adapter fragment or admit the same model gate under `open`
+- **AND** typed danger-full-access never removes a realm-selected box, changes hands reach or authorizes native web access
+
+#### Scenario: Each executable body owns its local declaration
+
+- **WHEN** the same valid subset, explicit empty and invalid widening are placed independently at an ordinary seat, panel member, sequence step and selected case body, including inherited forms
+- **THEN** each has the same effective local values or complete owning-site refusal
+- **AND** placing tools on the enclosing panel, sequence or selection container refuses its non-executable placement; it does not create a shared grant or an ignored restriction
+
 #### Scenario: Typed permissions preserve limits without inline options
 
 - **WHEN** a migrated Claude seat requests its local command subset, or a migrated Codex seat declares its existing sandbox restriction as typed data
@@ -418,3 +490,20 @@ Ruling 1 supersedes the old authored MCP subtraction positive. Typed request
 subtraction and independently proven optional drops survive. R10/R12 require
 compiled final-boundary assertions with one canonical temporary root on Linux
 and macOS; existing hand-built plan tests cannot close those obligations.
+
+Unit 2 specification clarification (2026-09-23, based on 5a47b090): D5 already
+rules explicit empty as no local entries, so reject the loader's historical
+"empty is ambiguous" interpretation. Omission is field-wise inheritance;
+`tools: {}` is not an escape from an office restriction. Subset checks compare
+abstract names without merging provider patterns. The three sandbox classes
+are ordered only for local narrowing; 0046's boundary and hands law remains
+independent and wins over a conflicting local request. These choices are
+encoded in the scenarios above. Raw flags, opaque settings and concrete server
+requests are rejected as alternative typed representations under ruling 1.
+
+This clarification specifies decoding and local validation for task 2.1. It
+does not close later lowering, origin propagation, migration or final-command
+proofs. Retaining an explicit empty value is a decoding obligation; proving
+that the provider actually receives an empty restriction remains a separate
+obligation in the named later units. No success may claim enforcement by merely
+accepting and discarding the typed declaration.

@@ -1,8 +1,9 @@
 Status: proposed specification of accepted decision 0065, slice one.
 Change: decision-0065-capabilities-slice-one.
 Adopted: slice-0065-capabilities at 44430402, specification draft a84197cd
-and design revision 3c5402be; every commit is retained. This tasks visit orders
-the adopted rebuild and reconciles requirement coverage.
+and design revision 3c5402be; every commit is retained, including the replay
+and unit 1b through 5a47b090. This specification visit adopts that head and
+clarifies only rebuild unit 2 (task 2.1).
 Authority: [operator ruling, 2026-09-23](operator-ruling-2026-09-23.md).
 
 ## Why
@@ -34,6 +35,10 @@ this highest-priority revision corrects the specification and plans the rebuild.
   supplying the consumed bytes; a path check followed by an unchecked reopen
   is insufficient. These clarify enforcement boundaries, without a new public
   contract or subsystem.
+- Specify unit 2's strict `tools.allow` / `tools.sandbox` decoding for agents
+  and executable sites: distinguish omission from empty, admit only local
+  narrowing, and preserve realm/boundary authority with complete refusal causes.
+  These are the D5 prerequisites for the later lowering and migration units.
 - Migrate shipped inline tool and permission flags to typed declarations
   before refusal lands. The file-by-file inventory is in design's Migration
   Plan, including preflight, fast, node, verify and Codex recipe modes.
@@ -59,19 +64,22 @@ None; these six deltas remain the adopted slice's new capabilities.
 
 ## Impact
 
-The adopted revisions cover this proposal, six deltas, design, tasks, evidence
-and proposed decision 0066. This tasks visit orders the ledger and updates its
-dependent documentation. No code, tests, shipped data or witness bytes change.
-The task groups follow design's one dependency-ordered list of one-visit rebuild units; unit 1
-rebases onto current origin/main and re-pins measured identities. Implementation
-and its test/coverage gates remain owed. Supported hosts are Linux and macOS
-(decision 0063). Frozen contracts, fixtures, policy and reference stay frozen.
+The complete adopted change retains this proposal, six deltas, design, tasks,
+evidence and proposed decision 0066. This specify visit amends the proposal,
+the owning seat-capability-resolution delta, task 2.1's acceptance detail and
+evidence. The other deltas and the accepted Rebuild units order remain adopted.
+The clarification applies D5 and the operator ruling; it does not replace them.
 
-There is no returned_from in the supplied run context. The explicit operator
-ruling and all three completed third-council positions supply this visit's
-findings; their individual dispositions are recorded under design Decisions.
-Earlier chief rulings remain evidence, with superseded remedies identified.
-The robustness and simplicity design positions are explicitly reconciled in
-design Decisions; their useful safeguards share the existing bounded machinery.
-The security hold remains unresolved; this documentation is not a repair pass.
-Only the operator can accept 0066. No archive, push or release is authorized.
+Unit 2's implementation is bounded to `crates/brokkr-runtime/src/agents.rs`,
+`agents/load.rs` and `bundle.rs`, with `agents/tests.rs` and
+`bundle/agent_tests.rs` in the same src root. It must capture baseline reds,
+compiling enforcement removals and restored passes there. Task 2.1 remains open
+in this specification visit. Lowering/origin carriage, shipped migrations,
+authored-option refusal and final-launch proof retain their later units.
+
+The current run has no `returned_from`; no council is reconvened here. Existing
+council dispositions and security holds retain their recorded scope. Unit 1's
+pending external gates stay pending. Supported hosts are Linux and macOS
+(decision 0063); grants and frozen contracts, fixtures, policy, reference and
+extensions do not change. Decision 0066 stays proposed; only the operator can
+accept it. No archive, push or release is authorized.

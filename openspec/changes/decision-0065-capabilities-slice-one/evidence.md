@@ -588,3 +588,68 @@ full workspace suite and the verify bundle were not rerun in this visit.
 Task 1.1 keeps unit 1's external gates, which the
 host owns: exact coverage on a4b08863 is running, and draft PR #319 carries
 macOS and remote CI. None of them is claimed here.
+
+## Unit 2 — specification adoption, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-9f0b932b`, phase `specify`, based on
+`5a47b090aae6d8e67487ff75b7e295240d372646` on `slice-0065-capabilities`.
+Adopted `decision-0065-capabilities-slice-one` and all preceding history;
+no replay, new change, implementation or task closure occurred. Task 2.1 is
+still open. The run context supplies no `returned_from`.
+
+Read the operator ruling and its addendum first, then the Rebuild units
+preamble/unit 2, D5, task 2.1 and its SC7/SCM/RGR deltas. Also read README,
+decisions 0004/0005/0009/0065, the relevant 0046 boundary ruling and proposed
+0066's status, the named loaders/suites and their history. Read
+`dialects/openspec.json`, its specify/return files and OpenSpec's rendered
+`instructions proposal` then `instructions specs` for this adopted change.
+No workflow runner was invoked and no new council was convened.
+
+Amended artifacts in dependency order: proposal, the owning
+seat-capability-resolution delta, tasks and this evidence. The delta's
+`## Decisions` records why D5 rejects the historical ambiguous-empty reading,
+why omission inherits per field, and why sandbox narrowing cannot override
+realm/boundary authority. Its scenarios give concrete typed values, malformed
+inputs, subset/widening cases and executable/container placement. The existing
+realm refusal delta and design's Rebuild units remain coherent without edits;
+raw-option refusal and final composition retain their assigned later units.
+Decision 0066 remains proposed.
+
+### Source observations and intended baseline reds
+
+These are source observations at the adopted head, **not executed tests**.
+The implementation visit must capture the real failing tests before a fix.
+
+| Owning file/suite | Observed baseline | Intended unit 2 assertion |
+| --- | --- | --- |
+| `agents/load.rs`; `agents/tests.rs` | `parse_tools` accepts only allow/mcp and rejects an empty allow array as ambiguous; the existing loader table expects that rejection. | Exact decoding keeps explicit `[]` distinct from omission and retains each valid sandbox class; invalid fields retain their complete causes. |
+| `agents.rs`; `agents/tests.rs` | `Agent` has optional ordered allow but no typed sandbox field. Local composition and hands already have separate authority rules. | Exact local values survive validation, including inherited and explicit empty; no capability or hands authority is inferred. |
+| `bundle.rs`; `bundle/agent_tests.rs` | Seat/body/member/step closed key lists lack tools, so inline and agent-backed local declarations cannot yet reach the D5 rules. | Each executable form accepts exact local declarations or refuses exact malformed/widening/boundary causes; a container does not absorb a declaration. |
+| `bundle/agent_tests.rs` | `AgentFixture` currently derives paths from its lexical TempDir, while `agents/tests.rs` already retains a canonical root. | Unit 2 fixtures derive paths and full expected causes from one canonical temporary root. No provider installation or `.forge/` read is permitted. |
+
+No Rust test was added or mutated by this specification visit. Baseline reds,
+independent compiling removal failures (test and assertion), restored passes
+and runtime validation remain owed by task 2.1 in its two named suites. This
+visit does not present decoder acceptance as proof of lowering or final launch.
+
+### Observed validation and limits
+
+- `openspec validate --all --strict`: **passed, 18/18**. Informational notices
+  include long existing requirements and unrelated archive-target notices for
+  `adapter-resume-safety` / `sdd-progress-markers`; no validation failed.
+- `git diff --check`: **passed**.
+- `cargo fmt --all -- --check`: **unavailable**, exit 127, `/bin/bash: cargo:
+  command not found`. Neither cargo/rustc/rustup is on this seat's PATH; the
+  conventional cargo binary locations checked also yielded no executable.
+- Workspace clippy, the runtime suite, `cargo test --workspace` and the cargo
+  compile of `bundles/self`: **not run**, because this boxed specify seat has
+  no Cargo toolchain. No existing target binary substitutes for those gates.
+- External exact coverage, macOS and remote CI: **pending**, with no new
+  external result observed. This does not close unit 1's outstanding gates or
+  establish a fully green unit 2.
+
+Only proposal.md, specs/seat-capability-resolution/spec.md, tasks.md and
+this evidence file change. Production, tests, pins, grants, frozen contracts,
+policy/schemas, policy/phase-machine.json, fixtures, reference and extensions
+retain their adopted bytes. The engine result is a run-local file, not a fifth
+committed artifact. No push is authorized or performed.
