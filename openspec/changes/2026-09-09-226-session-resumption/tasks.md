@@ -888,10 +888,12 @@ neither is re-audited. **8.8 and 8.10 stay unticked**, no checkbox row is
 added or moved, and the inventory is unchanged: 152 checkbox rows, 125
 checked / 27 unchecked.
 
-Four signed commits, in two test files and nothing else: `33aecdbf` the
+Five signed commits, in two test files and nothing else: `33aecdbf` the
 profile's own lines and the generated file that is not one, `d983bb27`
 seven drifted sources, `69f555d8` the bounded locator by its own reasons,
-`b990217a` the wrapper's resume plan. `git diff 8fbe325d --name-only`
+`b990217a` the wrapper's resume plan, and `1d1d9f17` the returned
+review's three findings, recorded under **Returned review** below.
+`git diff 8fbe325d --name-only`
 names `crates/brokkr-protocol/src/adapters/composite/tests.rs` and
 `crates/brokkr-protocol/src/adapters/tests.rs`, so production is
 byte-identical to D2's head and no production line entered or left the
@@ -930,10 +932,9 @@ needs an installed provider.
   `patchReload` and an added home-level `cordis.patch.yml` — over one
   synthetic home. Each asserts the exact declared bundle order, the exact
   reload value and the exact `home-patch` value, that no dependency line
-  and no plugin byte moved, and then the exact identity bytes: the
-  canonical composite is compared to the SHA-256 of the component stream
-  that case serializes, written out by hand from a shared literal prefix.
-  Six streams, six identities, none colliding. The dropped case keeps the
+  and no plugin byte moved, and then the identity: a LITERAL canonical
+  composite recorded from the sole producer for that profile. Six cases,
+  six recorded identities, none colliding. The dropped case keeps the
   required plugin and drops the other bundle, so what is measured is a
   readable removal and not the plugin refusal.
 - **The generated file that is not an input.**
@@ -998,7 +999,7 @@ leaves the base readable and moves only when the generated file appears.
 
 | Mutation | Case that parted |
 |---|---|
-| `canonical_composite` sorts the `profile-bundle` rows | the reordered case, at its pinned stream digest |
+| `canonical_composite` sorts the `profile-bundle` rows | the reordered case, at its recorded digest |
 | `read_profile` defaults a missing `patchReload` to `startup` | the manifest matrix, at the first admitted defect |
 | `profile_patch` folds `cordis.yml` over the patch digest when present | the generated file moved the whole observation |
 | the composite comparison tests digest LENGTH, not equality | every drift recorded the drifted observation as the current identity |
@@ -1034,6 +1035,81 @@ denominator and every production line's status are D2's measured 3,195 of
 itself and `openspec validate --all --strict` stay **pending** until a host
 that may run them does; remote CI on a final head and native macOS remain
 pending until their own results exist.
+
+**Returned review, 2026-09-23.** The review returned three author-
+correctness findings against `859e5b07`. All three are answered in
+`1d1d9f17`, in the same two test files; production is still byte-identical
+to D2's head and no checkbox moved.
+
+- **MEDIUM, a second serializer.** The profile suite assembled
+  `profile-bundle`, `profile-patch-reload` and `home-patch` rows from the
+  very case inputs its fixture had just written, concatenated them onto a
+  prefix constant and hashed the result as the expected canonical
+  composite. That is the test-side stream oracle D6 forbids: it agreed
+  with the producer by construction rather than by evidence, so a producer
+  that changed the tail in the same way the test assembled it would have
+  passed. The helper and the prefix constant are gone; each of the six
+  cases now carries a LITERAL canonical digest recorded from the sole
+  producer, beside the component, order, dependency, plugin and
+  distinctness assertions that were already there. The tail's byte form
+  stays pinned where a frozen recorded stream can pin it —
+  `WORKED_CANONICAL_STREAM` carries the three row kinds verbatim — so what
+  these six cases own is the MOVEMENT, each to its own recorded value.
+- **The guard that missed it.** `no_test_reassembles_the_component_stream`
+  knew only a NUL pushed between path and digest and a hash taken of an
+  assembled `lines` buffer. It now refuses any line that puts the NUL
+  separator into a `format!`, a `write!` or a `push`/`push_str`, and
+  asserts that NUL-bearing lines were examined at all, so a source that
+  stopped spelling the separator could not pass by examining nothing. Run
+  against `859e5b07`'s source the extended guard fails naming
+  `tests.rs:11282` — the assembler it previously did not see — which is
+  this change's removal proof; against the answered source it passes.
+- **The literals bind.** The `canonical_composite` sorting mutation was
+  compiled again against the ANSWERED suite, because the point of the
+  finding is that the old expectation agreed by construction: sorting
+  `profile-bundle` rows collapses the reordered case onto the base
+  identity, and the case parted at
+  `composite/tests.rs:11396` reading `286b90a0…` where
+  `ae478bfc…` is recorded. Reverted; production ends byte-identical and
+  the suite is green.
+- **LOW, raw temporary paths.** The three manifest loops in
+  `the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart`,
+  `a_retained_dsh_directory_alone_never_supplies_a_provider_handle` and
+  the touched round trip in
+  `a_dsh_overlong_locator_is_never_truncated_into_another_valid_root`
+  built homes from raw `TempDir` paths while comparing resolved roots and
+  canonicalized boundaries against paths joined by hand. On a host whose
+  `$TMPDIR` is reached through a symlink that is a spelling the producer
+  never returns, which is how PR #311's macOS leg failed. Each now builds
+  on the canonical root — `FixtureRoot` in the composite suite, a
+  canonicalized `DSH_HOME` in the adapter suite — so the delivery claim
+  that every home is built beneath a canonicalized temporary root is now
+  true of every touched case.
+- **LOW, a refusal read by substrings.** The wrapper's ambient
+  `--continue` case checked two substrings. It now compares the COMPLETE
+  expected reason, cold and offered alike: the wrapper shares claude's
+  parser and must not soften or re-spell what it says.
+
+Gates re-run on `1d1d9f17`, sequentially from this worktree: `cargo fmt
+--all -- --check` PASS; `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings` PASS; `cargo test` PASS for
+`brokkr-protocol` (426 lib + 99 seatbelt + 1 doc), `brokkr-core`,
+`brokkr-store`, `brokkr-bridge`, `brokkr-runtime`, `brokkr-view` and
+`brokkr-cli` (467 lib and every integration binary); `cargo run --locked
+-p brokkr-cli -- compile --bundle bundles/self` PASS. One full-suite
+invocation of `brokkr-protocol` reported
+`hands::the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path`
+red; it passes alone and passed on every rerun, it spawns `unshare` to
+probe namespace availability, and it is untouched by this slice — recorded
+as an environmental flake, not a result. The coverage SUBSTANCE was
+measured again on `1d1d9f17` with the pinned toolchain: `git grep
+'coverage(off)'` over `crates/` empty, `llvm-cov clean --workspace`, a
+`--branch --json` run of the whole suite exiting 0, and an LCOV export
+with **32,802 of 32,802 `DA` records covered, 5,508 of 5,508 `BRDA`
+records covered** and zero test-harness filenames in the report; the
+report's own function column reads **3,237 of 3,237, none missed**. The
+gate script and `openspec validate --all --strict` stay refused by this
+seat's grant and remain **pending**.
 
 **Pass D clause mapping.** Every clause of the authoritative Pass D
 paragraph above, against the run that discharged it:
