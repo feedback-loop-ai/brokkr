@@ -1884,6 +1884,31 @@ symlink fixture and twenty planner vectors.
    unit can reach" paragraph on the source pins is withdrawn: entry 13 reaches
    them.
 
+   **Coverage fix landed 2026-09-23 at `6d316980`; the gate itself stays
+   pending.** PR #327's exact coverage gate failed on `0af3a3c9`: lines
+   32,849/32,851, functions 3,194/3,196, branches 5,508/5,508. The host
+   aggregated lcov by source line. The only misses were
+   `adapters/route_overlay.rs` lines 961 and 962, the two `|_| panic!(...)`
+   readers in `a_bound_route_beside_a_segment_less_pin_refuses_before_any_read`
+   (unit 2c-fix, `289d9c5b`), which by design are never called. They counted
+   because that file kept its `#[cfg(test)] mod tests` inline, and
+   `scripts/coverage-exact.sh:51` excludes only `tests.rs`, `*_tests.rs` and
+   `tests/` paths. The module now lives in
+   `crates/brokkr-protocol/src/adapters/route_overlay/tests.rs`, declared
+   `#[cfg(test)] mod tests;` the way `composite.rs:4871–4872` declares
+   `composite/tests.rs`. That declaration is the only production change. No test
+   body, name, assertion or `use` changed. `diff -w` of the old module body
+   against the new file is empty: only the module's four-space indent went,
+   and the `SHIPPED` literal's content lines keep their bytes. `cargo test -p
+   brokkr-protocol --all-features --locked -- --list` filtered to
+   `route_overlay` gives the same 31 lines before and after (26 of them
+   `adapters::route_overlay::tests::`), and the whole list is equal too.
+   `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+   --all-features --locked -- -D warnings`, `cargo test -p brokkr-protocol
+   --all-features --locked` (430 + 99 + 1 passed, 0 failed, 2 ignored) and
+   `git diff --check` are green. The coverage script was not run here; the
+   host re-runs it. No checkbox moved.
+
 16. **Run N11's positive and perform its two removals on a capable host.**
    Added by the remediation (third return, finding 2). **Externally owned**:
    it needs a Linux or macOS host with a `node` executable on the platform's
