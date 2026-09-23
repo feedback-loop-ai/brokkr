@@ -1729,7 +1729,8 @@ fn a_valid_route_overlay_binds_at_the_panel_member() {
 /// Every shape whose binding the engine withholds yields the SAME
 /// outcome — no `route_overlay` member — never a start failure. Each
 /// member of one panel carries one shape, and every member still starts
-/// and is sent its context.
+/// and is sent its context. The single-site half of "at either call
+/// site" is the nonmember case below.
 #[test]
 fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
     let dir = tempfile::tempdir().unwrap();
@@ -1807,9 +1808,65 @@ fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
     }
 }
 
+/// The SINGLE site withholds the member for the same shapes. The panel
+/// case above drives all six through `MemberRun`; this one drives the
+/// nonmember — a file inside the compiled layer the manifest does not
+/// record — through `run_driver`, so the withholding half of the clause
+/// is proved at either call site rather than at one. The site still
+/// receives its private context: withholding is a missing member, never
+/// a missing context and never a start failure.
+#[test]
+fn a_non_binding_route_overlay_withholds_the_member_at_the_single_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let layer = root.join("work").join("recipe");
+    let member_bytes = b"route: member\n";
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
+    // A file inside the layer the manifest does not record.
+    std::fs::write(layer.join("other.yml"), b"route: other\n").unwrap();
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            single(
+                patched(driver(&root, "work", &["complete"]), "recipe/other.yml"),
+                Vec::new(),
+            ),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": overlay_digest(member_bytes) });
+
+    run(&root, bundle);
+
+    let context = route_start(&root, "work")["input"]["resume_context"].clone();
+    assert!(
+        context.is_object(),
+        "the single site still receives its private context, got {context}"
+    );
+    assert_eq!(
+        context.get("route_overlay"),
+        None,
+        "a nonmember --patch must carry no route_overlay at the single site, got {context}"
+    );
+}
+
 /// A member whose bytes changed after compilation still binds with the
 /// MANIFEST's recorded digest, never a fresh hash of the resolved file:
 /// the adapter's required comparison is what refuses the new bytes.
+/// Driven at the single site here and at the panel member below.
 #[test]
 fn a_changed_route_overlay_member_carries_the_manifest_digest() {
     let dir = tempfile::tempdir().unwrap();
@@ -1854,6 +1911,56 @@ fn a_changed_route_overlay_member_carries_the_manifest_digest() {
         "the carried digest is the manifest's, never a hash of the changed file"
     );
     assert_ne!(binding["digest"], overlay_digest(b"route: after\n"));
+}
+
+/// The same changed member at the PANEL-MEMBER call site, from that
+/// member's own composed argv: the carried digest is still the
+/// manifest's, and still not the hash of the bytes now on disk — read
+/// here off the resolved file rather than off a literal, so the
+/// `assert_ne!` compares against what the engine would have hashed.
+#[test]
+fn a_changed_route_overlay_member_carries_the_manifest_digest_at_the_panel_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let layer = root.join("work").join("recipe");
+    std::fs::create_dir_all(&layer).unwrap();
+    let compiled = b"route: panel before\n";
+    let compiled_digest = overlay_digest(compiled);
+    std::fs::write(layer.join("route.yml"), b"route: panel after\n").unwrap();
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![member(
+                "alpha",
+                patched(driver(&root, "alpha", &["complete"]), "recipe/route.yml"),
+            )]),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": compiled_digest.clone() });
+
+    run(&root, bundle);
+
+    let resolved = overlay_digest(&std::fs::read(layer.join("route.yml")).unwrap());
+    let binding = route_binding(&root, "alpha");
+    assert_eq!(binding["value"], "recipe/route.yml");
+    assert_eq!(
+        binding["digest"], compiled_digest,
+        "the member's carried digest is the manifest's, never a hash of the changed file"
+    );
+    assert_ne!(binding["digest"], resolved);
 }
 
 /// The binding is present on an OFFERED start exactly as on a cold one:
