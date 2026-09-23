@@ -472,6 +472,555 @@ pub fn launch_arguments(
     Ok((authored, managed))
 }
 
+// ------------------------------------------------ private launch origins
+
+/// Who SUPPLIED one contribution to a seat's argv (decision 0065 slice one,
+/// design D5.7): the recipe's copied command, the adapter's driver template
+/// and its model and effort emissions, the local permissions lowered from a
+/// typed allow list, the engine's hands, and the realm-derived native
+/// controls. Assigned where the contribution is constructed, never
+/// recovered by matching its bytes: two origins may supply identical
+/// tokens, and an authored copy of an engine control stays authored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    Authored,
+    Template,
+    Local,
+    Hands,
+    Native,
+}
+
+impl Origin {
+    /// The closed vocabulary, spelled once for every refusal.
+    pub const VOCABULARY: &'static str = "authored, template, local, hands or native";
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Origin::Authored => "authored",
+            Origin::Template => "template",
+            Origin::Local => "local",
+            Origin::Hands => "hands",
+            Origin::Native => "native",
+        }
+    }
+
+    fn parse(word: &str) -> Option<Origin> {
+        Some(match word {
+            "authored" => Origin::Authored,
+            "template" => Origin::Template,
+            "local" => Origin::Local,
+            "hands" => Origin::Hands,
+            "native" => Origin::Native,
+            _ => return None,
+        })
+    }
+}
+
+/// One ordered contribution: its origin and its exact argv. An empty
+/// segment, an empty-string argument and a repeated equal segment are all
+/// kept as written; nothing is sorted, deduplicated, trimmed or split.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Segment {
+    pub origin: Origin,
+    pub argv: Vec<String>,
+}
+
+impl Segment {
+    pub fn new(origin: Origin, argv: &[String]) -> Segment {
+        Segment {
+            origin,
+            argv: argv.to_vec(),
+        }
+    }
+}
+
+/// The ordered concatenation of every segment's argv: the flat projection
+/// today's serving consumers read. It loses the origins, which is why the
+/// segments, not this, are what a private record carries.
+pub fn flatten(segments: &[Segment]) -> Vec<String> {
+    segments
+        .iter()
+        .flat_map(|segment| segment.argv.iter().cloned())
+        .collect()
+}
+
+/// A typed local allow list as the office or site declared it: unspecified
+/// (no restriction) or an ordered list, where an explicitly EMPTY list is
+/// a list and never read as unspecified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllowIntent {
+    Unspecified,
+    Listed(Vec<String>),
+}
+
+/// A typed local sandbox class, or none requested. A provider default is
+/// never one of these: only a declaration is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxIntent {
+    Unspecified,
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+impl SandboxIntent {
+    fn word(self) -> &'static str {
+        match self {
+            SandboxIntent::Unspecified => "unspecified",
+            SandboxIntent::ReadOnly => "read-only",
+            SandboxIntent::WorkspaceWrite => "workspace-write",
+            SandboxIntent::DangerFullAccess => "danger-full-access",
+        }
+    }
+}
+
+/// How the local declaration applies to the seat. `Direct` retains the
+/// adapter's concrete limits in the declared order, before any joining;
+/// `Dormant` is the hands replacement, under which a declared list is kept
+/// but its concrete mapping is inapplicable — not unrestricted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Application {
+    Unrestricted,
+    Direct(Vec<String>),
+    Dormant,
+}
+
+/// The local half of the expected state, from typed inputs alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalExpectation {
+    pub allow: AllowIntent,
+    pub sandbox: SandboxIntent,
+    pub application: Application,
+}
+
+/// Whether the agent's hands are required: read from its declaration,
+/// independently of what the native grants are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandsIntent {
+    None,
+    Required,
+}
+
+/// One held native power as the plan expects it: the abstract capability,
+/// the admitted tools and the realm's restriction object exactly as
+/// written. The object's contents are the dialect's, validated where the
+/// grant was loaded; nothing here interprets them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldPower {
+    pub capability: String,
+    pub tools: Vec<String>,
+    pub restrictions: serde_json::Map<String, Value>,
+}
+
+/// The native half of the expected state. A measured default ON is held
+/// here whether or not any argument is emitted for it; an unmeasured
+/// inventory keeps its reason and is never a known empty one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeExpectation {
+    Known {
+        held: Vec<HeldPower>,
+        denied: Vec<String>,
+    },
+    Unmeasured(String),
+}
+
+/// Whom the plan was resolved for: a fallback link's own identity, never
+/// its primary's. `model` is `None` for an inline site, which names none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Identity {
+    pub provider: String,
+    pub harness: String,
+    pub model: Option<String>,
+}
+
+/// The expected capability state, sealed from typed inputs before any argv
+/// is serialized, so the command being checked is never its own oracle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expected {
+    pub identity: Identity,
+    pub native: NativeExpectation,
+    pub local: LocalExpectation,
+    pub hands: HandsIntent,
+}
+
+/// The engine-private launch record (design D5.7): ordered supplying
+/// segments beside the expected state. Private Rust data between the
+/// runtime and this crate, not a versioned contract or manifest field.
+///
+/// Reading one back proves its shape and, through [`reassemble`], its byte
+/// correspondence with an argv — never that the engine sealed it. A
+/// self-consistent forged record decodes; the protected handoff that binds
+/// a record to the selected candidate is the dispatch path's to supply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchRecord {
+    pub segments: Vec<Segment>,
+    pub expected: Expected,
+}
+
+impl LaunchRecord {
+    /// The record as closed JSON: every enum a `kind`-tagged object, every
+    /// member present, so a reader can refuse absence instead of defaulting.
+    pub fn value(&self) -> Value {
+        let kind = |word: &str| serde_json::json!({ "kind": word });
+        let expected = &self.expected;
+        let model = match &expected.identity.model {
+            Some(name) => serde_json::json!({"kind": "named", "name": name}),
+            None => kind("none"),
+        };
+        let native = match &expected.native {
+            NativeExpectation::Known { held, denied } => serde_json::json!({
+                "kind": "known",
+                "held": held.iter().map(|power| serde_json::json!({
+                    "capability": power.capability,
+                    "tools": power.tools,
+                    "restrictions": power.restrictions,
+                })).collect::<Vec<_>>(),
+                "denied": denied,
+            }),
+            NativeExpectation::Unmeasured(reason) => {
+                serde_json::json!({"kind": "unmeasured", "reason": reason})
+            }
+        };
+        let local = &expected.local;
+        let allow = match &local.allow {
+            AllowIntent::Unspecified => kind("unspecified"),
+            AllowIntent::Listed(names) => serde_json::json!({"kind": "listed", "names": names}),
+        };
+        let application = match &local.application {
+            Application::Unrestricted => kind("unrestricted"),
+            Application::Direct(limits) => serde_json::json!({"kind": "direct", "limits": limits}),
+            Application::Dormant => kind("dormant"),
+        };
+        serde_json::json!({
+            "segments": self.segments.iter().map(|segment| serde_json::json!({
+                "origin": segment.origin.word(),
+                "argv": segment.argv,
+            })).collect::<Vec<_>>(),
+            "expected": {
+                "identity": {
+                    "provider": expected.identity.provider,
+                    "harness": expected.identity.harness,
+                    "model": model,
+                },
+                "native": native,
+                "local": {
+                    "allow": allow,
+                    "sandbox": kind(local.sandbox.word()),
+                    "application": application,
+                },
+                "hands": kind(match expected.hands {
+                    HandsIntent::None => "none",
+                    HandsIntent::Required => "required",
+                }),
+            },
+        })
+    }
+
+    /// Read a record back, refusing whatever it cannot read. Every member
+    /// is mandatory and every object closed: absent, null, wrongly typed,
+    /// an unknown member and an unknown kind each refuse with a fixed field
+    /// path and numeric positions. Nothing supplied — a tag, a key, a
+    /// reason, an argument — is echoed, and nothing is repaired into an
+    /// empty or default value. The old `authored`/`managed` pair is not a
+    /// record and does not decode as one.
+    pub fn decode(record: Option<&Value>) -> Result<LaunchRecord, String> {
+        decode_record(record).map_err(|(path, problem)| {
+            format!(
+                "refusing the private launch record: '{path}' {problem}; a record is never \
+                 repaired into an empty or default one (decision 0065 slice one, design D5.7)"
+            )
+        })
+    }
+}
+
+/// One decoding problem: the fixed field path and what is wrong there.
+type Fault = (String, &'static str);
+
+fn member<'a>(object: &'a Value, key: &str, path: &str) -> Result<&'a Value, Fault> {
+    let at = || format!("{path}.{key}");
+    match object.get(key) {
+        None => Err((at(), "is missing")),
+        Some(Value::Null) => Err((at(), "is null")),
+        Some(value) => Ok(value),
+    }
+}
+
+/// `value` as an object carrying exactly `members`, or its fault.
+fn closed<'a>(
+    value: &'a Value,
+    path: &str,
+    members: &[&str],
+) -> Result<&'a serde_json::Map<String, Value>, Fault> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| (path.to_string(), "is not an object"))?;
+    if object.keys().any(|key| !members.contains(&key.as_str())) {
+        return Err((path.to_string(), "carries an unknown member"));
+    }
+    for key in members {
+        member(value, key, path)?;
+    }
+    Ok(object)
+}
+
+fn string(value: &Value, path: String) -> Result<String, Fault> {
+    value
+        .as_str()
+        .map(str::to_string)
+        .ok_or((path, "is not a string"))
+}
+
+fn string_list(value: &Value, path: String) -> Result<Vec<String>, Fault> {
+    let items = value.as_array().ok_or((path.clone(), "is not an array"))?;
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| string(item, format!("{path}[{index}]")))
+        .collect()
+}
+
+/// The `kind` of a tagged object whose members for that kind are exactly
+/// `members(kind)`; an unknown kind refuses before its members are read.
+fn tagged<'a>(
+    value: &'a Value,
+    path: &str,
+    kinds: &[&'static str],
+    members: impl Fn(&str) -> &'static [&'static str],
+) -> Result<(&'static str, &'a Value), Fault> {
+    if !value.is_object() {
+        return Err((path.to_string(), "is not an object"));
+    }
+    let word = string(member(value, "kind", path)?, format!("{path}.kind"))?;
+    let kind = *kinds
+        .iter()
+        .find(|known| **known == word)
+        .ok_or_else(|| (format!("{path}.kind"), "names no known kind"))?;
+    let mut expected = vec!["kind"];
+    expected.extend(members(kind));
+    closed(value, path, &expected)?;
+    Ok((kind, value))
+}
+
+fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
+    let record = match record {
+        None => return Err(("record".to_string(), "is missing")),
+        Some(Value::Null) => return Err(("record".to_string(), "is null")),
+        Some(record) => record,
+    };
+    closed(record, "record", &["segments", "expected"])?;
+    let listed = member(record, "segments", "record")?
+        .as_array()
+        .ok_or(("record.segments".to_string(), "is not an array"))?;
+    let mut segments = Vec::with_capacity(listed.len());
+    for (index, segment) in listed.iter().enumerate() {
+        let path = format!("record.segments[{index}]");
+        closed(segment, &path, &["origin", "argv"])?;
+        let word = string(&segment["origin"], format!("{path}.origin"))?;
+        let origin = Origin::parse(&word).ok_or((
+            format!("{path}.origin"),
+            "is not one of authored, template, local, hands or native",
+        ))?;
+        segments.push(Segment {
+            origin,
+            argv: string_list(&segment["argv"], format!("{path}.argv"))?,
+        });
+    }
+    let expected = member(record, "expected", "record")?;
+    closed(
+        expected,
+        "record.expected",
+        &["identity", "native", "local", "hands"],
+    )?;
+    let identity = &expected["identity"];
+    closed(
+        identity,
+        "record.expected.identity",
+        &["provider", "harness", "model"],
+    )?;
+    let (kind, model) = tagged(
+        &identity["model"],
+        "record.expected.identity.model",
+        &["named", "none"],
+        |kind| match kind {
+            "named" => &["name"],
+            _ => &[],
+        },
+    )?;
+    let identity = Identity {
+        provider: string(
+            &identity["provider"],
+            "record.expected.identity.provider".into(),
+        )?,
+        harness: string(
+            &identity["harness"],
+            "record.expected.identity.harness".into(),
+        )?,
+        model: match kind {
+            "named" => Some(string(
+                &model["name"],
+                "record.expected.identity.model.name".into(),
+            )?),
+            _ => None,
+        },
+    };
+    let native_path = "record.expected.native";
+    let (kind, native) = tagged(
+        &expected["native"],
+        native_path,
+        &["known", "unmeasured"],
+        |kind| match kind {
+            "known" => &["held", "denied"],
+            _ => &["reason"],
+        },
+    )?;
+    let native = match kind {
+        "known" => {
+            let listed = native["held"]
+                .as_array()
+                .ok_or((format!("{native_path}.held"), "is not an array"))?;
+            let mut held = Vec::with_capacity(listed.len());
+            for (index, power) in listed.iter().enumerate() {
+                let path = format!("{native_path}.held[{index}]");
+                closed(power, &path, &["capability", "tools", "restrictions"])?;
+                held.push(HeldPower {
+                    capability: string(&power["capability"], format!("{path}.capability"))?,
+                    tools: string_list(&power["tools"], format!("{path}.tools"))?,
+                    restrictions: power["restrictions"]
+                        .as_object()
+                        .cloned()
+                        .ok_or((format!("{path}.restrictions"), "is not an object"))?,
+                });
+            }
+            NativeExpectation::Known {
+                held,
+                denied: string_list(&native["denied"], format!("{native_path}.denied"))?,
+            }
+        }
+        _ => NativeExpectation::Unmeasured(string(
+            &native["reason"],
+            format!("{native_path}.reason"),
+        )?),
+    };
+    let local_path = "record.expected.local";
+    let local = &expected["local"];
+    closed(local, local_path, &["allow", "sandbox", "application"])?;
+    let (kind, allow) = tagged(
+        &local["allow"],
+        "record.expected.local.allow",
+        &["unspecified", "listed"],
+        |kind| match kind {
+            "listed" => &["names"],
+            _ => &[],
+        },
+    )?;
+    let allow = match kind {
+        "listed" => AllowIntent::Listed(string_list(
+            &allow["names"],
+            "record.expected.local.allow.names".into(),
+        )?),
+        _ => AllowIntent::Unspecified,
+    };
+    let (kind, _) = tagged(
+        &local["sandbox"],
+        "record.expected.local.sandbox",
+        &[
+            "unspecified",
+            "read-only",
+            "workspace-write",
+            "danger-full-access",
+        ],
+        |_| &[],
+    )?;
+    let sandbox = match kind {
+        "read-only" => SandboxIntent::ReadOnly,
+        "workspace-write" => SandboxIntent::WorkspaceWrite,
+        "danger-full-access" => SandboxIntent::DangerFullAccess,
+        _ => SandboxIntent::Unspecified,
+    };
+    let (kind, application) = tagged(
+        &local["application"],
+        "record.expected.local.application",
+        &["unrestricted", "direct", "dormant"],
+        |kind| match kind {
+            "direct" => &["limits"],
+            _ => &[],
+        },
+    )?;
+    let application = match kind {
+        "direct" => Application::Direct(string_list(
+            &application["limits"],
+            "record.expected.local.application.limits".into(),
+        )?),
+        "dormant" => Application::Dormant,
+        _ => Application::Unrestricted,
+    };
+    let (kind, _) = tagged(
+        &expected["hands"],
+        "record.expected.hands",
+        &["none", "required"],
+        |_| &[],
+    )?;
+    Ok(LaunchRecord {
+        segments,
+        expected: Expected {
+            identity,
+            native,
+            local: LocalExpectation {
+                allow,
+                sandbox,
+                application,
+            },
+            hands: match kind {
+                "required" => HandsIntent::Required,
+                _ => HandsIntent::None,
+            },
+        },
+    })
+}
+
+/// Prove that `segments` reassemble exactly the `argv` supplied: every
+/// argument, in order, the lengths equal — no prefix, membership, count or
+/// token search, no trimming of a wrapper, no truncation. The caller hands
+/// over the exact slice the record represents.
+///
+/// Correspondence is all this proves. Exchanging two byte-identical
+/// contributions reassembles the same bytes, so their recorded origins are
+/// read from the record, not inferred here; and a record that reassembles
+/// is not thereby the engine's, nor its command's meaning checked.
+pub fn reassemble(segments: &[Segment], argv: &[String]) -> Result<(), String> {
+    let recorded = flatten(segments);
+    if recorded == argv {
+        return Ok(());
+    }
+    let first = recorded
+        .iter()
+        .zip(argv)
+        .position(|(left, right)| left != right)
+        .unwrap_or(recorded.len().min(argv.len()));
+    Err(format!(
+        "refusing the private launch record: its segments do not reassemble the arguments \
+         supplied; they first differ at argument {first} ({} recorded, {} supplied), and an \
+         argument whose origin is not recorded is never trusted by its bytes (decision 0065 \
+         slice one, design D5.7)",
+        recorded.len(),
+        argv.len()
+    ))
+}
+
+/// Materialize one plan's native contribution as a single native segment,
+/// through the SAME selection lowering every launch uses and with no
+/// authored or boundary argv beside it — so no authored list is reconciled
+/// into it, the selection is emitted once, and the raw argv once after it.
+/// A plan the harness's launch cannot consume refuses here as it does
+/// there.
+pub fn native_segment(harness: &str, controls: &Controls) -> Result<Segment, Refusal> {
+    let composed = compose_for_provider(harness, &[], &[], controls)?;
+    Ok(Segment {
+        origin: Origin::Native,
+        argv: [composed.extra, composed.managed].concat(),
+    })
+}
+
 /// The engine-private input key carrying the charter text the dispatch
 /// door verified against its pin (second council H6). The driver renders
 /// the prompt from these bytes; reopening `role_path` would read whatever

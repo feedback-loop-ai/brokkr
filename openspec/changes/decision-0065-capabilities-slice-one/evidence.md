@@ -1,6 +1,15 @@
 # Decision 0065, slice one — evidence after the operator ruling
 
-## Current status — unit 3 council design, 2026-09-23
+## Current status — unit 3 implementation, 2026-09-23
+
+Adopted slice-0065-capabilities through 4d8b7668, with every prior commit.
+Unit 3's primitives are implemented in its three production files and proved in
+its two owning suites. Tasks 3.2–3.9 are ticked. Task 3.10 is open because
+external exact coverage, macOS and remote CI are pending. So 3.1 is open, and
+4.2 stays open for unit 4. See "Unit 3 — implementation" at the end of this
+file. Nothing is called fully green.
+
+## Historical status — unit 3 council design, 2026-09-23
 
 Adopted slice-0065-capabilities through 12110687, including every prior commit.
 D5.7 reconciles both current positions and records the inventoried Candidate
@@ -2753,3 +2762,194 @@ check are recorded in the mandatory run-local result, without changing tracked
 inputs after validation. The phase result is a committed drafted breakdown,
 not an implementation completion or a claim of fully green gates. No push or
 archive is performed.
+
+## Unit 3 — implementation, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-29dd19f2`; phase implement, sole seat.
+Baseline `4d8b7668` on `slice-0065-capabilities`, clean. Every adopted commit
+is kept, with no replay or reset. There is no `returned_from`. Cargo was
+available in this seat (cargo 1.98.0).
+
+### What changed
+
+These are the only source files changed: the three production files and the
+two owning suites.
+
+- `crates/brokkr-protocol/src/native_controls.rs` adds the shared private types:
+  - `Origin`, with exactly five variants: authored, template, local, hands and
+    native.
+  - `Segment` and `flatten`.
+  - The typed expectation: `AllowIntent`, `SandboxIntent`, `Application`
+    (unrestricted, direct with its ordered limits, or dormant), `HandsIntent`,
+    `HeldPower`, `NativeExpectation` (known or unmeasured) and `Identity`.
+  - `Expected` and `LaunchRecord`, with closed `kind`-tagged JSON.
+
+  It also adds the fallible reader `LaunchRecord::decode`, the exact
+  `reassemble` and `native_segment`. `native_segment` materializes a plan
+  through `compose_for_provider` with no authored or boundary argv. No public
+  contract, schema or manifest field is added. `launch_arguments`, `managed`
+  and `compose_for_provider` are unchanged.
+- `crates/brokkr-runtime/src/capabilities.rs`: `NativePlan::Known` now keeps a
+  typed `NativeContribution` (raw argv plus the pending `ToolLists`
+  selection). It also keeps a `NativeExpectation`, sealed from the inventory,
+  the key-to-holding relation and the typed `Holding` before any control is
+  rendered. `NativeContribution::segment` returns `None` while a selection is
+  pending. `NativePlan::expected` keeps the unmeasured reason. `Outcome::identity`
+  returns the candidate's own provider, harness and model. The
+  controls/manifest/prompt projections are byte-unchanged.
+- `crates/brokkr-runtime/src/agents.rs`: the `Composed` tuple is replaced by
+  `Composition` (ordered segments, effort, `Intent`, `Application`). The driver
+  plus the model and effort emissions are template segments, the mapped list is
+  local and the workspace fragment is hands. `ChainEntry.lowering` retains
+  `Unavailable`, `Refused(Intent)` or `Composed`. The intent is read from the
+  effective agent before emission can fail. `argv`, `effort` and
+  `hands_fragment` are projections of the composition. `Candidate` and
+  `Candidate::parts` are unchanged. `resolve_report` carries a comment that
+  labels its projection lossy until unit 4.
+
+Unchanged in this visit:
+
+- The direct-empty refusal, the native-alias refusal, dormant hands, the bundle
+  admission fences, today's serving readers and authored refusal. Nothing new
+  is activated.
+- Frozen contracts, policy, fixtures, reference, extensions, shipped JSON,
+  grants and measured pins.
+
+The one existing test that destructured the old tuple
+(`harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment`)
+now reads the same values through the projections. Its assertions are
+unchanged.
+
+### Baseline
+
+The baseline was measured at `4d8b7668` in a throwaway detached worktree
+(removed afterwards):
+
+- `cargo test --locked -p brokkr-runtime --lib agents::`: 67 passed, 0 failed.
+- `cargo test --locked -p brokkr-protocol --lib native_controls`: 18 passed,
+  0 failed.
+
+No earlier unit 3 visit could run cargo, so these are the first observed
+baselines. The richer API did not exist at the baseline. The new tests were
+therefore unavailable, not compiling reds.
+
+On the first compiling run, the five runtime tests passed. Protocol had 22 of
+23 tests passing. The one failure was a fixture error, not a behavioral red:
+`a_native_contribution_materializes_once_through_the_launch_lowering` used
+`--search-restrict`, which the Claude grammar refuses ("cannot be composed:
+... argument 1 ('--search-restrict'): it names no option"). The fixture now
+uses `--strict-mcp-config`.
+
+After the change, the owning suites have 72 agents tests (67 + 5) and 23
+native_controls tests (18 + 5).
+
+### New tests and scenario coverage
+
+| Scenario | Test (suite) | Rows |
+| --- | --- | --- |
+| SCM exact mapped limits | `unit3_lowering_preserves_exact_mapped_limits_as_separate_origins` (agents) | pytest/cargo → `["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]`; gh-run-view/gh-pr-view in declared order; acceptEdits driver is a template segment; full reassembly against entry argv |
+| SCM absence/empty/sandbox | `unit3_lowering_retains_absence_empty_and_sandbox_intent` (agents) | 5 rows: omitted/unspecified, nonempty+read-only, workspace-write, danger-full-access, explicit empty (Refused intent + full refusal) |
+| SCM delivery handoff | `unit3_primitives_cannot_bypass_the_delivery_handoff` (agents) | 5 rows: mapped+unmapped dormant, empty dormant, Codex-shaped `--sandbox read-only` fragment with matching class, unboxed hands (Required, no fragment), native alias (Refused intent + full refusal); one `--sandbox` in argv |
+| NCC equal bytes | `equal_bytes_keep_five_distinct_origins_and_every_occurrence` (native_controls) | five kinds, repeated authored copy, empty segment, empty-string argument; exchanged equal copies reassemble yet decode apart |
+| NCC mandatory decoding | `a_valid_record_round_trips_every_expected_state_literally`, `the_private_reader_refuses_each_malformed_member_with_its_full_cause` (native_controls) | literal encoding; every arm round-trips; 50 malformed rows with full causes, ≤512 scalars, no sentinel echo; legacy authored/managed pair refused |
+| NCC reassembly | `reassembly_checks_every_argument_in_order` (native_controls); full-argv check in the agents mapped-limits test | 12 rows: exact, empty record, empty segment, add end/inside, drop last/inside, replace, empty-string filled/removed, distinct reorder, no argv |
+| NCC independent expectation | `unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission`, `unit3_a_record_from_the_real_producers_round_trips_and_reassembles` (agents); `a_native_contribution_materializes_once_through_the_launch_lowering` (native_controls) | real `Authority`: held subset + restriction, default ON with no argv, no ask, other candidate borrows nothing, unmeasured reason; contribution and pending selection asserted apart |
+
+Runtime native fixtures are written under the retained canonical `Tree` root
+(`<root>/operator`). No test reads `.forge/` or needs an installed provider.
+
+### Mutation ledger
+
+Each mutation compiled. Each was run in its owning suite, observed failing, and
+restored. For M1–M23, the restored diff was compared byte for byte (`cmp`)
+with the pre-mutation diff. For M24–M34, the protocol production diff was
+compared byte for byte with its state after M24.
+
+| # | File | Compiling mutation | Failing test (row) and assertion |
+| --- | --- | --- | --- |
+| M1 | agents.rs | local segment tagged `Template` | mapped-limits `composition.segments` (left shows `Template` for `--allowedTools`); absence/empty row "nonempty subset, read-only"; real-producers origins `["template"×4, "native"]` |
+| M2 | agents.rs | `Application::Direct` limits reversed (emission untouched) | mapped-limits `application` assertion (line after the segments assertion, which passed): left `Direct(["Bash(cargo:*)", "Bash(.venv/bin/pytest:*)"])`; real-producers `application` |
+| M3 | agents.rs | local join separator `;` (expectation untouched) | mapped-limits `segments` (left `Bash(.venv/bin/pytest:*);Bash(cargo:*)`); real-producers test still passed its literal `Direct([...])`, showing the expectation unchanged |
+| M4 | agents.rs | `Intent::of` maps explicit `[]` to `Unspecified` | rows "explicit empty, read-only" (left `Refused(Intent { allow: Unspecified, ..})`) and "an empty list beside boxed hands" |
+| M5 | agents.rs | `DangerFullAccess` → `WorkspaceWrite` intent | row "omitted allow, danger-full-access" only |
+| M6 | agents.rs | dormant list emits a local `--allowedTools` beside hands | 4 of 5 handoff rows (all dormant rows) |
+| M7 | agents.rs | boxed hands segment dropped | 3 boxed handoff rows; the unboxed row is unaffected |
+| M8 | capabilities.rs | expected held tools = native set, not holding | row "a held subset under a restriction" |
+| M9 | capabilities.rs | restriction encoding truncated (`encoded[1..]`) | same row: contribution argv differs while the printed expectation is identical on both sides |
+| M10 | capabilities.rs | expectation skips default-ON powers | row "a measured default ON with no argument" only |
+| M11 | capabilities.rs | `NativePlan::expected` Unmeasured → Known empty | row "an unmeasured inventory" only |
+| M12 | capabilities.rs | `segment()` ignores a pending selection | row "a held subset under a restriction" (segment `Some` vs `None`) |
+| M13 | native_controls.rs | `Origin::Hands` encodes as `local` | equal-bytes origins (left shows `("local", 2)` for both hands entries) |
+| M14 | native_controls.rs | decode coalesces equal adjacent segments | equal-bytes origins (left `[("authored",2),("local",0),("hands",2)]`) |
+| M15 | native_controls.rs | reassembly is a prefix check | reassembly row "an argument added at the end" only |
+| M16 | native_controls.rs | reassembly drops empty strings before comparing | row "an empty string removed" returns `Ok`; other rows report shifted positions |
+| M17 | native_controls.rs | missing member reads as `null` | all 11 "missing" rows |
+| M18 | native_controls.rs | unknown-member check disabled | all 8 unknown-member rows, including the legacy authored/managed pair |
+| M19 | native_controls.rs | unknown kind defaults to the first kind | the 4 unknown-kind rows (model, sandbox, application, hands) |
+| M20 | native_controls.rs | unknown origin defaults to `Authored` | row "segment origin unknown" only |
+| M21 | native_controls.rs | non-string list members skipped | rows argv member, held tool, direct limit |
+| M22 | native_controls.rs | `native_segment` emits raw argv twice | materialize test (left ends `--strict-mcp-config, --strict-mcp-config`) |
+| M23 | native_controls.rs | `Dormant` encodes as `unrestricted` | round-trip row (left `application: Unrestricted`) |
+| M24 | native_controls.rs | non-string harness read as `""` | row "harness not a string" (added after coverage showed its `?` path unreached) |
+| M25 | native_controls.rs | explicit `null` member accepted | 4 null rows: segments, model, native denied, sandbox |
+| M26 | native_controls.rs | non-object cause changed | rows array record, segment/identity/held power not an object |
+| M27 | native_controls.rs | non-string read as `""` | all 10 "not a string" rows |
+| M28 | native_controls.rs | non-array list read as empty | rows segment argv, allow names not an array |
+| M29 | native_controls.rs | absent record reported as null | row "absent record" only |
+| M30 | native_controls.rs | null record reported as missing | row "null record" only |
+| M31–M33 | native_controls.rs | three single-site cause edits in one run: segments, held, restrictions | exactly rows "segments not an array", "native held not an array", "held power restrictions not an object"; each row is attributable to its own site |
+| M34 | native_controls.rs | tagged non-object cause changed | row "model not an object" only |
+
+Rows proved by an exact assertion but not individually mutated:
+
+- The valid round-trip arms other than `Dormant`. They share `value`/`decode`
+  with M23.
+- The reassembly rows other than those M15 and M16 name. They share one
+  comparison and one cause.
+
+No row relies on an earlier table row's failure.
+
+### Local diagnostic coverage
+
+`cargo +nightly llvm-cov -p brokkr-protocol -p brokkr-runtime --lib`, followed
+by a protocol-only `--branch` run after M24's row was added, found:
+
+- No zero-hit line in the new hunks of `agents.rs` or `capabilities.rs`.
+- No zero-hit line or branch among the new lines of `native_controls.rs`. The
+  one gap, the `harness` non-string path, was closed by the added row.
+- The remaining zero hits are pre-existing code these two crates' `--lib`
+  tests do not reach: `opaque_conflict`, `denial_on` and the `native_plan`
+  refusals.
+
+This is a diagnostic only. `scripts/coverage-exact.sh` was not run here.
+
+### Gates on the restored tree
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | passed |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | passed |
+| `cargo test -p brokkr-protocol --all-features --locked` | passed; 0 failures |
+| `cargo test -p brokkr-runtime --all-features --locked` | passed; lib 540 passed, 0 failures |
+| `cargo test --workspace --all-features --locked` | passed; 77 test binaries ok, 0 failures |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | exit 0 |
+| `openspec validate --all --strict --no-interactive` | 18 passed, 0 failed |
+| `git diff --check` | passed |
+
+The protocol suite was rerun after M24–M34 were restored: 0 failures.
+
+**Pending, not claimed:**
+
+- External `bash scripts/coverage-exact.sh`, which needs host/CI outside the box.
+- macOS.
+- Remote CI.
+
+Task 3.10 and therefore 3.1 stay open. 4.2 stays open: unit 3's primitives
+exist, but unit 4 owns Candidate storage, selected-candidate binding,
+driver-extras projection and protected input transport. Units 12–15 own
+authored refusal and the final-command checks.
+
+Correspondence proves byte equality only. It proves neither that the engine
+authored a record nor what a command means. A self-consistent forged record
+still decodes. Decision 0066 stays proposed. Nothing is pushed.

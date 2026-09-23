@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::{parse_strict, sha256_bytes, to_bytes};
 use brokkr_core::realms::{is_name, CapabilityGrant};
+use brokkr_protocol::native_controls::{HeldPower, Identity, NativeExpectation, Origin, Segment};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -1045,6 +1046,35 @@ pub struct Holding {
     pub restrictions: Map<String, Value>,
 }
 
+/// The native contribution as typed data, before `controls` renders it
+/// (decision 0065 slice one, design D5.7): the raw argv — each power's ON or
+/// OFF switch and its substituted restriction transport, in key order — and
+/// the tool selection still pending its lowering into the harness's lists.
+/// Both carry native origin from construction; neither is recovered from
+/// the rendered JSON or from a command's bytes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NativeContribution {
+    pub argv: Vec<String>,
+    pub selection: ToolLists,
+}
+
+impl NativeContribution {
+    /// The contribution as one native segment where it is already complete
+    /// argv; `None` while a selection is pending, which only the launch's
+    /// own lowering ([`brokkr_protocol::native_controls::native_segment`])
+    /// can materialize — so a pending selection is never claimed as argv.
+    pub fn segment(&self) -> Option<Segment> {
+        let pending = [
+            &self.selection.include,
+            &self.selection.allow,
+            &self.selection.deny,
+        ]
+        .iter()
+        .any(|names| !names.is_empty());
+        (!pending).then(|| Segment::new(Origin::Native, &self.argv))
+    }
+}
+
 /// What the launch is composed with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NativePlan {
@@ -1054,6 +1084,12 @@ pub enum NativePlan {
         off: Vec<String>,
         /// The driver input's `native_controls`.
         controls: Value,
+        /// The same controls as typed data, before rendering.
+        contribution: NativeContribution,
+        /// What the plan answers for, sealed from the inventory, the
+        /// key-to-holding relation and the typed holdings — never read
+        /// back from `controls` or `contribution`.
+        expected: NativeExpectation,
     },
     Unmeasured {
         declaration: Option<String>,
@@ -1062,6 +1098,16 @@ pub enum NativePlan {
 }
 
 impl NativePlan {
+    /// The independent native expectation: a known plan's sealed value, or
+    /// an unmeasured inventory with its exact reason — never a known empty
+    /// one.
+    pub fn expected(&self) -> NativeExpectation {
+        match self {
+            NativePlan::Known { expected, .. } => expected.clone(),
+            NativePlan::Unmeasured { reason, .. } => NativeExpectation::Unmeasured(reason.clone()),
+        }
+    }
+
     /// The driver input's `native_controls` for `provider`: the engine-owned
     /// plan the protocol composes the final argv from. An unmeasured
     /// inventory names its provider too, so the driver can tell a provider
@@ -1155,6 +1201,16 @@ impl Outcome {
     /// protocol composes the final argv from.
     pub fn controls(&self) -> Value {
         self.native.controls(&self.provider, &self.harness)
+    }
+
+    /// Whom this candidate's plan was resolved for (design D5.7): its own
+    /// provider, harness and model, never a primary's.
+    pub fn identity(&self) -> Identity {
+        Identity {
+            provider: self.provider.clone(),
+            harness: self.harness.clone(),
+            model: self.model.clone(),
+        }
     }
 
     /// The driver input's `capabilities`: what the prompt tells the seat.
@@ -1718,6 +1774,28 @@ impl Authority {
                  and 4)"
             ));
         }
+        // What the plan answers for, sealed from typed inputs BEFORE any
+        // control is rendered (design D5.7): each known power is held where
+        // the realm's holding reaches its key, with that holding's admitted
+        // tools and restriction object as written, and denied otherwise. A
+        // measured default ON is held here though it emits no argument.
+        let expected = NativeExpectation::Known {
+            held: known
+                .iter()
+                .filter_map(|(key, native)| {
+                    keys.get(key).map(|capability| HeldPower {
+                        capability: native.capability.clone(),
+                        tools: held[capability].tools.clone(),
+                        restrictions: held[capability].restrictions.clone(),
+                    })
+                })
+                .collect(),
+            denied: known
+                .iter()
+                .filter(|(key, _)| !keys.contains_key(*key))
+                .map(|(_, native)| native.capability.clone())
+                .collect(),
+        };
         let (mut argv, mut lists) = (Vec::new(), ToolLists::default());
         let (mut on, mut off) = (Vec::new(), Vec::new());
         for (key, native) in known {
@@ -1866,6 +1944,11 @@ impl Authority {
             on,
             off,
             controls,
+            contribution: NativeContribution {
+                argv,
+                selection: lists,
+            },
+            expected,
         })
     }
 }

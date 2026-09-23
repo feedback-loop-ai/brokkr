@@ -38,6 +38,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use brokkr_core::canonical::sha256_hex;
+use brokkr_protocol::native_controls::{
+    flatten, AllowIntent, Application, HandsIntent, LocalExpectation, Origin, SandboxIntent,
+    Segment,
+};
 use serde_json::{json, Value};
 use thiserror::Error;
 
@@ -191,6 +195,15 @@ impl Sandbox {
     /// Does `self` reach wider than `office`? Equal is not wider.
     pub fn widens(self, office: Sandbox) -> bool {
         self.reach() > office.reach()
+    }
+
+    /// The class as the private launch record states it (design D5.7).
+    pub fn intent(self) -> SandboxIntent {
+        match self {
+            Sandbox::ReadOnly => SandboxIntent::ReadOnly,
+            Sandbox::WorkspaceWrite => SandboxIntent::WorkspaceWrite,
+            Sandbox::DangerFullAccess => SandboxIntent::DangerFullAccess,
+        }
     }
 }
 
@@ -830,6 +843,91 @@ pub struct ChainEntry {
     pub harness: HarnessHands,
     pub gap: Option<ResolveError>,
     pub notices: Vec<Notice>,
+    /// The composition before flattening (design D5.7), of which `argv`,
+    /// `effort` and `hands_fragment` are projections.
+    pub lowering: Lowering,
+}
+
+/// The typed local and hands intent of one entry, read from the effective
+/// agent declaration BEFORE any emission can fail (design D5.7), so a
+/// declaration no serving path can express stays inspectable without
+/// becoming a runnable plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Intent {
+    pub allow: AllowIntent,
+    pub sandbox: SandboxIntent,
+    pub hands: HandsIntent,
+}
+
+impl Intent {
+    fn of(agent: &Agent) -> Intent {
+        Intent {
+            allow: match &agent.allow {
+                None => AllowIntent::Unspecified,
+                Some(names) => AllowIntent::Listed(names.clone()),
+            },
+            sandbox: agent
+                .sandbox
+                .map_or(SandboxIntent::Unspecified, Sandbox::intent),
+            hands: match agent.hands {
+                Some(_) => HandsIntent::Required,
+                None => HandsIntent::None,
+            },
+        }
+    }
+}
+
+/// One candidate's composition with every contribution's origin assigned
+/// where it was made (design D5.7): the adapter's driver and its model and
+/// effort emissions are `template`, the mapped allow list `local`, the
+/// workspace fragment `hands`. Nothing here is recovered from bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Composition {
+    pub segments: Vec<Segment>,
+    /// The effort pinned in it, `None` where none was emitted.
+    pub effort: Option<String>,
+    pub intent: Intent,
+    /// How the local declaration applies: its exact ordered limits where
+    /// lowered directly, dormant beside hands, or unrestricted.
+    pub application: Application,
+}
+
+impl Composition {
+    /// The flat argv today's serving consumers read.
+    pub fn argv(&self) -> Vec<String> {
+        flatten(&self.segments)
+    }
+
+    /// The hands tokens exactly as composed.
+    pub fn hands_fragment(&self) -> Vec<String> {
+        let hands: Vec<Segment> = self
+            .segments
+            .iter()
+            .filter(|segment| segment.origin == Origin::Hands)
+            .cloned()
+            .collect();
+        flatten(&hands)
+    }
+
+    /// The local half of the expected state, from typed inputs alone.
+    pub fn local(&self) -> LocalExpectation {
+        LocalExpectation {
+            allow: self.intent.allow.clone(),
+            sandbox: self.intent.sandbox,
+            application: self.application.clone(),
+        }
+    }
+}
+
+/// What became of one entry's composition. An unmapped or refused entry is
+/// never a valid empty composition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Lowering {
+    /// No adapter maps the model: nothing was composed.
+    Unavailable,
+    /// The entry's gap refused composition; its intent is kept.
+    Refused(Intent),
+    Composed(Composition),
 }
 
 /// The per-entry resolution picture, which never fails for a known agent
@@ -878,21 +976,19 @@ fn capability_gap(
     }
 }
 
-/// One composed candidate: its argv, the effort pinned in it, and the
-/// adapter's `hands.workspace` fragment exactly as appended.
-type Composed = (Vec<String>, Option<String>, Vec<String>);
-
-/// Compose one candidate's argv, or refuse. A lookup and a join: there
-/// is no template language, so there is no substitution function whose
-/// branches could drift from the data.
+/// Compose one candidate, or refuse. A lookup and a join: there is no
+/// template language, so there is no substitution function whose branches
+/// could drift from the data. Each contribution is a segment labelled by
+/// who supplied it at the point it is made.
 fn compose(
     agent: &Agent,
     adapter: &Adapter,
     model: &str,
     concrete: &str,
     boxed: bool,
-) -> Result<Composed, ResolveError> {
-    let mut argv = adapter.driver.clone();
+) -> Result<Composition, ResolveError> {
+    let intent = Intent::of(agent);
+    let mut segments = vec![Segment::new(Origin::Template, &adapter.driver)];
     // A provider that serves the model but cannot be TOLD which model is
     // the silent-substitution case in its purest form: it would run its
     // own default and the run would claim the pinned one.
@@ -906,8 +1002,10 @@ fn compose(
                 .to_string(),
         )
     })?;
-    argv.push(flag.clone());
-    argv.push(concrete.to_string());
+    segments.push(Segment::new(
+        Origin::Template,
+        &[flag.clone(), concrete.to_string()],
+    ));
 
     // The other half of the hire (decision 0035 ruling 5). A model pin
     // without an effort pin is half a hire, and the half it withholds is
@@ -962,8 +1060,10 @@ fn compose(
                     ),
                 ));
             }
-            argv.push(effort_flag.clone());
-            argv.push(effort.clone());
+            segments.push(Segment::new(
+                Origin::Template,
+                &[effort_flag.clone(), effort.clone()],
+            ));
             Some(effort.clone())
         }
     };
@@ -992,8 +1092,7 @@ fn compose(
         }
     };
 
-    let mut hands_fragment = Vec::new();
-    if agent.hands.is_some() {
+    let application = if agent.hands.is_some() {
         // The list is dormant beside hands (decision 0043 ruling 2): no
         // direct mapping is required for it and no direct flag is added.
         // Only an entry the adapter DOES map onto a native tool is refused.
@@ -1023,9 +1122,11 @@ fn compose(
                     ),
                 )
             })?;
-            argv.extend(fragment.iter().cloned());
-            hands_fragment = fragment.clone();
+            segments.push(Segment::new(Origin::Hands, fragment));
         }
+        // Hands replace the harness's tools: a declared list is kept as
+        // intent, and its concrete mapping is inapplicable, not absent.
+        Application::Dormant
     } else if let Some(allow) = &agent.allow {
         // Design D5.3: an explicit empty allow set is decoded exactly and
         // stays refused here until the owning lowering delivers it —
@@ -1077,14 +1178,29 @@ fn compose(
             native_alias(tool, name)?;
             expressed.push(name.clone());
         }
-        argv.push(permissions.flag.clone());
-        argv.push(expressed.join(&permissions.separator));
-    }
+        // The concrete limits are kept in the declared order before they
+        // are joined, so the expectation never has to split a flag value.
+        segments.push(Segment::new(
+            Origin::Local,
+            &[
+                permissions.flag.clone(),
+                expressed.join(&permissions.separator),
+            ],
+        ));
+        Application::Direct(expressed)
+    } else {
+        Application::Unrestricted
+    };
 
     // An agent names no MCP server (decision 0065 ruling 3): a server is
     // the realm's to grant through a tool dialect, never an office's to
     // ask for by name, so there is nothing of the kind to compose here.
-    Ok((argv, effort, hands_fragment))
+    Ok(Composition {
+        segments,
+        effort,
+        intent,
+        application,
+    })
 }
 
 fn entry_for(
@@ -1105,14 +1221,29 @@ fn entry_for(
             harness: HarnessHands::default(),
             gap: None,
             notices: Vec::new(),
+            lowering: Lowering::Unavailable,
         };
     };
     let presence = availability.presence(&adapter.provider);
-    let (argv, effort, hands_fragment, gap) = match compose(agent, adapter, model, concrete, boxed)
-    {
-        Ok((argv, effort, hands_fragment)) => (argv, effort, hands_fragment, None),
-        Err(gap) => (Vec::new(), None, Vec::new(), Some(gap)),
-    };
+    // The flat fields are projections of the composition, never a second
+    // derivation beside it; a refused entry keeps only its typed intent.
+    let (argv, effort, hands_fragment, gap, lowering) =
+        match compose(agent, adapter, model, concrete, boxed) {
+            Ok(composition) => (
+                composition.argv(),
+                composition.effort.clone(),
+                composition.hands_fragment(),
+                None,
+                Lowering::Composed(composition),
+            ),
+            Err(gap) => (
+                Vec::new(),
+                None,
+                Vec::new(),
+                Some(gap),
+                Lowering::Refused(Intent::of(agent)),
+            ),
+        };
     ChainEntry {
         model: model.to_string(),
         effort,
@@ -1125,6 +1256,7 @@ fn entry_for(
         // Filled by the compiler, which knows the realm: a capability the
         // office wants and the realm does not grant (decision 0065).
         notices: Vec::new(),
+        lowering,
     }
 }
 
@@ -1247,6 +1379,11 @@ pub(crate) fn resolve_report(
         chain: agent.models.join(", "),
     })?;
 
+    // A LOSSY projection, knowingly (design D5.7): a candidate carries the
+    // flat argv and its trailing hands fragment, not the entry's segments
+    // or expected local state. Carrying those onward is the dispatch
+    // transport's work (rebuild unit 4); nothing may reconstruct them from
+    // `Candidate::parts` or from the argv's bytes meanwhile.
     let candidates: Vec<Candidate> = report.entries[chosen..]
         .iter()
         .filter(|entry| entry.presence != Presence::Unavailable)

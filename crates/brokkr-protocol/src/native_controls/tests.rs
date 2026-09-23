@@ -1612,3 +1612,677 @@ fn the_table_shorthands_build_the_shapes_they_name() {
         }
     }
 }
+
+// ------------------ decision 0065 slice one, unit 3: private launch origins
+
+fn segment(origin: Origin, parts: &[&str]) -> Segment {
+    Segment::new(origin, &argv(parts))
+}
+
+/// A complete record whose every enum takes a non-default arm: a known
+/// native plan holding one power with a nested, Unicode-bearing
+/// restriction and denying another, an explicitly EMPTY local list lowered
+/// directly, a read-only class and required hands.
+fn full_record(segments: Vec<Segment>) -> LaunchRecord {
+    let restrictions = json!({"allow": {"hosts": ["yaml.org", "sourceware.org"]}, "note": "ü\n"});
+    LaunchRecord {
+        segments,
+        expected: Expected {
+            identity: Identity {
+                provider: "claude".into(),
+                harness: "claude".into(),
+                model: Some("opus".into()),
+            },
+            native: NativeExpectation::Known {
+                held: vec![HeldPower {
+                    capability: "web-search".into(),
+                    tools: argv(&["WebSearch"]),
+                    restrictions: restrictions.as_object().unwrap().clone(),
+                }],
+                denied: argv(&["web-fetch"]),
+            },
+            local: LocalExpectation {
+                allow: AllowIntent::Listed(Vec::new()),
+                sandbox: SandboxIntent::ReadOnly,
+                application: Application::Direct(Vec::new()),
+            },
+            hands: HandsIntent::Required,
+        },
+    }
+}
+
+/// NCC "Unit 3 equal bytes retain different supplying origins": one
+/// byte-identical contribution supplied by each of the five origins, a
+/// repeated authored copy, an empty segment and an empty-string argument.
+/// The flat bytes are the same whatever the labels; the decoded origin
+/// sequence keeps every kind, every occurrence and their order, and an
+/// exchange of two equal contributions reassembles yet decodes apart.
+#[test]
+fn equal_bytes_keep_five_distinct_origins_and_every_occurrence() {
+    let copies = vec![
+        segment(Origin::Authored, &["--allowedTools", "Bash(cargo:*)"]),
+        segment(Origin::Template, &["--allowedTools", "Bash(cargo:*)"]),
+        segment(Origin::Local, &["--allowedTools", "Bash(cargo:*)"]),
+        segment(Origin::Hands, &["--allowedTools", "Bash(cargo:*)"]),
+        segment(Origin::Native, &["--allowedTools", "Bash(cargo:*)"]),
+        segment(Origin::Authored, &["--allowedTools", "Bash(cargo:*)"]),
+        segment(Origin::Local, &[]),
+        segment(Origin::Hands, &["--tools", ""]),
+    ];
+    let mut flat = Vec::new();
+    for _ in 0..6 {
+        flat.extend(argv(&["--allowedTools", "Bash(cargo:*)"]));
+    }
+    flat.extend(argv(&["--tools", ""]));
+    assert_eq!(flatten(&copies), flat);
+    let record = full_record(copies.clone());
+    let decoded = LaunchRecord::decode(Some(&record.value())).unwrap();
+    let origins = |record: &LaunchRecord| -> Vec<(&'static str, usize)> {
+        record
+            .segments
+            .iter()
+            .map(|segment| (segment.origin.word(), segment.argv.len()))
+            .collect()
+    };
+    assert_eq!(
+        origins(&decoded),
+        [
+            ("authored", 2),
+            ("template", 2),
+            ("local", 2),
+            ("hands", 2),
+            ("native", 2),
+            ("authored", 2),
+            ("local", 0),
+            ("hands", 2),
+        ]
+    );
+    assert_eq!(decoded.segments, copies);
+    assert_eq!(reassemble(&decoded.segments, &flat), Ok(()));
+    // Exchange the authored copy and the native one: equal bytes, so the
+    // exchange reassembles — byte equality cannot detect it — and the
+    // recorded origins are what tell the two records apart.
+    let mut exchanged = copies.clone();
+    exchanged.swap(0, 4);
+    let decoded = LaunchRecord::decode(Some(&full_record(exchanged).value())).unwrap();
+    assert_eq!(reassemble(&decoded.segments, &flat), Ok(()));
+    assert_eq!(
+        origins(&decoded),
+        [
+            ("native", 2),
+            ("template", 2),
+            ("local", 2),
+            ("hands", 2),
+            ("authored", 2),
+            ("authored", 2),
+            ("local", 0),
+            ("hands", 2),
+        ]
+    );
+}
+
+/// NCC "Unit 3 private decoding never defaults missing authority", the
+/// valid half: every arm of the expected state encodes to closed tagged
+/// JSON and decodes back to the literal value, explicit empties and the
+/// restriction object's contents intact.
+#[test]
+fn a_valid_record_round_trips_every_expected_state_literally() {
+    let record = full_record(vec![
+        segment(Origin::Template, &["--model", "claude-opus-5"]),
+        segment(Origin::Local, &["--allowedTools", ""]),
+    ]);
+    assert_eq!(
+        record.value(),
+        json!({
+            "segments": [
+                {"origin": "template", "argv": ["--model", "claude-opus-5"]},
+                {"origin": "local", "argv": ["--allowedTools", ""]},
+            ],
+            "expected": {
+                "identity": {"provider": "claude", "harness": "claude",
+                             "model": {"kind": "named", "name": "opus"}},
+                "native": {"kind": "known", "held": [{"capability": "web-search",
+                    "tools": ["WebSearch"],
+                    "restrictions": {"allow": {"hosts": ["yaml.org", "sourceware.org"]},
+                                     "note": "ü\n"}}],
+                    "denied": ["web-fetch"]},
+                "local": {"allow": {"kind": "listed", "names": []},
+                          "sandbox": {"kind": "read-only"},
+                          "application": {"kind": "direct", "limits": []}},
+                "hands": {"kind": "required"},
+            },
+        })
+    );
+    assert_eq!(LaunchRecord::decode(Some(&record.value())), Ok(record));
+    // Every other arm, one record per row so each decodes on its own.
+    let mut rows = Vec::new();
+    for (sandbox, application, allow) in [
+        (
+            SandboxIntent::Unspecified,
+            Application::Unrestricted,
+            AllowIntent::Unspecified,
+        ),
+        (
+            SandboxIntent::WorkspaceWrite,
+            Application::Dormant,
+            AllowIntent::Listed(argv(&["cargo", "make"])),
+        ),
+        (
+            SandboxIntent::DangerFullAccess,
+            Application::Direct(argv(&["Bash(.venv/bin/pytest:*)", "Bash(cargo:*)"])),
+            AllowIntent::Listed(argv(&["pytest", "cargo"])),
+        ),
+    ] {
+        let mut record = full_record(Vec::new());
+        record.expected.identity.model = None;
+        record.expected.native = NativeExpectation::Unmeasured("nobody measured it".into());
+        record.expected.hands = HandsIntent::None;
+        record.expected.local = LocalExpectation {
+            allow,
+            sandbox,
+            application,
+        };
+        rows.push(record);
+    }
+    let mut known_empty = full_record(Vec::new());
+    known_empty.expected.native = NativeExpectation::Known {
+        held: Vec::new(),
+        denied: Vec::new(),
+    };
+    rows.push(known_empty);
+    for record in rows {
+        assert_eq!(LaunchRecord::decode(Some(&record.value())), Ok(record));
+    }
+}
+
+/// One malformed-record row: its label, the record handed to the reader
+/// (`None` for an absent one), and the complete expected refusal.
+type Malformed = (&'static str, Option<Value>, String);
+
+/// NCC "Unit 3 private decoding never defaults missing authority": each
+/// absent, null, mistyped, unknown-tagged or unknown-member case refuses
+/// with its complete bounded cause — a fixed path and numeric positions,
+/// never the supplied tag, key or payload — and none becomes an empty or
+/// default value. The old two-array pair is not a record.
+#[test]
+fn the_private_reader_refuses_each_malformed_member_with_its_full_cause() {
+    // A sentinel that must never surface in a cause: long, multi-line and
+    // Unicode, used as an unknown tag, an unknown key and a wrong payload.
+    let sentinel = format!("SENTINEL\n{}ü", "x".repeat(600));
+    let valid = full_record(vec![
+        segment(Origin::Authored, &["--model", "m"]),
+        segment(Origin::Native, &["--search-off", "", "-x"]),
+    ])
+    .value();
+    let cause = |path: &str, problem: &str| {
+        format!(
+            "refusing the private launch record: '{path}' {problem}; a record is never repaired \
+             into an empty or default one (decision 0065 slice one, design D5.7)"
+        )
+    };
+    // Replace the member at `pointer`, or remove it where `None`.
+    let edit = |pointer: &str, replacement: Option<Value>| {
+        let mut record = valid.clone();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        match (replacement, record.pointer_mut(parent).unwrap()) {
+            (Some(value), Value::Array(items)) => items[key.parse::<usize>().unwrap()] = value,
+            (Some(value), parent) => parent[key] = value,
+            (None, parent) => drop(parent.as_object_mut().unwrap().remove(key)),
+        }
+        Some(record)
+    };
+    let unknown = |pointer: &str| {
+        let mut record = valid.clone();
+        record.pointer_mut(pointer).unwrap()[sentinel.as_str()] = json!(sentinel);
+        Some(record)
+    };
+    let not_object = "is not an object";
+    let unknown_member = "carries an unknown member";
+    let rows: Vec<Malformed> = vec![
+        ("absent record", None, cause("record", "is missing")),
+        ("null record", Some(Value::Null), cause("record", "is null")),
+        ("array record", Some(json!([])), cause("record", not_object)),
+        (
+            "the old authored/managed pair",
+            Some(json!({"authored": [], "managed": []})),
+            cause("record", unknown_member),
+        ),
+        (
+            "unknown top member",
+            unknown(""),
+            cause("record", unknown_member),
+        ),
+        (
+            "segments missing",
+            edit("/segments", None),
+            cause("record.segments", "is missing"),
+        ),
+        (
+            "segments null",
+            edit("/segments", Some(Value::Null)),
+            cause("record.segments", "is null"),
+        ),
+        (
+            "segments not an array",
+            edit("/segments", Some(json!({}))),
+            cause("record.segments", "is not an array"),
+        ),
+        (
+            "segment not an object",
+            edit("/segments/1", Some(json!("native"))),
+            cause("record.segments[1]", not_object),
+        ),
+        (
+            "segment unknown member",
+            unknown("/segments/1"),
+            cause("record.segments[1]", unknown_member),
+        ),
+        (
+            "segment origin missing",
+            edit("/segments/1/origin", None),
+            cause("record.segments[1].origin", "is missing"),
+        ),
+        (
+            "segment origin unknown",
+            edit("/segments/1/origin", Some(json!(sentinel))),
+            cause(
+                "record.segments[1].origin",
+                "is not one of authored, template, local, hands or native",
+            ),
+        ),
+        (
+            "segment origin not a string",
+            edit("/segments/0/origin", Some(json!(1))),
+            cause("record.segments[0].origin", "is not a string"),
+        ),
+        (
+            "segment argv not an array",
+            edit("/segments/1/argv", Some(json!(sentinel))),
+            cause("record.segments[1].argv", "is not an array"),
+        ),
+        (
+            "segment argv member not a string",
+            edit("/segments/1/argv/2", Some(json!({"x": sentinel}))),
+            cause("record.segments[1].argv[2]", "is not a string"),
+        ),
+        (
+            "expected missing",
+            edit("/expected", None),
+            cause("record.expected", "is missing"),
+        ),
+        (
+            "expected unknown member",
+            unknown("/expected"),
+            cause("record.expected", unknown_member),
+        ),
+        (
+            "identity not an object",
+            edit("/expected/identity", Some(json!([]))),
+            cause("record.expected.identity", not_object),
+        ),
+        (
+            "provider not a string",
+            edit("/expected/identity/provider", Some(json!(7))),
+            cause("record.expected.identity.provider", "is not a string"),
+        ),
+        (
+            "harness missing",
+            edit("/expected/identity/harness", None),
+            cause("record.expected.identity.harness", "is missing"),
+        ),
+        (
+            "harness not a string",
+            edit("/expected/identity/harness", Some(json!(["claude"]))),
+            cause("record.expected.identity.harness", "is not a string"),
+        ),
+        (
+            "model null",
+            edit("/expected/identity/model", Some(Value::Null)),
+            cause("record.expected.identity.model", "is null"),
+        ),
+        (
+            "model not an object",
+            edit("/expected/identity/model", Some(json!("opus"))),
+            cause("record.expected.identity.model", not_object),
+        ),
+        (
+            "model kind missing",
+            edit("/expected/identity/model/kind", None),
+            cause("record.expected.identity.model.kind", "is missing"),
+        ),
+        (
+            "model kind unknown",
+            edit("/expected/identity/model/kind", Some(json!(sentinel))),
+            cause("record.expected.identity.model.kind", "names no known kind"),
+        ),
+        (
+            "named model without a name",
+            edit("/expected/identity/model/name", None),
+            cause("record.expected.identity.model.name", "is missing"),
+        ),
+        (
+            "named model name not a string",
+            edit("/expected/identity/model/name", Some(json!(["opus"]))),
+            cause("record.expected.identity.model.name", "is not a string"),
+        ),
+        (
+            "model unknown member",
+            unknown("/expected/identity/model"),
+            cause("record.expected.identity.model", unknown_member),
+        ),
+        (
+            "native kind not a string",
+            edit("/expected/native/kind", Some(json!(true))),
+            cause("record.expected.native.kind", "is not a string"),
+        ),
+        (
+            "native held not an array",
+            edit("/expected/native/held", Some(json!({}))),
+            cause("record.expected.native.held", "is not an array"),
+        ),
+        (
+            "held power not an object",
+            edit("/expected/native/held/0", Some(json!("web-search"))),
+            cause("record.expected.native.held[0]", not_object),
+        ),
+        (
+            "held power capability missing",
+            edit("/expected/native/held/0/capability", None),
+            cause("record.expected.native.held[0].capability", "is missing"),
+        ),
+        (
+            "held power capability not a string",
+            edit("/expected/native/held/0/capability", Some(json!(1))),
+            cause(
+                "record.expected.native.held[0].capability",
+                "is not a string",
+            ),
+        ),
+        (
+            "held power tool not a string",
+            edit("/expected/native/held/0/tools/0", Some(json!(false))),
+            cause("record.expected.native.held[0].tools[0]", "is not a string"),
+        ),
+        (
+            "held power restrictions not an object",
+            edit(
+                "/expected/native/held/0/restrictions",
+                Some(json!([sentinel])),
+            ),
+            cause("record.expected.native.held[0].restrictions", not_object),
+        ),
+        (
+            "native denied null",
+            edit("/expected/native/denied", Some(Value::Null)),
+            cause("record.expected.native.denied", "is null"),
+        ),
+        (
+            "known native carrying a reason",
+            edit("/expected/native/reason", Some(json!(sentinel))),
+            cause("record.expected.native", unknown_member),
+        ),
+        (
+            "unmeasured native without a reason",
+            edit("/expected/native", Some(json!({"kind": "unmeasured"}))),
+            cause("record.expected.native.reason", "is missing"),
+        ),
+        (
+            "unmeasured native reason not a string",
+            edit(
+                "/expected/native",
+                Some(json!({"kind": "unmeasured", "reason": 1})),
+            ),
+            cause("record.expected.native.reason", "is not a string"),
+        ),
+        (
+            "local missing",
+            edit("/expected/local", None),
+            cause("record.expected.local", "is missing"),
+        ),
+        (
+            "local unknown member",
+            unknown("/expected/local"),
+            cause("record.expected.local", unknown_member),
+        ),
+        (
+            "allow listed without names",
+            edit("/expected/local/allow/names", None),
+            cause("record.expected.local.allow.names", "is missing"),
+        ),
+        (
+            "allow names not an array",
+            edit("/expected/local/allow/names", Some(json!(""))),
+            cause("record.expected.local.allow.names", "is not an array"),
+        ),
+        (
+            "allow unspecified carrying names",
+            edit(
+                "/expected/local/allow",
+                Some(json!({"kind": "unspecified", "names": []})),
+            ),
+            cause("record.expected.local.allow", unknown_member),
+        ),
+        (
+            "sandbox kind unknown",
+            edit("/expected/local/sandbox/kind", Some(json!(sentinel))),
+            cause("record.expected.local.sandbox.kind", "names no known kind"),
+        ),
+        (
+            "sandbox null",
+            edit("/expected/local/sandbox", Some(Value::Null)),
+            cause("record.expected.local.sandbox", "is null"),
+        ),
+        (
+            "application kind unknown",
+            edit("/expected/local/application/kind", Some(json!("partial"))),
+            cause(
+                "record.expected.local.application.kind",
+                "names no known kind",
+            ),
+        ),
+        (
+            "direct limit not a string",
+            edit(
+                "/expected/local/application",
+                Some(json!({"kind": "direct", "limits": ["Bash(cargo:*)", 2]})),
+            ),
+            cause(
+                "record.expected.local.application.limits[1]",
+                "is not a string",
+            ),
+        ),
+        (
+            "hands missing",
+            edit("/expected/hands", None),
+            cause("record.expected.hands", "is missing"),
+        ),
+        (
+            "hands kind unknown",
+            edit("/expected/hands/kind", Some(json!("optional"))),
+            cause("record.expected.hands.kind", "names no known kind"),
+        ),
+    ];
+    assert_eq!(rows.len(), 50);
+    // Every row reaches its own exact assertion; the bound is D6's 512
+    // scalars, and no cause carries the sentinel it was handed.
+    let failures: Vec<String> =
+        rows.iter()
+            .filter_map(|(label, record, expected)| {
+                let observed = LaunchRecord::decode(record.as_ref());
+                let bounded = observed.as_ref().err().is_some_and(|cause| {
+                    cause.chars().count() <= 512 && !cause.contains("SENTINEL")
+                });
+                (observed.as_ref() != Err(expected) || !bounded)
+                    .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}"))
+            })
+            .collect();
+    assert!(
+        failures.is_empty(),
+        "{} of {} rows failed:\n{}",
+        failures.len(),
+        rows.len(),
+        failures.join("\n")
+    );
+}
+
+/// NCC "Unit 3 reassembly checks every argument in order": a valid record
+/// reassembles its exact argv, empty strings included; an added, dropped,
+/// replaced or distinctly reordered argument refuses with the full cause
+/// naming the first differing position and both lengths, never a value.
+#[test]
+fn reassembly_checks_every_argument_in_order() {
+    let segments = vec![
+        segment(Origin::Template, &["driver", "--model", "m"]),
+        segment(Origin::Local, &["--allowedTools", ""]),
+        segment(
+            Origin::Hands,
+            &["--tools", "", "--mcp-config", "{hands_mcp_json}"],
+        ),
+    ];
+    let exact = argv(&[
+        "driver",
+        "--model",
+        "m",
+        "--allowedTools",
+        "",
+        "--tools",
+        "",
+        "--mcp-config",
+        "{hands_mcp_json}",
+    ]);
+    let differ = |first: usize, recorded: usize, supplied: usize| {
+        Err(format!(
+            "refusing the private launch record: its segments do not reassemble the arguments \
+             supplied; they first differ at argument {first} ({recorded} recorded, {supplied} \
+             supplied), and an argument whose origin is not recorded is never trusted by its \
+             bytes (decision 0065 slice one, design D5.7)"
+        ))
+    };
+    let with = |edit: &dyn Fn(&mut Vec<String>)| {
+        let mut supplied = exact.clone();
+        edit(&mut supplied);
+        reassemble(&segments, &supplied)
+    };
+    let mut reordered = segments.clone();
+    reordered.swap(1, 2);
+    let padded = [segments.clone(), vec![segment(Origin::Native, &[])]].concat();
+    type Reassembled = (&'static str, Result<(), String>, Result<(), String>);
+    let rows: Vec<Reassembled> = vec![
+        ("exact", reassemble(&segments, &exact), Ok(())),
+        ("an empty record over no argv", reassemble(&[], &[]), Ok(())),
+        (
+            "an empty segment adds nothing",
+            reassemble(&padded, &exact),
+            Ok(()),
+        ),
+        (
+            "an argument added at the end",
+            with(&|a| a.push("--search".into())),
+            differ(9, 9, 10),
+        ),
+        (
+            "an argument added inside",
+            with(&|a| a.insert(3, "-x".into())),
+            differ(3, 9, 10),
+        ),
+        (
+            "the last argument dropped",
+            with(&|a| drop(a.pop())),
+            differ(8, 9, 8),
+        ),
+        (
+            "an argument dropped inside",
+            with(&|a| drop(a.remove(1))),
+            differ(1, 9, 8),
+        ),
+        (
+            "an argument replaced",
+            with(&|a| a[2] = "n".into()),
+            differ(2, 9, 9),
+        ),
+        (
+            "an empty string filled",
+            with(&|a| a[4] = "x".into()),
+            differ(4, 9, 9),
+        ),
+        (
+            "an empty string removed",
+            with(&|a| drop(a.remove(6))),
+            differ(6, 9, 8),
+        ),
+        (
+            "distinct segments reordered",
+            reassemble(&reordered, &exact),
+            differ(3, 9, 9),
+        ),
+        (
+            "no argv supplied",
+            reassemble(&segments, &[]),
+            differ(0, 9, 0),
+        ),
+    ];
+    let failures: Vec<String> = rows
+        .iter()
+        .filter(|(_, observed, expected)| observed != expected)
+        .map(|(label, observed, expected)| {
+            format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}")
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// D5.7: a plan's native contribution materializes as ONE native segment
+/// through the launch's own selection lowering, with nothing authored
+/// beside it — the selection's lists once, then the raw argv once — and a
+/// representation the harness cannot consume refuses exactly as a launch
+/// would.
+#[test]
+fn a_native_contribution_materializes_once_through_the_launch_lowering() {
+    let claude = claude_controls(
+        Selection {
+            include: Vec::new(),
+            allow: argv(&["WebSearch"]),
+            deny: argv(&["WebFetch"]),
+            flags: claude_flags(),
+        },
+        &["--strict-mcp-config"],
+    );
+    assert_eq!(
+        native_segment("claude", &claude),
+        Ok(segment(
+            Origin::Native,
+            &[
+                "--allowedTools",
+                "WebSearch",
+                "--disallowedTools",
+                "WebFetch",
+                "--strict-mcp-config",
+            ],
+        ))
+    );
+    let codex = Controls {
+        argv: argv(&["-c", "web_search=\"disabled\""]),
+        ..ready("codex", &[], &["web-search"])
+    };
+    assert_eq!(
+        native_segment("codex", &codex),
+        Ok(segment(Origin::Native, &["-c", "web_search=\"disabled\""]))
+    );
+    let selecting = Controls {
+        selection: Selection {
+            deny: argv(&["WebSearch"]),
+            ..Selection::default()
+        },
+        ..codex
+    };
+    assert_eq!(
+        native_segment("codex", &selecting),
+        Err(Refusal {
+            authored: false,
+            cause: "the capability plan carries a tool selection for provider 'codex', which its \
+                    launch does not consume; a control that cannot reach the final command is \
+                    refused rather than recorded and dropped (decision 0066 ruling 3)"
+                .into(),
+        })
+    );
+}
