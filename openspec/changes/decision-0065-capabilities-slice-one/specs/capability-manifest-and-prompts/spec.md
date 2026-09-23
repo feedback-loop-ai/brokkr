@@ -323,7 +323,7 @@ Existing historical reasons SHALL remain historical; unaffected pins SHALL not b
 - **THEN** the existing crate-scoped suites, workspace suites, self-bundle compile, formatting, strict clippy, strict all-item OpenSpec validation and literal-100% exact coverage retain their required status
 - **AND** unavailable host or live-provider evidence is reported as pending with its actual limitation, never inferred from a different passing check
 - **AND** final-head exact coverage reports source lines, branches and functions as separate covered/total counts with literal nonzero 100% equality; stale reports and unrun counts do not establish a pass
-- **AND** task 12.1 remains open and the change is not archived before council re-judgment, regardless of local validation results
+- **AND** task 28.1 remains open and the change is not archived before council re-judgment, regardless of local validation results
 
 #### Scenario: Second V1 a historical exact pass cannot replace the failing head
 
@@ -336,7 +336,7 @@ Existing historical reasons SHALL remain historical; unaffected pins SHALL not b
 
 #### Scenario: Second H6 M3 and V1 completion follows the observed boundary
 
-- **WHEN** task 6.3 claims library consumption protection but evidence records only recompile checking, tasks 7.4/7.5/9.2 cite an intermediate restriction removal, or task 11.4 cites a superseded exact pass
+- **WHEN** task 18.1 claims library consumption protection but evidence records only recompile checking, tasks 21.1/21.3/23.1 cite an intermediate restriction removal, or task 27.4 cites a superseded exact pass
 - **THEN** the owning task/evidence revision reopens or qualifies each affected claim until its actual dispatch, final-launch or final-head gate proof exists
 - **AND** retained narrower first-repair observations stay historical and are not relabeled as second-hold closure
 - **AND** every new closure records revision, test/check, intended assertion, observed failure where required and restored pass; notes neither instruct nor waive a gate

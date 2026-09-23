@@ -399,7 +399,7 @@ validation is rejected because it cannot recover overwritten authority.
 M3's loaded-library semantic lint is required before site resolution, including
 unseated requests; optionality cannot forgive a malformed abstract declaration.
 M4 rejects the prior task 9.1 completion claim for optional compatibility
-removal: required failures cannot prove later assertions ran. The two optional
+removal (retained foundation now task 0.20): required failures cannot prove later assertions ran. The two optional
 experiments above must stand alone with their intended failure and restored
 pass recorded. The macOS correction preserves exact diagnostic equality by
 fixing fixture identity, not by changing refusal semantics or inventing a

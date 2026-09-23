@@ -1,7 +1,8 @@
 Status: proposed specification of accepted decision 0065, slice one.
 Change: decision-0065-capabilities-slice-one.
-Adopted: slice-0065-capabilities at 44430402 and specification draft a84197cd;
-every commit is retained. This design visit amends that draft with reasons.
+Adopted: slice-0065-capabilities at 44430402, specification draft a84197cd
+and design revision 3c5402be; every commit is retained. This tasks visit orders
+the adopted rebuild and reconciles requirement coverage.
 Authority: [operator ruling, 2026-09-23](operator-ruling-2026-09-23.md).
 
 ## Why
@@ -58,9 +59,10 @@ None; these six deltas remain the adopted slice's new capabilities.
 
 ## Impact
 
-This visit changes only this proposal, six deltas, design, tasks, evidence and
-proposed decision 0066. No code, tests, shipped data or witness bytes change.
-Design ends with one dependency-ordered list of one-visit rebuild units; unit 1
+The adopted revisions cover this proposal, six deltas, design, tasks, evidence
+and proposed decision 0066. This tasks visit orders the ledger and updates its
+dependent documentation. No code, tests, shipped data or witness bytes change.
+The task groups follow design's one dependency-ordered list of one-visit rebuild units; unit 1
 rebases onto current origin/main and re-pins measured identities. Implementation
 and its test/coverage gates remain owed. Supported hosts are Linux and macOS
 (decision 0063). Frozen contracts, fixtures, policy and reference stay frozen.

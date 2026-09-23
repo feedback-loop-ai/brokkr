@@ -1,8 +1,9 @@
 # Decision 0065, slice one — refuse, never reconcile
 
 Status: proposed design; decision 0066 remains proposed.
-Adopted: every commit through 44430402 and specification draft a84197cd
-on slice-0065-capabilities. Amend the existing change; do not re-author it.
+Adopted: every commit through 44430402, specification draft a84197cd and
+design revision 3c5402be on slice-0065-capabilities. This tasks visit preserves
+the design and aligns the ledger and all current task references with it.
 Authority: [the complete operator ruling](operator-ruling-2026-09-23.md).
 This visit authors documents only. No behavioral finding or security hold is closed.
 
@@ -88,6 +89,12 @@ These amendments close design omissions in the adopted draft, not implementation
 findings. R3/C7 was an upstream specification fault; its owning delta and proposed
 0066 already revoke the exception. If later evidence defeats an owning requirement,
 return upstream with that evidence instead of relaxing it in code.
+
+Task-seat coverage audit: the executable checklist now follows the exact
+Rebuild units order, retaining earlier IDs beside each row. Every requirement
+is named by its tasks. The previously uncited native requirement “Neither inline
+arguments nor fallback can override native denial” is explicitly served by
+tasks 12.1 and 15.1. This is a coverage correction, not new behavior or evidence.
 
 ### D2. Thread an explicit operator capability context through compilation
 
@@ -502,14 +509,14 @@ to revert the release, never a hidden reconciliation compatibility mode.
 
 ## Open questions
 
-- **Supported nonempty restriction proof (task 0.3, unit 9): unresolved.**
+- **Supported nonempty restriction proof (task 9.1, unit 9): unresolved.**
   Shipped Claude restrictions are unsupported. A synthetic --settings payload
   is insufficient to meet the existing compiled cold/resume positive. Qualify
   one bounded transport with provider/version evidence before load/refusal/
   final-proof work depends on it. If none exists, return upstream with evidence
   and amend the owning requirement/scenarios before proceeding; do not accept
-  arbitrary settings or mark 7.6 complete from hand-built Controls.
-- **Current main and rebase conflicts (0.4, unit 1): execution evidence owed.**
+  arbitrary settings or mark 21.2 complete from hand-built Controls.
+- **Current main and rebase conflicts (1.1, unit 1): execution evidence owed.**
   The seven local-ref commits are known; remote freshness and the actual
   conflict set must be recorded during unit 1. Additional production conflicts
   require an explicit bounded split of the plan, not a silent fourth file.
@@ -525,8 +532,10 @@ file-read race boundary are answered in D5–D7 and their owning scenarios.
 ## Rebuild units
 
 Execute this single numbered order. Each unit is one independently
-commissionable visit based on the preceding commit. Task IDs are stable;
-substeps close only at the unit named here. Count shipped JSON as production.
+commissionable visit based on the preceding commit. Task IDs now follow the
+unit/group number; each checkbox records its previous ID for historical
+traceability. Substeps close only at the unit named here. Count shipped JSON
+as production.
 Every feature unit has at most three named production files; tests and measured
 pins accompany its own change. Do not add a new module to evade that ceiling.
 If its actual file/scope budget is exceeded, split the plan before implementation.
@@ -541,9 +550,9 @@ repository docs root named in that unit; they name existing files, not new suite
 Every unit also updates this change's tasks.md/evidence.md with observed results.
 
 1. **Rebase slice-0065-capabilities onto current origin/main, re-pin digests,
-   keep every gate green.** Close 0.4. Capture current fetched main and replay
-   every adopted commit including a84197cd and this amendment. The observed
-   seven-commit advance includes #320's model-generation roster, #321 v0.11.0,
+   keep every gate green.** Close 1.1. Capture current fetched main and replay
+   every adopted commit including a84197cd, 3c5402be and the tasks amendment.
+   The observed seven-commit advance includes #320's model-generation roster, #321 v0.11.0,
    #313/#326 DSH work and #315/#322/#323. Expected production conflicts:
    `adapters/claude.json`, `adapters/codex.json`, `adapters/lanetally.json`.
    Test/pin conflicts: `crates/brokkr-runtime/tests/witness_digests.rs`,
@@ -555,12 +564,12 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    No feature repair here. A fourth production conflict requires an inventoried
    split before resolution; replaying main's committed files is not permission
    to hide extra manual repairs. Unavailable gates do not count as green.
-2. **Decode typed inline declarations.** Close 3.14. Production:
+2. **Decode typed inline declarations.** Close 2.1. Production:
    `crates/brokkr-runtime/src/agents.rs`, `agents/load.rs`, `bundle.rs` in that
    same src root. Add D5 tools.allow/tools.sandbox decoding and strict local
    subset/empty/omission validation under existing realm/boundary authority.
    Tests: agents/tests.rs, bundle/agent_tests.rs; full invalid/widening causes.
-3. **Lower typed tools and define private origins.** Close 3.20; advance 3.15.
+3. **Lower typed tools and define private origins.** Close 3.1; advance 4.2.
    Production: `crates/brokkr-runtime/src/agents.rs`,
    `crates/brokkr-runtime/src/capabilities.rs`,
    `crates/brokkr-protocol/src/native_controls.rs`. Carry authored/template/
@@ -568,54 +577,54 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    fallible private decoding/reassembly, without a new public contract.
    Tests: runtime agents/tests.rs and protocol native_controls/tests.rs; exact
    mapped limits and identical-byte origin distinction. No refusal activation.
-4. **Wire origins through runtime dispatch.** Close 3.15 and 3.21. Production:
+4. **Wire origins through runtime dispatch.** Close 4.1 and 4.2. Production:
    `crates/brokkr-runtime/src/engine.rs`, `bundle.rs` in the same src root.
    Replace SiteSpawn's two-array reconstruction; carry the selected candidate's
    segments through boundary, expansion and final input merging using unit 3's
    contract. Tests: engine/capability_tests.rs, engine/boundary_tests.rs and
    crates/brokkr-runtime/tests/capability_launch.rs. Prove reconstruction and
    override/missing record refusal; copied bytes remain authored. Final
-   refusal proof stays open in 4.7.
-5. **Supply local mappings and scaffold support.** Close 3.16 and 8.2.
+   refusal proof stays open in 15.2.
+5. **Supply local mappings and scaffold support.** Close 5.1 and 5.2.
    Production: `adapters/claude.json`, `adapters/lanetally.json`,
    `crates/brokkr-cli/src/init.rs`. Preserve acceptEdits templates and supply
    npm/npx/node plus narrow gh-pr-view/gh-run-view mappings. Tests:
    crates/brokkr-runtime/tests/library_data.rs, crates/brokkr-cli/tests/init_stacks.rs
    and init_doctor.rs there; generated typed restrictions add no grant.
-6. **Recipe/agent migration: Claude recipes.** Close 3.17. Production data:
+6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,
    preserving every prefix, including .venv/bin/pytest. No agent JSON requires
    an inline migration at the inventoried head. Tests:
    crates/brokkr-runtime/tests/capability_launch.rs and measured witness/compose
    pins, exact limits/native OFF. This separate migration precedes refusal.
-7. **Recipe migration: verify and Codex restrictions.** Close 3.18. Production:
+7. **Recipe migration: verify and Codex restrictions.** Close 7.1. Production:
    `bundles/verify/bundle.json`, `recipes/standby/bundle.json`,
    `recipes/review-first/bundle.json`. Preserve the two narrow gh prefixes and
    each sandbox class in Migration Plan. Tests: brokkr-runtime/tests/capability_launch.rs,
    brokkr-runtime/src/bundle/model_policy_tests.rs under crates/ and measured
    witness/compose pins. No boundary widening.
-8. **Recipe migration: wager and inventory.** Close 3.19. Production:
+8. **Recipe migration: wager and inventory.** Close 8.1. Production:
    `recipes/wager-harness/bundle.json`; docs `recipes/node/README.md`,
    `recipes/wager-harness/README.md`. Preserve typed danger-full-access under
    existing authority; update examples. Re-audit adapters/recipes/agents/
    extensions/bundles and scaffolds. Tests: brokkr-runtime/tests/capability_launch.rs
    under crates/; record every file disposition. Newly discovered migrations
    get bounded visits before unit 12; no filename exemption.
-9. **Qualify a supported nonempty restriction.** Close 0.3 only on evidence.
+9. **Qualify a supported nonempty restriction.** Close 9.1 only on evidence.
    No production edits. Files: evidence.md, the owning native/realm deltas and
    design Decisions; `crates/brokkr-runtime/tests/capability_launch.rs` for the
    fixture design/probe if useful. Establish bounded provider/version semantics
    and a real compilation path, not arbitrary --settings JSON. An impossible
    positive returns upstream before unit 11; no fabricated plan closes it.
-10. **Bound the grammar and redact diagnostics.** Close 3.9–3.12. Production:
+10. **Bound the grammar and redact diagnostics.** Close 10.1–10.4. Production:
     `crates/brokkr-protocol/src/native_controls/grammar.rs`. Classify catalogue
     effects, all aliases/split/equals/attached forms and five Codex config forms;
     retain only needed bounded inert assignments. Bound managed lists/separators
     and final positions. Test grammar/native_controls suites with full redacted
     causes, newline/long sentinels and DSH route-only controls. Unit 12 activates
     authored refusal; this primitive admits no new opaque syntax.
-11. **Validate both declared halves at load.** Close 3.3 and 4.4. Production:
+11. **Validate both declared halves at load.** Close 11.1 and 11.2. Production:
     `crates/brokkr-runtime/src/agents/load.rs`,
     `crates/brokkr-runtime/src/capabilities.rs`,
     `crates/brokkr-protocol/src/native_controls.rs`. Parse unused ON/OFF,
@@ -623,57 +632,57 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     Remove Codex's verbatim bypass. Tests: runtime agents/tests.rs,
     capabilities/tests.rs and protocol native_controls/tests.rs; invalid unused
     halves and positive identity pins.
-12. **Enable authored refusal and engine-only composition.** Close 4.3 and
-    4.6; advance 4.7. Production: `crates/brokkr-protocol/src/native_controls.rs`,
+12. **Enable authored refusal and engine-only composition.** Close 12.1 and
+    12.2; advance 15.2. Production: `crates/brokkr-protocol/src/native_controls.rs`,
     `crates/brokkr-runtime/src/capabilities.rs`,
     `crates/brokkr-runtime/src/bundle.rs`. Delete authored list folding and
     value-dependent admission; compose only typed engine contributions. Tests:
     protocol native_controls/tests.rs and brokkr-runtime/tests/capability_launch.rs;
     every harness/form, grant state, counterfeit origin, managed hard limit and
     migrated shipped positive.
-13. **Build pure final assessment and share structural consumers.** Close 3.13
-    and 7.7. Production: `crates/brokkr-protocol/src/native_controls.rs`,
+13. **Build pure final assessment and share structural consumers.** Close 13.1
+    and 13.2. Production: `crates/brokkr-protocol/src/native_controls.rs`,
     `native_controls/grammar.rs`, `adapters.rs` in the same src root. Finish the
     pure complete builder/checker, exact-state comparison and private checked
     command. Replace raw selector/extraction readers, including --image resume.
     Tests: adapters/tests.rs and native_controls/tests.rs; full independent
     state/refusal expectations. Integration remains open below.
-14. **Integrate checked cold serving commands.** Close 7.1. Production:
+14. **Integrate checked cold serving commands.** Close 14.1. Production:
     `crates/brokkr-protocol/src/adapters.rs`. After all expansions/prefixes,
     obtain and consume unit 13's checked value at Codex, Claude/LaneTally child
     and DSH cold serving seams. Tests: adapters/tests.rs,
     crates/brokkr-runtime/tests/capability_launch.rs; independent compiled
     commands, dropped OFF, changed separators, cross-origin duplicates and
     attempts to mutate after checking. No resume eligibility work here.
-15. **Integrate eligible resume and replacement.** Close 7.2 and 4.7.
+15. **Integrate eligible resume and replacement.** Close 15.1 and 15.2.
     Production: `crates/brokkr-protocol/src/adapters.rs`. Check each actual
     eligible resume and rejected-rejoin cold replacement independently; preserve
     session/version/sandbox/effort/accounting eligibility and private origins.
     Tests: adapters/tests.rs, crates/brokkr-runtime/tests/capability_launch.rs;
     exact session/stdin shape, selected fallback, malformed private records and
     ON/OFF/refusal expectations. Cold replacement is never resumed evidence.
-16. **Bind canonical inputs and policy bytes.** Close 5.1, 5.2 and 6.1.
+16. **Bind canonical inputs and policy bytes.** Close 16.1, 16.2 and 16.3.
     Production: `crates/brokkr-runtime/src/bundle.rs`, `bundle/compose.rs` in
     that same src root. Refuse outward/excluded/nonregular/unpinned inputs,
     bind contained target to read handle or refuse, and bind policy parse/hash
     buffer to owner identity including overridden ancestors. Tests:
     bundle/compose_tests.rs; standalone/inherited escapes, FIFO, controlled
     path replacement, contained symlink positives and independent byte changes.
-17. **Select charter owner and source at compile.** Close 6.2. Production:
+17. **Select charter owner and source at compile.** Close 17.1. Production:
     `crates/brokkr-runtime/src/bundle.rs`, `agents.rs`, `agents/load.rs` in that
     same src root. Carry owner/reference/canonical target/existing digest for
     each selected candidate; remove longest-prefix owner guesses. Tests:
     bundle/agent_tests.rs, agents/tests.rs; external/nested/overlapping owners,
     every selected site and fallback, no recipe escape reclassified as library.
-18. **Consume the bound charter at dispatch and rendering.** Close 6.3, 6.5
-    and 8.1. Production: `crates/brokkr-runtime/src/engine.rs`,
+18. **Consume the bound charter at dispatch and rendering.** Close 18.1, 18.2
+    and 18.3. Production: `crates/brokkr-runtime/src/engine.rs`,
     `crates/brokkr-runtime/src/bundle.rs`,
     `crates/brokkr-protocol/src/adapters.rs`. Use units 16–17's verified read
     and selected owner; merge verified text last and never reopen at rendering.
     Tests: runtime engine/capability_tests.rs, engine/boundary_tests.rs and
     protocol adapters/tests.rs; equal-byte/changed/missing targets without
     recompile, selected prompt/DATA facts and controlled replacement refusal.
-19. **Enforce charter integrity at start and pinned resume.** Close 6.4.
+19. **Enforce charter integrity at start and pinned resume.** Close 19.1.
     Production: `crates/brokkr-runtime/src/engine.rs`, `bundle.rs` in the same
     src root. Apply existing start/resume identity doors to unit 17's complete
     selected owner binding and unit 16's verified reader. Tests: runtime
@@ -681,56 +690,56 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     crates/brokkr-cli/tests/capability_verbs.rs; changed/excluded/equal-byte
     retarget/missing/restored inputs, mapped/unmapped pinned context. Neither
     dispatch proof nor recompile substitutes for these consumption checks.
-20. **Audit compiled refusal and serving-shape matrix.** Close 7.3; advance 7.5.
+20. **Audit compiled refusal and serving-shape matrix.** Close 20.1; advance 21.3.
     No production edits. Tests: `crates/brokkr-runtime/tests/capability_launch.rs`,
     `crates/brokkr-protocol/src/adapters/tests.rs` and
     `crates/brokkr-runtime/src/engine/capability_tests.rs`. Each supported
     harness/form/site/cold/resume/fallback row names a real compiled whole-command
     or full-refusal assertion and selected charter facts. Fill missing assertions
     in these suites; holdings-only/is_ok evidence closes no row. Restriction
-    rows close only with unit 21; task 7.5's full matrix remains open until then.
-21. **Prove compiled restrictions at cold and actual resume.** Close 7.4, 7.6
-    and the remaining restriction rows of 7.5. No production edits. Tests:
+    rows close only with unit 21; task 21.3's full matrix remains open until then.
+21. **Prove compiled restrictions at cold and actual resume.** Close 21.1, 21.2
+    and the remaining restriction rows of 21.3. No production edits. Tests:
     `crates/brokkr-runtime/tests/capability_launch.rs` and
     `crates/brokkr-protocol/src/adapters/tests.rs`. Use real realm/dialect/
     candidate resolution for managed Read/empty controls and unit 9's supported
     held nonempty restriction. Separate cold and eligible-resume expectations,
     structured manifest objects and session identity; hand-built Controls fail
     this obligation. Record independent final-delivery removals.
-22. **Doctor submits the complete plan in both paths.** Close 8.3 and 8.4.
+22. **Doctor submits the complete plan in both paths.** Close 22.1 and 22.2.
     Production: `crates/brokkr-runtime/src/capabilities.rs`,
     `crates/brokkr-cli/src/doctor.rs`. Consume units 13–15's same final composer;
     remove synthetic per-capability delivery. Tests: doctor/capability_tests.rs;
     interacting OFFs, include/deny conflict, admitted plan, every grant shape
     and labeled adapter-only scope, with independent full compile/report lines.
-    Retain 8.5's no-provider/no-capability-server evidence.
-23. **Audit launch enforcement removals.** Close 9.2. No permanent production
+    Retain 0.19's no-provider/no-capability-server evidence.
+23. **Audit launch enforcement removals.** Close 23.1. No permanent production
     edits. Files: brokkr-runtime/tests/capability_launch.rs, brokkr-protocol/src/adapters/tests.rs,
     brokkr-protocol/src/native_controls/tests.rs under crates/ and evidence.md. Check
     or run each missing isolated authored/load/final parse/state/ON/OFF/cold-resume
     restriction removal from units 10–15/21. Every intended assertion fails and
     passes after restoration; record revisions, never a build error as proof.
-24. **Audit identity enforcement removals.** Close 9.3. No permanent production
+24. **Audit identity enforcement removals.** Close 24.1. No permanent production
     edits. Files: brokkr-runtime/src/bundle/compose_tests.rs,
     brokkr-runtime/src/engine/boundary_tests.rs, brokkr-cli/tests/capability_verbs.rs under
     crates/ and evidence.md. Check or run missing isolated containment/regular-
     policy binding/owner-target/read-binding/verified-buffer removals from units
     16–19; retain consulted/unconsulted controls. Restore each mutation and
     record its intended failure and pass.
-25. **Audit proof history and portability.** Close 0.2, 3.6 and 9.4. No production
+25. **Audit proof history and portability.** Close 25.1, 25.2 and 25.3. No production
     edits. Files: brokkr-runtime/src/agents/tests.rs, brokkr-protocol/src/adapters/tests.rs,
     brokkr-runtime/tests/capability_launch.rs under crates/, evidence.md and tasks.md.
     Verify each baseline red/fix/removal/restored record and matrix assertion;
     earlier units must capture reds before changes. Retain one canonical TempDir
     root per fixture and obtain Linux/macOS evidence. Never invent history.
-26. **Update guides, measured pins and scope audit.** Close 10.1–10.3. No
+26. **Update guides, measured pins and scope audit.** Close 26.1–26.3. No
     production edits. Files: `docs/guides/recipe-authoring.md`, agent-library.md,
     provider-adapters.md in that guides root; brokkr-runtime/tests/witness_digests.rs,
     brokkr-runtime/src/bundle/compose_tests.rs under crates/, evidence.md and tasks.md.
     Replace old advice with implemented refusal/containment/whole-plan behavior
     and actual limits. Measure final self/verify/affected witness identities and
     append reasons. Audit frozen bytes, empty grants, scope and compiler pins.
-27. **Final candidate gates and commit.** Close 11.1–11.5 only on observed
+27. **Final candidate gates and commit.** Close 27.1–27.5 only on observed
     success. Evidence/tasks and run-local records only, no production edits.
     Run fmt, locked all-target/all-feature clippy, all seven crate suites, both
     workspace suites, self/verify compiles, strict OpenSpec and diff check.
@@ -739,5 +748,5 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     coverage must consume rust-nightly-version.txt. Commit restored work in
     repository style, never push. Record committed SHA/results in run-local
     evidence without changing the validated source head. Pending gates remain
-    open. Task 12.1 awaits separate council judgment; no archive/publication
+    open. Task 28.1 awaits separate council judgment; no archive/publication
     or security clearance follows from this plan.
