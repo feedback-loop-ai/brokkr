@@ -2644,7 +2644,7 @@ enum Contribution {
 /// rather than by token matching, so a joined, attached or aliased spelling
 /// is the same option. Anything the grammar cannot place refuses — an
 /// unreadable contribution is uncertainty, and uncertainty refuses typed
-/// admission. So does a COMPETING control beside the class (design D5.3,
+/// admission — naming its position and never its token. So does a COMPETING control beside the class (design D5.3,
 /// made explicit by D5.5): a switch that lifts or replaces the sandbox
 /// (`--full-auto`, `--dangerously-bypass-approvals-and-sandbox`), or a
 /// configuration assignment into `sandbox_mode` or `sandbox_workspace_write`,
@@ -2696,11 +2696,18 @@ fn expressed_sandbox(
     const NATIVE_KEY: &str = "web_search";
     let command = match grammar::parse("codex", argv).expect("the codex grammar is modelled") {
         Ok(command) => command,
+        // The problem's rendering quotes its token, and an attached or
+        // joined token carries its value (unit 2-fix review return S2): only
+        // the position and the grammar's cause, which is built from fixed
+        // text and canonical option names alone, are named.
         Err(problem) => {
+            let (argument, cause) = (problem.at + 1, problem.cause);
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} it \
-                 would be judged against cannot be read: {problem}"
-            )))
+                 would be judged against cannot be read: the 'codex' command grammar cannot place \
+                 argument {argument}, whose token is not echoed because it can carry a value: it \
+                 {cause} — refused (design D5.3)"
+            )));
         }
     };
     let mut expressed = None;
@@ -2747,11 +2754,16 @@ fn expressed_sandbox(
                     .iter()
                     .any(|value| grammar::config_under(&grammar::config_key(value), table))
             }) {
+                // A resolved native plan names canonical `--config`, as its
+                // unqualified-assignment refusal does (review return C1).
+                let door = match contribution {
+                    Contribution::Written => "the harness's configuration,",
+                    Contribution::Native => "`--config`, the harness's configuration,",
+                };
                 return Err(CompileError::Invalid(format!(
                     "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
-                     assigns '{table}' through the harness's configuration, a second door to \
-                     the same control that no typed class can be checked against — refused \
-                     (design D5.3)"
+                     assigns '{table}' through {door} a second door to the same control that no \
+                     typed class can be checked against — refused (design D5.3)"
                 )));
             }
             // An assignment outside the established keys is not echoed:

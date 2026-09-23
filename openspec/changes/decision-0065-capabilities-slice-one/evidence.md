@@ -2276,9 +2276,18 @@ modified.
 
 ### Audit (2.6)
 
+*Corrected in place by the review return below (SC3): the claim that every
+new row has a recorded baseline is wrong for three.* The positives `clean
+native ON` and `clean native restriction` were added after the baseline, and
+on the baseline the failing tables of the *on* and *links* tests stopped
+before their post-table assertions (the clean ON facts and argv, the
+restriction argv, the untyped control) ever ran. Those have only the
+retrospective adopted-guard run recorded under "SC3" below; no earlier
+execution is claimed for them.
+
 All eleven chief cases (S1.1–S1.3, A1.1–A1.8), the twelve native root rows
-(ON, OFF, restriction × four spellings) and every other new row above have
-a recorded baseline, an exact complete literal expectation written in the
+(ON, OFF, restriction × four spellings) and every other new refusal row above
+have a recorded baseline, an exact complete literal expectation written in the
 test (helpers `root_refusal`, `competing`, `switch_cause`, `table_cause`,
 `ADDED_ROOT_CAUSE`, `native_config_cause`, `native_sandbox_refusal`, none
 derived from production), a compiling mutation reaching that row with its
@@ -2327,3 +2336,144 @@ was restored):
   here. `ci.yml`, `release.yml` and `coverage-exact.sh` all consume
   `rust-nightly-version.txt`. Nothing is called fully green on their
   account; unit 1's pending results stay pending.
+
+
+## Unit 2-fix — review return: S2, SC1, C1/SC2 and SC3 answered, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-11592690`, phase `implement`, returned
+from `review` (gpt-6-astra, `residual`, medium security, no specification
+defect), based on `b4fd8d36`. The worktree began clean; every adopted commit
+remains an ancestor. The findings answered: S2, SC1, C1/SC2 and SC3. P1 (the
+panel's instruction addressed to the gate) is a run defect the chief already
+rejected, with nothing to change here. This seat had cargo 1.98.0 and
+openspec 1.12.0; every result below is this seat's own observation. Scratch
+logs are `.forge/u2fix2-*` (run-local, read by no test).
+
+### Production, inside the allowlist
+
+Only `crates/brokkr-runtime/src/bundle.rs::expressed_sandbox` changed;
+`capabilities.rs` did not.
+
+- **S2.** The grammar's `Problem` rendering quotes its token, and an
+  attached or joined token carries its value. The unreadable-contribution
+  refusal now names the argument by position (the grammar's own 1-based
+  count) and the grammar's `cause`, which is built only from fixed text and
+  canonical option names, and says the token is not echoed. `grammar.rs` is
+  unchanged. This refusal applies to the authored command, the selected hands
+  fragment and the resolved native plan alike.
+- **C1/SC2.** A sandbox-table refusal in `Native` context reads "through
+  `--config`, the harness's configuration,", like the native
+  unqualified-assignment refusal. The written-context wording is the adopted
+  one. The table name is still one of the two fixed names, and the
+  assignment is never echoed.
+
+### Baseline on `b4fd8d36` (before the production edit)
+
+The rows were staged in `bundle/agent_tests.rs` and run on the adopted
+`bundle.rs` with `cargo test -p brokkr-runtime --all-features --locked --lib
+-- bundle::agent_tests` (`.forge/u2fix2-baseline.log`): 37 passed, 3 failed.
+
+| Test / row | Baseline observed |
+| --- | --- |
+| `an_unreadable_contribution_refuses_by_position_without_echoing_its_token` (new): authored, `hands.harness.work` and native OFF × {duplicate `--cd=/` then `-C<long>`, malformed `--cd` then `-C<long>`}, native OFF bare word `stray`, native OFF trailing `--profile` | **8 of 8 red**. Each left quoted the token: the 604-scalar `-C/ü…\nж…` (newline included), `'stray'` or `'--profile'`, then the grammar's multi-sentence tail |
+| `a_resolved_native_off_contribution_…`: S1.3, `sandbox_mode` (expectations now `native_table_cause`) | **2 of 17 red**. The left said "through the harness's configuration" with no `--config` |
+| `a_resolved_native_off_contribution_…`: new `opaque profile load at harness work` (`--profile ci`) | **passed**. The adopted guard already refused it with the complete load cause (an already-correct neighbour, SC1) |
+| `a_typed_sandbox_admits_…`: adopted `unreadable fragment` row (expectation now value-free) | **red**. The left quoted `('--bogus')` and the grammar tail |
+
+The long token is 604 Unicode scalars (`-C`, `/`, 300 × `ü`, a newline,
+300 × `ж`). After the repair the owning suite passed 40 of 40
+(`.forge/u2fix2-post-repair.log`). The new test asserts that every expected
+refusal is at most 512 Unicode scalars.
+
+### Mutation ledger, review return
+
+Each mutation was one compiling edit to `bundle.rs`, applied alone, run with
+the same command (`.forge/u2fix2-mut-<id>.log`), and removed by the reverse
+edit. `cmp` against `.forge/u2fix2-bundle.rs.repaired` then matched. Every
+run reported `39 passed; 1 failed`, and the one failure was the row below.
+*unreadable* = the new test, *off* = `a_resolved_native_off_contribution_…`,
+*typed* = `a_typed_sandbox_admits_…`.
+
+| # | Mutation (in the grammar-error arm unless noted) | The one row that failed, with its observed left |
+| --- | --- | --- |
+| R-M1 | echo `{problem}` when `part == "authored command"` and cause `repeats` | unreadable: authored duplicate `--cd`. The left quoted `('-C/üü…\nжж…')` and the grammar tail |
+| R-M2 | … authored, cause `stands` | unreadable: authored malformed `--cd`, echoed |
+| R-M3 | … `hands.harness.work`, `repeats` | unreadable: hands.harness.work duplicate `--cd`, echoed |
+| R-M4 | … `hands.harness.work`, `stands` | unreadable: hands.harness.work malformed `--cd`, echoed |
+| R-M5 | … `Native`, `repeats` | unreadable: native OFF duplicate `--cd`, echoed |
+| R-M6 | … `Native`, `stands` | unreadable: native OFF malformed `--cd`, echoed |
+| R-M7 | … `Native`, `is a bare` | unreadable: native OFF bare word. The left quoted `('stray')` |
+| R-M8 | … `Native`, `takes a value` | unreadable: native OFF trailing `--profile`. The left quoted `('--profile')` |
+| R-M9 | … `part` starts with `` `hands.workspace` `` | typed: `unreadable fragment`. The left quoted `('--bogus')` |
+| U-M1 | `return Ok(None)` for `Native` and `repeats` | unreadable: native OFF duplicate `--cd`. **Compiled**: `compiled: [("review", …), ("work", Some(LocalTools { allow: Some(["cargo"]), sandbox: Some(WorkspaceWrite) }))]` |
+| U-M2 | … `Native` and `stands` | unreadable: native OFF malformed `--cd`, **compiled** (same left) |
+| U-M3 | … `Native` and `is a bare` | unreadable: native OFF bare word, **compiled** |
+| U-M4 | … `Native` and `takes a value` | unreadable: native OFF trailing `--profile`, **compiled** |
+| C-M1 | table refusal: `Native` door without `--config` for `sandbox_workspace_write` | off: S1.3. The left said "through the harness's configuration, a second door" |
+| C-M2 | … for `sandbox_mode` | off: `sandbox_mode at a harness gate`, same left |
+| L-M1 | load check `&& !(Native && name == "--profile")` | off: opaque profile load. **Compiled**, `WorkspaceWrite` |
+
+Each R row gets two proofs: the redaction (R-M) and, for the native rows, the
+refusal itself (U-M). An echo mutation cannot compile the row, because the
+row still refuses; it fails the value-free assertion.
+
+### SC3: retrospective adopted-guard run
+
+This run was made in this visit and is labelled as such. It is not a
+historical baseline. The repair and suite were parked in a temporary signed
+WIP commit. Then `git checkout 07228d50 -- crates/brokkr-runtime/src/bundle.rs`
+restored the adopted guard, and `each_row`'s panic was replaced with a
+report in a scratch edit only, so the post-table assertions would execute.
+The run was `cargo test … --lib -- bundle::agent_tests::resolved_native_
+--nocapture` (`.forge/u2fix2-retro-adopted-guard.log`):
+
+- *on*: the table reported 9 of 11 rows failed, the four ON and four
+  restriction root rows plus ON `--add-dir`. `clean native ON` and `clean
+  native restriction` **passed**. The post-table assertions then **executed
+  and passed**: the holding `["web-search"]`, native on `["web-search"]`,
+  off `[]`, argv `["-c", "web_search=\"live\""]` and the substituted
+  restriction argv.
+- *links*: 2 of 2 rows failed (later candidate, inherited class). The
+  untyped control's exact `outcome` and argv `["-c",
+  "web_search=\"disabled\"", "-C/"]` then **executed and passed**.
+
+Both files were restored with `git checkout HEAD -- …` from the WIP commit,
+and `cmp` matched the repaired bytes. The WIP commit was dropped with `git
+reset --soft HEAD~1`, and HEAD returned to `b4fd8d36`. The earlier audit
+paragraph is corrected in place to point here.
+
+### Audit (2.6, this return)
+
+Every new or changed row has a recorded baseline on `b4fd8d36` and an exact
+complete literal expectation written in the test. The helpers are
+`unreadable`, `REPEATED_ROOT`, `ROOT_VALUE_READS_AS_OPTION`,
+`native_table_cause` and `LOAD_CAUSE`; none is derived from production. Each
+row also has a compiling mutation that fails only that row, with its actual
+left, and a restored pass. No `is_err()` or substring assertion was added.
+The one removed helper is `table_cause`, whose two users now take
+`native_table_cause`. The fixtures keep the canonical `AgentFixture` root,
+and no test reads `.forge/` or needs a provider.
+
+### Gates on the restored tree (2.7, this return)
+
+These ran on `b4fd8d36` plus this working tree, after every mutation was
+restored and formatting was applied:
+
+- `cargo fmt --all -- --check`: **passed**, after `cargo fmt` rewrapped two
+  test expressions. `bundle.rs` was unchanged by it (`cmp`).
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: **passed**.
+- `cargo test -p brokkr-runtime --all-features --locked`: **passed**, with
+  535 library tests and 25 green result lines.
+- `cargo test --workspace`: **passed**, 77 green result lines with no
+  failure.
+- `cargo test --workspace --all-features --locked`: **passed**, 77 green
+  result lines with no failure.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `bundles/verify`: both **compiled**.
+- `openspec validate --all --strict --no-interactive` and `git diff
+  --check`: recorded in the run-local result, run after this text was
+  written.
+- The coverage diagnostic was **not** run this visit. External exact
+  coverage, macOS and remote CI are **pending**. Nothing is called fully
+  green.

@@ -325,6 +325,27 @@ observed local passes and the commit. 2.8, the gate portion of 2.1.7 and
 aggregate 2.1 stay open because external exact coverage, macOS and remote CI
 are pending. The committed SHA is in the run-local result.
 
+Review return, the same run, phase `implement` based on `b4fd8d36`
+(2026-09-23), recorded in full under evidence.md "Unit 2-fix — review
+return: S2, SC1, C1/SC2 and SC3 answered". The chief (gpt-6-astra,
+`residual`, medium security) found a grammar problem rendered with its
+token, so a duplicate or malformed root selector echoed its whole value
+past the 512-scalar bound (S2); no resolved-native opaque-load, duplicate or
+malformed row despite 2.5/2.6 (SC1); native sandbox-table refusals omitting
+`--config` (C1/SC2); and the audit claiming a baseline for rows added after
+it (SC3). All four are answered in the same files: `expressed_sandbox` names
+an unplaceable argument by position and the grammar's fixed cause, never its
+token, and a native table refusal names `--config`; the new test
+`an_unreadable_contribution_refuses_by_position_without_echoing_its_token`
+binds duplicate/malformed rows in all three contributions plus a native bare
+word and trailing option, and the native OFF table gains its profile-load
+row. Every new or changed row was observed on `b4fd8d36` first (11 red, the
+profile-load row already correct), and ledger rows R-M1–R-M9, U-M1–U-M4,
+C-M1–C-M2 and L-M1 each bind exactly one row. The audit claim is corrected in
+place, with an explicitly retrospective adopted-guard run for the rows that
+had none. 2.2–2.7 stay ticked on the same basis, now including this return;
+2.8, the gate portion of 2.1.7 and aggregate 2.1 stay open.
+
 Local gates for 2.1.7, from the house and D5.4/D10:
 
 ```text

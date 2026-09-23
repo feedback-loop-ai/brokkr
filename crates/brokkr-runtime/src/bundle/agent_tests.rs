@@ -2057,19 +2057,13 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
          nothing is not a representation — refused (design D5.3)"
             .to_string(),
     ));
-    let mut unreadable = codex();
-    unreadable["hands"]["workspace"] = json!(["--sandbox", "read-only", "--bogus"]);
-    fixture.write("adapters/codex.json", unreadable);
+    let mut bogus = codex();
+    bogus["hands"]["workspace"] = json!(["--sandbox", "read-only", "--bogus"]);
+    fixture.write("adapters/codex.json", bogus);
     rows.push((
         "unreadable fragment".to_string(),
         outcome(fixture.compile(seat(None))),
-        "bundle: seat 'work' link 1 requests a typed 'tools.sandbox', but the `hands.workspace` \
-         fragment it would be judged against cannot be read: the 'codex' command grammar cannot \
-         place argument 3 ('--bogus'): it names no option. A harness brokkr launches is parsed \
-         against a model of its options, and a token that grammar cannot place is refused \
-         rather than passed through, because a control nobody can read is a control nobody can \
-         rule on (decision 0066 ruling 6)"
-            .to_string(),
+        unreadable(1, "`hands.workspace` fragment", 3, "names no option"),
     ));
     // The same control through the configuration door.
     let mut configured = codex();
@@ -2628,11 +2622,13 @@ fn switch_cause(name: &str) -> String {
     )
 }
 
-/// The cause of an assignment into a sandbox table.
-fn table_cause(table: &str) -> String {
+/// The cause of an assignment into a sandbox table in a resolved native
+/// plan: it names canonical `--config` and the fixed table, never the
+/// assignment (unit 2-fix review return C1).
+fn native_table_cause(table: &str) -> String {
     format!(
-        "assigns '{table}' through the harness's configuration, a second door to the same \
-         control that no typed class can be checked against — refused (design D5.3)"
+        "assigns '{table}' through `--config`, the harness's configuration, a second door to \
+         the same control that no typed class can be checked against — refused (design D5.3)"
     )
 }
 
@@ -2640,6 +2636,32 @@ fn table_cause(table: &str) -> String {
 const ADDED_ROOT_CAUSE: &str = "carries `--add-dir`, which adds a filesystem root the \
     `--sandbox` class would not reach, a competing control on the same reach that no typed \
     class can be checked against — refused (design D5.3)";
+
+/// The cause of a profile load, whose document the engine cannot see into.
+const LOAD_CAUSE: &str = "carries `--profile`, which loads an opaque configuration document \
+    the engine cannot see into and that can set the same control, so no typed class can be \
+    checked against it — refused (design D5.3)";
+
+/// The complete refusal of a contribution the codex grammar cannot place,
+/// at `work`: the argument by position and the grammar's fixed cause, and
+/// never the token, which can carry a value (unit 2-fix review return S2).
+fn unreadable(link: usize, part: &str, argument: usize, cause: &str) -> String {
+    format!(
+        "bundle: seat 'work' link {link} requests a typed 'tools.sandbox', but the {part} it \
+         would be judged against cannot be read: the 'codex' command grammar cannot place \
+         argument {argument}, whose token is not echoed because it can carry a value: it \
+         {cause} — refused (design D5.3)"
+    )
+}
+
+/// The grammar's fixed cause for a second `--cd`.
+const REPEATED_ROOT: &str = "repeats option '--cd', which the grammar admits once; a CLI that \
+    resolves a duplicate last-wins would resolve it against the control the engine composed";
+
+/// The grammar's fixed cause for a `--cd` whose split value reads as an
+/// option.
+const ROOT_VALUE_READS_AS_OPTION: &str = "stands where the value of '--cd' belongs but reads as \
+    an option, so which of the two it is cannot be told";
 
 /// The cause of an unqualified assignment in a resolved native plan: it
 /// names `--config` and the argument, never the key or the value.
@@ -2847,7 +2869,7 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
             vec!["-c", "sandbox_workspace_write.network_access=true"],
             None,
             "workspace-write",
-            competing(NATIVE, &table_cause("sandbox_workspace_write")),
+            competing(NATIVE, &native_table_cause("sandbox_workspace_write")),
         ),
         (
             "--full-auto at harness work".to_string(),
@@ -2861,7 +2883,14 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
             vec!["-c", "sandbox_mode=\"danger-full-access\""],
             Some("gate"),
             "read-only",
-            competing(NATIVE, &table_cause("sandbox_mode")),
+            competing(NATIVE, &native_table_cause("sandbox_mode")),
+        ),
+        (
+            "opaque profile load at harness work".to_string(),
+            vec!["--profile", "ci"],
+            None,
+            "workspace-write",
+            competing(NATIVE, LOAD_CAUSE),
         ),
         (
             "--add-dir split at a harness gate".to_string(),
@@ -2936,7 +2965,113 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
         outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness)),
         competing(NATIVE, ADDED_ROOT_CAUSE),
     ));
-    assert_eq!(rows.len(), 16);
+    assert_eq!(rows.len(), 17);
+    each_row(rows);
+}
+
+/// Unit 2-fix review return S2 and SC1: a contribution the codex grammar
+/// cannot place — a duplicate root selector, a root selector whose split
+/// value reads as an option, a bare word, a trailing option without its
+/// value — refuses by argument position and the grammar's fixed cause, in
+/// the authored command, the `hands.harness.work` fragment and the
+/// resolved native OFF argv alike. The unplaceable token is an attached
+/// `-C` carrying a long non-ASCII value with a newline, and it is never
+/// echoed: every refusal stays within 512 Unicode scalars.
+#[test]
+fn an_unreadable_contribution_refuses_by_position_without_echoing_its_token() {
+    let fixture = AgentFixture::new();
+    declare_sandbox(&fixture, "workspace-write");
+    let attached = format!("-C{}", long_payload());
+    let duplicate = ["--cd=/", attached.as_str()];
+    let malformed = ["--cd", attached.as_str()];
+    let work = || outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness));
+    let authored = |tokens: &[&str]| {
+        let mut adapter = codex();
+        let mut driver = vec!["{brokkr}", "driver", "codex", "--"];
+        driver.extend(tokens);
+        adapter["driver"] = json!(driver);
+        fixture.write("adapters/codex.json", adapter);
+    };
+    let fragment = |tokens: &[&str]| {
+        let mut adapter = codex();
+        let mut argv = CODEX_WORK.to_vec();
+        argv.extend(tokens);
+        adapter["hands"]["harness"]["work"] = json!(argv);
+        fixture.write("adapters/codex.json", adapter);
+    };
+    let native = |tokens: &[&str]| fixture.write("adapters/codex.json", codex_off(tokens));
+    let mut rows: Vec<Row<String>> = Vec::new();
+    authored(&duplicate);
+    rows.push((
+        "authored duplicate --cd".to_string(),
+        work(),
+        unreadable(1, "authored command", 2, REPEATED_ROOT),
+    ));
+    authored(&malformed);
+    rows.push((
+        "authored malformed --cd".to_string(),
+        work(),
+        unreadable(1, "authored command", 2, ROOT_VALUE_READS_AS_OPTION),
+    ));
+    fragment(&duplicate);
+    rows.push((
+        "hands.harness.work duplicate --cd".to_string(),
+        work(),
+        unreadable(1, "`hands.harness.work` fragment", 4, REPEATED_ROOT),
+    ));
+    fragment(&malformed);
+    rows.push((
+        "hands.harness.work malformed --cd".to_string(),
+        work(),
+        unreadable(
+            1,
+            "`hands.harness.work` fragment",
+            4,
+            ROOT_VALUE_READS_AS_OPTION,
+        ),
+    ));
+    native(&duplicate);
+    rows.push((
+        "native OFF duplicate --cd".to_string(),
+        work(),
+        unreadable(1, NATIVE, 4, REPEATED_ROOT),
+    ));
+    native(&malformed);
+    rows.push((
+        "native OFF malformed --cd".to_string(),
+        work(),
+        unreadable(1, NATIVE, 4, ROOT_VALUE_READS_AS_OPTION),
+    ));
+    native(&["stray"]);
+    rows.push((
+        "native OFF bare word".to_string(),
+        work(),
+        unreadable(
+            1,
+            NATIVE,
+            3,
+            "is a bare word, and no positional argument is part of the supported shape",
+        ),
+    ));
+    native(&["--profile"]);
+    rows.push((
+        "native OFF trailing --profile".to_string(),
+        work(),
+        unreadable(
+            1,
+            NATIVE,
+            3,
+            "takes a value and is the last argument, so it has none",
+        ),
+    ));
+    assert_eq!(rows.len(), 8);
+    for (label, _, expected) in &rows {
+        assert!(
+            expected.chars().count() <= 512,
+            "row {label}: the expected refusal is {} scalars",
+            expected.chars().count()
+        );
+    }
     each_row(rows);
 }
 
