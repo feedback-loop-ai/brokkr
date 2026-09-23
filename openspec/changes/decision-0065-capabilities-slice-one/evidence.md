@@ -346,17 +346,19 @@ replay adaptations below and this record.
   `luna: gpt-6-luna` and `opus-tallied: claude-opus-5-5`. Next to them are the
   slice's `native_capabilities`. `Cargo.toml` and `Cargo.lock` equal main's
   (v0.11.0, `git diff origin/main HEAD` empty for both).
-- **Production conflict not in the inventory (one file, below the ceiling of
-  three):** `crates/brokkr-protocol/src/adapters.rs`, `dsh_launch_with`, at
-  replayed commits 14 and 27. #313 put `dsh_input_boundaries(extra)?` at the
+- **Production conflict not in the inventory, a fourth production file:**
+  `crates/brokkr-protocol/src/adapters.rs`, `dsh_launch_with`, at
+  replayed commits 14 and 27. (The first record called this "below the ceiling
+  of three" and within scope. That was wrong. The unit requires an inventoried
+  split *before* a fourth production conflict is resolved, and it was resolved
+  without one. See "Review return" below.) #313 put `dsh_input_boundaries(extra)?` at the
   head of the function. The slice put its native-control guard there too:
   `native_controls::managed` at commit 14, and at 27
   `composed_launch("dsh", extra, input)` with `extra` rebound to the composed
   argv. The resolution keeps both, the slice's first, so its "refused before
   the seat's argv is read" still holds. Main's boundary check then runs on the
   argv as handed over. Main's DSH tests carry no `native_controls` key, so the
-  slice guard admits them unchanged. No other production file conflicted, so no
-  split was needed.
+  slice guard admits them unchanged. No other production file conflicted.
 - **Inventoried test/pin conflicts:** `tests/witness_digests.rs` and
   `bundle/compose_tests.rs` at commit 8. Both sides' prose was kept and the
   slice's values were taken as placeholders. They were then re-measured at the
@@ -441,4 +443,70 @@ codex model maps changed (#320).
   never pushes.
 
 Pending and not-run gates are not green. The replay, the pins and the local
-gates are done. Unit 2 inherits this head.
+gates are done. The unit is not complete (see below).
+
+### Review return, 2026-09-23: manual repairs inventory and split
+
+Review of 6cac60bb..07d65e71 (run `build-decision-0065-slice-one-re-08fc67a8`,
+gpt-6-astra, residual/medium) returned the unit with two findings.
+
+- **C1:** task 1.1 was ticked even though external exact coverage and macOS
+  were still pending. It is reopened. It stays open until those results exist.
+  Remote CI remains a pending handoff.
+- **C2:** the record above treated an unlisted production conflict as within
+  scope. That was wrong. This section inventories every manual repair the
+  replay made outside the unit's named files. Nothing was changed or
+  re-resolved in this visit.
+
+**Named by the unit** (within scope): `adapters/claude.json`,
+`adapters/codex.json` and `adapters/lanetally.json` (auto-merged, no manual
+edit); `tests/witness_digests.rs` and `bundle/compose_tests.rs` (resolved at
+dfadcc9c, commit 8, and re-pinned at 07d65e71); `bundle/model_policy_tests.rs`
+(semantic fix at 07d65e71).
+
+**Not named by the unit**, one row per manual repair:
+
+| # | File | Kind | Where | Manual content |
+|---|---|---|---|---|
+| X1 | `crates/brokkr-protocol/src/adapters.rs` | **production** | 4f24af60 (commit 14), 23f57ea2 (commit 27) | In `dsh_launch_with` both guards were kept, and the order was chosen by hand: the slice's guard (`native_controls::managed`, later `composed_launch`) runs first, then #313's `dsh_input_boundaries`. #313's comment "Original adjacency first" was reworded to "next". |
+| X2 | `crates/brokkr-runtime/src/agents/tests.rs` | test | 07d65e71 | #315's `harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment` drops the `&mut Vec::new()` notices argument at two `compose` call sites (baseline `E0061`). The assertions are unchanged. |
+| X3 | `crates/brokkr-protocol/src/adapters/tests.rs` | test | 53cfd0a0 (commit 5) | End-of-file append conflict: #326's Pass D cases and the slice's native-control cases, both kept verbatim. |
+| X4 | `docs/guides/provider-adapters.md` | docs | 74460ce1 (commit 9) | #315's work-seat subsection and the slice's "Native capabilities" section, both kept verbatim. |
+
+**X1 is unproven.** The resolution claims the slice guard refuses "before the
+seat's argv is read". No test binds that order. Mutation in this visit: in
+`dsh_launch_with`, `dsh_input_boundaries(extra)?` was moved above
+`composed_launch("dsh", extra, input)?`, so it ran on the raw argv. The code
+compiled. `cargo test -p brokkr-protocol --all-features --locked` passed in
+full: lib 466 passed, 0 failed; `seatbelt_lifetime_probe` 99 passed, 2
+ignored; the remaining binary 1 passed. No test failed, so no failing
+assertion can be recorded. The order swap was then reverted, and
+`git status` was clean afterwards. The two guards' relative order is
+therefore arbitrary as far as the suite can tell. A plan that carries a native
+control *and* a boundary-faulted argv (for example `--model --effort`) would
+show the difference, but no test builds one.
+
+**Requested split** (a plan amendment for the council or operator. This seat
+does not edit design.md's accepted Rebuild units):
+
+- **Unit 1 (as ruled):** the replay, the three adapter JSON files, the three
+  named test/pin files and this record. Amend its inventory to name X2–X4.
+  They are test and docs conflicts or semantic breaks that the replay needs
+  just to compile or keep both sides. They need no production judgement.
+- **New unit 1b, DSH guard order after #313:** one production file
+  (`crates/brokkr-protocol/src/adapters.rs`) plus its owning suite
+  (`adapters/tests.rs`). Rule which refusal wins when a launch carries both a
+  native-control plan fault and a DSH boundary fault. Add a test that asserts
+  the exact winning reason. Record this visit's order swap as its binding
+  mutation (fails, then restored). It must land before any unit that reworks
+  DSH composition under operator ruling 2 (final-command parse-back). X1's
+  resolution stays in history as replayed. Unit 1b proves it or reverses the
+  order; it is not re-resolved in unit 1.
+
+Gates in this visit: the `brokkr-protocol` suite under the mutation, as
+above. This visit changed only `tasks.md` and `evidence.md`, and
+`git diff --check` passed. `openspec validate --all --strict` was refused by
+this seat's command permissions and is **not run** here. The review
+independently recorded a strict 18/18 pass on 07d65e71, before this
+evidence-only edit. External exact coverage, macOS and remote CI are still
+**pending**.
