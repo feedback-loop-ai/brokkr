@@ -2641,3 +2641,115 @@ coverage attempt or inferred result. Only the three design/dependent documents
 are staged for the design commit; no implementation task is marked complete.
 The committed-head SHA and final clean-tree check belong in the run-local
 result so reporting does not move the committed artifact head.
+
+## Unit 3 — ordered tasks adoption, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-29dd19f2`; phase `tasks`, sole smith.
+Baseline `ae1850c2c95bc38001099b9440d9ed025462ad52` on
+`slice-0065-capabilities`, initially clean. Adopted specification `12110687`,
+design `ae1850c2` and all preceding commits without replay or branch changes.
+Ancestry checks returned 0 for `5a47b090`, `6a7044e5`, `b4839426`,
+`12110687` and `ae1850c2`. No `returned_from` is present. This visit drafts
+implementation tasks; it does not implement unit 3 or clear a security hold.
+
+Read the operator ruling/addendum first, then the Rebuild units preamble and
+unit 3, tasks 3.1/4.2, proposal, SCM/NCC deltas, D5.7 and Open questions.
+Read `dialects/openspec.json`, its tasks/return instructions and rendered
+`openspec instructions tasks --change decision-0065-capabilities-slice-one
+--json`. Inspected the local/native producers, private types and legacy reader,
+existing owning suites and relevant artifact history through workspace hands.
+Decision 0009's Rust-only rule and decision 0066's proposed status remain in
+force. No provider, workflow runner, new council or sub-agent was invoked.
+
+### Breakdown and requirement coverage
+
+Only tasks.md and this evidence file change. Tasks 3.2–3.10 refine aggregate
+3.1 (previous 3.20) and its prerequisite contribution to 4.2 (previous 3.15).
+All are unchecked. All previously existing task text and ticks, including
+other units and conditional archive 28.1, remain byte-identical to the adopted
+head. No upstream requirement or design amendment is needed: D5.7 resolves
+storage, SCM/NCC establish the primitive boundary, and unit 9's unresolved
+provider qualification does not block synthetic byte-retention proofs here.
+
+Execution order: baseline/row ledger (3.2), shared private types (3.3), local
+producer (3.4), native producer (3.5), strict mandatory decoder (3.6), exact
+reassembly (3.7), scope/proof audit (3.8), local gates/commit (3.9), external
+evidence before fully green closure (3.10). Each behavioral task owns its
+exact-value/full-reason tests and independent compiling mutations before the
+next task; the audit does not postpone those proofs. Every subtask names its
+requirements, verification and previous aggregate. The seven-row coverage
+table maps all three SCM and four NCC Unit 3 scenarios to tasks and suites.
+
+Static observations supporting the executable order, not behavioral proof:
+
+- agents.rs has the flat Composed tuple and both ChainEntry constructors.
+  Capture structured composition there before deriving compatible projections;
+  capture local intent before fallible emission so refused empty state remains
+  inspectable. Candidate/resolve_report currently lose the richer facts; their
+  persistent storage and bundle/engine constructors remain unit 4's work.
+- Local emission joins ToolPermissions.names in declared order; hands bypass
+  direct emission/mapping demands while still refusing mapped native aliases.
+  Unit 3 tests must bind both exact mappings and independently retained intent,
+  with the current empty/direct/unsupported admission fences preserved.
+- NativePlan is built in capabilities.rs from Serving inventory, key-to-holding
+  selection and Holding. These typed sources precede argv/Selection/restriction
+  serialization and can supply independent expected state. agents/tests.rs must
+  exercise that real Authority producer; hand-built decoder records alone
+  cannot establish native derivation or candidate separation.
+- Protocol Selection carries mappings separately from raw argv. A contribution
+  must preserve both, materialize once and never claim complete argv while
+  selection is pending. Reusing its existing lowering is confined to the same
+  native_controls.rs file; no authored reconciliation establishes ownership.
+- The current launch_arguments reader checks only authored/managed and discards
+  decode causes with `.ok()`. The richer mandatory reader is separate and does
+  not become a serving prerequisite before unit 4 wires protected transport.
+- agents/tests.rs retains TempDir and canonicalizes its alias root once. Use it
+  for file-backed fixtures; pure protocol rows may remain in memory. Neither
+  existing fixtures nor source inspection supplies the new mutation evidence.
+
+The allowed implementation remains three production files and two existing
+suites. No new module, public contract/manifest field, dependency, shipped data
+or measured pin is planned. Additional file/pin needs stop for an inventoried
+split. Required hands and local state remain distinct from native grants;
+known-empty inventory, default ON with no argv and unmeasured inventory remain
+distinct. Unit 4 owns protected selected-candidate transport; units 12–15 own
+activation/final checks. A self-consistent private record proves correspondence,
+not authentic authority. No primitive pass closes those later obligations.
+
+No new test was written or run, no mutation was performed, and no baseline red
+or restored pass is claimed by this tasks seat. The executable ledger requires
+each future test/claimed row's revision, command, observed baseline, independent
+compiling mutation, exact failing assertion/actual values and restored pass.
+Already-correct behavior starts with a pass; unavailable APIs and build failures
+are not reds. All implementation task boxes, including 3.1 and 4.2, stay open.
+
+### Observed validation and limits
+
+| Command/check | Result |
+| --- | --- |
+| `openspec validate --all --strict --no-interactive` | Passed, exit 0 |
+| `openspec validate decision-0065-capabilities-slice-one --strict --no-interactive` | Passed, exit 0; change is valid |
+| `git diff --check` | Passed, exit 0 |
+| Task artifact audit | Passed: nine ordered unchecked subtasks, requirement titles and anchors resolve, all seven scenario names exist, pre-existing task bytes/ticks preserved |
+| `cargo fmt --all -- --check` | Unavailable: executable cargo absent |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | Unavailable: executable cargo absent |
+| `cargo test -p brokkr-runtime --all-features --locked` | Unavailable: executable cargo absent |
+| `cargo test -p brokkr-protocol --all-features --locked` | Unavailable: executable cargo absent |
+| `cargo test --workspace` | Unavailable: executable cargo absent |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | Unavailable: executable cargo absent |
+
+Each of the six Cargo commands was attempted through workspace using
+subprocess; each failed to start with `[Errno 2] No such file or directory:
+'cargo'`. The reporting process's exit 0 is not a Rust gate pass. No host-shell
+or prebuilt-binary fallback was used. OpenSpec's informational requirement-length
+and unrelated archive advisories are not validation failures. External exact
+coverage, macOS and remote results remain pending at their original scope/head;
+no nested-box coverage or live-provider result is inferred.
+
+Production, suites, pins, grants, frozen contracts/policy/fixtures/reference
+and extensions remain unchanged. The final documentation validations and scope
+checks are repeated before the tasks commit. Its SHA and clean committed-head
+check are recorded in the mandatory run-local result, without changing tracked
+inputs after validation. The phase result is a committed drafted breakdown,
+not an implementation completion or a claim of fully green gates. No push or
+archive is performed.
