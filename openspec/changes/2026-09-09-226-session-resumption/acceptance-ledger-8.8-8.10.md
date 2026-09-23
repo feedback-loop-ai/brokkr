@@ -1947,6 +1947,13 @@ symlink fixture and twenty planner vectors.
    It does not rest on `tasks.md:1248`'s "Adopt resolver removals without
    replay". That sentence governs 8.8.1.1's resolver alone (F5).
 
+   - 2026-09-23, entry 17 prepared, not taken. `removal-ruling-brief-2026-09-23.md`
+     holds the question, one row per ledger row in the class (29 recounted, with
+     19 for 8.10), each ledger located at current `tasks.md` lines, the
+     no-surviving-mutation and entry 14 log checks on `be1ecf77`, and eight
+     observations for the ruling. Docs only; no ruling is recorded and no
+     checkbox moved.
+
 18. **If 17 rules no: replay the terminal-body removals.** Added by the
    remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,
    S10, A61 and B77, and B5's share for the Pass C tests. Touches nothing that
