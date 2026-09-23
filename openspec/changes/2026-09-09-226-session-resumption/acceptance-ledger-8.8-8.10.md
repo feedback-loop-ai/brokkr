@@ -1728,6 +1728,29 @@ symlink fixture and twenty planner vectors.
    brokkr-protocol --all-features --locked` (430 + 99 + 1) are green. No
    checkbox moved.
 
+   **Review return answered 2026-09-23 at `4ce6eba2`** (run
+   `issue-226-acceptance-ledger-entr-bda73e1f`, C1: the two sealed
+   controls ran only in the explicit form). Both controls now also run in
+   the INHERITED form. The parent stages the fixtures and each sealed
+   `PATH` in a child of its own, which calls `Command::new("dsh")`
+   (`posix_spawnp`) beside `resolve_executable`. They are declared as
+   `control:<what>-inherited`, and the explicit controls are retained. One
+   `Sealed::control` asserts native's exact errno and the whole refusal
+   for both forms. An `Unseal` guard restores the permission before
+   cleanup. Mutations, compiled, run red and reverted, all on Linux's
+   glibc arm:
+   - glibc given Apple's metadata rule fails both sealed-directory-alone
+     forms at `native_matrix.rs:272` ("not on PATH" != "not executable").
+   - glibc's access denial suppressed fails both
+     non-executable-then-sealed-directory forms at `:272` (the sealed
+     candidate's denial != `controls-readable/dsh`'s).
+   - running only the first sealed child fails the inventory, missing
+     `control:non-executable-then-sealed-directory-inherited`.
+
+   The Apple rows of both forms remain **pending the macOS leg**. fmt,
+   workspace clippy and `-p brokkr-protocol` (430 + 99 + 1) are green. No
+   production file moved and no checkbox moved.
+
 13. **Retrieve, pin and verify the Apple and env sources.** Added by the
    remediation (third return, finding 1). **Externally owned**: it needs a
    seat or host whose grant reaches the network. Every seat of this change so
