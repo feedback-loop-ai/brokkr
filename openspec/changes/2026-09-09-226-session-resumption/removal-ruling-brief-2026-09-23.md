@@ -109,7 +109,7 @@ the cited source line and asserts what its record claims, unless a note under
 | **A61** | 8.8 prose, 5067–5069: "Verify the six headline child proofs, completed-observation witnesses and all D7 rule controls/removals through the real terminal body" | All fourteen **PC** rows (465–480): M1a, M1b, M2, M3, M4, M5, M5b, M5+M7, M6, M6′, M8, M9, M10 and M12, with the shared facts above | The ten PC tests and four inherited ones. Every one is `ok`: PL:252, 244, 248, 230, 295, 236, 250, 241, 251, 237, 174, 218, 262 and 435. Names are in the ledger section below | no (8.8) | yes / no |
 | **S1** | 8.8.9.1, 135–143. Removal at 142–143: "Prove the controls' publication/terminal assertions by applicable removal and restored rerun" | **PC M10** (479): consistent-but-incomplete evidence refuses. The positive "pre-init noise, a sibling and delayed activity" failed accepted, and the unreadable-line case lost its `[Pending, Refused, Refused]` order. One child waited out its 30 s bound and failed `every awaited observation was really completed`, which is recorded as a timeout and not read as a refusal. **PC M12** (480): `unread` allowed to refuse a cold launch. The cold control (`rooted`) and `a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms` both failed | `A::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body` A:6590, case at A:6593, PL:251. `A::dsh_an_unreadable_stream_line_refuses_a_pending_rejoin_before_the_stream_ends` A:6390, PL:244. `A::dsh_cold_noise_and_a_root_mismatch_keep_their_terminal_behaviour` A:6756, PL:237. `A::a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms` A:7158, PL:174. The M10 timeout's assertion is A:5950–5953 | yes, through B2 | yes / no |
 | **S3** | 8.8.10.1, 156–163. Removal at 161–163: "baseline-repair controls with applicable compiling removals" | **PC M6** (475): the refusal in `new` removed. All five baseline cases, both endings, lost `ended refused` (`left: Some(Pending)`). The record discloses that the terminal reason does not change. **PC M6′** (476): the baseline header resolved to its first match. "ambiguous baseline, the first header removed" was falsely confirmed on both endings | `A::dsh_a_rejoin_without_its_pre_spawn_baseline_is_refused_before_the_child_runs` A:6429, cases A:6440–6472, PL:241. The watcher-state assertion is in `refused_on_both_endings`, A:6081–6085 | yes, through B2 | yes / no |
-| **S4** | 8.8.10.2, 164–174. Removal at 170–172: "…controls with applicable removals/restoration" | **PC M5** (472): id-set comparison. R3, alias and replaced-at-new-address were falsely confirmed. "Offered header moves" stayed refused. **M5b** (473): pair SET. The alias alone was falsely confirmed. **M5+M7** (474): adds "offered header moves", with the overlap disclosed. **M9** (478): whole-store equality. The positive "an unrelated baseline sibling is gone" failed `a confirmed rejoin is accepted` | `A::dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids` A:6524, cases A:6527–6546, PL:250. `A::dsh_a_fresh_entry_reusing_a_sibling_id_at_a_new_address_refuses_the_rejoin` A:6211, PL:230. `A::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body` A:6590, case A:6609 and assertion A:6729, PL:251 | yes, through B2 | yes / no |
+| **S4** | 8.8.10.2, 164–174. Removal at 170–172: "…controls with applicable removals/restoration" | **PC M5** (472): id-set comparison. R3, alias and replaced-at-new-address were falsely confirmed. "Offered header moves" stayed refused. **M5b** (473): pair SET. The alias alone was falsely confirmed. **M5+M7** (474): adds "offered header moves", with the overlap disclosed. **M9** (478): whole-store equality. The positive "an unrelated baseline sibling is gone" failed `a confirmed rejoin is accepted` | `A::dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids` A:6524, cases A:6527–6546, PL:250. `A::dsh_a_fresh_entry_reusing_a_sibling_id_at_a_new_address_refuses_the_rejoin` A:6211, PL:230. `A::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body` A:6590, case A:6609, PL:251. M9's parted assertion, `"{label}: a confirmed rejoin is accepted"`, is A:6630–6634. The case's own containment assertion ("containment, not whole-store equality") is A:6729–6735, which the record does not name | yes, through B2 | yes / no |
 | **S5** | 8.8.10.3, 175–184. Removal at 181–182: "Verify each former early return … with focused controls/removals" | **PC M3** (470): a post-init refusal becomes a pending return. R2 and five post-init cases were falsely confirmed on both endings. **PC M4** (471): containment skipped before init. "fresh sibling before init" was falsely confirmed on both endings | `A::dsh_contradictions_after_the_init_event_are_never_restored_away` A:6258, cases A:6261–6300, PL:295. `A::dsh_an_observed_fresh_sibling_refuses_the_rejoin_after_it_disappears` A:6161, PL:248. `A::dsh_a_fresh_sibling_observed_before_the_init_event_refuses_the_rejoin_for_good` A:6357, PL:236 | yes, through B2 | yes / no |
 | **S6** | 8.8.11.1, 188–196. Removal at 194–196: "each removal must fail the intended terminal assertion, **not time out**" | **PC M1a** (467): R1 and "store unmoved", clean and delivered, falsely confirmed. **M1b** (468): "store unmoved" falsely confirmed. R1 stayed refused and lost only the `census: None` witness, so R1 is jointly protected and M1a is its removal. **M2** (469): "unreadable line while pending" falsely confirmed. The record says no removal timed out except M10 (460), which is S1's. **No elapsed time is recorded.** The clause asks for a property *of* the failure, and the record supplies it only as that sentence | `A::dsh_malformed_output_before_the_init_event_refuses_the_rejoin_for_good` A:6112, cases A:6116 and A:6124, PL:252. `A::dsh_an_unreadable_stream_line_refuses_a_pending_rejoin_before_the_stream_ends` A:6390, PL:244. The intended assertion is A:5905–5910 | yes, through B2 | yes / no |
 | **S7** | 8.8.11.2, 197–204. Removal at 201–203: "Remove only the observation-before-skip protection while keeping witness acknowledgment active; require the terminal assertion to fail" | **PC M8** (477): no store reading behind a malformed post-init line, with acknowledgment still firing. "sibling read on a malformed line" was falsely confirmed on both endings, and the positive "malformed noise after init" lost `confirmed on Malformed`. PC M3 (470) also covers the same case | `A::dsh_contradictions_after_the_init_event_are_never_restored_away` A:6258, case A:6300, PL:295. `A::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body`, case A:6617 and assertion A:6708, PL:251 | yes, through B2 | yes / no |
@@ -122,7 +122,7 @@ the cited source line and asserts what its record claims, unless a note under
 | **S9d** | 8.8.13.4, 267–276. Removal at 272–274: "applicable pair-set/occurrence-reuse and equal-total/identity mutations, disclosing overlapping offered-address protection" | **PC M5** (472), **M5b** (473) and **M5+M7** (474), with the overlap disclosed in 474: "counted containment alone also refuses a moved offer, so the address check is only separable jointly" | `A::dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids` A:6524, cases A:6527, A:6536 and A:6546, PL:250 | yes, through B2 | yes / no |
 | **S9e** | 8.8.13.5, 277–287. Removal at 286–287: "run applicable removals on new assertions to exclude unconditional refusal or whole-census equality" | **PC M9** (478), **M10** (479) and **M12** (480), as for S4 and S1 | `A::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body` A:6590, PL:251. `A::dsh_cold_noise_and_a_root_mismatch_keep_their_terminal_behaviour` A:6756, PL:237. `A::a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms` A:7158, PL:174 | yes, through B2 | yes / no |
 | **S10** | 8.8.14.1, 291–299: the "task -> scenario -> actual test/ending -> mutation -> failed assertion -> restored pass ledger", and "Inspect the diff to ensure no mutation… survives" | The whole **PC** ledger, 451–489, with its fourteen rows and the disclosure paragraph at 482–489. The diff-inspection half is re-confirmed by this brief (below) | All fourteen PC-targeted tests, as for A61 | yes, through B2 | yes / no |
-| **B5** | 8.10, 5135–5136: "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass" | Every recorded ledger below: PC's fourteen; RR's M1–M9; DR1/DR2's D1–D5; HM's M1–M12; Pass D's D1, D2, D3 and returned-review records; entries 1–10's own records; `4a3854ca`'s three Codex removals, which **name no assertion**; and task 10.5's M8, M8a, M9 and M9a. The last four each failed `tests.rs:2030:43 <case>: must not enable` and were restored to "1 passed" (10267–10270). Not reached by a ruling: the ten 21(a) controls, closed under the operator's F1–F4 ruling | Every targeted case exists and reads `ok` (the ledger section below). 10.5's target is `A::a_supported_assessment_without_both_affirmative_markers_declines` A:1987, whose decision arm is at A:2086–2089, PL:200. `4a3854ca`'s targets are `DC::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` DC:3194, CL:663, and `DC::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` DC:3297, CL:664. See observation 6 | **yes** | yes / no |
+| **B5** | 8.10, 5135–5136: "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass" | Every recorded ledger below: PC's fourteen; RR's M1–M9; DR1/DR2's D1–D5; HM's M1–M12; Pass D's D1, D2, D3 and returned-review records; entries 1–10's own records; entries 11, 12 and 13-fix's records, which entry 17's list omits but B5 reaches (observation 8); `4a3854ca`'s three Codex removals, which **name no assertion**; and task 10.5's M8, M8a, M9 and M9a. The last four each failed `tests.rs:2030:43 <case>: must not enable` and were restored to "1 passed" (10267–10270). Not reached by a ruling: the ten 21(a) controls, closed under the operator's F1–F4 ruling | Every targeted case exists and reads `ok` (the ledger section below). 10.5's target is `A::a_supported_assessment_without_both_affirmative_markers_declines` A:1987, whose decision arm is at A:2086–2089, PL:200. `4a3854ca`'s targets are `DC::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` DC:3194, CL:663, and `DC::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` DC:3297, CL:664. See observation 6 | **yes** | yes / no |
 | **B16** | 8.10, 5156–5162: "…with separately observed disabled-status, boxed-hands, harness-fragment and boundary-mark mutation failures" | **CX** (9134–9138), with the same four restated in 11.1's prose (5979–5985). The shipped status reverted to `unmeasured` failed the retry with `resume_refusal: unsupported-resume`. Declared hands reverted to `boxed` failed it cold with `restrictions-unavailable`. Suppressing `compose_site`'s harness fragment, and separately `mark_hands`'s boundary write, "each failed the bridge". "Every mutation was restored and rerun green." **The record names no run.** For the two bridge controls it names no assertion | `BT::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin` BT:1695, RT:275. Its fragment assertion is BT:1758–1763 and its boundary assertion BT:1780, but the record does not say which parted. `DC::the_shipped_codex_harness_work_seat_rejoins_its_retry` DC:2250, CL:656: `launch_row(&resumed, "resumed")` at DC:2374 asserts at DC:2783. `DC::the_shipped_inline_codex_work_seat_rejoins_its_retry` DC:2434, CL:655 | **yes** | yes / no |
 | **B20** | 8.10, 5167–5172: "pair its selector mutation with the existing protocol adapter test `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, verifying two children, no selector and the retained sandbox in the replacement argv, and one cold launch row" | **CX Low 3** (9150–9151): "The cold-selector test failed (guard returned `None`) with the selector guard bypassed. Restored." The commission is at 9017–9035. **The record does not say the paired test was run beside the mutation** | `A::a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too` A:1827. Its guard assertion `codex_selector_conflict(&extra) == Some(part)` is at A:1845, PL:180. The paired `A::a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled` A:2768 asserts two children (A:2801), no selector (A:2803), the retained sandbox (A:2804) and one cold launch row (A:2810–2816), PL:231 | **yes** | yes / no |
 | **B77** | 8.10, 5395–5400: "…and each regression/ending's compiling removal/restoration" | All fourteen **PC** rows, as for A61 | As for A61 | **yes** | yes / no |
@@ -144,6 +144,7 @@ disagrees with the table it counts, both are given.
 | D4–D5 with E6 (ledger: 2057–2058) | 2091–2095 | the same run, second sitting, adopted `3a1df8d3` | the same (2084–2089) |
 | earlier M1–M12 (ledger: 12366–12383) | 12401–12420 | run `…-4437331e`, a scratch worktree of HEAD above `d54a9f7b` | 12392–12397; logs run-local under `.forge/implement-4437331e/`, not in this worktree and not opened |
 | entries 1–10's own records | ledger §6, entries 1–10 (945–1545, returns and adoption notes included) | each entry's implement seat. Most name no run; entries 8, 9 and 10 name their commission or stop runs | each record's "run red and reverted" plus its gates line |
+| entries 11, 12 and 13-fix's records (not in entry 17's list; B5 reaches them, observation 8) | ledger §6: entry 11 at 1596–1604 and 1618–1625, entry 12 at 1651–1662, 13-fix at 1718–1722 and 1742–1750 | entry 11 at `6e1e7066` and `471bc740`, entry 12 at `36b16922`, 13-fix at `1d2763cf` and `4ce6eba2` (answering run `…-bda73e1f`'s review) | each record's "run red and reverted" plus its gates line |
 | `4a3854ca`'s three Codex removals: whole relocation disabled, the no-hands marker dropped, a hands member falsely marked no-hands | `git show 4a3854ca`, commit message only | commit of 2026-09-16; **names no run and no assertion**, only "each broke the named test" | "observed and restored" |
 | task 10.5's M8, M8a, M9 and M9a (ledger: 10230–10233) | 10267–10270 (method 10248–10258) | the returned-implement correction on review of `8a5a1675`, landed in `9da5ff92` | "1 passed" per row |
 | B16's four and B20's one | 9134–9138 and 9150–9151 (B16 also 5979–5985) | the 2026-09-15 implementation record on `21f4ac2`, names no run | "restored and rerun green"; B20 "Restored." |
@@ -182,8 +183,12 @@ records head `be1ecf77624a16399ba133442db98a790f41d671`, `rustc 1.98.0` and
 4. `openspec validate --all --strict`;
 5. both bundle compiles.
 
-The only ignored tests are the two native macOS seatbelt probes (PL:442–443).
-No targeted case is among them. Each targeted case's `ok` line is cited in the
+Five tests were ignored across the seven suites. Two are the native macOS
+seatbelt probes in protocol (PL:442–443). Three are the measurement tests
+`transcript::tests::measure_input_only`, `measure_parse_only` and
+`measure_projection_peak` in `brokkr-view` (its log, lines 205, 206 and 208;
+that suite reads `243 passed; 0 failed; 3 ignored` at line 253). No targeted
+case is among the five. Each targeted case's `ok` line is cited in the
 table and ledger section.
 
 Since `be1ecf77`, only documentation has moved. `git diff --name-status
@@ -202,17 +207,42 @@ stands.
    every file:line a record quotes has shifted, because later entries added
    code above it. The assertions are still present at the lines cited in the
    table.
-2. **HM M1 and M2 wording has drifted.** The test text changed after the
-   record was made; production did not.
-   - M1's protocol right side, `"…'dsh': PATH is absent"`, no longer appears.
-     `an_absent_path_is_a_named_refusal_and_never_the_working_directory`
-     (C:3479) now expects "`… is not on the default search path {default}
-     (PATH is absent) (the search ended at …)`" (C:3505–3513).
-   - M2's built-binary message "the refusal names the absent PATH" became
-     B:267–271, "the refusal names the unsuccessful native default search,
-     PATH absence as context".
-   - M2's unit panic now prints the invocation (D:2769).
-   M1 and M2 serve no row of this class directly. They are B5's reach.
+2. **HM M1 and M2 were recorded against absent-PATH behaviour that
+   production has since replaced.** They are historical evidence, kept apart
+   from what the tree asserts today.
+   - *Then.* HM's scratch worktree was HEAD above `d54a9f7b`. There,
+     `resolve_executable_in` refused an absent `PATH` unconditionally, as
+     `'{command}': PATH is absent` (`git show
+     d54a9f7b:crates/brokkr-protocol/src/adapters/composite.rs`, line 1508).
+     M1 replaced that refusal with `path.unwrap_or_default()`. Its protocol
+     failure was `left: "…'dsh' is not on PATH"` against `right: "…'dsh':
+     PATH is absent"`, and its built-binary failure was
+     `doctor_dsh_selection.rs:156`. M2 handed a failed selection on to the
+     probe, and failed at `doctor/tests.rs:2687` and at the built binary's
+     `:161`, "the refusal names the absent PATH" (12403–12406).
+   - *The change.* `f030cce5` (2026-09-20, "resolve a program the
+     platform's way") removed the unconditional refusal. With no `PATH`, a
+     name is now searched on the C library's default search path, read
+     through `confstr(_CS_PATH)` as `execvp` does. A refusal names that
+     search (`Search::capture`, `composite.rs:2994`, message at 3095).
+     Current production keeps this. The code M1 mutated no longer exists in
+     that form. That commit reports nine removals of its own "recorded in
+     the tasks account". Entry 17 does not list them, and this brief did not
+     open them.
+   - *Now.* The current assertions are these, each passing in entry 14's
+     run.
+     `C::an_absent_path_is_a_named_refusal_and_never_the_working_directory`
+     C:3479 expects "`… is not on the default search path {default} (PATH
+     is absent) (the search ended at …)`" (C:3505–3513), PL:67.
+     `B::absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel` B:234
+     asserts "the refusal names the unsuccessful native default search, PATH
+     absence as context" (B:267–271), CL:622.
+     `D::a_failed_selection_probes_nothing_and_carries_its_cause` D:2765
+     panics on any probe (D:2769), CL:40.
+   A yes on B5 would accept M1 and M2 as records against `d54a9f7b`'s
+   refusal. It would not make them removal evidence for today's
+   default-search arm. M1 and M2 serve no row of this class directly. They
+   are B5's reach.
 3. **N2's M6 on current bytes.** Two assertions now run before the
    invocation assertion M6 names (C:3160–3166). They are C:3119, direct env's
    `DshInvocation`, and C:3155, "the invocation runs without a search", which
@@ -244,10 +274,18 @@ stands.
    PL:159 and D:2827 at CL:76; and C:2371 at PL:49, C:7240 at PL:91, C:8169
    at PL:83 and `native_matrix.rs` at PL:433.
 
-   B5's "every new test" reaches them. But entry 17 lists entries 1–10, and
-   entry 21(b) replays "the compiling mutations entries 1–10 recorded". So a
-   ruling that names B5 should say whether it covers these three entries'
-   records too. After a no, no entry yet owns their replay.
+   B5's "every new test" (`tasks.md` 5135–5136) reaches them, so B5 is not
+   met unless their recorded controls are covered too. Entry 17's list names
+   entries 1–10 only, and entry 21(b) replays "the compiling mutations
+   entries 1–10 recorded". So:
+   - a yes that names B5 meets it only if it also names entries 11, 12 and
+     13-fix's records (ledger 1596–1604, 1618–1625, 1651–1662, 1718–1722
+     and 1742–1750);
+   - after a no on those records, **no entry owns their replay**. Entries
+     18, 19 and 21(b) do not reach them, so B5, and with it entry 22's
+     removal prerequisite, stays unmet until the operator assigns a replay.
+     This brief discloses the gap and does not extend any entry to close
+     it.
 
    Two smaller points:
    - 13-fix's third parted location (`:8234`) names no test. The case is most
@@ -264,7 +302,7 @@ that names exactly these **nineteen rows**:
 > S9d, S9e, S10**
 
 The fifteen S rows are reached through B2. For B5, the yes must cover the
-recorded controls in every suite:
+recorded controls in every suite. All seven are required:
 
 - the Pass C terminal body;
 - the Codex bridge and conformance suites;
@@ -272,7 +310,9 @@ recorded controls in every suite:
 - `4a3854ca`'s three;
 - Pass D's records;
 - entries 1–10's records;
-- and, if the operator intends it, entries 11, 12 and 13-fix (observation 8).
+- entries 11, 12 and 13-fix's records (observation 8). B5's "every new
+  test" reaches their tests, so a yes that leaves them out does not meet
+  B5.
 
 That meets this one prerequisite. Entry 22 still owns the rest of its list and
 the regrade and tick. The rest of the list is:
@@ -294,9 +334,14 @@ entries 13, 15, 16 and 23.
 | **18** | S1, S3–S7, S8a–c, S9a–e, S10, A61 and B77, and B5's share for the Pass C tests | Replay Pass C's fourteen (465–480) one at a time, capturing each failing assertion verbatim. For S6, record that the failure is the terminal assertion and not a timeout, with elapsed time. Restore and rerun green, into a dated evidence file |
 | **19** | B16's four (disabled status, boxed hands, harness fragment, boundary mark) and B20's selector with its paired `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, and B5's share for those suites | Same method as entry 18 |
 | **21(b)** | B5's remainder | D1's two, D2's (tabulated eight), D3's (tabulated seven) and the returned review's two; entries 1–10's recorded mutations; `4a3854ca`'s three, each against a named assertion; and task 10.5's M8, M8a, M9 and M9a against A:2086–2089. Entries 11, 12 and 13-fix are not in its list (observation 8) |
+| **none** | Entries 11, 12 and 13-fix's records, B5's last share | No entry owns this replay. If the operator does not name these records in a yes, B5 stays unmet until a replay is assigned. This brief does not assign one |
 | **20** | 8.8 only: N2 (M5, M6), N4 (M4, with entry 12's callback half), N5d (M1–M3, M7–M9), N6a (HM M8), N6b (D1–D5), N7 (HM M9), N8 (HM M10), N9 (HM M11) and N10 (HM M12) | 8.10 does not wait on this entry |
 
-After a no, 8.10 waits on entries 18, 19 and 21(b), all of them. The operator's
+After a no, 8.10 waits on entries 18, 19 and 21(b), all of them. Entry 22's
+list accepts those three as the alternative to a yes. But they do not reach
+entries 11, 12 and 13-fix, so B5 would still not read discharged, and entry
+22's last condition would stay unmet, until those records are ruled or
+replayed. The operator's
 F1–F4 ruling covers exactly entry 21(a)'s four controls. In entries 18–21(b), a
 control that does not part its named assertion is a finding. Observations 3
 and 4 name two places where that may happen on current bytes.

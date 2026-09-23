@@ -1953,6 +1953,15 @@ symlink fixture and twenty planner vectors.
      no-surviving-mutation and entry 14 log checks on `be1ecf77`, and eight
      observations for the ruling. Docs only, at `88ff2e10`; no ruling is
      recorded and no checkbox moved.
+   - 2026-09-23, review return (run `…-dbe8be81`, C1–C4) answered in the
+     brief. C1: HM M1/M2 are recorded against `d54a9f7b`'s unconditional
+     absent-PATH refusal, which `f030cce5` replaced with the native default
+     search; history and today's passing assertions are now separate. C2:
+     entries 11, 12 and 13-fix's records are required for a B5 yes, and
+     after a no no entry owns their replay (disclosed, no entry extended).
+     C3: all five ignored tests are listed (two protocol, three
+     `brokkr-view`). C4: S4's M9 assertion is A:6630–6634. Docs only; no
+     ruling recorded, no checkbox moved.
 
 18. **If 17 rules no: replay the terminal-body removals.** Added by the
    remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,
