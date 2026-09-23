@@ -10395,12 +10395,14 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
 fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    let canonical = dir.path().canonicalize().unwrap();
+    let home = canonical.as_path();
     let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    std::env::set_var("DSH_HOME", home);
     let digest = "b".repeat(64);
-    let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
-    let workdir = dir.path().to_str().unwrap();
-    let shim = dsh_version_shim(dir.path(), "dsh-id", "0.1.5-rc.1");
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, home);
+    let workdir = home.to_str().unwrap();
+    let shim = dsh_version_shim(home, "dsh-id", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
 
     // A producer error leaves the observed version recorded (the probe
@@ -10425,7 +10427,7 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
 
     // A version-command failure and unreadable output both observe
     // nothing and never reach the producer.
-    let failing = executable(dir.path(), "dsh-id-fail", "#!/bin/sh\nexit 3\n");
+    let failing = executable(home, "dsh-id-fail", "#!/bin/sh\nexit 3\n");
     let failed = dsh_launch_with(
         &failing.to_string_lossy(),
         &[],
@@ -10437,7 +10439,7 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     .unwrap();
     assert_eq!(failed.observed, None);
     assert!(!failed.stream_json);
-    let banner = dsh_version_shim(dir.path(), "dsh-id-banner", "no-version-here");
+    let banner = dsh_version_shim(home, "dsh-id-banner", "no-version-here");
     let unreadable = dsh_launch_with(
         &banner.to_string_lossy(),
         &[],
@@ -10454,7 +10456,7 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     // and calls the producer zero times because the version gate is first.
     let calls = std::cell::Cell::new(0u32);
     let drifted = dsh_launch_with(
-        &dsh_version_shim(dir.path(), "dsh-id-drift", "9.9.9").to_string_lossy(),
+        &dsh_version_shim(home, "dsh-id-drift", "9.9.9").to_string_lossy(),
         &[],
         workdir,
         None,
@@ -10472,10 +10474,10 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
 
     // A missing or malformed declared digest prevents the probe AND the
     // producer, and an offer declines unverified-harness.
-    let marker_absent = dir.path().join("m-absent");
+    let marker_absent = home.join("m-absent");
     let shim_absent =
-        dsh_recording_version_shim(dir.path(), "dsh-id-absent", "0.1.5-rc.1", &marker_absent);
-    let no_declared = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
+        dsh_recording_version_shim(home, "dsh-id-absent", "0.1.5-rc.1", &marker_absent);
+    let no_declared = enabled_input(DSH_SHAPE, "0.1.5-rc.1", home);
     let absent = dsh_launch_with(
         &shim_absent.to_string_lossy(),
         &[],
@@ -10489,8 +10491,8 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     assert!(!absent.stream_json && absent.rejoining.is_none());
     assert!(!marker_absent.exists(), "no declared digest, no probe");
 
-    let marker_bad = dir.path().join("m-bad");
-    let shim_bad = dsh_recording_version_shim(dir.path(), "dsh-id-bad", "0.1.5-rc.1", &marker_bad);
+    let marker_bad = home.join("m-bad");
+    let shim_bad = dsh_recording_version_shim(home, "dsh-id-bad", "0.1.5-rc.1", &marker_bad);
     let mut malformed = input.clone();
     malformed["resume_context"]["assessment"][DSH_SHAPE]["identity"]["wrapper_digest"] =
         json!("A".repeat(64));
@@ -10509,50 +10511,85 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
 
     // A matching current identity still declines an offer whose recorded
     // originating version or digest differs.
-    plant_dsh_session(
-        dir.path(),
-        "sessions/brokkr/seat-1",
-        "--w--",
-        "session-1",
-        3,
-    );
+    plant_dsh_session(home, "sessions/brokkr/seat-1", "--w--", "session-1", 3);
+    let offered_root = home.join("sessions/brokkr/seat-1");
     let mut warm = input.clone();
     warm["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
     warm["resume_context"]["originating_wrapper_digest"] = json!(digest);
     warm["resume_context"]["owned_target"] = json!({
         "provider_id": "session-1",
         "persistence_locator": "sessions/brokkr/seat-1",
-        "persistence_home": dir.path().to_str().unwrap(),
+        "persistence_home": home.to_str().unwrap(),
     });
-    for (case, mutate) in [
-        ("originating version", "version"),
-        ("originating digest", "digest"),
-        ("missing originating digest", "null"),
+
+    // The control: the unvaried offer rejoins its own root after one
+    // producer call, so every decline below is its one varied field's.
+    let calls = std::cell::Cell::new(0u32);
+    let rejoined = dsh_launch_with(&shim_text, &[], workdir, Some("session-1"), &warm, || {
+        calls.set(calls.get() + 1);
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_eq!(rejoined.refusal, None);
+    assert_eq!(rejoined.rejoining.as_deref(), Some("session-1"));
+    assert_eq!(rejoined.root, offered_root);
+    assert_eq!(calls.get(), 1);
+
+    // Each originating field is varied independently through missing
+    // (absent and null), mistyped, malformed and different values. Every
+    // one declines `unverified-harness` after the one producer call the
+    // current identity costs, and plans the cold route under the current
+    // home: a fresh root beside the offered one, no rejoin, no fold
+    // boundary (tasks 8.8(d) and 8.10).
+    const VERSION: &str = "originating_harness_version";
+    const DIGEST: &str = "originating_wrapper_digest";
+    for (case, field, value) in [
+        ("different version", VERSION, Some(json!("0.1.4-rc.1"))),
+        ("absent version", VERSION, None),
+        ("null version", VERSION, Some(Value::Null)),
+        ("mistyped version", VERSION, Some(json!(7))),
+        ("malformed version", VERSION, Some(json!("zz-not-hex"))),
+        ("different digest", DIGEST, Some(json!("d".repeat(64)))),
+        ("absent digest", DIGEST, None),
+        ("null digest", DIGEST, Some(Value::Null)),
+        ("mistyped digest", DIGEST, Some(json!(8))),
+        ("malformed digest", DIGEST, Some(json!("z".repeat(64)))),
     ] {
         let mut declined_input = warm.clone();
-        match mutate {
-            "version" => {
-                declined_input["resume_context"]["originating_harness_version"] =
-                    json!("0.1.4-rc.1")
-            }
-            "digest" => {
-                declined_input["resume_context"]["originating_wrapper_digest"] =
-                    json!("d".repeat(64))
-            }
-            _ => declined_input["resume_context"]["originating_wrapper_digest"] = Value::Null,
-        }
+        let context = declined_input["resume_context"].as_object_mut().unwrap();
+        match value {
+            Some(value) => context.insert(field.into(), value),
+            None => context.remove(field),
+        };
+        let calls = std::cell::Cell::new(0u32);
         let declined = dsh_launch_with(
             &shim_text,
             &[],
             workdir,
             Some("session-1"),
             &declined_input,
-            || Ok(synthetic_dsh_composite(&digest)),
+            || {
+                calls.set(calls.get() + 1);
+                Ok(synthetic_dsh_composite(&digest))
+            },
         )
         .unwrap();
         assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
+        assert_eq!(calls.get(), 1, "{case}: one producer call, never more");
         assert!(!declined.stream_json, "{case}");
-        assert!(declined.rejoining.is_none(), "{case}");
+        assert_eq!(declined.rejoining, None, "{case}");
+        assert_eq!(declined.first_seq, None, "{case}");
+        assert_ne!(declined.root, offered_root, "{case}");
+        assert_eq!(
+            declined.root.parent(),
+            Some(home.join("sessions/brokkr").as_path()),
+            "{case}: the cold root is fresh under the current home"
+        );
+        assert!(
+            !declined.command.contains(&"--session".to_string()),
+            "{case}: {:?}",
+            declined.command
+        );
     }
 
     match prior_home {
@@ -11672,7 +11709,8 @@ fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
 #[test]
 fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
+    let canonical = dir.path().canonicalize().unwrap();
+    let home = canonical.as_path();
     let session = home.join("sessions/brokkr/seat-1/--x--/session-1");
     std::fs::create_dir_all(&session).unwrap();
     let id = "a".repeat(200);
@@ -11773,6 +11811,22 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     assert!(dsh_session_file_with(&root, &id, 1).is_err());
     assert!(dsh_session_file_with(&root, &id, 2).is_ok());
 
+    // A stored session of exactly the file cap is admitted and read to its
+    // true maximum: the header, then one complete event row padded with
+    // JSON whitespace so its newline is the file's last byte.
+    let at_cap = home.join("at-cap-session.jsonl");
+    let mut bytes =
+        b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n{\"seq\":5}".to_vec();
+    bytes.resize(DSH_SESSION_FILE_LIMIT as usize - 1, b' ');
+    bytes.push(b'\n');
+    std::fs::write(&at_cap, &bytes).unwrap();
+    drop(bytes);
+    assert_eq!(
+        std::fs::metadata(&at_cap).unwrap().len(),
+        DSH_SESSION_FILE_LIMIT
+    );
+    assert_eq!(dsh_session_last_seq(&at_cap), Some(5));
+
     // An over-budget stored session, a root that is not a directory and a
     // root that does not resolve are all bounded refusals.
     let huge = home.join("huge-session.jsonl");
@@ -11796,11 +11850,12 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
 #[test]
 fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
     let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
     let header = b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n";
     let write = |rows: &[u8]| -> std::path::PathBuf {
         // Named for the direct reader only; the planner's generation
         // basename is asserted by `a_dsh_warm_offer_reads_the_selected_storage_generation`.
-        let path = dir.path().join("stored.jsonl");
+        let path = root.join("stored.jsonl");
         let mut bytes = header.to_vec();
         bytes.extend_from_slice(rows);
         std::fs::write(&path, &bytes).unwrap();
@@ -11825,8 +11880,14 @@ fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
     assert_eq!(dsh_session_last_seq(&write(large.as_bytes())), Some(8));
 
     // An event row cut at the event budget is truncated evidence: it must
-    // not be skipped while reporting the lower maximum.
-    assert_eq!(dsh_session_last_seq_with(&write(b"{\"seq\":7}\n"), 4), None);
+    // not be skipped while reporting the lower maximum. A row whose newline
+    // lands exactly on the budget is complete and admitted; one byte less
+    // cuts it.
+    let row = b"{\"seq\":7}\n";
+    let limit = row.len() as u64;
+    assert_eq!(dsh_session_last_seq_with(&write(row), 4), None);
+    assert_eq!(dsh_session_last_seq_with(&write(row), limit), Some(7));
+    assert_eq!(dsh_session_last_seq_with(&write(row), limit - 1), None);
 
     // A valid prefix followed by a truncated final JSON row declines.
     assert_eq!(

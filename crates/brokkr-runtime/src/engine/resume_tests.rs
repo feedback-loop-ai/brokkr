@@ -1370,6 +1370,49 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
         origin.wrapper_digest, None,
         "a mistyped digest is missing evidence, never the older row's"
     );
+
+    // A mistyped newest locator or home is missing evidence too: the
+    // newest root is still the offer, and the mistyped coordinate reads
+    // `None` rather than the older row's while the other one stands.
+    for (field, value) in [("locator", json!(9)), ("home", json!(10))] {
+        let mut newer = coord(
+            "newer",
+            json!("2.0.0"),
+            json!("b".repeat(64)),
+            "sessions/brokkr/newer",
+            "/new/home",
+        );
+        newer["transcript"][field] = value;
+        let mut mistyped = journal(coord(
+            "older",
+            json!("1.0.0"),
+            json!("a".repeat(64)),
+            "sessions/brokkr/older",
+            "/old/home",
+        ));
+        mistyped.push(envelope(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "attempt_id":"a1", "checkpoint": newer}),
+            Some("a1"),
+        ));
+        let offered = offer_for_site(&mistyped, &key, &mine, "work", true, true, &started)
+            .expect("the newest root is still eligible");
+        assert_eq!(offered.provider_id, "newer", "{field}");
+        let (locator, home) = match field {
+            "locator" => (None, Some("/new/home")),
+            _ => (Some("sessions/brokkr/newer"), None),
+        };
+        assert_eq!(
+            offered.persistence_locator.as_deref(),
+            locator,
+            "a mistyped {field} is missing evidence, never the older row's"
+        );
+        assert_eq!(
+            offered.persistence_home.as_deref(),
+            home,
+            "a mistyped {field} is missing evidence, never the older row's"
+        );
+    }
 }
 
 /// The four topologies get four different keys, and every identity axis
