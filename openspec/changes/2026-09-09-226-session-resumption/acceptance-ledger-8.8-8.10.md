@@ -887,7 +887,7 @@ numbers. The map:
 | 8 | 2d | landed `97624edd`, `7900c182` |
 | 9 | 3b-fix | landed `6a5f1bc9` |
 | 10 | 3b | landed `cb5bbd9a` (after a stop) |
-| 11 | — (new: unit 7's unproved half) | open |
+| 11 | — (new: unit 7's unproved half) | landed `6e1e7066` |
 | 12 | — (new: N2/N4 unasserted cells) | open |
 | 13 | — (new: source retrieval) | open, externally owned |
 | 14 | 4 | open |
@@ -1577,6 +1577,28 @@ symlink fixture and twenty planner vectors.
    a production seam, the unit stops and reports `oversized` rather than
    adding one. A leak on current bytes is a Pass-B security finding, reported
    and not adjusted.
+
+   **Landed 2026-09-23 at `6e1e7066`; every exclusion holds on current
+   production bytes, so there is no Pass-B finding and no production seam.**
+   `the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes` drives
+   the served production adapter over a synthetic install. Production's
+   resolver and producer select and measure it, and the declaration is
+   `supported` at that digest. It runs a qualified cold start (`--new`,
+   `s-1`), a confirmed `--session s-1` rejoin, and an offer declined
+   `unverified-harness` after a version drift, all in one run. The journal,
+   the raw stdout, three exact launch rows and two exact stderr tails carry
+   nothing of the route or the carriers. The rejoin keeps the cold start's
+   root and address. Mutations, compiled, run red and reverted:
+   - `displayName` into `effort` on stream-json parts `resume_tests.rs:2434`
+     (seq 6), with the shipped-route case green. Rejoin-only, it parts at
+     seq 11. Refusal-only, it parts at seq 17.
+   - `owned_target` copied under its own name parts `:3364` (raw stdout).
+     The engine's v5 fence refuses those rows, a second layer.
+   - Its provider id copied into `effort` parts `:3507` ("the confirmed
+     rejoin").
+
+   fmt, clippy and `cargo test -p brokkr-runtime` (464 lib plus 94
+   integration) are green. Tests only; no checkbox moved.
 
 12. **Assert N2's and N4's two unasserted cells.** Added by the remediation
    (third return, finding 2). Touches
