@@ -1999,6 +1999,13 @@ symlink fixture and twenty planner vectors.
      brief (thirteen against `origin/main`, three documents since
      `be1ecf77`) and give the pre-brief counts at `0af3a3c9`. Docs only, at
      `2c3081bc`; no ruling recorded, no checkbox moved.
+   - 2026-09-23, **entry 17 ruled.** The operator: "yes, all but B16 and
+     B20, replay those in entry 19". Yes for 27 of the 29 rows (N2, N4,
+     N5d, N6a, N6b, N7–N10, A61, S1, S3–S7, S8a–c, S9a–e, S10, B5, B77),
+     and B5's yes names all eight of the brief's groups; no for B16 and
+     B20, which entry 19 replays. Entries 18, 20 and 21(b) therefore have
+     no work. Recorded in `tasks.md` under 8.8 and 8.10 (run
+     `issue-226-acceptance-ledger-entr-2bea60a7`). No checkbox moved.
 
 18. **If 17 rules no: replay the terminal-body removals.** Added by the
    remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,

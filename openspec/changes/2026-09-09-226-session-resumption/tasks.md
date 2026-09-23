@@ -5109,6 +5109,20 @@ saved for the phase commit.
       alone never ticks it — safety / AS1, safety / AS2, safety / AS3, safety / AS4,
       site / SR2, site / SR3, site / SR5, evidence / LE1, evidence / LE2,
       evidence / LE3.
+      Operator ruling on the recorded-removal class (acceptance ledger entry
+      17), given 2026-09-23, verbatim: "yes, all but B16 and B20, replay
+      those in entry 19". Against `removal-ruling-brief-2026-09-23.md` it
+      is **yes** for 27 of the class's 29 rows and **no** for B16 and B20.
+      For this task it names all ten of 8.8's rows: N2, N4, N5d, N6a, N6b,
+      N7, N8, N9, N10 and A61. Their recorded compiling removals (the R1–R4
+      group's RR M1–M9, DR1/DR2 D1–D5 and HM M1–M12, and the Pass C records
+      behind A61) are accepted as observed removals without replay, so
+      entry 20 has no work. The brief's observations stand as accepted
+      disclosures: HM M1/M2 are historical records against `d54a9f7b`'s
+      unconditional absent-PATH refusal, not removal evidence for today's
+      default-search arm. The ruling ticks nothing; 8.8 still waits on its
+      other pending predicates. 8.10's half of the ruling is recorded under
+      8.10 below.
 - [x] 8.9 Implement SR3's two identity origins: harvest the
       provider-generated root for the known Claude and Codex paths, and
       support a fresh engine- or adapter-assigned creation ID only where
@@ -5487,6 +5501,22 @@ saved for the phase commit.
       than live DSH compatibility or enforcement evidence — safety / AS1,
       safety / AS2, safety / AS3, safety / AS4, site / SR2, site / SR3,
       site / SR5, evidence / LE1, evidence / LE2, evidence / LE3, evidence / LE5.
+      Operator ruling on the recorded-removal class (acceptance ledger entry
+      17), given 2026-09-23, verbatim: "yes, all but B16 and B20, replay
+      those in entry 19". For this task it is **yes** for 17 of the 19 rows
+      the brief's closing requires: B5, B77, and S1, S3, S4, S5, S6, S7,
+      S8a, S8b, S8c, S9a, S9b, S9c, S9d, S9e and S10 through B2. B5's yes
+      covers all eight groups the closing lists: the Pass C terminal body;
+      the Codex bridge and conformance suites; task 10.5's four;
+      `4a3854ca`'s three; Pass D's records; entries 1–10's records; entries
+      11, 12 and 13-fix's records; and the R1–R4 group's RR M1–M9, DR1/DR2
+      D1–D5 and HM M1–M12. So entries 18 and 21(b) have no work. It is
+      **no** for B16 and B20: entry 19 replays B16's four
+      (disabled-status, boxed-hands, harness-fragment and boundary-mark)
+      and B20's selector mutation, paired with
+      `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, on the
+      final candidate. No other control is accepted by substitution; the
+      F1–F4 ruling stays entry 21(a)'s alone. The ruling ticks nothing.
 - [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
