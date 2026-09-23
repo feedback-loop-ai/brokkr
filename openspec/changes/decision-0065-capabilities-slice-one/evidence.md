@@ -1005,3 +1005,100 @@ values (units 3–4), the shipped migrations (units 6–8), authored-flag refusa
 typed restriction it cannot yet deliver: inline direct lists, direct explicit
 empty and every non-matching sandbox class refuse compilation with the
 owning site, field and cause.
+
+
+## Unit 2 — specification re-adoption and proof correction, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-e332dc8d`, phase `specify`, adopted head
+`f9a691cf7c10aaaeccc1f8c5f9a3e6f9af2566c8` on `slice-0065-capabilities`.
+The worktree began clean. `git merge-base --is-ancestor <commit> HEAD`
+returned 0 for each of `d9816374`, `4a6a2288`, `308a8a28` and `f9a691cf`.
+Every commit remains adopted; none was replayed. The supplied run has no
+`returned_from`. The operator's explanation of the previous review's host
+configuration failure is retained; it is neither a review finding nor a
+review pass.
+
+Read the operator ruling/addendum first, then the accepted Rebuild units
+preamble and unit 2, task 2.1 and its owning deltas. Read README, decisions
+0004/0005/0009/0065, proposed 0066, `dialects/openspec.json` and its own
+`openspec/specify.md` / `openspec/return.md` instructions through the workspace
+hands. Adopted the proposal before the deltas; their requirements and
+scenarios already express D5's decoding, independent inheritance, exact
+narrowing, existing authority and refusal until representation exists. No
+specification ambiguity or new design decision was found, so their Decisions
+and the accepted design remain unchanged. No council was reconvened and no
+workflow runner was invoked.
+
+The source diff from `308a8a28` to `f9a691cf` stays within the three named
+production files and two owning suites, plus tasks/evidence. Static inspection
+confirmed the shared decoder, private office clone, site facts and bounded
+D5.3 admission paths. This is not a new runtime or final-launch proof.
+
+### Corrections to the completion claim
+
+The implementation and existing positive evidence remain adopted. The blanket
+claim that task 2.1's proofs are complete is not supported by the recorded
+artifacts:
+
+- **Baseline history (2.1.1):** the implementation section says the new tests
+  lacked runnable baselines and substitutes source observations. Its only
+  recorded red is an old empty-list-rejection assertion failing *after* the
+  decoder changed. That is not the commissioned positive behavior failing
+  before repair. Preserve that history; do not relabel it. Any later test of
+  retained revision `308a8a28` must be explicitly recorded as retrospective,
+  not as an experiment that preceded implementation.
+- **Mutation completeness (2.1.2–2.1.6):** the ledger explicitly records no
+  mutation for
+  `repeated_tools_keys_in_a_bundle_refuse_from_the_original_source`.
+  Its explanation that the strict reader lives outside the allowlist does
+  not satisfy the required compiling proof or authorize another file.
+  Investigate the permitted caller/test seam; if no valid in-scope proof
+  exists, inventory a split before proceeding. Table-wide claims also need
+  independent row evidence: batch B stops the invalid decoder table at its
+  first `loose` row; batch B's inline-field mutation stops at `allow: []`;
+  batch D's executable-form mutation stops at the panel member. These do not
+  establish the later sibling, sandbox or executable-form assertions. Keep
+  the existing failures, then supply only the missing independent proofs and
+  their restored passes.
+- **Full causes (2.1.2/2.1.6):**
+  `narrowing_inherits_per_field_and_refuses_each_widening_exactly` compares
+  only `.unwrap_err().0` for the valid-sibling/invalid-field cases and the
+  refusing sandbox-pair rows (`agents/tests.rs`, lines 3120–3170 at the
+  adopted head). Those assertions omit the cause. The evidence statement
+  that every assertion checks a complete value or diagnostic is too broad;
+  these rows need exact complete errors and independent mutation evidence.
+- **Test count:** comparing `#[test]` functions at `308a8a28` and `f9a691cf`
+  gives 7 new agent tests and **10** new bundle tests, **17 total**. The
+  historical “9 new” bundle count and commit message's “Sixteen new tests”
+  are superseded by this measured count; history is not rewritten.
+
+Task 2.1 and the proof portions of 2.1.1–2.1.6 reopen. This does not order a
+new implementation, specification or design, nor defer the missing proof to
+unit 25. The existing owning tasks already require it. Task 2.1.7 retains the
+prior visit's recorded local gate results with their original scope. No
+missing proof is waived, no new test is claimed, and no failing or restored
+Rust execution is invented in this specify visit.
+
+### Validation and scope of this visit
+
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Existing informational archive/length advisories do not fail validation;
+  no archive was attempted.
+- `git diff --check`: **passed**.
+- Fresh `cargo fmt --all -- --check`, locked all-target/all-feature clippy,
+  runtime all-feature tests, both workspace test commands, and self/verify
+  bundle compiles: **unavailable**. Initial shell attempts at format, clippy
+  and runtime tests returned `cargo: command not found` (127 for the latter
+  two standalone calls). Explicit subprocess attempts for all seven commands
+  then confirmed no cargo executable; none ran. The PATH cargo directory is
+  absent in this box. Prior passes remain historical, not fresh results.
+- External exact coverage, macOS and remote CI: **pending**, unchanged. No
+  coverage counts or fully green claim is made. No host-shell fallback,
+  provider call or frozen-file edit was used.
+- Only tasks.md and evidence.md change in this visit, to correct observed
+  completion claims as the commission requires. Proposal, all six deltas,
+  design, Rust, shipped data, measured pins and frozen bytes are unchanged.
+  Decision 0066 remains proposed. No push or archive.
+
+The final commit and post-commit OpenSpec/diff results are recorded in this
+run's result file so recording them does not change the validated head.
