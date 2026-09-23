@@ -12574,12 +12574,6 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
     let shim = dsh_recording_version_shim(dir.path(), "dsh-matrix", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
     let workdir = dir.path().to_str().unwrap();
-    let extra = vec![
-        "--model".to_string(),
-        "deepseek/deepseek-v4-flash".to_string(),
-        "--patch".to_string(),
-        "route.yml".to_string(),
-    ];
     let valid = "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        \
                  apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n";
     let with_line = |line: &str| {
@@ -12677,8 +12671,30 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
             "plain identifier",
         ),
     ];
+    // Every vector above pins `deepseek/…`. The last pins no provider
+    // segment, and its route is keyed to the provider `parse_dsh_model`
+    // defaults that pin to, so no grammar check can refuse it: only the
+    // claim boundary does, and its reason is asserted whole.
+    let segment_less = "refusing to invoke the dsh driver: a route overlay needs a pinned \
+                        `--model` with a provider segment";
+    let vectors = vectors
+        .into_iter()
+        .map(|(name, body, needle)| (name, "deepseek/deepseek-v4-flash", body, needle))
+        .chain([(
+            "model pin without a provider segment",
+            "deepseek-v4-flash",
+            valid.replace("      deepseek:", "      deepseek-official:")
+                + "            reasoningEfforts:\n              high: high\n",
+            segment_less,
+        )]);
 
-    for (name, body, needle) in vectors {
+    for (name, model, body, needle) in vectors {
+        let extra = vec![
+            "--model".to_string(),
+            model.to_string(),
+            "--patch".to_string(),
+            "route.yml".to_string(),
+        ];
         std::fs::write(dir.path().join("route.yml"), &body).unwrap();
         let mut hasher = Sha256::new();
         hasher.update(body.as_bytes());
@@ -12714,7 +12730,15 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
                 error.contains(needle),
                 "{name}/{path}: expected {needle:?} in {error:?}"
             );
-            for echo in ["route.yml", "deepseek-v4-flash", "DEEPSEEK_API_KEY"] {
+            if needle == segment_less {
+                assert_eq!(error, segment_less, "{name}/{path}: the exact reason");
+            }
+            for echo in [
+                "route.yml",
+                "deepseek-v4-flash",
+                "deepseek-official",
+                "DEEPSEEK_API_KEY",
+            ] {
                 assert!(
                     !error.contains(echo),
                     "{name}/{path}: {echo} echoed in {error}"

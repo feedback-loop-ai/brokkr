@@ -54,7 +54,8 @@ const PROVIDER_FIELDS: [&str; 6] = [
 /// value.
 ///
 /// `model` is the seat's pinned model; AS3 refuses a route beside no model
-/// pin because there is no provider or id to compare against.
+/// pin, or beside a pin with no provider segment, because there is no
+/// pinned provider to compare against.
 pub(super) fn claim(
     input: &Value,
     workdir: &str,
@@ -108,7 +109,10 @@ fn claim_with(
             "the route overlay binding disagrees with the `--patch` value",
         ));
     }
-    let Some(model) = model else {
+    // A pin with no `/` is refused with the absent pin: `parse_dsh_model`
+    // would supply its default provider, and a route keyed to that default
+    // would then pass for a seat that named no provider at all.
+    let Some(model) = model.filter(|model| model.contains('/')) else {
         return Err(refusal(
             "a route overlay needs a pinned `--model` with a provider segment",
         ));
@@ -906,6 +910,48 @@ mod tests {
         // An empty workdir is read as the current directory, not skipped.
         let error = claim(&input, "", Some(PIN), Some("route.yml")).unwrap_err();
         assert!(error.contains("unreadable"), "{error}");
+    }
+
+    /// A pin with no provider segment refuses like an absent one, before
+    /// the file is stat'd or read. The route is keyed to the provider
+    /// `parse_dsh_model` defaults the pin to, so no later check can refuse
+    /// it: this vector is admitted unless the claim boundary refuses it.
+    #[test]
+    fn a_bound_route_beside_a_segment_less_pin_refuses_before_any_read() {
+        let body = "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek-official:\n        \
+                    apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            \
+                    reasoningEfforts:\n              high: high\n";
+        // The bytes on their own pass the grammar for that pin.
+        assert_eq!(validate(body.as_bytes(), "deepseek-v4-flash"), Ok(()));
+        let (dir, input) = binding(body.as_bytes(), "route.yml");
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let workdir = root.to_string_lossy().into_owned();
+        let error = claim_with(
+            &input,
+            &workdir,
+            Some("deepseek-v4-flash"),
+            Some("route.yml"),
+            |_| panic!("a segment-less pin never reads the route"),
+            |_| panic!("a segment-less pin never stats the route"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "refusing to invoke the dsh driver: a route overlay needs a pinned `--model` with a \
+             provider segment"
+        );
+        // A pin with the segment reads the same bytes and is admitted.
+        let admitted = body.replace("deepseek-official", "deepseek");
+        let (dir, input) = binding(admitted.as_bytes(), "route.yml");
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let bytes = claim(
+            &input,
+            &root.to_string_lossy(),
+            Some("deepseek/deepseek-v4-flash"),
+            Some("route.yml"),
+        )
+        .unwrap();
+        assert_eq!(bytes, Some(admitted.into_bytes()));
     }
 
     #[test]
