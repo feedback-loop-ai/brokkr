@@ -1,6 +1,6 @@
 # 0067 — The plan is the schedule: implement runs the task graph in bounded visits, and every visit has a budget the engine enforces
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-24)
 Date: 2026-09-23
 
 ## Context
