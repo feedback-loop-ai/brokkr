@@ -2833,6 +2833,10 @@ No earlier unit 3 visit could run cargo, so these are the first observed
 baselines. The richer API did not exist at the baseline. The new tests were
 therefore unavailable, not compiling reds.
 
+*Corrected by the review return below (R3).* Many rows were expressible at
+`4d8b7668` through flat argv, gaps and the rendered controls. They are now
+measured there as "Baseline probes".
+
 On the first compiling run, the five runtime tests passed. Protocol had 22 of
 23 tests passing. The one failure was a fixture error, not a behavioral red:
 `a_native_contribution_materializes_once_through_the_launch_lowering` used
@@ -2909,6 +2913,13 @@ Rows proved by an exact assertion but not individually mutated:
 
 No row relies on an earlier table row's failure.
 
+*Corrected by the review return below (R2).* That sentence was false for
+M1–M3. The mapped-limits test was a loop of asserts, so those mutations stopped
+at the pytest/cargo row and never reached the gh row. The exemptions above
+were also not proof. M17, M26, M29, M30 and M31–M34 changed a cause without
+removing its check, and M31–M33 were one combined run. The return below
+replaces each of those records with an isolated bypass.
+
 ### Local diagnostic coverage
 
 `cargo +nightly llvm-cov -p brokkr-protocol -p brokkr-runtime --lib`, followed
@@ -2953,3 +2964,215 @@ authored refusal and the final-command checks.
 Correspondence proves byte equality only. It proves neither that the engine
 authored a record nor what a command means. A self-consistent forged record
 still decodes. Decision 0066 stays proposed. Nothing is pushed.
+
+## Unit 3 — review return, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-29dd19f2`, phase implement, sole seat.
+This visit was returned from review (gpt-6-astra, `residual`, medium) on head
+`0875ead7`. It answers R1–R3. R4 is the chief's process note: panel prose
+that addressed the smith was rejected as instruction. It asks nothing of this
+seat, and none was taken from it. Every adopted commit is kept. Cargo 1.98.0
+was available.
+
+### What changed
+
+The source changes stay in the unit's three production files and two suites.
+`agents.rs` has no net change; only mutations touched it.
+
+- `crates/brokkr-runtime/src/capabilities.rs` (R1): `NativeContribution` now
+  carries `held` and `denied` (the abstract capabilities switched ON and OFF),
+  `argv`, and a protocol `Selection` holding the pending lists with the
+  adapter's own list flags and separators. Those come from the inventory's
+  `SelectionFlags`, never from the rendered `controls`.
+  `NativeContribution::segment(provider, harness)` replaces the old `segment()`.
+  It builds typed `Controls` from this data alone and materializes them through
+  `native_segment`. `NativePlan::Known` boxes the contribution, because clippy's
+  `large_enum_variant` refused the grown variant. The controls, manifest and
+  prompt projections are unchanged.
+- `crates/brokkr-protocol/src/native_controls.rs` (R1): `native_segment` now
+  refuses a pending selection for a harness whose launch lowers no selection
+  into argv, which in practice means an opaque custom driver. Codex, DSH and
+  `exec` already refused in `compose_for_provider`. The cause is the existing
+  `unconsumed` one. `compose_for_provider`, `launch_arguments` and `managed`
+  are unchanged. The design records this under D5.7, "Review return R1".
+- Runtime `agents/tests.rs`:
+  - The native fixture module gains `operator_for` and `resolve_on`.
+  - The expectation test asserts the new contribution and its materialization.
+    The opaque "held subset" row now expects the exact refusal.
+  - The mapped-limits test is a row table, so a mutation reaches both rows.
+  - New test `unit3_a_pending_selection_keeps_its_own_mappings_through_materialization`.
+    It has four rows: web-search held or nothing held, each under a canonical
+    and a spaced `--disallowed-tools` deny mapping. It asserts literal
+    expectations, contributions and materialized segments. Then it builds a
+    record from the real local and native producers and checks that the
+    record decodes, reassembles and keeps its origin sequence.
+- Protocol `native_controls/tests.rs` (R2):
+  - `full_record`'s provider is `claude-work`, so provider and harness cannot
+    be exchanged unseen.
+  - The round-trip test judges the literal encoding beside five labelled rows,
+    no longer before them.
+  - The materialize test is a five-row table that adds the opaque-driver rows.
+- Suite counts: agents 73 (72 + 1), native_controls 23.
+
+### R1 red at the reviewed head
+
+The check ran in a throwaway detached worktree at `0875ead7`, since removed. A
+probe resolved two Claude-shaped inventories that differed only in the deny
+mapping, then ran `assert_ne!` on their contributions. It failed: both were
+`NativeContribution { argv: [], selection: ToolLists { include: [], allow:
+[], deny: ["WebFetch", "WebSearch"] } }`. The new test's four rows assert
+distinct literal contributions and segments instead.
+
+### Baseline probes (R3), `4d8b7668`
+
+These probes are retrospective. They were measured in this visit against the
+baseline commit, in a throwaway detached worktree, now removed. Their source is
+run-local (`.forge/baseline-probe-unit3.rs` and `-protocol.rs`), appended to
+the owning suites there and run with `cargo test --locked -p brokkr-runtime
+--lib agents::tests::probe_` and `-p brokkr-protocol --lib
+native_controls::tests::probe_`.
+
+| Probe | Rows, exact literals | Observed |
+| --- | --- | --- |
+| B1 flat mapped argv | pytest/cargo and gh-run-view/gh-pr-view: entry and candidate argv end `--allowedTools`, `Bash(.venv/bin/pytest:*),Bash(cargo:*)` or `Bash(gh run view:*),Bash(gh pr view:*)` after the acceptEdits template | pass |
+| B2 absence/empty/sandbox | 5 rows: argv and gap; explicit empty has argv `[]` and the full D5.3 refusal | pass |
+| B3 delivery handoff | 5 rows: argv, `hands_fragment` and gap; the native alias has the full ruling-3 refusal | pass |
+| B4 native rendered controls | the 5 real-producer rows: `on`/`off`/`argv`/`selection` (lists and flags), and the unmeasured reason | pass |
+| B5 mapping-only difference | two Claude inventories: rendered controls differ only in `selection.flags.deny` | pass |
+| B6 legacy pair (protocol) | equal bytes in authored and in managed decode apart; three malformed pairs share one cause | pass |
+
+All six pass (5 runtime + 1 protocol), so they are already-correct neighbours,
+not reds. The baseline's flat argv, refusals and rendered controls already
+carried these values. B5 shows the mapping difference lived only in the
+rendered JSON, which is what R1 needed a typed carrier for.
+
+Genuinely unavailable at the baseline were segment origins, retained
+intent/sandbox and `Application`, the typed native expectation and
+contribution, `LaunchRecord` decoding, `reassemble` and `native_segment`.
+The five-origin and origin-distinction rows had no expressible baseline;
+the legacy pair only knows two origins (B6).
+
+### Build incident, and the runs it voided
+
+The throwaway worktrees built into this worktree's `target` through `cargo
+--config build.target-dir`. Workspace crates at different paths got identical
+artifact names, and the main tree's protocol fingerprint was taken as fresh.
+So the runtime linked the `0875ead7` protocol rlib. N3's first run exposed it:
+the opaque "held subset" row materialized `Ok`. The first A1–A3 and N1–N3 runs
+are void and are not recorded. After the three production files were touched,
+both crates rebuilt, both suites passed unmutated (73 and 23), and all six
+mutations were rerun. The ledger below records only the reruns.
+
+### Mutation ledger (return)
+
+Each mutation below is one compiling edit, run in its owning suite, observed
+failing, then restored. The `git diff` restored after each group matched its
+snapshot byte for byte (`cmp`):
+
+- S1: after the R1 change (A1–A3, N1–N5, E1, E2, P1's first run).
+- S2: after the round-trip rows and `claude-work` (RT, RA, D).
+- S3: after the materialize row table (P1 rerun, P2, A4).
+
+P3 was restored by the exact reverse edit, and both suites then passed. After
+the mutations, `cargo fmt` reflowed text and the contribution was boxed. Both
+changes are behavior-neutral, and every gate was rerun afterwards.
+
+Runtime (`cargo test --locked -p brokkr-runtime --lib agents::tests::unit3_`):
+
+| # | File | Mutation | Failing rows and observed values |
+| --- | --- | --- | --- |
+| A1 | agents.rs | local segment tagged `Template` | mapped limits 2 of 2 (both rows show `Template` for the `--allowedTools` segment); absence row "nonempty subset, read-only"; real-producer origins `[template×4, native]` |
+| A2 | agents.rs | `Direct` limits reversed, emission unchanged | mapped 2 of 2: `Direct(["Bash(cargo:*)", "Bash(.venv/bin/pytest:*)"])`, `Direct(["Bash(gh pr view:*)", "Bash(gh run view:*)"])`; real-producer `Direct([git, cargo])` |
+| A3 | agents.rs | join separator `;` | mapped 2 of 2: segment `…pytest:*);Bash(cargo:*)` and `…view:*);Bash(gh pr…`; `Direct` equal on both sides |
+| A4 | agents.rs | effort segment tagged `Local` | 5 tests fail; the new test's tail origins are `[template, template, local, native]` |
+| N1 | capabilities.rs | include not filtered by the holding | row "held subset": contribution include `[lookup, search]` vs `[lookup]`; expectation half identical |
+| N2 | capabilities.rs | unheld native tools not denied | same row: deny `[]` vs `["search"]`; expectation identical |
+| N3 | capabilities.rs | typed deny flag taken from allow | 4 of 5 rows (deny flag `--allow` vs `--deny`) and 4 of 4 new rows: materialization refuses "…a selection mapped onto '--allowedTools', which its grammar does not read as that tool list, for provider 'claude'…"; expectations identical |
+| N4 | capabilities.rs | contribution `held` read from OFF | 4 of 5 and 4 of 4 (`held ["web-fetch"]` vs `["web-search"]`, …) |
+| N5 | capabilities.rs | OFF argv not emitted | 4 of 5 (`argv []` vs `["--search-off"]`, …) and the real-producer round trip; every expectation half identical |
+| E1 | capabilities.rs | expected `denied` emptied | 4 of 5 and 4 of 4 (`denied []` vs the literal); contributions identical |
+| E2 | capabilities.rs | expected restriction emptied | row "held subset": `restrictions {}` vs `{"allow": {"hosts": […]}}`; contribution identical |
+| P1 | native_controls.rs | opaque refusal disabled for `<custom>` | runtime row "held subset": `Ok(argv only)` vs the exact refusal; protocol row "custom with a pending selection": `Ok(["--search-off"])` (S3 rerun, that row only) |
+
+Protocol (`cargo test --locked -p brokkr-protocol --lib native_controls`):
+
+| # | Mutation | Failing rows and observed values |
+| --- | --- | --- |
+| P2 | managed argv dropped from the native segment | "codex raw argv" and "custom raw argv" (`argv []`) |
+| P3 | lowered argv emitted twice | "claude selection, then raw argv" only (ten tokens, repeated) |
+| RT1 | an unnamed model encodes as named `""` | the three `None` rows: `model: Some("")` |
+| RT2 | a named model encodes as none | literal encoding; rows "the full record" and "known and empty"; malformed "named model without a name" and "…name not a string" |
+| RT3 | unmeasured encodes as known-empty | the three unmeasured rows |
+| RT4 | known-empty encodes as unmeasured `""` | "known and empty" only |
+| RT5 | unspecified allow encodes as listed `[]` | "unspecified, unrestricted, unspecified allow" only |
+| RT6 | explicit empty listed encodes as unspecified | literal; full; known and empty; malformed "allow listed without names" and "allow names not an array" |
+| RT7a–d | one sandbox word each: unspecified→read-only, read-only→unspecified, workspace-write→danger-full-access, danger-full-access→workspace-write | exactly the rows carrying that class: row 2; literal, full and known-empty; row 3; row 4 |
+| RT8a | unrestricted encodes as dormant | row 2 only |
+| RT8b | `Direct([])` encodes as unrestricted | literal, full, known-empty |
+| RT8c | decoded direct limits reversed | row 4 only |
+| RT8d | dormant encodes as unrestricted (M23, row-labelled) | row 3 only |
+| RT9a, RT9b | hands none→required; required→none | rows 2–4; literal, full, known-empty |
+| RT10 | provider and harness exchanged on decode | all 5 rows (`"claude"` vs `"claude-work"`); malformed "provider not a string", "harness not a string" |
+| RA1 | an equal argv is never accepted | exact, empty record, empty segment (`Err` vs `Ok`); the equal-bytes test |
+| RA2 | length-only comparison | replaced, empty string filled, reordered (`Ok` vs `Err`) |
+| RA3 | argv accepted as a subsequence of the record | last dropped, dropped inside, empty string removed, no argv |
+| RA4 | record accepted as a subsequence of argv | added at the end, added inside |
+| RA5 | multiset comparison | distinct segments reordered only |
+| RA6 | an empty segment refuses | "an empty segment adds nothing" (`Err("")`); the equal-bytes test |
+| D1 | a missing member reads as a present null (replaces M17) | 11 of 50, every "missing" row, each reaching a later cause, e.g. `'record.segments' is not an array` |
+| D2 | `closed` treats a non-object as an empty object (M26) | array record (`'record.segments' is missing`), segment, identity and held power not an object |
+| D3 | an absent record decodes as `{}` (M29) | "absent record" only |
+| D4 | the null-record arm is removed (M30) | "null record" only (`'record' is not an object`) |
+| D5 | non-array segments read as `[]` (M31) | "segments not an array" only: `Ok(LaunchRecord { segments: [], … })` |
+| D6 | non-array held read as `[]` (M32) | "native held not an array" only: `Ok` with `held: []` |
+| D7 | non-object restrictions defaulted (M33) | "held power restrictions not an object" only: `Ok` with `restrictions {}` |
+| D8 | the tagged non-object check is removed (M34) | "model not an object" only (`'…model.kind' is missing`) |
+
+That is 45 mutations: A1–A4 (4), N1–N5 (5), E1–E2 (2), P1–P3 (3), RT (17),
+RA1–RA6 (6) and D1–D8 (8). The earlier M1–M3, M12, M17, M22, M26, M29–M34 records are superseded
+by these. The other earlier records (M4–M11, M13–M16, M18–M21, M23–M25, M27,
+M28) stand as measured at `0875ead7`. They bypass checks on rows whose
+assertions this return left unchanged. One row is covered but not newly
+mutated: "codex with a selection" in the materialize table, whose refusal is
+`compose_for_provider`'s unchanged one, bound by that composer's existing
+suite. No new test uses `is_err()`. Every fixture is on the canonical `Tree`
+root or in memory, and no test reads `.forge/` or needs a provider.
+
+### Audit (3.8, this return)
+
+- Expected state is still sealed before rendering. E1/E2 fail with identical
+  contributions, and N1–N5 fail with identical expectations.
+- An unmapped or failed composition is still `Unavailable`/`Refused`, never an
+  empty success.
+- No pending selection is claimed as argv. It either materializes through the
+  launch lowering or refuses (P1).
+- Nothing new is admitted or refused at a serving door. Candidate, bundle
+  admission, `launch_arguments` and authored refusal are untouched.
+- No file outside the unit moved. Frozen contracts, policy, fixtures,
+  reference, extensions, shipped JSON and pins are unchanged.
+- Every adopted commit is an ancestor, and no mutation remains.
+
+### Gates on the restored tree (this return)
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | passed |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | passed, after boxing the contribution |
+| `cargo test -p brokkr-protocol --all-features --locked` | passed; lib 472, 3 result lines, 0 failures |
+| `cargo test -p brokkr-runtime --all-features --locked` | passed; lib 541, 25 result lines, 0 failures |
+| `cargo test --workspace --all-features --locked` | passed; 77 green result lines, 0 failures |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | exit 0 |
+| `openspec validate --all --strict --no-interactive` | 18 passed, 0 failed |
+| `git diff --check` | passed |
+
+The coverage diagnostic was not rerun.
+
+**Pending, not claimed:**
+
+- External `bash scripts/coverage-exact.sh`.
+- macOS.
+- Remote CI.
+
+Task 3.10, and therefore 3.1, stays open. 4.2 stays open for unit 4. Nothing is
+pushed.

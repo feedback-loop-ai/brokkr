@@ -34,7 +34,9 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::{parse_strict, sha256_bytes, to_bytes};
 use brokkr_core::realms::{is_name, CapabilityGrant};
-use brokkr_protocol::native_controls::{HeldPower, Identity, NativeExpectation, Origin, Segment};
+use brokkr_protocol::native_controls::{
+    self as launch, HeldPower, Identity, NativeExpectation, Segment,
+};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -1047,31 +1049,42 @@ pub struct Holding {
 }
 
 /// The native contribution as typed data, before `controls` renders it
-/// (decision 0065 slice one, design D5.7): the raw argv — each power's ON or
-/// OFF switch and its substituted restriction transport, in key order — and
-/// the tool selection still pending its lowering into the harness's lists.
-/// Both carry native origin from construction; neither is recovered from
-/// the rendered JSON or from a command's bytes.
+/// (decision 0065 slice one, design D5.7): the abstract capabilities it
+/// switches ON and OFF, the raw argv — each power's ON or OFF switch and
+/// its substituted restriction transport, in key order — and the tool
+/// selection still pending its lowering, WITH the adapter's own list flags
+/// and separators, so two inventories that differ only in their mappings
+/// never yield one contribution. Everything carries native origin from
+/// construction; nothing is recovered from the rendered JSON or from a
+/// command's bytes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NativeContribution {
+    pub held: Vec<String>,
+    pub denied: Vec<String>,
     pub argv: Vec<String>,
-    pub selection: ToolLists,
+    pub selection: launch::Selection,
 }
 
 impl NativeContribution {
-    /// The contribution as one native segment where it is already complete
-    /// argv; `None` while a selection is pending, which only the launch's
-    /// own lowering ([`brokkr_protocol::native_controls::native_segment`])
-    /// can materialize — so a pending selection is never claimed as argv.
-    pub fn segment(&self) -> Option<Segment> {
-        let pending = [
-            &self.selection.include,
-            &self.selection.allow,
-            &self.selection.deny,
-        ]
-        .iter()
-        .any(|names| !names.is_empty());
-        (!pending).then(|| Segment::new(Origin::Native, &self.argv))
+    /// The contribution as one native segment for the candidate's own
+    /// provider and harness, materialized by the launch's own lowering
+    /// ([`launch::native_segment`]) from this typed data alone. A
+    /// representation that launch cannot consume refuses exactly as the
+    /// launch would, so a pending selection is never claimed as argv.
+    pub fn segment(&self, provider: &str, harness: &str) -> Result<Segment, launch::Refusal> {
+        launch::native_segment(
+            harness,
+            &launch::Controls {
+                provider: provider.to_string(),
+                harness: harness.to_string(),
+                inventory: launch::Inventory::Known,
+                held: self.held.clone(),
+                denied: self.denied.clone(),
+                argv: self.argv.clone(),
+                selection: self.selection.clone(),
+                guards: Vec::new(),
+            },
+        )
     }
 }
 
@@ -1084,8 +1097,9 @@ pub enum NativePlan {
         off: Vec<String>,
         /// The driver input's `native_controls`.
         controls: Value,
-        /// The same controls as typed data, before rendering.
-        contribution: NativeContribution,
+        /// The same controls as typed data, before rendering; boxed, as
+        /// it carries the whole selection with its mappings.
+        contribution: Box<NativeContribution>,
         /// What the plan answers for, sealed from the inventory, the
         /// key-to-holding relation and the typed holdings — never read
         /// back from `controls` or `contribution`.
@@ -1939,15 +1953,35 @@ impl Authority {
                           "deny": list(&flags.deny)},
             });
         }
+        // The same selection as typed data, its list flags and separators
+        // taken from the adapter's mapping as declared, not from `controls`.
+        let typed = |list: &ListFlag| launch::ListFlag {
+            flag: list.flag.clone(),
+            separator: list.separator.clone(),
+        };
+        let contribution = NativeContribution {
+            held: capabilities(&on).into_iter().map(str::to_string).collect(),
+            denied: capabilities(&off).into_iter().map(str::to_string).collect(),
+            argv,
+            selection: launch::Selection {
+                include: lists.include,
+                allow: lists.allow,
+                deny: lists.deny,
+                flags: selection.as_ref().map(|flags| {
+                    [
+                        typed(&flags.include),
+                        typed(&flags.allow),
+                        typed(&flags.deny),
+                    ]
+                }),
+            },
+        };
         Ok(NativePlan::Known {
             declaration: declaration.to_string(),
             on,
             off,
             controls,
-            contribution: NativeContribution {
-                argv,
-                selection: lists,
-            },
+            contribution: Box::new(contribution),
             expected,
         })
     }

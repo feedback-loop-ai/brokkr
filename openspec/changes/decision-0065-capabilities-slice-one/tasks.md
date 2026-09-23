@@ -493,7 +493,7 @@ adds no implementation, tests, mutation outcomes or completion ticks. Observed
 documentation validation and unavailable Cargo gates are recorded in evidence.
 
 Implementation visit, 2026-09-23, run `build-decision-0065-slice-one-re-29dd19f2`,
-baseline `4d8b7668`: 3.2–3.9 are done and ticked. The three production files
+baseline `4d8b7668`: 3.2–3.9 were ticked. The three production files
 and two owning suites are the only source files changed. The seven scenario rows
 are bound by ten new tests (five per suite) and 34 compiling mutations. Every
 mutation failed its intended assertion and was restored; the restored diff was
@@ -503,6 +503,19 @@ remote CI are pending. So 3.1 stays open, and 4.2 stays open for unit 4's
 transport. Candidate, bundle admission, the serving readers and authored
 refusal are unchanged. The ledger is evidence's "Unit 3 — implementation"
 entry.
+
+**Correction (review return, same run).** That visit overclaimed 3.2, 3.5 and
+3.8. Its baseline measured suite totals only. Its typed contribution dropped
+the selection's list flags and separators (R1), so 3.5 was not done. Its
+ledger exempted most round-trip and reassembly rows. M1–M3 stopped at the
+first mapped row. It had no selection-emission or denied/restriction
+expectation mutation. Several of its decoder mutations reworded a cause
+without removing the check. The return visit repaired these. It measured six
+baseline probes, retained the typed selection mappings and materialized them
+from the real producer. It added 45 isolated compiling mutations, each with
+its failing rows and restored pass. It reran every listed gate. 3.2–3.9 are
+ticked on that record; see evidence's "Unit 3 — review return". **3.10, 3.1
+and 4.2 stay open.**
 
 ## 4. Unit 4 — Wire origins through runtime dispatch
 

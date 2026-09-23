@@ -1622,14 +1622,16 @@ fn segment(origin: Origin, parts: &[&str]) -> Segment {
 /// A complete record whose every enum takes a non-default arm: a known
 /// native plan holding one power with a nested, Unicode-bearing
 /// restriction and denying another, an explicitly EMPTY local list lowered
-/// directly, a read-only class and required hands.
+/// directly, a read-only class and required hands. The provider is not
+/// its harness's name, so the two identity members cannot be exchanged
+/// unseen.
 fn full_record(segments: Vec<Segment>) -> LaunchRecord {
     let restrictions = json!({"allow": {"hosts": ["yaml.org", "sourceware.org"]}, "note": "ü\n"});
     LaunchRecord {
         segments,
         expected: Expected {
             identity: Identity {
-                provider: "claude".into(),
+                provider: "claude-work".into(),
                 harness: "claude".into(),
                 model: Some("opus".into()),
             },
@@ -1731,15 +1733,17 @@ fn a_valid_record_round_trips_every_expected_state_literally() {
         segment(Origin::Template, &["--model", "claude-opus-5"]),
         segment(Origin::Local, &["--allowedTools", ""]),
     ]);
-    assert_eq!(
-        record.value(),
-        json!({
+    // The literal encoding is judged beside the rows, not before them, so
+    // an encoding mutation cannot hide what it does to a later row.
+    let mut failures = Vec::new();
+    let encoded = record.value();
+    let literal = json!({
             "segments": [
                 {"origin": "template", "argv": ["--model", "claude-opus-5"]},
                 {"origin": "local", "argv": ["--allowedTools", ""]},
             ],
             "expected": {
-                "identity": {"provider": "claude", "harness": "claude",
+                "identity": {"provider": "claude-work", "harness": "claude",
                              "model": {"kind": "named", "name": "opus"}},
                 "native": {"kind": "known", "held": [{"capability": "web-search",
                     "tools": ["WebSearch"],
@@ -1751,23 +1755,30 @@ fn a_valid_record_round_trips_every_expected_state_literally() {
                           "application": {"kind": "direct", "limits": []}},
                 "hands": {"kind": "required"},
             },
-        })
-    );
-    assert_eq!(LaunchRecord::decode(Some(&record.value())), Ok(record));
-    // Every other arm, one record per row so each decodes on its own.
-    let mut rows = Vec::new();
-    for (sandbox, application, allow) in [
+    });
+    if encoded != literal {
+        failures.push(format!(
+            "the literal encoding:\n  left:  {encoded}\n  right: {literal}"
+        ));
+    }
+    // Every arm, one record per row so each decodes on its own; every row
+    // is judged, so a first failing row hides no later one.
+    let mut rows = vec![("the full record", record)];
+    for (label, sandbox, application, allow) in [
         (
+            "unspecified, unrestricted, unspecified allow",
             SandboxIntent::Unspecified,
             Application::Unrestricted,
             AllowIntent::Unspecified,
         ),
         (
+            "workspace-write, dormant, listed",
             SandboxIntent::WorkspaceWrite,
             Application::Dormant,
             AllowIntent::Listed(argv(&["cargo", "make"])),
         ),
         (
+            "danger-full-access, direct, listed",
             SandboxIntent::DangerFullAccess,
             Application::Direct(argv(&["Bash(.venv/bin/pytest:*)", "Bash(cargo:*)"])),
             AllowIntent::Listed(argv(&["pytest", "cargo"])),
@@ -1782,17 +1793,20 @@ fn a_valid_record_round_trips_every_expected_state_literally() {
             sandbox,
             application,
         };
-        rows.push(record);
+        rows.push((label, record));
     }
     let mut known_empty = full_record(Vec::new());
     known_empty.expected.native = NativeExpectation::Known {
         held: Vec::new(),
         denied: Vec::new(),
     };
-    rows.push(known_empty);
-    for record in rows {
-        assert_eq!(LaunchRecord::decode(Some(&record.value())), Ok(record));
-    }
+    rows.push(("known and empty", known_empty));
+    failures.extend(rows.into_iter().filter_map(|(label, record)| {
+        let observed = LaunchRecord::decode(Some(&record.value()));
+        (observed.as_ref() != Ok(&record))
+            .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {record:?}"))
+    }));
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// One malformed-record row: its label, the record handed to the reader
@@ -2247,42 +2261,89 @@ fn a_native_contribution_materializes_once_through_the_launch_lowering() {
         },
         &["--strict-mcp-config"],
     );
-    assert_eq!(
-        native_segment("claude", &claude),
-        Ok(segment(
-            Origin::Native,
-            &[
-                "--allowedTools",
-                "WebSearch",
-                "--disallowedTools",
-                "WebFetch",
-                "--strict-mcp-config",
-            ],
-        ))
-    );
     let codex = Controls {
         argv: argv(&["-c", "web_search=\"disabled\""]),
         ..ready("codex", &[], &["web-search"])
     };
-    assert_eq!(
-        native_segment("codex", &codex),
-        Ok(segment(Origin::Native, &["-c", "web_search=\"disabled\""]))
-    );
-    let selecting = Controls {
+    let codex_selecting = Controls {
         selection: Selection {
             deny: argv(&["WebSearch"]),
             ..Selection::default()
         },
-        ..codex
+        ..codex.clone()
     };
-    assert_eq!(
-        native_segment("codex", &selecting),
+    // An opaque custom driver takes the plan as data: its argv becomes the
+    // segment, but a pending selection never becomes argv there, so it
+    // refuses rather than vanishing from a segment claimed complete.
+    let custom = Controls {
+        argv: argv(&["--search-off"]),
+        ..ready("<custom>", &[], &[])
+    };
+    let custom_selecting = Controls {
+        selection: Selection {
+            allow: argv(&["lookup"]),
+            flags: claude_flags(),
+            ..Selection::default()
+        },
+        ..custom.clone()
+    };
+    let unconsumed = |provider: &str| {
         Err(Refusal {
             authored: false,
-            cause: "the capability plan carries a tool selection for provider 'codex', which its \
-                    launch does not consume; a control that cannot reach the final command is \
-                    refused rather than recorded and dropped (decision 0066 ruling 3)"
-                .into(),
+            cause: format!(
+                "the capability plan carries a tool selection for provider '{provider}', which \
+                 its launch does not consume; a control that cannot reach the final command is \
+                 refused rather than recorded and dropped (decision 0066 ruling 3)"
+            ),
         })
+    };
+    type Materialized = (
+        &'static str,
+        Result<Segment, Refusal>,
+        Result<Segment, Refusal>,
     );
+    let rows: Vec<Materialized> = vec![
+        (
+            "claude selection, then raw argv",
+            native_segment("claude", &claude),
+            Ok(segment(
+                Origin::Native,
+                &[
+                    "--allowedTools",
+                    "WebSearch",
+                    "--disallowedTools",
+                    "WebFetch",
+                    "--strict-mcp-config",
+                ],
+            )),
+        ),
+        (
+            "codex raw argv",
+            native_segment("codex", &codex),
+            Ok(segment(Origin::Native, &["-c", "web_search=\"disabled\""])),
+        ),
+        (
+            "codex with a selection",
+            native_segment("codex", &codex_selecting),
+            unconsumed("codex"),
+        ),
+        (
+            "custom raw argv",
+            native_segment("<custom>", &custom),
+            Ok(segment(Origin::Native, &["--search-off"])),
+        ),
+        (
+            "custom with a pending selection",
+            native_segment("<custom>", &custom_selecting),
+            unconsumed("<custom>"),
+        ),
+    ];
+    let failures: Vec<String> = rows
+        .iter()
+        .filter(|(_, observed, expected)| observed != expected)
+        .map(|(label, observed, expected)| {
+            format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}")
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

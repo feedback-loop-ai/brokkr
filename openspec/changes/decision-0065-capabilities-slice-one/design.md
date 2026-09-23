@@ -718,6 +718,16 @@ hands_fragment, encoded argv, a global table or a new module. If implementation
 cannot satisfy the primitive scenarios with this staging, stop and identify
 the additional dependency; do not weaken a scenario to fit the file count.
 
+**Review return R1, 2026-09-23.** The typed native contribution keeps the
+whole pending selection with the adapter's own list flags and separators,
+beside the abstract capabilities it switches ON and OFF. Two inventories that
+differ only in their mappings therefore never yield one contribution, and
+`native_segment` materializes it from typed data alone, never from the
+rendered controls. An opaque custom driver takes the plan as input data and
+lowers no selection into argv, so `native_segment` refuses a pending
+selection there instead of returning a segment that omits it. The legacy
+`compose_for_provider` is unchanged.
+
 **Local construction.** Use exactly authored, template, local, hands and
 native origin variants with an ordered vector of segments containing argv
 vectors. Repeated origins, equal contributions, empty segments and empty

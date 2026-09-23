@@ -3712,13 +3712,25 @@ fn unit3_lowering_preserves_exact_mapped_limits_as_separate_origins() {
         seg(Origin::Template, &["--model", "claude-opus-5"]),
         seg(Origin::Template, &["--effort", "high"]),
     ];
-    for (allow, local, limits) in [
+    // Every row is computed before any is judged, so a mutation that breaks
+    // the first row cannot hide what it does to the second.
+    type Lowered = (
+        Result<Vec<Segment>, String>,
+        Option<Application>,
+        Option<Intent>,
+        Option<Result<(), String>>,
+        Vec<String>,
+    );
+    let mut rows: Vec<Row<Lowered>> = Vec::new();
+    for (label, allow, local, limits) in [
         (
+            "pytest and cargo",
             ["pytest", "cargo"],
             "Bash(.venv/bin/pytest:*),Bash(cargo:*)",
             ["Bash(.venv/bin/pytest:*)", "Bash(cargo:*)"],
         ),
         (
+            "gh-run-view and gh-pr-view",
             ["gh-run-view", "gh-pr-view"],
             "Bash(gh run view:*),Bash(gh pr view:*)",
             ["Bash(gh run view:*)", "Bash(gh pr view:*)"],
@@ -3735,28 +3747,35 @@ fn unit3_lowering_preserves_exact_mapped_limits_as_separate_origins() {
         )
         .unwrap();
         let entry = &chain.entries[0];
-        let composition = composition_of(entry).unwrap();
+        let composition = composition_of(entry);
+        let composed = composition.as_ref().ok();
         let mut expected = template.to_vec();
         expected.push(seg(Origin::Local, &["--allowedTools", local]));
-        assert_eq!(composition.segments, expected);
-        assert_eq!(
-            composition.application,
-            Application::Direct(strings(&limits))
-        );
-        assert_eq!(
-            composition.intent,
-            Intent {
-                allow: AllowIntent::Listed(strings(&allow)),
-                sandbox: SandboxIntent::Unspecified,
-                hands: HandsIntent::None,
-            }
-        );
-        assert_eq!(reassemble(&composition.segments, &entry.argv), Ok(()));
-        assert_eq!(
-            resolved(&tree, &Availability::unspecified()).candidates[0].argv,
-            entry.argv
-        );
+        rows.push((
+            label.into(),
+            (
+                composition.clone().map(|composition| composition.segments),
+                composed.map(|composition| composition.application.clone()),
+                composed.map(|composition| composition.intent.clone()),
+                composed.map(|composition| reassemble(&composition.segments, &entry.argv)),
+                resolved(&tree, &Availability::unspecified()).candidates[0]
+                    .argv
+                    .clone(),
+            ),
+            (
+                Ok(expected.clone()),
+                Some(Application::Direct(strings(&limits))),
+                Some(Intent {
+                    allow: AllowIntent::Listed(strings(&allow)),
+                    sandbox: SandboxIntent::Unspecified,
+                    hands: HandsIntent::None,
+                }),
+                Some(Ok(())),
+                brokkr_protocol::native_controls::flatten(&expected),
+            ),
+        ));
     }
+    each_row(rows);
 }
 
 /// SCM "Unit 3 lowering retains absence empty and sandbox intent": every
@@ -4015,20 +4034,30 @@ mod native {
     use brokkr_core::realms::CapabilityGrant;
 
     pub(super) fn operator(tree: &Tree) -> PathBuf {
+        operator_for(
+            tree,
+            "test-native",
+            [json!(["lookup", "search"]), json!(["fetch"])],
+        )
+    }
+
+    /// The same two definitions and dialects, for `provider`'s own tools.
+    pub(super) fn operator_for(tree: &Tree, provider: &str, tools: [Value; 2]) -> PathBuf {
         let root = tree.root.join("operator");
+        let [search, fetch] = tools;
         for (name, tools, restrictions) in [
             (
                 "web-search",
-                json!(["lookup", "search"]),
+                search,
                 json!({"type": "object", "additionalProperties": false,
                    "properties": {"allow": {"type": "object", "additionalProperties": false,
                    "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}}),
             ),
-            ("web-fetch", json!(["fetch"]), Value::Null),
+            ("web-fetch", fetch, Value::Null),
         ] {
             let mut dialect = json!({
                 "schema": "brokkr.tool-dialect/v1", "name": name, "serves": name,
-                "kind": "provider-native", "provider": "test-native", "adapter_key": name,
+                "kind": "provider-native", "provider": provider, "adapter_key": name,
                 "tools": tools, "classes": ["egress", "reads"],
                 "sends": {"description": "a query the model composes", "seat_composed": true}
             });
@@ -4086,6 +4115,18 @@ mod native {
         provider: &str,
         native: &NativeInventory,
     ) -> Outcome {
+        resolve_on(root, grants, asks, provider, OPAQUE_HARNESS, native)
+    }
+
+    /// [`resolve`] for a candidate served by `harness`.
+    pub(super) fn resolve_on(
+        root: &Path,
+        grants: Value,
+        asks: Value,
+        provider: &str,
+        harness: &str,
+        native: &NativeInventory,
+    ) -> Outcome {
         let grants: BTreeMap<String, CapabilityGrant> = grants
             .as_object()
             .unwrap()
@@ -4120,7 +4161,7 @@ mod native {
                 &site,
                 &Serving {
                     provider,
-                    harness: OPAQUE_HARNESS,
+                    harness,
                     model: Some("tn-1"),
                     native: Some((native, "d1ge57")),
                     unloaded: None,
@@ -4138,12 +4179,15 @@ mod native {
 /// a measured default ON held with no argument, every other known power
 /// denied, a candidate that cannot carry the binding holding nothing, and
 /// an unmeasured inventory kept with its exact reason rather than read as
-/// known and empty. The contribution is asserted apart: raw argv with the
-/// substituted restriction, the pending selection, and no complete native
-/// segment claimed while that selection is pending.
+/// known and empty. The contribution is asserted apart: what it switches
+/// ON and OFF, raw argv with the substituted restriction, the pending
+/// selection with the adapter's list flags, and its materialization — which
+/// an opaque custom driver cannot give a pending selection, so that row
+/// refuses instead of claiming complete argv.
 #[test]
 fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
-    use crate::capabilities::{NativeContribution, NativeInventory, NativePlan, ToolLists};
+    use crate::capabilities::{NativeContribution, NativeInventory, NativePlan};
+    use brokkr_protocol::native_controls::{ListFlag, Refusal, Selection};
     let tree = Tree::new();
     let root = native::operator(&tree);
     let inventory = native::inventory();
@@ -4158,22 +4202,36 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
         tools: strings(tools),
         restrictions: restrictions.as_object().unwrap().clone(),
     };
-    let lists = |include: &[&str], allow: &[&str], deny: &[&str]| ToolLists {
+    let flag = |flag: &str| ListFlag {
+        flag: flag.into(),
+        separator: ",".into(),
+    };
+    let lists = |include: &[&str], allow: &[&str], deny: &[&str]| Selection {
         include: strings(include),
         allow: strings(allow),
         deny: strings(deny),
+        flags: Some([flag("--tools"), flag("--allow"), flag("--deny")]),
     };
+    let contribution =
+        |on: &[&str], off: &[&str], argv: &[&str], selection: Selection| NativeContribution {
+            held: strings(on),
+            denied: strings(off),
+            argv: strings(argv),
+            selection,
+        };
     type Sealed = (
         NativeExpectation,
         Option<NativeContribution>,
-        Option<Segment>,
+        Option<Result<Segment, Refusal>>,
     );
     let sealed = |outcome: &Outcome| -> Sealed {
         let contribution = match &outcome.native {
-            NativePlan::Known { contribution, .. } => Some(contribution.clone()),
+            NativePlan::Known { contribution, .. } => Some((**contribution).clone()),
             NativePlan::Unmeasured { .. } => None,
         };
-        let segment = contribution.as_ref().and_then(NativeContribution::segment);
+        let segment = contribution
+            .as_ref()
+            .map(|native| native.segment(&outcome.provider, &outcome.harness));
         (outcome.native.expected(), contribution, segment)
     };
     use crate::capabilities::Outcome;
@@ -4190,15 +4248,24 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
                     held: vec![held("web-search", &["lookup"], &restriction)],
                     denied: strings(&["web-fetch"]),
                 },
-                Some(NativeContribution {
-                    argv: strings(&[
+                Some(contribution(
+                    &["web-search"],
+                    &["web-fetch"],
+                    &[
                         "--fetch-off",
                         "--search-restrict",
                         r#"{"allow":{"hosts":["yaml.org","sourceware.org"]}}"#,
-                    ]),
-                    selection: lists(&["lookup"], &["lookup"], &["search"]),
-                }),
-                None,
+                    ],
+                    lists(&["lookup"], &["lookup"], &["search"]),
+                )),
+                Some(Err(Refusal {
+                    authored: false,
+                    cause: "the capability plan carries a tool selection for provider \
+                            '<custom>', which its launch does not consume; a control that \
+                            cannot reach the final command is refused rather than recorded and \
+                            dropped (decision 0066 ruling 3)"
+                        .into(),
+                })),
             ),
         ),
         (
@@ -4213,11 +4280,13 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
                     held: vec![held("web-fetch", &["fetch"], &json!({}))],
                     denied: strings(&["web-search"]),
                 },
-                Some(NativeContribution {
-                    argv: strings(&["--search-off"]),
-                    selection: ToolLists::default(),
-                }),
-                Some(seg(Origin::Native, &["--search-off"])),
+                Some(contribution(
+                    &["web-fetch"],
+                    &["web-search"],
+                    &["--search-off"],
+                    lists(&[], &[], &[]),
+                )),
+                Some(Ok(seg(Origin::Native, &["--search-off"]))),
             ),
         ),
         (
@@ -4228,11 +4297,13 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
                     held: Vec::new(),
                     denied: strings(&["web-fetch", "web-search"]),
                 },
-                Some(NativeContribution {
-                    argv: strings(&["--fetch-off", "--search-off"]),
-                    selection: ToolLists::default(),
-                }),
-                Some(seg(Origin::Native, &["--fetch-off", "--search-off"])),
+                Some(contribution(
+                    &[],
+                    &["web-fetch", "web-search"],
+                    &["--fetch-off", "--search-off"],
+                    lists(&[], &[], &[]),
+                )),
+                Some(Ok(seg(Origin::Native, &["--fetch-off", "--search-off"]))),
             ),
         ),
         (
@@ -4247,11 +4318,13 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
                     held: Vec::new(),
                     denied: strings(&["web-fetch", "web-search"]),
                 },
-                Some(NativeContribution {
-                    argv: strings(&["--fetch-off", "--search-off"]),
-                    selection: ToolLists::default(),
-                }),
-                Some(seg(Origin::Native, &["--fetch-off", "--search-off"])),
+                Some(contribution(
+                    &[],
+                    &["web-fetch", "web-search"],
+                    &["--fetch-off", "--search-off"],
+                    lists(&[], &[], &[]),
+                )),
+                Some(Ok(seg(Origin::Native, &["--fetch-off", "--search-off"]))),
             ),
         ),
         (
@@ -4307,7 +4380,9 @@ fn unit3_a_record_from_the_real_producers_round_trips_and_reassembles() {
     let crate::capabilities::NativePlan::Known { contribution, .. } = &outcome.native else {
         panic!("{:?}", outcome.native)
     };
-    let native = contribution.segment().expect("no selection is pending");
+    let native = contribution
+        .segment(&outcome.provider, &outcome.harness)
+        .unwrap();
     let record = LaunchRecord {
         segments: [composition.segments.clone(), vec![native]].concat(),
         expected: Expected {
@@ -4332,5 +4407,238 @@ fn unit3_a_record_from_the_real_producers_round_trips_and_reassembles() {
     assert_eq!(
         decoded.expected.local.application,
         Application::Direct(strings(&["Bash(cargo:*)", "Bash(git:*)"]))
+    );
+}
+
+/// NCC "Unit 3 expected state is independent of emission", for a pending
+/// selection (review return R1): two Claude-shaped inventories that differ
+/// ONLY in the deny list's flag and separator yield two different typed
+/// contributions, each materializing through the launch's own lowering to
+/// its own literal native segment, while the expected state — sealed from
+/// the typed holdings — is the same for both. A record built from the real
+/// producers with that materialized selection round-trips and reassembles.
+#[test]
+fn unit3_a_pending_selection_keeps_its_own_mappings_through_materialization() {
+    use crate::capabilities::{NativeContribution, NativeInventory, NativePlan};
+    use brokkr_protocol::native_controls::{ListFlag, Refusal, Selection};
+    let tree = Tree::new();
+    let root = native::operator_for(&tree, "claude", [json!(["WebSearch"]), json!(["WebFetch"])]);
+    let power = |capability: &str, tool: &str| {
+        json!({
+            "capability": capability, "tools": [tool],
+            "on": {"selection": {"include": [tool], "allow": [tool], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": [tool]}},
+            "restrictions": {"unsupported": "none"},
+            "evidence": {"source": "a test", "scope": "a test", "limitations": []}})
+    };
+    let claude = |deny: (&str, &str)| {
+        NativeInventory::parse(
+            "adapter 'claude'",
+            Some(&json!({
+                "known": {"web-search": power("web-search", "WebSearch"),
+                          "web-fetch": power("web-fetch", "WebFetch")},
+                "selection": {"include": {"flag": "--tools", "separator": ","},
+                              "allow": {"flag": "--allowedTools", "separator": ","},
+                              "deny": {"flag": deny.0, "separator": deny.1}}})),
+        )
+        .unwrap()
+    };
+    let canonical = ("--disallowedTools", ",");
+    let spaced = ("--disallowed-tools", " ");
+    let flag = |(flag, separator): (&str, &str)| ListFlag {
+        flag: flag.into(),
+        separator: separator.into(),
+    };
+    type Seen = (
+        NativeExpectation,
+        NativeContribution,
+        Result<Segment, Refusal>,
+    );
+    let seen = |deny: (&str, &str), asks: Value| -> Seen {
+        let outcome = native::resolve_on(
+            &root,
+            json!({"web-search": {"dialect": "web-search"}}),
+            asks,
+            "claude",
+            "claude",
+            &claude(deny),
+        );
+        let NativePlan::Known { contribution, .. } = &outcome.native else {
+            panic!("{:?}", outcome.native)
+        };
+        (
+            outcome.native.expected(),
+            (**contribution).clone(),
+            contribution.segment(&outcome.provider, &outcome.harness),
+        )
+    };
+    let expected = |deny: (&str, &str),
+                    on: &[&str],
+                    off: &[&str],
+                    lists: [&[&str]; 3],
+                    native: &[&str]|
+     -> Seen {
+        (
+            NativeExpectation::Known {
+                held: on
+                    .iter()
+                    .map(|_| HeldPower {
+                        capability: "web-search".into(),
+                        tools: strings(&["WebSearch"]),
+                        restrictions: Default::default(),
+                    })
+                    .collect(),
+                denied: strings(off),
+            },
+            NativeContribution {
+                held: strings(on),
+                denied: strings(off),
+                argv: Vec::new(),
+                selection: Selection {
+                    include: strings(lists[0]),
+                    allow: strings(lists[1]),
+                    deny: strings(lists[2]),
+                    flags: Some([
+                        flag(("--tools", ",")),
+                        flag(("--allowedTools", ",")),
+                        flag(deny),
+                    ]),
+                },
+            },
+            Ok(seg(Origin::Native, native)),
+        )
+    };
+    let holds = json!({"web-search": "requires"});
+    each_row(vec![
+        (
+            "web-search held, canonical deny mapping".into(),
+            seen(canonical, holds.clone()),
+            expected(
+                canonical,
+                &["web-search"],
+                &["web-fetch"],
+                [&["WebSearch"], &["WebSearch"], &["WebFetch"]],
+                &[
+                    "--allowedTools",
+                    "WebSearch",
+                    "--disallowedTools",
+                    "WebFetch",
+                ],
+            ),
+        ),
+        (
+            "web-search held, spaced deny alias".into(),
+            seen(spaced, holds.clone()),
+            expected(
+                spaced,
+                &["web-search"],
+                &["web-fetch"],
+                [&["WebSearch"], &["WebSearch"], &["WebFetch"]],
+                &[
+                    "--allowedTools",
+                    "WebSearch",
+                    "--disallowed-tools",
+                    "WebFetch",
+                ],
+            ),
+        ),
+        (
+            "nothing held, canonical deny mapping".into(),
+            seen(canonical, json!({})),
+            expected(
+                canonical,
+                &[],
+                &["web-fetch", "web-search"],
+                [&[], &[], &["WebFetch", "WebSearch"]],
+                &["--disallowedTools", "WebFetch,WebSearch"],
+            ),
+        ),
+        (
+            "nothing held, spaced deny alias".into(),
+            seen(spaced, json!({})),
+            expected(
+                spaced,
+                &[],
+                &["web-fetch", "web-search"],
+                [&[], &[], &["WebFetch", "WebSearch"]],
+                &["--disallowed-tools", "WebFetch WebSearch"],
+            ),
+        ),
+    ]);
+    // The materialized selection in a record beside the real local
+    // producer's composition: it round-trips and reassembles exactly.
+    let mut body = agent_body();
+    body.as_object_mut().unwrap().remove("tools");
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    let entry = report(
+        &tree.library(),
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap()
+    .entries
+    .remove(0);
+    let composition = composition_of(&entry).unwrap();
+    let outcome = native::resolve_on(
+        &root,
+        json!({"web-search": {"dialect": "web-search"}}),
+        holds,
+        "claude",
+        "claude",
+        &claude(spaced),
+    );
+    let NativePlan::Known { contribution, .. } = &outcome.native else {
+        panic!("{:?}", outcome.native)
+    };
+    let record = LaunchRecord {
+        segments: [
+            composition.segments.clone(),
+            vec![contribution
+                .segment(&outcome.provider, &outcome.harness)
+                .unwrap()],
+        ]
+        .concat(),
+        expected: Expected {
+            identity: outcome.identity(),
+            native: outcome.native.expected(),
+            local: composition.local(),
+            hands: composition.intent.hands,
+        },
+    };
+    let decoded = LaunchRecord::decode(Some(&record.value())).unwrap();
+    assert_eq!(decoded, record);
+    assert_eq!(
+        reassemble(
+            &decoded.segments,
+            &strings(&[
+                "{brokkr}",
+                "driver",
+                "claude",
+                "--",
+                "--model",
+                "claude-opus-5",
+                "--effort",
+                "high",
+                "--allowedTools",
+                "WebSearch",
+                "--disallowed-tools",
+                "WebFetch",
+            ])
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        decoded
+            .segments
+            .iter()
+            .map(|segment| segment.origin.word())
+            .collect::<Vec<_>>(),
+        ["template", "template", "template", "native"]
+    );
+    assert_eq!(
+        decoded.expected.local.application,
+        Application::Unrestricted
     );
 }

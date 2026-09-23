@@ -1012,9 +1012,21 @@ pub fn reassemble(segments: &[Segment], argv: &[String]) -> Result<(), String> {
 /// authored or boundary argv beside it — so no authored list is reconciled
 /// into it, the selection is emitted once, and the raw argv once after it.
 /// A plan the harness's launch cannot consume refuses here as it does
-/// there.
+/// there. An opaque custom driver takes the plan as input data, so its
+/// selection never becomes argv: a pending one refuses rather than being
+/// dropped from a segment that would then claim to be complete.
 pub fn native_segment(harness: &str, controls: &Controls) -> Result<Segment, Refusal> {
     let composed = compose_for_provider(harness, &[], &[], controls)?;
+    let selects = [
+        &controls.selection.include,
+        &controls.selection.allow,
+        &controls.selection.deny,
+    ]
+    .iter()
+    .any(|names| !names.is_empty());
+    if selects && !matches!(harness, "claude" | "lanetally") {
+        return Err(unconsumed(harness, "a tool selection"));
+    }
     Ok(Segment {
         origin: Origin::Native,
         argv: [composed.extra, composed.managed].concat(),
