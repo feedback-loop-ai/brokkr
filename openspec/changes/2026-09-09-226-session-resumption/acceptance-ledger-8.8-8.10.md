@@ -464,7 +464,7 @@ acceptance, and unit 23 keeps it separate.
 | B2 | "execute only 8.8.9.1–8.8.15.1: R1–R3 plus the bounded watcher-rule controls, both terminal endings, completed production observations, independent compiling removals and positive/cold preservation" | 5089–5093 | Rows S1–S13 | partially discharged — S11 and S12 are open, and every removal-bearing row among S1–S9e carries an evidence-verification gap (F5). Note the scope word: 8.10 says "execute **only** 8.8.9.1–8.8.15.1", so §1's numbered tasks are not 8.10's work — they bear on 8.8's tick, not this one's |
 | B3 | "Do not repeat adopted Codex or Pass B work, open Pass D's unrelated matrix or tick this whole task" | 5093–5094 | Pass C's commit touched `adapters.rs` and `adapters/tests.rs` only; 8.10 is `[ ]` | discharged (scope rule) |
 | B4 | "six wrapped/unwrapped compiled Codex gate decisions and supported exact-root exchanges, then `bundle.rs`'s two reachable refusal tests and unreachable census-arm consolidation" | 5095–5098 | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (four shapes: single/no-hands-member × wrapped/unwrapped, each asserting the recorded root, the `resumed` row, no refusal and the exact resume argv) and `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (two) = six; `bundle/tests.rs::a_dialect_wrapped_verify_select_reaches_the_single_or_panel_refusal` (`:220`, asserting "dialect verify currently requires a single or panel verify seat") and `::a_selected_agent_case_keeps_its_empty_reference_cause` (`:254`, asserting "seat 'work:engine' agent must be a non-empty string"). The consolidated arm is `owner_index`'s one existing-label refusal (`bundle.rs:1741`, message "addresses two different sites as"), which `::a_literal_phase_that_aliases_a_selected_case_is_refused_globally` (`:1271`) drives | discharged. *(Corrected, fourth return: this row named `::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` (`:1349`) and `::a_literal_phase_that_aliases_the_injected_validator_is_refused` (`:1387`) as "the two reachable refusal tests", with `claim_address` (`bundle.rs:2949`) as the arm. The commission itself says otherwise. THE PROOFS item 4 names `assemble`'s second verify refusal and `parse_selected_body`'s empty agent reference as the reachable pair, and `owner_index`'s same-owner tolerance as the arm to remove (`tasks.md` 9465–9502). `4a3854ca`'s message agrees: "new compiler tests reach the second verify refusal… and the selected agent resolver error". The two tests this row cited are D10 F2 authoring-census refusals, added by `4daaa7d2`. They are new tests of this change too, so B5 inventories them. All five exist and assert what is claimed, so the grade stands)* |
-| B5 | "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass." | 5098–5099 | Recorded mutation ledgers: Pass C's fourteen rows (465–480: M1a, M1b, M2, M3, M4, M5, M5b, M5+M7, M6, M6′, M8, M9, M10, M12; *this cell said "twelve", corrected 2026-09-23*), D1's two (616–623), D2's seven (803–816), D3's six plus one discarded (992–1008), and the returned review's two (1058–1074), and task 10.5's M8, M8a, M9 and M9a (10230–10233). Each names the case that parted | **partially discharged — evidence-verification gap.** This is the clause the narrative rule bites hardest: "**Every** new test needs an **observed** compiling mutation failure at its claimed assertion and a restored pass." Every such observation in this change is a delivery record. What is opened here is that no mutation survives (`git diff origin/main`) and that the cases those mutations aimed at exist, assert what is claimed, and pass (F5). **Scope, third return (finding 3):** "Every new test" covers every suite this change added tests to, not only the terminal body. That includes the Codex bridge and conformance suites, and the tests units 1–10 landed on `slice-dsh-8810`, each of which recorded its own compiling mutations under §6. **Fourth return (finding 1): THE PROOFS' tests, one by one.** The clause's own sentence covers them: its "Every new test" follows "six wrapped/unwrapped compiled Codex gate decisions… then `bundle.rs`'s two reachable refusal tests and unreachable census-arm consolidation" (5095–5099), and the commission asks for "exact mutation diffs/failures/restored passes for both new refusal tests and the census control" (9504–9505). Searched: `tasks.md` (each test name occurs only in its commissioning clause), the landing messages of `4daaa7d2` and `4a3854ca`, the squash `5ef4a842` and `.forge/`. (i) D10's four removal bindings (9451–9455), all **recorded but unverified**. Three are against the six compiled Codex cases (`driver_conformance.rs:3194`, `:3297`, B4): `4a3854ca` says "disabling whole relocation, dropping the no-hands marker, and falsely marking a hands member as no-hands each broke the named test", naming no assertion. The fourth, "delete the independent absence refusal to break otherwise supported unknown-marker controls" (9454–9455), is not a control over those cases. Their inputs carry known markers: `:3228` asserts `"not applicable"` for the no-hands shapes, and the hands shapes are namespace/boxed. So they never reach a missing-marker refusal. The matrix that does is `adapters/tests.rs::a_supported_assessment_without_both_affirmative_markers_declines` (`:1987`). Its decision arm (`:2086–2089`) refuses absent, null, non-string and unknown markers with "`{case}: must not enable`". Task 10.5's visit recorded that test's controls (`tasks.md` 10230–10233): M8, "remove the boundary membership term", failed with "`boundary unknown: must not enable`"; M8a, "bypass the boundary absence/type guard with a `"harness"` default", failed with "`boundary absent: must not enable`"; M9 and M9a did the same for hands. Each restored to "1 passed". That record is historical. It was made at `9da5ff92`, where its `tests.rs:2030:43` is the same `panic!` arm. `git log -L` finds no later commit touching `resume_gate` (`adapters.rs:931`) or the test's body. *(Fifth return, C1: this said "no record found" for the fourth binding, and unit 21(a) sent it to the conformance cases, which cannot exercise it.)* One predicate of the same commission has no record: "Common marker/assessment mutations must also fail unwrapped controls" (9455–9456). Both conformance loops run the wrapped shape first (`:3197–3198`, `:3300–3301`), and 9460 says "masked mutations do not count". So "broke the named test" cannot show that an unwrapped shape parted. That holds for the hands case too: `:3297`'s loop runs the wrapped `HandsMember` first (`:3300`), so `4a3854ca`'s "falsely marking a hands member as no-hands… broke the named test" establishes at most the wrapped shape's failure, and the unwrapped `HandsMember` failure at the direct refusal-token assertion (`:3352–3355`) is unit 21(a)'s. *(Residual C1, 2026-09-23: this cell graded the three records without saying so.)* (ii) `bundle/tests.rs:220` and `:254`, the two reachable refusals: **no record found**. (iii) The census control, `owner_index`'s refusal disabled in both census invocations against `:1271` (9497–9502): **no record found**. (iv) `bundle/tests.rs:1349` and `:1387`, the D10 F2 collision refusals from `4daaa7d2`: **no record found**. (v)–(vii) `4daaa7d2`'s other three new tests: `bundle/tests.rs::a_wrapped_verify_panel_leaves_an_unrelated_literal_phase_untouched` (`:1425`, asserting "the unrelated literal phase keeps its own hands" at `:1448` and "no prefix sweep manufactured a wrapper coordinate for the literal phase" at `:1455`), `::a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite` (`:1469`, asserting "member `{member}` keeps its own network-enabled hands" at `:1491` and "member `checks:{member}` keeps its own default hands" at `:1501`), and `engine/tests.rs::a_selected_single_publishes_its_own_confinement_at_dispatch` (`:188`, asserting "the selected single publishes its own boundary" at `:266` and `hands` equal to `"boxed"` at `:270`): **no record found**. Searched as for (ii)–(iv). None of the three names occurs in `tasks.md`, and `4daaa7d2`'s message lists gates, not removals. `design.md:4972` names `:188` only to say it "asserts markers only". *(Fifth return, C2: this inventory had missed all three.)* A ruling can accept a record. It cannot accept an observation nobody recorded. So (i)'s unwrapped predicate and all of (ii)–(vii) belong to unit 21(a) in every case. (i)'s four recorded bindings go with the class to unit 17, or to unit 21(b) after a no. B5 closes when unit 21(a) has landed **and** either a unit-17 ruling names B5 or units 18, 19 and 21(b) have landed. Unit 20 is 8.8's alone, so B5 does not wait on it. *(Fourth return, findings 1 and 3: this cell said "after units 18–21 all land", which both over-required unit 20 and left (i)–(iv) with no work)* |
+| B5 | "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass." | 5098–5099 | Recorded mutation ledgers: Pass C's fourteen rows (465–480: M1a, M1b, M2, M3, M4, M5, M5b, M5+M7, M6, M6′, M8, M9, M10, M12; *this cell said "twelve", corrected 2026-09-23*), D1's two (616–623), D2's seven (803–816), D3's six plus one discarded (992–1008), and the returned review's two (1058–1074), and task 10.5's M8, M8a, M9 and M9a (10230–10233). Each names the case that parted | **partially discharged — evidence-verification gap.** This is the clause the narrative rule bites hardest: "**Every** new test needs an **observed** compiling mutation failure at its claimed assertion and a restored pass." Every such observation in this change is a delivery record. What is opened here is that no mutation survives (`git diff origin/main`) and that the cases those mutations aimed at exist, assert what is claimed, and pass (F5). **Scope, third return (finding 3):** "Every new test" covers every suite this change added tests to, not only the terminal body. That includes the Codex bridge and conformance suites, and the tests units 1–10 landed on `slice-dsh-8810`, each of which recorded its own compiling mutations under §6. **Fourth return (finding 1): THE PROOFS' tests, one by one.** The clause's own sentence covers them: its "Every new test" follows "six wrapped/unwrapped compiled Codex gate decisions… then `bundle.rs`'s two reachable refusal tests and unreachable census-arm consolidation" (5095–5099), and the commission asks for "exact mutation diffs/failures/restored passes for both new refusal tests and the census control" (9504–9505). Searched: `tasks.md` (each test name occurs only in its commissioning clause), the landing messages of `4daaa7d2` and `4a3854ca`, the squash `5ef4a842` and `.forge/`. (i) D10's four removal bindings (9451–9455), all **recorded but unverified**. Three are against the six compiled Codex cases (`driver_conformance.rs:3194`, `:3297`, B4): `4a3854ca` says "disabling whole relocation, dropping the no-hands marker, and falsely marking a hands member as no-hands each broke the named test", naming no assertion. The fourth, "delete the independent absence refusal to break otherwise supported unknown-marker controls" (9454–9455), is not a control over those cases. Their inputs carry known markers: `:3228` asserts `"not applicable"` for the no-hands shapes, and the hands shapes are namespace/boxed. So they never reach a missing-marker refusal. The matrix that does is `adapters/tests.rs::a_supported_assessment_without_both_affirmative_markers_declines` (`:1987`). Its decision arm (`:2086–2089`) refuses absent, null, non-string and unknown markers with "`{case}: must not enable`". Task 10.5's visit recorded that test's controls (`tasks.md` 10230–10233): M8, "remove the boundary membership term", failed with "`boundary unknown: must not enable`"; M8a, "bypass the boundary absence/type guard with a `"harness"` default", failed with "`boundary absent: must not enable`"; M9 and M9a did the same for hands. Each restored to "1 passed". That record is historical. It was made at `9da5ff92`, where its `tests.rs:2030:43` is the same `panic!` arm. `git log -L` finds no later commit touching `resume_gate` (`adapters.rs:931`) or the test's body. *(Fifth return, C1: this said "no record found" for the fourth binding, and unit 21(a) sent it to the conformance cases, which cannot exercise it.)* One predicate of the same commission has no record: "Common marker/assessment mutations must also fail unwrapped controls" (9455–9456). Both conformance loops run the wrapped shape first (`:3197–3198`, `:3300–3301`), and 9460 says "masked mutations do not count". So "broke the named test" cannot show that an unwrapped shape parted. That holds for the hands case too: `:3297`'s loop runs the wrapped `HandsMember` first (`:3300`), so `4a3854ca`'s "falsely marking a hands member as no-hands… broke the named test" establishes at most the wrapped shape's failure, and the unwrapped `HandsMember` failure at the direct refusal-token assertion (`:3352–3355`) is unit 21(a)'s. *(Residual C1, 2026-09-23: this cell graded the three records without saying so.)* (ii) `bundle/tests.rs:220` and `:254`, the two reachable refusals: **no record found**. (iii) The census control, `owner_index`'s refusal disabled in both census invocations against `:1271` (9497–9502): **no record found**. (iv) `bundle/tests.rs:1349` and `:1387`, the D10 F2 collision refusals from `4daaa7d2`: **no record found**. (v)–(vii) `4daaa7d2`'s other three new tests: `bundle/tests.rs::a_wrapped_verify_panel_leaves_an_unrelated_literal_phase_untouched` (`:1425`, asserting "the unrelated literal phase keeps its own hands" at `:1448` and "no prefix sweep manufactured a wrapper coordinate for the literal phase" at `:1455`), `::a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite` (`:1469`, asserting "member `{member}` keeps its own network-enabled hands" at `:1491` and "member `checks:{member}` keeps its own default hands" at `:1501`), and `engine/tests.rs::a_selected_single_publishes_its_own_confinement_at_dispatch` (`:188`, asserting "the selected single publishes its own boundary" at `:266` and `hands` equal to `"boxed"` at `:270`): **no record found**. Searched as for (ii)–(iv). None of the three names occurs in `tasks.md`, and `4daaa7d2`'s message lists gates, not removals. `design.md:4972` names `:188` only to say it "asserts markers only". *(Fifth return, C2: this inventory had missed all three.)* A ruling can accept a record. It cannot accept an observation nobody recorded. So (i)'s unwrapped predicate and all of (ii)–(vii) belong to unit 21(a) in every case. (i)'s four recorded bindings go with the class to unit 17, or to unit 21(b) after a no. B5 closes when unit 21(a) has landed **and** either a unit-17 ruling names B5 or units 18, 19 and 21(b) have landed. Unit 20 is 8.8's alone, so B5 does not wait on it. *(Fourth return, findings 1 and 3: this cell said "after units 18–21 all land", which both over-required unit 20 and left (i)–(iv) with no work)* *2026-09-23: unit 21(a) has landed (§6, entry 21; `removal-controls-2026-09-23.md`). (i)'s unwrapped predicate and (ii)–(vii) are performed: six controls parted their named assertions, and four (F1, and F2–F4 for (iii) and (iv)) passed under the operator's ruling that for exactly those four the first assertion depending on the removal, quoted verbatim, stands in for the named one. B5 keeps its grade, and now waits only on a unit-17 ruling that names it, or on units 18, 19 and 21(b)* |
 | B6 | "Extend the existing runtime/protocol/CLI suites using the test-only seam; do not substitute fabricated roots, repaired markers or map assertions." | 5099–5101 | All new cases live in the four existing suites; the seams are `run_seat_with`, `invoke_dsh_launch_observed`, `dsh_launch_with` and `DSH_STAGING_CALLS`, all private | discharged |
 | B7 | "A no-offer refusal is judged by the private production gate with actual composed facts." | 5102–5103 | `::a_closed_dsh_gate_…` drives `dsh_launch_with` with composed `resume_context` inputs and reads `launch.refusal` | discharged |
 | B8 | "Namespace/boxed remains refused; preserve shipping harness/none and no-hands live controls." | 5103–5104 | `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (`restrictions-unavailable`, then a fresh cold launch); `boundary_tests.rs::the_seat_input_names_the_boundary_and_the_marker_only_under_a_box` | discharged |
@@ -896,7 +896,7 @@ numbers. The map:
 | 16 | — (new: N11 on a capable host) | open, externally owned |
 | 17 | 9 | open, an operator ruling |
 | 18–20 | — (new: replays after a negative ruling) | conditional on 17 |
-| 21 | — (new: (a) THE PROOFS' unrecorded controls; (b) the remaining replays) | (a) **open**: performed at `90b548e3`, stopped on four findings (F1–F4: controls 1, 5, 6, 7); (b) conditional on 17 |
+| 21 | — (new: (a) THE PROOFS' unrecorded controls; (b) the remaining replays) | (a) landed: performed at `90b548e3`, closed under the operator's 2026-09-23 ruling on F1–F4; (b) conditional on 17 |
 | 22 | 6 | open |
 | 23 | 7 | open, prepares an operator ruling |
 | 24 | 8 | open, 9.6's, not this change's |
@@ -907,7 +907,7 @@ numbers. The map:
 | **Externally owned evidence**: a grant or host no seat of this change has had | 13, 15, 16 |
 | **Gate execution**, nothing to write | 14 |
 | **An operator ruling**, not labour | 17 (and 23 prepares one) |
-| **Controls never recorded**, performed whatever 17 rules | 21(a) |
+| **Controls never recorded**, performed whatever 17 rules | 21(a) (landed) |
 | **Replays**, only if 17 rules no | 18, 19, 20, 21(b) |
 | **Record and reconcile** | 22, 23 |
 | Missing **behaviour**, not this change's | 24 |
@@ -919,7 +919,9 @@ that gated head. 22 ticks 8.10 only when 21(a) has landed and either 17's
 ruling covers every 8.10 removal predicate or 18, 19 and 21(b) have landed.
 21(a) runs on 14's gated candidate and moves no byte that survives. If one
 of its controls does not part its case, that is a finding, and a repair
-re-opens 14. 23 needs 13, 15, 16 and
+re-opens 14. *(2026-09-23: 21(a) has landed. It ran on `be1ecf77`'s
+bytes, after 11, 12 and 13 had landed, and its four findings closed under
+the operator's ruling with no repair, so 14 was not re-opened.)* 23 needs 13, 15, 16 and
 17 (or 20). **15 is not a predecessor of 22.** S12 asks that external
 evidence be *recorded*, "when supplied, otherwise explicitly
 pending/unavailable" (314–326). So 22 may close over a pending 15 if it
@@ -2080,7 +2082,9 @@ symlink fixture and twenty planner vectors.
      the retry decision assertion (`:3238`). A `Disabled` gate runs no
      version probe, so no root is recorded and the engine makes no offer.
      That explains the failure, but it is not the commissioned decision
-     assertion, and entry 22 cannot accept a substituted one.
+     assertion, and entry 22 cannot accept a substituted one. *(Exception,
+     2026-09-23: the operator's ruling accepts the substituted assertion
+     for exactly F1–F4, and for no other control. See the record below.)*
    - **F2–F4**, controls 5, 6 and 7 (`:1271`, `:1349`, `:1387`). Each
      removal lets the alias compile. So each fails in the shared `error()`
      helper's "expected compilation to fail" (`bundle/tests.rs:7`), and
@@ -2100,6 +2104,28 @@ symlink fixture and twenty planner vectors.
      reopened. Controls 2 and 10's failures are now verbatim in the
      evidence file, no longer abridged. Docs only, at `7e3454ce`.
 
+   **(a) closed 2026-09-23 under the operator's ruling (run
+   `issue-226-acceptance-ledger-entr-a18ca61d`). 21(a) has landed.** The
+   operator ruled "accept the substituted assertions". In substance: for
+   F1–F4, a control is proof when its test fails at the FIRST assertion
+   that depends on the removed refusal or marker, with that failure quoted
+   verbatim, in place of the assertion this ledger named, because the named
+   assertion checks behaviour the removal prevents from happening.
+   `removal-controls-2026-09-23.md` records the ruling (**Operator
+   ruling**) and reclassifies F1–F4 as controls passed under it, each with
+   its verbatim failure and restored pass:
+   - control 1 at the cold `root_session` assertion (`:3223`), both
+     unwrapped shapes;
+   - controls 5, 6 and 7 at `error()`'s "expected compilation to fail"
+     (`bundle/tests.rs:7`), called at `:1291`, `:1371` and `:1408`.
+
+   All ten controls are closed. The ruling covers those four and no other
+   control: for entries 18–21(b), a control that does not part its named
+   assertion is still a finding, and entry 22 still accepts no substituted
+   assertion outside F1–F4. No test, production or frozen byte moved, and
+   no checkbox. 8.10 stays unticked: entry 22 still waits on entry 17 (or
+   18, 19 and 21(b)), entry 14 and the rest of its list.
+
 22. *(recorded as 6)* **Regrade, record, tick and commit the D7/Pass-C/Pass-D
    account.** Closes S12 (8.8.15.1), S11 (8.8.14.2) beside entry 14's record,
    and **8.10**, but not 8.8. Touches
@@ -2114,7 +2140,9 @@ symlink fixture and twenty planner vectors.
    - entry 11 has landed, closing B42's and B30's open half;
    - entry 21(a) has landed, both unwrapped Codex controls included (the
      no-hands marker at `:3194` and the hands-to-no-hands marking at
-     `:3297`);
+     `:3297`); *met 2026-09-23: the `:3297` control parted its named
+     assertion, and the `:3194` control (F1) passed under the operator's
+     ruling on F1–F4, which is this list's only accepted substitution;*
    - entry 17's ruling names every 8.10 removal predicate — B5 over every
      suite, B16, B20, B77, and S1 and S3–S10 through B2 — or, after a no,
      entries 18, 19 and 21(b) have landed;
@@ -2177,7 +2205,8 @@ symlink fixture and twenty planner vectors.
   over every suite, B16's four, B20's one, B77, and S1 and S3–S10 through B2.
   After a negative ruling, it waits for entries 18, 19 and 21(b) instead.
   In either case entry 22 regrades the stale rows and ticks it. No seat may
-  tick it otherwise.
+  tick it otherwise. *(2026-09-23: entries 11 and 21(a) have landed, 21(a)
+  under the operator's ruling on F1–F4. Entries 14 and 17 remain.)*
 - **9.6 — It waits on both ticks**, its own "After 8.8 and 8.10" (5499). So it
   waits on everything above, entry 13's source pins and entry 16's host run
   included, and then on its own unstarted work, starting with entry 24.
@@ -2215,7 +2244,9 @@ fallback still missed THE PROOFS' tests, some of whose controls were never
 recorded at all (fourth return, finding 1). The fourth cut's inventory then
 missed three of `4daaa7d2`'s tests, and called one recorded control
 unrecorded (fifth return). The unrecorded controls are entry 21(a)'s whatever
-the ruling says. So the answer is the conditional one above.
+the ruling says. *(2026-09-23: 21(a) has performed and closed them, four
+under the operator's ruling on F1–F4.)* So the answer is the conditional
+one above.
 
 **9.6, in detail.** Its precondition at 5499 is "After 8.8 and 8.10", so it
 waits on both ticks. That means **two** operator rulings: entry 17 for the
@@ -2224,7 +2255,7 @@ entry 23 is a third only if the operator chooses one. It is never required,
 because entries 13, 15 and 16 can satisfy those rows instead. *(Fourth
 return, finding 4: this said "three", counting the optional scope change as
 mandatory.)* It also means the externally owned entries 13, 15 and 16, and
-entry 21(a).
+entry 21(a) (landed 2026-09-23).
 Then comes its own accounting and compatibility acceptance, which is **not
 started**:
 - cold/warm retained-store integration, including the verified first-match

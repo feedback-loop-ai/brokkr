@@ -6,17 +6,23 @@ controls of THE PROOFS' tests for which B5's inventory (ledger §4, B5,
 (i)–(vii)) found no record. Entry 17 has no ruling, so entries 18, 19, 20
 and 21(b) are not performed here.
 
-**Outcome: stopped on four findings; 21(a) has not landed.** Six controls
-(2, 3, 4, 8, 9, 10) part their named assertions. Control 1 parts an
-earlier assertion than the decision assertion its bullet names (F1).
-Controls 5, 6 and 7 part the shared `error()` helper, not their collision
-assertions (F2–F4). The rule for this entry is that a control which does
-not part its named assertion is a finding. So each is recorded and
-stopped, and no test was weakened to force it. See **Findings** at the
-end. *(Corrected 2026-09-23 on the review return of the same run,
-findings C1–C3. The first cut counted nine successes and flagged control
-1 for the grader. It also abridged controls 2 and 10's failures, which
-are now verbatim.)*
+**Outcome: all ten of 21(a)'s controls are closed; 21(a) has landed.**
+Six controls (2, 3, 4, 8, 9, 10) part their named assertions. Four
+(1, 5, 6, 7) pass under the **operator ruling of 2026-09-23** (see
+**Operator ruling** near the end): each fails at the first assertion that
+depends on its removed refusal or marker, quoted verbatim below. Control
+1 parts at the cold `root_session` assertion (`:3223`). Controls 5, 6
+and 7 part at the shared `error()` helper's demand for the refusal
+(`bundle/tests.rs:7`). No test was weakened, and no byte moved to close
+them. *(2026-09-23, the 21(a)-close visit, run
+`issue-226-acceptance-ledger-entr-a18ca61d`. This header read "stopped on
+four findings; 21(a) has not landed", because the rule then in force made
+a control that did not part its named assertion a finding (F1–F4). The
+ruling supplies the exception for exactly those four.)* *(Corrected
+2026-09-23 on the review return of run
+`issue-226-acceptance-ledger-entr-4b36a6f8`, findings C1–C3. The first
+cut counted nine successes and flagged control 1 for the grader. It also
+abridged controls 2 and 10's failures, which are now verbatim.)*
 
 - Candidate: `be1ecf77624a16399ba133442db98a790f41d671` on `slice-dsh-8810`,
   clean before the first control and after the last.
@@ -47,13 +53,13 @@ gave `test result: ok. 2 passed; 0 failed; … 22 filtered out`.
 
 | # | Ledger bullet | Test | Mutation | Parted at | Verdict |
 |---|---|---|---|---|---|
-| 1 | no-hands marker, unwrapped | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (`:3194`), unwrapped `Single` and `NoHandsMember` | `mark_hands`'s `NoHands` arm emptied | `:3223` (cold root recorded) | **finding F1**: parted before the decision assertion (`:3238`), which never ran (see 1) |
+| 1 | no-hands marker, unwrapped | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (`:3194`), unwrapped `Single` and `NoHandsMember` | `mark_hands`'s `NoHands` arm emptied | `:3223` (cold root recorded) | **passed under the ruling** (was finding F1): parted at the first marker-dependent assertion, before the decision assertion (`:3238`), which never ran (see 1) |
 | 2 | hands→no-hands, unwrapped | `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (`:3297`), unwrapped `HandsMember` | `Hands` arm publishes `not applicable`/`none` | `:3352` (`resume_refusal`) | parted at the named assertion |
 | 3 | second verify diagnostic | `bundle/tests.rs::a_dialect_wrapped_verify_select_reaches_the_single_or_panel_refusal` (`:220`) | `bundle.rs:1529` message replaced | `:241` | parted at the named assertion |
 | 4 | empty-agent propagation | `::a_selected_agent_case_keeps_its_empty_reference_cause` (`:254`) | `parse_selected_body`'s `resolve_reference` cause replaced (`bundle.rs:3050`) | `:270` | parted at the named assertion |
-| 5 | census, both invocations | `::a_literal_phase_that_aliases_a_selected_case_is_refused_globally` (`:1271`) | `owner_index`'s existing-label refusal disabled (`bundle.rs:1782`) | `error()` (`:7`), called at `:1291` | **finding F2**: the alias compiles, so the collision assertion (`:1292`) never ran; rename-only construction valid under the mutation |
-| 6 | authoring census | `::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` (`:1349`) | first census's refusal dropped (`bundle.rs:1475`) | `error()` (`:7`), called at `:1371` | **finding F3**: the alias compiles, so the collision assertion (`:1377`) never ran; no backstop masked it |
-| 7 | injected-validator claim | `::a_literal_phase_that_aliases_the_injected_validator_is_refused` (`:1387`) | claim removed (`bundle.rs:1550–1555`) **and** masking final walk removed (`:1607`) | `error()` (`:7`), called at `:1408` | **finding F4**: the final walk masked the claim's removal on its own; with both removed the alias compiles, so the collision assertion (`:1414`) never ran |
+| 5 | census, both invocations | `::a_literal_phase_that_aliases_a_selected_case_is_refused_globally` (`:1271`) | `owner_index`'s existing-label refusal disabled (`bundle.rs:1782`) | `error()` (`:7`), called at `:1291` | **passed under the ruling** (was finding F2): the alias compiles, so the collision assertion (`:1292`) never ran; rename-only construction valid under the mutation |
+| 6 | authoring census | `::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` (`:1349`) | first census's refusal dropped (`bundle.rs:1475`) | `error()` (`:7`), called at `:1371` | **passed under the ruling** (was finding F3): the alias compiles, so the collision assertion (`:1377`) never ran; no backstop masked it |
+| 7 | injected-validator claim | `::a_literal_phase_that_aliases_the_injected_validator_is_refused` (`:1387`) | claim removed (`bundle.rs:1550–1555`) **and** masking final walk removed (`:1607`) | `error()` (`:7`), called at `:1408` | **passed under the ruling** (was finding F4): the final walk masked the claim's removal on its own; with both removed the alias compiles, so the collision assertion (`:1414`) never ran |
 | 8 | prefix sweep | `::a_wrapped_verify_panel_leaves_an_unrelated_literal_phase_untouched` (`:1425`) | `relocate_verify_facts` sweeps `verify:*` | `:1448` | parted at the named assertion, not a census refusal or the `:1447` unwrap |
 | 9 | insert-as-removed | `::a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite` (`:1469`) | each destination inserted as its source is removed | `:1491` | parted at the named assertion |
 | 10 | dispatch re-mark | `engine/tests.rs::a_selected_single_publishes_its_own_confinement_at_dispatch` (`:188`) | `self.mark_hands(&site_name, &mut input)` removed (`engine.rs:1111`) | `:266` | parted at the named assertion |
@@ -66,9 +72,13 @@ no map panic and no compile error stands in its place. The named
 assertion is the `message.contains("addresses two different sites as …")`
 check (`:1292`, `:1377`, `:1414`). It never runs, because no message
 exists. The helper's generic panic is not that assertion, so each of
-these controls is a finding (F2–F4), not a success. *(The first cut read
+these controls was a finding (F2–F4), not a success. *(The first cut read
 the helper's panic as the assertion's first half. Review C2 rejected
-that reading.)*
+that reading.)* Under the operator ruling of 2026-09-23 the helper's
+`Ok(_)` arm is the first assertion that depends on the removed refusal,
+so its verbatim panic is accepted in place of the collision assertion,
+and controls 5, 6 and 7 pass. The helper's panic is still not the
+collision assertion; the ruling accepts it as the substitute.
 
 ## 1. The no-hands marker, unwrapped shapes
 
@@ -150,6 +160,17 @@ ruling or a repair outside this entry's scope, which would re-open entry
 14. *(The first cut read the cold-root assertion as "the live decision
 parting at its first observable point" and flagged it for the grader.
 Review C1 rejected that reading.)*
+
+**Passed under the ruling (2026-09-23).** The operator ruled that for
+F1–F4 a control is proof when its test fails at the first assertion that
+depends on the removed refusal or marker, quoted verbatim. The cold
+`root_session` assertion (`:3223`, narrowed `:3218`) is that assertion
+here: nothing before it failed, and both failures are quoted verbatim
+above. So control 1 passes, for both unwrapped shapes, in place of the
+retry decision assertion (`:3238`), whose behaviour the dropped marker
+prevents from happening. The paragraph above is kept as written; its
+"entry 22 cannot accept a substituted assertion" still holds everywhere
+except F1–F4, for which the ruling is the exception.
 
 **Restoration.** The arm was restored by hand. The narrowed single shape
 reran green (`1 passed; … 23 filtered out; finished in 0.09s`). Then the
@@ -298,7 +319,9 @@ The literal `work:chore` beside the selected case `work:chore` compiled.
 assertion (`:1292–1295`) never ran. With the refusal disabled in both
 census invocations, no refusal is left to produce a message. So under the
 commissioned mutation, the named assertion cannot part. Recorded and
-stopped; the test was not changed.
+stopped; the test was not changed. **Passed under the ruling
+(2026-09-23):** `error()`'s `Ok(_)` arm (`:7`) is the first assertion that
+depends on the removed refusal, and its failure is quoted verbatim above.
 
 **The rename-only construction stays valid under the mutation.** The
 test's own control (`:1296–1307`) sits after the panic. So, with the
@@ -360,7 +383,8 @@ disguise the test's doc names.
 
 **Finding F3.** The panic is the `error()` helper's (`:7`). The collision
 assertion (`:1377–1380`) never ran. Recorded and stopped; the test was
-not changed.
+not changed. **Passed under the ruling (2026-09-23):** as for F2, the
+helper's verbatim panic above is the first refusal-dependent assertion.
 
 **Restored**, clean, rerun:
 `test result: ok. 1 passed; … 463 filtered out; finished in 0.00s`.
@@ -405,7 +429,9 @@ The intended assertion was `:1414–1417`, reached through `error()` at
 
 **Finding F4.** The panic is the `error()` helper's (`:7`). The collision
 assertion (`:1414–1417`) never ran. Recorded and stopped; the test was
-not changed.
+not changed. **Passed under the ruling (2026-09-23):** as for F2, the
+helper's verbatim panic in step 2 is the first refusal-dependent
+assertion. Step 1's masking and step 3's backstop record stand with it.
 
 **Step 3, the claim's own effect.** The claim was restored and the final
 walk kept removed. The test passed (`1 passed; … 463 filtered out`), so
@@ -544,12 +570,29 @@ Not run here, as the commission directs: the exact-coverage script, the
 bundle compiles and entry 14's ordered list (entry 22 records those),
 and every checkbox.
 
-## Findings
+## Operator ruling, 2026-09-23
+
+Given on the four findings below, and recorded by the 21(a)-close visit
+(run `issue-226-acceptance-ledger-entr-a18ca61d`). The operator's words:
+**"accept the substituted assertions"**. In substance:
+
+> For F1–F4, a control is proof when its test fails at the FIRST
+> assertion that depends on the removed refusal or marker, with that
+> failure quoted verbatim, in place of the assertion the ledger named,
+> because the named assertion checks behaviour that the removal prevents
+> from happening.
+
+It covers exactly four controls: 1 (F1), 5 (F2), 6 (F3) and 7 (F4). It
+does not relax the rule for any other control, in this file or in
+entries 18–21(b). Anywhere else, a control that does not part its named
+assertion is still a finding.
+
+## Findings F1–F4, now controls passed under the ruling
 
 Recorded 2026-09-23 on the review return of run
 `issue-226-acceptance-ledger-entr-4b36a6f8` (C1, C2). A control that does
-not part its named assertion is a finding, not a skip. These four stop
-21(a):
+not part its named assertion is a finding, not a skip. These four stopped
+21(a) until the operator's ruling above:
 
 | Finding | Control | Named assertion | Where it parted | Why the named assertion cannot part |
 |---|---|---|---|---|
@@ -560,10 +603,23 @@ not part its named assertion is a finding, not a skip. These four stop
 
 Each mutation binds: each case fails, and fails because the removed
 refusal or marker is gone. What none of them shows is the commissioned
-assertion parting, and entry 22 cannot accept a substituted assertion. No
-test or assertion was changed. Closing these needs one of two things. The
-operator can rule on what these controls must show. Or the tests can be
-repaired so that each assertion is reachable under its removal, which
-moves bytes and so re-opens entry 14. Neither is within 21(a). Until
-then, 21(a) is open, and 8.10, which waits on it in every case, stays
-unticked.
+assertion parting. No test or assertion was changed. *(As first
+recorded, this paragraph went on: "entry 22 cannot accept a substituted
+assertion", so 21(a) stayed open until the operator ruled or a repair
+re-opened entry 14.)*
+
+**Reclassified 2026-09-23 under the ruling.** Each is now a control
+passed, not a finding:
+
+| Was | Control | Substituted assertion, first to depend on the removal | Verbatim failure | Restored pass |
+|---|---|---|---|---|
+| F1 | 1 | cold `root_session` (`driver_conformance.rs:3223`, narrowed `:3218`), both unwrapped shapes | "the provider-confirmed root is recorded", `left: Null`, `right: "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"` (§1) | all four shapes, `1 passed; … 23 filtered out; finished in 0.35s` |
+| F2 | 5 | `error()`'s `Ok(_)` arm (`bundle/tests.rs:7`), called at `:1291` | "expected compilation to fail" (§5) | `1 passed; … 463 filtered out; finished in 0.00s` |
+| F3 | 6 | `error()` (`:7`), called at `:1371` | "expected compilation to fail" (§6) | `1 passed; … 463 filtered out; finished in 0.00s` |
+| F4 | 7 | `error()` (`:7`), called at `:1408`, with the final walk also removed | "expected compilation to fail" (§7, step 2) | `1 passed; … 463 filtered out; finished in 0.00s` |
+
+With the six controls that part their named assertions, all ten of
+21(a)'s controls are closed, and 21(a) has landed. That removes 21(a)
+from 8.10's path. It does not tick 8.10: entry 22 still waits on entry
+17's ruling (or on entries 18, 19 and 21(b) after a no), and on the rest
+of its list.
