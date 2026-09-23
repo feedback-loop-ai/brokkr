@@ -10425,7 +10425,7 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     assert!(moved.wrapper_digest.is_none());
     assert!(!moved.stream_json);
 
-    // A version-command failure and unreadable output both observe
+    // A version-command failure and a version-less banner both observe
     // nothing and never reach the producer.
     let failing = executable(home, "dsh-id-fail", "#!/bin/sh\nexit 3\n");
     let failed = dsh_launch_with(
@@ -10440,17 +10440,17 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     assert_eq!(failed.observed, None);
     assert!(!failed.stream_json);
     let banner = dsh_version_shim(home, "dsh-id-banner", "no-version-here");
-    let unreadable = dsh_launch_with(
+    let bannered = dsh_launch_with(
         &banner.to_string_lossy(),
         &[],
         workdir,
         None,
         &input,
-        || panic!("an unreadable probe never reaches the producer"),
+        || panic!("a version-less probe never reaches the producer"),
     )
     .unwrap();
-    assert_eq!(unreadable.observed, None);
-    assert!(!unreadable.stream_json);
+    assert_eq!(bannered.observed, None);
+    assert!(!bannered.stream_json);
 
     // Version drift observes the shim's version, never the requested pin,
     // and calls the producer zero times because the version gate is first.
@@ -10576,6 +10576,65 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
         .unwrap();
         assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
         assert_eq!(calls.get(), 1, "{case}: one producer call, never more");
+        assert!(!declined.stream_json, "{case}");
+        assert_eq!(declined.rejoining, None, "{case}");
+        assert_eq!(declined.first_seq, None, "{case}");
+        assert_ne!(declined.root, offered_root, "{case}");
+        assert_eq!(
+            declined.root.parent(),
+            Some(home.join("sessions/brokkr").as_path()),
+            "{case}: the cold root is fresh under the current home"
+        );
+        assert!(
+            !declined.command.contains(&"--session".to_string()),
+            "{case}: {:?}",
+            declined.command
+        );
+    }
+
+    // The rest of B59's version-output matrix on the same offer, each
+    // vector isolated to one property (tasks 5302–5306): absent output
+    // (nothing printed, exit 0), malformed output (a valid-UTF-8 line
+    // carrying no version, exit 0) and a version-command failure (the
+    // MATCHING version printed, then exit 3, so the decline is the exit
+    // status's alone). Each observes nothing, never reaches the producer,
+    // declines `unverified-harness` and plans the cold route under the
+    // current home. The unreadable vector follows.
+    for (case, body, expected, code) in [
+        ("absent version output", "exit 0", &b""[..], 0),
+        (
+            "malformed version output",
+            "printf 'no-version-here\\n'\nexit 0",
+            &b"no-version-here\n"[..],
+            0,
+        ),
+        (
+            "version command failure",
+            "printf '0.1.5-rc.1\\n'\nexit 3",
+            &b"0.1.5-rc.1\n"[..],
+            3,
+        ),
+    ] {
+        let shim = executable(home, "dsh-id-output", &format!("#!/bin/sh\n{body}\n"));
+        let output = std::process::Command::new(&shim)
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(code), "{case}: the exit status");
+        assert_eq!(output.stdout, expected, "{case}: the shim's exact bytes");
+        assert!(std::str::from_utf8(&output.stdout).is_ok(), "{case}");
+        let declined = dsh_launch_with(
+            &shim.to_string_lossy(),
+            &[],
+            workdir,
+            Some("session-1"),
+            &warm,
+            || panic!("{case}: a probe that observes nothing never reaches the producer"),
+        )
+        .unwrap();
+        assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
+        assert_eq!(declined.observed, None, "{case}");
+        assert_eq!(declined.wrapper_digest, None, "{case}");
         assert!(!declined.stream_json, "{case}");
         assert_eq!(declined.rejoining, None, "{case}");
         assert_eq!(declined.first_seq, None, "{case}");
