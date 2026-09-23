@@ -2589,6 +2589,718 @@ fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution(
     );
 }
 
+// ------------------------------- unit 2-fix: root selectors and native argv
+
+/// The four spellings the codex grammar reads as its one root selector,
+/// canonical `--cd` (A1): split, `=`, the short alias split and attached.
+const ROOT_SPELLINGS: [(&str, &[&str]); 4] = [
+    ("--cd /", &["--cd", "/"]),
+    ("--cd=/", &["--cd=/"]),
+    ("-C /", &["-C", "/"]),
+    ("-C/", &["-C/"]),
+];
+
+/// The contribution a site's resolved native plan is judged as.
+const NATIVE: &str = "resolved native control argv";
+
+/// The complete root-selector refusal at `work` for one contribution,
+/// written here rather than derived: it names canonical `--cd` and never
+/// the path it selects.
+fn root_refusal(link: usize, part: &str) -> String {
+    format!(
+        "bundle: seat 'work' link {link} requests a typed 'tools.sandbox', but the {part} \
+         carries `--cd`, which selects the root the `--sandbox` class is measured from, a \
+         competing root control that no typed class can be checked against whatever its value \
+         or position — refused (design D5.3)"
+    )
+}
+
+/// The complete refusal of a competing control at `work`, link 1.
+fn competing(part: &str, cause: &str) -> String {
+    format!("bundle: seat 'work' link 1 requests a typed 'tools.sandbox', but the {part} {cause}")
+}
+
+/// The cause of a codex switch that lifts or replaces the sandbox.
+fn switch_cause(name: &str) -> String {
+    format!(
+        "carries `{name}`, a switch that lifts or replaces the sandbox a `--sandbox` class would \
+         express, so no typed class can be checked against it — refused (design D5.3)"
+    )
+}
+
+/// The cause of an assignment into a sandbox table.
+fn table_cause(table: &str) -> String {
+    format!(
+        "assigns '{table}' through the harness's configuration, a second door to the same \
+         control that no typed class can be checked against — refused (design D5.3)"
+    )
+}
+
+/// The cause of an added filesystem root; the path is never echoed.
+const ADDED_ROOT_CAUSE: &str = "carries `--add-dir`, which adds a filesystem root the \
+    `--sandbox` class would not reach, a competing control on the same reach that no typed \
+    class can be checked against — refused (design D5.3)";
+
+/// The cause of an unqualified assignment in a resolved native plan: it
+/// names `--config` and the argument, never the key or the value.
+fn native_config_cause(at: usize) -> String {
+    format!(
+        "assigns configuration through `--config` at argument {at} outside the keys a resolved \
+         native control is established to write (the hands transport under \
+         'mcp_servers.brokkr', the effort 'model_reasoning_effort' and the exact key \
+         'web_search'); an unqualified assignment could reach the same control, so no typed \
+         class can be checked against it — refused (design D5.3)"
+    )
+}
+
+/// The complete refusal of any `--sandbox` in a resolved native plan.
+fn native_sandbox_refusal(link: usize, class: &str) -> String {
+    format!(
+        "bundle: seat 'work' link {link} requests 'tools.sandbox' '{class}', but the resolved \
+         native control argv of provider 'codex' carries `--sandbox`, a second sandbox control \
+         beside the selected hands fragment; only that fragment represents a typed class, so \
+         even a matching native class competes — refused (design D5.3)"
+    )
+}
+
+/// The `work` seat on agent `boxed`, of `class` where one is written.
+fn sandbox_seat(fixture: &AgentFixture, class: Option<&str>) -> Value {
+    let mut config = fixture.config();
+    config["seats"]["work"] = json!({"results": ["complete"], "agent": "boxed"});
+    if let Some(class) = class {
+        config["seats"]["work"]["class"] = json!(class);
+    }
+    config
+}
+
+/// Agent `boxed` on astra, allowing `cargo` and requesting `sandbox`.
+fn declare_sandbox(fixture: &AgentFixture, sandbox: &str) {
+    fixture.write(
+        "agents/boxed.json",
+        boxed_agent(&["astra"], json!({"allow": ["cargo"], "sandbox": sandbox})),
+    );
+}
+
+/// The fixture codex whose web-search OFF is the measured denial followed
+/// by `extra`: the legitimate control first, so a scan that stopped at a
+/// valid denial would never reach what follows it.
+fn codex_off(extra: &[&str]) -> Value {
+    let mut adapter = codex();
+    let mut off = vec!["-c", "web_search=\"disabled\""];
+    off.extend(extra);
+    adapter["native_capabilities"]["known"]["web-search"]["off"] = json!({"argv": off});
+    adapter
+}
+
+/// The full resolved native argv of one link of `work`.
+fn native_argv(bundle: &Bundle, link: usize) -> Value {
+    bundle.sites["work"].capabilities.as_ref().unwrap().outcomes[link].controls()["argv"].clone()
+}
+
+/// A long value of non-ASCII scalars with a newline inside it, within the
+/// grammar's input (it sets no length limit): the refusal is the same
+/// value-free sentence as for `/`.
+fn long_payload() -> String {
+    format!("/{}\n{}", "ü".repeat(300), "ж".repeat(300))
+}
+
+/// Unit 2-fix A1: canonical `--cd` in every spelling, beside a matching
+/// workspace-write class at a harness work seat, refuses in the authored
+/// command and in the `hands.harness.work` fragment — for any value, so
+/// the current workspace too, and whichever occurrence a harness would
+/// honour. The refusal names `--cd` and never the path. A long non-ASCII
+/// value with a newline yields the identical sentence; an open gate keeps
+/// its standing refusal first; the same fixture without the selector
+/// admits with its exact facts.
+#[test]
+fn a_root_selector_beside_a_matching_sandbox_refuses_in_the_authored_command_and_the_fragment() {
+    let fixture = AgentFixture::new();
+    declare_sandbox(&fixture, "workspace-write");
+    let work = || fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness);
+    let authored = |tokens: &[&str]| {
+        let mut adapter = codex();
+        let mut driver = vec!["{brokkr}", "driver", "codex", "--"];
+        driver.extend(tokens);
+        adapter["driver"] = json!(driver);
+        fixture.write("adapters/codex.json", adapter);
+    };
+    let fragment = |tokens: &[&str]| {
+        let mut adapter = codex();
+        let mut argv = CODEX_WORK.to_vec();
+        argv.extend(tokens);
+        adapter["hands"]["harness"]["work"] = json!(argv);
+        fixture.write("adapters/codex.json", adapter);
+    };
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (label, tokens) in ROOT_SPELLINGS {
+        authored(tokens);
+        rows.push((
+            format!("A1 authored {label}"),
+            outcome(work()),
+            root_refusal(1, "authored command"),
+        ));
+        fragment(tokens);
+        rows.push((
+            format!("A1 hands.harness.work {label}"),
+            outcome(work()),
+            root_refusal(1, "`hands.harness.work` fragment"),
+        ));
+    }
+    // The current workspace is a root selector as much as `/` is.
+    authored(&["--cd", "."]);
+    rows.push((
+        "authored --cd .".to_string(),
+        outcome(work()),
+        root_refusal(1, "authored command"),
+    ));
+    // A long non-ASCII value with a newline: the identical sentence.
+    let long = long_payload();
+    authored(&[&format!("--cd={long}")]);
+    rows.push((
+        "authored --cd=<long>".to_string(),
+        outcome(work()),
+        root_refusal(1, "authored command"),
+    ));
+    fragment(&[&format!("-C{long}")]);
+    rows.push((
+        "hands.harness.work -C<long>".to_string(),
+        outcome(work()),
+        root_refusal(1, "`hands.harness.work` fragment"),
+    ));
+    // An open gate's standing refusal precedes the root selector.
+    authored(&["--cd", "/"]);
+    declare_sandbox(&fixture, "read-only");
+    rows.push((
+        "open gate keeps its standing refusal".to_string(),
+        outcome(fixture.compile_under(sandbox_seat(&fixture, Some("gate")), Boundary::Open)),
+        "bundle: seat 'work' is a gate with hands under the `open` boundary, where nothing at \
+         all stands between a model's hands and the machine; `open` never holds a model gate \
+         (decision 0046 ruling 4)"
+            .to_string(),
+    ));
+    assert_eq!(rows.len(), 12);
+    each_row(rows);
+
+    // The control: without a selector the same seat admits, exactly.
+    fixture.write("adapters/codex.json", codex());
+    declare_sandbox(&fixture, "workspace-write");
+    let admitted = work().unwrap();
+    assert_eq!(
+        admitted.sites["work"].local,
+        Some(local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)))
+    );
+    assert_eq!(
+        admitted.sites["work"].chain[0].harness.work.as_deref(),
+        Some(CODEX_WORK.map(String::from).as_slice())
+    );
+    assert_eq!(
+        admitted.sites["work"].chain[0].argv[1..],
+        [
+            "driver",
+            "codex",
+            "--",
+            "--model",
+            "gpt-6-astra",
+            "--effort",
+            "high"
+        ]
+    );
+}
+
+/// Unit 2-fix S1: the RESOLVED native plan is judged too, after resolution
+/// and before its facts are published. Beside the legitimate web-search
+/// denial, the chief's three cases (S1.1 an added root at harness work,
+/// S1.2 the sandbox bypass at a harness gate, S1.3 a workspace-write
+/// network assignment at harness work), every root-selector spelling, the
+/// other competing switches, tables, an opaque load, an unqualified or
+/// descendant assignment and any native `--sandbox` — even the matching
+/// class — refuse with the complete bounded cause, under the matching
+/// requested class so no mismatch can hide them. A competing control
+/// BEFORE the denial refuses as well as one after it.
+#[test]
+fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
+    let fixture = AgentFixture::new();
+    let long = format!("--add-dir={}", long_payload());
+    /// A label, the OFF argv after the denial, the seat class, the
+    /// requested class and the expected outcome.
+    type Case<'a> = (String, Vec<&'a str>, Option<&'a str>, &'a str, String);
+    let cases: Vec<Case<'_>> = vec![
+        (
+            "S1.1 --add-dir=/srv/shared at harness work".to_string(),
+            vec!["--add-dir=/srv/shared"],
+            None,
+            "workspace-write",
+            competing(NATIVE, ADDED_ROOT_CAUSE),
+        ),
+        (
+            "S1.2 bypass at a harness gate".to_string(),
+            vec!["--dangerously-bypass-approvals-and-sandbox"],
+            Some("gate"),
+            "read-only",
+            competing(
+                NATIVE,
+                &switch_cause("--dangerously-bypass-approvals-and-sandbox"),
+            ),
+        ),
+        (
+            "S1.3 sandbox_workspace_write.network_access at harness work".to_string(),
+            vec!["-c", "sandbox_workspace_write.network_access=true"],
+            None,
+            "workspace-write",
+            competing(NATIVE, &table_cause("sandbox_workspace_write")),
+        ),
+        (
+            "--full-auto at harness work".to_string(),
+            vec!["--full-auto"],
+            None,
+            "workspace-write",
+            competing(NATIVE, &switch_cause("--full-auto")),
+        ),
+        (
+            "sandbox_mode at a harness gate".to_string(),
+            vec!["-c", "sandbox_mode=\"danger-full-access\""],
+            Some("gate"),
+            "read-only",
+            competing(NATIVE, &table_cause("sandbox_mode")),
+        ),
+        (
+            "--add-dir split at a harness gate".to_string(),
+            vec!["--add-dir", "/srv/shared"],
+            Some("gate"),
+            "read-only",
+            competing(NATIVE, ADDED_ROOT_CAUSE),
+        ),
+        (
+            "--add-dir=<long> at harness work".to_string(),
+            vec![long.as_str()],
+            None,
+            "workspace-write",
+            competing(NATIVE, ADDED_ROOT_CAUSE),
+        ),
+        (
+            "unqualified config at harness work".to_string(),
+            vec!["-c", "features.web_search_request=true"],
+            None,
+            "workspace-write",
+            competing(NATIVE, &native_config_cause(2)),
+        ),
+        (
+            "web_search descendant at harness work".to_string(),
+            vec!["-c", "web_search.mode=\"live\""],
+            None,
+            "workspace-write",
+            competing(NATIVE, &native_config_cause(2)),
+        ),
+        (
+            "matching --sandbox at harness work".to_string(),
+            vec!["--sandbox", "workspace-write"],
+            None,
+            "workspace-write",
+            native_sandbox_refusal(1, "workspace-write"),
+        ),
+        (
+            "matching --sandbox at a harness gate".to_string(),
+            vec!["-s", "read-only"],
+            Some("gate"),
+            "read-only",
+            native_sandbox_refusal(1, "read-only"),
+        ),
+    ];
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (label, extra, seat_class, class, expected) in cases {
+        fixture.write("adapters/codex.json", codex_off(&extra));
+        declare_sandbox(&fixture, class);
+        rows.push((
+            label,
+            outcome(fixture.compile_under(sandbox_seat(&fixture, seat_class), Boundary::Harness)),
+            expected,
+        ));
+    }
+    for (label, tokens) in ROOT_SPELLINGS {
+        fixture.write("adapters/codex.json", codex_off(tokens));
+        declare_sandbox(&fixture, "workspace-write");
+        rows.push((
+            format!("native OFF {label}"),
+            outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness)),
+            root_refusal(1, NATIVE),
+        ));
+    }
+    // A competing control BEFORE the legitimate denial.
+    let mut adapter = codex();
+    adapter["native_capabilities"]["known"]["web-search"]["off"] =
+        json!({"argv": ["--add-dir=/srv/shared", "-c", "web_search=\"disabled\""]});
+    fixture.write("adapters/codex.json", adapter);
+    declare_sandbox(&fixture, "workspace-write");
+    rows.push((
+        "--add-dir before the denial".to_string(),
+        outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness)),
+        competing(NATIVE, ADDED_ROOT_CAUSE),
+    ));
+    assert_eq!(rows.len(), 16);
+    each_row(rows);
+}
+
+/// Unit 2-fix, the valid denial (SCM "Valid native denial preserves
+/// matching typed sandboxes"; NCR): under empty realm grants, a harness
+/// gate requesting read-only and a harness work seat requesting
+/// workspace-write compile beside the exact denial `-c`,
+/// `web_search="disabled"`, with the exact class, the selected fragment,
+/// nothing held, web-search OFF and the full resolved denial argv. The
+/// allowance is the resolved plan's alone: the same assignment written in
+/// the authored command or the selected fragment is unqualified there.
+#[test]
+fn a_valid_native_denial_keeps_a_matching_sandbox_admitted_and_only_there() {
+    let fixture = AgentFixture::new();
+    fixture.write("adapters/codex.json", codex());
+    let denial = json!(["-c", "web_search=\"disabled\""]);
+    let check = |bundle: &Bundle, class: Sandbox, fragment: &[&str]| {
+        assert_eq!(
+            bundle.sites["work"].local,
+            Some(local(Some(&["cargo"]), Some(class)))
+        );
+        let chain = &bundle.sites["work"].chain[0];
+        let selected = match class {
+            Sandbox::ReadOnly => chain.harness.gate.as_deref(),
+            _ => chain.harness.work.as_deref(),
+        };
+        assert_eq!(
+            selected,
+            Some(
+                fragment
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .as_slice()
+            )
+        );
+        assert!(chain.hands_fragment.is_empty());
+        assert_eq!(bundle.boundary, Boundary::Harness);
+        let outcome = &bundle.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
+        assert!(outcome.held.is_empty());
+        assert_eq!(outcome.not_held.keys().collect::<Vec<_>>(), ["web-search"]);
+        assert_eq!(outcome.manifest()["native"]["on"], json!([]));
+        assert_eq!(outcome.manifest()["native"]["off"], json!(["web-search"]));
+        assert_eq!(native_argv(bundle, 0), denial);
+        assert_eq!(bundle.hands["work"], HandsSpec::default());
+    };
+    let compiled = |class: Sandbox| {
+        format!(
+            "compiled: {:?}",
+            [
+                ("review".to_string(), Some(LocalTools::unspecified())),
+                (
+                    "work".to_string(),
+                    Some(local(Some(&["cargo"]), Some(class)))
+                )
+            ]
+        )
+    };
+    let mut rows: Vec<Row<String>> = Vec::new();
+    declare_sandbox(&fixture, "read-only");
+    rows.push((
+        "gate read-only beside the denial".to_string(),
+        outcome(fixture.compile_under(sandbox_seat(&fixture, Some("gate")), Boundary::Harness)),
+        compiled(Sandbox::ReadOnly),
+    ));
+    declare_sandbox(&fixture, "workspace-write");
+    rows.push((
+        "work workspace-write beside the denial".to_string(),
+        outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness)),
+        compiled(Sandbox::WorkspaceWrite),
+    ));
+    // The allowance does not reach authored or fragment bytes.
+    let mut adapter = codex();
+    adapter["driver"] = json!([
+        "{brokkr}",
+        "driver",
+        "codex",
+        "--",
+        "-c",
+        "web_search=\"disabled\""
+    ]);
+    fixture.write("adapters/codex.json", adapter);
+    rows.push((
+        "authored web_search".to_string(),
+        outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness)),
+        competing(
+            "authored command",
+            "assigns configuration at argument 0 outside the keys an existing fragment is \
+             established to write (the hands transport under 'mcp_servers.brokkr' and the \
+             effort 'model_reasoning_effort'); an unqualified assignment could reach the same \
+             control, so no typed class can be checked against it — refused (design D5.3)",
+        ),
+    ));
+    let mut adapter = codex();
+    adapter["hands"]["harness"]["work"] = json!([
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        "web_search=\"disabled\""
+    ]);
+    fixture.write("adapters/codex.json", adapter);
+    rows.push((
+        "hands.harness.work web_search".to_string(),
+        outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness)),
+        competing(
+            "`hands.harness.work` fragment",
+            "assigns configuration at argument 2 outside the keys an existing fragment is \
+             established to write (the hands transport under 'mcp_servers.brokkr' and the \
+             effort 'model_reasoning_effort'); an unqualified assignment could reach the same \
+             control, so no typed class can be checked against it — refused (design D5.3)",
+        ),
+    ));
+    each_row(rows);
+
+    // The full admitted facts of the two positives.
+    fixture.write("adapters/codex.json", codex());
+    declare_sandbox(&fixture, "read-only");
+    let gate = fixture
+        .compile_under(sandbox_seat(&fixture, Some("gate")), Boundary::Harness)
+        .unwrap();
+    check(&gate, Sandbox::ReadOnly, &CODEX_GATE);
+    declare_sandbox(&fixture, "workspace-write");
+    let work = fixture
+        .compile_under(sandbox_seat(&fixture, None), Boundary::Harness)
+        .unwrap();
+    check(&work, Sandbox::WorkspaceWrite, &CODEX_WORK);
+}
+
+/// A realm context granting `web-search` to office `boxed` through the
+/// codex provider-native dialect `codex-search`, under `restrictions`
+/// where they are given: a real temporary grant and definition, beside
+/// the fixture's library, read the way the operator's map is read.
+fn grant_web_search(
+    fixture: &AgentFixture,
+    restrictions: Option<Value>,
+) -> crate::capabilities::CapabilityContext {
+    define(fixture, "web-search", json!(["reads", "egress"]));
+    std::fs::create_dir_all(fixture.root.join("dialects/tools")).unwrap();
+    let mut dialect = json!({
+        "schema": "brokkr.tool-dialect/v1", "name": "codex-search", "serves": "web-search",
+        "kind": "provider-native", "provider": "codex", "adapter_key": "web-search",
+        "tools": ["web_search"],
+        "sends": {"description": "a query the model composes", "seat_composed": true}
+    });
+    let mut grant = json!({"dialect": "codex-search", "offices": ["boxed"]});
+    if let Some(restrictions) = restrictions {
+        dialect["restrictions"] = json!({
+            "type": "object", "additionalProperties": false,
+            "properties": {"allow": {"type": "object", "additionalProperties": false,
+                "properties": {"hosts": {"type": "array", "items": {"type": "string"}}}}}
+        });
+        grant["allow"] = restrictions;
+    }
+    fixture.write("dialects/tools/codex-search.json", dialect);
+    let map = json!({"schema": "forge.realms/v6", "journal": "forge.db", "realms": [
+        {"name": "private", "path": "repo", "default_branch": "main",
+         "capabilities": {"web-search": grant}}]});
+    let (map, _) = brokkr_core::realms::RealmMap::of("realms.json", map).unwrap();
+    crate::capabilities::CapabilityContext {
+        realm: "private".into(),
+        grants: map.realms[0].grants.clone(),
+        root: fixture.root.clone(),
+    }
+}
+
+/// Unit 2-fix, the other two resolved contributions: a real realm grant
+/// holds web-search, so the ON argv is selected, and a validated nonempty
+/// restriction reaches its transport. Each root-selector spelling in the
+/// ON argv and in the substituted restriction argv refuses with the same
+/// bounded cause; the clean ON and restriction plans admit the matching
+/// class with the holding and the exact resolved argv. Synthetic transport
+/// here qualifies no provider's restriction support (unit 9).
+#[test]
+fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
+    let fixture = AgentFixture::new();
+    fixture.write(
+        "agents/boxed.json",
+        json!({
+            "description": "a boxed agent",
+            "charter": "charters/work.md",
+            "models": ["astra"],
+            "efforts": {"astra": "high"},
+            "hands": "workspace",
+            "tools": {"allow": ["cargo"], "sandbox": "workspace-write"},
+            "capabilities": {"web-search": "requires"},
+        }),
+    );
+    let on = |argv: &[&str], restrictions: Option<&[&str]>| {
+        let mut adapter = codex();
+        let known = &mut adapter["native_capabilities"]["known"]["web-search"];
+        known["on"] = json!({"argv": argv});
+        if let Some(template) = restrictions {
+            known["restrictions"] = json!({"argv": template});
+        }
+        fixture.write("adapters/codex.json", adapter);
+    };
+    let compile = |context: &crate::capabilities::CapabilityContext| {
+        fixture.stage(&sandbox_seat(&fixture, None), &policy());
+        Bundle::compile_with_capabilities(
+            &fixture.bundle(),
+            &fixture.library(),
+            &fixture.adapters(),
+            Some("private"),
+            None,
+            Boundary::Harness,
+            context,
+        )
+    };
+    let plain = grant_web_search(&fixture, None);
+    let hosts = grant_web_search(&fixture, Some(json!({"hosts": ["example.org"]})));
+    let live = ["-c", "web_search=\"live\""];
+    let transport = ["-c", "web_search={restrictions_json}"];
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (label, tokens) in ROOT_SPELLINGS {
+        let mut argv = live.to_vec();
+        argv.extend(tokens);
+        on(&argv, None);
+        rows.push((
+            format!("native ON {label}"),
+            outcome(compile(&plain)),
+            root_refusal(1, NATIVE),
+        ));
+        let mut template = tokens.to_vec();
+        template.extend(transport);
+        on(&live, Some(&template));
+        rows.push((
+            format!("native restriction {label}"),
+            outcome(compile(&hosts)),
+            root_refusal(1, NATIVE),
+        ));
+    }
+    // The ON argv faces the other competing controls as well.
+    on(
+        &["-c", "web_search=\"live\"", "--add-dir=/srv/shared"],
+        None,
+    );
+    rows.push((
+        "native ON --add-dir".to_string(),
+        outcome(compile(&plain)),
+        competing(NATIVE, ADDED_ROOT_CAUSE),
+    ));
+    // The clean plans admit: the exact key the ON and the transport write
+    // is the one a resolved native plan is established to write.
+    let admitted = format!(
+        "compiled: {:?}",
+        [
+            ("review".to_string(), Some(LocalTools::unspecified())),
+            (
+                "work".to_string(),
+                Some(local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)))
+            )
+        ]
+    );
+    on(&live, None);
+    rows.push((
+        "clean native ON".to_string(),
+        outcome(compile(&plain)),
+        admitted.clone(),
+    ));
+    on(&live, Some(&transport));
+    rows.push((
+        "clean native restriction".to_string(),
+        outcome(compile(&hosts)),
+        admitted,
+    ));
+    assert_eq!(rows.len(), 11);
+    each_row(rows);
+
+    // The clean ON plan: held, switched on, exactly its argv.
+    on(&live, None);
+    let held = compile(&plain).unwrap();
+    assert_eq!(
+        held.sites["work"].local,
+        Some(local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)))
+    );
+    let outcome = &held.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
+    assert_eq!(outcome.held.keys().collect::<Vec<_>>(), ["web-search"]);
+    assert_eq!(outcome.manifest()["native"]["on"], json!(["web-search"]));
+    assert_eq!(outcome.manifest()["native"]["off"], json!([]));
+    assert_eq!(native_argv(&held, 0), json!(["-c", "web_search=\"live\""]));
+    // The clean restriction plan: the validated value reached its slot.
+    on(&live, Some(&transport));
+    let restricted = compile(&hosts).unwrap();
+    assert_eq!(
+        native_argv(&restricted, 0),
+        json!([
+            "-c",
+            "web_search=\"live\"",
+            "-c",
+            "web_search={\"allow\":{\"hosts\":[\"example.org\"]}}"
+        ])
+    );
+}
+
+/// Unit 2-fix, every outcome and the effective class: a valid primary
+/// cannot hide a later candidate whose resolved plan competes (link 2 is
+/// named); a class the office declares and the seat inherits is judged
+/// as the seat's own; a site with no typed class keeps its existing
+/// admission, the same native bytes compiling exactly as before.
+#[test]
+fn resolved_native_admission_judges_every_link_and_the_inherited_class_only_where_typed() {
+    let fixture = AgentFixture::new();
+    fixture.write("adapters/codex.json", codex());
+    // A second codex provider serving `sol`, whose OFF adds a root.
+    let mut later = codex_off(&["--add-dir=/srv/shared"]);
+    later["provider"] = json!("codex-later");
+    later["models"] = json!({"sol": "gpt-6-sol"});
+    later["judges"] = json!(["sol"]);
+    fixture.write("adapters/codex-later.json", later);
+    let mut rows: Vec<Row<String>> = Vec::new();
+    fixture.write(
+        "agents/boxed.json",
+        boxed_agent(
+            &["astra", "sol"],
+            json!({"allow": ["cargo"], "sandbox": "workspace-write"}),
+        ),
+    );
+    rows.push((
+        "later candidate".to_string(),
+        outcome(fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness)),
+        format!(
+            "bundle: seat 'work' link 2 requests a typed 'tools.sandbox', but the {NATIVE} \
+             {ADDED_ROOT_CAUSE}"
+        ),
+    ));
+    // Inherited: the office declares the class, the seat writes `{}`.
+    fixture.write("adapters/codex.json", codex_off(&["-C/"]));
+    fixture.write(
+        "agents/boxed.json",
+        boxed_agent(&["astra"], json!({"sandbox": "workspace-write"})),
+    );
+    let mut inherited = sandbox_seat(&fixture, None);
+    inherited["seats"]["work"]["tools"] = json!({});
+    rows.push((
+        "inherited class".to_string(),
+        outcome(fixture.compile_under(inherited, Boundary::Harness)),
+        root_refusal(1, NATIVE),
+    ));
+    each_row(rows);
+
+    // Untyped: the same competing native bytes, no class requested,
+    // compile as they did before this repair, with the exact argv.
+    fixture.write(
+        "agents/boxed.json",
+        boxed_agent(&["astra"], json!({"allow": ["cargo"]})),
+    );
+    let untyped = || fixture.compile_under(sandbox_seat(&fixture, None), Boundary::Harness);
+    assert_eq!(
+        outcome(untyped()),
+        format!(
+            "compiled: {:?}",
+            [
+                ("review".to_string(), Some(LocalTools::unspecified())),
+                ("work".to_string(), Some(local(Some(&["cargo"]), None)))
+            ]
+        )
+    );
+    let untyped = untyped().unwrap();
+    assert_eq!(
+        native_argv(&untyped, 0),
+        json!(["-c", "web_search=\"disabled\"", "-C/"])
+    );
+}
+
 /// A seat may narrow a boxed office's class and it is admitted or refused
 /// on the effective value: a workspace-write office at a harness work site
 /// admits, its seat narrowed to read-only refuses on the narrowed class,

@@ -2628,6 +2628,17 @@ fn record_inline_tools(
     Ok(())
 }
 
+/// Which contribution [`expressed_sandbox`] judges (design D5.6): bytes an
+/// author or the selected hands fragment wrote, or the resolved native plan,
+/// which alone may also write the exact key its measured denial uses. The
+/// context selects that one allowance; it never skips a competing-control
+/// check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Contribution {
+    Written,
+    Native,
+}
+
 /// The one `--sandbox` class an argv expresses under the codex grammar, or
 /// `None` where it names none. Read through the public protocol grammar
 /// rather than by token matching, so a joined, attached or aliased spelling
@@ -2648,13 +2659,19 @@ fn record_inline_tools(
 /// `mcp_servers.brokkr` and the effort under `model_reasoning_effort` — is
 /// unqualified; either could set the same control, so neither leaves a
 /// class checkable. These are refused wherever they stand — the selected
-/// fragment or the authored command — and never reconciled by argument
-/// order or trusted for their provenance.
+/// fragment, the authored command or the resolved native plan — and never
+/// reconciled by argument order or trusted for their provenance. So is the
+/// root selector `--cd` in every spelling the grammar reads as it (`--cd
+/// PATH`, `--cd=PATH`, `-C PATH`, `-CPATH`; unit 2-fix A1): whatever its
+/// value — the current workspace included — it moves what the class is
+/// measured from, and which of two selectors a harness honours is not
+/// established, so it is refused rather than ordered.
 fn expressed_sandbox(
     what: &str,
     link: usize,
     part: &str,
     argv: &[String],
+    contribution: Contribution,
 ) -> Result<Option<String>, CompileError> {
     use brokkr_protocol::native_controls::grammar;
     /// The two codex switches whose effect on the sandbox is not a class.
@@ -2665,20 +2682,26 @@ fn expressed_sandbox(
     /// The option that widens the sandbox's reach by a root, whose value
     /// is authored bytes and is never echoed.
     const ADDED_ROOT: &str = "--add-dir";
+    /// The option that selects the root itself, canonical for `-C`.
+    const ROOT_SELECTOR: &str = "--cd";
     /// The configuration keys an existing fragment is ESTABLISHED to write
     /// (design D5.3): the boxed hands transport, as a table, and the
     /// effort assignment, exactly. Every other assignment is unqualified.
     const ESTABLISHED_TABLES: [&str; 1] = ["mcp_servers.brokkr"];
     const ESTABLISHED_KEYS: [&str; 1] = ["model_reasoning_effort"];
-    let command = match grammar::parse("codex", argv) {
-        Some(Ok(command)) => command,
-        Some(Err(problem)) => {
+    /// The one further key a RESOLVED NATIVE plan is established to write
+    /// (design D5.6): the measured web-search denial `-c`,
+    /// `web_search="disabled"`, exactly this key — not a table, not a
+    /// descendant, and never in written bytes.
+    const NATIVE_KEY: &str = "web_search";
+    let command = match grammar::parse("codex", argv).expect("the codex grammar is modelled") {
+        Ok(command) => command,
+        Err(problem) => {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} it \
                  would be judged against cannot be read: {problem}"
             )))
         }
-        None => unreachable!("the codex grammar is modelled"),
     };
     let mut expressed = None;
     for node in &command.nodes {
@@ -2699,6 +2722,14 @@ fn expressed_sandbox(
                  carries `{ADDED_ROOT}`, which adds a filesystem root the `--sandbox` class \
                  would not reach, a competing control on the same reach that no typed class can \
                  be checked against — refused (design D5.3)"
+            )));
+        }
+        if node.name() == ROOT_SELECTOR {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                 carries `{ROOT_SELECTOR}`, which selects the root the `--sandbox` class is \
+                 measured from, a competing root control that no typed class can be checked \
+                 against whatever its value or position — refused (design D5.3)"
             )));
         }
         if node.spec.effect == grammar::Effect::Load {
@@ -2731,16 +2762,30 @@ fn expressed_sandbox(
                     .iter()
                     .any(|table| grammar::config_under(&key, table))
                     || ESTABLISHED_KEYS.contains(&key.as_str())
+                    || (contribution == Contribution::Native && key == NATIVE_KEY)
             });
             if !established {
                 let at = node.at;
+                let (door, writer, keys) = match contribution {
+                    Contribution::Written => (
+                        "",
+                        "an existing fragment",
+                        "the hands transport under 'mcp_servers.brokkr' and the effort \
+                         'model_reasoning_effort'",
+                    ),
+                    Contribution::Native => (
+                        " through `--config`",
+                        "a resolved native control",
+                        "the hands transport under 'mcp_servers.brokkr', the effort \
+                         'model_reasoning_effort' and the exact key 'web_search'",
+                    ),
+                };
                 return Err(CompileError::Invalid(format!(
                     "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
-                     assigns configuration at argument {at} outside the keys an existing \
-                     fragment is established to write (the hands transport under \
-                     'mcp_servers.brokkr' and the effort 'model_reasoning_effort'); an \
-                     unqualified assignment could reach the same control, so no typed class can \
-                     be checked against it — refused (design D5.3)"
+                     assigns configuration{door} at argument {at} outside the keys {writer} is \
+                     established to write ({keys}); an unqualified assignment could reach the \
+                     same control, so no typed class can be checked against it — refused \
+                     (design D5.3)"
                 )));
             }
         }
@@ -2849,7 +2894,7 @@ fn admit_local_sandbox(
                  it; a missing fragment is not a representation — refused (design D5.3)"
             )));
         }
-        match expressed_sandbox(what, link, part, fragment)? {
+        match expressed_sandbox(what, link, part, fragment, Contribution::Written)? {
             Some(found) if found == class => {
                 // The fragment represents the class; the TABLE decides
                 // whether this path may hold it at all (review return F1).
@@ -2889,13 +2934,58 @@ fn admit_local_sandbox(
         // tokens, under the same grammar.
         let (authored, _) = candidate.parts();
         let authored = brokkr_protocol::native_controls::harness_arguments(authored);
-        if let Some(found) = expressed_sandbox(what, link, "authored command", authored)? {
+        if let Some(found) = expressed_sandbox(
+            what,
+            link,
+            "authored command",
+            authored,
+            Contribution::Written,
+        )? {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the authored \
                  command of provider '{provider}' already carries `--sandbox` '{found}', a \
                  competing control the selected {part} would stand beside; authored bytes cannot \
                  supply or contest a typed representation — refused under the `{boundary}` \
                  boundary (design D5.3)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Design D5.6 (unit 2-fix S1): the RESOLVED native plan of every link is
+/// the third contribution a typed class is judged beside. It exists only
+/// after resolution, so this runs where the plans are sealed and before
+/// their notices and facts are published, after [`admit_local_sandbox`]
+/// has already admitted the matching hands fragment. The whole argv each
+/// plan resolved to — the selected ON or OFF and any substituted
+/// restriction transport — is read once through the same typed decoder the
+/// driver reads it with, and judged by the same guard: no disposition label
+/// or engine provenance exempts it, and a valid denial beside a competing
+/// control does not end the scan. Only the selected hands fragment
+/// represents the class, so any native `--sandbox`, matching or not,
+/// competes.
+fn admit_native_sandbox(
+    what: &str,
+    requested: Sandbox,
+    site: &crate::capabilities::SiteCapabilities,
+) -> Result<(), CompileError> {
+    let class = requested.name();
+    for (index, outcome) in site.outcomes.iter().enumerate() {
+        let link = index + 1;
+        let provider = &outcome.provider;
+        let plan = brokkr_protocol::native_controls::managed(
+            &json!({"native_controls": outcome.controls()}),
+        )
+        .map_err(CompileError::Invalid)?
+        .expect("the plan is read from under its own key");
+        let part = "resolved native control argv";
+        if expressed_sandbox(what, link, part, &plan.argv, Contribution::Native)?.is_some() {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} of \
+                 provider '{provider}' carries `--sandbox`, a second sandbox control beside the \
+                 selected hands fragment; only that fragment represents a typed class, so even a \
+                 matching native class competes — refused (design D5.3)"
             )));
         }
     }
@@ -3894,6 +3984,11 @@ fn record_capabilities(
         let chain = site_facts(sites, what).chain.clone();
         let site = site_capabilities(authority, adapters, asks, &chain, None, &[])?;
         let facts = site_facts(sites, what);
+        // The EFFECTIVE class, an inherited office class included, as the
+        // local admission recorded it (design D5.6).
+        if let Some(requested) = facts.local.as_ref().and_then(|local| local.sandbox) {
+            admit_native_sandbox(what, requested, &site)?;
+        }
         let notices = facts
             .record
             .as_mut()

@@ -2152,3 +2152,178 @@ committed-head evidence go in the mandatory run-local result written through
 workspace hands, so that recording the commit cannot move the validated head.
 The tasks-phase result is a committed **drafted** breakdown, not a completed
 repair or a claim that the security findings are fixed.
+
+
+## Unit 2-fix — repair: canonical root refusal and resolved native admission, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-11592690`, phase `implement`, based on
+`07228d50` (`slice-0065-capabilities`). The worktree began clean; every
+adopted commit through `07228d50` remains an ancestor and none was replayed.
+There is no `returned_from`; the commission is the chief's S1/A1 from the
+third review. This seat had cargo 1.98.0, the pinned `nightly-2026-09-05`,
+cargo-llvm-cov 0.9.0 and openspec; every Rust result below is a fresh
+observation. Scratch logs are under `.forge/u2fix/` (run-local, not read by
+any test).
+
+### Production, inside the allowlist (2.3, 2.4)
+
+Only `crates/brokkr-runtime/src/bundle.rs` changed. `capabilities.rs` did not:
+the inspected projection sufficed — `SiteCapabilities.outcomes` in candidate
+order, `Outcome::controls()` and the typed decoder
+`brokkr_protocol::native_controls::managed` expose the complete resolved argv,
+so no concrete missing exposure was found and none is recorded.
+
+- **A1, root selector.** `expressed_sandbox` refuses a node whose canonical
+  name is `--cd` — the grammar reads `--cd PATH`, `--cd=PATH`, `-C PATH` and
+  `-CPATH` as that one node — for every value, the current workspace
+  included, in every contribution it judges. The cause names `` `--cd` ``
+  and never the path. `grammar.rs` is untouched; no last-option priority is
+  inferred.
+- **Contribution context.** A private `Contribution { Written, Native }`
+  argument tells authored/selected-hands bytes from the resolved native plan.
+  It selects one allowance and skips no check: in `Native` context only, the
+  exact key `web_search` is established beside `mcp_servers.brokkr.*` and
+  `model_reasoning_effort` (not `web_search.*`, not a table, not
+  adapter-declared). A native unqualified assignment's cause names
+  `` `--config` `` and the argument position, never the key or value.
+- **S1, resolved native admission.** New `admit_native_sandbox`, called from
+  `record_capabilities` right after `site_capabilities` succeeds and before
+  notices/facts are published, for a site whose recorded effective local fact
+  (`SiteFacts.local`, an inherited office class included) carries a sandbox.
+  It iterates every outcome, decodes `outcome.controls()` once through
+  `managed` (a decode error refuses with the decoder's bounded reason;
+  nothing defaults to empty) and judges the whole resolved argv — selected ON
+  or OFF plus substituted restriction transport — through the same guard.
+  Any native `--sandbox`, matching or not, refuses: only the selected hands
+  fragment represents the class. `enforce_model_policy` →
+  `admit_local_sandbox` order is unchanged; sites without a typed class keep
+  their existing admission.
+- **Coverage fold.** The adopted `None => unreachable!(…)` arm of the grammar
+  lookup in `expressed_sandbox` was the one zero-count line the coverage
+  diagnostic found in the changed function (below); it became
+  `.expect("the codex grammar is modelled")` with identical behaviour.
+
+### Baseline observed before the repair (2.2)
+
+The five new tests in `bundle/agent_tests.rs` were staged and run on the
+adopted `bundle.rs` bytes (`07228d50`), `cargo test -p brokkr-runtime
+--all-features --locked --lib -- bundle::agent_tests`
+(`.forge/u2fix/baseline.log`, `baseline-links.log`). Every row reached its
+own assertion through `each_row`.
+
+| Test (line) | Rows | Baseline observed |
+| --- | --- | --- |
+| `a_root_selector_beside_a_matching_sandbox_refuses_in_the_authored_command_and_the_fragment` (2716) | A1.1–A1.8, `--cd .`, `--cd=<long>`, `-C<long>`, open-gate precedence | **11 of 12 red**: each of A1.1–A1.8 and the three extra root rows `compiled: … sandbox: Some(WorkspaceWrite)` where the full `--cd` refusal was expected; the open-gate row passed (standing refusal already first) |
+| `a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox` (2821) | S1.1–S1.3, full-auto, sandbox_mode, `--add-dir` split and `<long>`, unqualified, `web_search.` descendant, matching `--sandbox` ×2, native OFF ×4 root spellings, competing control before the denial | **16 of 16 red**, every row `compiled: …` (S1.2 and the gate rows `ReadOnly`, the rest `WorkspaceWrite`) |
+| `resolved_native_on_and_restriction_contributions_obey_the_same_refusals` (3113) | native ON ×4 root spellings, restriction ×4, ON `--add-dir` | **9 of 9 red**, every row `compiled: …`; the real grant held web-search ON and the restriction reached its slot |
+| `resolved_native_admission_judges_every_link_and_the_inherited_class_only_where_typed` (3240) | later candidate (link 2), inherited class | **2 of 2 red**, both `compiled: …` (first run failed on a fixture error — the second adapter's `judges` named an unmapped model; corrected before the recorded baseline, no production change) |
+| `a_valid_native_denial_keeps_a_matching_sandbox_admitted_and_only_there` (2952) | gate/work positives beside the denial; `web_search` written in the authored command and in `hands.harness.work` | **passed** — the positives compiled (no native check existed) and the two written rows already refused as unqualified configuration |
+
+The chief's observations were not re-used as this seat's executions; the
+table is this seat's own run. After the repair the owning suite passed 39 of
+39 (34 before plus the 5 new tests; `.forge/u2fix/post-repair.log`).
+Two rows were added after the baseline, both positives within existing
+tests: `clean native ON` and `clean native restriction` (moved into the row
+table so a refusing mutation reaches them; see S-M9), and the untyped
+control became an exact `outcome` comparison (see S-M12).
+
+### Mutation ledger, unit 2-fix
+
+Each mutation was a compiling edit to `bundle.rs` only, applied alone, run
+with `cargo test -p brokkr-runtime --all-features --locked --lib --
+bundle::agent_tests` (`.forge/u2fix/mut-*.log`), then restored from the byte
+copy `.forge/u2fix/bundle.rs.repaired` and checked with `cmp`. These ran on
+the repaired bytes before the coverage fold; the fold touches only the
+grammar lookup, which no mutation edited, and the suite was rerun green on
+the final bytes. "compiled" means the row's left was `compiled: [("review",
+…), ("work", Some(LocalTools { … }))]` where its full refusal was expected.
+
+| # | Mutation (bundle.rs) | Rows that failed (all others passed) |
+| --- | --- | --- |
+| A-M1 | root check `&& !(part == "authored command" && argv[node.at] == "--cd")` | root: A1 authored `--cd /`, authored `--cd .` — compiled |
+| A-M2 | … authored `&& argv[node.at].starts_with("--cd=")` | root: A1 authored `--cd=/`, authored `--cd=<long>` — compiled |
+| A-M3 | … authored `== "-C"` | root: A1 authored `-C /` — compiled |
+| A-M4 | … authored `== "-C/"` | root: A1 authored `-C/` — compiled |
+| A-M5 | … `part.starts_with("`hands.harness.work`")` and `== "--cd"` | root: A1 hands.harness.work `--cd /` — compiled |
+| A-M6 | … work fragment `== "--cd=/"` | root: A1 hands.harness.work `--cd=/` — compiled |
+| A-M7 | … work fragment `== "-C"` | root: A1 hands.harness.work `-C /` — compiled |
+| A-M8 | … work fragment attached `-C` (`len() > 2`) | root: A1 hands.harness.work `-C/`, hands.harness.work `-C<long>` — compiled |
+| N-M1 | root check skipped for `Native` argv holding `web_search="disabled"` | off: native OFF `--cd /`, `--cd=/`, `-C /`, `-C/`; links: inherited class — compiled |
+| N-M2 | … `Native` argv holding `web_search="live"` without a restriction | on: native ON ×4 spellings — compiled |
+| N-M3 | … `Native` argv holding the substituted restriction | on: native restriction ×4 spellings — compiled |
+| S-M1 | `--add-dir` check `&& contribution == Written` | off: S1.1, `--add-dir` split at gate, `--add-dir=<long>`, `--add-dir` before the denial; on: native ON `--add-dir`; links: later candidate — compiled |
+| S-M2 | switch check restricted to `Written` | off: S1.2 (`ReadOnly`), `--full-auto` — compiled |
+| S-M3 | table check restricted to `Written` | off: S1.3 and sandbox_mode fail their exact assertion but do **not** compile — left is the native unqualified-`--config` refusal at argument 2 (defence in depth); recorded as not a wrong admission |
+| S-M3b | S-M3 plus sandbox tables treated as established in `Native` | off: S1.3 (`WorkspaceWrite`), sandbox_mode (`ReadOnly`) — compiled |
+| S-M4 | `break` out of the scan at the first native `web_search` assignment | 26 rows compiled: every native row whose competitor follows the denial (off 15, on 9, links 2); `--add-dir before the denial` still refused — binds all-occurrence scanning |
+| S-M5 | native `--sandbox` refused only when its class differs | off: matching `--sandbox` at work and at gate — compiled |
+| S-M6 | native allowance `config_under(&key, "web_search")` | off: `web_search.` descendant — compiled |
+| S-M7 | every `Native` assignment established | off: unqualified config, descendant — compiled |
+| S-M8 | allowance for every contribution (`\|\| key == "web_search"`) | denial: authored `web_search`, hands.harness.work `web_search` — compiled |
+| S-M9 | native denial allowance removed (`&& key.is_empty()`) | denial: gate read-only and work workspace-write positives, left the native unqualified-`--config` refusal at argument 0; on: `clean native ON` and `clean native restriction` rows likewise (`mut-S-M9b.log`). Siblings: the refusal rows of the three native tests now fail on that earlier refusal, and the adopted positives in `a_typed_sandbox_admits_…`, `a_competing_control_…` and `a_seat_narrows_…` panic at their `unwrap` — recorded as siblings, not proof of more |
+| S-M10 | `site.outcomes…take(1)` | links: later candidate — compiled |
+| S-M11 | native check only when the seat itself writes `tools.sandbox` | 27 rows compiled (off 16, on 9, links 2) — every fixture's class is the office's, so reading only seat bytes admits them all, the inherited-class row included |
+| S-M12 | effective class `.or(Some(WorkspaceWrite))` for untyped sites | links: untyped control — left the native `--cd` refusal, right `compiled: … allow: Some(["cargo"]), sandbox: None` |
+| P-M1 | open-gate refusal arm `&& what.is_empty()` | root: open-gate precedence row — left the typed `open` boundary refusal; sibling: the adopted `open gate keeps its standing refusal` row of `a_typed_sandbox_admits_…` |
+
+Row keys: *root* = `a_root_selector_…`, *off* =
+`a_resolved_native_off_contribution_…`, *on* =
+`resolved_native_on_and_restriction_…`, *links* =
+`resolved_native_admission_judges_…`, *denial* =
+`a_valid_native_denial_…`. After the last mutation `cmp` matched the saved
+copy and `git status` showed only `bundle.rs` and `bundle/agent_tests.rs`
+modified.
+
+### Audit (2.6)
+
+All eleven chief cases (S1.1–S1.3, A1.1–A1.8), the twelve native root rows
+(ON, OFF, restriction × four spellings) and every other new row above have
+a recorded baseline, an exact complete literal expectation written in the
+test (helpers `root_refusal`, `competing`, `switch_cause`, `table_cause`,
+`ADDED_ROOT_CAUSE`, `native_config_cause`, `native_sandbox_refusal`, none
+derived from production), a compiling mutation reaching that row with its
+actual left, and the restored pass. No `is_err()`, substring or
+`unwrap_err` assertion was added. The long non-ASCII/newline payload rows
+assert the identical value-free sentence. Every new fixture uses the
+canonical `AgentFixture` root (the realm grant writes its definition and
+dialect under it and names it as the operator root); no test reads
+`.forge/` or needs an installed provider. The positive facts asserted are
+the exact local value, the selected gate/work fragment, an empty
+`hands_fragment`, the `harness` boundary, empty holdings, web-search OFF
+and the full resolved denial argv `["-c", "web_search=\"disabled\""]`; for
+the grant, the holding, ON and `["-c", "web_search=\"live\""]`; for the
+restriction, the substituted `web_search={"allow":{"hosts":["example.org"]}}`.
+The synthetic restriction transport qualifies no provider support (unit 9)
+and these compile comparisons prove no launch (units 13–15).
+
+### Gates on the restored tree (2.7)
+
+All on `07228d50` plus this working tree (final bytes, after every mutation
+was restored):
+
+- `cargo fmt --all -- --check`: **passed**.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: **passed** (after one `type_complexity` fix in the new test).
+- `cargo test -p brokkr-runtime --all-features --locked`: **passed**, 534
+  library tests, 25 green result lines (`.forge/u2fix/gate-runtime.log`).
+- `cargo test --workspace`: **passed**, 77 green result lines, no failure.
+- `cargo test --workspace --all-features --locked`: **passed**, 77 green
+  result lines, no failure.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `bundles/verify`: both **compiled**.
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**
+  (informational length notices only).
+- `git diff --check`: **passed**. Frozen paths (`policy/`, `contracts/`,
+  `fixtures/`, `reference/`, `extensions/`): no diff. No pin, shipped data,
+  grant or other file moved.
+- Coverage **diagnostic**, not the gate: `cargo +nightly-2026-09-05
+  llvm-cov clean --workspace`, then `llvm-cov -p brokkr-runtime
+  --all-features --locked --lib --branch --lcov`; in `bundle.rs` no `DA` or
+  `BRDA` record in the changed ranges is zero, and `admit_native_sandbox`
+  is hit (45). A first run without `clean` merged stale profiles whose line
+  numbers matched no current source and was discarded.
+- External exact coverage (`bash scripts/coverage-exact.sh`, workspace-wide,
+  from a capable host or CI), macOS and remote CI: **pending**, not observed
+  here. `ci.yml`, `release.yml` and `coverage-exact.sh` all consume
+  `rust-nightly-version.txt`. Nothing is called fully green on their
+  account; unit 1's pending results stay pending.
