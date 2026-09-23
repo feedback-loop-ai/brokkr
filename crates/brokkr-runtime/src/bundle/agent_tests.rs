@@ -11,6 +11,48 @@ fn error<T>(result: Result<T, CompileError>) -> String {
     }
 }
 
+/// A compile's outcome as one string, whichever way it went, so a table
+/// row that unexpectedly COMPILES is reported beside its expected refusal
+/// rather than aborting the table at that row.
+fn outcome(result: Result<Bundle, CompileError>) -> String {
+    match result {
+        Ok(bundle) => format!(
+            "compiled: {:?}",
+            bundle
+                .sites
+                .iter()
+                .map(|(label, facts)| (label.clone(), facts.local.clone()))
+                .collect::<Vec<_>>()
+        ),
+        Err(error) => error.to_string(),
+    }
+}
+
+/// One table row: a label, what was observed and what was expected.
+type Row<T> = (String, T, T);
+
+/// Every row of a table reaches its own exact assertion: the rows are all
+/// computed first, then every mismatch is reported together, so a mutation
+/// that touches several rows names each of them, and a first failing row
+/// hides no later one (SC8; tasks 2.1.4 to 2.1.6).
+#[track_caller]
+fn each_row<T: PartialEq + std::fmt::Debug>(rows: Vec<Row<T>>) {
+    let failures: Vec<String> = rows
+        .iter()
+        .filter(|(_, observed, expected)| observed != expected)
+        .map(|(label, observed, expected)| {
+            format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}")
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} of {} rows failed:\n{}",
+        failures.len(),
+        rows.len(),
+        failures.join("\n")
+    );
+}
+
 #[test]
 fn an_agent_driver_object_may_not_amend_even_one_field() {
     assert!(refuse_amendments("work", &json!({"driver": {}})).is_ok());
@@ -1060,18 +1102,25 @@ fn an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_v
         fixture.compile(config)
     };
     // Omission and `{}` inherit the office whole.
+    let mut inherited: Vec<Row<(Option<LocalTools>, Vec<String>)>> = Vec::new();
     for tools in [None, Some(json!({})), Some(json!({"mcp": []}))] {
         let bundle = compiled(tools.clone()).unwrap();
-        assert_eq!(
-            bundle.sites["work"].local,
-            Some(local(Some(&["cargo", "git"]), None)),
-            "{tools:?}"
-        );
-        assert_eq!(
-            command_of(&bundle, "work")[8..],
-            ["--allowedTools", "Bash(cargo:*),Bash(git:*)"]
-        );
+        inherited.push((
+            format!("{tools:?}"),
+            (
+                bundle.sites["work"].local.clone(),
+                command_of(&bundle, "work")[8..].to_vec(),
+            ),
+            (
+                Some(local(Some(&["cargo", "git"]), None)),
+                vec![
+                    "--allowedTools".to_string(),
+                    "Bash(cargo:*),Bash(git:*)".to_string(),
+                ],
+            ),
+        ));
     }
+    each_row(inherited);
     // A subset keeps its written order and composes exactly itself.
     let bundle = compiled(Some(json!({"allow": ["git"]}))).unwrap();
     assert_eq!(
@@ -1099,46 +1148,61 @@ fn an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_v
         json!(office.digest)
     );
     // Each refusal names the site and the complete cause.
-    assert_eq!(
-        error(compiled(Some(json!({"allow": ["git", "make"]})))),
-        widening(
-            "work",
-            "office",
-            "allow",
-            "names 'make', which the office's 'tools.allow' [\"cargo\", \"git\"] does not; a \
-             site subtracts from its office and never adds to it"
-        )
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"allow": []})))),
-        empty_refusal("work", "office", "claude", "opus")
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"sandbox": "read-only"})))),
-        "bundle: seat 'work' requests 'tools.sandbox' 'read-only' without hands; no engine \
-         path expresses a sandbox class for a site without hands, so the class would be \
-         recorded and not delivered — refused under the `namespace` boundary until decision \
-         0065 slice one's lowering proves it (design D5.3)"
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"allow": null})))),
-        "bundle: seat 'work' 'tools' needs 'allow' as an array of strings"
-    );
-    assert_eq!(
-        error(compiled(Some(json!(null)))),
-        "bundle: seat 'work' 'tools' must be a JSON object"
-    );
-    assert_eq!(
-        error(compiled(Some(
-            json!({"allow": ["git"], "sandbox": "loose"})
-        ))),
-        "bundle: seat 'work' 'tools.sandbox' is 'loose', which is not one of read-only, \
-         workspace-write, danger-full-access"
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"allow": ["git", "git"]})))),
-        "bundle: seat 'work' 'tools.allow' names 'git' twice; a local allow list is \
-         duplicate-free"
+    let refusals: Vec<(Value, String)> = vec![
+        (
+            json!({"allow": ["git", "make"]}),
+            widening(
+                "work",
+                "office",
+                "allow",
+                "names 'make', which the office's 'tools.allow' [\"cargo\", \"git\"] does not; \
+                 a site subtracts from its office and never adds to it",
+            ),
+        ),
+        (
+            json!({"allow": []}),
+            empty_refusal("work", "office", "claude", "opus"),
+        ),
+        (
+            json!({"sandbox": "read-only"}),
+            "bundle: seat 'work' requests 'tools.sandbox' 'read-only' without hands; no engine \
+             path expresses a sandbox class for a site without hands, so the class would be \
+             recorded and not delivered — refused under the `namespace` boundary until \
+             decision 0065 slice one's lowering proves it (design D5.3)"
+                .to_string(),
+        ),
+        (
+            json!({"allow": null}),
+            "bundle: seat 'work' 'tools' needs 'allow' as an array of strings".to_string(),
+        ),
+        (
+            json!(null),
+            "bundle: seat 'work' 'tools' must be a JSON object".to_string(),
+        ),
+        (
+            json!({"allow": ["git"], "sandbox": "loose"}),
+            "bundle: seat 'work' 'tools.sandbox' is 'loose', which is not one of read-only, \
+             workspace-write, danger-full-access"
+                .to_string(),
+        ),
+        (
+            json!({"allow": ["git", "git"]}),
+            "bundle: seat 'work' 'tools.allow' names 'git' twice; a local allow list is \
+             duplicate-free"
+                .to_string(),
+        ),
+    ];
+    each_row(
+        refusals
+            .into_iter()
+            .map(|(tools, expected)| {
+                (
+                    tools.to_string(),
+                    outcome(compiled(Some(tools.clone()))),
+                    expected,
+                )
+            })
+            .collect(),
     );
 }
 
@@ -1157,40 +1221,71 @@ fn an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_
         }
         fixture.compile(config)
     };
-    for tools in [None, Some(json!({})), Some(json!({"mcp": []}))] {
-        let bundle = compiled(tools.clone()).unwrap();
-        assert_eq!(
-            bundle.sites["review"].local,
-            Some(LocalTools::unspecified()),
-            "{tools:?}"
-        );
+    let mut rows: Vec<Row<String>> = [None, Some(json!({})), Some(json!({"mcp": []}))]
+        .into_iter()
+        .map(|tools| {
+            (
+                format!("{tools:?}"),
+                outcome(compiled(tools)),
+                "compiled: [(\"review\", Some(LocalTools { allow: None, sandbox: None })), \
+                 (\"work\", Some(LocalTools { allow: Some([\"cargo\"]), sandbox: None }))]"
+                    .to_string(),
+            )
+        })
+        .collect();
+    // Shape is judged before representation: a malformed field names its
+    // own cause; a well-formed nonempty field names the missing lowering.
+    let refusals: Vec<(Value, String)> = vec![
+        (json!({"allow": []}), inline_refusal("review", "allow")),
+        (
+            json!({"allow": ["cargo"]}),
+            inline_refusal("review", "allow"),
+        ),
+        (
+            json!({"sandbox": "read-only"}),
+            inline_refusal("review", "sandbox"),
+        ),
+        (
+            json!({"sandbox": "workspace-write"}),
+            inline_refusal("review", "sandbox"),
+        ),
+        (
+            json!({"sandbox": "danger-full-access"}),
+            inline_refusal("review", "sandbox"),
+        ),
+        // Both fields present: the first field in vocabulary order names
+        // itself; neither is dropped for the other.
+        (
+            json!({"allow": ["cargo"], "sandbox": "read-only"}),
+            inline_refusal("review", "allow"),
+        ),
+        (
+            json!({"allow": ["Bash(cargo:*)"]}),
+            "bundle: seat 'review' 'tools.allow' names 'Bash(cargo:*)', which does not match \
+             ^[a-z][a-z0-9-]*$"
+                .to_string(),
+        ),
+        (
+            json!({"invented": 1}),
+            "bundle: seat 'review' 'tools' has unknown key 'invented'; known keys: allow, \
+             sandbox, mcp"
+                .to_string(),
+        ),
+        (
+            json!({"sandbox": "loose"}),
+            "bundle: seat 'review' 'tools.sandbox' is 'loose', which is not one of read-only, \
+             workspace-write, danger-full-access"
+                .to_string(),
+        ),
+    ];
+    for (tools, expected) in refusals {
+        rows.push((
+            tools.to_string(),
+            outcome(compiled(Some(tools.clone()))),
+            expected,
+        ));
     }
-    assert_eq!(
-        error(compiled(Some(json!({"allow": []})))),
-        inline_refusal("review", "allow")
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"allow": ["cargo"]})))),
-        inline_refusal("review", "allow")
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"sandbox": "read-only"})))),
-        inline_refusal("review", "sandbox")
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"sandbox": "danger-full-access"})))),
-        inline_refusal("review", "sandbox")
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"allow": ["Bash(cargo:*)"]})))),
-        "bundle: seat 'review' 'tools.allow' names 'Bash(cargo:*)', which does not match \
-         ^[a-z][a-z0-9-]*$"
-    );
-    assert_eq!(
-        error(compiled(Some(json!({"invented": 1})))),
-        "bundle: seat 'review' 'tools' has unknown key 'invented'; known keys: allow, sandbox, \
-         mcp"
-    );
+    each_row(rows);
 }
 
 /// A typed declaration opens the adapters through the existing fallible
@@ -1209,16 +1304,31 @@ fn a_typed_declaration_needs_the_adapter_context_and_a_missing_one_is_named() {
     });
     assert!(fixture.compile(config.clone()).is_ok());
     config["seats"]["review"]["tools"] = json!({});
-    assert_eq!(
-        error(fixture.compile(config)),
+    let context = "the adapter data is where a driver's model mapping (decision 0016) and its \
+                   trust tier and binding grant (decision 0021) are declared, and this bundle \
+                   names an agent, seats a gate, declares a secret binding or declares typed \
+                   tools";
+    let missing = (
+        "missing adapters directory".to_string(),
+        outcome(fixture.compile(config.clone())),
         format!(
-            "bundle: adapters {}: No such file or directory (os error 2); the adapter data is \
-             where a driver's model mapping (decision 0016) and its trust tier and binding \
-             grant (decision 0021) are declared, and this bundle names an agent, seats a gate, \
-             declares a secret binding or declares typed tools",
+            "bundle: adapters {}: No such file or directory (os error 2); {context}",
             fixture.adapters().display()
-        )
+        ),
     );
+    // A malformed adapter file is the loader's refusal, wrapped the same
+    // way — the context is obtained fallibly, never swallowed.
+    std::fs::create_dir_all(fixture.adapters()).unwrap();
+    std::fs::write(fixture.adapters().join("claude.json"), "{").unwrap();
+    let malformed = (
+        "malformed adapter file".to_string(),
+        outcome(fixture.compile(config)),
+        format!(
+            "bundle: {}: EOF while parsing an object at line 1 column 1; {context}",
+            fixture.adapters().join("claude.json").display()
+        ),
+    );
+    each_row(vec![missing, malformed]);
 }
 
 /// SCM "Malformed tools cannot become defaults", last clause, from a
@@ -1253,26 +1363,31 @@ fn repeated_tools_keys_in_a_bundle_refuse_from_the_original_source() {
             r#"{}"#,
         ),
     ];
-    for (text, key, value) in cases {
-        fixture.stage(&json!({}), &policy());
-        std::fs::write(fixture.bundle().join("bundle.json"), &text).unwrap();
-        // The parser stands one past the token that closed the SECOND copy
-        // of the value.
-        let first = text.find(value).unwrap();
-        let second = first + 1 + text[first + 1..].find(value).unwrap();
-        let column = second + value.len() + 1;
-        assert_eq!(
-            error(Bundle::compile_with(
-                &fixture.bundle(),
-                &fixture.library(),
-                &fixture.adapters()
-            )),
-            format!(
-                "bundle: {}: key '{key}' is written twice at line 1 column {column}",
-                fixture.bundle().join("bundle.json").display()
+    let rows: Vec<Row<String>> = cases
+        .into_iter()
+        .map(|(text, key, value)| {
+            fixture.stage(&json!({}), &policy());
+            std::fs::write(fixture.bundle().join("bundle.json"), &text).unwrap();
+            // The parser stands one past the token that closed the SECOND
+            // copy of the value.
+            let first = text.find(value).unwrap();
+            let second = first + 1 + text[first + 1..].find(value).unwrap();
+            let column = second + value.len() + 1;
+            (
+                format!("repeated '{key}'"),
+                outcome(Bundle::compile_with(
+                    &fixture.bundle(),
+                    &fixture.library(),
+                    &fixture.adapters(),
+                )),
+                format!(
+                    "bundle: {}: key '{key}' is written twice at line 1 column {column}",
+                    fixture.bundle().join("bundle.json").display()
+                ),
             )
-        );
-    }
+        })
+        .collect();
+    each_row(rows);
 }
 
 /// SCM "Each executable body owns its local declaration", the container
@@ -1286,12 +1401,14 @@ fn tools_beside_a_container_refuse_at_every_container_form() {
         json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass",
                "panel": {"a": member, "b": member}, "tools": tools})
     };
+    let mut rows: Vec<Row<String>> = Vec::new();
     let mut config = fixture.config();
     config["seats"]["work"] = panel(json!({}));
-    assert_eq!(
-        error(fixture.compile_with_policy(config, &panel_policy())),
-        container_refusal("work")
-    );
+    rows.push((
+        "panel at a seat".to_string(),
+        outcome(fixture.compile_with_policy(config, &panel_policy())),
+        container_refusal("work"),
+    ));
     let mut config = fixture.config();
     config["seats"]["work"] = json!({
         "results": ["complete"], "tools": {"allow": ["cargo"]},
@@ -1301,13 +1418,21 @@ fn tools_beside_a_container_refuse_at_every_container_form() {
             {"name": "second", "role": "roles/work.md", "driver": {"command": ["driver"]}},
         ],
     });
-    assert_eq!(error(fixture.compile(config)), container_refusal("work"));
+    rows.push((
+        "sequence at a seat".to_string(),
+        outcome(fixture.compile(config)),
+        container_refusal("work"),
+    ));
     let mut config = fixture.config();
     config["seats"]["work"] = json!({
         "results": ["complete"], "tools": {},
         "select": {"on": "strategy", "cases": {}, "default": member},
     });
-    assert_eq!(error(fixture.compile(config)), container_refusal("work"));
+    rows.push((
+        "select at a seat".to_string(),
+        outcome(fixture.compile(config)),
+        container_refusal("work"),
+    ));
     // A selected body that is itself a panel.
     let mut config = fixture.config();
     config["seats"]["work"] = json!({
@@ -1316,10 +1441,11 @@ fn tools_beside_a_container_refuse_at_every_container_form() {
                    "default": {"aggregate": "unanimous-pass",
                                "panel": {"a": member, "b": member}, "tools": {}}},
     });
-    assert_eq!(
-        error(fixture.compile_with_policy(config, &panel_policy())),
-        container_refusal("work:default")
-    );
+    rows.push((
+        "panel as a selected body".to_string(),
+        outcome(fixture.compile_with_policy(config, &panel_policy())),
+        container_refusal("work:default"),
+    ));
     // A sequence step that is a panel.
     let mut config = fixture.config();
     config["seats"]["work"] = json!({
@@ -1330,10 +1456,12 @@ fn tools_beside_a_container_refuse_at_every_container_form() {
             {"name": "second", "role": "roles/work.md", "driver": {"command": ["driver"]}},
         ],
     });
-    assert_eq!(
-        error(fixture.compile(config)),
-        container_refusal("work:first")
-    );
+    rows.push((
+        "panel as a sequence step".to_string(),
+        outcome(fixture.compile(config)),
+        container_refusal("work:first"),
+    ));
+    each_row(rows);
 }
 
 /// SCM "Each executable body owns its local declaration", the executable
@@ -1392,40 +1520,53 @@ fn every_executable_form_owns_its_local_declaration() {
             policy(),
         ),
     ];
+    let mut rows: Vec<Row<String>> = Vec::new();
     for (label, seat, table) in &forms {
         let compiled = |tools: Value| {
             let mut config = fixture.config();
             config["seats"]["work"] = seat(tools);
             fixture.compile_with_policy(config, table)
         };
-        let bundle = compiled(json!({"allow": ["git"]})).unwrap();
-        assert_eq!(
-            bundle.sites[*label].local,
-            Some(local(Some(&["git"]), None)),
-            "{label}"
-        );
-        assert_eq!(
-            bundle.sites[*label].chain[0].argv[8..],
-            ["--allowedTools", "Bash(git:*)"],
-            "{label}"
-        );
-        assert_eq!(
-            error(compiled(json!({"allow": []}))),
+        // The effective value and the composed argv, as one observed row.
+        rows.push((
+            format!("{label} subset"),
+            match compiled(json!({"allow": ["git"]})) {
+                Ok(bundle) => format!(
+                    "{:?} {:?}",
+                    bundle.sites[*label].local,
+                    &bundle.sites[*label].chain[0].argv[8..]
+                ),
+                Err(error) => error.to_string(),
+            },
+            format!(
+                "{:?} {:?}",
+                Some(local(Some(&["git"]), None)),
+                ["--allowedTools", "Bash(git:*)"]
+            ),
+        ));
+        rows.push((
+            format!("{label} explicit empty"),
+            outcome(compiled(json!({"allow": []}))),
             empty_refusal(label, "office", "claude", "opus"),
-            "{label}"
-        );
-        assert_eq!(
-            error(compiled(json!({"allow": ["make"]}))),
+        ));
+        rows.push((
+            format!("{label} widening"),
+            outcome(compiled(json!({"allow": ["make"]}))),
             widening(
                 label,
                 "office",
                 "allow",
                 "names 'make', which the office's 'tools.allow' [\"cargo\", \"git\"] does not; \
-                 a site subtracts from its office and never adds to it"
+                 a site subtracts from its office and never adds to it",
             ),
-            "{label}"
-        );
+        ));
+        rows.push((
+            format!("{label} malformed"),
+            outcome(compiled(json!({"allow": [1]}))),
+            format!("bundle: seat '{label}' 'tools' 'allow' must hold strings only"),
+        ));
     }
+    each_row(rows);
     // An inherited body: the base layer declares the narrowing and the leaf
     // declares nothing, so the effective value comes from the layer that
     // wrote it.
@@ -1481,6 +1622,8 @@ fn two_sites_sharing_one_office_keep_their_own_effective_fields_in_either_order(
         .unwrap()
         .digest
         .clone();
+    type Facts = (Option<LocalTools>, Vec<String>, Value, Value);
+    let mut rows: Vec<Row<Facts>> = Vec::new();
     for (first, second) in [(["git"], ["cargo"]), (["cargo"], ["git"])] {
         let mut config = fixture.config();
         config["seats"]["work"] = json!({
@@ -1493,20 +1636,24 @@ fn two_sites_sharing_one_office_keep_their_own_effective_fields_in_either_order(
             .unwrap();
         for (label, names) in [("work:a", first), ("work:b", second)] {
             let facts = &bundle.sites[label];
-            assert_eq!(facts.local, Some(local(Some(&names), None)), "{label}");
-            assert_eq!(
-                facts.chain[0].argv[8..],
-                [
-                    "--allowedTools".to_string(),
-                    format!("Bash({}:*)", names[0])
-                ],
-                "{label}"
-            );
-            assert_eq!(
-                facts.record.as_ref().unwrap()["agent_digest"],
-                json!(digest)
-            );
-            assert_eq!(facts.record.as_ref().unwrap()["agent"], json!("office"));
+            rows.push((
+                format!("{label} with a={first:?} b={second:?}"),
+                (
+                    facts.local.clone(),
+                    facts.chain[0].argv[8..].to_vec(),
+                    facts.record.as_ref().unwrap()["agent_digest"].clone(),
+                    facts.record.as_ref().unwrap()["agent"].clone(),
+                ),
+                (
+                    Some(local(Some(&names), None)),
+                    vec![
+                        "--allowedTools".to_string(),
+                        format!("Bash({}:*)", names[0]),
+                    ],
+                    json!(digest),
+                    json!("office"),
+                ),
+            ));
         }
         // The container itself was never visited by the local pass.
         assert!(bundle
@@ -1514,6 +1661,7 @@ fn two_sites_sharing_one_office_keep_their_own_effective_fields_in_either_order(
             .get("work")
             .is_none_or(|facts| facts.local.is_none()));
     }
+    each_row(rows);
 }
 
 /// The D5.3 admission table, row by row, under empty realm grants. Only
@@ -1548,6 +1696,18 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
              class must match it exactly — refused (design D5.3)"
         )
     };
+    /// The facts an admitted fixture keeps unchanged under empty grants:
+    /// nothing held, the one known power not held with its OFF planned.
+    fn unchanged(bundle: &Bundle) {
+        let outcome = &bundle.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
+        assert!(outcome.held.is_empty());
+        assert_eq!(outcome.not_held.keys().collect::<Vec<_>>(), ["web-search"]);
+        assert_eq!(outcome.manifest()["native"]["inventory"], json!("known"));
+        assert_eq!(outcome.manifest()["native"]["on"], json!([]));
+        assert_eq!(outcome.manifest()["native"]["off"], json!(["web-search"]));
+        assert_eq!(bundle.hands["work"], HandsSpec::default());
+    }
+    let mut rows: Vec<Row<String>> = Vec::new();
 
     // Row: boxed, read-only matches `hands.workspace`.
     declare("read-only");
@@ -1557,21 +1717,15 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
         Some(local(Some(&["cargo"]), Some(Sandbox::ReadOnly)))
     );
     assert_eq!(boxed.sites["work"].chain[0].hands_fragment, CODEX_WORKSPACE);
-    assert_eq!(boxed.hands["work"], HandsSpec::default());
     assert_eq!(boxed.boundary, Boundary::Namespace);
-    let outcome = &boxed.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
-    assert!(outcome.held.is_empty());
-    // The one known power is not held, and its OFF is planned.
-    assert_eq!(outcome.not_held.keys().collect::<Vec<_>>(), ["web-search"]);
-    assert_eq!(outcome.manifest()["native"]["inventory"], json!("known"));
-    assert_eq!(outcome.manifest()["native"]["on"], json!([]));
-    assert_eq!(outcome.manifest()["native"]["off"], json!(["web-search"]));
+    unchanged(&boxed);
     for class in ["workspace-write", "danger-full-access"] {
         declare(class);
-        assert_eq!(
-            error(fixture.compile(seat(None))),
-            mismatch(class, "hands.workspace", "namespace", "read-only")
-        );
+        rows.push((
+            format!("boxed {class}"),
+            outcome(fixture.compile(seat(None))),
+            mismatch(class, "hands.workspace", "namespace", "read-only"),
+        ));
     }
 
     // Row: harness gate, read-only matches `hands.harness.gate`.
@@ -1588,12 +1742,15 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
         Some(CODEX_GATE.map(String::from).as_slice())
     );
     assert!(gate.sites["work"].chain[0].hands_fragment.is_empty());
+    assert_eq!(gate.boundary, Boundary::Harness);
+    unchanged(&gate);
     for class in ["workspace-write", "danger-full-access"] {
         declare(class);
-        assert_eq!(
-            error(fixture.compile_under(seat(Some("gate")), Boundary::Harness)),
-            mismatch(class, "hands.harness.gate", "harness", "read-only")
-        );
+        rows.push((
+            format!("gate {class}"),
+            outcome(fixture.compile_under(seat(Some("gate")), Boundary::Harness)),
+            mismatch(class, "hands.harness.gate", "harness", "read-only"),
+        ));
     }
 
     // Row: harness work, workspace-write matches `hands.harness.work`.
@@ -1609,76 +1766,134 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
         work.sites["work"].chain[0].harness.work.as_deref(),
         Some(CODEX_WORK.map(String::from).as_slice())
     );
+    assert!(work.sites["work"].chain[0].hands_fragment.is_empty());
+    unchanged(&work);
     for class in ["read-only", "danger-full-access"] {
         declare(class);
-        assert_eq!(
-            error(fixture.compile_under(seat(None), Boundary::Harness)),
-            mismatch(class, "hands.harness.work", "harness", "workspace-write")
-        );
+        rows.push((
+            format!("work {class}"),
+            outcome(fixture.compile_under(seat(None), Boundary::Harness)),
+            mismatch(class, "hands.harness.work", "harness", "workspace-write"),
+        ));
     }
 
     // Row: open work has no fragment; an open gate keeps its standing refusal.
     declare("read-only");
-    assert_eq!(
-        error(fixture.compile_under(seat(None), Boundary::Open)),
+    rows.push((
+        "open work".to_string(),
+        outcome(fixture.compile_under(seat(None), Boundary::Open)),
         "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only' under the `open` \
          boundary, where a work seat runs at the harness's own default and no engine fragment \
          expresses a class; a presumed provider default is not a representation — refused \
          (design D5.3)"
-    );
-    assert_eq!(
-        error(fixture.compile_under(seat(Some("gate")), Boundary::Open)),
+            .to_string(),
+    ));
+    rows.push((
+        "open gate keeps its standing refusal".to_string(),
+        outcome(fixture.compile_under(seat(Some("gate")), Boundary::Open)),
         "bundle: seat 'work' is a gate with hands under the `open` boundary, where nothing at \
          all stands between a model's hands and the machine; `open` never holds a model gate \
          (decision 0046 ruling 4)"
-    );
+            .to_string(),
+    ));
 
-    // A missing gate fragment keeps its standing refusal, before any class.
+    // A missing gate or work fragment keeps its standing refusal, before
+    // any class; a DECLARED empty fragment reaches admission and expresses
+    // nothing.
     let mut gateless = codex();
     gateless["hands"]["harness"] = json!({"work": CODEX_WORK, "result": "last-message"});
     fixture.write("adapters/codex.json", gateless);
-    assert_eq!(
-        error(fixture.compile_under(seat(Some("gate")), Boundary::Harness)),
+    rows.push((
+        "missing gate fragment keeps its standing refusal".to_string(),
+        outcome(fixture.compile_under(seat(Some("gate")), Boundary::Harness)),
         "bundle: seat 'work' gate link 1 resolves to provider 'codex', which declares no \
          `hands.harness.gate` fragment; under the `harness` boundary a model may judge only \
          under its harness's own read-only sandbox as the adapter addresses it (decision 0046 \
          ruling 4)"
-    );
+            .to_string(),
+    ));
+    let mut workless = codex();
+    workless["hands"]["harness"] = json!({"gate": CODEX_GATE, "result": "last-message"});
+    fixture.write("adapters/codex.json", workless);
+    declare("workspace-write");
+    rows.push((
+        "missing work fragment keeps its standing refusal".to_string(),
+        outcome(fixture.compile_under(seat(None), Boundary::Harness)),
+        "bundle: seat 'work' link 1 resolves to provider 'codex', which declares no \
+         `hands.harness.work` fragment: a capability gap — under the `harness` boundary a work \
+         seat with hands writes the tree only under the harness's own writable sandbox as the \
+         adapter addresses it (decision 0046 rulings 1 and 4)"
+            .to_string(),
+    ));
+    let mut empty_gate = codex();
+    empty_gate["hands"]["harness"]["gate"] = json!([]);
+    fixture.write("adapters/codex.json", empty_gate);
+    declare("read-only");
+    rows.push((
+        "declared empty gate fragment".to_string(),
+        outcome(fixture.compile_under(seat(Some("gate")), Boundary::Harness)),
+        "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only' under the `harness` \
+         boundary, but provider 'codex' supplies no `hands.harness.gate` fragment to express \
+         it; a missing fragment is not a representation — refused (design D5.3)"
+            .to_string(),
+    ));
+
+    // The judges list keeps its precedence over admission: the class
+    // mismatches the gate fragment too, so an admission that ran first
+    // would name the mismatch instead.
+    let mut unjudged = codex();
+    unjudged["judges"] = json!([]);
+    fixture.write("adapters/codex.json", unjudged);
+    declare("workspace-write");
+    rows.push((
+        "judges list keeps its precedence".to_string(),
+        outcome(fixture.compile_under(seat(Some("gate")), Boundary::Harness)),
+        "bundle: seat 'work' gate link 1 names model 'astra', which driver 'codex' does not \
+         declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
+            .to_string(),
+    ));
+    declare("read-only");
 
     // A fragment naming no class, and one the grammar cannot read.
     let mut classless = codex();
     classless["hands"]["workspace"] = json!(["-c", "mcp_servers.brokkr.args={hands_args_toml}"]);
     fixture.write("adapters/codex.json", classless);
-    assert_eq!(
-        error(fixture.compile(seat(None))),
+    rows.push((
+        "classless fragment".to_string(),
+        outcome(fixture.compile(seat(None))),
         "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only', but the \
          `hands.workspace` fragment the engine selects for provider 'codex' under the \
          `namespace` boundary names no `--sandbox` class at all; a fragment that expresses \
          nothing is not a representation — refused (design D5.3)"
-    );
+            .to_string(),
+    ));
     let mut unreadable = codex();
     unreadable["hands"]["workspace"] = json!(["--sandbox", "read-only", "--bogus"]);
     fixture.write("adapters/codex.json", unreadable);
-    assert_eq!(
-        error(fixture.compile(seat(None))),
+    rows.push((
+        "unreadable fragment".to_string(),
+        outcome(fixture.compile(seat(None))),
         "bundle: seat 'work' link 1 requests a typed 'tools.sandbox', but the `hands.workspace` \
          fragment it would be judged against cannot be read: the 'codex' command grammar cannot \
          place argument 3 ('--bogus'): it names no option. A harness brokkr launches is parsed \
          against a model of its options, and a token that grammar cannot place is refused \
          rather than passed through, because a control nobody can read is a control nobody can \
          rule on (decision 0066 ruling 6)"
-    );
+            .to_string(),
+    ));
     // The same control through the configuration door.
     let mut configured = codex();
     configured["hands"]["workspace"] =
         json!(["--sandbox", "read-only", "-c", "sandbox_mode=\"read-only\""]);
     fixture.write("adapters/codex.json", configured);
-    assert_eq!(
-        error(fixture.compile(seat(None))),
+    rows.push((
+        "configuration door".to_string(),
+        outcome(fixture.compile(seat(None))),
         "bundle: seat 'work' link 1 requests a typed 'tools.sandbox', but the `hands.workspace` \
          fragment assigns 'sandbox_mode' through the harness's configuration, a second door to \
          the same control that no typed class can be checked against — refused (design D5.3)"
-    );
+            .to_string(),
+    ));
 
     // A competing authored control beside a matching fragment.
     let mut authored = codex();
@@ -1691,27 +1906,31 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
         "danger-full-access"
     ]);
     fixture.write("adapters/codex.json", authored);
-    assert_eq!(
-        error(fixture.compile(seat(None))),
+    rows.push((
+        "authored competing class".to_string(),
+        outcome(fixture.compile(seat(None))),
         "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only', but the authored \
          command of provider 'codex' already carries `--sandbox` 'danger-full-access', a \
          competing control the selected `hands.workspace` fragment would stand beside; authored \
          bytes cannot supply or contest a typed representation — refused under the `namespace` \
          boundary (design D5.3)"
-    );
+            .to_string(),
+    ));
 
     // A provider labelled codex that dispatches another harness.
     let mut shim = codex();
     shim["driver"] = json!(["{brokkr}", "driver", "codex-shim", "--"]);
     fixture.write("adapters/codex.json", shim);
-    assert_eq!(
-        error(fixture.compile(seat(None))),
+    rows.push((
+        "codex label, other harness".to_string(),
+        outcome(fixture.compile(seat(None))),
         "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only' but dispatches the \
          'codex-shim' harness through provider 'codex'; only the codex harness's own `--sandbox` \
          fragments express a sandbox class today, and a provider label, a permission mode or an \
          unmodelled driver is not evidence of one — refused under the `namespace` boundary \
          (design D5.3)"
-    );
+            .to_string(),
+    ));
     fixture.write("adapters/codex.json", codex());
 
     // Claude with hands: a permission mode is not a sandbox class.
@@ -1722,28 +1941,34 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
         "agents/boxed.json",
         boxed_agent(&["opus"], json!({"sandbox": "read-only"})),
     );
-    assert_eq!(
-        error(fixture.compile(seat(None))),
+    rows.push((
+        "claude with hands".to_string(),
+        outcome(fixture.compile(seat(None))),
         "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only' but dispatches the \
          'claude' harness through provider 'claude'; only the codex harness's own `--sandbox` \
          fragments express a sandbox class today, and a provider label, a permission mode or an \
          unmodelled driver is not evidence of one — refused under the `namespace` boundary \
          (design D5.3)"
-    );
+            .to_string(),
+    ));
 
     // A later candidate cannot hide behind an admitted primary.
     fixture.write(
         "agents/boxed.json",
         boxed_agent(&["astra", "opus"], json!({"sandbox": "read-only"})),
     );
-    assert_eq!(
-        error(fixture.compile(seat(None))),
+    rows.push((
+        "later candidate".to_string(),
+        outcome(fixture.compile(seat(None))),
         "bundle: seat 'work' link 2 requests 'tools.sandbox' 'read-only' but dispatches the \
          'claude' harness through provider 'claude'; only the codex harness's own `--sandbox` \
          fragments express a sandbox class today, and a provider label, a permission mode or an \
          unmodelled driver is not evidence of one — refused under the `namespace` boundary \
          (design D5.3)"
-    );
+            .to_string(),
+    ));
+    assert_eq!(rows.len(), 19);
+    each_row(rows);
 
     // Without a class, the same chain compiles: the declaration alone
     // changed nothing else.
@@ -1754,6 +1979,176 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
     let plain = fixture.compile(seat(None)).unwrap();
     assert_eq!(plain.sites["work"].local, Some(LocalTools::unspecified()));
     assert_eq!(plain.sites["work"].chain.len(), 2);
+}
+
+/// D5.3 as D5.5 makes it explicit: a matching `--sandbox` is insufficient
+/// beside a control that lifts or replaces the sandbox. Each of
+/// `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`,
+/// configuration under `sandbox_mode` and configuration under
+/// `sandbox_workspace_write` is paired independently with the authored
+/// command and with each selected engine fragment (workspace, gate, work),
+/// under a MATCHING requested class so a mismatch cannot hide the
+/// competing control. Every row refuses with the full cause; the same
+/// fixtures without the control admit with their exact facts.
+#[test]
+fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution() {
+    let fixture = AgentFixture::new();
+    let seat = |class: Option<&str>| {
+        let mut config = fixture.config();
+        config["seats"]["work"] = json!({"results": ["complete"], "agent": "boxed"});
+        if let Some(class) = class {
+            config["seats"]["work"]["class"] = json!(class);
+        }
+        config
+    };
+    let declare = |sandbox: &str| {
+        fixture.write(
+            "agents/boxed.json",
+            boxed_agent(&["astra"], json!({"allow": ["cargo"], "sandbox": sandbox})),
+        );
+    };
+    let switch = |name: &str| {
+        format!(
+            "carries `{name}`, a switch that lifts or replaces the sandbox a `--sandbox` class \
+             would express, so no typed class can be checked against it — refused (design D5.3)"
+        )
+    };
+    let door = |table: &str| {
+        format!(
+            "assigns '{table}' through the harness's configuration, a second door to the same \
+             control that no typed class can be checked against — refused (design D5.3)"
+        )
+    };
+    let controls: Vec<(&str, Vec<&str>, String)> = vec![
+        ("--full-auto", vec!["--full-auto"], switch("--full-auto")),
+        (
+            "--dangerously-bypass-approvals-and-sandbox",
+            vec!["--dangerously-bypass-approvals-and-sandbox"],
+            switch("--dangerously-bypass-approvals-and-sandbox"),
+        ),
+        (
+            "sandbox_mode",
+            vec!["-c", "sandbox_mode=\"danger-full-access\""],
+            door("sandbox_mode"),
+        ),
+        (
+            "sandbox_workspace_write",
+            vec!["-c", "sandbox_workspace_write.network_access=true"],
+            door("sandbox_workspace_write"),
+        ),
+    ];
+    let refusal = |part: &str, cause: &str| {
+        format!(
+            "bundle: seat 'work' link 1 requests a typed 'tools.sandbox', but the {part} {cause}"
+        )
+    };
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (label, tokens, cause) in &controls {
+        // The authored command carries the control after brokkr's own
+        // dispatch tokens; the selected fragment matches the class.
+        let mut authored = codex();
+        let mut driver = vec!["{brokkr}", "driver", "codex", "--"];
+        driver.extend(tokens.iter().copied());
+        authored["driver"] = json!(driver);
+        fixture.write("adapters/codex.json", authored);
+        declare("read-only");
+        rows.push((
+            format!("authored {label}"),
+            outcome(fixture.compile(seat(None))),
+            refusal("authored command", cause),
+        ));
+        // The selected fragment itself carries the control beside its
+        // matching class: engine provenance is not an exemption.
+        let mut with = |fragment: &[&str],
+                        set: &dyn Fn(&mut Value, Value),
+                        class: &str,
+                        seat_class: Option<&str>,
+                        boundary: Boundary,
+                        part: &str| {
+            let mut adapter = codex();
+            let mut argv: Vec<&str> = fragment.to_vec();
+            argv.extend(tokens.iter().copied());
+            set(&mut adapter, json!(argv));
+            fixture.write("adapters/codex.json", adapter);
+            declare(class);
+            rows.push((
+                format!("{part} {label}"),
+                outcome(fixture.compile_under(seat(seat_class), boundary)),
+                refusal(part, cause),
+            ));
+        };
+        with(
+            &CODEX_WORKSPACE,
+            &|adapter, argv| adapter["hands"]["workspace"] = argv,
+            "read-only",
+            None,
+            Boundary::Namespace,
+            "`hands.workspace` fragment",
+        );
+        with(
+            &CODEX_GATE,
+            &|adapter, argv| adapter["hands"]["harness"]["gate"] = argv,
+            "read-only",
+            Some("gate"),
+            Boundary::Harness,
+            "`hands.harness.gate` fragment",
+        );
+        with(
+            &CODEX_WORK,
+            &|adapter, argv| adapter["hands"]["harness"]["work"] = argv,
+            "workspace-write",
+            None,
+            Boundary::Harness,
+            "`hands.harness.work` fragment",
+        );
+    }
+    assert_eq!(rows.len(), 16);
+    each_row(rows);
+
+    // The controls: the same three fragments without a competing control
+    // admit the matching class with exact facts, and the supported hands
+    // and effort configuration keep their established meaning.
+    fixture.write("adapters/codex.json", codex());
+    declare("read-only");
+    let boxed = fixture.compile(seat(None)).unwrap();
+    assert_eq!(
+        boxed.sites["work"].local,
+        Some(local(Some(&["cargo"]), Some(Sandbox::ReadOnly)))
+    );
+    // `{brokkr}` is expanded to the engine's own path at compile; the
+    // dispatch and every token after it are exact.
+    assert_eq!(boxed.sites["work"].chain[0].argv.len(), 12);
+    assert_eq!(
+        boxed.sites["work"].chain[0].argv[1..],
+        [
+            "driver",
+            "codex",
+            "--",
+            "--model",
+            "gpt-6-astra",
+            "--effort",
+            "high",
+            "--sandbox",
+            "read-only",
+            "-c",
+            "mcp_servers.brokkr.args={hands_args_toml}"
+        ]
+    );
+    let gate = fixture
+        .compile_under(seat(Some("gate")), Boundary::Harness)
+        .unwrap();
+    assert_eq!(
+        gate.sites["work"].local,
+        Some(local(Some(&["cargo"]), Some(Sandbox::ReadOnly)))
+    );
+    declare("workspace-write");
+    let work = fixture
+        .compile_under(seat(None), Boundary::Harness)
+        .unwrap();
+    assert_eq!(
+        work.sites["work"].local,
+        Some(local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)))
+    );
 }
 
 /// A seat may narrow a boxed office's class and it is admitted or refused
@@ -1781,27 +2176,35 @@ fn a_seat_narrows_a_boxed_office_and_admission_judges_the_effective_class() {
         admitted.sites["work"].local,
         Some(local(None, Some(Sandbox::WorkspaceWrite)))
     );
-    assert_eq!(
-        error(fixture.compile_under(seat(json!({"sandbox": "read-only"})), Boundary::Harness)),
-        "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only', but the \
-         `hands.harness.work` fragment the engine selects for provider 'codex' under the \
-         `harness` boundary expresses 'workspace-write'; a fragment is neither called narrower \
-         nor clamped, the typed class must match it exactly — refused (design D5.3)"
-    );
-    assert_eq!(
-        error(fixture.compile_under(
-            seat(json!({"sandbox": "danger-full-access"})),
-            Boundary::Harness
-        )),
-        widening(
-            "work",
-            "boxed",
-            "sandbox",
-            "requests 'danger-full-access', which reaches wider than the office's \
-             'workspace-write'; the classes reach read-only < workspace-write < \
-             danger-full-access, and a site narrows its office rather than being clamped to it"
-        )
-    );
+    each_row(vec![
+        (
+            "narrowed to read-only at harness work".to_string(),
+            outcome(
+                fixture.compile_under(seat(json!({"sandbox": "read-only"})), Boundary::Harness),
+            ),
+            "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only', but the \
+             `hands.harness.work` fragment the engine selects for provider 'codex' under the \
+             `harness` boundary expresses 'workspace-write'; a fragment is neither called \
+             narrower nor clamped, the typed class must match it exactly — refused (design D5.3)"
+                .to_string(),
+        ),
+        (
+            "widened to danger-full-access".to_string(),
+            outcome(fixture.compile_under(
+                seat(json!({"sandbox": "danger-full-access"})),
+                Boundary::Harness,
+            )),
+            widening(
+                "work",
+                "boxed",
+                "sandbox",
+                "requests 'danger-full-access', which reaches wider than the office's \
+                 'workspace-write'; the classes reach read-only < workspace-write < \
+                 danger-full-access, and a site narrows its office rather than being clamped \
+                 to it",
+            ),
+        ),
+    ]);
     // The office's class is not the seat's boundary: under a box the
     // narrowed read-only matches the workspace fragment.
     let boxed = fixture
@@ -1890,20 +2293,32 @@ fn a_dialect_step_owns_only_a_checked_empty_declaration() {
         bundle.sites["design:validate"].local,
         Some(LocalTools::unspecified())
     );
-    assert_eq!(
-        error(compile(Some(json!({"allow": []})), None)),
-        inline_refusal("design:validate", "allow")
-    );
-    assert_eq!(
-        error(compile(Some(json!({"sandbox": "read-only"})), None)),
-        inline_refusal("design:validate", "sandbox")
-    );
-    assert_eq!(
-        error(compile(None, Some(json!({})))),
-        "bundle: sequence step 'clarify:check' declares 'tools' on a dialect step whose 'check' \
-         the dialect does not supply; no executable site exists to own the declaration, so it \
-         could only be discarded — refused (decision 0065 slice one, design D5)"
-    );
+    each_row(vec![
+        (
+            "validate allow []".to_string(),
+            outcome(compile(Some(json!({"allow": []})), None)),
+            inline_refusal("design:validate", "allow"),
+        ),
+        (
+            "validate allow [cargo]".to_string(),
+            outcome(compile(Some(json!({"allow": ["cargo"]})), None)),
+            inline_refusal("design:validate", "allow"),
+        ),
+        (
+            "validate sandbox".to_string(),
+            outcome(compile(Some(json!({"sandbox": "read-only"})), None)),
+            inline_refusal("design:validate", "sandbox"),
+        ),
+        (
+            "check without a supplied check".to_string(),
+            outcome(compile(None, Some(json!({})))),
+            "bundle: sequence step 'clarify:check' declares 'tools' on a dialect step whose \
+             'check' the dialect does not supply; no executable site exists to own the \
+             declaration, so it could only be discarded — refused (decision 0065 slice one, \
+             design D5)"
+                .to_string(),
+        ),
+    ]);
     // The control: without the declaration the unsupported check compiles
     // to no site at all.
     let bundle = compile(None, None).unwrap();

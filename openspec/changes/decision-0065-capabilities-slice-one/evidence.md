@@ -1295,3 +1295,218 @@ Only tasks.md and evidence.md are changed and committed for this phase.
 Production, tests, pins, shipped data, grants and frozen surfaces are unchanged.
 The final SHA and post-commit checks go in the required run-local result file
 so that recording them does not move the committed documentation head. No push.
+
+## Unit 2 — proof repair and the D5.5 guard, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-e332dc8d`, phase `implement`, based on
+`0444421d` on `slice-0065-capabilities`. The worktree began clean; the four
+commissioned commits (`d9816374`, `4a6a2288`, `308a8a28`, `f9a691cf`), the
+proof correction `368bc34e`, the council amendment `107c4d17` and the tasks
+re-adoption `0444421d` are all ancestors and none was replayed. There is no
+`returned_from`. This seat HAD cargo (1.98.0) and openspec (1.12.0); every
+Rust result below is a fresh observation on this revision, not a historical
+pass carried forward.
+
+### Adoption check (2.1.1)
+
+The adopted implementation was read against unit 2 and D5.2–D5.5 and kept
+whole: the shared strict decoder, the sole `Agent.allow` beside the
+three-case enum, the two-field local value, per-field narrowing on a private
+clone, the checked site fact for every executable form, container refusal,
+the fallible adapter context and the D5.3 admission rows. The one production
+defect D5.5 named was confirmed at the source before any change:
+`expressed_sandbox` extracted `--sandbox` and refused configuration under
+`sandbox_mode` only; the grammar's two switches and `sandbox_workspace_write`
+were parsed and ignored. Nothing else in the three files was found wrong.
+
+Current baseline on `0444421d`, before any edit (`cargo test -p
+brokkr-runtime --all-features --locked --lib -- agents::tests
+bundle::agent_tests`): **96 passed, 0 failed** (65 agent, 31 bundle). The
+missing original pre-`f9a691cf` reds stay missing; nothing below is a
+reconstruction of them, and no `308a8a28` retrospective was run.
+
+### Production, inside the allowlist
+
+`crates/brokkr-runtime/src/bundle.rs`, `expressed_sandbox` only (task
+2.1.5): two private constants name the codex switches
+(`--full-auto`, `--dangerously-bypass-approvals-and-sandbox`) and the two
+configuration tables (`sandbox_mode`, `sandbox_workspace_write`). A parsed
+node whose canonical name is one of the switches refuses with a cause naming
+the switch; a `Config` node whose key stands in or under either table refuses
+with the existing door cause, now naming the table. The check is the same
+loop the fragment and the authored contribution already went through, so
+both are judged and neither provenance nor argument order is trusted. No
+value is echoed. `agents.rs` and `agents/load.rs` are unchanged; no new
+module, dependency, `Candidate` field, public contract, shipped JSON, grant,
+pin or frozen byte.
+
+### Baseline red before the repair (2.1.5)
+
+The regression
+`a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution`
+(bundle/agent_tests.rs) pairs each of the four controls with the authored
+command and with each selected fragment (`hands.workspace` under a box,
+`hands.harness.gate` for a gate, `hands.harness.work` for work), sixteen
+rows, each under the MATCHING requested class. Run on the adopted guard
+before the repair (`.forge/unit2-pre-repair.log`): **12 of 16 rows failed**,
+every one of them `compiled: … ("work", Some(LocalTools { allow:
+Some(["cargo"]), sandbox: Some(ReadOnly) }))` where the full refusal was
+expected — the three full-auto fragments and the authored full-auto, the
+four bypass rows, the four `sandbox_workspace_write` rows (the demonstrated
+`network_access=true`). The four `sandbox_mode` rows passed at baseline, as
+D5.5 predicted for the existing door check. After the repair the same
+command shows **16 of 16 rows** refusing with the exact cause, and the three
+plain fixtures admit with the exact effective value and the exact argv
+(dispatch token onward; `{brokkr}` is expanded to the engine path).
+
+### Every row reaches its assertion
+
+The specification correction found that a table's first failing row proved
+no later row. Both suites now compute every row of a table first and report
+every mismatch together (`each_row`, with `library_outcome` /
+`outcome` rendering an unexpected load or compile beside the expected
+refusal instead of panicking at it). A mutation that touches several rows
+therefore names each of them. Converted: the decoder table (15 rows), the
+decode-positive test (12 rows, including the `parse` inverse per class), the
+repeated-key tests in both suites (3 rows each), the narrowing test (22
+rows, the former field-only `.unwrap_err().0` rows replaced by complete
+`(field, cause)` expectations for both valid-sibling cases and every
+refusing class pair), the narrows test (3 + 7 rows), the inline test (12
+rows: workspace-write and both-fields rows added), the adapter-context test
+(2 rows: a malformed adapter file added), containers (5 rows), executable
+forms (20 rows: a malformed row per form added), two sites (4 rows), the
+boxed-office test (2 rows), the dialect test (4 rows) and the admission
+table (19 rows: gate and work admitted fixtures now assert holdings, native
+OFF and hands unchanged; rows added for a missing `hands.harness.work`
+fragment, a DECLARED empty gate fragment, and the judges list's precedence
+with a class that would otherwise mismatch). New tests: the regression above
+and `an_optional_want_does_not_forgive_a_local_error` (agents/tests.rs).
+Counts: 66 agent tests, 32 bundle tests, **98** in the two suites.
+
+### Mutation ledger
+
+Every mutation is a compiling edit inside the three production files,
+applied on the repaired tree, run against the tests named, then restored
+with `git checkout -- <the three files>` and a clean `git status` (batches
+A–L, logs `.forge/unit2-mut-*.log`). Mutations were batched only where their
+target rows are disjoint; each row below names the one mutation that
+explains it. "compiled" means the row's `outcome` was a successful compile
+where a refusal was expected; the full left/right is in the log.
+
+| # | File, mutation | Rows that failed (test: row) |
+| --- | --- | --- |
+| A1 | load.rs `only_keys` admits `invented` | decoder: `{"invented":1}` (loaded) |
+| A2 | agents.rs `narrow` subset find guarded by `name.is_empty()` | narrowing: adds a name, valid class beside an added name, empty office a name (all `Ok(...)`, right `Err(("allow", …))`); narrows: `["git","make"]`; forms: widening ×5 (left the compose "maps no tool permission named 'make'" gap); report_narrowed and optional-want widening asserts (`unwrap_err` on Ok) |
+| A3 | load.rs `parse_agent` reads via `read_json` | repeated (agents): allow, tools, sandbox (all loaded) |
+| A4 | bundle.rs `refuse_tools_on_container` reads `tools-never` | containers: all 5 rows compiled |
+| A5 | bundle.rs admission `.take(1)` on the chain | admission: later candidate (compiled) |
+| A6 | bundle.rs `compile_with_capabilities` falls back to a lenient serde read of bundle.json/policy.json into `compose::Resolved` on a resolve error (in-scope caller of `compose::resolve(&dir)?`; compose.rs untouched) | repeated (bundle): allow and tools compiled, sandbox reached the no-hands admission refusal — none the strict-source refusal |
+| B1 | load.rs allow `Some(Null) => None` | decoder: `{"allow":null}`, `{"allow":null,"sandbox":"read-only"}`; (its narrows row was reached in batch C) |
+| B2 | agents.rs widening check `false &&` | narrowing: widens the class, valid subset beside a widened class, WW under RO, DFA under RO, DFA under WW; boxed-office: widened to DFA |
+| B3 | agents.rs `report_narrowed` does not apply `effective.allow` | report_narrowed `tests.rs:3282` left `allow: Some(["cargo","git"])` right `Some(["git"])`; optional-want `:3453` left `Some(["cargo","git"])` right `Some([])`; narrows `:1126` subset local; forms: subset and explicit empty for every non-member form |
+| B4 | bundle.rs `record_inline_tools` allow presence `false` | inline: `allow: []`, `allow: [cargo]`, both fields; dialect: validate allow [] and [cargo] |
+| B5 | bundle.rs `open` routed through the harness fragments | admission: open work (left the work-fragment mismatch) |
+| B6 | bundle.rs `needs_adapters` key `tools-never` | adapter-context: compiled (`:9:18`, before conversion to rows; both rows share the enforcement) |
+| B7 | bundle.rs `MEMBER_KEYS` without `tools` | forms: work:a ×4 (unknown key); two-sites: unwrap on unknown key 'tools' at work:a |
+| C1 | load.rs allow `Some(String(one)) => Some(vec![one])` | decoder: `{"allow":"cargo"}` |
+| C2 | agents.rs `reach` WorkspaceWrite => 3 | narrowing: widens the class, valid subset beside a widened class, WW under DFA, DFA under WW |
+| C3 | bundle.rs `record_inline_tools` sandbox presence `false` | inline: sandbox read-only, workspace-write, danger-full-access |
+| C4 | bundle.rs `SANDBOX_TABLES` keyed `sandbox_mode_never` | competing: all four `sandbox_mode` rows; admission: configuration door |
+| C5 | agents.rs explicit-empty compose guard `&& false` | explicit-empty test `:133:6` (composed); optional-want `:3456` (composed); narrows: `{"allow":[]}`; forms: explicit empty ×5 |
+| C6 | bundle.rs seat-level container call `&&`-chained | containers: panel, sequence, select at a seat |
+| D1 | load.rs `string_array` skips non-strings | decoder: `{"allow":[1]}`; forms: malformed ×5 |
+| D2 | agents.rs `widens` uses `>=` | narrowing: inherits same class, RO under RO, WW under WW, DFA under DFA |
+| D3 | bundle.rs `record_inline_tools` stores nothing | inline: None, `{}`, `{"mcp":[]}` (left `local: None`); dialect first assert; narrows review-site assert `:1136` |
+| D4 | bundle.rs harness check `&& false` | admission: codex label other harness, claude with hands, later candidate (all compiled) |
+| D5 | bundle.rs body-level container call `&&`-chained | containers: panel as a selected body |
+| D6 | bundle.rs `SANDBOX_SWITCHES` without `--full-auto` | competing: all four `--full-auto` rows |
+| E1 | load.rs duplicate find guarded by `name.is_empty()` | decoder: `["cargo","git","cargo"]`; optional-want and hands syntax asserts (`:65:45`, loaded); narrows `["git","git"]` (batch G) |
+| E2 | agents.rs subset arm replaced by office-ordered intersection | narrowing: inherits `["git","cargo"]` (left `["cargo","git"]`) |
+| E3 | bundle.rs `SEAT_KEYS` without `tools` | forms: work ×4; containers: panel/sequence/select at a seat (unknown key instead of the container cause); narrows `:1107` unwrap |
+| E4 | bundle.rs classless arm `None => {}` | admission: classless fragment (compiled) |
+| E5 | bundle.rs step-level container call `&& false` | containers: panel as a sequence step |
+| E6 | bundle.rs `SANDBOX_SWITCHES` without the bypass switch | competing: all four bypass rows |
+| F1 | load.rs `named` check removed | decoder: `Bash(cargo:*)`; inline: `Bash(cargo:*)` |
+| F2 | agents.rs allow inheritance `(_, None) => None` | narrowing: inherits `(None,None)`, inherits `(None, RO)`; narrows omission ×3; admission `:1715` boxed local (left `allow: None`) |
+| F3 | bundle.rs `STEP_KEYS` without `tools` | forms: work:first ×4; dialect `:2287` unwrap (unknown key at design:validate) |
+| F4 | bundle.rs `SANDBOX_TABLES` without `sandbox_workspace_write` | competing: all four `sandbox_workspace_write` rows |
+| G1 | load.rs sandbox `Some(Null) => None` | decoder: `{"sandbox":null}` |
+| G2 | bundle.rs `BODY_KEYS` without `tools` | forms: work:engine ×4, work:default ×4 |
+| G3 | bundle.rs unreadable fragment `=> Ok(None)` | admission: unreadable fragment (left "names no `--sandbox` class") |
+| G4 | bundle.rs `fragment.is_empty()` guard `&& false` | admission: declared empty gate fragment (left "names no `--sandbox` class") |
+| G5 | bundle.rs no-hands guard `&& class.is_empty()` | narrows: `{"sandbox":"read-only"}` (left "dispatches the 'claude' harness") |
+| H1 | load.rs non-string sandbox `=> None` (null kept) | decoder: `{"sandbox":1}`, `{"sandbox":{…}}` |
+| H2 | agents.rs sandbox inheritance `(_, None) => None` | narrowing: inherits ×4 and empty office empty request; boxed-office admitted assert `:2171` |
+| H3 | bundle.rs `resolve_reference` stores the fact only when unspecified | narrows omission ×3 (`None`); two-sites ×4; forms subset ×5 |
+| I1 | agents.rs `Sandbox::parse` maps an unknown word to ReadOnly | decoder: both `loose` rows; narrows `loose`; inline `loose` |
+| I2 | bundle.rs authored contribution check removed | competing: all four authored rows; admission: authored competing class |
+| I3 | bundle.rs any nonempty class matches | admission: boxed WW/DFA, gate WW/DFA, work RO/DFA; boxed-office: narrowed to read-only at harness work |
+| J1 | load.rs nonempty `mcp` check disabled | decoder: the `mcp: [{"server":"github"}]` row |
+| J2 | agents.rs `parse` rotates the three words | decode-positive: declared fields, declared local(), class ×3, parse ×3, legacy mcp [] |
+| J3 | load.rs explicit `[]` returned as unspecified | decode-positive: explicit empty allow; explicit-empty `:3362` (left `None` right `Some([])`); forms explicit empty ×5; inline `allow: []` |
+| J4 | load.rs `{}` decodes allow as `Some([])` | decode-positive: tools {}; narrows `:1107` unwrap (empty refusal at omission); inline `{}` and `{"mcp":[]}` (with J3: the sandbox-only rows also compiled — an interplay of the two, each row bound alone in B4/C3) |
+| K1 | load.rs `mcp: []` refused too | inline `{"mcp":[]}`; decode-positive and narrows aborted at their fixture `unwrap` (`:57:45`, `:1107:46`) because the fixtures write `mcp: []` |
+| K2 | bundle.rs `SANDBOX_TABLES` without `sandbox_mode` | competing: all four `sandbox_mode` rows; admission: configuration door |
+| K3 | bundle.rs admission moved BEFORE the hands law and route policy AND the local fact stored before the D33 pre-check | admission: open gate, missing gate fragment, missing work fragment (each left the admission refusal), and — with the sharpened row — judges list (left the gate mismatch, right the judges refusal) |
+| L1 | bundle.rs competing checks skipped unless `part == "authored command"` | competing: all twelve fragment rows; admission: configuration door |
+| L2 | agents.rs `report_narrowed` does not apply `effective.sandbox` | report_narrowed `:3347` (left `sandbox: None` right `Some(ReadOnly)`); boxed-office: narrowed to read-only at harness work (compiled) |
+
+Retained from the first implementation's ledger without rerun: the
+D33-precedence observation (admission placed before the hands law alone
+passes; K3 is the two-part experiment that makes it fail). Every mutation
+above was restored; after each batch the three files matched the committed
+tree byte for byte.
+
+Honest limits:
+
+- The strict raw-bundle source test is now bound by A6, a compiling
+  mutation of the in-scope caller in `bundle.rs`; `bundle/compose.rs` was
+  not edited. No split is needed.
+- LaneTally, DSH and a raw exec dispatch have no dedicated adapter fixture
+  here. The harness check is one branch (`harness != "codex"`), bound by
+  the shim, claude and later-candidate rows (D4); an inline site refuses a
+  class before any driver is read (the inline rows, C3), whatever its
+  command dispatches. A dedicated boxed DSH/LaneTally fixture would meet
+  the tier refusal first and prove nothing more about this unit.
+- The `outcome` string of the inline test renders every site's fact, so a
+  mutation of the agent-backed `work` seat (F2, H3) shows up in the inline
+  test's rows too; those rows are read as that mutation's, not the inline
+  path's.
+- Fixtures: `AgentFixture` and `Tree` canonicalise once and derive every
+  path; the alias-root habit is exercised on this Linux host only. No test
+  reads `.forge/`, discovers a provider or starts a model.
+
+### Gates on the restored tree
+
+All on `0444421d` plus this working tree, after every mutation was
+restored.
+
+- `cargo fmt --all -- --check`: **passed** (after `cargo fmt --all`
+  touched only the three edited files).
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: **passed**, no warning.
+- `cargo test -p brokkr-runtime --all-features --locked`: **passed** — the
+  lib suite and every integration binary, 25 green result lines, no
+  failure (`.forge/unit2-gate-runtime.log`).
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**
+  (informational length notices only).
+- `git diff --check`: **passed**.
+- `cargo test --workspace --all-features --locked`: **passed** — 77 green
+  result lines, no failure, no panic, every binary ran to its result
+  (`.forge/unit2-gate-ws-all-features-2.log`).
+- `cargo test --workspace`: **passed** — 77 green result lines, no failure;
+  the run completed under a timeout (`.forge/unit2-gate-ws-2.log`). The
+  seat's first attempt at this command (`.forge/unit2-gate-ws.log`) stopped
+  inside the brokkr-cli integration binaries with no result line and no
+  failure; that log is a stopped run, not a red, and the rerun is the
+  observation.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `... --bundle bundles/verify`: both **compiled** and printed their plan.
+- The seat resumed once after the WIP commit `38660cc8`; on the resumed
+  tree (that commit plus the final test-row conversions) fmt, clippy, the
+  two owning suites (98 passed), both workspace suites, both bundle
+  compiles, openspec validate (18/18) and `git diff --check` were each
+  observed again before the unit's commit.
+- External exact coverage (`scripts/coverage-exact.sh`), macOS and remote
+  CI: **pending**, not observed here; nothing is called fully green on
+  their account, and unit 1's pending results stay pending.

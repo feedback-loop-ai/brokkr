@@ -65,6 +65,16 @@ impl Tree {
         Library::load(&self.library_root()).unwrap_err().to_string()
     }
 
+    /// The load's outcome as one string, whichever way it went, so a
+    /// table row that unexpectedly LOADS is reported beside its expected
+    /// refusal rather than aborting the table at that row.
+    fn library_outcome(&self) -> String {
+        match Library::load(&self.library_root()) {
+            Ok(library) => format!("loaded: {:?}", library.agent("tester").map(Agent::local)),
+            Err(error) => error.to_string(),
+        }
+    }
+
     fn adapters_error(&self) -> String {
         Adapters::load(&self.adapters_root())
             .unwrap_err()
@@ -2863,45 +2873,69 @@ fn typed_tools_decode_exactly_and_keep_empty_distinct_from_omission() {
     let declared = decode(Some(
         json!({"allow": ["git", "cargo"], "sandbox": "read-only"}),
     ));
-    assert_eq!(
-        declared.allow,
-        Some(vec!["git".to_string(), "cargo".to_string()])
-    );
-    assert_eq!(declared.sandbox, Some(Sandbox::ReadOnly));
-    assert_eq!(
-        declared.local(),
-        LocalTools {
-            allow: Some(vec!["git".to_string(), "cargo".to_string()]),
-            sandbox: Some(Sandbox::ReadOnly),
-        }
-    );
-    // Each class independently, exactly as named.
+    // The two stored fields and their assembly are one value.
+    let mut rows: Vec<Row<LocalTools>> = vec![
+        (
+            "declared fields".to_string(),
+            LocalTools {
+                allow: declared.allow.clone(),
+                sandbox: declared.sandbox,
+            },
+            local(Some(&["git", "cargo"]), Some(Sandbox::ReadOnly)),
+        ),
+        (
+            "declared local()".to_string(),
+            declared.local(),
+            local(Some(&["git", "cargo"]), Some(Sandbox::ReadOnly)),
+        ),
+    ];
+    // Each class independently, exactly as named, and its name and parse
+    // are each other's inverse.
     for (word, class) in [
         ("read-only", Sandbox::ReadOnly),
         ("workspace-write", Sandbox::WorkspaceWrite),
         ("danger-full-access", Sandbox::DangerFullAccess),
     ] {
-        let agent = decode(Some(json!({"allow": ["git", "cargo"], "sandbox": word})));
-        assert_eq!(agent.sandbox, Some(class), "{word}");
+        rows.push((
+            format!("class {word}"),
+            decode(Some(json!({"allow": ["git", "cargo"], "sandbox": word}))).local(),
+            local(Some(&["git", "cargo"]), Some(class)),
+        ));
+        rows.push((
+            format!("parse {word}"),
+            local(None, Sandbox::parse(word)),
+            local(None, Some(class)),
+        ));
         assert_eq!(class.name(), word);
-        assert_eq!(Sandbox::parse(word), Some(class));
     }
     // Explicit empty is `Some([])`; omission and `{}` are `None`.
-    let empty = decode(Some(json!({"allow": []})));
-    assert_eq!(empty.allow, Some(Vec::new()));
-    assert_eq!(empty.sandbox, None);
-    let omitted = decode(None);
-    assert_eq!(omitted.allow, None);
-    assert_eq!(omitted.sandbox, None);
-    assert!(omitted.local().is_unspecified());
-    let braces = decode(Some(json!({})));
-    assert_eq!(braces.local(), LocalTools::unspecified());
-    // The harmless legacy `mcp: []` stays admitted beside both fields.
-    let legacy = decode(Some(
-        json!({"allow": ["cargo"], "sandbox": "workspace-write", "mcp": []}),
+    rows.push((
+        "explicit empty allow".to_string(),
+        decode(Some(json!({"allow": []}))).local(),
+        local(Some(&[]), None),
     ));
-    assert_eq!(legacy.allow, Some(vec!["cargo".to_string()]));
-    assert_eq!(legacy.sandbox, Some(Sandbox::WorkspaceWrite));
+    rows.push((
+        "tools omitted".to_string(),
+        decode(None).local(),
+        LocalTools::unspecified(),
+    ));
+    rows.push((
+        "tools {}".to_string(),
+        decode(Some(json!({}))).local(),
+        LocalTools::unspecified(),
+    ));
+    // The harmless legacy `mcp: []` stays admitted beside both fields.
+    rows.push((
+        "legacy mcp []".to_string(),
+        decode(Some(
+            json!({"allow": ["cargo"], "sandbox": "workspace-write", "mcp": []}),
+        ))
+        .local(),
+        local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)),
+    ));
+    each_row(rows);
+    assert!(decode(None).local().is_unspecified());
+    assert!(!decode(Some(json!({"allow": []}))).local().is_unspecified());
 }
 
 /// SCM "Malformed tools cannot become defaults": every malformed field
@@ -2982,17 +3016,21 @@ fn typed_tools_decoding_refuses_each_malformed_field_with_its_full_cause() {
                 .to_string(),
         ),
     ];
-    for (tools, cause) in cases {
-        let tree = Tree::new();
-        let mut body = agent_body();
-        body["tools"] = tools.clone();
-        tree.write("agents/tester.json", &body);
-        assert_eq!(
-            tree.library_error(),
-            format!("agent 'tester' ({}) {cause}", tester_file(&tree)),
-            "{tools}"
-        );
-    }
+    let rows: Vec<Row<String>> = cases
+        .into_iter()
+        .map(|(tools, cause)| {
+            let tree = Tree::new();
+            let mut body = agent_body();
+            body["tools"] = tools.clone();
+            tree.write("agents/tester.json", &body);
+            (
+                tools.to_string(),
+                tree.library_outcome(),
+                format!("agent 'tester' ({}) {cause}", tester_file(&tree)),
+            )
+        })
+        .collect();
+    each_row(rows);
 }
 
 /// SCM "Malformed tools cannot become defaults", last clause: a `tools`,
@@ -3026,18 +3064,23 @@ fn repeated_tools_keys_refuse_from_the_original_source_even_when_equal() {
             |text| text.len() - 1,
         ),
     ];
-    for (text, key, column) in cases {
-        let tree = Tree::new();
-        tree.raw("agents/tester.json", &text);
-        assert_eq!(
-            tree.library_error(),
-            format!(
-                "{}: key '{key}' is written twice at line 1 column {}",
-                tester_file(&tree),
-                column(&text)
+    let rows: Vec<Row<String>> = cases
+        .into_iter()
+        .map(|(text, key, column)| {
+            let tree = Tree::new();
+            tree.raw("agents/tester.json", &text);
+            (
+                format!("repeated '{key}'"),
+                tree.library_outcome(),
+                format!(
+                    "{}: key '{key}' is written twice at line 1 column {}",
+                    tester_file(&tree),
+                    column(&text)
+                ),
             )
-        );
-    }
+        })
+        .collect();
+    each_row(rows);
     // The control: the same document with each key once loads.
     let tree = Tree::new();
     tree.raw(
@@ -3058,6 +3101,31 @@ fn local(allow: Option<&[&str]>, sandbox: Option<Sandbox>) -> LocalTools {
         allow: allow.map(|names| names.iter().map(|name| name.to_string()).collect()),
         sandbox,
     }
+}
+
+/// One table row: a label, what was observed and what was expected.
+type Row<T> = (String, T, T);
+
+/// Every row of a table reaches its own exact assertion: the rows are all
+/// computed first, then every mismatch is reported together, so a mutation
+/// that touches several rows names each of them, and a first failing row
+/// hides no later one (SC8; tasks 2.1.2 and 2.1.6).
+#[track_caller]
+fn each_row<T: PartialEq + std::fmt::Debug>(rows: Vec<Row<T>>) {
+    let failures: Vec<String> = rows
+        .iter()
+        .filter(|(_, observed, expected)| observed != expected)
+        .map(|(label, observed, expected)| {
+            format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}")
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} of {} rows failed:\n{}",
+        failures.len(),
+        rows.len(),
+        failures.join("\n")
+    );
 }
 
 /// SCM "Field omission inherits while an explicit empty list subtracts"
@@ -3094,67 +3162,84 @@ fn narrowing_inherits_per_field_and_refuses_each_widening_exactly() {
             local(Some(&["cargo"]), Some(Sandbox::WorkspaceWrite)),
         ),
     ];
-    for (requested, expected) in ok {
-        assert_eq!(office.narrow(&requested), Ok(expected), "{requested:?}");
-    }
-    assert_eq!(
-        office.narrow(&local(Some(&["cargo", "make"]), None)),
+    type Narrowed = Result<LocalTools, (String, String)>;
+    let mut rows: Vec<Row<Narrowed>> = ok
+        .into_iter()
+        .map(|(requested, expected)| {
+            (
+                format!("inherits {requested:?}"),
+                office.narrow(&requested),
+                Ok(expected),
+            )
+        })
+        .collect();
+    // The complete refusal, written out: the field, the exact addition or
+    // widening, and the rule.
+    let added = |name: &str, office: &str| {
         Err((
             "allow".to_string(),
-            "names 'make', which the office's 'tools.allow' [\"cargo\", \"git\"] does not; a \
-             site subtracts from its office and never adds to it"
-                .to_string()
+            format!(
+                "names '{name}', which the office's 'tools.allow' {office} does not; a site \
+                 subtracts from its office and never adds to it"
+            ),
         ))
-    );
-    assert_eq!(
-        office.narrow(&local(None, Some(Sandbox::DangerFullAccess))),
+    };
+    let wider = |requested: Sandbox, office: Sandbox| {
         Err((
             "sandbox".to_string(),
-            "requests 'danger-full-access', which reaches wider than the office's \
-             'workspace-write'; the classes reach read-only < workspace-write < \
-             danger-full-access, and a site narrows its office rather than being clamped to it"
-                .to_string()
+            format!(
+                "requests '{}', which reaches wider than the office's '{}'; the classes reach \
+                 read-only < workspace-write < danger-full-access, and a site narrows its \
+                 office rather than being clamped to it",
+                requested.name(),
+                office.name()
+            ),
         ))
-    );
+    };
+    rows.push((
+        "adds a name".to_string(),
+        office.narrow(&local(Some(&["cargo", "make"]), None)),
+        added("make", "[\"cargo\", \"git\"]"),
+    ));
+    rows.push((
+        "widens the class".to_string(),
+        office.narrow(&local(None, Some(Sandbox::DangerFullAccess))),
+        wider(Sandbox::DangerFullAccess, Sandbox::WorkspaceWrite),
+    ));
     // Each field is judged independently: a valid sandbox does not
     // forgive an added name, and a valid list does not forgive a widening.
-    assert_eq!(
-        office
-            .narrow(&local(Some(&["make"]), Some(Sandbox::ReadOnly)))
-            .unwrap_err()
-            .0,
-        "allow"
-    );
-    assert_eq!(
-        office
-            .narrow(&local(Some(&["git"]), Some(Sandbox::DangerFullAccess)))
-            .unwrap_err()
-            .0,
-        "sandbox"
-    );
+    rows.push((
+        "valid class beside an added name".to_string(),
+        office.narrow(&local(Some(&["make"]), Some(Sandbox::ReadOnly))),
+        added("make", "[\"cargo\", \"git\"]"),
+    ));
+    rows.push((
+        "valid subset beside a widened class".to_string(),
+        office.narrow(&local(Some(&["git"]), Some(Sandbox::DangerFullAccess))),
+        wider(Sandbox::DangerFullAccess, Sandbox::WorkspaceWrite),
+    ));
     // An empty office list permits only empty.
     let empty = local(Some(&[]), Some(Sandbox::ReadOnly));
-    assert_eq!(
+    rows.push((
+        "empty office, empty request".to_string(),
         empty.narrow(&local(Some(&[]), None)),
-        Ok(local(Some(&[]), Some(Sandbox::ReadOnly)))
-    );
-    assert_eq!(
+        Ok(local(Some(&[]), Some(Sandbox::ReadOnly))),
+    ));
+    rows.push((
+        "empty office, a name".to_string(),
         empty.narrow(&local(Some(&["git"]), None)),
-        Err((
-            "allow".to_string(),
-            "names 'git', which the office's 'tools.allow' [] does not; a site subtracts from \
-             its office and never adds to it"
-                .to_string()
-        ))
-    );
+        added("git", "[]"),
+    ));
     // An unrestricted office may be narrowed by either field.
     let unrestricted = local(None, None);
-    assert_eq!(
+    rows.push((
+        "unrestricted office, both fields".to_string(),
         unrestricted.narrow(&local(Some(&["git"]), Some(Sandbox::DangerFullAccess))),
-        Ok(local(Some(&["git"]), Some(Sandbox::DangerFullAccess)))
-    );
+        Ok(local(Some(&["git"]), Some(Sandbox::DangerFullAccess))),
+    ));
     // Every ordered pair of classes: reach read-only < workspace-write <
-    // danger-full-access, compared by that order alone.
+    // danger-full-access, compared by that order alone. Equal or narrower
+    // keeps the exact requested class; wider refuses with the full cause.
     let classes = [
         Sandbox::ReadOnly,
         Sandbox::WorkspaceWrite,
@@ -3163,14 +3248,19 @@ fn narrowing_inherits_per_field_and_refuses_each_widening_exactly() {
     for (i, requested) in classes.iter().enumerate() {
         for (j, office_class) in classes.iter().enumerate() {
             let office = local(None, Some(*office_class));
-            let outcome = office.narrow(&local(None, Some(*requested)));
-            if i <= j {
-                assert_eq!(outcome, Ok(local(None, Some(*requested))));
-            } else {
-                assert_eq!(outcome.unwrap_err().0, "sandbox");
-            }
+            rows.push((
+                format!("{} under {}", requested.name(), office_class.name()),
+                office.narrow(&local(None, Some(*requested))),
+                if i <= j {
+                    Ok(local(None, Some(*requested)))
+                } else {
+                    wider(*requested, *office_class)
+                },
+            ));
         }
     }
+    assert_eq!(rows.len(), 22);
+    each_row(rows);
 }
 
 /// D5.2: a site's declaration narrows a PRIVATE clone of the office before
@@ -3312,6 +3402,69 @@ fn an_explicit_empty_allow_set_is_kept_and_refused_until_lowering_delivers_it() 
             .unwrap_err()
             .to_string(),
         empty_refusal("claude", "opus")
+    );
+}
+
+/// D5.2: an optional want forgives nothing local. Beside
+/// `capabilities: {"web-fetch": "wants"}`, a malformed declaration still
+/// refuses at load, a widening still refuses at narrowing and an explicit
+/// empty allow set still refuses at composition, each with the complete
+/// cause it has without the want.
+#[test]
+fn an_optional_want_does_not_forgive_a_local_error() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["capabilities"] = json!({"web-fetch": "wants"});
+    body["tools"] = json!({"allow": ["cargo", "git", "cargo"]});
+    tree.write("agents/tester.json", &body);
+    tree.write("adapters/claude.json", &claude_body());
+    assert_eq!(
+        tree.library_error(),
+        format!(
+            "agent 'tester' ({}) 'tools.allow' names 'cargo' twice; a local allow list is \
+             duplicate-free",
+            tester_file(&tree)
+        )
+    );
+    body["tools"] = json!({"allow": ["cargo", "git"]});
+    tree.write("agents/tester.json", &body);
+    let library = tree.library();
+    assert_eq!(
+        library.agent("tester").unwrap().capabilities["web-fetch"],
+        crate::capabilities::Strength::Wants
+    );
+    let narrowed = |requested: LocalTools| {
+        report_narrowed(
+            &library,
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+            brokkr_core::realms::Boundary::Namespace,
+            &requested,
+        )
+    };
+    assert_eq!(
+        narrowed(local(Some(&["make"]), None))
+            .unwrap_err()
+            .to_string(),
+        "the site's 'tools.allow' names 'make', which the office's 'tools.allow' [\"cargo\", \
+         \"git\"] does not; a site subtracts from its office and never adds to it; an \
+         agent-backed site only narrows the restrictions of agent 'tester' (decision 0065 \
+         slice one, design D5)"
+    );
+    let emptied = narrowed(local(Some(&[]), None)).unwrap();
+    assert_eq!(emptied.agent.allow, Some(Vec::new()));
+    assert_eq!(
+        resolve_report(emptied, &tree.adapters())
+            .unwrap_err()
+            .to_string(),
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': the effective \
+         'tools.allow' is explicitly empty, and no serving path yet expresses an empty local \
+         allow set as a delivered restriction (joining no names into an empty flag value \
+         proves nothing); the declaration is kept exactly and refused rather than run \
+         unrestricted, until decision 0065 slice one's lowering proves its delivery (design \
+         D5.3). A capability the provider cannot express fails compilation here rather than \
+         degrading silently at run time"
     );
 }
 

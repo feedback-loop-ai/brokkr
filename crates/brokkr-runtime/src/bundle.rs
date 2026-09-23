@@ -2628,8 +2628,13 @@ fn record_inline_tools(
 /// rather than by token matching, so a joined, attached or aliased spelling
 /// is the same option. Anything the grammar cannot place refuses — an
 /// unreadable contribution is uncertainty, and uncertainty refuses typed
-/// admission — as does a configuration assignment into `sandbox_mode`,
-/// which is the same control through an opaque door.
+/// admission. So does a COMPETING control beside the class (design D5.3,
+/// made explicit by D5.5): a switch that lifts or replaces the sandbox
+/// (`--full-auto`, `--dangerously-bypass-approvals-and-sandbox`), or a
+/// configuration assignment into `sandbox_mode` or `sandbox_workspace_write`,
+/// which is the same control through an opaque door. These are refused
+/// wherever they stand — the selected fragment or the authored command —
+/// and never reconciled by argument order or trusted for their provenance.
 fn expressed_sandbox(
     what: &str,
     link: usize,
@@ -2637,6 +2642,11 @@ fn expressed_sandbox(
     argv: &[String],
 ) -> Result<Option<String>, CompileError> {
     use brokkr_protocol::native_controls::grammar;
+    /// The two codex switches whose effect on the sandbox is not a class.
+    const SANDBOX_SWITCHES: [&str; 2] =
+        ["--full-auto", "--dangerously-bypass-approvals-and-sandbox"];
+    /// The two configuration tables that reach the same control.
+    const SANDBOX_TABLES: [&str; 2] = ["sandbox_mode", "sandbox_workspace_write"];
     let command = match grammar::parse("codex", argv) {
         Some(Ok(command)) => command,
         Some(Err(problem)) => {
@@ -2652,18 +2662,27 @@ fn expressed_sandbox(
         if node.name() == "--sandbox" {
             expressed = node.values.first().cloned();
         }
-        if node.spec.effect == grammar::Effect::Config
-            && node
-                .values
-                .iter()
-                .any(|value| grammar::config_under(&grammar::config_key(value), "sandbox_mode"))
-        {
+        if let Some(switch) = SANDBOX_SWITCHES.iter().find(|name| node.name() == **name) {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
-                 assigns 'sandbox_mode' through the harness's configuration, a second door to \
-                 the same control that no typed class can be checked against — refused \
+                 carries `{switch}`, a switch that lifts or replaces the sandbox a `--sandbox` \
+                 class would express, so no typed class can be checked against it — refused \
                  (design D5.3)"
             )));
+        }
+        if node.spec.effect == grammar::Effect::Config {
+            if let Some(table) = SANDBOX_TABLES.iter().find(|table| {
+                node.values
+                    .iter()
+                    .any(|value| grammar::config_under(&grammar::config_key(value), table))
+            }) {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                     assigns '{table}' through the harness's configuration, a second door to \
+                     the same control that no typed class can be checked against — refused \
+                     (design D5.3)"
+                )));
+            }
         }
     }
     Ok(expressed)
