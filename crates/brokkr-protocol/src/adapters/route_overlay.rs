@@ -694,29 +694,56 @@ mod tests {
 
     #[test]
     fn the_endpoint_grammar_decides_the_positive_and_every_refusal() {
-        for (base, part) in [
-            ("https://user:pass@host/x", "endpoint"),
-            ("https://host/x?api_key=1", "endpoint"),
-            ("https://host/x#frag", "endpoint"),
-            ("https://host/percent%2fescape", "endpoint"),
-            ("https://host\\x", "endpoint"),
-            ("https://host/ space", "endpoint"),
-            ("https://[::1]/x", "endpoint"),
-            ("https://host//x", "endpoint"),
-            ("http://host/x", "endpoint"),
-            ("HTTPS://host/x", "endpoint"),
-            ("host/x", "endpoint"),
-            ("https://-host/x", "endpoint"),
-            ("https://host:123456/x", "endpoint"),
+        assert_eq!(validate(SHIPPED.as_bytes(), PIN), Ok(()));
+        for base in [
+            "https://user:pass@host/x",
+            "https://host/x?api_key=1",
+            "https://host/x#frag",
+            "https://host/percent%2fescape",
+            "https://host\\x",
+            "https://host/ space",
+            "https://[::1]/x",
+            "https://host//x",
+            "http://host/x",
+            "HTTPS://host/x",
+            "host/x",
+            "https://-host/x",
+            "https://host:123456/x",
+            // Non-ASCII, in the host and in a path segment: the grammar's
+            // letters and digits are ASCII ones.
+            "https://hóst/x",
+            "https://host/pàth",
         ] {
             let body = SHIPPED.replace(
                 "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
                 base,
             );
-            let error = validate(body.as_bytes(), PIN).unwrap_err();
-            assert!(
-                error.contains(part),
-                "{base:?}: expected {part:?} in {error:?}"
+            assert_eq!(
+                validate(body.as_bytes(), PIN),
+                Err(
+                    "refusing to invoke the dsh driver: baseURL leaves the closed endpoint grammar"
+                        .to_string()
+                ),
+                "{base:?}"
+            );
+        }
+    }
+
+    /// A second top-level entry is refused whole, whether it repeats the
+    /// admitted route or carries a row the overlay may not name, so no
+    /// entry past the first is ever read or forwarded.
+    #[test]
+    fn a_route_document_carrying_a_second_entry_is_refused() {
+        let second_entry =
+            "refusing to invoke the dsh driver: route overlay must hold exactly one top-level entry";
+        for body in [
+            format!("{SHIPPED}{SHIPPED}"),
+            format!("{SHIPPED}- id: settings\n  config:\n    theme: dark\n"),
+        ] {
+            assert_eq!(
+                validate(body.as_bytes(), PIN),
+                Err(second_entry.to_string()),
+                "{body:?}"
             );
         }
     }

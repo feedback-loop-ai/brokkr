@@ -12671,30 +12671,135 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
             "plain identifier",
         ),
     ];
-    // Every vector above pins `deepseek/…`. The last pins no provider
-    // segment, and its route is keyed to the provider `parse_dsh_model`
-    // defaults that pin to, so no grammar check can refuse it: only the
-    // claim boundary does, and its reason is asserted whole.
-    let segment_less = "refusing to invoke the dsh driver: a route overlay needs a pinned \
-                        `--model` with a provider segment";
-    let vectors = vectors
-        .into_iter()
-        .map(|(name, body, needle)| (name, "deepseek/deepseek-v4-flash", body, needle))
-        .chain([(
+    // The reader-only classes and the two classes no suite carried, each
+    // breaching a route the reader admits for the pin, so the refusal is
+    // the breach's own and its reason is asserted whole. `leaked` rides in
+    // every breaching value and must never come back.
+    let pin = "deepseek/deepseek-v4-flash";
+    let complete = format!("{valid}            reasoningEfforts:\n              high: high\n");
+    assert_eq!(
+        route_overlay::validate(complete.as_bytes(), pin),
+        Ok(()),
+        "the route the vectors below breach is admitted"
+    );
+    let refusing = |reason: &str| format!("refusing to invoke the dsh driver: {reason}");
+    let at_line_six = |line: &str| {
+        complete.replace(
+            "        apiKeyEnv: DEEPSEEK_API_KEY\n",
+            &format!("        apiKeyEnv: DEEPSEEK_API_KEY\n{line}\n"),
+        )
+    };
+    let endpoint = refusing("baseURL leaves the closed endpoint grammar");
+    let mut exact: Vec<(&str, Option<&str>, String, String)> = [
+        ("userinfo endpoint", "https://leaked:pw@host/x"),
+        ("fragment endpoint", "https://host/x#leaked"),
+        ("percent-escape endpoint", "https://host/leaked%2fx"),
+        ("whitespace endpoint", "https://host/leaked x"),
+        ("bracketed endpoint", "https://[::1]/leaked"),
+        ("empty-segment endpoint", "https://host//leaked"),
+        ("invalid host label endpoint", "https://-leaked/x"),
+        ("invalid port endpoint", "https://host:123456/leaked"),
+        ("uppercase-scheme endpoint", "HTTPS://host/leaked"),
+        ("schemeless endpoint", "host/leaked"),
+        ("non-ASCII endpoint", "https://hóst/leaked"),
+    ]
+    .into_iter()
+    .map(|(name, base)| {
+        (
+            name,
+            Some(pin),
+            at_line_six(&format!("        baseURL: {base}")),
+            endpoint.clone(),
+        )
+    })
+    .collect();
+    let reserved = |line: usize| {
+        refusing(&format!(
+            "route overlay line {line} carries a value beginning with a reserved character"
+        ))
+    };
+    let control = refusing("route overlay line 6 carries a tab or control character");
+    exact.extend([
+        (
+            "__jsExpr mapping",
+            Some(pin),
+            at_line_six("        __jsExpr:\n          leaked: leaked"),
+            refusing("route overlay line 6 carries a key that is not a plain identifier"),
+        ),
+        (
+            "alias",
+            Some(pin),
+            at_line_six("        displayName: *leaked"),
+            reserved(6),
+        ),
+        (
+            "block scalar",
+            Some(pin),
+            at_line_six("        displayName: |\n          leaked"),
+            reserved(6),
+        ),
+        (
+            "quoted scalar",
+            Some(pin),
+            at_line_six("        displayName: 'leaked'"),
+            reserved(6),
+        ),
+        (
+            "tab",
+            Some(pin),
+            at_line_six("        displayName:\tleaked"),
+            control.clone(),
+        ),
+        (
+            "control character",
+            Some(pin),
+            at_line_six("        displayName: leaked\u{7}"),
+            control,
+        ),
+        (
+            "document marker",
+            Some(pin),
+            format!(
+                "{complete}---\n{}",
+                complete.replace("deepseek-v4", "leaked")
+            ),
+            refusing("route overlay line 10 is a document marker"),
+        ),
+        (
+            "second top-level entry",
+            Some(pin),
+            format!("{complete}{}", complete.replace("deepseek-v4", "leaked")),
+            refusing("route overlay must hold exactly one top-level entry"),
+        ),
+        // No pin at all: the admitted route refuses at the claim boundary.
+        (
+            "absent model pin",
+            None,
+            complete.clone(),
+            refusing("a route overlay needs a pinned `--model` with a provider segment"),
+        ),
+        // A pin with no provider segment, beside a route keyed to the
+        // provider `parse_dsh_model` defaults that pin to, so no grammar
+        // check can refuse it: only the claim boundary does.
+        (
             "model pin without a provider segment",
-            "deepseek-v4-flash",
+            Some("deepseek-v4-flash"),
             valid.replace("      deepseek:", "      deepseek-official:")
                 + "            reasoningEfforts:\n              high: high\n",
-            segment_less,
-        )]);
+            refusing("a route overlay needs a pinned `--model` with a provider segment"),
+        ),
+    ]);
+    let vectors = vectors
+        .into_iter()
+        .map(|(name, body, needle)| (name, Some(pin), body, needle.to_string()))
+        .chain(exact);
 
     for (name, model, body, needle) in vectors {
-        let extra = vec![
-            "--model".to_string(),
-            model.to_string(),
-            "--patch".to_string(),
-            "route.yml".to_string(),
-        ];
+        let mut extra = Vec::new();
+        if let Some(model) = model {
+            extra.extend(["--model".to_string(), model.to_string()]);
+        }
+        extra.extend(["--patch".to_string(), "route.yml".to_string()]);
         std::fs::write(dir.path().join("route.yml"), &body).unwrap();
         let mut hasher = Sha256::new();
         hasher.update(body.as_bytes());
@@ -12727,17 +12832,18 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
             assert_eq!(calls.get(), 0, "{name}/{path}: no producer call");
             assert!(!marker.exists(), "{name}/{path}: no version probe");
             assert!(
-                error.contains(needle),
+                error.contains(&needle),
                 "{name}/{path}: expected {needle:?} in {error:?}"
             );
-            if needle == segment_less {
-                assert_eq!(error, segment_less, "{name}/{path}: the exact reason");
+            if needle.starts_with("refusing to invoke the dsh driver: ") {
+                assert_eq!(error, needle, "{name}/{path}: the exact reason");
             }
             for echo in [
                 "route.yml",
                 "deepseek-v4-flash",
                 "deepseek-official",
                 "DEEPSEEK_API_KEY",
+                "leaked",
             ] {
                 assert!(
                     !error.contains(echo),
