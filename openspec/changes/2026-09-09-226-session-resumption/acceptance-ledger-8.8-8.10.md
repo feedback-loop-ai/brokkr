@@ -2126,6 +2126,12 @@ symlink fixture and twenty planner vectors.
    no checkbox. 8.10 stays unticked: entry 22 still waits on entry 17 (or
    18, 19 and 21(b)), entry 14 and the rest of its list.
 
+   - 2026-09-23, 21(a)-close: the ruling recorded and F1–F4 reclassified
+     as controls passed under it, in the evidence file and this ledger.
+     Docs only, at `a60631dd`. Gates: `git diff --check` and
+     `cargo fmt --all -- --check` pass; `openspec validate --all
+     --strict` was refused by this seat's grant and is unrun here.
+
 22. *(recorded as 6)* **Regrade, record, tick and commit the D7/Pass-C/Pass-D
    account.** Closes S12 (8.8.15.1), S11 (8.8.14.2) beside entry 14's record,
    and **8.10**, but not 8.8. Touches
