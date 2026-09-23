@@ -760,6 +760,31 @@ exist.
    sequence budget (a row whose newline lands exactly on the injected budget).
    No production change expected.
 
+   **Landed 2026-09-23 at `3a2a6785`; every new vector passes on current
+   production bytes.** (i) Beside a control where the unvaried offer rejoins
+   its own root after one producer call, each originating field is varied
+   through absent, null, mistyped (`7`/`8`), malformed (`zz-not-hex`,
+   `"z"×64`) and different values; each declines `unverified-harness` after
+   exactly one producer call, with no rejoin, no fold boundary, no
+   `--session` and a fresh root whose parent is the canonicalised current
+   home's `sessions/brokkr`. (ii) The newest row's `locator` (`9`) and then
+   `home` (`10`) are mistyped; each reads `None` while the other coordinate
+   stands. (iii) A stored session of exactly `DSH_SESSION_FILE_LIMIT` bytes
+   reads `Some(5)`; a `{"seq":7}` row admitted at an injected budget of its
+   own length reads `Some(7)`, one byte less `None`. Twelve mutations,
+   compiled, run red and reverted: the originating comparison skipped for an
+   absent, null, mistyped or malformed version, and likewise for the digest,
+   each part `tests.rs:10577` at its own case (`None` against
+   `Some("unverified-harness")`); the cap tightened to `>=` parts `:11828`
+   (`None` against `Some(5)`); the event budget one byte short parts `:11889`
+   (`None` against `Some(7)`); a mistyped locator or home stringified parts
+   `resume_tests.rs:1405` (`Some("9")`) and `:1410` (`Some("10")`).
+   `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+   --all-features --locked -- -D warnings`, `cargo test -p brokkr-protocol
+   --all-features --locked` (428 + 99 + 1 passed) and `cargo test -p
+   brokkr-runtime --all-features --locked` (460 lib plus 94 integration
+   passed) are green. Tests only; no checkbox moved.
+
 4. **Run the gate list, in order, on the final candidate.** Closes S11
    (8.8.14.2), **N12 (8.8.8.2)** and B10's gate half, and supplies A53/B30/B42's
    execution once unit 4a below has added their assertions. Touches nothing — it
