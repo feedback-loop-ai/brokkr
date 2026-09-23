@@ -1677,8 +1677,6 @@ fn equal_bytes_keep_five_distinct_origins_and_every_occurrence() {
     }
     flat.extend(argv(&["--tools", ""]));
     assert_eq!(flatten(&copies), flat);
-    let record = full_record(copies.clone());
-    let decoded = LaunchRecord::decode(Some(&record.value())).unwrap();
     let origins = |record: &LaunchRecord| -> Vec<(&'static str, usize)> {
         record
             .segments
@@ -1686,41 +1684,74 @@ fn equal_bytes_keep_five_distinct_origins_and_every_occurrence() {
             .map(|segment| (segment.origin.word(), segment.argv.len()))
             .collect()
     };
-    assert_eq!(
-        origins(&decoded),
-        [
-            ("authored", 2),
-            ("template", 2),
-            ("local", 2),
-            ("hands", 2),
-            ("native", 2),
-            ("authored", 2),
-            ("local", 0),
-            ("hands", 2),
-        ]
-    );
-    assert_eq!(decoded.segments, copies);
-    assert_eq!(reassemble(&decoded.segments, &flat), Ok(()));
+    let decoded = LaunchRecord::decode(Some(&full_record(copies.clone()).value())).unwrap();
     // Exchange the authored copy and the native one: equal bytes, so the
     // exchange reassembles — byte equality cannot detect it — and the
     // recorded origins are what tell the two records apart.
     let mut exchanged = copies.clone();
     exchanged.swap(0, 4);
-    let decoded = LaunchRecord::decode(Some(&full_record(exchanged).value())).unwrap();
-    assert_eq!(reassemble(&decoded.segments, &flat), Ok(()));
-    assert_eq!(
-        origins(&decoded),
-        [
-            ("native", 2),
-            ("template", 2),
-            ("local", 2),
-            ("hands", 2),
-            ("authored", 2),
-            ("authored", 2),
-            ("local", 0),
-            ("hands", 2),
-        ]
-    );
+    let swapped = LaunchRecord::decode(Some(&full_record(exchanged).value())).unwrap();
+    // Every check is judged beside the others, so a mutation that breaks
+    // the written record cannot hide what it does to the exchanged one.
+    let checks = [
+        (
+            "written origins",
+            format!("{:?}", origins(&decoded)),
+            format!(
+                "{:?}",
+                [
+                    ("authored", 2),
+                    ("template", 2),
+                    ("local", 2),
+                    ("hands", 2),
+                    ("native", 2),
+                    ("authored", 2),
+                    ("local", 0),
+                    ("hands", 2),
+                ]
+            ),
+        ),
+        (
+            "written segments",
+            format!("{:?}", decoded.segments),
+            format!("{copies:?}"),
+        ),
+        (
+            "written reassembly",
+            format!("{:?}", reassemble(&decoded.segments, &flat)),
+            format!("{:?}", Ok::<(), String>(())),
+        ),
+        (
+            "exchanged reassembly",
+            format!("{:?}", reassemble(&swapped.segments, &flat)),
+            format!("{:?}", Ok::<(), String>(())),
+        ),
+        (
+            "exchanged origins",
+            format!("{:?}", origins(&swapped)),
+            format!(
+                "{:?}",
+                [
+                    ("native", 2),
+                    ("template", 2),
+                    ("local", 2),
+                    ("hands", 2),
+                    ("authored", 2),
+                    ("authored", 2),
+                    ("local", 0),
+                    ("hands", 2),
+                ]
+            ),
+        ),
+    ];
+    let failures: Vec<String> = checks
+        .iter()
+        .filter(|(_, observed, expected)| observed != expected)
+        .map(|(label, observed, expected)| {
+            format!("check {label}:\n  left:  {observed}\n  right: {expected}")
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// NCC "Unit 3 private decoding never defaults missing authority", the

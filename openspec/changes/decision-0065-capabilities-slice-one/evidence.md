@@ -3176,3 +3176,129 @@ The coverage diagnostic was not rerun.
 
 Task 3.10, and therefore 3.1, stays open. 4.2 stays open for unit 4. Nothing is
 pushed.
+
+## Unit 3 — second review return: SC1, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-29dd19f2`, phase implement, sole seat.
+This visit was returned from review (gpt-6-astra, `residual`, medium) on head
+`9d270f3b`. The one finding, SC1, is an implementation-proof defect with three
+parts. It found no functional, specification or security defect. Every adopted
+commit is kept. Cargo 1.98.0 was available.
+
+**Correction to the review return above.** Its audit (3.8) was ticked while
+three proofs were missing:
+
+- (a) It exempted the "codex with a selection" row.
+- (b) The exchanged equal-byte record had no mutation that reached it.
+- (c) The runtime producers `Intent::of` and `Sandbox::intent` were mutated
+  only for explicit-empty (M4) and danger-full-access (M5).
+
+This visit supplies those three proofs.
+
+### What changed
+
+- No production file changed. Every production edit below is a mutation that
+  was restored.
+- Protocol `native_controls/tests.rs`: in
+  `equal_bytes_keep_five_distinct_origins_and_every_occurrence`, the written
+  and exchanged records are now judged side by side. The five checks are
+  written origins, written segments, written reassembly, exchanged reassembly
+  and exchanged origins. Their failures are collected into one assertion, as
+  the round-trip test already does. Before, the first `assert_eq!` on the
+  written origins stopped every origin mutation (M13, M14), so the exchanged
+  assertions were never reached. The literal expected values are unchanged.
+- Runtime `agents/tests.rs` is unchanged. Its row tables (`each_row`) already
+  reach every row, so the mutations below needed no test edit.
+- Suite counts are unchanged: agents 73, native_controls 23.
+
+### Baseline on `9d270f3b`
+
+The tree was clean. Both suites passed before any edit: `cargo test --locked -p
+brokkr-protocol --lib native_controls` (23) and `-p brokkr-runtime --lib
+agents::tests::unit3_` (6). The restructured protocol test passed unmutated
+before its mutations ran. Its diff was snapshotted and compared byte for byte
+(`cmp`) after each restore.
+
+### Mutation ledger (SC1)
+
+Each mutation below is one compiling edit, run in its owning suite, observed
+failing, then restored. After the runtime group, `git diff --exit-code` was
+clean and the six `unit3_` tests passed. After the protocol group, the diff
+matched the test-only snapshot.
+
+Runtime (`cargo test --locked -p brokkr-runtime --lib agents::tests::unit3_`),
+all in `agents.rs`:
+
+| # | Mutation | Failing rows and observed values |
+| --- | --- | --- |
+| C1 | `Intent::of`: omitted allow → `Listed([])` | absence test, the three omitted rows ("omitted allow" with unspecified class, workspace-write and danger-full-access). Left `intent: Intent { allow: Listed([]), .. }`, right `allow: Unspecified`. Segments and `application: Unrestricted` are identical on both sides. |
+| C2 | `Intent::of`: a listed allow keeps no names (`Listed(Vec::new())`) | absence row "nonempty subset, read-only": `Listed([])` vs `Listed(["cargo"])`, with `application: Direct(["Bash(cargo:*)"])` identical. Mapped-limits 2 of 2: `Listed([])` vs `Listed(["pytest", "cargo"])` and `Listed(["gh-run-view", "gh-pr-view"])`. All four handoff rows with a list, including the refused native alias: `Refused(Intent { allow: Listed([]), .. })` vs `Listed(["websearch"])`, with the refusal text identical. |
+| C3 | `Sandbox::intent`: read-only → `WorkspaceWrite` | absence rows "nonempty subset, read-only" and "explicit empty, read-only" (`Refused(Intent { .., sandbox: WorkspaceWrite, .. })` vs `ReadOnly`, with the refusal identical). Handoff row "the matching class beside the Codex-shaped fragment": intent `WorkspaceWrite` vs `ReadOnly`, while the hands segment still reads `--sandbox read-only` on both sides. |
+| C4 | `Sandbox::intent`: workspace-write → `ReadOnly` | absence row "omitted allow, workspace-write" only: `sandbox: ReadOnly` vs `WorkspaceWrite` |
+| C5 | `Intent::of`: an undeclared sandbox → `ReadOnly` | every row with an unspecified class: mapped-limits 2 of 2, absence row "omitted allow, unspecified class", and handoff rows "mapped and unmapped names beside boxed hands", "an empty list beside boxed hands", "unboxed hands: required, no fragment yet" and "a mapped native alias beside hands" |
+| C6 | `Intent::of`: declared hands → `HandsIntent::None` | all five handoff rows: `hands: None` vs `Required`, with `application: Dormant` and segments identical |
+
+C5 and C6 go beyond what SC1 named. They cover the other two producer arms,
+so every `Intent::of`/`Sandbox::intent` arm now has its own mutation, with M4
+and M5 above. Every runtime failure leaves the emitted segments and
+`application` unchanged. So the retained intent is not derived from the
+emission.
+
+Protocol (`cargo test --locked -p brokkr-protocol --lib native_controls`), all
+in `native_controls.rs`:
+
+| # | Mutation | Failing rows and observed values |
+| --- | --- | --- |
+| X1a | the `compose_for_provider` codex arm's selection refusal bypassed (`if selects && false`) | the materialize test still passes: `native_segment`'s own guard refuses the row with the same cause. Only the composer's existing `every_control_representation_reaches_the_composed_command_or_refuses` fails (`Ok(Composed { extra: ["--sandbox", "read-only"], managed: [] })`). |
+| X1b | `native_segment` admits a codex selection (`"claude" \| "lanetally" \| "codex"`) | nothing fails: the composer refuses first (23 passed) |
+| X1 | both X1a and X1b in one edit | materialize row "codex with a selection" only: `Ok(Segment { origin: Native, argv: ["-c", "web_search=\"disabled\""] })` vs the exact `unconsumed("codex")` refusal. The composer test fails as in X1a. |
+| M13r | `Origin::Hands` encodes as `local` (M13, rerun) | checks "written origins", "written segments" and **"exchanged origins"**: left `[("native",2), ("template",2), ("local",2), ("local",2), ("authored",2), ("authored",2), ("local",0), ("local",2)]` |
+| M14r | the decoder drops a segment whose argv equals the previous one (M14, rerun) | all five checks. Both exchanged checks are reached: exchanged reassembly `Err("…first differ at argument 2 (4 recorded, 14 supplied)…")` and exchanged origins `[("native",2), ("local",0), ("hands",2)]`. |
+| X2 | `reassemble` refuses equal bytes when the first segment is native | "exchanged reassembly" only: `Err("…first differ at argument 14 (14 recorded, 14 supplied)…")` vs `Ok(())` |
+| X3 | the decoder relabels a leading native segment as template | "exchanged origins" only: `[("template",2), ("template",2), …]` vs `[("native",2), ("template",2), …]` |
+
+X1a and X1b are recorded because they show that the row has two independent
+guards and that one mutation alone cannot reach it. X1 is the row's binding
+proof. The earlier exemption for "codex with a selection" (review return
+ledger) is withdrawn. M13r and M14r supersede M13 and M14 for this test. X2
+and X3 fail only the exchanged record's two checks, so each assertion that
+exists only because of the exchange binds independently.
+
+This visit adds 11 mutation records: C1–C6, X1a, X1b, X1, X2 and X3. It
+reruns two: M13r and M14r. No test uses `is_err()`. No fixture reads
+`.forge/`. Run logs are run-local (`.forge/mut-*.log`).
+
+### Audit (3.8, this return)
+
+- SC1's three parts each have an isolated compiling mutation that reaches the
+  intended assertion, an observed failure and a restored pass.
+- Every `Intent::of`/`Sandbox::intent` arm now has its own mutation: M4, M5
+  and C1–C6.
+- No production file changed. Candidate, bundle admission, the serving readers
+  and authored refusal are untouched. No refusal was activated.
+- Frozen contracts, policy, fixtures, reference, extensions, shipped JSON and
+  pins are unchanged.
+- Every adopted commit is an ancestor, and no mutation remains.
+
+### Gates on the restored tree (SC1 return)
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | passed |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | passed |
+| `cargo test -p brokkr-protocol --all-features --locked` | passed; lib 472, 3 result lines, 0 failures |
+| `cargo test -p brokkr-runtime --all-features --locked` | passed; lib 541, 25 result lines, 0 failures |
+| `cargo test --workspace --all-features --locked` | passed; 77 green result lines, 0 failures |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | exit 0 |
+| `openspec validate --all --strict --no-interactive` | 18 passed, 0 failed |
+| `git diff --check` | passed |
+
+**Pending, not claimed:**
+
+- External `bash scripts/coverage-exact.sh`.
+- macOS.
+- Remote CI.
+
+Task 3.10, and therefore 3.1, stays open. 4.2 stays open for unit 4. Nothing is
+pushed.

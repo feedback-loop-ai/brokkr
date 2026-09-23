@@ -517,6 +517,27 @@ its failing rows and restored pass. It reran every listed gate. 3.2–3.9 are
 ticked on that record; see evidence's "Unit 3 — review return". **3.10, 3.1
 and 4.2 stay open.**
 
+**Second correction (SC1, same run).** The return ticked 3.8 while three
+per-row proofs were still missing:
+
+- It exempted the "codex with a selection" row.
+- The exchanged equal-byte record had no mutation that reached it.
+- It had no runtime mutation for unspecified or nonempty allow intent, or for
+  read-only or workspace-write sandbox intent.
+
+This visit supplies them. It changed no production file. The equal-bytes test
+now judges its written and exchanged records side by side, so origin
+mutations reach both. It added 11 isolated compiling mutations and reran two:
+
+- C1–C6 cover every `Intent::of`/`Sandbox::intent` arm.
+- X1 disables both of the codex row's guards. X1a and X1b show that either
+  guard alone masks the other.
+- M13r and M14r rerun M13 and M14 against the side-by-side test.
+- X2 and X3 each fail only the exchanged record.
+
+The ledger is evidence's "Unit 3 — second review return: SC1". 3.4, 3.7 and
+3.8 stay ticked on that record. **3.10, 3.1 and 4.2 stay open.**
+
 ## 4. Unit 4 — Wire origins through runtime dispatch
 
 - [ ] 4.1 Unit 4 wires the selected candidate's private segments through engine.rs SiteSpawn, bundle projection, boundary composition, placeholder expansion and final input merging. Verify absent/reordered/overridden records refuse and legitimate typed controls survive. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; robustness runtime evidence. (previous 3.21)
