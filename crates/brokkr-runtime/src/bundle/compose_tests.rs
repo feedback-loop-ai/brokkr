@@ -1087,25 +1087,27 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// no library and keep their digests. Rebuild unit 1 replays the slice
 /// onto main at `072cdd9b` and moves all four: the engine version
 /// (v0.11.0) participates in every manifest's identity, and the claude and
-/// codex adapters they pin carry the 2026-09-22 roster's model maps. The
-/// values below are the actual compiles of the final tree, never
+/// codex adapters they pin carry the 2026-09-22 roster's model maps.
+/// Rebuild unit 5 moves all four again: the claude adapter each pins
+/// gained the typed-migration command names in `tool_permissions.names`.
+/// The values below are the actual compiles of the final tree, never
 /// recomputed guesses.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "72b516cf043cb3ce3b6c7b162fdcc784e26d5972d436a4577300143a2f679f1c",
+        "97f759f63ba98a1ca3fee21486a1ca840d1abf2c216f96adb8ef9b45f10a97ff",
     ),
     (
         "recipes/panel-review",
-        "9725d931b24a032f2e044adab3557447f01390f5d39c148dee58bd5a5ea8f0b2",
+        "ab743b3542218e0ad093bbfc5c124a980ea107925f08a138a4111db9faaa2d3a",
     ),
     (
         "bundles/self",
-        "c4e36f6f330c956100bf08dc884ca449fc18a285b82a4394fe79699805a62011",
+        "025d81237189d5b1d2e6156882a3fa7b940b51d8b6ef8783c805569567bcfa86",
     ),
     (
         "bundles/verify",
-        "fbceddeb9c5713db6c1a62e9eebc50dc414b30f48cc2c2579aff44ce96c67681",
+        "634d129e52da2029340a98a4be54ae37ceea4230c987924804c829295958ff80",
     ),
 ];
 
@@ -1259,11 +1261,12 @@ fn a_composed_bundles_manifest_is_pinned() {
         // researcher's `web-search` and `web-fetch` definitions are pinned
         // as consulted. The `fast` layer's digest still does not move.
         // Rebuild unit 1's replay onto main at `072cdd9b` moves it with the
-        // v0.11.0 engine version and the 2026-09-22 roster's model maps. This
-        // value agrees with the `recipes/triage` pin in
+        // v0.11.0 engine version and the 2026-09-22 roster's model maps.
+        // Rebuild unit 5 moves it with the typed-migration command names
+        // the claude and LaneTally adapters gained. This value agrees with the `recipes/triage` pin in
         // `tests/witness_digests.rs`; both are the final tree's actual
         // compile.
-        "d888665eef786b4b21bf1f91ce80f8665214c1686909c5d61a6b1c9c1045efab",
+        "d9935b947e6ac434b2c68e0003dc1f7754ca02feb08a8d593daeba906bb34126",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

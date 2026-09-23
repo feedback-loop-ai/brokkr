@@ -253,36 +253,42 @@ fn workspace() -> PathBuf {
 /// the 2026-09-22 roster's claude and codex model maps (#320) now sit
 /// beside the slice's `native_capabilities` in the same adapter files.
 /// No charter, table or grant moved in the replay.
+/// Rebuild unit 5 moves the eight that pin the claude or LaneTally
+/// adapter: both gained the typed-migration command names (`npm`, `npx`,
+/// `node`, `gh-pr-view`, `gh-run-view`) in `tool_permissions.names`,
+/// which is adapter data those pins witness. `recipes/research-dsh` and
+/// `recipes/gpt-flash` pin neither adapter and keep their digests. No
+/// charter, table, recipe or grant moved.
 /// The values below are the final tree's actual compiles, never
 /// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "72b516cf043cb3ce3b6c7b162fdcc784e26d5972d436a4577300143a2f679f1c",
+        "97f759f63ba98a1ca3fee21486a1ca840d1abf2c216f96adb8ef9b45f10a97ff",
     ),
     (
         "recipes/node",
-        "b53b11053c2f8d2f39f1e5c5a931d02239a43dbafffed0c632cee55144421c2e",
+        "d838fe13094160c7663b1e659d2fc62edd3abc933cde4aef6d65af34a8a9ad9e",
     ),
     (
         "recipes/preflight",
-        "dfcf08235c9c8076c44031d8bff3055100863d7d68d57cfc5b85b37ec44bd304",
+        "1c5ad6bc1028f74c3e90631a1d2f425e83d8f769a8c81ac1dd33dcda889f1516",
     ),
     (
         "recipes/night-shift",
-        "b1eab2157c70f1a2eb45550eec6ce2fe1133e0eb49baa5d4fbcea9033eebf01d",
+        "212479ba2f241f881711ee044284815f590698071ffb035712167d2ae9c4d8c0",
     ),
     (
         "recipes/wager-harness",
-        "960338130dc905b5877522f958921c7d3a9de1a5936e70f57940d37dcff93089",
+        "012fa21202d1172e584dd7e5d2e4587607553019d3ea7301b7f170f4a3be1849",
     ),
     (
         "recipes/triage",
-        "d888665eef786b4b21bf1f91ce80f8665214c1686909c5d61a6b1c9c1045efab",
+        "d9935b947e6ac434b2c68e0003dc1f7754ca02feb08a8d593daeba906bb34126",
     ),
     (
         "recipes/research",
-        "ce0fd9f4a5f5802f2b3c4c1123c003f2c85e9bd7efa744b6f8d9aeeffdbf929c",
+        "5ca14e907f0c23f09c1fafe8b74a2509c56530460a2c7837d555a18dccca78e9",
     ),
     (
         "recipes/research-dsh",
@@ -294,7 +300,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "bundles/verify",
-        "fbceddeb9c5713db6c1a62e9eebc50dc414b30f48cc2c2579aff44ce96c67681",
+        "634d129e52da2029340a98a4be54ae37ceea4230c987924804c829295958ff80",
     ),
 ];
 

@@ -555,3 +555,176 @@ fn no_shipped_data_file_carries_a_secret_value() {
         }
     }
 }
+
+/// One harness's whole local command vocabulary: abstract name → the
+/// harness's own restriction pattern, in name order.
+fn tool_map(provider: &str) -> Vec<(String, String)> {
+    adapters()
+        .providers()
+        .find(|adapter| adapter.provider == provider)
+        .and_then(|adapter| adapter.tool_permissions.clone())
+        .map(|permissions| permissions.names.into_iter().collect())
+        .unwrap_or_default()
+}
+
+fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = entries
+        .iter()
+        .map(|(name, pattern)| (name.to_string(), pattern.to_string()))
+        .collect();
+    pairs.sort();
+    pairs
+}
+
+/// The local names the typed migration needs, shared by both Claude
+/// harnesses (decision 0065 rebuild unit 5, tasks 5.1 and 5.2): the node
+/// recipe's `npm`, `npx` and `node`, and the verify reviewer's two `gh`
+/// subcommands. Each `gh` name maps ONE subcommand's prefix — never the
+/// unrestricted `Bash(gh:*)` — so migrating the reviewer's inline list to
+/// typed names keeps exactly the reach it had.
+const MIGRATION_NAMES: [(&str, &str); 5] = [
+    ("npm", "Bash(npm:*)"),
+    ("npx", "Bash(npx:*)"),
+    ("node", "Bash(node:*)"),
+    ("gh-pr-view", "Bash(gh pr view:*)"),
+    ("gh-run-view", "Bash(gh run view:*)"),
+];
+
+/// Tasks 5.1 and 5.2: the Claude and LaneTally adapters map the migration
+/// names beside every name they mapped before, with each prefix exact.
+/// The whole map is compared, so a widened prefix, a dropped name or an
+/// added one fails here. LaneTally gains no native name: the only
+/// native-tool values in either map are Claude's two legacy aliases, which
+/// the resolver refuses as native aliases and never grants (SC7).
+#[test]
+fn the_claude_harnesses_map_the_migration_names_and_nothing_wider() {
+    let shared = [
+        ("cargo", "Bash(cargo:*)"),
+        ("git", "Bash(git:*)"),
+        ("python3", "Bash(python3:*)"),
+        ("pytest", "Bash(.venv/bin/pytest:*)"),
+        ("ls", "Bash(ls:*)"),
+        ("rg", "Bash(rg:*)"),
+        ("mkdir", "Bash(mkdir:*)"),
+        ("specify", "Bash(specify:*)"),
+    ];
+    let mut lanetally: Vec<(&str, &str)> = shared.to_vec();
+    lanetally.extend(MIGRATION_NAMES);
+    let mut claude = lanetally.clone();
+    claude.extend([
+        ("codex", "Bash(codex:*)"),
+        ("dsh", "Bash(dsh:*)"),
+        ("webfetch", "WebFetch"),
+        ("websearch", "WebSearch"),
+    ]);
+    assert_eq!(
+        (tool_map("claude"), tool_map("lanetally")),
+        (pairs(&claude), pairs(&lanetally))
+    );
+}
+
+/// A canonicalised temporary library holding one agent per migration
+/// allowance, each hired on Claude with LaneTally as its fallback.
+fn migration_library(root: &std::path::Path) -> Library {
+    let agents = root.join("agents");
+    std::fs::create_dir_all(agents.join("charters")).unwrap();
+    std::fs::write(agents.join("charters/probe.md"), "Probe charter.\n").unwrap();
+    for (name, allow) in [
+        (
+            "node-worker",
+            vec!["npm", "npx", "node", "git", "ls", "rg", "mkdir"],
+        ),
+        (
+            "verify-reviewer",
+            vec![
+                "cargo",
+                "git",
+                "python3",
+                "pytest",
+                "ls",
+                "rg",
+                "gh-pr-view",
+                "gh-run-view",
+            ],
+        ),
+    ] {
+        let definition = serde_json::json!({
+            "description": "Probes one typed migration allowance.",
+            "charter": "charters/probe.md",
+            "models": ["opus", "opus-tallied"],
+            "efforts": {"opus": "high", "opus-tallied": "high"},
+            "tools": {"allow": allow},
+        });
+        std::fs::write(
+            agents.join(format!("{name}.json")),
+            serde_json::to_vec_pretty(&definition).unwrap(),
+        )
+        .unwrap();
+    }
+    Library::load(&agents).expect("the migration library loads")
+}
+
+/// Tasks 5.1 and 5.2: a typed allowance written in the migration names
+/// lowers, on both harnesses, to exactly the inline `--allowedTools` value
+/// the shipped recipe it replaces carries at this head — `recipes/node`'s
+/// implement and review seats and `bundles/verify`'s reviewer — after the
+/// adapter's own `--permission-mode acceptEdits` template. Nothing else
+/// is composed: no native include, allow or deny list and no notice, so
+/// the local names add no capability.
+#[test]
+fn the_migration_allowances_lower_to_the_inline_lists_they_replace() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let library = migration_library(&root);
+    let adapters = adapters();
+    for (agent, limits) in [
+        (
+            "node-worker",
+            "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+        ),
+        (
+            "verify-reviewer",
+            concat!(
+                "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),",
+                "Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)"
+            ),
+        ),
+    ] {
+        let resolution = resolve_agent(&library, &adapters, &Availability::unspecified(), agent)
+            .unwrap_or_else(|e| panic!("{agent} must resolve: {e}"));
+        let argv: Vec<(&str, Vec<&str>)> = resolution
+            .candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    candidate.provider.as_str(),
+                    candidate.argv.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        let expected = |provider: &'static str| {
+            (
+                provider,
+                vec![
+                    "{brokkr}",
+                    "driver",
+                    provider,
+                    "--",
+                    "--permission-mode",
+                    "acceptEdits",
+                    "--model",
+                    "claude-opus-5-5",
+                    "--effort",
+                    "high",
+                    "--allowedTools",
+                    limits,
+                ],
+            )
+        };
+        assert_eq!(
+            (argv, resolution.notices.len()),
+            (vec![expected("claude"), expected("lanetally")], 0),
+            "{agent}"
+        );
+    }
+}

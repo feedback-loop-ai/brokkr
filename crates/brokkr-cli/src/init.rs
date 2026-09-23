@@ -386,8 +386,12 @@ const MKDIR: Tool = Tool {
 };
 
 /// The stack's own runners, one const per leading binary the two
-/// detection tables can name. Each is the `Bash(<bin>:*)` expression the
-/// shipped adapter vocabulary already carries for the same binary.
+/// detection tables can name, each as its `Bash(<bin>:*)` expression.
+/// Where the shipped Claude adapter maps the same name — `cargo`,
+/// `python3`, `pytest`, and `npm` and `npx` among the typed-migration
+/// names (decision 0065) — the expression is the shipped one, byte for
+/// byte; `bun`, `bunx`, `pnpm`, `yarn`, `uv`, `go` and `make` are the
+/// scaffold's own. `init_stacks` holds both halves of that sentence.
 const CARGO: Tool = Tool {
     name: "cargo",
     permission: "Bash(cargo:*)",

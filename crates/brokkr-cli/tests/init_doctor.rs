@@ -487,6 +487,76 @@ fn doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools(
     );
 }
 
+/// Scaffold into a fresh canonicalised root carrying one init-stacks
+/// fixture's markers (none for `None`), and return the implementer's
+/// generated `tools` and doctor's capability lines for the starter realm.
+#[cfg(unix)]
+fn scaffolded_capabilities(fixture: Option<&str>) -> (serde_json::Value, Vec<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    if let Some(fixture) = fixture {
+        let markers = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/init-stacks")
+            .join(fixture);
+        for entry in std::fs::read_dir(markers).unwrap() {
+            let marker = entry.unwrap().path();
+            std::fs::copy(&marker, root.join(marker.file_name().unwrap())).unwrap();
+        }
+    }
+    let (code, _, stderr) = brokkr(&["init", "."], &root);
+    assert_eq!(code, Some(0), "{fixture:?}: {stderr}");
+    let implementer: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("agents/implementer.json")).unwrap())
+            .unwrap();
+    let path = path_with_a_stand_in(&root, "claude");
+    let capabilities = doctor_lines(&root, &path)
+        .into_iter()
+        .filter(|line| line.contains(" capabilities starter"))
+        .filter(|line| !line.contains(" native exec:"))
+        .collect();
+    (implementer["tools"].clone(), capabilities)
+}
+
+/// Decision 0065 rebuild unit 5 (task 5.2): a scaffold whose agents carry
+/// generated typed restrictions reads through doctor exactly as the
+/// unrestricted scaffold does — the same "grants nothing" line and the same
+/// two Claude native lines, each switched off. `npm` and `npx` are the
+/// migration names the shipped adapters now map too; the scaffolded work
+/// agent lists the one its stack runs and nothing wider.
+#[cfg(unix)]
+#[test]
+fn doctor_reads_a_stacks_typed_restrictions_as_granting_nothing() {
+    // The control: no stack, no typed restriction, and the three lines
+    // the test above pins whole.
+    let (unrestricted, control) = scaffolded_capabilities(None);
+    let mut rows = vec![("unrestricted", unrestricted, control.first().cloned())];
+    let mut expected = vec![(
+        "unrestricted",
+        serde_json::Value::Null,
+        Some(
+            "ok       capabilities starter: grants nothing; every native capability is governed \
+             by the no-grant default — switched off, or the seat is refused"
+                .to_string(),
+        ),
+    )];
+    let mut lines = Vec::new();
+    for (fixture, runner) in [("node-npm", "npm"), ("turbo-plain", "npx")] {
+        let (tools, capabilities) = scaffolded_capabilities(Some(fixture));
+        rows.push((fixture, tools, None));
+        expected.push((
+            fixture,
+            serde_json::json!({"allow": [runner, "git", "ls", "rg", "mkdir"], "mcp": []}),
+            None,
+        ));
+        lines.push((fixture, capabilities));
+    }
+    assert_eq!(rows, expected);
+    assert_eq!(
+        lines,
+        [("node-npm", control.clone()), ("turbo-plain", control)]
+    );
+}
+
 /// Design D8: independent results survive an agent library that does not
 /// load. The library's failure is its own line, and the native lines —
 /// Claude's denials and generic exec's unmeasured reason — still print.
