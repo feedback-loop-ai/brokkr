@@ -1370,6 +1370,49 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
         origin.wrapper_digest, None,
         "a mistyped digest is missing evidence, never the older row's"
     );
+
+    // A mistyped newest locator or home is missing evidence too: the
+    // newest root is still the offer, and the mistyped coordinate reads
+    // `None` rather than the older row's while the other one stands.
+    for (field, value) in [("locator", json!(9)), ("home", json!(10))] {
+        let mut newer = coord(
+            "newer",
+            json!("2.0.0"),
+            json!("b".repeat(64)),
+            "sessions/brokkr/newer",
+            "/new/home",
+        );
+        newer["transcript"][field] = value;
+        let mut mistyped = journal(coord(
+            "older",
+            json!("1.0.0"),
+            json!("a".repeat(64)),
+            "sessions/brokkr/older",
+            "/old/home",
+        ));
+        mistyped.push(envelope(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "attempt_id":"a1", "checkpoint": newer}),
+            Some("a1"),
+        ));
+        let offered = offer_for_site(&mistyped, &key, &mine, "work", true, true, &started)
+            .expect("the newest root is still eligible");
+        assert_eq!(offered.provider_id, "newer", "{field}");
+        let (locator, home) = match field {
+            "locator" => (None, Some("/new/home")),
+            _ => (Some("sessions/brokkr/newer"), None),
+        };
+        assert_eq!(
+            offered.persistence_locator.as_deref(),
+            locator,
+            "a mistyped {field} is missing evidence, never the older row's"
+        );
+        assert_eq!(
+            offered.persistence_home.as_deref(),
+            home,
+            "a mistyped {field} is missing evidence, never the older row's"
+        );
+    }
 }
 
 /// The four topologies get four different keys, and every identity axis
@@ -1727,39 +1770,50 @@ fn a_valid_route_overlay_binds_at_the_panel_member() {
 }
 
 /// Every shape whose binding the engine withholds yields the SAME
-/// outcome — no `route_overlay` member — never a start failure. Each
-/// member of one panel carries one shape, and every member still starts
-/// and is sent its context.
+/// outcome — a private context carrying no `route_overlay` member — never
+/// a start failure. Each member of one panel carries one shape, on a
+/// canonical root, and every member still starts and is sent its context.
+/// Every value names bytes a lookup could find, so each shape is withheld
+/// by its own rule and not by a missing file: the shadow and the ancestor
+/// file are spelled `route.yml` beside a member of that name, the ancestor
+/// records its file in its own `files`, and the `..` value and the
+/// absolute `./` expansion both resolve to the member itself. The
+/// single-site half of "at either call site" is the nonmember case and
+/// the remaining-shape case below.
 #[test]
 fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
     let dir = tempfile::tempdir().unwrap();
-    let work = dir.path().join("work");
+    let root = dir.path().canonicalize().unwrap();
+    let work = root.join("work");
     let layer = work.join("recipe");
     let ancestor = work.join("base");
     std::fs::create_dir_all(&layer).unwrap();
     std::fs::create_dir_all(&ancestor).unwrap();
     let member_bytes = b"route: member\n";
+    let ancestor_bytes = b"route: ancestor\n";
     std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
     // A same-shaped file at the working-directory path, not inside the
     // layer: the shadow of the bundled path.
     std::fs::write(work.join("route.yml"), b"route: shadow\n").unwrap();
     // A file inside the layer the manifest does not record.
     std::fs::write(layer.join("other.yml"), b"route: other\n").unwrap();
-    // An ancestor layer's file, bindable only through that ancestor's
-    // aggregate digest.
-    std::fs::write(ancestor.join("ancestor.yml"), b"route: ancestor\n").unwrap();
+    // An ancestor layer's same-named file, recorded in that ancestor's
+    // own `files`.
+    std::fs::write(ancestor.join("route.yml"), ancestor_bytes).unwrap();
     // An in-layer symlink whose target resolves outside the layer but
     // inside the working directory.
     std::fs::write(work.join("outside.yml"), b"route: outside\n").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(work.join("outside.yml"), layer.join("link.yml")).unwrap();
 
+    // What `./route.yml` expands to in a compiled command (`bundle.rs`'s
+    // `dir.join(rel)`): already absolute.
     let absolute = layer.join("route.yml").display().to_string();
     let shapes: Vec<(&str, String)> = vec![
         ("nonmember", "recipe/other.yml".into()),
         ("shadow", "route.yml".into()),
-        ("ancestor", "base/ancestor.yml".into()),
-        ("traversal", "../escape.yml".into()),
+        ("ancestor", "base/route.yml".into()),
+        ("traversal", "../work/recipe/route.yml".into()),
         ("absolute", absolute),
     ];
     #[cfg(unix)]
@@ -1771,45 +1825,342 @@ fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
 
     let members: Vec<PanelMember> = shapes
         .iter()
-        .map(|(tag, value)| member(tag, patched(driver(dir.path(), tag, &["complete"]), value)))
+        .map(|(tag, value)| member(tag, patched(driver(&root, tag, &["complete"]), value)))
         .collect();
     let mut seats = BTreeMap::new();
     seats.insert("work".into(), seat(panel(members), &["complete"], 1));
     seats.insert(
         "review".into(),
         seat(
-            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            single(driver(&root, "review", &["clean"]), Vec::new()),
             &["clean"],
             1,
         ),
     );
     let mut bundle = bundle(&layer, seats);
     bundle.roots = vec![layer.clone(), ancestor.clone()];
+    let mut ancestor_files = serde_json::Map::new();
+    ancestor_files.insert("route.yml".into(), json!(overlay_digest(ancestor_bytes)));
     bundle.chain = vec![crate::Ancestor {
         name: "base".into(),
         reached_as: None,
         dir: ancestor.clone(),
         digest: "c".repeat(64),
-        files: serde_json::Map::new(),
+        files: ancestor_files,
     }];
     // The manifest records only the real member, so the shadow, the
     // nonmember and the ancestor file are all non-members.
     bundle.manifest["files"] = json!({ "route.yml": overlay_digest(member_bytes) });
 
-    run(dir.path(), bundle);
+    run(&root, bundle);
 
+    let mut bound = Vec::new();
     for (tag, _) in &shapes {
-        let binding = route_binding(dir.path(), tag);
+        let context = route_start(&root, tag)["input"]["resume_context"].clone();
         assert!(
-            binding.is_null() || binding.get("value").is_none(),
-            "{tag}: a non-binding --patch must carry no route_overlay, got {binding}"
+            context.is_object(),
+            "{tag}: the panel member still receives its private context, got {context}"
         );
+        if let Some(binding) = context.get("route_overlay") {
+            bound.push((*tag, binding.clone()));
+        }
     }
+    assert_eq!(
+        bound,
+        Vec::<(&str, Value)>::new(),
+        "a non-binding --patch must carry no route_overlay at the panel member"
+    );
+}
+
+/// The SINGLE site withholds the member for the same shapes. The panel
+/// case above drives all six through `MemberRun`; this one drives the
+/// nonmember — a file inside the compiled layer the manifest does not
+/// record — through `run_driver`, so the withholding half of the clause
+/// is proved at either call site rather than at one. The site still
+/// receives its private context: withholding is a missing member, never
+/// a missing context and never a start failure.
+#[test]
+fn a_non_binding_route_overlay_withholds_the_member_at_the_single_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let layer = root.join("work").join("recipe");
+    let member_bytes = b"route: member\n";
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
+    // A file inside the layer the manifest does not record.
+    std::fs::write(layer.join("other.yml"), b"route: other\n").unwrap();
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            single(
+                patched(driver(&root, "work", &["complete"]), "recipe/other.yml"),
+                Vec::new(),
+            ),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": overlay_digest(member_bytes) });
+
+    run(&root, bundle);
+
+    let context = route_start(&root, "work")["input"]["resume_context"].clone();
+    assert!(
+        context.is_object(),
+        "the single site still receives its private context, got {context}"
+    );
+    assert_eq!(
+        context.get("route_overlay"),
+        None,
+        "a nonmember --patch must carry no route_overlay at the single site, got {context}"
+    );
+}
+
+/// The remaining non-binding shapes at the SINGLE site (B38(ii)), each
+/// driven through `run_driver` in a run of its own on a canonical root.
+/// Every value names bytes a lookup could find: the shadow and the
+/// ancestor file are spelled `route.yml` beside a member of that name,
+/// the ancestor records its file in its own `files`, and the `..` value
+/// and the absolute `./` expansion both resolve to the member itself —
+/// so each is withheld by the rule for its shape, not by a missing file.
+/// Each shape that nevertheless carries a `route_overlay` is collected
+/// with it, and the assertion is that none does.
+#[test]
+fn every_remaining_non_binding_shape_is_withheld_at_the_single_site() {
+    let member_bytes = b"route: member\n";
+    let ancestor_bytes = b"route: ancestor\n";
+    let shapes = [
+        ("shadow", "route.yml"),
+        ("ancestor", "base/route.yml"),
+        ("traversal", "../work/recipe/route.yml"),
+        ("absolute", ""),
+    ];
+    let mut bound = Vec::new();
+    for (shape, spelled) in shapes {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let work = root.join("work");
+        let layer = work.join("recipe");
+        let ancestor = work.join("base");
+        std::fs::create_dir_all(&layer).unwrap();
+        std::fs::create_dir_all(&ancestor).unwrap();
+        std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
+        // The working-directory shadow of the bundled path.
+        std::fs::write(work.join("route.yml"), b"route: shadow\n").unwrap();
+        // An ancestor layer's same-named file.
+        std::fs::write(ancestor.join("route.yml"), ancestor_bytes).unwrap();
+        // What `./route.yml` expands to in a compiled command
+        // (`bundle.rs`'s `dir.join(rel)`): already absolute.
+        let value = match shape {
+            "absolute" => layer.join("route.yml").display().to_string(),
+            _ => spelled.to_string(),
+        };
+
+        let mut seats = BTreeMap::new();
+        seats.insert(
+            "work".into(),
+            seat(
+                single(
+                    patched(driver(&root, "work", &["complete"]), &value),
+                    Vec::new(),
+                ),
+                &["complete"],
+                1,
+            ),
+        );
+        seats.insert(
+            "review".into(),
+            seat(
+                single(driver(&root, "review", &["clean"]), Vec::new()),
+                &["clean"],
+                1,
+            ),
+        );
+        let mut bundle = bundle(&layer, seats);
+        bundle.roots = vec![layer.clone(), ancestor.clone()];
+        let mut ancestor_files = serde_json::Map::new();
+        ancestor_files.insert("route.yml".into(), json!(overlay_digest(ancestor_bytes)));
+        bundle.chain = vec![crate::Ancestor {
+            name: "base".into(),
+            reached_as: None,
+            dir: ancestor.clone(),
+            digest: "c".repeat(64),
+            files: ancestor_files,
+        }];
+        bundle.manifest["files"] = json!({ "route.yml": overlay_digest(member_bytes) });
+
+        run(&root, bundle);
+
+        let context = route_start(&root, "work")["input"]["resume_context"].clone();
+        assert!(
+            context.is_object(),
+            "{shape}: the single site still receives its private context, got {context}"
+        );
+        if let Some(binding) = context.get("route_overlay") {
+            bound.push((shape, binding.clone()));
+        }
+    }
+    assert_eq!(
+        bound,
+        Vec::<(&str, Value)>::new(),
+        "a non-binding --patch must carry no route_overlay at the single site"
+    );
+}
+
+/// The escaping symlink as a COMPILED member (B38(ii)). The symlink case
+/// in the panel above is refused for being absent from the manifest, so
+/// it cannot show that membership alone never authorizes a path whose
+/// resolution leaves the layer. Here `recipe/link.yml` sits inside the
+/// layer, resolves to `work/outside.yml` — outside the layer, inside the
+/// working directory — and is listed in `files` with the digest of the
+/// bytes it reaches, beside the real member. Returns the canonical layer
+/// and the manifest `files` object, after asserting the fixture is the
+/// shape the clause names.
+#[cfg(unix)]
+fn escaping_member_layer(root: &Path) -> (std::path::PathBuf, Value) {
+    let work = root.join("work");
+    let layer = work.join("recipe");
+    std::fs::create_dir_all(&layer).unwrap();
+    let member_bytes = b"route: member\n";
+    let outside_bytes = b"route: outside\n";
+    std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
+    std::fs::write(work.join("outside.yml"), outside_bytes).unwrap();
+    std::os::unix::fs::symlink(work.join("outside.yml"), layer.join("link.yml")).unwrap();
+
+    assert!(std::fs::symlink_metadata(layer.join("link.yml"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    let resolved = std::fs::canonicalize(layer.join("link.yml")).unwrap();
+    assert_eq!(resolved, work.join("outside.yml"));
+    assert!(!resolved.starts_with(&layer));
+
+    let files = json!({
+        "route.yml": overlay_digest(member_bytes),
+        "link.yml": overlay_digest(outside_bytes),
+    });
+    (layer, files)
+}
+
+/// The compiled escaping member receives no binding at the SINGLE site:
+/// the context arrives, carrying no `route_overlay`, although `link.yml`
+/// has a `files` entry the lookup would find.
+#[cfg(unix)]
+#[test]
+fn an_escaping_symlink_member_is_withheld_at_the_single_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (layer, files) = escaping_member_layer(&root);
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            single(
+                patched(driver(&root, "work", &["complete"]), "recipe/link.yml"),
+                Vec::new(),
+            ),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = files;
+
+    run(&root, bundle);
+
+    let context = route_start(&root, "work")["input"]["resume_context"].clone();
+    assert!(
+        context.is_object(),
+        "the single site still receives its private context, got {context}"
+    );
+    assert_eq!(
+        context.get("route_overlay"),
+        None,
+        "a member whose resolution leaves the layer must carry no route_overlay, got {context}"
+    );
+}
+
+/// The same compiled escaping member at the PANEL-MEMBER call site,
+/// beside a sibling carrying the real member, which binds: the run
+/// composes a binding where one is due, and withholds only the escape.
+#[cfg(unix)]
+#[test]
+fn an_escaping_symlink_member_is_withheld_at_the_panel_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (layer, files) = escaping_member_layer(&root);
+    let member_digest = files["route.yml"].clone();
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![
+                member(
+                    "alpha",
+                    patched(driver(&root, "alpha", &["complete"]), "recipe/route.yml"),
+                ),
+                member(
+                    "escape",
+                    patched(driver(&root, "escape", &["complete"]), "recipe/link.yml"),
+                ),
+            ]),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = files;
+
+    run(&root, bundle);
+
+    let bound = route_binding(&root, "alpha");
+    assert_eq!(bound["value"], "recipe/route.yml");
+    assert_eq!(bound["digest"], member_digest);
+    let context = route_start(&root, "escape")["input"]["resume_context"].clone();
+    assert!(
+        context.is_object(),
+        "the panel member still receives its private context, got {context}"
+    );
+    assert_eq!(
+        context.get("route_overlay"),
+        None,
+        "a member whose resolution leaves the layer must carry no route_overlay, got {context}"
+    );
 }
 
 /// A member whose bytes changed after compilation still binds with the
 /// MANIFEST's recorded digest, never a fresh hash of the resolved file:
 /// the adapter's required comparison is what refuses the new bytes.
+/// Driven at the single site here and at the panel member below.
 #[test]
 fn a_changed_route_overlay_member_carries_the_manifest_digest() {
     let dir = tempfile::tempdir().unwrap();
@@ -1854,6 +2205,56 @@ fn a_changed_route_overlay_member_carries_the_manifest_digest() {
         "the carried digest is the manifest's, never a hash of the changed file"
     );
     assert_ne!(binding["digest"], overlay_digest(b"route: after\n"));
+}
+
+/// The same changed member at the PANEL-MEMBER call site, from that
+/// member's own composed argv: the carried digest is still the
+/// manifest's, and still not the hash of the bytes now on disk — read
+/// here off the resolved file rather than off a literal, so the
+/// `assert_ne!` compares against what the engine would have hashed.
+#[test]
+fn a_changed_route_overlay_member_carries_the_manifest_digest_at_the_panel_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let layer = root.join("work").join("recipe");
+    std::fs::create_dir_all(&layer).unwrap();
+    let compiled = b"route: panel before\n";
+    let compiled_digest = overlay_digest(compiled);
+    std::fs::write(layer.join("route.yml"), b"route: panel after\n").unwrap();
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![member(
+                "alpha",
+                patched(driver(&root, "alpha", &["complete"]), "recipe/route.yml"),
+            )]),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": compiled_digest.clone() });
+
+    run(&root, bundle);
+
+    let resolved = overlay_digest(&std::fs::read(layer.join("route.yml")).unwrap());
+    let binding = route_binding(&root, "alpha");
+    assert_eq!(binding["value"], "recipe/route.yml");
+    assert_eq!(
+        binding["digest"], compiled_digest,
+        "the member's carried digest is the manifest's, never a hash of the changed file"
+    );
+    assert_ne!(binding["digest"], resolved);
 }
 
 /// The binding is present on an OFFERED start exactly as on a cold one:
@@ -1920,6 +2321,63 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
     }
 }
 
+/// The binding is present on an OFFERED start at the PANEL-MEMBER call
+/// site too. The panel positive above is a cold first start, and the
+/// offered positive above rides the single site; here the member is sent
+/// back into by the phase machine's re-entry and offered the session its
+/// first start opened, and both of its starts carry the same member and
+/// the manifest's recorded digest.
+#[test]
+fn a_valid_route_overlay_binds_on_an_offered_panel_member_start_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let layer = root.join("work").join("recipe");
+    let bytes = b"route: offered panel\n";
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::write(layer.join("route.yml"), bytes).unwrap();
+    let digest = overlay_digest(bytes);
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![member(
+                "alpha",
+                patched(model_driver(&root, "alpha", &["pass"]), "recipe/route.yml"),
+            )]),
+            &["pass", "fail"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["residual", "clean"]), Vec::new()),
+            &["residual", "clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.machine = panel_machine();
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+
+    run(&root, bundle);
+
+    let received = received(&root, "alpha");
+    assert_eq!(
+        offers(&received),
+        [None, Some("alpha-1".into())],
+        "the member's re-entry is the offered start"
+    );
+    let bindings: Vec<Value> = received
+        .iter()
+        .filter(|message| message["type"] == "start")
+        .map(|start| start["input"]["resume_context"]["route_overlay"].clone())
+        .collect();
+    let expected = json!({ "value": "recipe/route.yml", "digest": digest });
+    assert_eq!(bindings, [expected.clone(), expected]);
+}
+
 // ---------------------------------------------------------------------------
 // The engine-side originating-home carrier (design D6, Pass B completion;
 // 8.10). The private `owned_target` at the offered start carries the
@@ -1930,23 +2388,174 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
 // two `Start.input`s.
 // ---------------------------------------------------------------------------
 
+/// A spelling no other fixture byte carries, inside every value of the
+/// marked route below, so a copy of the route's CONTENT under any field
+/// name is found by one search.
+const ROUTE_MARKER: &str = "route4amarker";
+
+/// A valid DSH route document (the reader's grammar for a
+/// `deepseek/deepseek-v4-flash` pin; `adapters/tests.rs` validates the
+/// same bytes) whose display name, key variable and endpoint all carry
+/// the marker, written as the compiled leaf layer's `route.yml` under the
+/// root's working directory. Returns the layer and the manifest digest.
+fn marked_route_layer(root: &Path) -> (PathBuf, String) {
+    let layer = root.join("work").join("recipe");
+    std::fs::create_dir_all(&layer).unwrap();
+    let bytes = format!(
+        "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        \
+         displayName: {ROUTE_MARKER}\n        apiKeyEnv: ROUTE4AMARKER_KEY\n        \
+         baseURL: https://{ROUTE_MARKER}.example/v1\n        models:\n          \
+         - id: deepseek-v4-flash\n            reasoningEfforts:\n              \
+         medium: medium\n"
+    );
+    std::fs::write(layer.join("route.yml"), &bytes).unwrap();
+    (layer, overlay_digest(bytes.as_bytes()))
+}
+
+/// Task 8.8(d)/8.10 (4993–4995, 5251–5254): no route byte, no binding and
+/// no private carrier reaches the journal. Every event is read, the
+/// launch rows included. The one sanctioned copy of the file's provenance
+/// is the pinned manifest's `files` entry, which the bundle digest already
+/// covers (adapter-resume-safety spec, route overlay scenario); it is
+/// asserted exactly and then taken out before the search.
+fn assert_journal_free_of_route_and_carriers(events: &[EventEnvelope], layer: &Path, digest: &str) {
+    let needles = route_and_carrier_needles(layer, digest);
+    for event in events {
+        let mut payload = event.payload.clone();
+        if event.event_type == EventType::RunStarted {
+            assert_eq!(payload["manifest"]["files"]["route.yml"], digest);
+            payload["manifest"]["files"]
+                .as_object_mut()
+                .unwrap()
+                .remove("route.yml");
+        }
+        // A string field (an error's stderr tail) escapes the quotes of a
+        // carrier it copied; the search reads it unescaped as well.
+        let text = serde_json::to_string(&payload)
+            .unwrap()
+            .replace("\\\"", "\"")
+            .to_lowercase();
+        for needle in &needles {
+            assert_eq!(
+                text.find(&needle.to_lowercase()),
+                None,
+                "{:?} (seq {}) carries {needle}: {text}",
+                event.event_type,
+                event.seq
+            );
+        }
+    }
+}
+
+/// What no surface a bound route's attempt emits may carry: the route's
+/// distinctive content, its argv value, its file path, its digest, and
+/// every member of the private start context. Matched case-insensitively.
+fn route_and_carrier_needles(layer: &Path, digest: &str) -> Vec<String> {
+    let route_file = layer.join("route.yml").display().to_string();
+    vec![
+        ROUTE_MARKER.to_string(),
+        "recipe/route.yml".to_string(),
+        route_file,
+        digest.to_string(),
+        "\"resume_context\"".to_string(),
+        "\"route_overlay\"".to_string(),
+        "\"owned_target\"".to_string(),
+        "\"assessment\"".to_string(),
+        "\"originating_harness_version\"".to_string(),
+        "\"originating_wrapper_digest\"".to_string(),
+        "\"persistence_home\"".to_string(),
+        "\"persistence_locator\"".to_string(),
+    ]
+}
+
+/// The journaled launch rows of one DSH site, in journal order: the
+/// `harness-started` checkpoints whose root is a `dsh-session`.
+fn dsh_launch_rows(events: &[EventEnvelope]) -> Vec<(String, Value)> {
+    events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .filter(|event| {
+            event.payload["checkpoint"]["step"] == "harness-started"
+                && event.payload["checkpoint"]["root_session"]["kind"] == "dsh-session"
+        })
+        .map(|event| {
+            (
+                event.attempt_id.clone().unwrap_or_default(),
+                event.payload["checkpoint"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// B30's third predicate on the attempt the offered start belongs to: its
+/// journaled launch row keeps the confirmed `root_session` and
+/// `transcript` exactly as the driver published them, and carries none
+/// of the private start context's members.
+fn assert_offered_launch_row_retained(
+    events: &[EventEnvelope],
+    offered: &Value,
+    tag: &str,
+    locator: &str,
+    home: &str,
+) {
+    let attempt = offered["attempt_id"].as_str().unwrap();
+    let rows = dsh_launch_rows(events);
+    let row = rows
+        .iter()
+        .find(|(id, _)| id == attempt)
+        .map(|(_, row)| row)
+        .unwrap_or_else(|| panic!("the offered attempt journaled no launch row: {rows:?}"));
+    assert_eq!(
+        row["root_session"],
+        json!({
+            "kind": "dsh-session",
+            "id": format!("{tag}-2"),
+            "harness_version": "0.1.5-rc.1",
+            "wrapper_digest": "a".repeat(64),
+            "persistent": true,
+        }),
+        "the confirmed root is retained: {row}"
+    );
+    assert_eq!(
+        row["transcript"],
+        json!({"kind": "dsh-session", "locator": locator, "home": home}),
+        "the confirmed address is retained: {row}"
+    );
+    for member in [
+        "resume_context",
+        "owned_target",
+        "assessment",
+        "route_overlay",
+    ] {
+        assert_eq!(
+            row.get(member),
+            None,
+            "launch evidence carries {member}: {row}"
+        );
+    }
+}
+
 /// The recorded home rides beside the id and locator at the SINGLE site.
 /// The first attempt is cold and carries no `owned_target`; the retry is
 /// offered the confirmed root and its complete three-coordinate address.
+///
+/// Unit 4a: the seat also carries a bound route whose every value spells
+/// a marker. The offered start's private context holds the binding, the
+/// owned target and the assessment; the journal — the launch row of that
+/// attempt included — holds none of them, and the launch row keeps its
+/// confirmed `root_session` and `transcript`.
 #[test]
 fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("dsh-home");
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("dsh-home");
     std::fs::create_dir_all(&home).unwrap();
     let home_text = home.display().to_string();
     let locator = "sessions/brokkr/seat-1";
-    let argv = dsh_model_driver(
-        dir.path(),
-        "work",
-        &["fail", "complete"],
-        locator,
-        &home_text,
-        2,
+    let (layer, digest) = marked_route_layer(&root);
+    let argv = patched(
+        dsh_model_driver(&root, "work", &["fail", "complete"], locator, &home_text, 2),
+        "recipe/route.yml",
     );
     let candidate = Candidate {
         agent: "implementer".into(),
@@ -1969,22 +2578,34 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
     seats.insert(
         "review".into(),
         seat(
-            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            single(driver(&root, "review", &["clean"]), Vec::new()),
             &["clean"],
             1,
         ),
     );
-    run(dir.path(), bundle(dir.path(), seats));
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    let events = run(&root, bundle);
 
-    let starts: Vec<Value> = received(dir.path(), "work")
+    let starts: Vec<Value> = received(&root, "work")
         .into_iter()
         .filter(|message| message["type"] == "start")
         .collect();
     assert_eq!(starts.len(), 2, "the failing first attempt is retried");
     assert_eq!(
-        offers(&received(dir.path(), "work")),
+        offers(&received(&root, "work")),
         [None, Some("work-1".into())]
     );
+    // The carriers exist where they belong — the private start context of
+    // the offered attempt — so their absence below is an exclusion.
+    let private = &starts[1]["input"]["resume_context"];
+    assert_eq!(
+        private["route_overlay"],
+        json!({"value": "recipe/route.yml", "digest": digest})
+    );
+    assert_eq!(private["owned_target"]["provider_id"], "work-1");
+    assert_offered_launch_row_retained(&events, &starts[1], "work", locator, &home_text);
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
     assert!(
         starts[0]["input"]["resume_context"]
             .get("owned_target")
@@ -2034,15 +2655,22 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
 }
 
 /// The same complete address travels at the PANEL-MEMBER call site, from
-/// that member's own confirmed checkpoint rather than the panel's.
+/// that member's own confirmed checkpoint rather than the panel's — and,
+/// under unit 4a, the same exclusion and retention hold for the member's
+/// bound route, its launch row and the whole journal.
 #[test]
 fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("dsh-home");
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("dsh-home");
     std::fs::create_dir_all(&home).unwrap();
     let home_text = home.display().to_string();
     let locator = "sessions/brokkr/alpha";
-    let argv = dsh_model_driver(dir.path(), "alpha", &["pass"], locator, &home_text, 2);
+    let (layer, digest) = marked_route_layer(&root);
+    let argv = patched(
+        dsh_model_driver(&root, "alpha", &["pass"], locator, &home_text, 2),
+        "recipe/route.yml",
+    );
     let mut alpha = member("alpha", argv.clone());
     // Task 8.8(a): the panel member's own SELECTED declaration, so the
     // second production `start_context` call site is read too.
@@ -2065,26 +2693,35 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         "review".into(),
         seat(
             single(
-                model_driver(dir.path(), "review", &["residual", "clean"]),
+                model_driver(&root, "review", &["residual", "clean"]),
                 Vec::new(),
             ),
             &["residual", "clean"],
             1,
         ),
     );
-    let mut bundle = bundle(dir.path(), seats);
+    let mut bundle = bundle(&layer, seats);
     bundle.machine = panel_machine();
-    run(dir.path(), bundle);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    let events = run(&root, bundle);
 
-    let starts: Vec<Value> = received(dir.path(), "alpha")
+    let starts: Vec<Value> = received(&root, "alpha")
         .into_iter()
         .filter(|message| message["type"] == "start")
         .collect();
     assert_eq!(starts.len(), 2, "the panel is re-entered once");
     assert_eq!(
-        offers(&received(dir.path(), "alpha")),
+        offers(&received(&root, "alpha")),
         [None, Some("alpha-1".into())]
     );
+    let private = &starts[1]["input"]["resume_context"];
+    assert_eq!(
+        private["route_overlay"],
+        json!({"value": "recipe/route.yml", "digest": digest})
+    );
+    assert_eq!(private["owned_target"]["provider_id"], "alpha-1");
+    assert_offered_launch_row_retained(&events, &starts[1], "alpha", locator, &home_text);
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
     assert!(starts[0]["input"]["resume_context"]
         .get("owned_target")
         .is_none());
@@ -2108,6 +2745,802 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
                 ["wrapper_digest"],
             "d".repeat(64),
             "the panel member's selected declaration: {start}"
+        );
+    }
+}
+
+/// Set in the environment of this suite's own binary when the engine
+/// spawns it as a driver: the case below then serves the production DSH
+/// adapter on its stdin and stdout instead of running as a test.
+#[cfg(unix)]
+const SERVE_DSH: &str = "BROKKR_RESUME_TESTS_SERVE_DSH";
+
+/// The one line libtest writes to stdout ahead of the served protocol when
+/// this suite's binary runs one case quietly; the process exits before
+/// libtest could write its summary.
+#[cfg(unix)]
+const HARNESS_LINE: &str = "running 1 test";
+
+/// Set, to a file path, in the environment of this suite's own binary
+/// when a case below spawns it to MEASURE a DSH install: it resolves the
+/// seams and computes the composite through production's own resolver and
+/// producer, under exactly the environment the served adapter gets, and
+/// writes the canonical value (or the refusal) to that file.
+#[cfg(unix)]
+const MEASURE_DSH: &str = "BROKKR_RESUME_TESTS_MEASURE_DSH";
+
+/// The roles this suite's binary plays when a case spawns it: the served
+/// production DSH adapter, or the production measurement of an install.
+/// A binary run as a test returns from here and runs the case.
+#[cfg(unix)]
+fn serve_dsh_when_spawned() {
+    if std::env::var_os(SERVE_DSH).is_some() {
+        let extra = std::env::var(format!("{SERVE_DSH}_EXTRA")).unwrap();
+        let extra = extra.split(' ').map(str::to_string).collect();
+        let served =
+            brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind::Dsh, extra);
+        // Nothing of the harness may follow the protocol on stdout.
+        std::process::exit(if served.is_ok() { 0 } else { 70 });
+    }
+    if let Some(out) = std::env::var_os(MEASURE_DSH) {
+        let measured = brokkr_protocol::adapters::DshSeams::resolve()
+            .and_then(|seams| brokkr_protocol::adapters::dsh_composite(&seams))
+            .map_or_else(
+                |error| format!("refused: {error}"),
+                |composite| composite.canonical().to_string(),
+            );
+        std::fs::write(out, measured).unwrap();
+        std::process::exit(0);
+    }
+}
+
+/// Unit 4a, the seam the two halves meet at (review of `e428ad23`, C1 +
+/// SEC-1): the engine drives the REAL DSH adapter — production's
+/// `adapters::serve`, spawned as this very test binary — on a seat whose
+/// `--patch` route binds, and the journal that attempt appends is read.
+/// The gate is closed, as it ships, so this is the cold route production
+/// runs today. The first attempt fails with stderr, so the stderr tail the
+/// engine journals on a failed attempt is read too; the retry succeeds.
+///
+/// The route reaches the child on both attempts, and the private context
+/// the driver was started with holds the binding and the assessment; the
+/// journal — each launch row, the failed attempt's stderr tail, every
+/// other event — carries none of the route's content, its path, its
+/// digest, the binding or a private carrier, and the stderr tail is
+/// exactly the child's own bytes. The adapter's stdout reaches the engine
+/// whole but for libtest's one announcement line, and that raw stream is
+/// searched too, so a disclosure the adapter prints outside the protocol
+/// is neither filtered away nor missed.
+#[cfg(unix)]
+#[test]
+fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
+    serve_dsh_when_spawned();
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("dsh-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let (layer, digest) = marked_route_layer(&root);
+    // The dsh child the adapter launches as `dsh --profile headless
+    // --patch <overlay> <prompt>`: it keeps the overlay it was handed,
+    // writes one stderr line, and fails its first invocation without a
+    // result; the second writes the result the prompt names.
+    let dsh = root.join("dsh");
+    std::fs::write(
+        &dsh,
+        format!(
+            "#!/bin/sh\n\
+             n=$(cat '{count}' 2>/dev/null || echo 0)\n\
+             n=$((n+1))\n\
+             printf '%s' \"$n\" > '{count}'\n\
+             cp \"$4\" '{seen}'-\"$n\"\n\
+             printf 'dsh child %s wrote this\\n' \"$n\" >&2\n\
+             [ \"$n\" = 1 ] && exit 3\n\
+             result=$(printf '%s\\n' \"$5\" | grep '/.forge/results/' | head -n 1 | sed 's/^ *//')\n\
+             printf '{{\"result\":\"complete\"}}' > \"$result\"\n",
+            count = root.join("dsh.count").display(),
+            seen = root.join("seen").display(),
+        ),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dsh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    // The driver: this binary, filtered to this case, in the serving role.
+    // Its stdin is logged the way the shim drivers' is, so the start it
+    // was sent can be read back. Its whole stdout is kept as it left the
+    // process, and the one line the harness announces itself with is the
+    // only line taken out before the engine reads it: anything else the
+    // adapter writes — protocol or not — reaches the engine, which
+    // journals an unreadable line in its failure (review of `f5895001`,
+    // SEC-2).
+    let this = format!(
+        "{}::the_real_dsh_driver_journals_no_route_byte_and_no_carrier",
+        module_path!().split_once("::").unwrap().1
+    );
+    let script = format!(
+        "unset DSH_PERMISSION_MODE\n\
+         tee -a '{log}' | {SERVE_DSH}=1 {SERVE_DSH}_EXTRA=\"$*\" DSH_HOME='{home}' \
+         HOME='{root}' BROKKR_DSH_BIN='{dsh}' '{exe}' '{this}' --exact --nocapture \
+         --test-threads=1 -q | tee -a '{raw}' | grep --line-buffered -v -x '{HARNESS_LINE}'\n",
+        log = root.join("work.log").display(),
+        raw = root.join("work.stdout").display(),
+        home = home.display(),
+        root = root.display(),
+        dsh = dsh.display(),
+        exe = std::env::current_exe().unwrap().display(),
+    );
+    let argv: Vec<String> = [
+        "sh",
+        "-c",
+        &script,
+        "sh",
+        "--model",
+        "deepseek/deepseek-v4-flash",
+        "--patch",
+        "recipe/route.yml",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    // The shipped declaration, read by the production loader: `unmeasured`,
+    // so the adapter's gate is closed and it runs the shipped cold route.
+    let shipped = crate::Adapters::load(&workspace_root().join("adapters"))
+        .expect("the shipped adapters load")
+        .adapter("dsh")
+        .expect("the shipped dsh adapter")
+        .resume
+        .clone();
+    let candidate = Candidate {
+        agent: "implementer".into(),
+        model: "deepseek/deepseek-v4-flash".into(),
+        effort: None,
+        provider: "dsh".into(),
+        argv: argv.clone(),
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume: shipped,
+    };
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(single(argv, vec![candidate]), &["complete"], 2),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    let events = run(&root, bundle);
+
+    // The journal first, before any assertion that presumes the attempts
+    // went well: a disclosure that also breaks the protocol is still named
+    // here, as a disclosure. Every surface searched is asserted to exist
+    // below, so this search is not run over nothing.
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
+
+    // The adapter's whole stdout, as it left the process on both attempts:
+    // the harness line is all that was taken out, every other line is a
+    // protocol message, and none of it carries the route or a carrier.
+    let raw = std::fs::read_to_string(root.join("work.stdout")).unwrap();
+    let dropped: Vec<&str> = raw.lines().filter(|line| !line.starts_with('{')).collect();
+    assert_eq!(dropped, ["", HARNESS_LINE, "", HARNESS_LINE], "{raw}");
+    for line in raw.lines().filter(|line| line.starts_with('{')) {
+        let message: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(message["proto"], "forge-driver/v1", "{line}");
+    }
+    let lowered = raw.to_lowercase();
+    for needle in route_and_carrier_needles(&layer, &digest) {
+        assert_eq!(
+            lowered.find(&needle.to_lowercase()),
+            None,
+            "the adapter's stdout carries {needle}: {raw}"
+        );
+    }
+
+    // Both attempts ran the real adapter, which bound the route and handed
+    // it to the child.
+    let starts: Vec<Value> = received(&root, "work")
+        .into_iter()
+        .filter(|message| message["type"] == "start")
+        .collect();
+    assert_eq!(starts.len(), 2, "the failing first attempt is retried");
+    for (index, start) in starts.iter().enumerate() {
+        let private = &start["input"]["resume_context"];
+        assert_eq!(
+            private["route_overlay"],
+            json!({"value": "recipe/route.yml", "digest": digest}),
+            "start {index}"
+        );
+        assert_eq!(
+            private["assessment"]["headless-work"]["status"], "unmeasured",
+            "start {index}: {private}"
+        );
+        let handed = std::fs::read_to_string(root.join(format!("seen-{}", index + 1))).unwrap();
+        assert_eq!(handed.matches(ROUTE_MARKER).count(), 2, "{handed}");
+    }
+
+    // The two attempts, as journaled: a launch row each, the first failed
+    // with a stderr tail and the second succeeded — the surfaces the
+    // exclusion above was read over.
+    let attempts: Vec<&str> = starts
+        .iter()
+        .map(|start| start["attempt_id"].as_str().unwrap())
+        .collect();
+    let launch_rows = |attempt: &str| -> Vec<Value> {
+        events
+            .iter()
+            .filter(|event| event.attempt_id.as_deref() == Some(attempt))
+            .filter(|event| event.event_type == EventType::EffectCheckpointed)
+            .map(|event| event.payload["checkpoint"].clone())
+            .filter(|row| row["step"] == "harness-started")
+            .collect()
+    };
+    for attempt in &attempts {
+        assert_eq!(launch_rows(attempt).len(), 1, "{attempt}: one launch row");
+    }
+    let failed: Vec<&EventEnvelope> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectFailed)
+        .collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed[0].attempt_id.as_deref(), Some(attempts[0]));
+    assert!(
+        failed[0].payload["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("; stderr tail: ")),
+        "the failed attempt journals a stderr tail: {}",
+        failed[0].payload
+    );
+    assert!(
+        events.iter().any(|event| {
+            event.event_type == EventType::EffectSucceeded
+                && event.attempt_id.as_deref() == Some(attempts[1])
+        }),
+        "the retry succeeded"
+    );
+
+    // And each is exactly what the adapter and the engine own: the stderr
+    // tail is the child's own line, nothing added, and the launch row is
+    // the shipped route's vocabulary plus the engine's three stamps, whose
+    // two references are hashes.
+    assert_eq!(
+        failed[0].payload["error"],
+        "agent CLI exited 3; stderr tail: dsh child 1 wrote this\n"
+    );
+    for attempt in &attempts {
+        let rows = launch_rows(attempt);
+        let mut row = rows[0].clone();
+        for stamp in ["site_ref", "instance_ref"] {
+            let value = row.as_object_mut().unwrap().remove(stamp);
+            assert_eq!(
+                value.as_ref().and_then(Value::as_str).map(str::len),
+                Some(64),
+                "{attempt}: {stamp}: {}",
+                rows[0]
+            );
+        }
+        assert_eq!(
+            row,
+            json!({
+                "step": "harness-started",
+                "harness": "deepseek",
+                "launch": "cold",
+                "model": "not reported",
+                "effort": "not applicable",
+                "boundary": "not applicable",
+            }),
+            "{attempt}"
+        );
+    }
+}
+
+/// A synthetic qualified DSH install, rebuilt for this suite from the
+/// protocol suite's `Synthetic` (`adapters/composite/tests.rs`): the
+/// task-owned core with its hidden lock, the `headless` profile with its
+/// manifest, patch, pnpm lock and plugin set, and a `node` the core's
+/// `#!/usr/bin/env node` line selects by `PATH`. Everything is under the
+/// canonical `root`; nothing reads `.forge/` or an installed provider.
+///
+/// The `node` answers its own `--version` and hands every other
+/// invocation — `node <core>/lib/bin.js …`, which is what running the
+/// core executes — to `child`, so the one selected executable is both the
+/// probed DSH and the launched one, exactly as production has it.
+#[cfg(unix)]
+struct SyntheticDsh {
+    /// The core's `lib/bin.js`: the executable the adapter selects.
+    bin: PathBuf,
+    home: PathBuf,
+    /// The directory holding `node`, put first on the adapter's `PATH`.
+    node_dir: PathBuf,
+}
+
+#[cfg(unix)]
+fn synthetic_dsh(root: &Path, child: &Path) -> SyntheticDsh {
+    use std::os::unix::fs::PermissionsExt;
+    let put = |dir: &Path, name: &str, bytes: &[u8]| {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        path
+    };
+    let executable = |path: &Path| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    let core = root.join("core");
+    let pkg = core.join("node_modules").join("@deepseek-ai").join("dsh");
+    put(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    let bin = put(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    executable(&bin);
+    put(
+        &core,
+        "node_modules/.package-lock.json",
+        br#"{"lockfileVersion":3,"packages":{
+          "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+          "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+          "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+        }}"#,
+    );
+    let home = root.join("home");
+    let profile = home.join("profiles").join("headless");
+    put(
+        &profile,
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    put(&profile, "cordis.patch.yml", b"[]\n");
+    put(
+        &profile,
+        "pnpm-lock.yaml",
+        b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n",
+    );
+    put(
+        &profile,
+        "node_modules/@deepseek-ai/dsh-base/package.json",
+        br#"{"name":"@deepseek-ai/dsh-base","version":"0.1.5-rc.2"}"#,
+    );
+    for file in [
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml",
+        "lib/index.js",
+        "lib/startup.js",
+        "package.json",
+    ] {
+        put(
+            &profile.join("node_modules").join("dsh-plugin-cli-session"),
+            file,
+            file.as_bytes(),
+        );
+    }
+    let node_dir = root.join("node").join("bin");
+    let node = put(
+        &node_dir,
+        "node",
+        format!(
+            "#!/bin/sh\n\
+             [ \"$1\" = --version ] && {{ printf 'v22.23.2\\n'; exit 0; }}\n\
+             shift\n\
+             exec /bin/sh '{}' \"$@\"\n",
+            child.display()
+        )
+        .as_bytes(),
+    );
+    executable(&node);
+    SyntheticDsh {
+        bin,
+        home,
+        node_dir,
+    }
+}
+
+/// The shipped DSH declaration, re-declared `supported` for the synthetic
+/// install: its version, its four evidence references and the composite
+/// `measured` for it, read back through the production adapter loader.
+#[cfg(unix)]
+fn dsh_assessment_measuring(measured: &str) -> crate::agents::ResumeAssessment {
+    let scratch = tempfile::tempdir().unwrap();
+    let adapters = scratch.path().join("adapters");
+    copy_tree(&workspace_root().join("adapters"), &adapters);
+    let path = adapters.join("dsh.json");
+    let mut dsh: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let shape = &mut dsh["resume"]["headless-work"];
+    shape["status"] = json!("supported");
+    shape["identity"] = json!({
+        "version": "0.1.5-rc.2",
+        "applies_to": "0.1.5-rc.2",
+        "wrapper_digest": measured,
+    });
+    for evidence in ["restrictions", "root", "accounting"] {
+        shape["evidence"][evidence] = json!("the synthetic install of this suite");
+    }
+    std::fs::write(&path, serde_json::to_vec_pretty(&dsh).unwrap()).unwrap();
+    crate::Adapters::load(&adapters)
+        .expect("the measured adapters load")
+        .adapter("dsh")
+        .expect("the dsh adapter")
+        .resume
+        .clone()
+}
+
+/// Entry 11 of the acceptance ledger (A53, B42, B30): the gated shapes'
+/// exclusions in ONE process. The engine drives the REAL DSH adapter —
+/// production's `adapters::serve`, spawned as this test binary — whose
+/// gate is really open: the synthetic install above is selected by the
+/// production resolver, its composite is computed by the production
+/// producer, and the seat's declaration is `supported` with that measured
+/// digest. The seat's `--patch` binds the marked route. Four attempts of
+/// one site:
+///
+/// 1. a qualified cold start: stream-json, `--new`, confirmed as `s-1`,
+///    which it stores; it then exits 3 with one stderr line;
+/// 2. the retry, offered `s-1`: the adapter rejoins it with `--session`,
+///    the child appends current work past the stored boundary and is
+///    confirmed; it drifts the core's reported version and exits 3;
+/// 3. the next retry, offered `s-1` again: the probe now observes another
+///    version, so the adapter declines `unverified-harness` and runs the
+///    shipped cold route, which exits 3, so the decline's stderr is
+///    journaled (an accepted success journals none);
+/// 4. the last retry declines the same way, and succeeds.
+///
+/// For each, every journaled event, launch row and stderr tail, and the
+/// adapter's raw stdout, carry no route content, path, digest, binding,
+/// `resume_context`, `owned_target` or `assessment`; each launch row is
+/// exactly its own vocabulary, and the confirmed rejoin's keeps the
+/// `root_session` and `transcript` the cold start confirmed.
+#[cfg(unix)]
+#[test]
+fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
+    serve_dsh_when_spawned();
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (layer, digest) = marked_route_layer(&root);
+    let child = root.join("dsh-child.sh");
+    let install = synthetic_dsh(&root, &child);
+    let home = install.home.display().to_string();
+    let version = root.join("dsh.version");
+    std::fs::write(&version, "0.1.5-rc.2\n").unwrap();
+    // The launched DSH, reached as `node <core>/lib/bin.js <args>`: it
+    // answers the probe from the version file, keeps the overlay and the
+    // arguments it was handed, writes one stderr line, and acts out its
+    // invocation's part against the root the overlay names.
+    std::fs::write(
+        &child,
+        format!(
+            "case \"$1\" in --version) cat '{version}'; exit 0 ;; esac\n\
+             n=$(cat '{count}' 2>/dev/null || echo 0)\n\
+             n=$((n+1))\n\
+             printf '%s' \"$n\" > '{count}'\n\
+             cp \"$4\" '{seen}'-\"$n\"\n\
+             i=1\n\
+             for arg do\n\
+             [ \"$i\" -lt \"$#\" ] && printf '%s\\n' \"$arg\" >> '{argv}'-\"$n\"\n\
+             i=$((i+1))\n\
+             last=$arg\n\
+             done\n\
+             printf 'dsh child %s wrote this\\n' \"$n\" >&2\n\
+             store=$(sed -n \"s/^    root: '\\(.*\\)'$/\\1/p\" \"$4\")/--w--/s-1\n\
+             case \"$n\" in\n\
+             1)\n\
+             mkdir -p \"$store\"\n\
+             printf '{{\"type\":\"session\",\"version\":3,\"id\":\"s-1\",\"delegationDepth\":0}}\\n' \
+             > \"$store/session.v3.jsonl\"\n\
+             for seq in 0 1 2 3 4; do\n\
+             printf '{{\"type\":\"permission/preset\",\"seq\":%s}}\\n' \"$seq\" >> \"$store/session.v3.jsonl\"\n\
+             done\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s-1\"}}\\n'\n\
+             exit 3 ;;\n\
+             2)\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s-1\"}}\\n'\n\
+             printf '{{\"type\":\"assistant/message\",\"seq\":5,\"data\":{{\"message\":\
+             {{\"source\":{{\"model\":\"deepseek-v4-flash\"}}}},\"usage\":{{\"inputTokens\":3,\
+             \"outputTokens\":1}}}}}}\\n' >> \"$store/session.v3.jsonl\"\n\
+             printf '0.1.5-rc.3\\n' > '{version}'\n\
+             exit 3 ;;\n\
+             3)\n\
+             exit 3 ;;\n\
+             esac\n\
+             result=$(printf '%s\\n' \"$last\" | grep '/.forge/results/' | head -n 1 | sed 's/^ *//')\n\
+             printf '{{\"result\":\"complete\"}}' > \"$result\"\n",
+            version = version.display(),
+            count = root.join("dsh.count").display(),
+            seen = root.join("seen").display(),
+            argv = root.join("argv").display(),
+        ),
+    )
+    .unwrap();
+    let path = format!("{}:/usr/bin:/bin", install.node_dir.display());
+
+    // The declaration measures the install: production's resolver and
+    // producer, run by this binary under the adapter's own environment.
+    let this = format!(
+        "{}::the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes",
+        module_path!().split_once("::").unwrap().1
+    );
+    let exe = std::env::current_exe().unwrap();
+    let measured_file = root.join("measured");
+    let status = std::process::Command::new(&exe)
+        .args([
+            this.as_str(),
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+            "-q",
+        ])
+        .env(MEASURE_DSH, &measured_file)
+        .env("DSH_HOME", &install.home)
+        .env("HOME", &root)
+        .env("PATH", &path)
+        .env("BROKKR_DSH_BIN", &install.bin)
+        .env_remove("NODE_PATH")
+        .env_remove(SERVE_DSH)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "{status}");
+    let measured = std::fs::read_to_string(&measured_file).unwrap();
+    assert!(
+        measured.len() == 64 && measured.bytes().all(|b| b.is_ascii_hexdigit()),
+        "production measures the synthetic install: {measured}"
+    );
+
+    let script = format!(
+        "unset DSH_PERMISSION_MODE NODE_PATH\n\
+         tee -a '{log}' | {SERVE_DSH}=1 {SERVE_DSH}_EXTRA=\"$*\" DSH_HOME='{home}' \
+         HOME='{root}' PATH='{path}' BROKKR_DSH_BIN='{bin}' '{exe}' '{this}' --exact \
+         --nocapture --test-threads=1 -q | tee -a '{raw}' | grep --line-buffered -v -x \
+         '{HARNESS_LINE}'\n",
+        log = root.join("work.log").display(),
+        raw = root.join("work.stdout").display(),
+        root = root.display(),
+        bin = install.bin.display(),
+        exe = exe.display(),
+    );
+    let argv: Vec<String> = [
+        "sh",
+        "-c",
+        &script,
+        "sh",
+        "--model",
+        "deepseek/deepseek-v4-flash",
+        "--patch",
+        "recipe/route.yml",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    let candidate = Candidate {
+        agent: "implementer".into(),
+        model: "deepseek/deepseek-v4-flash".into(),
+        effort: None,
+        provider: "dsh".into(),
+        argv: argv.clone(),
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume: dsh_assessment_measuring(&measured),
+    };
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(single(argv, vec![candidate]), &["complete"], 4),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    // A registered, resolved no-hands site: the affirmative markers the
+    // declaration's `not applicable`/`none` coordinate is judged against.
+    bundle.sites.insert(
+        "work".into(),
+        crate::bundle::SiteFacts {
+            hands: HandsState::NoHands,
+            ..Default::default()
+        },
+    );
+    let events = run(&root, bundle);
+
+    // The journal first, before any assertion that presumes the attempts
+    // went well; every surface it searched is asserted to exist below.
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
+
+    // The adapter's whole stdout on all four attempts: the harness line
+    // is all that was taken out, every other line is a protocol message,
+    // and none of it carries the route or a carrier.
+    let raw = std::fs::read_to_string(root.join("work.stdout")).unwrap();
+    let dropped: Vec<&str> = raw.lines().filter(|line| !line.starts_with('{')).collect();
+    assert_eq!(dropped, ["", HARNESS_LINE].repeat(4), "{raw}");
+    for line in raw.lines().filter(|line| line.starts_with('{')) {
+        let message: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(message["proto"], "forge-driver/v1", "{line}");
+    }
+    let lowered = raw.to_lowercase();
+    for needle in route_and_carrier_needles(&layer, &digest) {
+        assert_eq!(
+            lowered.find(&needle.to_lowercase()),
+            None,
+            "the adapter's stdout carries {needle}: {raw}"
+        );
+    }
+
+    // Four starts of the real adapter, every later one offered the root
+    // the first confirmed. Each held the binding and the measured
+    // assessment privately, and each child received the route.
+    let received = received(&root, "work");
+    let starts: Vec<Value> = received
+        .iter()
+        .filter(|message| message["type"] == "start")
+        .cloned()
+        .collect();
+    assert_eq!(starts.len(), 4, "three failing attempts are retried");
+    assert_eq!(
+        offers(&received),
+        [
+            None,
+            Some("s-1".into()),
+            Some("s-1".into()),
+            Some("s-1".into())
+        ]
+    );
+    for (index, start) in starts.iter().enumerate() {
+        let private = &start["input"]["resume_context"];
+        assert_eq!(
+            private["route_overlay"],
+            json!({"value": "recipe/route.yml", "digest": digest}),
+            "start {index}"
+        );
+        assert_eq!(
+            private["assessment"]["headless-work"]["status"], "supported",
+            "start {index}: {private}"
+        );
+        assert_eq!(
+            private["assessment"]["headless-work"]["identity"]["wrapper_digest"], measured,
+            "start {index}: {private}"
+        );
+        let handed = std::fs::read_to_string(root.join(format!("seen-{}", index + 1))).unwrap();
+        assert_eq!(handed.matches(ROUTE_MARKER).count(), 2, "{handed}");
+    }
+    assert_eq!(
+        starts[0]["input"]["resume_context"].get("owned_target"),
+        None
+    );
+
+    // What the adapter decided, read off the launched argv: stream-json
+    // with `--new`, then `--session s-1`, then the shipped route twice.
+    let launched = |n: usize| -> Vec<String> {
+        std::fs::read_to_string(root.join(format!("argv-{n}")))
+            .unwrap()
+            .lines()
+            .skip(4)
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(launched(1), ["--output-format", "stream-json", "--new"]);
+    assert_eq!(
+        launched(2),
+        ["--output-format", "stream-json", "--session", "s-1"]
+    );
+    assert_eq!(launched(3), Vec::<String>::new());
+    assert_eq!(launched(4), Vec::<String>::new());
+
+    // The four attempts, as journaled: one launch row each, the first
+    // three failed with the child's own stderr line as their tail, the
+    // fourth succeeded. The third is the declined offer that FAILED: an
+    // accepted success journals no stderr at all, so only a failed decline
+    // puts the adapter's stderr on a decline under the journal's search.
+    let attempts: Vec<&str> = starts
+        .iter()
+        .map(|start| start["attempt_id"].as_str().unwrap())
+        .collect();
+    let launch_row = |attempt: &str| -> Value {
+        let rows: Vec<Value> = events
+            .iter()
+            .filter(|event| event.attempt_id.as_deref() == Some(attempt))
+            .filter(|event| event.event_type == EventType::EffectCheckpointed)
+            .map(|event| event.payload["checkpoint"].clone())
+            .filter(|row| row["step"] == "harness-started")
+            .collect();
+        assert_eq!(rows.len(), 1, "{attempt}: one launch row: {rows:?}");
+        let mut row = rows[0].clone();
+        for stamp in ["site_ref", "instance_ref"] {
+            let value = row.as_object_mut().unwrap().remove(stamp);
+            assert_eq!(
+                value.as_ref().and_then(Value::as_str).map(str::len),
+                Some(64),
+                "{attempt}: {stamp}: {}",
+                rows[0]
+            );
+        }
+        row
+    };
+    let failed: Vec<&EventEnvelope> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectFailed)
+        .collect();
+    assert_eq!(failed.len(), 3, "{failed:?}");
+    for (n, event) in failed.iter().enumerate() {
+        assert_eq!(event.attempt_id.as_deref(), Some(attempts[n]));
+        assert_eq!(
+            event.payload["error"],
+            format!(
+                "agent CLI exited 3; stderr tail: dsh child {} wrote this\n",
+                n + 1
+            ),
+            "attempt {}",
+            n + 1
+        );
+    }
+    assert!(
+        events.iter().any(|event| {
+            event.event_type == EventType::EffectSucceeded
+                && event.attempt_id.as_deref() == Some(attempts[3])
+        }),
+        "the second declined offer ran cold and succeeded"
+    );
+
+    // Each launch row is exactly its own vocabulary. The cold start's root
+    // and address are the owned target the next three starts were
+    // offered, and the confirmed rejoin keeps them exactly.
+    let cold = launch_row(attempts[0]);
+    let locator = cold["transcript"]["locator"].as_str().unwrap().to_string();
+    assert!(locator.starts_with("sessions/brokkr/"), "{cold}");
+    let confirmed_root = json!({
+        "kind": "dsh-session",
+        "id": "s-1",
+        "harness_version": "0.1.5-rc.2",
+        "wrapper_digest": measured,
+        "persistent": true,
+    });
+    let address = json!({"kind": "dsh-session", "locator": locator, "home": home});
+    let vocabulary = |launch: &str| {
+        json!({
+            "step": "harness-started",
+            "harness": "deepseek",
+            "launch": launch,
+            "model": "not reported",
+            "effort": "not applicable",
+            "boundary": "not applicable",
+        })
+    };
+    let mut expected = vocabulary("cold");
+    expected["root_session"] = confirmed_root.clone();
+    expected["transcript"] = address.clone();
+    assert_eq!(cold, expected, "the qualified cold start");
+    let mut expected = vocabulary("resumed");
+    expected["root_session"] = confirmed_root;
+    expected["transcript"] = address;
+    assert_eq!(launch_row(attempts[1]), expected, "the confirmed rejoin");
+    let mut expected = vocabulary("cold");
+    expected["resume_refusal"] = json!("unverified-harness");
+    assert_eq!(
+        launch_row(attempts[2]),
+        expected,
+        "the failed declined offer"
+    );
+    assert_eq!(launch_row(attempts[3]), expected, "the declined offer");
+    for start in &starts[1..] {
+        assert_eq!(
+            start["input"]["resume_context"]["owned_target"],
+            json!({
+                "provider_id": "s-1",
+                "persistence_locator": locator,
+                "persistence_home": home,
+            }),
+            "{start}"
         );
     }
 }

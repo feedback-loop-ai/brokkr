@@ -929,11 +929,33 @@ fn the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta() {
 
     let index = fs::read_to_string(dir.join("lib/index.js")).unwrap();
     let adapted = "\tconst events = agent.session.snapshotEvents(firstSeq);";
+    let upstream_line = "\tconst events = agent.session.events;";
     assert_eq!(index.matches(adapted).count(), 1);
-    let upstream = index.replace(adapted, "\tconst events = agent.session.events;");
+    let upstream = index.replace(adapted, upstream_line);
     assert_eq!(
         digest_of(upstream.as_bytes()),
         "a40b52b3891485821ad01b00c322006abee8a51a0d4a2ae4ddb8427a0183d99b"
+    );
+
+    // PROVENANCE.md's delta digest was RECORDED and never recomputed, so
+    // nothing until now would have parted had the note's diff block and
+    // the committed bytes diverged. It is recomputed here over the same
+    // canonical text the note defines — the location, the upstream line
+    // prefixed `-`, the adapted line prefixed `+`, each newline-terminated
+    // — and both lines are the ones the substitution above already proved
+    // against the upstream file digest. The location is READ OFF the
+    // committed bytes rather than copied from the prose, so `253` is a
+    // measurement too: a line inserted above the expression parts this.
+    let line = index
+        .lines()
+        .position(|text| text == adapted)
+        .expect("the adapted expression occupies a whole line")
+        + 1;
+    assert_eq!(line, 253);
+    let canonical = format!("lib/index.js:{line}\n-{upstream_line}\n+{adapted}\n");
+    assert_eq!(
+        digest_of(canonical.as_bytes()),
+        "78256d2e114f7ae8caec22987c5793b7398018cd59cd24cf36e79d7be011a585"
     );
 }
 
@@ -1987,8 +2009,10 @@ fn the_default_search_path_is_the_c_librarys_own_answer() {
 /// The absent-`PATH` search is each platform's OWN `execvp` rule, per
 /// platform, and not one library call standing in for all of them.
 ///
-/// Apple's `execvP` and `posix_spawnp` search `_PATH_DEFPATH`,
-/// `/usr/bin:/bin`. Apple's `confstr(_CS_PATH)` answers
+/// Apple's `execvp` (through `_execvpe`, `gen/FreeBSD/exec.c` 318–328)
+/// and `posix_spawnp` (`sys/posix_spawn.c` 92–93) search `_PATH_DEFPATH`,
+/// `/usr/bin:/bin` (`include/paths.h` 65), all at Libc-1752.120.2
+/// (`4e34d055`). Apple's `confstr(_CS_PATH)` answers
 /// `/usr/bin:/bin:/usr/sbin:/sbin` — `USER_CS_PATH` — so asking the
 /// library there would put two system directories on a search the
 /// loader never walks, and the resolver could select or probe a
@@ -2331,11 +2355,121 @@ fn an_empty_path_entry_is_the_working_directory_and_is_refused() {
     assert!(output.status.success(), "{said}");
 }
 
+/// Apple's switch remembers a denial only for a candidate whose metadata
+/// it read (entry 13-fix, finding P1). At Libc-1752.120.2 (`4e34d055`)
+/// EACCES falls to `default`, which does `if (stat(bp, &sb) != 0)
+/// break;` before `eacces = 1` (`sys/posix_spawn.c` 178–193,
+/// `gen/FreeBSD/exec.c` 273–289). A `PATH` directory without search
+/// permission is therefore walked past unremembered, and a search that
+/// remembers nothing ends in ENOENT (posix_spawn.c 195–204, exec.c
+/// 293–306). glibc's `case EACCES: got_eacces = true;` and musl's
+/// `seen_eacces` remember it whichever question failed. Each library's
+/// rule is a plain test on this host because `Search` carries the
+/// library it translates.
+#[cfg(unix)]
+#[test]
+fn apple_walks_past_a_sealed_directory_without_remembering_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = FixtureRoot::new();
+    // Readable, regular and not executable: its metadata is read and its
+    // access question fails, which every library remembers.
+    let readable = root.path().join("readable");
+    fs::create_dir_all(&readable).unwrap();
+    let decoy = readable.join("dsh");
+    fs::write(&decoy, b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(&decoy, fs::Permissions::from_mode(0o644)).unwrap();
+    // A directory without search permission, holding a runnable `dsh` no
+    // unprivileged child reaches: the candidate's metadata is unreadable.
+    let sealed = root.path().join("sealed");
+    fs::create_dir_all(&sealed).unwrap();
+    stage_executable(&sealed, "dsh", b"#!/bin/sh\ntrue\n");
+    let hidden = sealed.join("dsh");
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let search = |library: Library, operation: Operation, entries: String| Search {
+        entries: OsString::from(entries),
+        default: false,
+        library,
+        operation,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    let alone = sealed.display().to_string();
+    let last = format!("{}:{}", readable.display(), sealed.display());
+    let direct = hidden.display().to_string();
+    let unreadable = fs::metadata(&hidden)
+        .err()
+        .and_then(|error| errno_of(&error));
+    let mut answers = Vec::new();
+    for library in [Library::Apple, Library::Glibc, Library::Musl] {
+        for operation in [Operation::Exec, Operation::Spawn] {
+            for (cell, command, entries) in [
+                ("alone", "dsh", &alone),
+                ("last", "dsh", &last),
+                ("direct", direct.as_str(), &last),
+            ] {
+                let answer = lookup_in(
+                    command,
+                    &search(library, operation, entries.clone()),
+                    &mut Vec::new(),
+                )
+                .map(|selected| selected.path)
+                .map_err(|error| error.to_string());
+                answers.push((library, operation, cell, answer));
+            }
+        }
+    }
+    // Restored before anything is asserted, so the tree can be removed.
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        unreadable,
+        Some(rustix::io::Errno::ACCESS),
+        "the sealed candidate's metadata is unreadable to this process"
+    );
+
+    let not_on_path = format!(
+        "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended at {}: Permission \
+         denied (os error 13))",
+        hidden.display()
+    );
+    let remembered = format!(
+        "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: \
+         Permission denied (os error 13)",
+        hidden.display()
+    );
+    let decoy_denied = format!(
+        "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: is \
+         not executable by this process",
+        decoy.display()
+    );
+    let direct_denied =
+        format!("the DSH layout is unreadable: {direct}: Permission denied (os error 13)");
+    assert_eq!(answers.len(), 18);
+    for (library, operation, cell, answer) in answers {
+        let expected = match (cell, library) {
+            // The only candidate: Apple exhausts to NotFound at it, and
+            // glibc and musl report the remembered EACCES.
+            ("alone", Library::Apple) => &not_on_path,
+            ("alone", _) => &remembered,
+            // The last candidate, after a readable non-executable file:
+            // that file's denial stands on every arm.
+            ("last", _) => &decoy_denied,
+            // A direct name runs no switch: one answer on every arm.
+            _ => &direct_denied,
+        };
+        assert_eq!(
+            answer.as_ref(),
+            Err(expected),
+            "{library:?} under {operation:?}, the sealed directory {cell}"
+        );
+    }
+}
+
 /// The working-directory refusal names the SEARCHED NAME, whichever
 /// library's rule the search translates. The candidate a platform builds
 /// for its cwd iteration is not one spelling: glibc and musl build the
-/// bare name for an empty entry, Apple builds `./<name>` (`p = "."` in
-/// `gen/FreeBSD/exec.c`). A refusal that displayed the candidate
+/// bare name for an empty entry, Apple builds `./<name>` (`p = "."`,
+/// `gen/FreeBSD/exec.c` 194–197 at Libc-1752.120.2). A refusal that displayed the candidate
 /// therefore reported the SAME refusal of the SAME search as `mytool` on
 /// Linux and `./mytool` on macOS (PR #311's macOS leg, 2026-09-21). Each
 /// library's rule is a plain test on this host because `Search` carries
@@ -2906,8 +3040,9 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
 /// other.
 ///
 /// `dsh -> /usr/bin/env`, searched and as an absolute alias, is the
-/// platform's env utility run under the name `dsh`: natively uutils exits
-/// 1 on the name mismatch and prints nothing, while executing the
+/// platform's env utility run under the name `dsh`: natively this host's
+/// uutils (Ubuntu's patched 0.2.2) exits 1 on the name mismatch and
+/// prints nothing on stdout, while executing the
 /// canonical target under its own name reported env's version as DSH's.
 /// Both refuse at selection, by the selected invocation and the env
 /// dispatch, so there is no probe target. Direct `/usr/bin/env` is the
@@ -2942,7 +3077,9 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
         ("absolute", alias.display().to_string()),
     ] {
         // The native outcome is the HOST's and is recorded, never
-        // counted: uutils refuses the name, GNU's env runs under any.
+        // counted: uutils refuses the name (Ubuntu's patched build by
+        // its executable-name check, upstream as an unknown program),
+        // GNU's env runs under any.
         let ran = native(declared.as_ref(), &a).unwrap();
         eprintln!(
             "native {form} alias: {:?}, {} stdout bytes",
@@ -3002,6 +3139,24 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
     std::os::unix::fs::symlink(&launcher, &alias).unwrap();
     let selected = select_in("dsh", path(&a)).unwrap();
     assert_eq!(selected.path, launcher.canonicalize().unwrap());
+    // No second search: the invocation's program is the path the walk
+    // found, so it runs with `PATH` emptied, from a working directory
+    // holding no `dsh`, and still prints the alias (task 8.8.1.2). A
+    // bare `dsh` there is NotFound.
+    let unsearched = selected
+        .invocation
+        .command()
+        .arg("--version")
+        .env("PATH", "")
+        .current_dir(dir.path())
+        .output()
+        .map(|ran| String::from_utf8_lossy(&ran.stdout).into_owned())
+        .map_err(|error| error.kind());
+    assert_eq!(
+        unsearched,
+        Ok(format!("{}\n", alias.display())),
+        "the invocation runs without a search"
+    );
     assert_eq!(
         selected.invocation,
         DshInvocation {
@@ -6494,8 +6649,9 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // `env` is asked of the path the kernel invokes AND of the file that
     // runs. A symlink NAMED `env` to the copy's `uu_env` or `ls` hard
     // link is spelled `env`, is the platform's env by every byte, and on
-    // this uutils host exits 1 with the utility's own `Security
-    // violation` (argv[0] `env` against executable name `uu_env`) while
+    // this uutils host exits 1 with the `Security violation` Ubuntu's
+    // patch adds to its 0.2.2 build (argv[0] `env` against executable
+    // name `uu_env`; upstream uutils has no such check) while
     // busybox installed as `env` would dispatch on `argv[0]` and run it:
     // the implementations disagree, and the resolver refuses it naming
     // the file that runs. The same symlink to the copy NAMED `env`, and
@@ -7084,78 +7240,105 @@ fn env_identity_is_the_file_and_never_a_name() {
 fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     use rustix::io::Errno;
 
-    // glibc `posix/execvpe.c` 136–158: the literal continue-set, EACCES
-    // remembered, and everything else terminal — ENAMETOOLONG, ELOOP,
-    // EIO, EINVAL, ENOEXEC, ETXTBSY, EPERM included.
+    // Every arm is asked under both questions a lookup can fail: only
+    // Apple's switch reads which one it was, and glibc's and musl's must
+    // answer alike under each.
+    for question in ["metadata", "access"] {
+        // glibc `posix/execvpe.c` 136–158: the literal continue-set,
+        // EACCES remembered, and everything else terminal — ENAMETOOLONG,
+        // ELOOP, EIO, EINVAL, ENOEXEC, ETXTBSY, EPERM included.
+        assert_eq!(
+            step(Library::Glibc, question, Errno::ACCESS),
+            Ok(Step::Continue { denied: true }),
+            "{question}"
+        );
+        for errno in [
+            Errno::NOENT,
+            Errno::STALE,
+            Errno::NOTDIR,
+            Errno::NODEV,
+            Errno::TIMEDOUT,
+        ] {
+            assert_eq!(
+                step(Library::Glibc, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [
+            Errno::NAMETOOLONG,
+            Errno::LOOP,
+            Errno::IO,
+            Errno::INVAL,
+            Errno::NOEXEC,
+            Errno::TXTBSY,
+            Errno::PERM,
+            Errno::NOMEM,
+        ] {
+            assert_eq!(
+                step(Library::Glibc, question, errno),
+                Ok(Step::Stop),
+                "{question} {errno}"
+            );
+        }
+        // musl `src/process/execvp.c`: EACCES remembered, ENOENT and
+        // ENOTDIR continue, and nothing else — not even ESTALE.
+        assert_eq!(
+            step(Library::Musl, question, Errno::ACCESS),
+            Ok(Step::Continue { denied: true }),
+            "{question}"
+        );
+        for errno in [Errno::NOENT, Errno::NOTDIR] {
+            assert_eq!(
+                step(Library::Musl, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [Errno::STALE, Errno::NAMETOOLONG, Errno::LOOP, Errno::IO] {
+            assert_eq!(
+                step(Library::Musl, question, errno),
+                Ok(Step::Stop),
+                "{question} {errno}"
+            );
+        }
+        // Apple at Libc-1752.120.2: ELOOP, ENAMETOOLONG, ENOENT and
+        // ENOTDIR continue (`sys/posix_spawn.c` 146–150,
+        // `gen/FreeBSD/exec.c` 232–235 and 266–267), and an arm this
+        // resolver does not port is a limitation rather than either
+        // guess.
+        for errno in [Errno::LOOP, Errno::NAMETOOLONG, Errno::NOENT, Errno::NOTDIR] {
+            assert_eq!(
+                step(Library::Apple, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [Errno::IO, Errno::INVAL, Errno::STALE, Errno::NOEXEC] {
+            assert_eq!(
+                step(Library::Apple, question, errno),
+                Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
+                "{question} {errno}"
+            );
+        }
+        assert_eq!(
+            step(Library::Unestablished, question, Errno::NOENT),
+            Err("this target's native program lookup rule is not established"),
+            "{question}"
+        );
+    }
+    // Apple's EACCES falls to `default`, which asks `stat` first
+    // (`sys/posix_spawn.c` 178–193, `gen/FreeBSD/exec.c` 273–289): a
+    // candidate whose METADATA cannot be read is walked past and NOT
+    // remembered, and only a failed access question — asked of a file
+    // whose metadata was read — is the remembered denial.
     assert_eq!(
-        step(Library::Glibc, Errno::ACCESS),
-        Ok(Step::Continue { denied: true })
+        step(Library::Apple, "metadata", Errno::ACCESS),
+        Ok(Step::Continue { denied: false })
     );
-    for errno in [
-        Errno::NOENT,
-        Errno::STALE,
-        Errno::NOTDIR,
-        Errno::NODEV,
-        Errno::TIMEDOUT,
-    ] {
-        assert_eq!(
-            step(Library::Glibc, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [
-        Errno::NAMETOOLONG,
-        Errno::LOOP,
-        Errno::IO,
-        Errno::INVAL,
-        Errno::NOEXEC,
-        Errno::TXTBSY,
-        Errno::PERM,
-        Errno::NOMEM,
-    ] {
-        assert_eq!(step(Library::Glibc, errno), Ok(Step::Stop), "{errno}");
-    }
-    // musl `src/process/execvp.c`: EACCES remembered, ENOENT and
-    // ENOTDIR continue, and nothing else — not even ESTALE.
     assert_eq!(
-        step(Library::Musl, Errno::ACCESS),
+        step(Library::Apple, "access", Errno::ACCESS),
         Ok(Step::Continue { denied: true })
-    );
-    for errno in [Errno::NOENT, Errno::NOTDIR] {
-        assert_eq!(
-            step(Library::Musl, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [Errno::STALE, Errno::NAMETOOLONG, Errno::LOOP, Errno::IO] {
-        assert_eq!(step(Library::Musl, errno), Ok(Step::Stop), "{errno}");
-    }
-    // Apple `sys/posix_spawn.c`: ELOOP, ENAMETOOLONG, ENOENT and ENOTDIR
-    // continue, EACCES is remembered, and an arm this seat did not pin
-    // is a limitation rather than either guess.
-    assert_eq!(
-        step(Library::Apple, Errno::ACCESS),
-        Ok(Step::Continue { denied: true })
-    );
-    for errno in [Errno::LOOP, Errno::NAMETOOLONG, Errno::NOENT, Errno::NOTDIR] {
-        assert_eq!(
-            step(Library::Apple, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [Errno::IO, Errno::INVAL, Errno::STALE, Errno::NOEXEC] {
-        assert_eq!(
-            step(Library::Apple, errno),
-            Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
-            "{errno}"
-        );
-    }
-    assert_eq!(
-        step(Library::Unestablished, Errno::NOENT),
-        Err("this target's native program lookup rule is not established")
     );
 
     // The candidate SEQUENCE each walk constructs over the exact PATH
@@ -7255,8 +7438,9 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
         assert_eq!(musl(&x(4096)), vec![]);
         assert_eq!(musl("A/"), vec![entry("A//dsh")]);
     }
-    // Apple: `strsep` tokens, an empty token spelled `.`, the same extra
-    // slash — and the one branch the two operations take apart: a
+    // Apple: `strchrnul` tokens (`gen/FreeBSD/exec.c` 187–208,
+    // `sys/posix_spawn.c` 103–124), an empty token spelled `.`, the
+    // same extra slash — and the one branch the two operations take apart: a
     // candidate longer than the 1,024-byte buffer is skipped by
     // `execvP` and stops `posix_spawnp`.
     let exec = |path: &str, file: &str| sequence(Library::Apple, Operation::Exec, path, file);
@@ -7361,6 +7545,29 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
         )),
         "passed (true): Permission denied (os error 13)"
     );
+    // Apple walks past the same unreadable candidate without remembering
+    // it (`sys/posix_spawn.c` 186–187), and remembers the denial only of
+    // a file whose metadata it read.
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "metadata",
+            Errno::ACCESS,
+            Position::Searched
+        )),
+        "passed (false): Permission denied (os error 13)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "access",
+            Errno::ACCESS,
+            Position::Searched
+        )),
+        "passed (true): is not executable by this process"
+    );
     // ELOOP is the one errno in this table whose NUMBER is the host's
     // rather than the constant's: 40 under Linux, 62 under Darwin, while
     // ENOENT, EACCES, EIO and ENOTDIR agree across both. The switch under
@@ -7451,7 +7658,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     }
     // The SEARCHED Apple arm does not move with it: a kernel
     // ENAMETOOLONG under one entry is a continuation there, exactly as
-    // `sys/posix_spawn.c`'s switch has it, and only the direct position
+    // `sys/posix_spawn.c`'s switch has it (146–150 at Libc-1752.120.2),
+    // and only the direct position
     // turns that continuation into the stop it is.
     assert_eq!(
         describe(lookup_failure(
@@ -7490,11 +7698,6 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             Errno::ACCESS,
             "passed (true): is not executable by this process",
         ),
-        (
-            "metadata",
-            Errno::ACCESS,
-            "passed (true): Permission denied (os error 13)",
-        ),
     ] {
         for library in [Library::Apple, Library::Glibc, Library::Musl] {
             assert_eq!(
@@ -7509,6 +7712,27 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
                 "{library:?} answers a direct name's {errno} as every other arm does"
             );
         }
+    }
+    // A metadata EACCES at a direct name carries the same words on every
+    // arm, and only the remembered flag is the library's: Apple's switch
+    // remembers no unstatable candidate. A direct name has no search to
+    // exhaust, so `lookup_in` reads the words and never the flag.
+    for (library, denied) in [
+        (Library::Apple, false),
+        (Library::Glibc, true),
+        (Library::Musl, true),
+    ] {
+        assert_eq!(
+            describe(lookup_failure(
+                candidate,
+                library,
+                "metadata",
+                Errno::ACCESS,
+                Position::Direct
+            )),
+            format!("passed ({denied}): Permission denied (os error 13)"),
+            "{library:?} answers a direct name's metadata EACCES in every arm's words"
+        );
     }
     // The ONE arm that audit found still library-dependent at a direct
     // name, recorded rather than guessed at: an errno OUTSIDE Apple's
@@ -7679,7 +7903,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
 ///
 /// The platform-qualified ELOOP rule is a rule about a SEARCH: glibc's
 /// `posix/execvpe.c` stops on ELOOP, Apple's `sys/posix_spawn.c` breaks
-/// to the next entry (D10, controller correction 2026-09-20). Read as a
+/// to the next entry (146–150 at Libc-1752.120.2; D10, controller
+/// correction 2026-09-20). Read as a
 /// rule about a CANDIDATE instead, it made the Apple arm render a direct
 /// `./dsh` that is a self-symlink as the bare errno while glibc and musl
 /// named the loop — one refusal reported two ways, and the matrix's
@@ -7774,8 +7999,9 @@ fn a_direct_names_symlink_loop_is_named_on_every_librarys_arm() {
 /// n0-l10 — `PATH` a single 5,000-byte component, name `dsh`, native
 /// answering ENAMETOOLONG. The per-library table answers it: Apple sizes
 /// EVERY candidate against a 1,024-byte buffer before it is built
-/// (`lp + ln + 2 > sizeof(buf)`, `sys/posix_spawn.c` and
-/// `gen/FreeBSD/exec.c`, design D10), so a 5,004-byte candidate is never
+/// (`lp + ln + 2 > sizeof(buf)`, `sys/posix_spawn.c` 131–134 and
+/// `gen/FreeBSD/exec.c` 215–222 at Libc-1752.120.2), so a 5,004-byte
+/// candidate is never
 /// constructed and never handed to `execve`; `posix_spawnp` answers
 /// `err = ENAMETOOLONG` there and `execvP` warns and takes the next
 /// token. The kernel cannot be the author of that errno, because the

@@ -99,7 +99,10 @@
 //! fails the `dsh` absent-PATH cell; restoring unconditional absent-PATH
 //! refusal fails the `sh` default-search control; restoring unconditional
 //! native-image or one-level interpreter admission fails the loader
-//! cells; omitting one oracle fails the inventory assertion.
+//! cells; omitting one oracle fails the inventory assertion. Giving glibc
+//! Apple's metadata rule fails the sealed-directory-alone controls in
+//! both forms, and suppressing glibc's remembered access denial fails
+//! the non-executable-then-sealed-directory controls in both.
 
 use super::super::*;
 use super::*;
@@ -128,8 +131,10 @@ const CWD_LENGTHS: [usize; 3] = [4095, 4096, 5000];
 /// file prefix, then missing-then-existing, at the working directory
 /// and with no candidate at all; its explicit-path spelling; the
 /// `NAME_MAX` boundary; the valid-length positive; the two ordered
-/// exhaustion causes; and the default-search positive.
-const CONTROLS: [&str; 13] = [
+/// exhaustion causes; the default-search positive; and a directory
+/// without search permission as the only candidate and as the last one,
+/// each in the explicit form and, in a child of its own, the inherited.
+const CONTROLS: [&str; 17] = [
     "overlong-bare-name",
     "overlong-under-missing-prefix",
     "overlong-under-file-prefix",
@@ -143,7 +148,140 @@ const CONTROLS: [&str; 13] = [
     "exhaustion-missing-then-file",
     "exhaustion-file-then-missing",
     "default-search-sh",
+    "sealed-directory-alone",
+    "non-executable-then-sealed-directory",
+    "sealed-directory-alone-inherited",
+    "non-executable-then-sealed-directory-inherited",
 ];
+
+/// The two sealed-directory `PATH`s, each run in both invocation forms.
+const SEALED: [&str; 2] = [
+    "sealed-directory-alone",
+    "non-executable-then-sealed-directory",
+];
+
+/// The sealed-directory controls' fixtures: a `PATH` directory without
+/// search permission holding a runnable `dsh` no unprivileged child
+/// reaches, and a readable directory holding a regular `dsh` that is not
+/// executable.
+struct Sealed {
+    sealed: PathBuf,
+    hidden: PathBuf,
+    readable: PathBuf,
+    decoy: PathBuf,
+}
+
+impl Sealed {
+    fn under(root: &Path) -> Sealed {
+        let sealed = root.join("controls-sealed");
+        let readable = root.join("controls-readable");
+        Sealed {
+            hidden: sealed.join("dsh"),
+            decoy: readable.join("dsh"),
+            sealed,
+            readable,
+        }
+    }
+
+    /// Staged by the parent, before any child that searches it runs.
+    fn stage(&self) {
+        fs::create_dir_all(&self.sealed).unwrap();
+        stage_executable(&self.sealed, "dsh", b"#!/bin/sh\nprintf 'MARK:sealed\\n'\n");
+        fs::create_dir_all(&self.readable).unwrap();
+        fs::write(&self.decoy, b"#!/bin/sh\nprintf 'MARK:never\\n'\n").unwrap();
+        fs::set_permissions(&self.decoy, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(&self.sealed, fs::Permissions::from_mode(0o000)).unwrap();
+    }
+
+    /// The `PATH` a sealed-directory control searches.
+    fn path(&self, what: &str) -> OsString {
+        match what {
+            "sealed-directory-alone" => self.sealed.clone().into_os_string(),
+            _ => OsString::from(format!(
+                "{}:{}",
+                self.readable.display(),
+                self.sealed.display()
+            )),
+        }
+    }
+
+    /// Run one sealed-directory control's oracle and resolution, and
+    /// assert native's exact errno and the resolver's whole refusal.
+    ///
+    /// A `PATH` directory without search permission, so its candidate's
+    /// metadata cannot be read. glibc remembers that EACCES (`case
+    /// EACCES: got_eacces = true;`). Apple's `default` walks past it
+    /// unremembered (`if (stat(bp, &sb) != 0) break;`, `sys/posix_spawn.c`
+    /// 186–187 and `gen/FreeBSD/exec.c` 282–283 at Libc-1752.120.2). As
+    /// the only candidate, the search ends in EACCES on glibc and in
+    /// ENOENT on Apple (posix_spawn.c 195–204, exec.c 293–306). As the
+    /// last one, after a readable non-executable file, it ends in that
+    /// file's denial on both. `posix_spawnp` and `execvP` read alike here,
+    /// so both forms carry one expectation.
+    fn control(
+        &self,
+        what: &str,
+        id: &str,
+        command: &mut Command,
+        resolve: impl FnOnce() -> Result<PathBuf, CompositeError>,
+    ) {
+        let unreadable = fs::metadata(&self.hidden).unwrap_err();
+        assert_eq!(
+            errno_of(&unreadable),
+            Some(rustix::io::Errno::ACCESS),
+            "{id}: the sealed candidate's metadata is unreadable to this process"
+        );
+        let native = oracle(command.arg("--list").stdin(Stdio::null()), id);
+        let resolved = resolve();
+        let (errno, reason) = match (what, LIBRARY) {
+            ("sealed-directory-alone", Library::Apple) => (
+                rustix::io::Errno::NOENT,
+                format!(
+                    "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended at {}: \
+                     {unreadable})",
+                    self.hidden.display()
+                ),
+            ),
+            ("sealed-directory-alone", Library::Glibc) => (
+                rustix::io::Errno::ACCESS,
+                format!(
+                    "the DSH layout is unreadable: 'dsh' is not executable by this process on \
+                     PATH: {}: {unreadable}",
+                    self.hidden.display()
+                ),
+            ),
+            (_, Library::Apple | Library::Glibc) => (
+                rustix::io::Errno::ACCESS,
+                format!(
+                    "the DSH layout is unreadable: 'dsh' is not executable by this process on \
+                     PATH: {}: is not executable by this process",
+                    self.decoy.display()
+                ),
+            ),
+            _ => {
+                return eprintln!(
+                    "matrix control {id} on {}: native {native:?}, resolver {resolved:?}",
+                    std::env::consts::OS
+                )
+            }
+        };
+        let Outcome::Failed(error) = &native else {
+            panic!("{id}: the native child ran a dsh: {native:?}");
+        };
+        assert_eq!(errno_of(error), Some(errno), "{id}: {error}");
+        assert_eq!(refused(resolved), reason, "{id}");
+    }
+}
+
+/// Restores the sealed directory's search permission when dropped, so
+/// the fixture tree can be removed whatever the controls answered.
+struct Unseal(PathBuf);
+
+impl Drop for Unseal {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700));
+    }
+}
 
 /// What a candidate is made of.
 enum Body {
@@ -207,7 +345,8 @@ enum Expect {
     WorkingDirectory,
     /// Apple's PRE-ATTEMPT bound: `posix_spawnp` sizes each candidate
     /// against its 1,024-byte buffer before building it (`lp + ln + 2 >
-    /// sizeof(buf)`, `sys/posix_spawn.c`) and answers `ENAMETOOLONG`
+    /// sizeof(buf)`, `sys/posix_spawn.c` 131–134 at Libc-1752.120.2) and
+    /// answers `ENAMETOOLONG`
     /// there, having handed `execve` nothing. Native therefore reports
     /// ENAMETOOLONG for a candidate that was never constructed, and the
     /// resolver names the BOUND rather than a stop the kernel never
@@ -604,8 +743,9 @@ fn cell_id(name: usize, layout: usize, form: &str) -> String {
 
 /// Whether Apple's walk can BUILD the candidate this slot and name make:
 /// `lp + ln + 2 > sizeof(buf)` with `buf` PATH_MAX, an empty token
-/// counted as the `.` Apple substitutes for it (`gen/FreeBSD/exec.c`,
-/// `sys/posix_spawn.c`, design D10). The bound is per candidate and
+/// counted as the `.` Apple substitutes for it (`gen/FreeBSD/exec.c`
+/// 194–197 and 215, `sys/posix_spawn.c` 110–113 and 131, both at
+/// Libc-1752.120.2, `4e34d055`). The bound is per candidate and
 /// applies to every token, so it is asked of every token rather than
 /// assumed of the one the matrix pads.
 fn apple_overflows(root: &Path, cwd: &Path, index: usize, slot: Slot, name: &str) -> bool {
@@ -858,7 +998,8 @@ fn compare(
             // per library and per position — so the wording owed is too,
             // and asserting glibc's on every host is what PR #311's
             // macOS leg kept failing on. Apple's switch CONTINUES past
-            // both ELOOP and ENAMETOOLONG (`sys/posix_spawn.c`), so on
+            // both ELOOP and ENAMETOOLONG (`sys/posix_spawn.c` 146–150,
+            // `gen/FreeBSD/exec.c` 232–235 at Libc-1752.120.2), so on
             // that arm a SEARCHED name can only end on one of them by
             // exhausting its entries, and the refusal is the exhaustion
             // it is; a DIRECT name, which no switch governs, names the
@@ -1306,6 +1447,12 @@ fn parent() {
     fs::create_dir_all(&cwd).unwrap();
     fs::create_dir_all(root.join("abs")).unwrap();
     fs::create_dir_all(root.join("controls")).unwrap();
+    // Declared after the root, so it is dropped first: the sealed
+    // directory's permission is restored before the tree is removed,
+    // including when an assertion below ends the parent.
+    let sealed = Sealed::under(root);
+    let _unseal = Unseal(sealed.sealed.clone());
+    sealed.stage();
     let layouts = layouts(loader_fixture());
     let names = names(root);
 
@@ -1398,6 +1545,11 @@ fn parent() {
         }
     }
     run("controls", Some(root.join("controls").into_os_string()));
+    // The sealed-directory controls' INHERITED form, each in a child
+    // whose own environment carries the `PATH` it searches.
+    for what in SEALED {
+        run(&format!("sealed:{what}"), Some(sealed.path(what)));
+    }
 
     // Every failing case, in one panic, ahead of the inventory: a child
     // that failed also stopped reporting oracles, and its missing
@@ -2216,6 +2368,20 @@ fn child_controls() {
         });
     }
 
+    // The sealed-directory controls' EXPLICIT form: the `PATH` set on the
+    // `Command` and handed to the resolver's `execvp` operation. The
+    // parent staged the fixtures and restores their permission.
+    let sealed = Sealed::under(&root);
+    for what in SEALED {
+        let id = format!("control:{what}");
+        collecting(&mut failures, &id, || {
+            let path = sealed.path(what);
+            sealed.control(what, &id, Command::new("dsh").env("PATH", &path), || {
+                resolve_executable_in("dsh", Some(path.clone()))
+            });
+        });
+    }
+
     // The default-search positive AO requires beside the all-negative
     // absent-PATH cells: `sh` runs with PATH removed, and the resolver
     // selects the very file it ran, with a same-name cwd decoy present.
@@ -2244,13 +2410,38 @@ fn child_controls() {
     report("the controls", failures);
 }
 
+/// One sealed-directory control's INHERITED form, in a child whose own
+/// environment carries the `PATH` it searches: production's invocation,
+/// `Command::new` with no environment change (`posix_spawnp`), beside
+/// production's resolver reading the same environment.
+fn child_sealed(what: &str) {
+    let cwd = std::env::current_dir().unwrap();
+    let root = cwd.parent().unwrap().to_path_buf();
+    let sealed = Sealed::under(&root);
+    assert_eq!(
+        std::env::var_os("PATH"),
+        Some(sealed.path(what)),
+        "the parent staged {what}'s PATH in this child's environment"
+    );
+    let mut failures: Vec<String> = Vec::new();
+    let id = format!("control:{what}-inherited");
+    collecting(&mut failures, &id, || {
+        sealed.control(what, &id, &mut Command::new("dsh"), || {
+            resolve_executable("dsh")
+        });
+    });
+    println!("\nmatrix-tally: 0 0 0 0 0 0");
+    report(&id, failures);
+}
+
 #[test]
 fn native_executable_resolution_matches_command_matrix() {
     match std::env::var(CASE) {
         Ok(case) if case == "controls" => child_controls(),
-        Ok(case) => match case.strip_suffix(":removed") {
-            Some(index) => child_layout(index.parse().unwrap(), true),
-            None => child_layout(case.parse().unwrap(), false),
+        Ok(case) => match (case.strip_prefix("sealed:"), case.strip_suffix(":removed")) {
+            (Some(what), _) => child_sealed(what),
+            (None, Some(index)) => child_layout(index.parse().unwrap(), true),
+            (None, None) => child_layout(case.parse().unwrap(), false),
         },
         Err(_) => parent(),
     }
