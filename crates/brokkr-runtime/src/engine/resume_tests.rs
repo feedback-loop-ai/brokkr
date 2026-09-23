@@ -2756,6 +2756,39 @@ const SERVE_DSH: &str = "BROKKR_RESUME_TESTS_SERVE_DSH";
 #[cfg(unix)]
 const HARNESS_LINE: &str = "running 1 test";
 
+/// Set, to a file path, in the environment of this suite's own binary
+/// when a case below spawns it to MEASURE a DSH install: it resolves the
+/// seams and computes the composite through production's own resolver and
+/// producer, under exactly the environment the served adapter gets, and
+/// writes the canonical value (or the refusal) to that file.
+#[cfg(unix)]
+const MEASURE_DSH: &str = "BROKKR_RESUME_TESTS_MEASURE_DSH";
+
+/// The roles this suite's binary plays when a case spawns it: the served
+/// production DSH adapter, or the production measurement of an install.
+/// A binary run as a test returns from here and runs the case.
+#[cfg(unix)]
+fn serve_dsh_when_spawned() {
+    if std::env::var_os(SERVE_DSH).is_some() {
+        let extra = std::env::var(format!("{SERVE_DSH}_EXTRA")).unwrap();
+        let extra = extra.split(' ').map(str::to_string).collect();
+        let served =
+            brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind::Dsh, extra);
+        // Nothing of the harness may follow the protocol on stdout.
+        std::process::exit(if served.is_ok() { 0 } else { 70 });
+    }
+    if let Some(out) = std::env::var_os(MEASURE_DSH) {
+        let measured = brokkr_protocol::adapters::DshSeams::resolve()
+            .and_then(|seams| brokkr_protocol::adapters::dsh_composite(&seams))
+            .map_or_else(
+                |error| format!("refused: {error}"),
+                |composite| composite.canonical().to_string(),
+            );
+        std::fs::write(out, measured).unwrap();
+        std::process::exit(0);
+    }
+}
+
 /// Unit 4a, the seam the two halves meet at (review of `e428ad23`, C1 +
 /// SEC-1): the engine drives the REAL DSH adapter — production's
 /// `adapters::serve`, spawned as this very test binary — on a seat whose
@@ -2776,14 +2809,7 @@ const HARNESS_LINE: &str = "running 1 test";
 #[cfg(unix)]
 #[test]
 fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
-    if std::env::var_os(SERVE_DSH).is_some() {
-        let extra = std::env::var(format!("{SERVE_DSH}_EXTRA")).unwrap();
-        let extra = extra.split(' ').map(str::to_string).collect();
-        let served =
-            brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind::Dsh, extra);
-        // Nothing of the harness may follow the protocol on stdout.
-        std::process::exit(if served.is_ok() { 0 } else { 70 });
-    }
+    serve_dsh_when_spawned();
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
@@ -3005,6 +3031,492 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
                 "boundary": "not applicable",
             }),
             "{attempt}"
+        );
+    }
+}
+
+/// A synthetic qualified DSH install, rebuilt for this suite from the
+/// protocol suite's `Synthetic` (`adapters/composite/tests.rs`): the
+/// task-owned core with its hidden lock, the `headless` profile with its
+/// manifest, patch, pnpm lock and plugin set, and a `node` the core's
+/// `#!/usr/bin/env node` line selects by `PATH`. Everything is under the
+/// canonical `root`; nothing reads `.forge/` or an installed provider.
+///
+/// The `node` answers its own `--version` and hands every other
+/// invocation — `node <core>/lib/bin.js …`, which is what running the
+/// core executes — to `child`, so the one selected executable is both the
+/// probed DSH and the launched one, exactly as production has it.
+#[cfg(unix)]
+struct SyntheticDsh {
+    /// The core's `lib/bin.js`: the executable the adapter selects.
+    bin: PathBuf,
+    home: PathBuf,
+    /// The directory holding `node`, put first on the adapter's `PATH`.
+    node_dir: PathBuf,
+}
+
+#[cfg(unix)]
+fn synthetic_dsh(root: &Path, child: &Path) -> SyntheticDsh {
+    use std::os::unix::fs::PermissionsExt;
+    let put = |dir: &Path, name: &str, bytes: &[u8]| {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        path
+    };
+    let executable = |path: &Path| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    let core = root.join("core");
+    let pkg = core.join("node_modules").join("@deepseek-ai").join("dsh");
+    put(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    let bin = put(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    executable(&bin);
+    put(
+        &core,
+        "node_modules/.package-lock.json",
+        br#"{"lockfileVersion":3,"packages":{
+          "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+          "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+          "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+        }}"#,
+    );
+    let home = root.join("home");
+    let profile = home.join("profiles").join("headless");
+    put(
+        &profile,
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    put(&profile, "cordis.patch.yml", b"[]\n");
+    put(
+        &profile,
+        "pnpm-lock.yaml",
+        b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n",
+    );
+    put(
+        &profile,
+        "node_modules/@deepseek-ai/dsh-base/package.json",
+        br#"{"name":"@deepseek-ai/dsh-base","version":"0.1.5-rc.2"}"#,
+    );
+    for file in [
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml",
+        "lib/index.js",
+        "lib/startup.js",
+        "package.json",
+    ] {
+        put(
+            &profile.join("node_modules").join("dsh-plugin-cli-session"),
+            file,
+            file.as_bytes(),
+        );
+    }
+    let node_dir = root.join("node").join("bin");
+    let node = put(
+        &node_dir,
+        "node",
+        format!(
+            "#!/bin/sh\n\
+             [ \"$1\" = --version ] && {{ printf 'v22.23.2\\n'; exit 0; }}\n\
+             shift\n\
+             exec /bin/sh '{}' \"$@\"\n",
+            child.display()
+        )
+        .as_bytes(),
+    );
+    executable(&node);
+    SyntheticDsh {
+        bin,
+        home,
+        node_dir,
+    }
+}
+
+/// The shipped DSH declaration, re-declared `supported` for the synthetic
+/// install: its version, its four evidence references and the composite
+/// `measured` for it, read back through the production adapter loader.
+#[cfg(unix)]
+fn dsh_assessment_measuring(measured: &str) -> crate::agents::ResumeAssessment {
+    let scratch = tempfile::tempdir().unwrap();
+    let adapters = scratch.path().join("adapters");
+    copy_tree(&workspace_root().join("adapters"), &adapters);
+    let path = adapters.join("dsh.json");
+    let mut dsh: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let shape = &mut dsh["resume"]["headless-work"];
+    shape["status"] = json!("supported");
+    shape["identity"] = json!({
+        "version": "0.1.5-rc.2",
+        "applies_to": "0.1.5-rc.2",
+        "wrapper_digest": measured,
+    });
+    for evidence in ["restrictions", "root", "accounting"] {
+        shape["evidence"][evidence] = json!("the synthetic install of this suite");
+    }
+    std::fs::write(&path, serde_json::to_vec_pretty(&dsh).unwrap()).unwrap();
+    crate::Adapters::load(&adapters)
+        .expect("the measured adapters load")
+        .adapter("dsh")
+        .expect("the dsh adapter")
+        .resume
+        .clone()
+}
+
+/// Entry 11 of the acceptance ledger (A53, B42, B30): the gated shapes'
+/// exclusions in ONE process. The engine drives the REAL DSH adapter —
+/// production's `adapters::serve`, spawned as this test binary — whose
+/// gate is really open: the synthetic install above is selected by the
+/// production resolver, its composite is computed by the production
+/// producer, and the seat's declaration is `supported` with that measured
+/// digest. The seat's `--patch` binds the marked route. Three attempts of
+/// one site:
+///
+/// 1. a qualified cold start: stream-json, `--new`, confirmed as `s-1`,
+///    which it stores; it then exits 3 with one stderr line;
+/// 2. the retry, offered `s-1`: the adapter rejoins it with `--session`,
+///    the child appends current work past the stored boundary and is
+///    confirmed; it drifts the core's reported version and exits 3;
+/// 3. the next retry, offered `s-1` again: the probe now observes another
+///    version, so the adapter declines `unverified-harness` and runs the
+///    shipped cold route, which succeeds.
+///
+/// For each, every journaled event, launch row and stderr tail, and the
+/// adapter's raw stdout, carry no route content, path, digest, binding,
+/// `resume_context`, `owned_target` or `assessment`; each launch row is
+/// exactly its own vocabulary, and the confirmed rejoin's keeps the
+/// `root_session` and `transcript` the cold start confirmed.
+#[cfg(unix)]
+#[test]
+fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
+    serve_dsh_when_spawned();
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (layer, digest) = marked_route_layer(&root);
+    let child = root.join("dsh-child.sh");
+    let install = synthetic_dsh(&root, &child);
+    let home = install.home.display().to_string();
+    let version = root.join("dsh.version");
+    std::fs::write(&version, "0.1.5-rc.2\n").unwrap();
+    // The launched DSH, reached as `node <core>/lib/bin.js <args>`: it
+    // answers the probe from the version file, keeps the overlay and the
+    // arguments it was handed, writes one stderr line, and acts out its
+    // invocation's part against the root the overlay names.
+    std::fs::write(
+        &child,
+        format!(
+            "case \"$1\" in --version) cat '{version}'; exit 0 ;; esac\n\
+             n=$(cat '{count}' 2>/dev/null || echo 0)\n\
+             n=$((n+1))\n\
+             printf '%s' \"$n\" > '{count}'\n\
+             cp \"$4\" '{seen}'-\"$n\"\n\
+             i=1\n\
+             for arg do\n\
+             [ \"$i\" -lt \"$#\" ] && printf '%s\\n' \"$arg\" >> '{argv}'-\"$n\"\n\
+             i=$((i+1))\n\
+             last=$arg\n\
+             done\n\
+             printf 'dsh child %s wrote this\\n' \"$n\" >&2\n\
+             store=$(sed -n \"s/^    root: '\\(.*\\)'$/\\1/p\" \"$4\")/--w--/s-1\n\
+             case \"$n\" in\n\
+             1)\n\
+             mkdir -p \"$store\"\n\
+             printf '{{\"type\":\"session\",\"version\":3,\"id\":\"s-1\",\"delegationDepth\":0}}\\n' \
+             > \"$store/session.v3.jsonl\"\n\
+             for seq in 0 1 2 3 4; do\n\
+             printf '{{\"type\":\"permission/preset\",\"seq\":%s}}\\n' \"$seq\" >> \"$store/session.v3.jsonl\"\n\
+             done\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s-1\"}}\\n'\n\
+             exit 3 ;;\n\
+             2)\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s-1\"}}\\n'\n\
+             printf '{{\"type\":\"assistant/message\",\"seq\":5,\"data\":{{\"message\":\
+             {{\"source\":{{\"model\":\"deepseek-v4-flash\"}}}},\"usage\":{{\"inputTokens\":3,\
+             \"outputTokens\":1}}}}}}\\n' >> \"$store/session.v3.jsonl\"\n\
+             printf '0.1.5-rc.3\\n' > '{version}'\n\
+             exit 3 ;;\n\
+             esac\n\
+             result=$(printf '%s\\n' \"$last\" | grep '/.forge/results/' | head -n 1 | sed 's/^ *//')\n\
+             printf '{{\"result\":\"complete\"}}' > \"$result\"\n",
+            version = version.display(),
+            count = root.join("dsh.count").display(),
+            seen = root.join("seen").display(),
+            argv = root.join("argv").display(),
+        ),
+    )
+    .unwrap();
+    let path = format!("{}:/usr/bin:/bin", install.node_dir.display());
+
+    // The declaration measures the install: production's resolver and
+    // producer, run by this binary under the adapter's own environment.
+    let this = format!(
+        "{}::the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes",
+        module_path!().split_once("::").unwrap().1
+    );
+    let exe = std::env::current_exe().unwrap();
+    let measured_file = root.join("measured");
+    let status = std::process::Command::new(&exe)
+        .args([
+            this.as_str(),
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+            "-q",
+        ])
+        .env(MEASURE_DSH, &measured_file)
+        .env("DSH_HOME", &install.home)
+        .env("HOME", &root)
+        .env("PATH", &path)
+        .env("BROKKR_DSH_BIN", &install.bin)
+        .env_remove("NODE_PATH")
+        .env_remove(SERVE_DSH)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "{status}");
+    let measured = std::fs::read_to_string(&measured_file).unwrap();
+    assert!(
+        measured.len() == 64 && measured.bytes().all(|b| b.is_ascii_hexdigit()),
+        "production measures the synthetic install: {measured}"
+    );
+
+    let script = format!(
+        "unset DSH_PERMISSION_MODE NODE_PATH\n\
+         tee -a '{log}' | {SERVE_DSH}=1 {SERVE_DSH}_EXTRA=\"$*\" DSH_HOME='{home}' \
+         HOME='{root}' PATH='{path}' BROKKR_DSH_BIN='{bin}' '{exe}' '{this}' --exact \
+         --nocapture --test-threads=1 -q | tee -a '{raw}' | grep --line-buffered -v -x \
+         '{HARNESS_LINE}'\n",
+        log = root.join("work.log").display(),
+        raw = root.join("work.stdout").display(),
+        root = root.display(),
+        bin = install.bin.display(),
+        exe = exe.display(),
+    );
+    let argv: Vec<String> = [
+        "sh",
+        "-c",
+        &script,
+        "sh",
+        "--model",
+        "deepseek/deepseek-v4-flash",
+        "--patch",
+        "recipe/route.yml",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    let candidate = Candidate {
+        agent: "implementer".into(),
+        model: "deepseek/deepseek-v4-flash".into(),
+        effort: None,
+        provider: "dsh".into(),
+        argv: argv.clone(),
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume: dsh_assessment_measuring(&measured),
+    };
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(single(argv, vec![candidate]), &["complete"], 3),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    // A registered, resolved no-hands site: the affirmative markers the
+    // declaration's `not applicable`/`none` coordinate is judged against.
+    bundle.sites.insert(
+        "work".into(),
+        crate::bundle::SiteFacts {
+            hands: HandsState::NoHands,
+            ..Default::default()
+        },
+    );
+    let events = run(&root, bundle);
+
+    // The journal first, before any assertion that presumes the attempts
+    // went well; every surface it searched is asserted to exist below.
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
+
+    // The adapter's whole stdout on all three attempts: the harness line
+    // is all that was taken out, every other line is a protocol message,
+    // and none of it carries the route or a carrier.
+    let raw = std::fs::read_to_string(root.join("work.stdout")).unwrap();
+    let dropped: Vec<&str> = raw.lines().filter(|line| !line.starts_with('{')).collect();
+    assert_eq!(dropped, ["", HARNESS_LINE].repeat(3), "{raw}");
+    for line in raw.lines().filter(|line| line.starts_with('{')) {
+        let message: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(message["proto"], "forge-driver/v1", "{line}");
+    }
+    let lowered = raw.to_lowercase();
+    for needle in route_and_carrier_needles(&layer, &digest) {
+        assert_eq!(
+            lowered.find(&needle.to_lowercase()),
+            None,
+            "the adapter's stdout carries {needle}: {raw}"
+        );
+    }
+
+    // Three starts of the real adapter, the second and third offered the
+    // root the first confirmed. Each held the binding and the measured
+    // assessment privately, and each child received the route.
+    let received = received(&root, "work");
+    let starts: Vec<Value> = received
+        .iter()
+        .filter(|message| message["type"] == "start")
+        .cloned()
+        .collect();
+    assert_eq!(starts.len(), 3, "two failing attempts are retried");
+    assert_eq!(
+        offers(&received),
+        [None, Some("s-1".into()), Some("s-1".into())]
+    );
+    for (index, start) in starts.iter().enumerate() {
+        let private = &start["input"]["resume_context"];
+        assert_eq!(
+            private["route_overlay"],
+            json!({"value": "recipe/route.yml", "digest": digest}),
+            "start {index}"
+        );
+        assert_eq!(
+            private["assessment"]["headless-work"]["status"], "supported",
+            "start {index}: {private}"
+        );
+        assert_eq!(
+            private["assessment"]["headless-work"]["identity"]["wrapper_digest"], measured,
+            "start {index}: {private}"
+        );
+        let handed = std::fs::read_to_string(root.join(format!("seen-{}", index + 1))).unwrap();
+        assert_eq!(handed.matches(ROUTE_MARKER).count(), 2, "{handed}");
+    }
+    assert_eq!(
+        starts[0]["input"]["resume_context"].get("owned_target"),
+        None
+    );
+
+    // What the adapter decided, read off the launched argv: stream-json
+    // with `--new`, then `--session s-1`, then the shipped route.
+    let launched = |n: usize| -> Vec<String> {
+        std::fs::read_to_string(root.join(format!("argv-{n}")))
+            .unwrap()
+            .lines()
+            .skip(4)
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(launched(1), ["--output-format", "stream-json", "--new"]);
+    assert_eq!(
+        launched(2),
+        ["--output-format", "stream-json", "--session", "s-1"]
+    );
+    assert_eq!(launched(3), Vec::<String>::new());
+
+    // The three attempts, as journaled: one launch row each, the first two
+    // failed with the child's own stderr line as their tail, the third
+    // succeeded.
+    let attempts: Vec<&str> = starts
+        .iter()
+        .map(|start| start["attempt_id"].as_str().unwrap())
+        .collect();
+    let launch_row = |attempt: &str| -> Value {
+        let rows: Vec<Value> = events
+            .iter()
+            .filter(|event| event.attempt_id.as_deref() == Some(attempt))
+            .filter(|event| event.event_type == EventType::EffectCheckpointed)
+            .map(|event| event.payload["checkpoint"].clone())
+            .filter(|row| row["step"] == "harness-started")
+            .collect();
+        assert_eq!(rows.len(), 1, "{attempt}: one launch row: {rows:?}");
+        let mut row = rows[0].clone();
+        for stamp in ["site_ref", "instance_ref"] {
+            let value = row.as_object_mut().unwrap().remove(stamp);
+            assert_eq!(
+                value.as_ref().and_then(Value::as_str).map(str::len),
+                Some(64),
+                "{attempt}: {stamp}: {}",
+                rows[0]
+            );
+        }
+        row
+    };
+    let failed: Vec<&EventEnvelope> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectFailed)
+        .collect();
+    assert_eq!(failed.len(), 2, "{failed:?}");
+    for (n, event) in failed.iter().enumerate() {
+        assert_eq!(event.attempt_id.as_deref(), Some(attempts[n]));
+        assert_eq!(
+            event.payload["error"],
+            format!(
+                "agent CLI exited 3; stderr tail: dsh child {} wrote this\n",
+                n + 1
+            )
+        );
+    }
+    assert!(
+        events.iter().any(|event| {
+            event.event_type == EventType::EffectSucceeded
+                && event.attempt_id.as_deref() == Some(attempts[2])
+        }),
+        "the declined offer ran cold and succeeded"
+    );
+
+    // Each launch row is exactly its own vocabulary. The cold start's root
+    // and address are the owned target the next two starts were offered,
+    // and the confirmed rejoin keeps them exactly.
+    let cold = launch_row(attempts[0]);
+    let locator = cold["transcript"]["locator"].as_str().unwrap().to_string();
+    assert!(locator.starts_with("sessions/brokkr/"), "{cold}");
+    let confirmed_root = json!({
+        "kind": "dsh-session",
+        "id": "s-1",
+        "harness_version": "0.1.5-rc.2",
+        "wrapper_digest": measured,
+        "persistent": true,
+    });
+    let address = json!({"kind": "dsh-session", "locator": locator, "home": home});
+    let vocabulary = |launch: &str| {
+        json!({
+            "step": "harness-started",
+            "harness": "deepseek",
+            "launch": launch,
+            "model": "not reported",
+            "effort": "not applicable",
+            "boundary": "not applicable",
+        })
+    };
+    let mut expected = vocabulary("cold");
+    expected["root_session"] = confirmed_root.clone();
+    expected["transcript"] = address.clone();
+    assert_eq!(cold, expected, "the qualified cold start");
+    let mut expected = vocabulary("resumed");
+    expected["root_session"] = confirmed_root;
+    expected["transcript"] = address;
+    assert_eq!(launch_row(attempts[1]), expected, "the confirmed rejoin");
+    let mut expected = vocabulary("cold");
+    expected["resume_refusal"] = json!("unverified-harness");
+    assert_eq!(launch_row(attempts[2]), expected, "the declined offer");
+    for start in &starts[1..] {
+        assert_eq!(
+            start["input"]["resume_context"]["owned_target"],
+            json!({
+                "provider_id": "s-1",
+                "persistence_locator": locator,
+                "persistence_home": home,
+            }),
+            "{start}"
         );
     }
 }
