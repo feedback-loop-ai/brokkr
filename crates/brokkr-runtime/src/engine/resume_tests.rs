@@ -2250,21 +2250,7 @@ fn marked_route_layer(root: &Path) -> (PathBuf, String) {
 /// covers (adapter-resume-safety spec, route overlay scenario); it is
 /// asserted exactly and then taken out before the search.
 fn assert_journal_free_of_route_and_carriers(events: &[EventEnvelope], layer: &Path, digest: &str) {
-    let route_file = layer.join("route.yml").display().to_string();
-    let needles = [
-        ROUTE_MARKER.to_string(),
-        "recipe/route.yml".to_string(),
-        route_file,
-        digest.to_string(),
-        "\"resume_context\"".to_string(),
-        "\"route_overlay\"".to_string(),
-        "\"owned_target\"".to_string(),
-        "\"assessment\"".to_string(),
-        "\"originating_harness_version\"".to_string(),
-        "\"originating_wrapper_digest\"".to_string(),
-        "\"persistence_home\"".to_string(),
-        "\"persistence_locator\"".to_string(),
-    ];
+    let needles = route_and_carrier_needles(layer, digest);
     for event in events {
         let mut payload = event.payload.clone();
         if event.event_type == EventType::RunStarted {
@@ -2285,6 +2271,27 @@ fn assert_journal_free_of_route_and_carriers(events: &[EventEnvelope], layer: &P
             );
         }
     }
+}
+
+/// What no surface a bound route's attempt emits may carry: the route's
+/// distinctive content, its argv value, its file path, its digest, and
+/// every member of the private start context. Matched case-insensitively.
+fn route_and_carrier_needles(layer: &Path, digest: &str) -> Vec<String> {
+    let route_file = layer.join("route.yml").display().to_string();
+    vec![
+        ROUTE_MARKER.to_string(),
+        "recipe/route.yml".to_string(),
+        route_file,
+        digest.to_string(),
+        "\"resume_context\"".to_string(),
+        "\"route_overlay\"".to_string(),
+        "\"owned_target\"".to_string(),
+        "\"assessment\"".to_string(),
+        "\"originating_harness_version\"".to_string(),
+        "\"originating_wrapper_digest\"".to_string(),
+        "\"persistence_home\"".to_string(),
+        "\"persistence_locator\"".to_string(),
+    ]
 }
 
 /// The journaled launch rows of one DSH site, in journal order: the
@@ -2574,6 +2581,12 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
 #[cfg(unix)]
 const SERVE_DSH: &str = "BROKKR_RESUME_TESTS_SERVE_DSH";
 
+/// The one line libtest writes to stdout ahead of the served protocol when
+/// this suite's binary runs one case quietly; the process exits before
+/// libtest could write its summary.
+#[cfg(unix)]
+const HARNESS_LINE: &str = "running 1 test";
+
 /// Unit 4a, the seam the two halves meet at (review of `e428ad23`, C1 +
 /// SEC-1): the engine drives the REAL DSH adapter — production's
 /// `adapters::serve`, spawned as this very test binary — on a seat whose
@@ -2587,7 +2600,10 @@ const SERVE_DSH: &str = "BROKKR_RESUME_TESTS_SERVE_DSH";
 /// journal — each launch row, the failed attempt's stderr tail, every
 /// other event — carries none of the route's content, its path, its
 /// digest, the binding or a private carrier, and the stderr tail is
-/// exactly the child's own bytes.
+/// exactly the child's own bytes. The adapter's stdout reaches the engine
+/// whole but for libtest's one announcement line, and that raw stream is
+/// searched too, so a disclosure the adapter prints outside the protocol
+/// is neither filtered away nor missed.
 #[cfg(unix)]
 #[test]
 fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
@@ -2633,8 +2649,12 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     }
     // The driver: this binary, filtered to this case, in the serving role.
     // Its stdin is logged the way the shim drivers' is, so the start it
-    // was sent can be read back, and only protocol lines leave its stdout
-    // (the harness announces itself there first).
+    // was sent can be read back. Its whole stdout is kept as it left the
+    // process, and the one line the harness announces itself with is the
+    // only line taken out before the engine reads it: anything else the
+    // adapter writes — protocol or not — reaches the engine, which
+    // journals an unreadable line in its failure (review of `f5895001`,
+    // SEC-2).
     let this = format!(
         "{}::the_real_dsh_driver_journals_no_route_byte_and_no_carrier",
         module_path!().split_once("::").unwrap().1
@@ -2643,8 +2663,9 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
         "unset DSH_PERMISSION_MODE\n\
          tee -a '{log}' | {SERVE_DSH}=1 {SERVE_DSH}_EXTRA=\"$*\" DSH_HOME='{home}' \
          HOME='{root}' BROKKR_DSH_BIN='{dsh}' '{exe}' '{this}' --exact --nocapture \
-         --test-threads=1 -q | grep --line-buffered '^{{'\n",
+         --test-threads=1 -q | tee -a '{raw}' | grep --line-buffered -v -x '{HARNESS_LINE}'\n",
         log = root.join("work.log").display(),
+        raw = root.join("work.stdout").display(),
         home = home.display(),
         root = root.display(),
         dsh = dsh.display(),
@@ -2697,6 +2718,31 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
     let events = run(&root, bundle);
 
+    // The journal first, before any assertion that presumes the attempts
+    // went well: a disclosure that also breaks the protocol is still named
+    // here, as a disclosure. Every surface searched is asserted to exist
+    // below, so this search is not run over nothing.
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
+
+    // The adapter's whole stdout, as it left the process on both attempts:
+    // the harness line is all that was taken out, every other line is a
+    // protocol message, and none of it carries the route or a carrier.
+    let raw = std::fs::read_to_string(root.join("work.stdout")).unwrap();
+    let dropped: Vec<&str> = raw.lines().filter(|line| !line.starts_with('{')).collect();
+    assert_eq!(dropped, ["", HARNESS_LINE, "", HARNESS_LINE], "{raw}");
+    for line in raw.lines().filter(|line| line.starts_with('{')) {
+        let message: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(message["proto"], "forge-driver/v1", "{line}");
+    }
+    let lowered = raw.to_lowercase();
+    for needle in route_and_carrier_needles(&layer, &digest) {
+        assert_eq!(
+            lowered.find(&needle.to_lowercase()),
+            None,
+            "the adapter's stdout carries {needle}: {raw}"
+        );
+    }
+
     // Both attempts ran the real adapter, which bound the route and handed
     // it to the child.
     let starts: Vec<Value> = received(&root, "work")
@@ -2720,9 +2766,8 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     }
 
     // The two attempts, as journaled: a launch row each, the first failed
-    // with a stderr tail and the second succeeded. Each surface exists
-    // before its exclusion is read, so the search below is not run over
-    // nothing.
+    // with a stderr tail and the second succeeded — the surfaces the
+    // exclusion above was read over.
     let attempts: Vec<&str> = starts
         .iter()
         .map(|start| start["attempt_id"].as_str().unwrap())
@@ -2759,7 +2804,6 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
         }),
         "the retry succeeded"
     );
-    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
 
     // And each is exactly what the adapter and the engine own: the stderr
     // tail is the child's own line, nothing added, and the launch row is
