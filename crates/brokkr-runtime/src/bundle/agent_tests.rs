@@ -99,14 +99,13 @@ impl AgentFixture {
         std::fs::create_dir_all(fixture.bundle().join("roles")).unwrap();
         std::fs::write(fixture.library().join("charters/work.md"), "# work\n").unwrap();
         // An inline seat's role stands inside its own bundle, where the
-        // file map pins it (decision 0066 ruling 5). Here it is a link to
-        // the agent's charter — pinned by content under the link's own
-        // name — so an inline seat can be the same seat an agent resolves to.
-        std::os::unix::fs::symlink(
-            "../../agents/charters/work.md",
-            fixture.bundle().join("roles/work.md"),
-        )
-        .unwrap();
+        // file map pins it (decision 0066 ruling 5; operator ruling 3 of
+        // 2026-09-23: a consumed input that resolves outside the tree is
+        // refused, not pinned). It is the SAME bytes as the agent's
+        // charter — pinned by content under its own name — so an inline
+        // seat can be the same seat an agent resolves to, without a link
+        // that leaves the bundle (design D5.4; review return F6).
+        std::fs::write(fixture.bundle().join("roles/work.md"), "# work\n").unwrap();
         fixture.write(
             "agents/worker.json",
             json!({
@@ -308,6 +307,10 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
     });
     let inline = fixture.compile(inline).unwrap();
 
+    // The role is the same TEXT under two names — the agent's charter in
+    // the library, the inline seat's role inside its bundle — so the
+    // bodies are compared on the bytes each path holds, not on a link
+    // from one tree into the other (review return F6).
     let describe = |bundle: &Bundle| {
         let seat = &bundle.seats["work"];
         let SeatBody::Single {
@@ -317,7 +320,7 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
             unreachable!("single seat")
         };
         (
-            role_path.canonicalize().unwrap(),
+            std::fs::read(role_path).unwrap(),
             command.clone(),
             seat.limits.max_attempts,
             seat.limits.timeout_seconds,
@@ -325,6 +328,15 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
         )
     };
     assert_eq!(describe(&resolved), describe(&inline));
+    let role_of = |bundle: &Bundle| match &bundle.seats["work"].body {
+        SeatBody::Single { role_path, .. } => role_path.clone(),
+        _ => unreachable!("single seat"),
+    };
+    assert_eq!(
+        role_of(&resolved),
+        fixture.library().join("charters/work.md")
+    );
+    assert_eq!(role_of(&inline), fixture.bundle().join("roles/work.md"));
 }
 
 /// AC-21: the agent reference is total. Every key that states what the
@@ -1180,6 +1192,10 @@ fn an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_v
             "bundle: seat 'work' 'tools' must be a JSON object".to_string(),
         ),
         (
+            json!([]),
+            "bundle: seat 'work' 'tools' must be a JSON object".to_string(),
+        ),
+        (
             json!({"allow": ["git"], "sandbox": "loose"}),
             "bundle: seat 'work' 'tools.sandbox' is 'loose', which is not one of read-only, \
              workspace-write, danger-full-access"
@@ -1474,19 +1490,23 @@ fn every_executable_form_owns_its_local_declaration() {
     let fixture = AgentFixture::new();
     write_office(&fixture);
     let inline = json!({"role": "roles/work.md", "driver": {"command": ["driver"]}});
-    // (label, config builder, policy)
-    type Form<'a> = (&'a str, Box<dyn Fn(Value) -> Value + 'a>, Value);
+    // (label, config builder, policy). The builder takes the site's
+    // `tools` value, or `None` for a site that OMITS the key, so omission
+    // is its own row and not a spelling of `{}`.
+    type Form<'a> = (&'a str, Box<dyn Fn(Option<Value>) -> Value + 'a>, Value);
     let forms: Vec<Form<'_>> = vec![
         (
             "work",
-            Box::new(|tools| json!({"results": ["complete"], "agent": "office", "tools": tools})),
+            Box::new(|tools| {
+                with_tools(json!({"results": ["complete"], "agent": "office"}), tools)
+            }),
             policy(),
         ),
         (
             "work:a",
             Box::new(|tools| {
                 json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass",
-                       "panel": {"a": {"agent": "office", "tools": tools},
+                       "panel": {"a": with_tools(json!({"agent": "office"}), tools),
                                  "b": inline.clone()}})
             }),
             panel_policy(),
@@ -1495,8 +1515,8 @@ fn every_executable_form_owns_its_local_declaration() {
             "work:first",
             Box::new(|tools| {
                 json!({"results": ["complete"], "sequence": [
-                    {"name": "first", "results": ["complete"], "agent": "office",
-                     "tools": tools},
+                    with_tools(json!({"name": "first", "results": ["complete"],
+                                      "agent": "office"}), tools),
                     {"name": "second", "role": "roles/work.md",
                      "driver": {"command": ["driver"]}}]})
             }),
@@ -1506,7 +1526,7 @@ fn every_executable_form_owns_its_local_declaration() {
             "work:engine",
             Box::new(|tools| {
                 json!({"results": ["complete"], "select": {"on": "strategy",
-                    "cases": {"engine": {"agent": "office", "tools": tools}},
+                    "cases": {"engine": with_tools(json!({"agent": "office"}), tools)},
                     "default": inline.clone()}})
             }),
             policy(),
@@ -1515,29 +1535,43 @@ fn every_executable_form_owns_its_local_declaration() {
             "work:default",
             Box::new(|tools| {
                 json!({"results": ["complete"], "select": {"on": "strategy", "cases": {},
-                    "default": {"agent": "office", "tools": tools}}})
+                    "default": with_tools(json!({"agent": "office"}), tools)}})
             }),
             policy(),
         ),
     ];
+    /// The effective value and the composed argv after the dispatch, model
+    /// and effort tokens, as one observed row.
+    fn effective(result: Result<Bundle, CompileError>, label: &str) -> String {
+        match result {
+            Ok(bundle) => format!(
+                "{:?} {:?}",
+                bundle.sites[label].local,
+                &bundle.sites[label].chain[0].argv[8..]
+            ),
+            Err(error) => error.to_string(),
+        }
+    }
     let mut rows: Vec<Row<String>> = Vec::new();
     for (label, seat, table) in &forms {
-        let compiled = |tools: Value| {
+        let compiled = |tools: Option<Value>| {
             let mut config = fixture.config();
             config["seats"]["work"] = seat(tools);
             fixture.compile_with_policy(config, table)
         };
-        // The effective value and the composed argv, as one observed row.
+        // Omission inherits the office whole (review return F5).
+        rows.push((
+            format!("{label} omission"),
+            effective(compiled(None), label),
+            format!(
+                "{:?} {:?}",
+                Some(local(Some(&["cargo", "git"]), None)),
+                ["--allowedTools", "Bash(cargo:*),Bash(git:*)"]
+            ),
+        ));
         rows.push((
             format!("{label} subset"),
-            match compiled(json!({"allow": ["git"]})) {
-                Ok(bundle) => format!(
-                    "{:?} {:?}",
-                    bundle.sites[*label].local,
-                    &bundle.sites[*label].chain[0].argv[8..]
-                ),
-                Err(error) => error.to_string(),
-            },
+            effective(compiled(Some(json!({"allow": ["git"]}))), label),
             format!(
                 "{:?} {:?}",
                 Some(local(Some(&["git"]), None)),
@@ -1546,12 +1580,12 @@ fn every_executable_form_owns_its_local_declaration() {
         ));
         rows.push((
             format!("{label} explicit empty"),
-            outcome(compiled(json!({"allow": []}))),
+            outcome(compiled(Some(json!({"allow": []})))),
             empty_refusal(label, "office", "claude", "opus"),
         ));
         rows.push((
             format!("{label} widening"),
-            outcome(compiled(json!({"allow": ["make"]}))),
+            outcome(compiled(Some(json!({"allow": ["make"]})))),
             widening(
                 label,
                 "office",
@@ -1562,14 +1596,14 @@ fn every_executable_form_owns_its_local_declaration() {
         ));
         rows.push((
             format!("{label} malformed"),
-            outcome(compiled(json!({"allow": [1]}))),
+            outcome(compiled(Some(json!({"allow": [1]})))),
             format!("bundle: seat '{label}' 'tools' 'allow' must hold strings only"),
         ));
     }
-    each_row(rows);
     // An inherited body: the base layer declares the narrowing and the leaf
     // declares nothing, so the effective value comes from the layer that
-    // wrote it.
+    // wrote it. Its rows stand in the same table as the forms above, so a
+    // failure in the table does not hide them (review return F4).
     let base = fixture.root.join("base");
     std::fs::create_dir_all(base.join("roles")).unwrap();
     std::fs::copy(
@@ -1597,15 +1631,142 @@ fn every_executable_form_owns_its_local_declaration() {
     )
     .unwrap();
     let inherited =
-        Bundle::compile_with(&fixture.bundle(), &fixture.library(), &fixture.adapters()).unwrap();
-    assert_eq!(
-        inherited.sites["work"].local,
-        Some(local(Some(&["git"]), None))
-    );
-    assert_eq!(
-        inherited.sites["review"].local,
-        Some(LocalTools::unspecified())
-    );
+        Bundle::compile_with(&fixture.bundle(), &fixture.library(), &fixture.adapters());
+    rows.push((
+        "inherited body, work".to_string(),
+        match &inherited {
+            Ok(bundle) => format!("{:?}", bundle.sites["work"].local),
+            Err(error) => error.to_string(),
+        },
+        format!("{:?}", Some(local(Some(&["git"]), None))),
+    ));
+    rows.push((
+        "inherited body, review".to_string(),
+        match &inherited {
+            Ok(bundle) => format!("{:?}", bundle.sites["review"].local),
+            Err(error) => error.to_string(),
+        },
+        format!("{:?}", Some(LocalTools::unspecified())),
+    ));
+    assert_eq!(rows.len(), 27);
+    each_row(rows);
+}
+
+/// A site object with `tools` set to `value`, or with the key absent.
+fn with_tools(mut site: Value, value: Option<Value>) -> Value {
+    if let Some(tools) = value {
+        site["tools"] = tools;
+    }
+    site
+}
+
+/// SCM "Each executable body owns its local declaration" and "Omitted and
+/// empty local permissions are distinct" at the NESTED inline forms: an
+/// inline panel member, sequence step, selected case and selected default
+/// each record the checked unspecified value for omission and `{}`, and
+/// each refuses a nonempty or malformed field with its own site named
+/// (review return F5).
+#[test]
+fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
+    let fixture = AgentFixture::new();
+    let inline = |tools: Option<Value>| {
+        with_tools(
+            json!({"role": "roles/work.md", "driver": {"command": ["driver"]}}),
+            tools,
+        )
+    };
+    type Form<'a> = (&'a str, Box<dyn Fn(Option<Value>) -> Value + 'a>, Value);
+    let forms: Vec<Form<'_>> = vec![
+        (
+            "work:b",
+            Box::new(|tools| {
+                json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass",
+                       "panel": {"a": inline(None), "b": inline(tools)}})
+            }),
+            panel_policy(),
+        ),
+        (
+            "work:second",
+            Box::new(|tools| {
+                let mut second = inline(tools);
+                second["name"] = json!("second");
+                json!({"results": ["complete"], "sequence": [
+                    {"name": "first", "results": ["complete"], "role": "roles/work.md",
+                     "driver": {"command": ["driver"]}},
+                    second]})
+            }),
+            policy(),
+        ),
+        (
+            "work:engine",
+            Box::new(|tools| {
+                json!({"results": ["complete"], "select": {"on": "strategy",
+                    "cases": {"engine": inline(tools)}, "default": inline(None)}})
+            }),
+            policy(),
+        ),
+        (
+            "work:default",
+            Box::new(|tools| {
+                json!({"results": ["complete"], "select": {"on": "strategy", "cases": {},
+                    "default": inline(tools)}})
+            }),
+            policy(),
+        ),
+    ];
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (label, seat, table) in &forms {
+        let compiled = |tools: Option<Value>| {
+            let mut config = fixture.config();
+            config["seats"]["work"] = seat(tools);
+            fixture.compile_with_policy(config, table)
+        };
+        let recorded = |result: Result<Bundle, CompileError>| match result {
+            Ok(bundle) => format!("{:?}", bundle.sites[*label].local),
+            Err(error) => error.to_string(),
+        };
+        let checked = format!("{:?}", Some(LocalTools::unspecified()));
+        rows.push((
+            format!("{label} omission"),
+            recorded(compiled(None)),
+            checked.clone(),
+        ));
+        rows.push((
+            format!("{label} {{}}"),
+            recorded(compiled(Some(json!({})))),
+            checked,
+        ));
+        rows.push((
+            format!("{label} allow [cargo]"),
+            outcome(compiled(Some(json!({"allow": ["cargo"]})))),
+            inline_refusal(label, "allow"),
+        ));
+        rows.push((
+            format!("{label} allow []"),
+            outcome(compiled(Some(json!({"allow": []})))),
+            inline_refusal(label, "allow"),
+        ));
+        rows.push((
+            format!("{label} sandbox"),
+            outcome(compiled(Some(json!({"sandbox": "workspace-write"})))),
+            inline_refusal(label, "sandbox"),
+        ));
+        rows.push((
+            format!("{label} malformed"),
+            outcome(compiled(Some(json!({"allow": [1]})))),
+            format!("bundle: seat '{label}' 'tools' 'allow' must hold strings only"),
+        ));
+        rows.push((
+            format!("{label} unknown key"),
+            outcome(compiled(Some(json!({"invented": 1})))),
+            format!(
+                "bundle: seat '{label}' 'tools' has unknown key 'invented'; known keys: allow, \
+                 sandbox, mcp"
+            ),
+        ));
+    }
+    assert_eq!(rows.len(), 28);
+    each_row(rows);
 }
 
 /// SCM "Site-local narrowing cannot contaminate a shared office": two
@@ -1967,7 +2128,242 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
          (design D5.3)"
             .to_string(),
     ));
-    assert_eq!(rows.len(), 19);
+    // D5.3's admission TABLE is independent of adapter data (review return
+    // F1): a fragment that expresses the requested class exactly does not
+    // admit a class the path does not hold. Each pair below matches the
+    // fragment to the request and is refused by the table alone.
+    let table = |class: &str, site_kind: &str, boundary: &str, admitted: &str, part: &str| {
+        format!(
+            "bundle: seat 'work' link 1 requests 'tools.sandbox' '{class}' at {site_kind} under \
+             the `{boundary}` boundary, where decision 0065 slice one admits only '{admitted}' \
+             (design D5.3: a box and a harness gate hold read-only, harness work holds \
+             workspace-write); the `{part}` fragment of provider 'codex' expresses '{class}' \
+             too, but adapter data is a representation and not an authority, so a fragment \
+             cannot widen that table — refused"
+        )
+    };
+    for class in ["workspace-write", "danger-full-access"] {
+        let mut wide = codex();
+        wide["hands"]["workspace"] = json!([
+            "--sandbox",
+            class,
+            "-c",
+            "mcp_servers.brokkr.args={hands_args_toml}"
+        ]);
+        wide["hands"]["harness"]["gate"] =
+            json!(["--sandbox", class, "--output-last-message", "{result_path}"]);
+        fixture.write("adapters/codex.json", wide);
+        declare(class);
+        rows.push((
+            format!("boxed fragment {class}, request {class}"),
+            outcome(fixture.compile(seat(None))),
+            table(
+                class,
+                "a boxed site",
+                "namespace",
+                "read-only",
+                "hands.workspace",
+            ),
+        ));
+        rows.push((
+            format!("gate fragment {class}, request {class}"),
+            outcome(fixture.compile_under(seat(Some("gate")), Boundary::Harness)),
+            table(
+                class,
+                "a harness gate",
+                "harness",
+                "read-only",
+                "hands.harness.gate",
+            ),
+        ));
+    }
+    for class in ["read-only", "danger-full-access"] {
+        let mut wide = codex();
+        wide["hands"]["harness"]["work"] = json!(["--sandbox", class]);
+        fixture.write("adapters/codex.json", wide);
+        declare(class);
+        rows.push((
+            format!("work fragment {class}, request {class}"),
+            outcome(fixture.compile_under(seat(None), Boundary::Harness)),
+            table(
+                class,
+                "a harness work seat",
+                "harness",
+                "workspace-write",
+                "hands.harness.work",
+            ),
+        ));
+    }
+
+    // An OPAQUE contribution (review return F2): a profile load, in either
+    // spelling, and a configuration assignment outside the established
+    // keys, in the selected fragment and in the authored command alike.
+    let opaque = |part: &str, cause: &str| {
+        format!(
+            "bundle: seat 'work' link 1 requests a typed 'tools.sandbox', but the {part} {cause}"
+        )
+    };
+    let profile = "carries `--profile`, which loads an opaque configuration document the engine \
+                   cannot see into and that can set the same control, so no typed class can be \
+                   checked against it — refused (design D5.3)";
+    let unestablished = |at: usize| {
+        format!(
+            "assigns configuration at argument {at} outside the keys an existing fragment is \
+             established to write (the hands transport under 'mcp_servers.brokkr' and the \
+             effort 'model_reasoning_effort'); an unqualified assignment could reach the same \
+             control, so no typed class can be checked against it — refused (design D5.3)"
+        )
+    };
+    declare("read-only");
+    let mut loaded = codex();
+    loaded["hands"]["workspace"] = json!(["--sandbox", "read-only", "--profile=ci"]);
+    fixture.write("adapters/codex.json", loaded);
+    rows.push((
+        "workspace fragment loads a profile".to_string(),
+        outcome(fixture.compile(seat(None))),
+        opaque("`hands.workspace` fragment", profile),
+    ));
+    let mut loaded = codex();
+    loaded["driver"] = json!(["{brokkr}", "driver", "codex", "--", "-p", "ci"]);
+    fixture.write("adapters/codex.json", loaded);
+    rows.push((
+        "authored command loads a profile".to_string(),
+        outcome(fixture.compile(seat(None))),
+        opaque("authored command", profile),
+    ));
+    let mut assigned = codex();
+    assigned["hands"]["workspace"] = json!([
+        "--sandbox",
+        "read-only",
+        "-c",
+        "mcp_servers.brokkr.args={hands_args_toml}",
+        "-c",
+        "approval_policy=\"never\""
+    ]);
+    fixture.write("adapters/codex.json", assigned);
+    rows.push((
+        "workspace fragment assigns unestablished configuration".to_string(),
+        outcome(fixture.compile(seat(None))),
+        opaque("`hands.workspace` fragment", &unestablished(4)),
+    ));
+    let mut assigned = codex();
+    assigned["driver"] = json!([
+        "{brokkr}",
+        "driver",
+        "codex",
+        "--",
+        "-c",
+        "approval_policy=\"never\""
+    ]);
+    fixture.write("adapters/codex.json", assigned);
+    rows.push((
+        "authored command assigns unestablished configuration".to_string(),
+        outcome(fixture.compile(seat(None))),
+        opaque("authored command", &unestablished(0)),
+    ));
+    // The control: the shipped transport and the effort assignment are
+    // established, and a fragment carrying all of them admits exactly.
+    let established = [
+        "--sandbox",
+        "read-only",
+        "-c",
+        "mcp_servers.brokkr.command=\"{brokkr}\"",
+        "-c",
+        "mcp_servers.brokkr.args={hands_args_toml}",
+        "-c",
+        "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+    ];
+    let mut shipped = codex();
+    shipped["hands"]["workspace"] = json!(established);
+    fixture.write("adapters/codex.json", shipped);
+    rows.push((
+        "established transport and effort admit".to_string(),
+        match fixture.compile(seat(None)) {
+            Ok(bundle) => format!(
+                "{:?} {:?}",
+                bundle.sites["work"].local, bundle.sites["work"].chain[0].hands_fragment
+            ),
+            Err(error) => error.to_string(),
+        },
+        format!(
+            "{:?} {:?}",
+            Some(local(Some(&["cargo"]), Some(Sandbox::ReadOnly))),
+            established
+        ),
+    ));
+    fixture.write("adapters/codex.json", codex());
+
+    // The other harnesses brokkr drives, and a dispatch it does not model,
+    // each with hands in the box and a requested class (task 2.1.5;
+    // review return F5): LaneTally, DSH, exec and a bare program. None
+    // expresses a sandbox class, whatever its provider label says.
+    let other = |harness: &str, provider: &str| {
+        format!(
+            "bundle: seat 'work' link 1 requests 'tools.sandbox' 'read-only' but dispatches the \
+             '{harness}' harness through provider '{provider}'; only the codex harness's own \
+             `--sandbox` fragments express a sandbox class today, and a provider label, a \
+             permission mode or an unmodelled driver is not evidence of one — refused under the \
+             `namespace` boundary (design D5.3)"
+        )
+    };
+    let harness_adapter = |provider: &str, driver: Vec<&str>, model: &str, fragment: Value| {
+        json!({
+            "provider": provider,
+            "binary": provider,
+            "driver": driver,
+            "models": {model: format!("{model}-concrete")},
+            "model_flag": "--model",
+            "efforts": ["high"],
+            "effort_flag": "--effort",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+            "native_capabilities": claude_native(),
+            "hands": {"workspace": fragment},
+        })
+    };
+    let others = [
+        (
+            "lanetally",
+            "lanetally",
+            vec!["{brokkr}", "driver", "lanetally", "--"],
+            "lane",
+            json!(["--tools", "", "--mcp-config", "{hands_mcp_json}"]),
+        ),
+        (
+            "dsh",
+            "dsh",
+            vec!["{brokkr}", "driver", "dsh", "--"],
+            "flash",
+            json!(["--tools", "", "--mcp-config", "{hands_mcp_json}"]),
+        ),
+        (
+            "exec",
+            "exec",
+            vec!["{brokkr}", "driver", "exec", "--"],
+            "script",
+            json!([]),
+        ),
+        ("<custom>", "custom", vec!["codex"], "bare", json!([])),
+    ];
+    for (harness, provider, driver, model, fragment) in others {
+        fixture.write(
+            &format!("adapters/{provider}.json"),
+            harness_adapter(provider, driver, model, fragment),
+        );
+        fixture.write(
+            "agents/boxed.json",
+            boxed_agent(&[model], json!({"sandbox": "read-only"})),
+        );
+        rows.push((
+            format!("{provider} with hands"),
+            outcome(fixture.compile(seat(None))),
+            other(harness, provider),
+        ));
+        std::fs::remove_file(fixture.adapters().join(format!("{provider}.json"))).unwrap();
+    }
+    assert_eq!(rows.len(), 34);
     each_row(rows);
 
     // Without a class, the same chain compiles: the declaration alone
@@ -2323,4 +2719,93 @@ fn a_dialect_step_owns_only_a_checked_empty_declaration() {
     // to no site at all.
     let bundle = compile(None, None).unwrap();
     assert!(!bundle.sites.contains_key("clarify:check"));
+}
+
+/// SCM "Site-local narrowing cannot contaminate a shared office", last
+/// clause: wrapper relocation carries the local value with the other site
+/// facts — a dialect-wrapped agent-backed `verify` keeps its effective
+/// declaration at `verify:checks` and nothing at `verify` — and the
+/// validator the wrapper generates records the checked unspecified value
+/// like every other visited executable (review return F3).
+#[test]
+fn a_dialect_wrapped_verify_relocates_its_declaration_and_the_validator_records_a_checked_value() {
+    let fixture = AgentFixture::new();
+    write_office(&fixture);
+    // The generated validator dispatches `exec`, so the fixture carries
+    // the shipped exec adapter's bytes beside its own claude.
+    let root = workspace_root();
+    std::fs::copy(
+        root.join("adapters/exec.json"),
+        fixture.adapters().join("exec.json"),
+    )
+    .unwrap();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let policy = json!({
+        "phases": ["design", "verify", "review", "done"], "initial": "design",
+        "terminal": ["done"],
+        "rules": [
+            {"id":"D", "from":"design", "result":"drafted", "next":"verify", "reason":"drafted"},
+            {"id":"DF", "from":"design", "result":"fail", "next":"design", "reason":"retry"},
+            {"id":"V", "from":"verify", "result":"pass", "next":"review", "reason":"pass"},
+            {"id":"VF", "from":"verify", "result":"fail", "next":"verify", "reason":"retry"},
+            {"id":"R", "from":"review", "result":"clean", "next":"done", "reason":"clean"},
+        ],
+    });
+    let config = json!({
+        "name": "dialect-fixture", "policy": "policy.json", "protected_phase": "review",
+        "seats": {
+            "design": {"results": ["drafted", "fail"], "sequence": [
+                {"name": "author", "results": ["drafted"], "role": "roles/work.md",
+                 "driver": {"command": ["driver"]}},
+                {"name": "validate", "dialect": "validate"}]},
+            "verify": {"results": ["pass", "fail"], "agent": "office",
+                       "tools": {"allow": ["git"]}},
+            "review": {"results": ["clean"], "role": "roles/work.md",
+                       "driver": {"command": ["driver"]}},
+        },
+    });
+    fixture.stage(&config, &policy);
+    let bundle = Bundle::compile_with_realm(
+        &fixture.bundle(),
+        &fixture.library(),
+        &fixture.adapters(),
+        None,
+        Some(&dialect),
+        Boundary::Namespace,
+    )
+    .unwrap();
+    let facts = |label: &str| {
+        bundle
+            .sites
+            .get(label)
+            .map(|facts| (facts.local.clone(), facts.chain.len()))
+    };
+    each_row(vec![
+        (
+            "verify:checks carries the effective declaration".to_string(),
+            facts("verify:checks"),
+            Some((Some(local(Some(&["git"]), None)), 1)),
+        ),
+        (
+            "verify keeps nothing behind".to_string(),
+            facts("verify"),
+            None,
+        ),
+        (
+            "verify:dialect-verify records a checked unspecified value".to_string(),
+            facts("verify:dialect-verify"),
+            Some((Some(LocalTools::unspecified()), 0)),
+        ),
+        (
+            "design:validate records a checked unspecified value".to_string(),
+            facts("design:validate"),
+            Some((Some(LocalTools::unspecified()), 0)),
+        ),
+    ]);
+    assert_eq!(
+        bundle.sites["verify:checks"].chain[0].argv[8..],
+        ["--allowedTools", "Bash(git:*)"]
+    );
 }

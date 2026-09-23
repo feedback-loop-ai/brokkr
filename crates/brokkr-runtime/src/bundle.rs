@@ -21,7 +21,7 @@ use compose::{Ancestor, COMPOSE_PREFIX};
 
 use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass,
-    Library, TrustTier,
+    Library, Sandbox, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
 
@@ -1812,6 +1812,11 @@ impl Bundle {
                     &mut sites,
                 )?;
             }
+            // The generated validator declares no `tools`, and like every
+            // other visited executable it records that as a CHECKED
+            // unspecified value rather than an unvisited one (design
+            // D5.2; review return F3).
+            record_inline_tools(dialect_site, &synthetic, &mut sites)?;
             relocate_verify_facts(&mut sites, &moved);
             let prior = SequenceStep {
                 name: "checks".into(),
@@ -2632,9 +2637,16 @@ fn record_inline_tools(
 /// made explicit by D5.5): a switch that lifts or replaces the sandbox
 /// (`--full-auto`, `--dangerously-bypass-approvals-and-sandbox`), or a
 /// configuration assignment into `sandbox_mode` or `sandbox_workspace_write`,
-/// which is the same control through an opaque door. These are refused
-/// wherever they stand — the selected fragment or the authored command —
-/// and never reconciled by argument order or trusted for their provenance.
+/// which is the same control through an opaque door. So does an OPAQUE
+/// contribution (review return F2): an option the grammar types as a load
+/// (`--profile`) reads a whole configuration document the engine cannot
+/// see into, and a configuration assignment outside the two tables the
+/// shipped fragments are established to write — the hands transport under
+/// `mcp_servers.brokkr` and the effort under `model_reasoning_effort` — is
+/// unqualified; either could set the same control, so neither leaves a
+/// class checkable. These are refused wherever they stand — the selected
+/// fragment or the authored command — and never reconciled by argument
+/// order or trusted for their provenance.
 fn expressed_sandbox(
     what: &str,
     link: usize,
@@ -2647,6 +2659,11 @@ fn expressed_sandbox(
         ["--full-auto", "--dangerously-bypass-approvals-and-sandbox"];
     /// The two configuration tables that reach the same control.
     const SANDBOX_TABLES: [&str; 2] = ["sandbox_mode", "sandbox_workspace_write"];
+    /// The configuration keys an existing fragment is ESTABLISHED to write
+    /// (design D5.3): the boxed hands transport, as a table, and the
+    /// effort assignment, exactly. Every other assignment is unqualified.
+    const ESTABLISHED_TABLES: [&str; 1] = ["mcp_servers.brokkr"];
+    const ESTABLISHED_KEYS: [&str; 1] = ["model_reasoning_effort"];
     let command = match grammar::parse("codex", argv) {
         Some(Ok(command)) => command,
         Some(Err(problem)) => {
@@ -2670,6 +2687,15 @@ fn expressed_sandbox(
                  (design D5.3)"
             )));
         }
+        if node.spec.effect == grammar::Effect::Load {
+            let option = node.name();
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                 carries `{option}`, which loads an opaque configuration document the engine \
+                 cannot see into and that can set the same control, so no typed class can be \
+                 checked against it — refused (design D5.3)"
+            )));
+        }
         if node.spec.effect == grammar::Effect::Config {
             if let Some(table) = SANDBOX_TABLES.iter().find(|table| {
                 node.values
@@ -2683,9 +2709,47 @@ fn expressed_sandbox(
                      (design D5.3)"
                 )));
             }
+            // An assignment outside the established keys is not echoed:
+            // its key is authored bytes, and only its position is named.
+            let established = node.values.iter().all(|value| {
+                let key = grammar::config_key(value);
+                ESTABLISHED_TABLES
+                    .iter()
+                    .any(|table| grammar::config_under(&key, table))
+                    || ESTABLISHED_KEYS.contains(&key.as_str())
+            });
+            if !established {
+                let at = node.at;
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                     assigns configuration at argument {at} outside the keys an existing \
+                     fragment is established to write (the hands transport under \
+                     'mcp_servers.brokkr' and the effort 'model_reasoning_effort'); an \
+                     unqualified assignment could reach the same control, so no typed class can \
+                     be checked against it — refused (design D5.3)"
+                )));
+            }
         }
     }
     Ok(expressed)
+}
+
+/// The one class design D5.3's table admits on a serving path, keyed on
+/// the path alone — the boundary and the seat's class — and never on
+/// adapter data (review return F1): a box and a harness gate hold
+/// read-only, harness work holds workspace-write. The selected fragment
+/// is the path's REPRESENTATION and must express this class exactly; it
+/// is not an authority, so an adapter whose fragment expresses a wider
+/// class does not widen the table.
+fn admitted_sandbox(boundary: Boundary, seat_class: SeatClass) -> (Sandbox, &'static str) {
+    if boundary.is_boxed() {
+        (Sandbox::ReadOnly, "a boxed site")
+    } else {
+        match seat_class {
+            SeatClass::Gate => (Sandbox::ReadOnly, "a harness gate"),
+            SeatClass::Work => (Sandbox::WorkspaceWrite, "a harness work seat"),
+        }
+    }
 }
 
 /// Design D5.3: a typed `tools.sandbox` is admitted only where an EXISTING
@@ -2772,7 +2836,23 @@ fn admit_local_sandbox(
             )));
         }
         match expressed_sandbox(what, link, part, fragment)? {
-            Some(found) if found == class => {}
+            Some(found) if found == class => {
+                // The fragment represents the class; the TABLE decides
+                // whether this path may hold it at all (review return F1).
+                let (admitted, site_kind) = admitted_sandbox(boundary, seat_class);
+                if requested != admitted {
+                    let admitted = admitted.name();
+                    return Err(CompileError::Invalid(format!(
+                        "seat '{what}' link {link} requests 'tools.sandbox' '{class}' at \
+                         {site_kind} under the `{boundary}` boundary, where decision 0065 slice \
+                         one admits only '{admitted}' (design D5.3: a box and a harness gate hold \
+                         read-only, harness work holds workspace-write); the {part} of provider \
+                         '{provider}' expresses '{class}' too, but adapter data is a \
+                         representation and not an authority, so a fragment cannot widen that \
+                         table — refused"
+                    )));
+                }
+            }
             Some(found) => {
                 return Err(CompileError::Invalid(format!(
                     "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} \

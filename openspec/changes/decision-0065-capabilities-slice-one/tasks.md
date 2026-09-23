@@ -174,6 +174,31 @@ evidence.md; external exact coverage, macOS and remote CI remain pending and
 the aggregate is ticked on that stated basis, not as fully green. The
 committed SHA is recorded in the run-local result.
 
+Review return, the same run, phase `implement` based on `ca2c9156`
+(2026-09-23), recorded in full under evidence.md "Unit 2 — review return,
+seven chief findings answered". The chief (gpt-6-astra, `residual`, medium
+security) found the admission guard trusting adapter data for the class
+(F1), ignoring grammar-typed loads and unestablished configuration (F2), the
+generated validator holding no local fact (F3), ledger claims without a
+binding mutation (F4), matrices short of the commissioned rows (F5) and an
+outward fixture link (F6). All are answered in `bundle.rs` and the two
+owning suites: `admitted_sandbox` is D5.3's table keyed on the path alone
+and checked independently of the matching fragment; `expressed_sandbox`
+refuses `--profile` and any `-c` assignment outside `mcp_servers.brokkr.*`
+and `model_reasoning_effort`, naming only the argument position; the
+dialect validator records the checked-unspecified value; the executable-forms
+table carries omission and inherited-body rows (27), a nested inline-forms
+table is new (28), the admission table carries the six table rows, four
+opaque rows, one established positive and the LaneTally/DSH/exec/bare rows
+(34), and a dialect-wrapped relocation test is new. Baseline reds for the
+ten F1/F2 rows and the F3 row were observed on the adopted bytes; ledger
+rows R1–R10 bind every row the chief named, including tools omission,
+`tools: []`, the unrestricted-office row per field, read-only under the two
+wider classes and the dialect sandbox row. `agents.rs` and `agents/load.rs`
+carry no net change. 2.1 and its substeps stay ticked on the same stated
+basis: fresh local gates on the restored tree, external exact coverage,
+macOS and remote CI pending.
+
 Local gates for 2.1.7, from the house and D5.4/D10:
 
 ```text
