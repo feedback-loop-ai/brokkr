@@ -552,6 +552,20 @@ exist.
    binds by changing either line in the expectation and observing it part.
    No production change; `extensions/` stays byte-identical.
 
+   **Landed 2026-09-23 at `8f60f06c`.** The digest is recomputed inside
+   `the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`
+   from the two lines the upstream-digest substitution already proves, with
+   the location read off the committed bytes (`index.lines().position(…) + 1`,
+   asserted `== 253`) rather than copied from the note; it reproduces
+   `78256d2e…`. Three mutations, compiled, run red and reverted: the adapted
+   line spelled with `0` for `firstSeq` parts at `tests.rs:958`
+   (`fac67fa4…`), the upstream line without its leading tab parts at `:957`
+   (`26b8abfa…`), the line index taken one past its position parts at `:954`
+   (254 against 253). `cargo fmt --all -- --check`, `cargo clippy --workspace
+   --all-targets --all-features --locked -- -D warnings` and `cargo test -p
+   brokkr-protocol --all-features --locked` (426 + 99 + 1 passed, 0 failed)
+   are green. Tests only; `extensions/` unchanged; no checkbox moved.
+
 2a. **Give each engine route shape its missing call site.** Closes B38's
    single-site half and B39's panel-member half, and A37's call-site half.
    Touches `crates/brokkr-runtime/src/engine/resume_tests.rs` only: one
