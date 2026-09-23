@@ -13970,3 +13970,382 @@ fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
         std::env::set_var("NODE_PATH", value);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Acceptance ledger unit 4a (F8): the privacy exclusions where the clauses
+// put them. Task 8.8(d) (4993–4995) and 8.10 (5251–5254) require that no
+// route byte and no binding reach the composite, the launch row or the
+// journal. The planner cases above read argv and the written overlay; the
+// case below drives a valid, marked route through production's own seat
+// body (`run_seat_with`), planner (`dsh_launch_with` over the real
+// producer) and launch lifecycle (`invoke_dsh_launch`), and reads every
+// wire message the engine would journal.
+// ---------------------------------------------------------------------------
+
+/// A spelling every value of the marked route carries and no other byte of
+/// the fixture does, so the route's CONTENT is found under any field name.
+#[cfg(unix)]
+const ROUTE_MARKER: &str = "route4amarker";
+
+/// A valid route for a `deepseek/deepseek-v4-flash` pin whose display
+/// name, key variable and endpoint all carry the marker. The runtime
+/// suite's `marked_route_layer` binds the same bytes.
+#[cfg(unix)]
+fn marked_dsh_route() -> String {
+    format!(
+        "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        \
+         displayName: {ROUTE_MARKER}\n        apiKeyEnv: ROUTE4AMARKER_KEY\n        \
+         baseURL: https://{ROUTE_MARKER}.example/v1\n        models:\n          \
+         - id: deepseek-v4-flash\n            reasoningEfforts:\n              \
+         medium: medium\n"
+    )
+}
+
+/// Plan over the real producer until the version probe answers. The probe
+/// can fail transiently under load, which observes no version at all; that
+/// is a fact about the moment, so it is retried rather than asserted away,
+/// the way the drift cases above retry it.
+#[cfg(unix)]
+fn dsh_plan_probed(
+    shim: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    seams: &DshSeams,
+) -> DshLaunch {
+    // A closed gate never probes, so there is nothing to wait for.
+    let probes = input.pointer("/resume_context/assessment").is_some();
+    let mut planned = None;
+    for _ in 0..8 {
+        let launch = dsh_launch_with(shim, extra, workdir, session, input, || {
+            dsh_composite(seams).map_err(|error| error.to_string())
+        })
+        .unwrap();
+        let observed = launch.observed.is_some();
+        planned = Some(launch);
+        if observed || !probes {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    planned.unwrap()
+}
+
+/// A bound route folds into the launched child's overlay and nowhere else:
+/// the same install composes to one identity under a bound and an unbound
+/// route, and on a qualified cold launch, a confirmed rejoin, the shipped
+/// cold route under a closed gate and a declined offer alike, the launch
+/// row and every wire message carry neither the route's content, its
+/// path, its digest, the binding nor any private carrier — while a
+/// confirmed launch row keeps its `root_session` and `transcript`.
+#[cfg(unix)]
+#[test]
+fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_journal() {
+    use sha2::{Digest, Sha256};
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    let prior_user_home = std::env::var_os("HOME");
+    let prior_node_path = std::env::var_os("NODE_PATH");
+    let install = synthetic_dsh_install();
+    std::env::set_var("DSH_HOME", &install.home);
+    std::env::set_var("HOME", &install.root);
+    std::env::remove_var("NODE_PATH");
+
+    let model = "deepseek/deepseek-v4-flash";
+    let route = marked_dsh_route();
+    assert_eq!(
+        route_overlay::validate(route.as_bytes(), model),
+        Ok(()),
+        "the marked route is a valid route"
+    );
+    let work = install.root.join("work");
+    write_under(&work, "recipe/route.yml", route.as_bytes());
+    let route_file = work.join("recipe/route.yml").display().to_string();
+    let digest = hex::encode(Sha256::digest(route.as_bytes()));
+    let binding = json!({"value": "recipe/route.yml", "digest": digest});
+    let workdir = work.to_str().unwrap().to_string();
+    let bound_extra: Vec<String> = ["--model", model, "--patch", "recipe/route.yml"]
+        .map(str::to_string)
+        .to_vec();
+    let unbound_extra: Vec<String> = ["--model", model].map(str::to_string).to_vec();
+    let declared = install.composite().canonical().to_string();
+    let probe = dsh_version_shim(&install.root, "dsh-4a-probe", "0.1.5-rc.2");
+    let probe = probe.to_string_lossy().into_owned();
+
+    // The composite: one install, a bound and an unbound seat. Each plan
+    // qualifies only if the producer's observation equals the declared
+    // identity, so both carrying it is the equality.
+    let mut bound_input = dsh_enabled_input("0.1.5-rc.2", &declared, &work);
+    bound_input["resume_context"]["route_overlay"] = binding.clone();
+    let unbound_input = dsh_enabled_input("0.1.5-rc.2", &declared, &work);
+    let bound = dsh_plan_probed(
+        &probe,
+        &bound_extra,
+        &workdir,
+        None,
+        &bound_input,
+        &install.seams,
+    );
+    let unbound = dsh_plan_probed(
+        &probe,
+        &unbound_extra,
+        &workdir,
+        None,
+        &unbound_input,
+        &install.seams,
+    );
+    assert_eq!(bound.wrapper_digest.as_deref(), Some(declared.as_str()));
+    assert_eq!(unbound.wrapper_digest.as_deref(), Some(declared.as_str()));
+    assert!(bound.stream_json && unbound.stream_json);
+    // The route really is folded — into the bound seat's overlay only —
+    // and the producer, run again while that overlay is staged, still
+    // observes the one identity.
+    let folded = std::fs::read_to_string(bound.overlay.path()).unwrap();
+    assert_eq!(folded.matches(ROUTE_MARKER).count(), 2, "{folded}");
+    assert_eq!(folded.matches("ROUTE4AMARKER_KEY").count(), 1, "{folded}");
+    let bare = std::fs::read_to_string(unbound.overlay.path()).unwrap();
+    assert_eq!(bare.to_lowercase().find(ROUTE_MARKER), None, "{bare}");
+    assert_eq!(install.composite().canonical(), declared);
+    drop(bound);
+    drop(unbound);
+
+    // The launch, in every shape a bound seat can take, each run through
+    // the seat body with its complete private start context: qualified
+    // cold, a confirmed rejoin, the shipped cold route under a closed gate,
+    // and an offer declined for its originating composite.
+    let locator = "sessions/brokkr/seat-1";
+    let stored = install
+        .home
+        .join(locator)
+        .join("--w--")
+        .join("s-1")
+        .join(DSH_TRANSCRIPT);
+    for (case, session) in [
+        ("cold", None),
+        ("resumed", Some("s-1")),
+        ("disabled", None),
+        ("declined", Some("s-1")),
+    ] {
+        plant_dsh_session(&install.home, locator, "--w--", "s-1", 4);
+        let id = session.unwrap_or("fresh-4a");
+        let confirms = matches!(case, "cold" | "resumed");
+        let result = install.root.join(format!("result-{case}.json"));
+        let seen = install.root.join(format!("overlay-{case}.yml"));
+        // The child copies the overlay it was handed ($4, behind
+        // `--profile headless --patch`), names its root and — when
+        // rejoining — appends one current event past the stored boundary.
+        // On the shipped route its stdout is `/dev/null` and names nothing.
+        let append = if case == "resumed" {
+            format!(
+                "printf '{{\"type\":\"assistant/message\",\"seq\":5,\"data\":{{\"message\":\
+                 {{\"source\":{{\"model\":\"deepseek-v4-flash\"}}}},\"usage\":{{\"inputTokens\":3,\
+                 \"outputTokens\":1}}}}}}\\n' >> '{}'\n",
+                stored.display()
+            )
+        } else {
+            String::new()
+        };
+        let child = executable(
+            &install.root,
+            &format!("dsh-4a-{case}"),
+            &format!(
+                "#!/bin/sh\n\
+                 case \"$1\" in --version) printf '0.1.5-rc.2\\n'; exit 0 ;; esac\n\
+                 cp \"$4\" '{seen}'\n\
+                 printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"{id}\"}}\\n'\n\
+                 {append}\
+                 printf '{{\"result\":\"complete\"}}' > '{result}'\n\
+                 printf '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+                 \"session_id\":\"{id}\"}}\\n'\n",
+                seen = seen.display(),
+                result = result.display(),
+            ),
+        );
+        let child = child.to_string_lossy().into_owned();
+        let mut input = if case == "disabled" {
+            json!({"workdir": work})
+        } else {
+            dsh_enabled_input("0.1.5-rc.2", &declared, &work)
+        };
+        input["resume_context"]["route_overlay"] = binding.clone();
+        input["result_path"] = json!(result);
+        input["allowed_results"] = json!(["complete"]);
+        input["feature"] = json!("f");
+        input["phase"] = json!("work");
+        if session.is_some() {
+            // The declined offer was opened under a different composite.
+            let originating = if case == "declined" {
+                "d".repeat(64)
+            } else {
+                declared.clone()
+            };
+            input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.2");
+            input["resume_context"]["originating_wrapper_digest"] = json!(originating);
+            input["resume_context"]["owned_target"] = json!({
+                "provider_id": "s-1",
+                "persistence_locator": locator,
+                "persistence_home": install.home.to_str().unwrap(),
+            });
+        }
+        let start = json!({"effect_id": "effect", "attempt_id": "attempt", "input": input});
+        let mut messages: Vec<Body> = Vec::new();
+        run_seat_with(
+            AdapterKind::Dsh,
+            &start,
+            &mut |body| messages.push(body),
+            |prompt, input, _, emit| {
+                let launch = dsh_plan_probed(
+                    &child,
+                    &bound_extra,
+                    &workdir,
+                    session,
+                    input,
+                    &install.seams,
+                );
+                invoke_dsh_launch(
+                    launch,
+                    prompt,
+                    &workdir,
+                    &mut |row: &Value| emit(row),
+                    |child| {
+                        child
+                            .try_wait()
+                            .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+                    },
+                )
+            },
+        );
+
+        // The route reached the launched child, in this very invocation.
+        let handed = std::fs::read_to_string(&seen).unwrap();
+        assert_eq!(handed.matches(ROUTE_MARKER).count(), 2, "{case}: {handed}");
+
+        // The launch evidence: exactly its own vocabulary. A confirmed
+        // launch retains its root and address, the root carrying the
+        // unbound composite; an unconfirmed cold one carries neither, and
+        // only the declined offer names its refusal.
+        let rows: Vec<&Value> = messages
+            .iter()
+            .filter_map(|body| match body {
+                Body::Checkpoint { data, .. } if data["step"] == "harness-started" => Some(data),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rows.len(), 1, "{case}: one launch row: {messages:?}");
+        let row = rows[0];
+        let mut keys: Vec<&str> = row
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        let expected: &[&str] = match case {
+            "cold" | "resumed" => &[
+                "effort",
+                "harness",
+                "launch",
+                "model",
+                "root_session",
+                "step",
+                "transcript",
+            ],
+            "disabled" => &["effort", "harness", "launch", "model", "step"],
+            _ => &[
+                "effort",
+                "harness",
+                "launch",
+                "model",
+                "resume_refusal",
+                "step",
+            ],
+        };
+        assert_eq!(keys, expected, "{case}: {row}");
+        assert_eq!(
+            row["launch"],
+            if case == "resumed" { "resumed" } else { "cold" },
+            "{case}: {row}"
+        );
+        if case == "declined" {
+            assert_eq!(row["resume_refusal"], "unverified-harness", "{row}");
+        }
+        if confirms {
+            assert_eq!(
+                row["root_session"],
+                json!({
+                    "kind": "dsh-session",
+                    "id": id,
+                    "harness_version": "0.1.5-rc.2",
+                    "wrapper_digest": declared,
+                    "persistent": true,
+                }),
+                "{case}: {row}"
+            );
+            let address = row["transcript"].as_object().unwrap();
+            let mut fields: Vec<&str> = address.keys().map(String::as_str).collect();
+            fields.sort_unstable();
+            assert_eq!(fields, ["home", "kind", "locator"], "{case}: {row}");
+            assert_eq!(row["transcript"]["kind"], "dsh-session", "{case}");
+            assert_eq!(
+                row["transcript"]["home"],
+                install.home.to_str().unwrap(),
+                "{case}"
+            );
+        }
+        if case == "resumed" {
+            assert_eq!(row["transcript"]["locator"], locator, "{case}");
+        }
+
+        // Every wire message — what the engine journals — is free of the
+        // route's content, path, digest and binding, and of every private
+        // carrier the start context held.
+        let needles = [
+            ROUTE_MARKER,
+            "recipe/route.yml",
+            route_file.as_str(),
+            digest.as_str(),
+            "\"resume_context\"",
+            "\"route_overlay\"",
+            "\"owned_target\"",
+            "\"assessment\"",
+            "\"originating_harness_version\"",
+            "\"originating_wrapper_digest\"",
+            "\"persistence_home\"",
+            "\"persistence_locator\"",
+        ];
+        for body in &messages {
+            let text = serde_json::to_string(body).unwrap().to_lowercase();
+            for needle in needles {
+                assert_eq!(
+                    text.find(&needle.to_lowercase()),
+                    None,
+                    "{case}: a wire message carries {needle}: {text}"
+                );
+            }
+        }
+        assert!(
+            matches!(
+                messages.last(),
+                Some(Body::Result {
+                    status: ResultStatus::Succeeded,
+                    ..
+                })
+            ),
+            "{case}: the seat completes: {messages:?}"
+        );
+    }
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+    match prior_user_home {
+        Some(value) => std::env::set_var("HOME", value),
+        None => std::env::remove_var("HOME"),
+    }
+    if let Some(value) = prior_node_path {
+        std::env::set_var("NODE_PATH", value);
+    }
+}

@@ -2219,23 +2219,162 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
 // two `Start.input`s.
 // ---------------------------------------------------------------------------
 
+/// A spelling no other fixture byte carries, inside every value of the
+/// marked route below, so a copy of the route's CONTENT under any field
+/// name is found by one search.
+const ROUTE_MARKER: &str = "route4amarker";
+
+/// A valid DSH route document (the reader's grammar for a
+/// `deepseek/deepseek-v4-flash` pin; `adapters/tests.rs` validates the
+/// same bytes) whose display name, key variable and endpoint all carry
+/// the marker, written as the compiled leaf layer's `route.yml` under the
+/// root's working directory. Returns the layer and the manifest digest.
+fn marked_route_layer(root: &Path) -> (PathBuf, String) {
+    let layer = root.join("work").join("recipe");
+    std::fs::create_dir_all(&layer).unwrap();
+    let bytes = format!(
+        "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        \
+         displayName: {ROUTE_MARKER}\n        apiKeyEnv: ROUTE4AMARKER_KEY\n        \
+         baseURL: https://{ROUTE_MARKER}.example/v1\n        models:\n          \
+         - id: deepseek-v4-flash\n            reasoningEfforts:\n              \
+         medium: medium\n"
+    );
+    std::fs::write(layer.join("route.yml"), &bytes).unwrap();
+    (layer, overlay_digest(bytes.as_bytes()))
+}
+
+/// Task 8.8(d)/8.10 (4993–4995, 5251–5254): no route byte, no binding and
+/// no private carrier reaches the journal. Every event is read, the
+/// launch rows included. The one sanctioned copy of the file's provenance
+/// is the pinned manifest's `files` entry, which the bundle digest already
+/// covers (adapter-resume-safety spec, route overlay scenario); it is
+/// asserted exactly and then taken out before the search.
+fn assert_journal_free_of_route_and_carriers(events: &[EventEnvelope], layer: &Path, digest: &str) {
+    let route_file = layer.join("route.yml").display().to_string();
+    let needles = [
+        ROUTE_MARKER.to_string(),
+        "recipe/route.yml".to_string(),
+        route_file,
+        digest.to_string(),
+        "\"resume_context\"".to_string(),
+        "\"route_overlay\"".to_string(),
+        "\"owned_target\"".to_string(),
+        "\"assessment\"".to_string(),
+        "\"originating_harness_version\"".to_string(),
+        "\"originating_wrapper_digest\"".to_string(),
+        "\"persistence_home\"".to_string(),
+        "\"persistence_locator\"".to_string(),
+    ];
+    for event in events {
+        let mut payload = event.payload.clone();
+        if event.event_type == EventType::RunStarted {
+            assert_eq!(payload["manifest"]["files"]["route.yml"], digest);
+            payload["manifest"]["files"]
+                .as_object_mut()
+                .unwrap()
+                .remove("route.yml");
+        }
+        let text = serde_json::to_string(&payload).unwrap().to_lowercase();
+        for needle in &needles {
+            assert_eq!(
+                text.find(&needle.to_lowercase()),
+                None,
+                "{:?} (seq {}) carries {needle}: {text}",
+                event.event_type,
+                event.seq
+            );
+        }
+    }
+}
+
+/// The journaled launch rows of one DSH site, in journal order: the
+/// `harness-started` checkpoints whose root is a `dsh-session`.
+fn dsh_launch_rows(events: &[EventEnvelope]) -> Vec<(String, Value)> {
+    events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .filter(|event| {
+            event.payload["checkpoint"]["step"] == "harness-started"
+                && event.payload["checkpoint"]["root_session"]["kind"] == "dsh-session"
+        })
+        .map(|event| {
+            (
+                event.attempt_id.clone().unwrap_or_default(),
+                event.payload["checkpoint"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// B30's third predicate on the attempt the offered start belongs to: its
+/// journaled launch row keeps the confirmed `root_session` and
+/// `transcript` exactly as the driver published them, and carries none
+/// of the private start context's members.
+fn assert_offered_launch_row_retained(
+    events: &[EventEnvelope],
+    offered: &Value,
+    tag: &str,
+    locator: &str,
+    home: &str,
+) {
+    let attempt = offered["attempt_id"].as_str().unwrap();
+    let rows = dsh_launch_rows(events);
+    let row = rows
+        .iter()
+        .find(|(id, _)| id == attempt)
+        .map(|(_, row)| row)
+        .unwrap_or_else(|| panic!("the offered attempt journaled no launch row: {rows:?}"));
+    assert_eq!(
+        row["root_session"],
+        json!({
+            "kind": "dsh-session",
+            "id": format!("{tag}-2"),
+            "harness_version": "0.1.5-rc.1",
+            "wrapper_digest": "a".repeat(64),
+            "persistent": true,
+        }),
+        "the confirmed root is retained: {row}"
+    );
+    assert_eq!(
+        row["transcript"],
+        json!({"kind": "dsh-session", "locator": locator, "home": home}),
+        "the confirmed address is retained: {row}"
+    );
+    for member in [
+        "resume_context",
+        "owned_target",
+        "assessment",
+        "route_overlay",
+    ] {
+        assert_eq!(
+            row.get(member),
+            None,
+            "launch evidence carries {member}: {row}"
+        );
+    }
+}
+
 /// The recorded home rides beside the id and locator at the SINGLE site.
 /// The first attempt is cold and carries no `owned_target`; the retry is
 /// offered the confirmed root and its complete three-coordinate address.
+///
+/// Unit 4a: the seat also carries a bound route whose every value spells
+/// a marker. The offered start's private context holds the binding, the
+/// owned target and the assessment; the journal — the launch row of that
+/// attempt included — holds none of them, and the launch row keeps its
+/// confirmed `root_session` and `transcript`.
 #[test]
 fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("dsh-home");
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("dsh-home");
     std::fs::create_dir_all(&home).unwrap();
     let home_text = home.display().to_string();
     let locator = "sessions/brokkr/seat-1";
-    let argv = dsh_model_driver(
-        dir.path(),
-        "work",
-        &["fail", "complete"],
-        locator,
-        &home_text,
-        2,
+    let (layer, digest) = marked_route_layer(&root);
+    let argv = patched(
+        dsh_model_driver(&root, "work", &["fail", "complete"], locator, &home_text, 2),
+        "recipe/route.yml",
     );
     let candidate = Candidate {
         agent: "implementer".into(),
@@ -2258,22 +2397,34 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
     seats.insert(
         "review".into(),
         seat(
-            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            single(driver(&root, "review", &["clean"]), Vec::new()),
             &["clean"],
             1,
         ),
     );
-    run(dir.path(), bundle(dir.path(), seats));
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    let events = run(&root, bundle);
 
-    let starts: Vec<Value> = received(dir.path(), "work")
+    let starts: Vec<Value> = received(&root, "work")
         .into_iter()
         .filter(|message| message["type"] == "start")
         .collect();
     assert_eq!(starts.len(), 2, "the failing first attempt is retried");
     assert_eq!(
-        offers(&received(dir.path(), "work")),
+        offers(&received(&root, "work")),
         [None, Some("work-1".into())]
     );
+    // The carriers exist where they belong — the private start context of
+    // the offered attempt — so their absence below is an exclusion.
+    let private = &starts[1]["input"]["resume_context"];
+    assert_eq!(
+        private["route_overlay"],
+        json!({"value": "recipe/route.yml", "digest": digest})
+    );
+    assert_eq!(private["owned_target"]["provider_id"], "work-1");
+    assert_offered_launch_row_retained(&events, &starts[1], "work", locator, &home_text);
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
     assert!(
         starts[0]["input"]["resume_context"]
             .get("owned_target")
@@ -2323,15 +2474,22 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
 }
 
 /// The same complete address travels at the PANEL-MEMBER call site, from
-/// that member's own confirmed checkpoint rather than the panel's.
+/// that member's own confirmed checkpoint rather than the panel's — and,
+/// under unit 4a, the same exclusion and retention hold for the member's
+/// bound route, its launch row and the whole journal.
 #[test]
 fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("dsh-home");
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("dsh-home");
     std::fs::create_dir_all(&home).unwrap();
     let home_text = home.display().to_string();
     let locator = "sessions/brokkr/alpha";
-    let argv = dsh_model_driver(dir.path(), "alpha", &["pass"], locator, &home_text, 2);
+    let (layer, digest) = marked_route_layer(&root);
+    let argv = patched(
+        dsh_model_driver(&root, "alpha", &["pass"], locator, &home_text, 2),
+        "recipe/route.yml",
+    );
     let mut alpha = member("alpha", argv.clone());
     // Task 8.8(a): the panel member's own SELECTED declaration, so the
     // second production `start_context` call site is read too.
@@ -2354,26 +2512,35 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         "review".into(),
         seat(
             single(
-                model_driver(dir.path(), "review", &["residual", "clean"]),
+                model_driver(&root, "review", &["residual", "clean"]),
                 Vec::new(),
             ),
             &["residual", "clean"],
             1,
         ),
     );
-    let mut bundle = bundle(dir.path(), seats);
+    let mut bundle = bundle(&layer, seats);
     bundle.machine = panel_machine();
-    run(dir.path(), bundle);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+    let events = run(&root, bundle);
 
-    let starts: Vec<Value> = received(dir.path(), "alpha")
+    let starts: Vec<Value> = received(&root, "alpha")
         .into_iter()
         .filter(|message| message["type"] == "start")
         .collect();
     assert_eq!(starts.len(), 2, "the panel is re-entered once");
     assert_eq!(
-        offers(&received(dir.path(), "alpha")),
+        offers(&received(&root, "alpha")),
         [None, Some("alpha-1".into())]
     );
+    let private = &starts[1]["input"]["resume_context"];
+    assert_eq!(
+        private["route_overlay"],
+        json!({"value": "recipe/route.yml", "digest": digest})
+    );
+    assert_eq!(private["owned_target"]["provider_id"], "alpha-1");
+    assert_offered_launch_row_retained(&events, &starts[1], "alpha", locator, &home_text);
+    assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
     assert!(starts[0]["input"]["resume_context"]
         .get("owned_target")
         .is_none());
