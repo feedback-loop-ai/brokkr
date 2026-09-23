@@ -1,6 +1,6 @@
 # 0068 — The dispatcher: runs wait in a queue the engine owns, and start only when a provider, the host and the queue's own order all allow it
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-24)
 Date: 2026-09-23
 
 ## Context
