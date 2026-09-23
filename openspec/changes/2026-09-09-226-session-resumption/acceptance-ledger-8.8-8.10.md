@@ -887,7 +887,7 @@ numbers. The map:
 | 8 | 2d | landed `97624edd`, `7900c182` |
 | 9 | 3b-fix | landed `6a5f1bc9` |
 | 10 | 3b | landed `cb5bbd9a` (after a stop) |
-| 11 | — (new: unit 7's unproved half) | landed `6e1e7066` |
+| 11 | — (new: unit 7's unproved half) | landed `6e1e7066`, `471bc740` |
 | 12 | — (new: N2/N4 unasserted cells) | open |
 | 13 | — (new: source retrieval) | open, externally owned |
 | 14 | 4 | open |
@@ -1588,7 +1588,9 @@ symlink fixture and twenty planner vectors.
    `unverified-harness` after a version drift, all in one run. The journal,
    the raw stdout, three exact launch rows and two exact stderr tails carry
    nothing of the route or the carriers. The rejoin keeps the cold start's
-   root and address. Mutations, compiled, run red and reverted:
+   root and address. (Corrected below: at `6e1e7066` the declined offer
+   succeeded, so its stderr was never journaled and the decline's stderr
+   exclusion was unproved.) Mutations, compiled, run red and reverted:
    - `displayName` into `effort` on stream-json parts `resume_tests.rs:2434`
      (seq 6), with the shipped-route case green. Rejoin-only, it parts at
      seq 11. Refusal-only, it parts at seq 17.
@@ -1599,6 +1601,28 @@ symlink fixture and twenty planner vectors.
 
    fmt, clippy and `cargo test -p brokkr-runtime` (464 lib plus 94
    integration) are green. Tests only; no checkbox moved.
+
+   **Review return, 2026-09-23, landed at `471bc740`: a failed declined
+   offer journals its stderr, and the exclusion holds on current bytes.**
+   Review found the gap above (`Engine::conclude_single` journals no stderr
+   for an accepted success). The seat now takes four attempts. The third is
+   the declined offer, whose child exits 3, so its tail is journaled and
+   asserted exactly (`dsh child 3 wrote this`). The fourth declines the
+   same way and succeeds. The failed decline's launch row is asserted
+   exactly too. The journal search now also reads payloads with escaped
+   quotes undone, because a carrier copied into a stderr tail serialises
+   as `\"owned_target\"` and the quoted needles never matched it.
+   Decline-only mutations in `adapters.rs`, compiled, run red and reverted
+   (an `eprintln!` in the open gate's decline branch; the shipped-route
+   case stays green):
+   - The overlay value on stderr parts `resume_tests.rs:2439` (seq 19
+     carries `recipe/route.yml`). The pre-return test passed under it.
+   - `owned_target` on stderr parts the exact tail at `:3477` ("attempt
+     3") before the search was hardened, and `:2439` after it (seq 19
+     carries `"persistence_home"`).
+
+   fmt, workspace clippy and `cargo test -p brokkr-runtime --all-features`
+   (464 lib plus 94 integration) are green. Tests only; no checkbox moved.
 
 12. **Assert N2's and N4's two unasserted cells.** Added by the remediation
    (third return, finding 2). Touches
