@@ -280,6 +280,42 @@ longer enable anything without a realm grant.
 - **AND** its provider's controllable native equivalents remain OFF while existing local command restrictions remain in force
 
 
+### Requirement: Shipped inline permissions migrate before refusal lands
+
+Every shipped recipe or agent authoring a catalogue flag SHALL migrate to
+typed tool declarations before authored-option refusal is enabled. Local
+command names SHALL use typed tool permissions, capability names SHALL use
+requires/wants plus a realm grant, and permission/boundary choices SHALL be
+engine-composed from typed data. Migration SHALL NOT introduce a grant or
+silently broaden a restriction. The file inventory SHALL cover adapters,
+recipes, agents, extensions and shipped bundles; provider templates SHALL be
+explicit engine origins, never string-matched exemptions for recipes.
+
+Typed local permissions SHALL use abstract command names in `tools.allow`,
+never harness tool patterns or native-capability aliases. Typed `tools.sandbox`
+SHALL accept only read-only, workspace-write and danger-full-access under the
+existing realm/boundary authority; it SHALL NOT grant a capability or bypass
+hands. Agent-backed seats SHALL only narrow their office's restrictions.
+An unrepresentable local restriction SHALL refuse, never silently disappear.
+
+#### Scenario: Typed permissions preserve limits without inline options
+
+- **WHEN** a migrated Claude seat requests its local command subset, or a migrated Codex seat declares its existing sandbox restriction as typed data
+- **THEN** the engine alone emits the mapped controls, preserving the exact local limits and native OFF under empty realm grants
+- **AND** unknown local names/classes, native capability aliases, agent-backed widening and boundary-incompatible restrictions refuse with full bounded causes
+
+#### Scenario: The preflight reviewer has no inline authority flags
+
+- **WHEN** preflight's reviewer and the other inventoried shipped seats migrate
+- **THEN** their intended local tool limits are typed, the authored command contains no capability-bearing flag, and compiled final commands preserve those limits with native OFF under empty grants
+- **AND** all shipped recipes compile or retain their independently required unsupported-provider refusal; migration cannot replace a narrow limit with provider defaults
+
+#### Scenario: A newly found shipped flag cannot be grandfathered
+
+- **WHEN** the rebase or migration inventory discovers another authored catalogue option
+- **THEN** its file is added to the migration evidence and converted before refusal lands, with an exact final-command or full-refusal regression
+- **AND** no allowlisted filename, adapter alias or historical success bypasses the rule
+
 ### Requirement: Refusal proofs assert the full reason
 
 Each commissioned behavioral finding SHALL first have a regression that fails
@@ -316,11 +352,11 @@ intermediate composer output SHALL NOT establish final delivery.
 - **AND** second M3's new successful final-launch case is independently removed and restored at that boundary; historical intermediate R-H3c does not satisfy it
 - **AND** launch matrix rows identify the tested serving shapes and exact unsupported-shape refusals; no row infers a fallback, panel or sequence proof from an ordinary primary launch
 
-#### Scenario: Subtraction does not become authorization at resolution
+#### Scenario: Typed subtraction cannot license an authored denial
 
-- **WHEN** a valid seat retains an authored MCP denial while its effective holding is empty after request subtraction, office scope or absence of a grant
-- **THEN** compilation admits the subtractive list when otherwise compatible, keeps the holding empty and carries both authored and managed denial into the final command
-- **AND** the same pattern in a tool-admission list refuses under realm-only authority; a genuine hands/holding contradiction reports that conflict instead
+- **WHEN** typed request subtraction leaves a seat unheld but it authors an MCP deny list
+- **THEN** compilation refuses the authored option under ruling 1
+- **AND** removing the inline flag preserves typed subtraction and engine-composed native OFF
 
 #### Scenario: The three earlier removal-found gaps stay closed
 
@@ -358,3 +394,8 @@ restriction: it must survive compile and the production final launch on cold
 and actual eligible resume. V1 is a whole-workspace gate obligation and L1 an
 observational audit, so neither is satisfied by inventing a behavioral test.
 Linux and macOS remain the only hosts; fixture roots are canonical facts.
+
+Ruling 1 supersedes the old authored MCP subtraction positive. Typed request
+subtraction and independently proven optional drops survive. R10/R12 require
+compiled final-boundary assertions with one canonical temporary root on Linux
+and macOS; existing hand-built plan tests cannot close those obligations.

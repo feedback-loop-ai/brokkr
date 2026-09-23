@@ -16,6 +16,24 @@ with a nonempty reason, not as an empty supported map, unsupported-by-analogy
 or a fabricated switch. Provider-native tool dialects SHALL reference these
 adapter keys and SHALL NOT themselves confer authorization.
 
+Both ON and OFF argv for every declared capability SHALL parse at adapter
+load, even if the selected realm never uses that half. Invalid syntax,
+unclassified effects, malformed values, unsupported separators and invalid
+selection mappings SHALL refuse the load. A measured default is an explicit
+state with its evidence scope, never an empty accidental argv.
+
+#### Scenario: Both halves are validated before selection
+
+- **WHEN** any known harness declares an ON or OFF argv containing a dangling `-c`, unknown option, misplaced `--`, synthetic positional prompt or malformed value
+- **THEN** adapter loading refuses that declaration, including an unused ON or OFF half, before planning a seat
+- **AND** a valid pair still loads; declaring a default retains its explicit evidence scope
+
+#### Scenario: Selection serialization cannot alter its meaning
+
+- **WHEN** a Claude selection would serialize WebFetch and WebSearch with `:` or another separator that parses them as one pattern
+- **THEN** loading refuses the mapping rather than recording two denials
+- **AND** malformed or ambiguous managed tool patterns refuse instead of relying on a different provider splitter
+
 #### Scenario: Missing halves and reasons are rejected
 
 - **WHEN** a native declaration asserts support without an ON or OFF disposition, or asserts unsupported/unmeasured without its reason
@@ -45,7 +63,7 @@ adapter keys and SHALL NOT themselves confer authorization.
 - **WHEN** a valid native grant has a schema-valid restriction its selected provider binding cannot express and the seat only wants the capability
 - **THEN** the capability is dropped with the complete CQ1 compatibility notice and the final argv uses its supported native OFF control
 - **AND** neither its ON control nor an unrestricted replacement is composed; a measured unsupported OFF still refuses independently
-- **AND** a grant unused after asks, subtraction or scope likewise composes only native OFF, without evaluating an unused ON/restriction configuration
+- **AND** a grant unused after asks, subtraction or scope likewise composes only native OFF, without activating an unused ON/restriction configuration; load validation still parses both declared halves
 
 ### Requirement: Known native powers require a valid delivered denial or refusal
 
@@ -148,16 +166,15 @@ eligible merely to accommodate this control.
 ### Requirement: Neither inline arguments nor fallback can override native denial
 
 All serving Codex paths SHALL enforce the same capability decision, including
-inline driver declarations and executable model fallbacks. A conflicting
-native enable request in authored arguments SHALL be refused with its source,
-capability and missing authority named; native ON/OFF fragment ordering SHALL
+inline driver declarations and executable model fallbacks. Every authored capability-bearing option SHALL be refused with its source
+and option named, whether it enables or disables and whether granted; native ON/OFF fragment ordering SHALL
 NOT accidentally decide authorization. Existing strict MCP configuration and
 hands replacement SHALL remain intact.
 
 #### Scenario: A concrete enable flag cannot override the realm
 
 - **WHEN** an inline seat without a web-search holding supplies an argument or config setting that requests native search enablement
-- **THEN** it refuses with a complete reason naming the seat, web-search and the conflicting authored control
+- **THEN** it refuses with a complete bounded reason naming the seat and authored option, without echoing its value
 - **AND** it does not execute with two competing ON/OFF settings
 
 #### Scenario: A fallback Codex candidate is also denied
@@ -225,6 +242,28 @@ SHALL also parse in that provider grammar; a non-list token SHALL NOT be
 forwarded verbatim without a classified position. Final validation SHALL judge
 that structure, not search raw values for apparent option names.
 
+The complete serialized command SHALL be parsed back immediately before
+launch, after engine prefixes, wrapper options, model/effort, hands, local
+permissions, restrictions, expansions and session/stdin positionals. Its
+actual capability state SHALL equal the sealed plan: every held and denied
+power, exact admitted tool subset, restrictions and required hands. Missing,
+extra, contradictory or uninterpretable state SHALL refuse launch. Comparing
+only an intermediate composer or finding a flag substring SHALL NOT suffice.
+Compile admission SHALL preflight the complete shape available at compilation;
+launch SHALL repeat the check after actual expansion and session selection.
+
+#### Scenario: Final serialization is checked rather than trusted
+
+- **WHEN** a valid plan loses OFF after a terminator, gains an extra tool, loses an empty restriction, changes a list separator, or duplicates an engine output-format option during final assembly
+- **THEN** the final parse or exact-state comparison refuses before spawning, on cold, actual eligible resume and cold replacement
+- **AND** valid complete commands parse back to exactly the planned ON/OFF, tools, restrictions and hands state
+
+#### Scenario: Codex managed argv has no unchecked path
+
+- **WHEN** Codex managed ON or OFF contains `--`, `hello`, `--unknown-off=synthetic` or a dangling `-c`
+- **THEN** its adapter load refuses, and a corrupted private plan independently refuses at final launch
+- **AND** neither engine prefixes nor a named OFF record can make that command a denial
+
 #### Scenario: H3 Claude argv denial is executable denial
 
 - **GIVEN** Claude web-search OFF is declared as argv `["--disallowedTools", "WebSearch"]` instead of a selection contribution
@@ -275,7 +314,7 @@ commands and to every admitted control transport.
 
 ### Requirement: Explicit restrictive tool lists retain their meaning
 
-An explicit native-tool include list SHALL remain a restriction, distinct from
+An engine-owned explicit native-tool include list SHALL remain a restriction, distinct from
 an additive selection contribution. Absence, a present empty list and a present
 nonempty list SHALL be distinct states through compilation and final command
 composition. An accepted empty list SHALL remain effective as no built-in
@@ -316,7 +355,7 @@ holding, plus actual eligible resumed denial/admission. Tests SHALL remove
 the relevant OFF composition and observe the denial assertion fail, restore
 it and pass; admission tests SHALL independently detect an always-OFF
 implementation. Existing ineligible resume cases SHALL keep their reasons.
-For second H1–H4, M1 and M3, the compiled launch matrix SHALL cover every
+For the operator ruling and retained final-restriction obligations, the compiled launch matrix SHALL cover every
 applicable cold/eligible-resume, boxed/unboxed, gate/work, primary/fallback,
 ordinary/panel/sequence, inline/agent-backed and nested/inherited shape. Every
 matrix row SHALL name an actual whole-command or whole-refusal assertion;
@@ -347,7 +386,7 @@ These tests SHALL NOT substitute for a live provider measurement.
 
 #### Scenario: Second H3 H4 and M1 removals detect lost semantics
 
-- **WHEN** positional parsing, explicit nonempty restriction retention, explicit empty retention or subtractive denial preservation is independently removed
+- **WHEN** positional parsing, explicit nonempty restriction retention, explicit empty retention or authored capability-option refusal is independently removed
 - **THEN** its exact compile-refusal or whole cold/eligible-resume command assertion fails for that lost protection and passes after restoration
 - **AND** a build error, unrelated refusal or earlier failed test is not the required observation
 
@@ -359,23 +398,12 @@ These tests SHALL NOT substitute for a live provider measurement.
 
 ## Decisions
 
-H1 and H3 are adopted as one launch invariant. An unmeasured record describes
-knowledge; it is not a valid replacement for mandatory denial of a known
-power. The historical distinction between unknown inventory and impossible
-OFF remains useful for reporting, but neither may swallow a required control.
-Selection-only composition is rejected because the accepted contract also
-admits argv dispositions and restriction transports. Tests prove the final
-command or full compile refusal, not only a resolver plan. Live Codex resume,
-Claude, DSH and LaneTally evidence remains separately unmeasured.
-
-Second H3 adopts compile refusal for the ambiguous split prompt reproduction;
-it does not ban inert flag-looking text in a supported unambiguous value.
-Second H4 requires the three named restrictive argv forms to work in the
-otherwise-valid unboxed fixture, preserving the accepted argv contract and
-its useful restrictive semantics. Treating them as additive selections or
-silently dropping an empty list is rejected because it restores defaults.
-Conflicts may refuse, but refusal cannot replace the required supported
-positive proofs. Second M3 rejects the R-H3c intermediate removal as final
-launch evidence and requires separate compiled cold and actual resume proofs.
-D6, proposed 0066 ruling 3 and tasks 7.4/7.5/9.2 need the same correction;
-their historical completion claims do not close these findings.
+Ruling 2 makes decision 0066 total: declared halves parse at load and the
+complete final command parses back and matches the whole plan before launch.
+Third S1/S2/C1/R1 are addressed by ruling 1 refusal, not a better authored-list
+merge. C2 requires validating serialization as well as declarations. S3/C4/R4/R8
+reject the unchecked Codex and engine-prefix paths. Managed Read/empty
+restrictions still need compiled cold and actual-resume proofs; no authored
+list is allowed to compete with them. C6/R10 retain the obligation to compile a
+real held nonempty restriction and prove independent final-delivery removals.
+Static command equality never becomes live provider enforcement evidence.

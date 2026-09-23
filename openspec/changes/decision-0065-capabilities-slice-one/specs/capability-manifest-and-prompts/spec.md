@@ -99,24 +99,17 @@ under trees excluded from incidental bundle walking, including top-level
 `capabilities/`, in both standalone and inherited/composed recipes. This rule
 SHALL apply to each declaring layer.
 
-An active input SHALL be reachable by the identity walk's own steps. The walk
-descends real directory entries from the declaring layer's root, following
-links, and keys every file it reaches by that chain; a reference that reaches
-its file through a parent (`..`) component is not such a chain, because a link
-earlier in it can put the file a reader opens outside everything the walk
-pinned. Such a reference SHALL refuse, naming the parent step, whether or not
-its lexically folded form appears contained. Lexically cancelling a parent
-component before resolving a preceding symlink SHALL NOT substitute for
-filesystem resolution, and SHALL NOT be relied on to answer where a file
-stands. A link that stands under its OWN name inside the layer SHALL remain
-permitted, and its target's bytes SHALL participate in identity, because the
-walk reaches and hashes them through that name: an outward link is pinned by
-content, while a parent step is pinned by nothing. Missing files and read
-failures SHALL refuse with their cause, never yield an absent exclusion or
-absent drift result. Both an excluded authored path and an excluded canonical
-target SHALL still refuse. Refusals SHALL identify the source/layer, site when
-applicable, active input kind, relative path and the reason that excluded
-active bytes cannot be omitted from bundle identity.
+The system SHALL canonicalize the actual input and its declaring owner before
+checking containment. A resolved target outside that recipe layer's tree
+SHALL refuse: “It is not pinned and admitted.” A lexical path under the tree,
+a matching content digest, or a symlink standing under its own name SHALL NOT
+excuse escape. Lexical folding before symlink resolution SHALL NOT substitute
+for filesystem resolution. Both an excluded authored path and an excluded
+resolved target SHALL refuse. Missing, unreadable, nonregular or unpinned
+consumed inputs SHALL refuse with a bounded source/site/kind/path cause.
+Policy bytes SHALL be read and hashed from the same regular-file buffer that
+is parsed and bound to the declaring file-map pin, including overridden
+ancestors. FIFOs, devices and directories SHALL never supply policy bytes.
 
 The existing pinned-script refusal SHALL remain. A genuinely unconsulted
 operator definition SHALL remain outside identity; an active charter or policy
@@ -159,26 +152,28 @@ and digest route rather than be treated as escaping inline layer inputs.
 - **AND** start/resume tests refuse a changed permitted pinned active input or a newly excluded reference instead of launching with fresh unpinned bytes
 - **AND** independent controls retain the script fence and show an unused operator definition does not change identity
 
-#### Scenario: Second H5 symlink then parent escape refuses in every layer
+#### Scenario: Symlink and parent escape refuses in every layer
 
-- **GIVEN** a canonical fixture root contains `base/alias -> ../outside/child`, with `outside/child` an existing directory and valid `outside/charter.md` and `outside/policy.json`
-- **WHEN** a standalone base recipe references `alias/../charter.md`, and independently `alias/../policy.json`, then each case is repeated through an inheriting recipe
-- **THEN** all four compilations refuse with the complete declaring-layer/source/site-when-applicable/input-kind/reference and parent-step cause before consuming unpinned input
-- **AND** changing only the external charter bytes or only a valid external policy severity still produces the same identity refusal; no successful unchanged manifest digest is evidence of safety
-- **AND** the refusal does not depend on where lexical folding would point, because lexical folding is no longer asked where a file stands
+- **WHEN** standalone and inherited roles or policies resolve through `alias/../charter.md`, `alias/../policy.json` or a direct outward symlink
+- **THEN** every outside-tree target refuses for canonical containment before consumption, regardless of content pins or lexical appearance
+- **AND** repeated external-byte changes never yield an admitted manifest
 
-#### Scenario: Second H5 a link under its own name pins the file actually read
+#### Scenario: A contained symlink retains identity
 
-- **WHEN** a role or policy is a link standing under its own name inside its declaring layer, whose target is an ordinary file outside it, with standalone and inherited cases tested separately
-- **THEN** the compiled pin and the prompt or policy read identify that actual file; identical bytes have stable identity and an independent byte change to the target moves the applicable layer and final manifest digests
-- **AND** a later link retarget refuses before dispatch, because the bytes the walk pinned under that name have changed
-- **AND** missing targets and missing applicable pins give complete integrity refusals rather than a no-drift result
+- **WHEN** a role or policy link resolves to a regular readable nonexcluded file within its declaring tree
+- **THEN** compilation pins and consumes that actual file; identical inputs remain stable and an independent byte change moves identity
+- **AND** an outside-tree target containing the same bytes still refuses
 
-#### Scenario: Second H5 the parent-step refusal is independently removable
+#### Scenario: A FIFO is not a pinned policy
 
-- **WHEN** the active-input resolution is removed for roles and then for policies, independently, so each reference is joined and read as written
-- **THEN** the corresponding standalone/inherited full-refusal assertion fails at the intended cause, and the escaped compile produces a manifest digest the finding turned on
-- **AND** restoration passes with the same canonical fixture roots on the observed supported host; unconsulted-definition stability and the existing script fence remain independently proved
+- **WHEN** standalone or inherited policy points to an in-tree FIFO, device, directory, missing pin or changed buffer
+- **THEN** compilation refuses before reading a stream or accepting unbound policy rules
+- **AND** a regular policy control binds the parsed buffer to identity and changes digest when a valid ruling changes
+
+#### Scenario: Containment and consumed-byte proofs are independently removable
+
+- **WHEN** role containment, policy containment or same-buffer pin comparison is independently removed
+- **THEN** its exact refusal or changed-identity assertion fails and passes after restoration; equal-byte escapes remain refusal cases
 
 ### Requirement: Library charter pins are enforced at consumption
 
@@ -194,6 +189,18 @@ Checking the library only during recompile SHALL NOT discharge dispatch
 integrity. Existing library containment, layer pins and dialect instruction
 pins SHALL remain authoritative through their respective consumption paths;
 no new manifest version or replacement identity inventory is required.
+
+The selected charter SHALL retain its owner, original reference, compiled
+canonical target and expected digest. Consumption SHALL recheck owner
+containment and target identity as well as bytes. Independently owned library
+charters remain contained in their own library tree; a recipe reference to
+an outside file SHALL NOT be reclassified as a library pin.
+
+#### Scenario: Equal bytes do not excuse a retargeted source
+
+- **WHEN** a compiled layer or library charter is replaced by a symlink to equal bytes outside its owning tree, without recompilation
+- **THEN** start, pinned-context resume and dispatch refuse before provider work for owner/target mismatch
+- **AND** rendering receives only the verified buffer and cannot reopen a different source
 
 #### Scenario: Second H6 a changed library charter never reaches the provider
 
@@ -338,24 +345,11 @@ weakening existing hands, boundary, egress or secret-binding checks.
 
 ## Decisions
 
-H4 remains HIGH and **spec_defect=true**. This requirement rejects design
-D7's recorded by-name exclusion as sufficient protection and task 6.1's
-completion on that basis. The repair chooses refusal of active inputs under
-excluded trees; the next design/task revisions must replace their contrary
-allowance before implementation. The refusal preserves pure recipe composition
-without operator-directory coupling and keeps unconsulted definitions out of
-identity. A pinned-script check alone is not evidence about charter or policy
-bytes. No historical witness value or prior measurement is rewritten as a
-repair result; affected pins come from actual final compiles.
-
-Second H5/H6 remain HIGH and **spec_defect=true**. Canonical resolution precedes
-containment; lexical folding before symlink traversal is rejected because it
-can identify a file different from the one read. Library charters are not a
-layer-containment exception without enforcement: their existing independent
-pin must be checked at dispatch. D7 and proposed 0066 ruling 5 must state both
-rules explicitly; task 6.3's recompile-only completion basis is rejected.
-Second V1 retains the chief's failed counts without attributing a regression
-cause not established by evidence. Second L1 rejects workflow direction in
-panel prose as authority; it supplies no permission to change a gate or lower
-the security residual. The specified audit is documentary, not a new policy
-or event-schema feature. Task 12.1 stays open for council re-judgment.
+Ruling 3 corrects the upstream specification defect identified by third R3/C7.
+The pinned-outward-link permission is rejected, not refined: content identity
+does not override canonical containment. C3/R2 additionally require regular
+inputs and binding the parsed policy buffer to its file-map identity. C8/R5
+require owner/target checks even with equal bytes. A library is an independent
+contained owner selected at compile, not a way to bless a recipe escape.
+Historical pins and measurements remain historical; rebuild pins require real
+compiles. No claimed prior exact-coverage pass closes V1/R13 on a new head.

@@ -20,6 +20,12 @@ SHALL execute no server, provider or network request.
 - **THEN** it validates with the provider, adapter key and named tools that realize the capability
 - **AND** its concrete identities are not required in an office's request
 
+#### Scenario: A dialect cannot authorize an authored flag
+
+- **WHEN** a valid provider-native dialect and realm grant exist but a seat also authors its harness's ON or OFF flag
+- **THEN** the authored option still refuses; only typed requests resolved through that dialect supply engine controls
+- **AND** both adapter-declared argv halves must parse at load even when this dialect selects only one
+
 #### Scenario: Mixed and unknown implementations refuse
 
 - **WHEN** a dialect declares an unknown kind, omits serves, omits its kind's required binding, or combines native and MCP implementation fields
@@ -248,3 +254,8 @@ using it as proof of charter integrity at consumption. The library owns its
 charter's existing pin even outside recipe layers; the manifest-and-prompts
 delta owns enforcement at dispatch. No new grant source, tool dialect kind,
 manifest version or loaded-library expansion is introduced by this correction.
+
+The 2026-09-23 ruling retains abstraction ownership and realm-only dialect
+selection. Adapter declarations supply concrete controls, not a second grant
+source or permission to reconcile authored flags. All declared halves are
+subject to native-capability-controls load and final-command requirements.

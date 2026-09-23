@@ -1,328 +1,180 @@
-# 0066 — A denial is something the launch proves: repairing the council's security hold on decision 0065's first slice
+# 0066 — A denial is something the launch proves
 
 Status: proposed
 Date: 2026-09-22
+Amended: 2026-09-23, to incorporate the operator's refuse-never-reconcile ruling.
 
 ## Context
 
-Decision 0065 ruled three things that are not negotiable: every
-capability is OFF BY DEFAULT with no grandfathering, only the REALM
-grants one, and TOOLS ARE AN ABSTRACTION a dialect makes concrete. Its
-first slice was built to 40 of 43 tasks on `slice-0065-capabilities`,
-and a full council — adversarial, correctness, security,
-spec-compliance and a chief — judged the found head `f0264a9b`. The
-verdict was VERIFY PASS, REVIEW SECURITY-HOLD: four HIGH and four MEDIUM
-findings, each confirmed by the chief against source, none fixed. The
-chief's ruling is the finding source for everything below.
+Accepted decision 0065 establishes off by default without grandfathering,
+realm-only grants, and abstract tools made concrete by dialects. Three councils
+found neighboring defects in slice one's attempt to reconcile authored harness
+flags with engine controls. The operator ruled all four parts in
+[operator-ruling-2026-09-23.md](../../openspec/changes/decision-0065-capabilities-slice-one/operator-ruling-2026-09-23.md).
+This amendment records that authority; decision 0066 itself remains proposed
+until the operator accepts it.
 
-All four HIGH findings are ways the delivered code was FAIL-OPEN against
-0065:
-
-- **H1.** `load_pin_adapters` swallowed an adapter load error with
-  `.ok()`. The loader was written for an effort exemption, where "no
-  adapters" safely means "no exemption"; the capability pass then read
-  the same absence as "inventory unmeasured" and compiled a Codex seat
-  with no search OFF. An unrelated malformed adapter file was enough.
-- **H2.** A recipe's authored driver argv could carry Codex
-  `mcp_servers.*` configuration, or Claude `--mcp-config` with an
-  `mcp__*` allowed tool, under `grants: {}`. The native guards cover
-  declared native controls only; nothing judged a concrete server.
-- **H3.** The compiler accepted a native control expressed as argv for
-  Claude, and the Claude launch consumed only the tool selection. An OFF
-  written `--disallowedTools WebSearch` was recorded and never delivered.
-- **H4.** A specification defect. Design D7 excluded the top-level
-  `capabilities/` directory from the file walk at every recipe layer,
-  while `parse_role` accepts a charter there and `compose::own_table`
-  accepts a policy there. A changed charter or policy under that tree
-  left the bundle digest unchanged.
-
-The four MEDIUM findings: the doctor promised a native denial whenever a
-matching grant existed (M1); a duplicate request key could weaken
-`requires` to `wants` before validation saw it (M2); a loaded agent no
-seat referenced escaped the definition lint at compile (M3); and the
-optional-notice half of two compatibility proofs had never failed on its
-own removal (M4). One new test also glued a temporary path where macOS
-reports `/private/var`.
-
-## Second-hold amendment — proposed, 2026-09-22
-
-The second council reviewed `3b31c5de` after `f97b7e77` and held again.
-Its checked ruling is `.forge/tasks/council-ruling-25d222e6.md`; the first
-ruling remains `council-ruling-3c72a18a.md`. Adopt the subsequent specification
-commit `49fda5e6` and the second design synthesis without rewriting that history.
-
-Second H1/H2 exposed attached Codex config, Claude plugin loading and later
-variadic admission values; H3 exposed a prompt value swallowing OFF; H4 exposed
-dropped explicit include restrictions. H5/H6 exposed filesystem-resolved input
-escapes and unenforced library charter pins at dispatch. M1 found subtraction
-treated as admission; M2 found provider-blind doctor promises; M3 found
-restriction removal proved only at intermediate composition. V1 measured a
-fresh exact-coverage failure: **34897/35073 source lines, 5730/5744 branches,
-3443/3453 logical functions**, exit 1. L1 rejects workflow instructions and
-residual-floor claims embedded in panel prose.
-
-Rulings 3–6 below replace their earlier insufficient mechanisms. Rulings
-1/2/7/8/9 retain their first-repair meaning. The six HIGHs and three behavioral
-MEDIUMs, MEDIUM validation failure and LOW integrity finding remain open.
-H5/H6 preserve `spec_defect=true`; `has_security_residual=true` stays true.
-This amendment is design, not implementation evidence or operator acceptance.
+The first and second chief rulings are `.forge/tasks/council-ruling-3c72a18a.md`
+and `.forge/tasks/council-ruling-25d222e6.md`. The third completed security,
+correctness and compliance positions are in
+`.forge/tasks/council-positions-80bfd784.md`; its adversarial position was
+blocked and no chief ruled. The change's design Decisions explicitly reconciles
+every finding. Earlier revisions of this decision remain in adopted git history,
+including their superseded mechanisms and measurement claims.
 
 ## Rulings
 
-1. **A denial is something the launch proves, never something absence
-   implies.** A provider known to carry a native power — the floor is
-   Codex `web-search`, Claude `web-search` and `web-fetch`, plus whatever
-   its adapter declares — is launched only with a valid, delivered
-   control for every such power, or it is refused. Absent adapter roots,
-   absent providers, legacy or omitted or empty `native_capabilities`, an
-   omitted floor power, an unreadable or malformed adapter file
-   (unrelated ones included) and an unmeasured OFF of a known unheld
-   power each refuse compilation with the site, office, realm, provider,
-   capability and the original cause named. The floor grants nothing,
-   supplies no switch and is no evidence; concrete controls stay adapter
-   data. DSH, LaneTally and opaque custom drivers keep their own declared
-   uncertainty and inherit nobody's inventory.
+1. **A known power needs a valid plan or a refusal.** Keep the known native
+   floor: Codex web-search, Claude web-search/web-fetch, plus adapter-declared
+   powers. It supplies no grant, concrete switch or live evidence. Missing,
+   legacy, unreadable or malformed adapter data and unmeasured required OFF
+   cannot yield a successful empty plan, even for no-ask/no-grant seats or old
+   realms. Preserve the original source/cause in the bounded refusal.
+   DSH/LaneTally retain independent inventory uncertainty.
 
-2. **The same law holds at the driver.** The engine's plan is decoded
-   fallibly: a wrong type, a malformed guard, an incomplete selection
-   mapping, an unmeasured inventory for a floor provider or a floor power
-   in neither the ON nor the OFF set refuses before provider work. No
-   error path degrades to an empty plan; the cold replacement of a
-   rejected Codex rejoin carries the controls the launch already
-   validated rather than decoding again with `.ok()`.
+2. **The launch proves its whole capability state.** The operator made the
+   principle total: it covers the “final command, not an intermediate composer.”
+   Parse every adapter-declared ON and OFF argv when loading adapter data,
+   including unused halves; invalid syntax, unclassified effects and invalid
+   mappings refuse the load. Explicit measured defaults retain their scope.
+   After ALL composition, expansion, engine prefixes, wrapper settings, hands,
+   local permissions, restrictions, model/effort and session/stdin arguments,
+   parse the actual complete serialized command back immediately before spawn.
+   Its effective capability state must equal the sealed plan: all held and
+   denied powers, exact tool subset, restrictions and required hands. Missing,
+   extra, contradictory or uninterpretable effects refuse launch. A parse that
+   merely succeeds or round-trips a wrong string proves too little. Cold,
+   actual eligible resume, fallback and rejected-rejoin cold replacement obey
+   the same check. Preserve existing eligibility; cold is not resume evidence.
+   Private authority decoding remains fallible and cannot degrade to empty.
 
-3. **A control the compiler accepts reaches an effective option position
-   in the final argv, or compilation refuses its representation.** One closed
-   parser and fallible composer in `brokkr-protocol::native_controls` own the
-   supported commands of Codex, Claude, LaneTally and DSH. Their option grammar
-   declares identities/aliases, split/equals/attached forms, typed values,
-   arity/empty policy, variadic boundaries and repetition. No supported
-   invocation carries a bare positional word — the prompt reaches every
-   harness on stdin and the session identifiers are the engine's to place —
-   so a bare word is a token the grammar cannot put anywhere. Unknown or
-   unplaceable tokens and unclassified configuration effects refuse with
-   source/provider/token position and cause. Concrete native switches remain
-   adapter data; naming a flag cannot extend the grammar, and a guard over an
-   option the grammar does not model is answered by the grammar first, which
-   refuses it by name.
+3. **A recipe cannot author a capability-bearing harness option.** Ruling 1
+   says “Nothing is merged.” For Claude, Codex, DSH and LaneTally's Claude path,
+   compilation refuses authored tool allow/include/deny lists, MCP settings,
+   plugin directories, permission modes and web/search options, regardless of
+   value, grant or apparent agreement with the plan. The realm-capability-grants
+   delta owns the complete supported catalogue and all split/equals/attached
+   forms and aliases, including all five Codex config spellings. Unknown
+   syntax/effects and opaque configuration refuse too. No special case remains
+   for a local-only list, restrictive empty list or MCP deny pattern. A reason
+   names the normalized option and bounded cause, never its value.
 
-   Compile admission, final composition, duplicate/restriction checks,
-   selectors, model/effort extraction and resume eligibility consume the same
-   parsed option/value structure. Parse again with the same implementation at
-   the process boundary; no new persisted AST or frozen schema is needed.
-   Managed argv and restriction transports parse too; there is no non-list
-   verbatim escape hatch. An ambiguous split prompt value such as
-   `--append-system-prompt --disallowedTools hello` refuses; admitted inert or
-   explicitly delimited text stays data through rendering. Each origin is
-   complete before merging, so a value or terminator cannot consume another
-   fragment's mandatory control.
+   Tools come only from typed agent/seat declarations and the realm grant,
+   composed by the engine. Preserve typed request subtraction. Separate authored
+   inert argv, adapter template, typed local permission, hands and native plan
+   origins; matching bytes or server names cannot counterfeit ownership.
+   Engine-origin controls still parse and undergo the exact final check.
+   Migrate shipped inline declarations before enabling refusal, including
+   preflight's reviewer. The design lists every inventoried file.
 
-   An explicit `--tools` the PLAN carries is a restriction, distinct from
-   additive selection and from the engine hands baseline: absent, present
-   empty and present nonempty remain distinct, and each reaches the final
-   command. Preserve the specified Read and empty OFF forms in successful
-   unboxed cold and eligible-resume commands with independent WebFetch
-   denial. A seat's OWN tool list is a local convenience, not a statement of
-   authority — a recipe grants nothing — so the engine folds a held native
-   tool into it where it stands, which is the already-accepted ON semantics
-   and is not the engine widening anybody's authority. A list the harness's
-   grammar does not read as that list cannot be folded anywhere and refuses;
-   a tool both admitted and denied refuses. Denial lists are subtraction,
-   including `mcp__*`, and merge with native denial. A real hands/required
-   holding contradiction is diagnosed as a conflict, not a grant. Required
-   holdings cannot be silently lost; optional losses retain whole-drop
-   notices and effective native OFF.
+4. **One bounded grammar serves all consumers.** Model option identities,
+   aliases, arity, variadic boundaries, split/equal/attached forms, repetitions,
+   subcommands, session/stdin positionals and bounded effects. An option-looking
+   inert value cannot become a control in a later raw scan. Replace separate
+   managed selector/extraction/resume readers; validate each origin and then
+   the whole serialized command. Unknown config assignments and malformed
+   values refuse without payload disclosure. Concrete switches stay adapter
+   data, not an engine catalogue granting powers.
 
-   Codex consumes supported argv and refuses selection; unconsumed DSH native
-   representations refuse. Claude/LaneTally consume only modeled representations
-   with their own evidence limits. Final engine output/session/stdin controls
-   participate in structural validation. Actual eligible resume and rejected
-   rejoin cold replacement preserve the selected validated plan and existing
-   eligibility. Complete compiled final-command literals and independent
-   removals on cold and actual resume are required for accepted nonempty
-   restrictions; intermediate Controls/composer output is insufficient.
-   A synthetic grant fixture must use a supported production transport;
-   fictitious flags or test-only grammar exceptions cannot close that proof.
+   Engine-owned explicit include restrictions distinguish absent, empty and
+   nonempty. Do not widen them by union or drop empty to provider defaults.
+   Managed patterns and separators need provider-equivalent bounded meaning;
+   unrepresentable conflicts refuse. The DSH bound route-only patch remains
+   permitted under its existing containment, content and digest checks; plugin,
+   web, arbitrary profiles or capability patches are not route data. LaneTally
+   wrapper forwarding imports no Claude live-enforcement claim.
 
-4. **A recipe's authored command is data, not capability authority.**
-   Preserve the first repair's `Candidate`/`SiteSpawn`/`launch_arguments`
-   origin recorded where the hands fragment is appended, including its checked
-   length-based split. Do not recover it by text matching or server name.
-   Missing/mismatched provenance and parts that do not reassemble actual argv
-   refuse; the by-hand interface cannot mint engine provenance.
+5. **Canonical containment is mandatory, not replaced by content pinning.**
+   Ruling 3 says an outward consumed input “is not pinned and admitted.” Revoke
+   this decision's previous permission for outward links standing under their
+   own names: that was the upstream specification defect third R3/C7 identified.
+   Resolve the actual file and its declaring owner before containment. Every
+   recipe-consumed charter, policy or other input outside that tree refuses,
+   even when bytes match a pin. Preserve independent contained library and
+   dialect owners; they cannot be guessed to excuse a recipe escape.
 
-   Admission judges parsed effects and every value/occurrence, independently
-   of inventory omissions. All supported Codex `-c`/`--config` spellings,
-   including attached `-cVALUE`, share config-key semantics; whole tables,
-   descendants, quoted keys and repeats cannot hide server/native authority.
-   Claude/LaneTally plugin loading, MCP/settings channels and include/allow
-   lists cannot admit unauthorized tools, including later variadic MCP entries
-   and wildcards. Subtractive lists do not enter that admission branch.
-   Opaque configuration with unbounded authority refuses. A native holding
-   does not authorize an arbitrary plugin/server; MCP dialect grants still
-   refuse in slice one.
+   Refuse missing/unreadable/nonregular/unpinned inputs and both authored and
+   resolved excluded paths. Bind policy read/hash/parse to one regular-file
+   buffer and its owner file map; refuse FIFOs before reading a stream. At
+   compile select charter owner, original reference, canonical target and
+   existing digest. Recheck owner, target and bytes at start, pinned-context
+   resume and dispatch; equal-byte retargets refuse too. Pass the verified
+   buffer to prompt rendering after input merges, without reopening the path
+   or swallowing failures. Unconsulted definitions remain outside identity;
+   active instructions never do.
 
-   Engine hands retain their own admission origin, grammar and strict
-   configuration; an authored server named `brokkr` remains authored.
-   DSH retains its one bound, contained, digest-matched route-only patch,
-   including validation of content before staging. Unknown/residual forms
-   refuse. LaneTally parses its supported wrapper/forwarded grammar and
-   inherits no Claude native inventory or live evidence. Renaming an adapter
-   cannot hide a recognized harness.
+6. **Doctor submits the whole plan to the launch composer.** Ruling 4 rejects
+   per-capability synthetic plans. Include all ON/OFF dispositions, typed tools,
+   hands, restrictions, authored inert arguments, candidate and command shape
+   in the same composition/final assessment as launch. Report its admission
+   or full bounded refusal in both doctor paths. Scoped, empty, absent, unused
+   and subtracted grants cannot turn an uncomposable OFF combination into a
+   promise. Without a resolved seat, label a complete adapter-level assessment
+   as such. Unsupported, unknown, invalid, refused and statically admitted are
+   distinct; none substitutes for live measurement.
 
-   *Migration:* unsupported authored forms must be removed or modeled with
-   evidence; no permissive passthrough mode. Inline boxed seats cannot
-   counterfeit hands: use the existing agent/adapter-owned fragment.
+7. **Request sources are strict.** Parse original recipe-layer and agent JSON
+   before map conversion; repeated capability names or capabilities fields
+   refuse in either strength order, equal repetitions included. Retain the
+   original source/key/location cause. Existing strict source proofs survive.
 
-5. **Active identity follows the filesystem and the bytes consumed
-   (corrects D7 and task 6.3; second H5/H6 keep `spec_defect=true`).**
-   An active input must be reachable by the identity walk's own steps. The
-   walk descends real directory entries, following links, and keys every
-   file it reaches by that chain; a reference that reaches its file through
-   a `..` component is not such a chain, because a link earlier in it can
-   put the file a reader opens outside everything the walk pinned. A parent
-   step refuses, standalone and inherited, before active bytes are consumed,
-   and lexical folding is never asked where a file stands. A link standing
-   under its OWN name inside the layer stays permitted and its target's
-   bytes ride the digest, because the walk reaches and hashes them through
-   that name: an outward link is pinned by content, a parent step by
-   nothing. Retain both authored-path and canonical-target excluded-tree
-   refusals. Missing and unreadable inputs are errors in their caller's own
-   words, never absence of drift. Every layer's policy and role uses this
-   check; policy parses the same buffer it read.
+8. **Every loaded agent is linted.** A loaded library's unseated or later
+   subtracted requests still resolve definitions and pin them as consulted.
+   Do not load an otherwise unused library just to lint it. Existing whole-
+   library lint and consulted-definition proofs survive.
 
-   *Corrects this decision's own first wording,* which asked instead that a
-   canonical target outside the declaring layer refuse. That rule is neither
-   necessary nor sufficient: it refuses the outward link the walk already
-   pins, and containment says nothing about whether the walk can reach the
-   path at all. What the identity argument needs is that the key the
-   dispatch check computes names the file the driver opens, which is exactly
-   the no-parent-step rule.
-
-   Keep the `capabilities/` exclusion and consulted-definition pins; do not
-   pin unconsulted definitions. Ordinary inputs use existing layer file maps.
-   Independently owned library charters and dialect instructions retain their
-   own contained roots/pins. Carry the selected charter's owner, original
-   reference, compiled canonical target and existing expected digest; choose
-   Layer or Library at compilation, not by a later longest-prefix guess.
-
-   At common dispatch enforce a layer file pin or the selected agent's existing
-   library `charter_digest`, even for an external library or missing layer-file
-   entry. Re-resolve/check owner, target and digest; never bless changed bytes
-   by recomputing the expected pin. Missing applicable pins, changed/retargeted
-   sources and read/encoding failures refuse before provider work. A charter
-   NEITHER route pins refuses too: after a compile there is no such charter,
-   so reaching that state means the bundle's identity does not answer for
-   what the seat is about to be told.
-   Hash/read once and pass that verified text through engine-private input
-   after authored merging; managed prompt rendering consumes the same buffer,
-   without reopening the role path or converting failure to empty instructions.
-   Explicit charterless exec is a separate state. Standalone/inherited,
-   panel/sequence and primary/fallback sites keep their selected binding.
-
-   *Migration:* relocate escaping/excluded layer inputs into pinned paths;
-   recompile after an intentional library charter edit. No second inventory,
-   snapshot store, public protocol or manifest version is needed. Recompile-only
-   checking is not dispatch enforcement.
-
-6. **Doctor says only what provider-aware composition establishes.**
-   OFF-first ordering stays, but an Argv/Selection/Default variant is not a
-   delivery result. Share the same fallible control lowering, grammar and
-   composability assessment with compile/launch, using the actual harness,
-   native inventory and selection mapping. Assess interacting OFF controls
-   together; do not fabricate an incomplete plan to bypass known obligations.
-
-   Distinguish composable declared OFF, measured unsupported, unmeasured and
-   full grammar/provider/composition refusal. A Codex selection OFF reports the
-   same cause as compilation. Both the native line and restriction/drop
-   paragraph assess before describing grants: scoped, empty, unused, absent
-   and subtracted grants cannot cure an uncomposable OFF. Without a resolved
-   seat, state adapter-level scope rather than certify unassessed authored
-   options or restrictions. This is static composition evidence, not a live
-   provider denial measurement.
-
-7. **Request sources are read strictly.** `compose::read_layers` and
-   `agents/load::read_json` parse their original bytes with
-   `parse_strict` before any map conversion: a repeated capability name
-   or a repeated `capabilities` field refuses, in either strength order,
-   equal repetitions and a later `{}` included, at every layer and every
-   nesting. Other duplicate keys in those same documents refuse too.
-
-8. **Compilation lints every loaded agent's requests.** Where a library
-   is loaded at all, `Definitions::lint` runs over the whole of it before
-   any seat is resolved, and every definition a loaded agent names is
-   pinned as consulted, seated or not.
-
-9. **A removal proof proves the assertion it is named for.** Required,
-   optional and unused cases of provider compatibility and restriction
-   compatibility are separately runnable, and each optional test's first
-   substantive assertion is whole-vector notice equality.
+9. **A proof observes the boundary it names.** Keep independently runnable
+   required, wants and unused compatibility cases; optional removals must fail
+   at exact notice equality. Final-command proofs compile production realm/
+   dialect/candidate fixtures, assert independent complete literals and actual
+   resume/session identity, and independently remove cold/resume restriction
+   delivery. Hand-built Controls and intermediate composer assertions are
+   narrower evidence. Canonicalize fixture roots once on Linux/macOS. Fresh
+   exact coverage names its final source head and all three nonzero equal
+   covered/total counts; previous passes, failed or blocked runs do not close it.
 
 ## Rejected
 
-- *An embedded emergency OFF catalogue* for a missing adapter: it would
-  put a concrete switch in the engine and claim a measurement nobody made.
-- *Pruning a broken provider from a chain* instead of refusing: a new
-  fallback policy, and a silent one.
-- *Recognising engine-owned configuration by its bytes or server name:*
-  exactly what an author can counterfeit.
-- *Banning every DSH patch:* the bound route overlay is legitimate and
-  carries no server or tool.
-- *Pinning the whole `capabilities/` tree:* an unconsulted definition
-  would become a second source of identity.
-- *A doctor-only resolver:* a second calculation drifts from launch.
-- *Six more scanner patterns or generic opaque config values:* another spelling
-  can still carry the same authority without classification.
-- *Treating explicit restrictions as additive or empty as absent:* this restores
-  provider defaults; subtractive MCP patterns also cannot be labeled grants.
-- *Lexical containment or recompile-only library pinning:* neither checks the
-  file and bytes dispatch consumes.
-- *Intermediate restriction removals or historical coverage as final proof:*
-  they do not observe the commissioned boundary or candidate.
+- Another authored-list reconciliation, even if it preserves today's tests:
+  the operator removed that authority path entirely.
+- Keeping authored subtractive lists because they narrow power: they still
+  author a capability-bearing option; typed subtraction is the supported route.
+- Pinning an outward input, banning only parent steps, or guessing ownership by
+  a longest prefix: none enforces the operator's containment rule.
+- Parsing only managed extras or checking only a flag substring: neither proves
+  the complete command's effective state after serialization.
+- Treating --settings plus arbitrary JSON as proof of a supported restriction:
+  transport syntax does not establish bounded capability semantics.
+- Per-capability doctor success and fabricated answers for other powers: the
+  third council reproduced combinations that each single assessment missed.
+- Embedded emergency OFF switches, fallback pruning, recipe filename exemptions
+  or concrete MCP requests: these invent authority or silently change policy.
+- Historical coverage or a previous green test run as final-candidate evidence.
 
 ## Enforcement bindings
 
-The first repair's floor/strict-decoding bindings remain in runtime
-`bundle::load_pin_adapters`, `capabilities::native_plan` and protocol
-`native_controls::managed`; strict source parsing remains in
-`compose::read_layers` and `agents/load`; loaded-library lint and consulted
-pins remain in `Bundle::assemble`/`Authority`. Their recorded first-repair
-tests and optional-notice removals remain historical evidence, not closure of
-the second findings.
-
-| Second finding | Proposed enforcement | Required consuming proof |
+| Obligation | Proposed owning boundary | Required proof |
 | --- | --- | --- |
-| H1/H2 | Protocol closed provider grammar and typed authored admission in shared composer | Native-controls/adapters and runtime compiled final-launch refusal tests; engine-hands/DSH positives |
-| H3/H4/M1 | Parsed consumers, explicit constraints, subtractive merge and final serialization | Exact prompt refusal; whole cold/eligible-resume commands for Read, empty and MCP-deny forms, with independent removals |
-| H5 | Fallible active-input resolution from `parse_role` and every `compose::own_table` | Bundle/compose four escape cases plus contained-target identity/consumption and independent role/policy removals |
-| H6 | Existing library pin bound to selected site, common `spawn_site` verification, verified-text `render_prompt` | Engine dispatch without recompilation, standalone/inherited/external libraries and all serving paths; no changed prompt/provider work |
-| M2 | Provider-aware assessment shared by runtime and both doctor paths | Whole compile/report-line equality for each grant shape and tag-only-removal failure |
-| M3 | Accepted restriction through production compilation and `claude_command`/`claude_launch` | Full cold/actual-resume literals and independent final-delivery removals/restoration |
-| V1 | Unchanged exact gate on final repaired source head | Fresh nonzero whole-workspace covered/total equality for lines, branches and logical functions; no stale pass |
-| L1 | Artifact/evidence provenance audit | Rejected note instructions, unchanged true residual/specification-defect facts; no phase choice |
+| Authored refusal / provenance | runtime typed resolution and protocol native_controls | Every harness/form refuses with redacted value; migrated typed declarations retain exact limits. |
+| Declared ON/OFF | agents/load and shared protocol grammar | Both halves parse even unused; malformed Codex and separator cases refuse load. |
+| Total launch | adapters final command and shared native_controls | Parse final cold/resume/replacement argv and exact-state comparison before spawn; independent removals. |
+| Consumed identity | bundle/compose and engine dispatch | Canonical escape, FIFO and equal-byte retarget refusals, same-buffer policy identity and verified prompt buffer. |
+| Whole-plan doctor | runtime capabilities and CLI doctor | Complete interacting-plan result agrees with independent compile/report literals. |
+| Retained strict/lint/optional obligations | compose::read_layers, agents/load, Authority | Existing source-specific removals and independently runnable notice tests. |
 
-These second-hold bindings are design obligations, not claims that code or
-proofs have landed. Tasks/evidence reopen the affected completion claims;
-task 12.1 remains open. The first-head equal coverage figures are historical;
-V1 stays failed until a fresh final-head exact pass exists.
-
-## What this decision does not do
-
-It does not change accepted 0065, add a grant to this repository's
-realm, build the slice-two broker, lift the compile refusal of an `mcp`
-dialect, or touch hands and boundaries (0043, 0046). It does not claim
-live provider enforcement: a final argv is composition evidence, and the
-limits 0065's slice recorded — resumed Codex OFF/ON, other CLI versions,
-ambient MCP servers in an operator's Codex profile, Claude's live
-controls, DSH and LaneTally inventories — remain unmeasured. It does not
-clear the security hold; the council re-judges.
+These are rebuild obligations, not assertions of completed enforcement. The
+[design's Rebuild units](../../openspec/changes/decision-0065-capabilities-slice-one/design.md#rebuild-units)
+and reconciled tasks preserve adopted evidence while reopening superseded work.
+Security residuals and prior specification-defect history remain; only subsequent
+implementation evidence and council judgment can establish closure.
 
 ## Consequences
 
-A realm whose adapter data predates 0065, or whose adapters directory
-holds one broken file, no longer compiles an inline Codex or Claude seat;
-the refusal names the file and the repair. The first repair's provenance
-carriage stayed in private driver input rather than changing manifest identity. This amendment likewise reuses existing
-identity records; any actual witness movement from repaired input handling
-must be measured, explained and pinned from final compiles. No identity
-stability or implementation completion is inferred from this design.
+Shipped inline flags migrate before refusal lands. No grant is added, no frozen
+contract is edited and no MCP broker is built. Rebase onto current main and
+measure identity pins from actual compiles; engine version and roster changes
+must not be papered over. This amendment claims no live Codex resume or other-
+version result, no live Claude enforcement, and no measured DSH/LaneTally native
+inventory. Ambient MCP uncertainty remains explicit. Only Linux and macOS are
+hosts. No archive, push, publication or release-channel update follows from
+this proposed decision.

@@ -69,129 +69,104 @@ named compile refusal. Recipe composition SHALL NOT manufacture realm data.
 
 ### Requirement: Authored provider configuration cannot supply capability authority
 
-A recipe-authored driver command or passthrough SHALL NOT configure a
-capability server, authorize its concrete tools or replace engine-owned MCP
-configuration. Compilation SHALL judge the typed option/value structure of
-each supported provider command, using the closed grammar required below. It SHALL refuse
-Codex `mcp_servers` configuration (including descendant keys and whole-table
-assignments), Claude and Claude-compatible LaneTally server/config/plugin
-loading and unauthorized tool admissions, and equivalent configuration paths.
-Every supported split, equals, attached, alias, repeated and variadic form
-SHALL receive the same semantic admission. Final launch assembly SHALL retain
-the authored-versus-managed distinction and use the same parsed structure.
-Subtractive lists SHALL NOT be classified as server configuration or grants.
-Diagnostics SHALL identify the source/site, provider, offending control and realm-only
-authority reason without echoing server credentials or payload values.
+Compilation SHALL refuse every authored capability-bearing option for Claude,
+Codex, DSH and LaneTally's Claude path, in driver commands and seat settings,
+including every primary/fallback, inline/agent-backed, nested and inherited
+site. The refusal SHALL be independent of grants, value, polarity and apparent
+agreement with the plan. The operator's exact rule is “Nothing is merged.”
+Tools SHALL come only from typed agent/seat declarations and applicable realm
+grants, composed by the engine. Engine-owned hands and typed local permissions
+SHALL retain their provenance; copying their bytes SHALL NOT confer it.
 
-An authored DSH `--patch` or equivalent overlay SHALL refuse if it carries
-capability/server configuration or cannot be proven confined to its existing
-permitted non-capability purpose. Unreadable or unrecognized overlays SHALL
-not pass through on trust. Engine-owned hands configuration, including its
-server and allowed workspace tool, SHALL retain decision 0043 behavior under
-empty grants; copying its name or bytes SHALL NOT confer engine provenance.
-This refusal SHALL apply independently of native inventory metadata and the
-slice-two MCP grant fence. Ambient configuration measurement stays separate.
+This catalogue is exhaustive for the supported known-harness surface. Each
+value-taking long name includes split `--name VALUE` and joined `--name=VALUE`,
+every listed alias, every repeat and every variadic value. Every value-taking
+short alias includes `-x VALUE`, `-x=VALUE` and attached `-xVALUE`. Empty,
+wildcard, default, malformed and apparently restrictive values are refused
+without parsing authored tool-list contents into contributions. Unsupported
+forms and future/unknown options SHALL also refuse under the closed grammar;
+this catalogue SHALL NOT become a permissive spelling scanner.
 
-#### Scenario: H2 Codex server config is refused under empty grants
+| Harness | Authored options/configuration refused |
+| --- | --- |
+| Claude | Tool lists `--tools`, `--allowedTools`, `--allowed-tools`, `--disallowedTools`, `--disallowed-tools`; MCP `--mcp-config`, `--strict-mcp-config`; plugin loading `--plugin-dir`; permission controls `--permission-mode`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-prompt-tool`; opaque settings/agent loading `--settings`, `--setting-sources`, `--agents`, `--agent`. WebSearch/WebFetch, MCP and wildcards in any list are already refused by the option, as are unsupported `--web`, `--web-search`, `--web-fetch`, `--search` forms. |
+| LaneTally (Claude child) | Every Claude entry above, in the forwarded command or wrapper settings; the wrapper cannot launder a child capability option. Settings-source controls are refused, including `--settings` and `--setting-sources`. Wrapper-owned session settings keep engine provenance and undergo final validation. |
+| Codex | `-c` / `--config` assignments to `mcp_servers` and every descendant/table form; `web_search`, `web_search_mode`, `tools.web_search`, `features.web_search_request`, `features.web_search_cached`; permission/sandbox keys `approval_policy`, `sandbox_mode`, `sandbox_workspace_write` and descendants; tool/plugin/feature/MCP tables and descendants whose effects carry capabilities. `--search`; `--enable` / `--disable` capability features (including web_search_request/web_search_cached); `--sandbox` / `-s`, `--ask-for-approval` / `-a`, `--full-auto`, `--approve-for-me`, `--ignore-rules`, `--dangerously-bypass-approvals-and-sandbox` / `--yolo`; profile loading `--profile` / `-p`. Unclassified config keys, feature names and malformed assignments refuse, never pass through. |
+| DSH | Capability-bearing `--patch` contents or seat settings: tool/MCP configuration, plugin loading, permissions or web/search enablement; arbitrary `--profile`, `web` and `plugin` launch subcommands; unbound/additional patches and opaque configuration. Unsupported tool-list/MCP/plugin/permission/web/search flags, including the names above, refuse rather than being forwarded. No short capability aliases are admitted by the supported DSH grammar; attempted aliases/attached forms refuse. The sole non-capability patch exception is the existing bound, contained, digest-checked route-only overlay. |
 
-- **WHEN** an unboxed inline seat with no grants authors `-c mcp_servers.docs.command=...`, a whole `mcp_servers` table or an equivalent supported config spelling
-- **THEN** compilation refuses the complete authored-server authority reason naming that site, codex and configuration key before any provider or server launch
-- **AND** boxed, nested, composed and fallback forms receive the same authority refusal with their own source/site
+Codex config forms SHALL include all five `-c KEY=VALUE`, `-c=KEY=VALUE`,
+`-cKEY=VALUE`, `--config KEY=VALUE`, `--config=KEY=VALUE`, with quoted/dotted
+keys, whole tables and descendants. Every occurrence is classified before
+reduction; a later harmless assignment cannot erase a forbidden one. Known
+non-capability config such as model reasoning effort may be admitted only
+with bounded typed meaning. No arbitrary settings document is inert data.
 
-#### Scenario: H2 Claude and LaneTally cannot author an MCP door
+A refusal SHALL name a normalized option, provider, source/site and bounded
+cause, never its value (including joined/attached tokens or secret-bearing
+paths/config payloads). The option label SHALL come from the grammar or a
+bounded sanitized key-free label for unknown syntax, not the raw token.
 
-- **WHEN** a recipe supplies `--mcp-config` or an allowed-tools list admitting `mcp__docs__lookup`, their supported aliases/equal spellings, or both
-- **THEN** Claude and the Claude-compatible LaneTally path refuse the full realm-only configuration reason even with no duplicate or arity error
-- **AND** a claimed `mcp__brokkr__workspace` name in authored data does not escape that refusal
+#### Scenario: Every spelling refuses independently of authority
 
-#### Scenario: H2 DSH overlays cannot widen tool authority
+- **WHEN** each catalogue option is authored in each split, equals, short-attached and alias form applicable to its harness, with grants absent and then present
+- **THEN** compilation refuses before any provider/plugin/server launch with the complete bounded option-naming reason, without echoing the value
+- **AND** all primary/fallback, inline/agent-backed, work/gate, panel/sequence and inherited sites obey that same refusal
 
-- **WHEN** a DSH site supplies `--patch` pointing to an overlay configuring a capability server/tool, or an overlay whose permitted scope cannot be established
-- **THEN** it refuses with the complete site/provider/overlay-control cause before forwarding or staging that authored configuration
-- **AND** the existing validated route-only overlay and engine-owned model, transcript, sandbox and effort composition keep their allowed behavior
-- **AND** any other equivalent passthrough without a sound provenance check is explicitly refused, not reported as harmless because its inventory is unmeasured
+#### Scenario: Local lists and deny lists are not exceptions
 
-#### Scenario: H2 engine-owned hands remain usable
+- **WHEN** Claude or LaneTally authors `--tools Read`, `--tools=`, `--allowedTools Read`, `--disallowedTools mcp__*`, `--disallowedTools Read(` or an alias, repeated or multi-value variant
+- **THEN** each refuses for the authored option even if it only narrows access or agrees with a managed control; none is folded into the plan
+- **AND** engine-owned typed local tool declarations remain the migration path
 
-- **WHEN** otherwise valid seats with grants `{}` receive engine-generated hands configuration on the supported adapters
-- **THEN** their exact final commands retain the existing hands server, workspace permission and strict configuration behavior alongside native denial
-- **AND** identical-looking recipe-authored configuration is refused because its provenance differs
-- **AND** inert argument values that only resemble a control are not interpreted as authored control positions
+#### Scenario: Codex assignments cannot hide behind spelling or order
+
+- **WHEN** an authored MCP, web/search, plugin/tool or permission assignment uses any of the five config forms, quoted/table/descendant keys, or precedes a harmless assignment
+- **THEN** compilation refuses the normalized `--config` option without printing the assignment or its value
+- **AND** malformed and unclassified assignments refuse as unbounded configuration
+
+#### Scenario: DSH distinguishes route data from capability options
+
+- **WHEN** a DSH invocation supplies a bound route-only overlay and then independently a profile, a web/plugin subcommand, a tool-bearing patch, an unknown flag or an unsupported attached alias
+- **THEN** only the validated contained digest-matched route-only case can compile; every other case refuses before staging
+- **AND** the route overlay grants no capability and its pre-staging drift check remains mandatory
+
+#### Scenario: Engine provenance cannot be copied
+
+- **WHEN** engine-owned hands and typed permissions are composed under empty grants, then their concrete argv is copied into an authored command
+- **THEN** the first retains its allowed typed authority and native OFF while the copied command refuses, regardless of matching server names or bytes
 
 ### Requirement: Known provider commands have a closed argument grammar
 
-Authored driver commands for `claude`, `codex`, `lanetally` and `dsh` SHALL
-parse into typed options, their values and admitted positional arguments
-before capability admission. Each supported provider grammar SHALL define
-option identity and aliases, permitted split/equals/attached spellings, value
-arity including explicit empty values, variadic boundaries, repetitions,
-subcommands and end-of-options handling. Every token SHALL have one valid
-place. An unknown option, unplaced positional, unsupported spelling, malformed
-value or ambiguous boundary SHALL refuse compilation naming the provider,
-site/source, offending token and grammatical cause. Secret-bearing payloads
-SHALL be redacted; their option/key and token position SHALL remain identifiable.
-No unclassified token SHALL pass through merely because it is not in a
-scanner's list of forbidden spellings. Launch SHALL enforce the same grammar
-and admission on expanded inputs before provider work.
+Every known-harness authored command SHALL parse fully into typed options and
+values before admission. Unknown syntax, malformed assignments, ambiguous
+boundaries, unplaced positionals and forbidden duplicates SHALL refuse.
+Aliases, split/equals/attached forms, arity and repeatability SHALL have one
+meaning shared by admission, selectors, extraction, resume and final parsing.
+An inert value SHALL NOT become an option through a later token scan.
 
-Admission SHALL judge all parsed server/plugin loading, tool admission and
-native capability settings against the serving seat's effective realm holding.
-An authored implementation/configuration SHALL NOT substitute for a realm
-binding; the slice-one MCP fence remains in force. Valid repeatable options
-SHALL have every occurrence checked before any last-wins interpretation;
-duplicates of authoritative restriction controls SHALL retain their refusal.
-A flag-looking value SHALL never become an option by a later scan. Opaque
-settings or plugin transports whose authority cannot be bounded SHALL refuse.
-Engine-owned hands retain explicit origin through parsing and composition.
+#### Scenario: Payloads never become diagnostics or controls
 
-#### Scenario: Second H1 attached Codex config is the same authority request
+- **WHEN** an unknown joined option carries `REVIEW_SENTINEL`, a short-attached config carries it, or a rejected tool list contains it
+- **THEN** the complete bounded diagnostic names the option and position but contains no sentinel or raw value
+- **AND** an admitted inert value such as the word `resume` in `--image resume` remains a value through eligibility and final parsing
 
-- **WHEN** a no-grant inline Codex seat supplies `-cmcp_servers.ungranted.command="/bin/false"`, `-c mcp_servers.ungranted.command="/bin/false"`, `-c=mcp_servers.ungranted.command="/bin/false"`, `--config mcp_servers.ungranted.command="/bin/false"` or `--config=mcp_servers.ungranted.command="/bin/false"`
-- **THEN** every supported spelling refuses with the full site/provider/realm-only server-configuration reason for the parsed `mcp_servers` key, before launch; the named attached and split/equals config forms are parsed as config, not rejected as unknown options
-- **AND** whole-table, quoted-key, descendant and repeated-assignment cases obey the same admission, including a forbidden assignment before a harmless repeated assignment
-- **AND** native capability settings in all supported config spellings are likewise checked against holdings; no attached enable setting can override OFF
-- **AND** a separately compiled engine-owned hands control still reaches its complete expected final command under empty grants
+#### Scenario: A closed grammar has no opaque remainder
 
-#### Scenario: Second H2 every Claude admission-list value is judged
-
-- **WHEN** an empty-holding Claude seat authors `--allowedTools Read mcp__ungranted__fetch`, `--allowedTools Read '*'`, or the supported alias/equals/repeated forms of those admission lists
-- **THEN** compilation refuses with the entire realm-only cause naming the parsed offending admission control and unauthorized tool or wildcard, or the exact duplicate/grammar cause where that form is forbidden
-- **AND** a harmless first list value never hides a later admission, including after another permitted local tool
-- **AND** the same cases through LaneTally's supported wrapper grammar have the same authority result with LaneTally attribution, without inheriting Claude live-enforcement evidence
-
-#### Scenario: Second H2 plugin loading is an authored authority channel
-
-- **WHEN** a no-grant seat supplies `--plugin-dir` in a supported value form, including a plugin exposing `mcp__plugin_recipe_ungranted__fetch`, with or without an accompanying allowed-tool entry
-- **THEN** Claude and the supported LaneTally path refuse before loading the plugin, with the complete plugin-control and realm-only authority cause
-- **AND** rejection does not depend on seeing an MCP tool name in the command or invoking a live provider
-- **AND** opaque settings and MCP-config channels retain their equivalent refusal
-
-#### Scenario: Unknown and malformed tokens never become passthrough
-
-- **WHEN** an otherwise valid command for each known provider includes an unknown option such as `--unclassified-capability-door`, an unplaced positional, a missing required value, a forbidden repetition or an unsupported attached form
-- **THEN** compile and final admission refuse each case with the complete token-specific grammar reason; no provider or server starts
-- **AND** end-of-options and option-looking value cases follow the declared positional/value grammar rather than bypassing capability admission
-- **AND** supported inert values, valid repeatable options, engine-owned hands and the contained digest-matched DSH route-only patch retain their exact successful command or existing eligibility outcome
+- **WHEN** a known harness receives a new option, malformed duplicate, dangling value or misplaced `--`
+- **THEN** it refuses instead of forwarding the remainder, even when its adapter has an unmeasured inventory or another name
 
 ### Requirement: Subtractive tool lists never grant a capability
 
-An authored disallowed-tools list SHALL narrow access, including MCP patterns
-and wildcards. For Claude and LaneTally, every supported spelling and every
-variadic value SHALL retain that subtractive meaning. Native denial SHALL
-merge with those lists without erasing any authored denial or fabricating an
-admission. Syntax/duplicate/contradiction checks remain applicable, but a
-server-admission refusal SHALL NOT be caused by a subtractive pattern. If a
-denial conflicts with mandatory engine-owned hands or a required holding,
-compilation SHALL report that precise incompatibility rather than discard
-the denial or call it a grant.
+Typed subtraction SHALL narrow an office request. Authored harness deny lists
+SHALL nevertheless refuse under ruling 1; subtraction is not an exception to
+engine ownership. Managed denials SHALL remain effective without weakening
+hands or required holdings; an unrepresentable managed conflict SHALL refuse.
 
-#### Scenario: Second M1 MCP subtraction survives with native OFF
+#### Scenario: Refusal supersedes the earlier subtractive merge
 
-- **WHEN** a supported unboxed Claude seat with empty holdings authors `--disallowedTools mcp__*` or `--disallowed-tools mcp__*`, including supported joined and multi-value forms
-- **THEN** it compiles and its complete cold and eligible-resume commands retain the MCP denial and the managed WebFetch/WebSearch denials in the effective deny list, with no duplicate authoritative flag
-- **AND** the corresponding LaneTally cases retain its independently declared controls and unmeasured-inventory limits
-- **AND** a broad subtractive wildcard receives the same treatment when compatible with the seat; a boxed hands conflict refuses for the conflict, never for granting a server
-- **AND** moving the same MCP pattern to an admission list produces the full realm-only refusal, proving that polarity changes the outcome
+- **WHEN** an authored Claude or LaneTally `--disallowedTools mcp__*` would have been compatible with a prior plan, or would conflict with workspace hands
+- **THEN** both compile-refuse the authored option before any reconciliation
+- **AND** typed request subtraction still removes the ask and composes native OFF
 
 ### Requirement: Office scopes and tool subsets only narrow a grant
 
@@ -254,7 +229,8 @@ requires SHALL refuse; a wants SHALL be dropped with its full compatibility
 reason in manifest notices and the native capability SHALL remain OFF. A
 grant unused after asks, subtraction and office scope SHALL stay pinned but
 inactive; native ON/restriction composition SHALL not be required for that
-unused binding. Known native OFF checks SHALL still run independently for
+unused binding. Both adapter-declared argv halves still parse at load; this
+inactive state is not a syntax-validation exemption. Known native OFF checks SHALL still run independently for
 every serving candidate: an unsupported or unmeasured OFF for a known native
 capability, or missing required denial authority, SHALL refuse even where a
 wants could otherwise drop or a grant is unused. Successful cases SHALL
@@ -340,29 +316,11 @@ the run or spawning any seat.
 
 ## Decisions
 
-CQ1 replaces the earlier unconditional native-restriction refusal with a
-validation/compatibility distinction. Ruling 5's unusable requires/wants
-semantics govern a valid native binding: dropping the whole optional
-capability with OFF preserves every restriction and grants less power.
-Discarding a restriction and launching unrestricted is refused. Refusing
-all optional or unused valid grants solely for an inexpressible restriction
-is also rejected because neither grants an unrestricted capability. Invalid
-grant data, unbuilt kinds and impossible native denial remain independent
-refusals. This does not relax existing local tool-permission restrictions,
-which constrain the continuing seat rather than an optional capability.
-
-H2 adopts security S1's distinction between a realm MCP grant and an authored
-provider configuration. Closing only the former leaves recipe data as a
-second grant source. Provenance preserves hands without a forgeable server-name
-exception. DSH's existing constrained route patch is not carte blanche for a
-capability overlay; equivalent doors must be constrained or refused. This
-repair adds no MCP broker and supplies no new ambient-MCP guarantee.
-
-Second H1/H2 replace the first repair's permissive spelling scan with a closed
-provider grammar. Adding `-cVALUE`, `--plugin-dir` or a second-value check to
-that scanner is rejected: an unclassified token would still pass. The grammar
-is scoped to supported known-provider commands and refuses unknown syntax;
-it is not a claim to support future CLI options or arbitrary custom drivers.
-Second M1 separates subtraction from admission. Refusing `mcp__*` solely for
-its presence in a denial list is rejected because it narrows power. Engine
-hands remain origin-bound; a real denial conflict is diagnosed as such.
+Ruling 1 replaces both earlier H2 admission reconciliation and second M1's
+subtractive-list exception. A deny list need not be a grant to be forbidden:
+its author does not own the harness capability controls. No value-dependent
+allowance remains. Closed grammar and explicit provenance survive because
+engine controls still need a parse and authors cannot counterfeit ownership.
+CQ1 remains: validate every grant first; unsupported valid restrictions refuse
+requires, drop wants with OFF, and leave unused grants inactive and pinned.
+Discarding a restriction or authoring an equivalent flag is not a remedy.

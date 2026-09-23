@@ -74,6 +74,26 @@ measured unsupported and unmeasured controls. A report without a resolved seat
 SHALL state the scope of its assessment rather than assert universal delivery
 for unassessed authored arguments or restrictions.
 
+Doctor SHALL submit the complete resolved plan to the same composer and final
+validation used by launch: all known native dispositions, typed permissions,
+hands, restrictions, authored inert arguments, serving candidate and command
+shape together. It SHALL report that admission or refusal, never certify
+capabilities one at a time with fabricated answers for the rest. Without a
+resolved seat, only an explicitly labeled complete adapter-level hypothetical
+plan may be assessed; no universal seat-launch promise is allowed.
+
+#### Scenario: Individually valid controls can conflict together
+
+- **WHEN** Claude declares separate OFF argv for WebFetch and WebSearch that duplicate an option or admit a tool the other denies
+- **THEN** doctor submits both together and reports exactly the whole-plan composer's admission or refusal; two per-capability Delivered tags are insufficient
+- **AND** matching compiled fixtures independently assert the same full outcome for absent, scoped, empty, unused and subtracted grants
+
+#### Scenario: Doctor observes final assembly and authored refusal
+
+- **WHEN** a plan has an authored forbidden option, a cross-origin duplicate or a final parse/state mismatch
+- **THEN** doctor reports the same bounded cause as launch admission and promises no delivery
+- **AND** an adapter-only assessment names its scope and leaves unassessed seat arguments unclaimed
+
 #### Scenario: Codex default search is made visible
 
 - **WHEN** Codex is installed and private grants nothing
@@ -128,7 +148,7 @@ for unassessed authored arguments or restrictions.
 - **WHEN** otherwise valid native OFF declarations use malformed managed argv, an unsupported selection mapping, an unconsumed DSH representation or a conflicting explicit restriction
 - **THEN** doctor and compile agree on the full grammar/composition refusal instead of treating the representation tag as proof
 - **AND** supported argv/selection/default controls, measured unsupported controls and unmeasured controls each retain their distinct report and complete reason
-- **AND** parsed subtractive lists are not misreported as realm grants, and accepted empty restrictive lists are not reported as absent controls
+- **AND** authored deny lists refuse, and accepted engine-owned empty restrictive lists are not reported as absent controls
 
 #### Scenario: Second M2 removing provider assessment breaks the report proof
 
@@ -186,16 +206,9 @@ provider availability/version inspection SHALL not count as capability proof.
 
 ## Decisions
 
-M1 adopts the council's finding that grant presence says nothing about denial
-for seats outside the holding. Doctor must use the same disposition semantics
-as launch: an unsupported or unmeasured OFF cannot become a success sentence
-through the matching-grant branch. Unknown inventory remains different from
-known unmeasured OFF, and declared control composition remains different from
-live enforcement evidence.
-
-Second M2 adopts the independently reproduced Codex-selection contradiction.
-The first repair's OFF-first ordering remains necessary but is insufficient:
-provider-aware composability decides delivery. A second doctor-only classifier
-or unconditional success for an Argv/Selection variant is rejected because it
-can contradict the compiler. D8 and proposed 0066 ruling 6 must share this
-assessment; task 8.4's narrower historical proof does not close second M2.
+Ruling 4 combines third S4/C5/R7 with earlier M1/M2: OFF-first ordering and
+provider-aware per-capability checks are insufficient. The whole actual plan
+must reach the launch composer. Reject a doctor-only resolver, synthetic
+incomplete Controls and expected test causes obtained from the production
+function under test. Adapter-level scope and static versus live evidence
+remain distinct even when complete composition succeeds.
