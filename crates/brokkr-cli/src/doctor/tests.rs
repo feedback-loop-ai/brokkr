@@ -2810,6 +2810,105 @@ fn a_failed_selection_probes_nothing_and_carries_its_cause() {
     );
 }
 
+/// R4 (review of run `124cca78`) at doctor's callback seam, over the
+/// REAL selection: a bare or blank-tailed `#!/usr/bin/env` launcher is
+/// refused by the resolver itself, so the line carries the exact
+/// missing-program cause and neither the probe nor the producer is
+/// called. Both callbacks panic, so admitting the launcher as "no node
+/// selected" fails here without spawning the loop it would start.
+///
+/// The protocol crate's `select_in` is private to its own suite; doctor
+/// reaches the same lookup through `DshSeams::selected`, which reads the
+/// process `PATH`, so each case runs in a re-executed copy of this test
+/// binary. The home admits (asserted below), so the refusal is the only
+/// thing between the selection and the probe.
+#[cfg(unix)]
+#[test]
+fn an_env_launcher_without_a_program_reaches_neither_doctor_callback() {
+    const CASE: &str = "BROKKR_DOCTOR_BLANK_ENV_CASE";
+    const LAUNCHER: &str = "BROKKR_DOCTOR_BLANK_ENV_LAUNCHER";
+
+    if let Ok(case) = std::env::var(CASE) {
+        let launcher = std::env::var(LAUNCHER).expect("the parent names the launcher");
+        let observed = dsh_provider_line_with(
+            &dsh_adapter_declaring(None),
+            |invocation| {
+                panic!("{case}: a probe of {invocation:?} after a missing-program refusal")
+            },
+            DshSeams::selected,
+            |_| panic!("{case}: no selection, no producer call"),
+        );
+        assert_eq!(observed.binary, "dsh", "{case}: the spelling looked for");
+        assert_eq!(observed.version, None, "{case}");
+        assert!(!observed.warning, "{case}");
+        assert_eq!(observed.suffix, "", "{case}");
+        assert_eq!(
+            observed.cause,
+            Some(format!(
+                "the DSH layout is unreadable: {launcher}: its #! interpreter '/usr/bin/env' is \
+                 the platform's env utility given no nonblank program, so the program it would \
+                 run is the launcher itself"
+            )),
+            "{case}: the exact missing-program cause"
+        );
+        return;
+    }
+
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("home");
+    for (tag, shebang) in [
+        ("bare", "#!/usr/bin/env\n"),
+        ("blank", "#!/usr/bin/env \t \n"),
+    ] {
+        let search = root.join(tag);
+        std::fs::create_dir_all(&search).unwrap();
+        let launcher = search.join("dsh");
+        std::fs::write(&launcher, format!("{shebang}echo v9.9.9\n")).unwrap();
+        std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let launcher = launcher.display().to_string();
+        assert_eq!(
+            seams_at(&launcher, &home).unwrap().admission.map(|_| ()),
+            Ok(()),
+            "{tag}: the home admits"
+        );
+
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "doctor::tests::an_env_launcher_without_a_program_reaches_neither_doctor_callback",
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CASE, tag)
+            .env(LAUNCHER, &launcher)
+            .env("DSH_HOME", &home)
+            .env("PATH", &search)
+            .env_remove("BROKKR_DSH_BIN")
+            .env_remove("FORGE_DSH_BIN");
+        // Only ETXTBSY is retried, as in the seam-precedence test (#255).
+        let output = loop {
+            match child.output() {
+                Ok(output) => break output,
+                Err(error) if error.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(error) => panic!("{tag}: the child test binary runs: {error}"),
+            }
+        };
+        let said = String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr);
+        // A filter that matches nothing exits zero.
+        assert!(
+            said.contains("1 passed") || said.contains("1 failed"),
+            "{tag}: the child ran the case: {said}"
+        );
+        assert!(output.status.success(), "{tag}: {said}");
+    }
+}
+
 /// R1 and R3 (review of run `124cca78`) at doctor's callback seam: a
 /// LOCATED pnpm lock that fails admission stops the line before either
 /// callback. The DSH probe and the producer are counted, because a

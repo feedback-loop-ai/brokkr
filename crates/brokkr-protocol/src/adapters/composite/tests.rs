@@ -3024,6 +3024,24 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
     std::os::unix::fs::symlink(&launcher, &alias).unwrap();
     let selected = select_in("dsh", path(&a)).unwrap();
     assert_eq!(selected.path, launcher.canonicalize().unwrap());
+    // No second search: the invocation's program is the path the walk
+    // found, so it runs with `PATH` emptied, from a working directory
+    // holding no `dsh`, and still prints the alias (task 8.8.1.2). A
+    // bare `dsh` there is NotFound.
+    let unsearched = selected
+        .invocation
+        .command()
+        .arg("--version")
+        .env("PATH", "")
+        .current_dir(dir.path())
+        .output()
+        .map(|ran| String::from_utf8_lossy(&ran.stdout).into_owned())
+        .map_err(|error| error.kind());
+    assert_eq!(
+        unsearched,
+        Ok(format!("{}\n", alias.display())),
+        "the invocation runs without a search"
+    );
     assert_eq!(
         selected.invocation,
         DshInvocation {
