@@ -651,6 +651,28 @@ exist.
    it. If 2c proves too large for one visit, split it at the `baseURL`/lexical
    boundary; the two new classes ride with whichever half lands first.
 
+   **Stopped 2026-09-23 on a Pass-B production finding; no test landed.** A
+   route beside a `--model` pin with **no provider segment** is admitted and
+   staged, against `specs/adapter-resume-safety/spec.md:1478` and `:1560` and
+   `tasks.md` 5268. `route_overlay.rs:111–115` refuses only an *absent* pin;
+   a segment-less pin reaches `validate`, where `parse_dsh_model` supplies
+   the default provider `deepseek-official` (`adapters.rs:4814`, `:4843`), so
+   a route whose one provider key is `deepseek-official`, model item
+   `deepseek-v4-flash` with a `reasoningEfforts` block, beside `--model
+   deepseek-v4-flash` validates `Ok(())` and plans with `dsh_staging_calls()
+   == 1` on the disabled, offered and cold paths alike. The reader's existing
+   vector (`a_route_needs_a_model_pin_and_model_item`) hides this: its route
+   names `dashscope`, so the segment-less pin is refused for naming a
+   provider the seat did not pin, not for lacking a segment. F2's grading of
+   the model-pin pair as "missing evidence, not missing behaviour" is
+   withdrawn for the segment-less half. The two new classes were probed on
+   the same bytes and are **not** findings: a second top-level entry refuses
+   `route overlay must hold exactly one top-level entry` and a non-ASCII host
+   (`https://hóst/x`) refuses `baseURL leaves the closed endpoint grammar`,
+   each at the reader and on the cold planner path with zero staging calls.
+   The remedy is a production refusal at the `claim` boundary for a pin
+   without `/`, then this unit re-run whole; the probes were reverted.
+
 3. **Complete the undriven variation matrices.** Closes A42, B60, B27's
    mistyped half and B71's two missing positives. Touches
    `crates/brokkr-protocol/src/adapters/tests.rs` and
