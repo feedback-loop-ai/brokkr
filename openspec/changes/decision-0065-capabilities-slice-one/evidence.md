@@ -3791,3 +3791,82 @@ measurement.
 remote CI. 5.1 and 5.2 are ticked on this local record. Unit 5 is not fully
 green until those results exist. Recipe migration stays with units 6–8, and
 authored refusal stays with unit 12. Nothing is pushed.
+
+## Unit 6 — blocked: inline sites have no typed lowering, 2026-09-24
+
+Run `triage-directive-operator-ruling-b5e42a33`, triage `chore`, phase
+implement, sole seat. The head was `c10fc837` on `slice-0065-capabilities`,
+clean. There is no `returned_from`. The result is **blocked**. No production,
+test or pin byte moved. This record and the 6.1 note are the only edits.
+
+### What the unit needs
+
+The Migration Plan migrates five seats: fast implement and review, node
+implement and review, and preflight review. It removes
+`--permission-mode acceptEdits` and `--allowedTools <list>` from each authored
+command and declares `tools.allow` with the abstract names. The engine must
+then emit the adapter's acceptEdits template and the mapped `--allowedTools`
+itself. SCM's "Typed permissions preserve limits without inline options" and
+"Migration preserves concrete prefix and sandbox limits" scenarios say this.
+
+All five are inline sites. Each writes its own `{brokkr} driver claude --
+…` command, and none names an `agent`.
+
+### What the code does at `c10fc837`
+
+`crates/brokkr-runtime/src/bundle.rs::record_inline_tools` (2611–2634) decodes
+an inline site's `tools`. It then refuses any present `allow` or `sandbox`
+field. This is D5.3's row "Inline direct allow, or direct explicit empty:
+decode/narrow exactly, then refuse until exact lowering exists." It is bound by
+`an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`
+in `bundle/agent_tests.rs`. Unit 3 built the lowering primitive and unit 4
+carried origins, but only on the agent-composed `ChainEntry`/`Candidate` path.
+No unit in the Rebuild order before 12 lifts the inline guard or composes a
+template and local contribution into an authored command.
+
+### Probe
+
+Preflight's reviewer was edited in place exactly as the Migration Plan
+directs: both flags removed, `"tools": {"allow": ["cargo", "git", "ls", "rg"]}`
+added. `cargo run --locked -p brokkr-cli -- compile --bundle recipes/preflight`
+exited 1 with:
+
+> error: bundle: seat 'review' declares 'tools.allow' on a site whose command
+> no office composes; the engine does not yet lower a typed local allow into
+> an authored command, so the restriction would be recorded and not delivered
+> — it is kept exactly and refused rather than run unrestricted, until
+> decision 0065 slice one's lowering and origin transport prove its delivery
+> (design D5.3); an authored flag cannot stand in for it
+
+The file was restored with `git checkout`, and `git status` was clean.
+
+### Why the unit's three files cannot close it
+
+- Keeping the inline flags beside the typed list is the reconciliation the
+  operator ruling forbids, and D5.3 says an authored flag cannot stand in.
+- Removing the flags without `tools` falls back to unrestricted defaults.
+  The Migration Plan says that is not migration.
+- The agent-backed path is the only one that composes, and it cannot preserve
+  the limits. `agents/implementer.json` allows only `cargo` and `git`, and a
+  seat can only narrow its agent, so python3, pytest, ls, rg, mkdir, npm, npx
+  and node would be widenings and are refused. `agents/reviewer.json` brings
+  workspace hands and a different model order. The design (the row "exact
+  typed migration and inventory") rejects new agent files made to avoid inline
+  typed support, and agent files are outside this unit's inventory anyway.
+
+### The split this needs
+
+Add an inventoried unit before unit 6: **lower typed local tools at inline
+Claude/LaneTally sites.** It would recognise the actual driver, as D5.3 already
+requires. It would lift the `record_inline_tools` refusal only for an allow
+list the selected adapter can map. It would compose the adapter's driver
+template (acceptEdits) and unit 3's local contribution as engine origins
+around the authored model and effort tokens. It would carry those origins
+through unit 4's transport, and keep inline sandbox and empty-list refusals
+unless they are represented. The likely production files are
+`crates/brokkr-runtime/src/bundle.rs`, `agents.rs` (to reuse the lowering) and
+possibly `engine.rs` (for the inline candidate's origins). This would be
+checked against the three-file ceiling when framed. Its tests are
+`bundle/agent_tests.rs` (the inline refusal rows move) and
+`tests/capability_launch.rs`. Unit 7's verify reviewer is also an inline
+Claude site with the same dependency.

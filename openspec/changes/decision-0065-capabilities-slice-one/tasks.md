@@ -671,6 +671,18 @@ green:** external exact coverage, macOS and remote CI are pending.
 
 - [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)
 
+Observed 2026-09-24 (evidence.md, "Unit 6 — blocked: inline sites have no
+typed lowering"), run `triage-directive-operator-ruling-b5e42a33`. **Blocked,
+not started.** Every seat to migrate is an inline Claude driver site. At
+`c10fc837`, `bundle.rs::record_inline_tools` still refuses any typed
+`tools.allow` there under D5.3, and no earlier unit lifts that guard or lowers
+a typed list into an inline command. A probe of preflight's reviewer, migrated
+as the Migration Plan says, was refused at compile. The only composing path is
+agent-backed, and it needs new or widened agent files, which the design
+rejects. The unit's three data files cannot close 6.1. It needs a prior
+inventoried unit that lowers typed local tools at inline Claude/LaneTally
+sites. No production, test or pin byte moved.
+
 ## 7. Unit 7 — Migrate verify and Codex restrictions
 
 - [ ] 7.1 Unit 7 migrates verify/standby/review-first to typed permissions/sandbox. Verify exact commands, unchanged boundary authority and measured pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.18)
