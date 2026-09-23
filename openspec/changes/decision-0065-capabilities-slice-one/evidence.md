@@ -1,6 +1,15 @@
 # Decision 0065, slice one — evidence after the operator ruling
 
-## Current status — documentation revision, 2026-09-23
+## Current status — unit 2 council design, 2026-09-23
+
+The rerun adopts all work through `368bc34e`. Design D5.5 reconciles both
+positions, retains D5 and assigns the demonstrated sandbox admission defect
+to 2.1.5 alongside the reopened proof work. Task 2.1 and all seven substeps
+remain open. See “Unit 2 — rerun chief council disposition” below for this
+visit's evidence and validation limits; earlier results retain their dates
+and scope. No implementation or security hold is closed by this design.
+
+## Whole-rebuild documentation status — historical, 2026-09-23
 
 Rebuild unit 1 has since rebased the branch onto origin/main 072cdd9b. Its
 mapping, conflicts, pins and gates are under "Unit 1" at the end of this file.
@@ -1102,3 +1111,94 @@ Rust execution is invented in this specify visit.
 
 The final commit and post-commit OpenSpec/diff results are recorded in this
 run's result file so recording them does not change the validated head.
+
+## Unit 2 — rerun chief council disposition, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-e332dc8d`, phase `design`, adopted head
+`368bc34e1370f35407e4e8b0ef35c7b374b7acdb`, `slice-0065-capabilities`.
+The worktree began clean. The four commissioned commits and the proof
+correction remain adopted; no replay or replacement specification/design.
+The supplied context has no `returned_from`. The failed review startup is
+neither a behavioral finding nor a completed review.
+
+Read the operator ruling/addendum before the Rebuild units preamble/unit 2,
+then D5, tasks 2.1.1–2.1.7, the owning SC7/SCM/SC8 scenarios and both current
+positions in full. Also read the proposal, relevant implementation and owning
+tests, historical proof correction, README and decisions 0004/0005/0009/0063/
+0065/proposed 0066. Read `dialects/openspec.json` and its `openspec/design.md`
+and `openspec/return.md` through the workspace tool, plus the read-only
+`openspec instructions design --change decision-0065-capabilities-slice-one
+--json` output. No dialect workflow runner, provider or archive was invoked.
+
+### Evidence and disposition
+
+D5.5 explicitly adopts or combines every current position's claim, and rejects
+the unsupported alternatives with reasons. D5.1 is labelled historical because
+its run-local position paths now hold the rerun positions. The design's context
+now describes the adopted implementation, rather than its pre-implementation
+state. D5.3 makes its existing competing-control check explicit in both the
+selected fragment and authored contribution. Tasks 2.1.5/2.1.7 reflect the
+repair and fresh-gate obligations; all unit 2 boxes remain open. Rebuild units,
+proposal and deltas remain unchanged: SCM's existing exact-fragment scenario
+already forbids competing controls, so no ambiguity or upstream defect was
+found. Decision 0066 stays proposed.
+
+The robustness seat's `.forge/design/unit2-robustness-probe.json` records the
+following at `368bc34e`; these are attributed compile observations, not a new
+chief execution, live-provider experiment or regression/removal proof:
+
+| Probe row | Recorded outcome |
+| --- | --- |
+| Matching boxed Codex hands fragment | Admitted with exact ReadOnly local fact. |
+| Authored sandbox bypass | Admitted with ReadOnly and bypass in candidate argv. |
+| Selected hands.workspace sandbox bypass | Admitted with matching sandbox and bypass in the engine fragment. |
+| Authored full-auto | Admitted with ReadOnly. |
+| Authored sandbox_workspace_write.network_access=true | Admitted with ReadOnly. |
+| Authored --sandbox danger-full-access | Refused with the full existing competing-control cause. |
+
+Chief source inspection corroborates the mechanism: expressed_sandbox only
+extracts `--sandbox` and rejects config under `sandbox_mode`; the grammar
+recognizes the two switches, and both contributions call this same incomplete
+check. The existing sandbox regression covers `sandbox_mode` and authored
+`--sandbox`, not these admitted neighbors. Reject deferral to unit 12 or a
+claim that the independent namespace makes typed admission correct. Accept
+simplicity's conditional zero-production-diff advice only where no defect is
+demonstrated; this defect requires the narrow bundle.rs repair it allows.
+No provider precedence or runtime escape is inferred.
+
+The full-cause narrowing gap is also confirmed in the source: valid-sibling
+cases and refusing sandbox pairs use `.unwrap_err().0`. The historical ledger
+and 368bc34e establish the missing original reds, incomplete independent row
+mutations and unbound strict-bundle-source test. Keep those limitations and
+the corrected 17-test count. No new test or mutation is authored in this
+design phase; implementation must produce the required baseline/red/removal/
+restoration evidence in the two owning suites, or inventory an in-scope-seam
+failure before requesting a split. A diagnostic is not a replacement suite.
+
+### Current-visit validation
+
+On `368bc34e` plus this documentation-only working tree:
+
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Informational length/archive advisories do not fail validation; no archive
+  was attempted.
+- `git diff --check`: **passed**.
+- `git merge-base --is-ancestor <commit> HEAD`: **passed** independently for
+  `d9816374`, `4a6a2288`, `308a8a28`, `f9a691cf` and `368bc34e`. The Rebuild
+  units suffix is byte-for-byte equal to the adopted version.
+- All seven Cargo commands in task 2.1.7 were attempted explicitly:
+  formatting, locked all-target/all-feature clippy, runtime all-feature tests,
+  both workspace test commands and self/verify bundle compiles. **Unavailable**:
+  subprocess could not find `cargo` in this seat's workspace box. None ran;
+  no test/compiler version is claimed. The robustness seat's Cargo 1.98.0
+  observation remains attributed to that seat, not relabelled as a fresh
+  result. Logs and command/status records are under
+  `.forge/design/chief-unit2-e332dc8d-gates/`.
+- External exact coverage, macOS and remote CI remain **pending**. No fully
+  green or task-closure claim, host-shell workaround or gate reduction.
+
+Only design.md, tasks.md and evidence.md are authored for this phase, in that
+order. Production, tests, measured pins, shipped data and frozen bytes do not
+change. The final commit and post-commit OpenSpec/diff/scope results are
+recorded in this run's result file so that recording them does not move the
+validated documentation head. No push.

@@ -3,8 +3,9 @@
 Status: proposed design; decision 0066 remains proposed.
 Adopted: every commit through 44430402, specification draft a84197cd and
 design revision 3c5402be on slice-0065-capabilities; the replay, unit 1b and
-unit 2 specification through d98163740e24839deb5ddccd1a9e5d563f804b18 are
-adopted intact. This design visit addresses unit 2/task 2.1 only.
+unit 2 specification, design, tasks and implementation through f9a691cf, and
+proof correction 368bc34e are adopted intact. This rerun addresses unit 2/task
+2.1 only; D5.5 records the current council disposition without replacing D5.
 Authority: [the complete operator ruling](operator-ruling-2026-09-23.md).
 This visit authors documents only. No behavioral finding or security hold is closed.
 
@@ -24,11 +25,14 @@ order. Their observed results and outstanding external gates remain in
 evidence.md. Neither is replayed here. Production remains Rust under crates/.
 Hosts remain Linux and macOS (0063).
 
-For this unit, agents/load.rs::parse_tools rejects empty allow and knows no
-sandbox field; bundle.rs rejects tools at its executable key lists.
-agents::compose deliberately substitutes hands for direct local tools.
-There is no general sandbox-class mapping in Adapter. These facts bound the
-decoder/admission design below; see proposal.md for motivation.
+Before unit 2, agents/load.rs::parse_tools rejected empty allow and knew no
+sandbox field, and bundle.rs rejected tools at its executable key lists. The
+adopted implementation now decodes both fields, narrows a private office clone
+and records site facts. agents::compose still substitutes hands for direct
+local tools, and Adapter has no general sandbox-class mapping. The rerun
+identifies missing exact proofs and a D5.3 implementation gap: recognized
+bypass/configuration controls can coexist with an admitted typed sandbox.
+See D5.5 and evidence.md; the existing specification already forbids this.
 
 ## Goals / Non-Goals
 
@@ -82,8 +86,8 @@ Panel prose is evidence, never authority to change this commission or its gates.
 The following table retains the earlier whole-rebuild council synthesis
 accepted before unit 1. Its run-local position paths have since been replaced
 by unit 2 positions; it is historical, not a description of those new files.
-The current unit 2 synthesis follows under D5.1. Earlier pass verdicts did not
-prove the rebuild:
+The adopted first unit 2 synthesis follows under D5.1, and the current rerun
+synthesis under D5.5. Earlier pass verdicts did not prove the rebuild:
 
 | Position claims | Decision and evidence |
 | --- | --- |
@@ -337,10 +341,12 @@ exactly: pytest is `.venv/bin/pytest`, not another executable of that name.
 ### D5.1. Unit 2 council disposition and bounded implementation
 
 Run `build-decision-0065-slice-one-re-9f0b932b`, adopted head `d9816374`.
-Both current positions were read in full from
+The positions then present were read in full from
 `.forge/design/positions/robustness.md` and
-`.forge/design/positions/simplicity.md`. There is no `returned_from` finding.
-The decisions below refine D5; the accepted Rebuild units order stays intact.
+`.forge/design/positions/simplicity.md`; those paths now hold the rerun
+positions reconciled in D5.5. This table is the adopted historical synthesis.
+There was no `returned_from` finding. The decisions below refine D5; the
+accepted Rebuild units order stays intact.
 Decision 0066 remains proposed. Task 2.1 remains open until implementation
 and its own observed proofs exist.
 
@@ -436,7 +442,17 @@ protocol grammar: exactly one sandbox option with exactly the requested class.
 The shipped workspace/gate fragments use `--sandbox read-only`; work uses
 `--sandbox workspace-write`. Inspect the other command contributions for a
 competing sandbox control or opaque configuration that could defeat this
-check; uncertainty refuses typed admission. Do not add another parser, infer
+check; uncertainty refuses typed admission. Apply that judgment to the selected
+fragment itself as well as the authored contribution: a matching `--sandbox`
+is insufficient beside `--full-auto`,
+`--dangerously-bypass-approvals-and-sandbox`, or configuration under
+`sandbox_mode` or `sandbox_workspace_write`. Use the existing parsed option
+identities and configuration paths; refuse these competing or unestablished
+effects without reconciling them or trusting argument order. Engine provenance
+is not an exemption. Preserve established hands transport and effort settings;
+rejecting every `-c` assignment would reject the matching supported fragments.
+This completes the existing no-competing-control rule, not a new sandbox
+class or unit 12 catalogue activation. Do not add another parser, infer
 support from diagnostic prose, reconcile duplicates, or treat authored bytes
 as engine provenance. The current harness path appends the selected fragment;
 no new engine wiring is commissioned. Boxed host availability remains the
@@ -481,6 +497,47 @@ records; they do not replace the owning unit's proof. Rollback this unit's
 new admission if necessary; never fall back to unrestricted compilation.
 Shipped migrations, broader sandbox support and new origins remain in their
 assigned later units.
+
+### D5.5. Unit 2 rerun council disposition, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-e332dc8d`, reviewed head `368bc34e`.
+Read both current positions in full at `.forge/design/positions/robustness.md`
+and `.forge/design/positions/simplicity.md`, and robustness's recorded
+compile probe at `.forge/design/unit2-robustness-probe.json`. There is no
+`returned_from`. All four commissioned commits remain ancestors; the review
+startup failure is neither a code finding nor a review pass. This is an
+amendment for demonstrated omissions, not a replacement specification/design.
+
+| Current position claims | Disposition, evidence and owner |
+| --- | --- |
+| Both: retain shared strict decoding, exact presence/order, independent narrowing, private clone and per-site facts | Adopt. The implementation exists in the three named files; the specification and D5.2 already require these invariants. Reject storage consolidation, a new parser/module/registry, Candidate changes and public contracts: none addresses the observed gaps. |
+| Both: keep whole-chain checks, hands replacement, native-alias refusal and independent realm/boundary authority | Adopt unchanged. Preserve unavailable-fallback validation, checked-unspecified versus unvisited facts, container refusal and constitutional error precedence. An empty dormant list does not disable hands or require otherwise-unused mappings. |
+| Simplicity: zero production diff unless a behavior defect is demonstrated; robustness: repair the sandbox guard | Combine the conditional advice with the demonstrated defect. The probe admits typed ReadOnly beside bypass in authored argv and in hands.workspace, and beside authored full-auto or sandbox_workspace_write.network_access. Source inspection confirms expressed_sandbox ignores those recognized nodes. Reject an unconditional zero-diff conclusion or deferral to unit 12. Task 2.1.5 owns the narrow bundle.rs repair and bundle/agent_tests.rs regression. |
+| Robustness: judge both engine and authored contributions, retaining supported config | Adopt the explicit D5.3 instruction. Check existing parsed nodes; refuse uncertain sandbox effects, never reconcile them or assume last-option priority. Reject trusting engine origin, a provider-version probe to decide priority, and blanket config rejection: existing hands and effort settings must keep their established meaning. |
+| Both: full narrowing causes and independent row proofs are missing | Adopt the 368bc34e correction. Task 2.1.2 replaces field-only assertions with complete errors; 2.1.6 audits each claimed decoder, inline, executable/container and sandbox row. A first-row mutation failure proves no later assertion. Preserve sufficient existing experiments and supply only missing ones. |
+| Both: strict bundle source proof needs a permitted seam; missing original reds must remain missing | Adopt. Investigate the bundle.rs caller or existing test seam without adding a decoder or editing compose.rs. If no valid compiling removal fits, stop with the exact split. Any 308a8a28 baseline experiment is retrospective. Retain the measured 17-test count and original history. |
+| Both: retain D5.3's interim refusals and later-unit ownership | Adopt. Existing agent-direct nonempty mappings and matching Codex hands cases remain the only applicable paths; inline direct, direct empty and unsupported sandbox paths still refuse. Units 3–4 own lowering/transport, and later units own migration and final serving proofs. No grant, frozen surface, provider launch or release work enters this unit. |
+| Both: final restored gates and external evidence remain obligations | Adopt. Fresh results belong to their tested revision; prior cargo-unavailable and prior gate-pass reports stay historical. Reopen 2.1.7 for the pending repair. Exact coverage, macOS and remote CI remain pending until observed; this design closes no implementation, proof or security hold. |
+
+The regression belongs in the existing sandbox admission suite, using its
+canonical temporary root and complete literal refusals. Observe the intended
+baseline assertion before repairing the guard, then independently remove each
+claimed enforcement, record the exact failure, restore and pass. Cover the
+selected fragment and authored argv independently for each competing control,
+with the matching boxed/gate/work positives, supported configuration and
+standing error precedence retained. A compile-admission proof establishes no
+provider escape or final-command behavior. Scope remains three production
+files and two suites; an actual fourth-file requirement must be split first.
+
+SCM's existing scenario “An existing sandbox fragment must match the typed
+request” already requires no competing control. No ambiguity or earlier
+specification fault was found, so no new scenario, semantic decision or
+upstream return is justified. Decision 0066 remains proposed. The risk is an
+incomplete sandbox-effect check; D5.3's explicit cases and independent proofs
+address it without extending provider support. No data migration is needed;
+retain refusal on unsupported paths and D5.4's rollback rule. There is no new
+unit 2 open question; external evidence and later-unit questions retain their
+owners. The accepted Rebuild units order is unchanged.
 
 ### D6. Refuse authored controls; validate declared and final meaning
 
