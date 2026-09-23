@@ -1863,6 +1863,145 @@ fn a_non_binding_route_overlay_withholds_the_member_at_the_single_site() {
     );
 }
 
+/// The escaping symlink as a COMPILED member (B38(ii)). The symlink case
+/// in the panel above is refused for being absent from the manifest, so
+/// it cannot show that membership alone never authorizes a path whose
+/// resolution leaves the layer. Here `recipe/link.yml` sits inside the
+/// layer, resolves to `work/outside.yml` — outside the layer, inside the
+/// working directory — and is listed in `files` with the digest of the
+/// bytes it reaches, beside the real member. Returns the canonical layer
+/// and the manifest `files` object, after asserting the fixture is the
+/// shape the clause names.
+#[cfg(unix)]
+fn escaping_member_layer(root: &Path) -> (std::path::PathBuf, Value) {
+    let work = root.join("work");
+    let layer = work.join("recipe");
+    std::fs::create_dir_all(&layer).unwrap();
+    let member_bytes = b"route: member\n";
+    let outside_bytes = b"route: outside\n";
+    std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
+    std::fs::write(work.join("outside.yml"), outside_bytes).unwrap();
+    std::os::unix::fs::symlink(work.join("outside.yml"), layer.join("link.yml")).unwrap();
+
+    assert!(std::fs::symlink_metadata(layer.join("link.yml"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    let resolved = std::fs::canonicalize(layer.join("link.yml")).unwrap();
+    assert_eq!(resolved, work.join("outside.yml"));
+    assert!(!resolved.starts_with(&layer));
+
+    let files = json!({
+        "route.yml": overlay_digest(member_bytes),
+        "link.yml": overlay_digest(outside_bytes),
+    });
+    (layer, files)
+}
+
+/// The compiled escaping member receives no binding at the SINGLE site:
+/// the context arrives, carrying no `route_overlay`, although `link.yml`
+/// has a `files` entry the lookup would find.
+#[cfg(unix)]
+#[test]
+fn an_escaping_symlink_member_is_withheld_at_the_single_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (layer, files) = escaping_member_layer(&root);
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            single(
+                patched(driver(&root, "work", &["complete"]), "recipe/link.yml"),
+                Vec::new(),
+            ),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = files;
+
+    run(&root, bundle);
+
+    let context = route_start(&root, "work")["input"]["resume_context"].clone();
+    assert!(
+        context.is_object(),
+        "the single site still receives its private context, got {context}"
+    );
+    assert_eq!(
+        context.get("route_overlay"),
+        None,
+        "a member whose resolution leaves the layer must carry no route_overlay, got {context}"
+    );
+}
+
+/// The same compiled escaping member at the PANEL-MEMBER call site,
+/// beside a sibling carrying the real member, which binds: the run
+/// composes a binding where one is due, and withholds only the escape.
+#[cfg(unix)]
+#[test]
+fn an_escaping_symlink_member_is_withheld_at_the_panel_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (layer, files) = escaping_member_layer(&root);
+    let member_digest = files["route.yml"].clone();
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![
+                member(
+                    "alpha",
+                    patched(driver(&root, "alpha", &["complete"]), "recipe/route.yml"),
+                ),
+                member(
+                    "escape",
+                    patched(driver(&root, "escape", &["complete"]), "recipe/link.yml"),
+                ),
+            ]),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = files;
+
+    run(&root, bundle);
+
+    let bound = route_binding(&root, "alpha");
+    assert_eq!(bound["value"], "recipe/route.yml");
+    assert_eq!(bound["digest"], member_digest);
+    let context = route_start(&root, "escape")["input"]["resume_context"].clone();
+    assert!(
+        context.is_object(),
+        "the panel member still receives its private context, got {context}"
+    );
+    assert_eq!(
+        context.get("route_overlay"),
+        None,
+        "a member whose resolution leaves the layer must carry no route_overlay, got {context}"
+    );
+}
+
 /// A member whose bytes changed after compilation still binds with the
 /// MANIFEST's recorded digest, never a fresh hash of the resolved file:
 /// the adapter's required comparison is what refuses the new bytes.
