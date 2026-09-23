@@ -889,7 +889,7 @@ numbers. The map:
 | 10 | 3b | landed `cb5bbd9a` (after a stop) |
 | 11 | — (new: unit 7's unproved half) | landed `6e1e7066`, `471bc740` |
 | 12 | — (new: N2/N4 unasserted cells) | landed `36b16922` |
-| 13-fix | — (new: finding P1, entry 13's stop) | open |
+| 13-fix | — (new: finding P1, entry 13's stop) | landed `1d2763cf` |
 | 13 | — (new: source retrieval) | open, externally owned |
 | 14 | 4 | open |
 | 15 | 5 | open, externally owned |
@@ -1701,6 +1701,32 @@ symlink fixture and twenty planner vectors.
    **Files.** `crates/brokkr-protocol/src/adapters/composite.rs`
    (production: the Apple arm and its comments only),
    `composite/tests.rs`, `composite/tests/native_matrix.rs`.
+
+   **Landed 2026-09-23 at `1d2763cf`; the glibc and musl arms did not
+   move.** `step` takes the failed question. Apple's EACCES is remembered
+   only for `access`, and `metadata` walks on unremembered. The
+   not-regular denial never reaches `step`. The signature change reaches
+   both call sites, the second of which passes `metadata` to
+   `refuse_working_directory` (stop-only, unchanged). `classify_in`'s
+   comment is corrected with the other two.
+   `apple_walks_past_a_sealed_directory_without_remembering_it` covers
+   three libraries × two operations. On Apple, a sealed directory alone
+   ends "is not on PATH". Sealed last after a 0644 file ends in that
+   file's denial, and a direct name gets one answer on every arm.
+   Mutations, compiled, run red and reverted:
+   - errno-only remembering parts `composite/tests.rs:2458` (Apple under
+     Exec, sealed alone) and `:7328` (the step table).
+   - errno-only forgetting parts `:2458` (sealed last), `:7332` and
+     `:8234`.
+
+   The native matrix's new `sealed-directory-alone` and
+   `non-executable-then-sealed-directory` controls pass on glibc. Their
+   Apple expectation is **pending the macOS leg**: Linux runs the glibc
+   arm, so neither mutation reaches them here. The direct-name audit row
+   for a metadata EACCES now records the remembered flag per library, with
+   the words unchanged. fmt, workspace clippy and `cargo test -p
+   brokkr-protocol --all-features --locked` (430 + 99 + 1) are green. No
+   checkbox moved.
 
 13. **Retrieve, pin and verify the Apple and env sources.** Added by the
    remediation (third return, finding 1). **Externally owned**: it needs a
