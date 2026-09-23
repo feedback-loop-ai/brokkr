@@ -11211,6 +11211,304 @@ fn the_extension_s_local_record_leaves_only_when_the_extension_resolves() {
 }
 
 // ---------------------------------------------------------------------------
+// Pass D part three: the profile's own lines, and the generated file that
+// is not one of them.
+//
+// SYNTHETIC deterministic storage shims over the canonical-root synthetic
+// home. Nothing here observes a live DSH installation, and no case is
+// evidence of upstream compatibility, qualification or enforcement.
+// ---------------------------------------------------------------------------
+
+/// The `Synthetic` install's component lines AHEAD of the profile rows:
+/// core, node, its one deduplicated dependency, the plugin component and
+/// the two patch digests, as literal bytes. Every profile case below
+/// shares this prefix exactly, so the tail each one pins is the only
+/// thing that may differ between them.
+const PROFILE_CASE_PREFIX: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
+     node\u{0}v22.23.2\n\
+     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
+     plugin\u{0}8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99\n\
+     plugin-patch\u{0}66e6d923ac24b898cc4d8b405e107adfca86b017b7b63d31287a71549c1580bd\n\
+     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n";
+
+/// The manifest that lists `bundles` in `order` with `reload`.
+fn profile_manifest(order: &[&str], reload: &str) -> Vec<u8> {
+    let bundles = order
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{\"dsh\":{{\"profile\":{{\"bundles\":[{bundles}],\"patchReload\":\"{reload}\"}}}}}}")
+        .into_bytes()
+}
+
+/// The profile tail of D6's component stream: one `profile-bundle` row
+/// per declared name IN DECLARED ORDER, then `profile-patch-reload` and
+/// `home-patch`. Assembled from the same `order` the manifest above
+/// declares, so a test that expects a moved composite cannot accidentally
+/// expect a moved stream it never wrote.
+fn profile_tail(order: &[&str], reload: &str, home_patch: &str) -> String {
+    let mut tail = String::new();
+    for name in order {
+        tail.push_str(&format!("profile-bundle\u{0}{name}\n"));
+    }
+    tail.push_str(&format!("profile-patch-reload\u{0}{reload}\n"));
+    tail.push_str(&format!("home-patch\u{0}{home_patch}\n"));
+    tail
+}
+
+/// An additional bundle the profile may list, installed beneath the
+/// profile so it resolves: the composite gains a `profile-bundle` row and
+/// nothing else, because a bundle's own bytes reach the identity only
+/// through the plugin, the extension and the locks.
+const ADDED_BUNDLE: &str = "@deepseek-ai/dsh-headless";
+
+/// A profile bundle added, dropped or reordered, a changed `patchReload`
+/// and an added home-level `cordis.patch.yml` each move the canonical
+/// composite, and each moves it to a value this test writes out by hand.
+///
+/// The assertions are the exact component values and their order, and the
+/// exact identity bytes: every case's `canonical` is compared to the
+/// SHA-256 of the stream it should have serialized, not merely to the
+/// base case's digest. A serializer that sorted the bundle rows, dropped
+/// one, or left `patchReload` out would still differ from the base and
+/// still fail here, because the moved value is pinned too (task 8.8(d),
+/// Pass D; design D6).
+#[test]
+fn a_profile_bundle_added_dropped_or_reordered_moves_the_composite() {
+    let install = Synthetic::new();
+    let profile = install.profile();
+    // The added bundle resolves inside the profile, so listing it is a
+    // profile change and never a containment refusal.
+    write(
+        &profile.join("node_modules").join(ADDED_BUNDLE),
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh-headless","version":"0.1.5-rc.2"}"#,
+    );
+
+    const BASE: [&str; 2] = ["@deepseek-ai/dsh-base", "dsh-plugin-cli-session"];
+    // Every case keeps `dsh-plugin-cli-session`, which the profile must
+    // list: the dropped case drops the OTHER bundle, so a readable
+    // removal is what is measured rather than the plugin refusal.
+    let cases: [(&str, Vec<&str>, &str, &str); 6] = [
+        ("base", BASE.to_vec(), "startup", "absent"),
+        (
+            "added",
+            vec![BASE[0], ADDED_BUNDLE, BASE[1]],
+            "startup",
+            "absent",
+        ),
+        ("dropped", vec![BASE[1]], "startup", "absent"),
+        ("reordered", vec![BASE[1], BASE[0]], "startup", "absent"),
+        ("reload", BASE.to_vec(), "live", "absent"),
+        (
+            "home patch",
+            BASE.to_vec(),
+            "startup",
+            // `[]\n` is the profile patch's bytes too, so the home line
+            // takes a digest the stream already carries: the case moves
+            // because a `home-patch` line changed from `absent`, not
+            // because a new digest appeared anywhere.
+            "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        ),
+    ];
+
+    let mut digests: Vec<String> = Vec::new();
+    for (case, order, reload, home_patch) in &cases {
+        write(&profile, "package.json", &profile_manifest(order, reload));
+        if *home_patch == "absent" {
+            let path = install.seams.home.join("cordis.patch.yml");
+            if path.exists() {
+                fs::remove_file(&path).unwrap();
+            }
+        } else {
+            write(&install.seams.home, "cordis.patch.yml", b"[]\n");
+        }
+        let observed = install.composite();
+
+        // The component values, before any digest is compared.
+        assert_eq!(
+            observed.profile_bundles,
+            order
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>(),
+            "{case}: the declared bundle order"
+        );
+        assert_eq!(observed.profile_patch_reload, *reload, "{case}");
+        assert_eq!(observed.home_patch, *home_patch, "{case}");
+        assert_eq!(
+            observed.dependencies,
+            vec!["debug 2.6.9 sha512-DEBUG".to_string()],
+            "{case}: a profile change moves no dependency line"
+        );
+        assert_eq!(
+            observed.plugin, "8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99",
+            "{case}: a profile change moves no plugin byte"
+        );
+        assert_eq!(observed.extension, None, "{case}");
+
+        // The identity bytes: the SHA-256 of exactly these lines.
+        let stream = format!(
+            "{PROFILE_CASE_PREFIX}{}",
+            profile_tail(order, reload, home_patch)
+        );
+        assert_eq!(
+            observed.canonical,
+            digest_of(stream.as_bytes()),
+            "{case}: the canonical composite over the stream this case serializes"
+        );
+        digests.push(observed.canonical.clone());
+    }
+
+    // Six streams, six identities: each mutation MOVED the composite, and
+    // no two of them collided.
+    let distinct: BTreeSet<&String> = digests.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        digests.len(),
+        "each profile mutation moves the composite to its own value: {digests:?}"
+    );
+}
+
+/// The generated `cordis.yml` is not a composite input, so rewriting it
+/// moves nothing.
+///
+/// The core rewrites this file from its own constant before every boot
+/// and the Loader may write it back between boots, which is exactly why
+/// D6 excludes it. The control is the file beside it: the profile's
+/// `cordis.patch.yml` IS an input, and one changed byte there moves the
+/// identity — so this test can tell "excluded" from "the fixture never
+/// changed anything" (task 8.8(d), Pass D; design D6).
+#[test]
+fn a_rewritten_generated_cordis_yml_leaves_the_composite_untouched() {
+    let install = Synthetic::new();
+    let profile = install.profile();
+    let base = install.composite();
+
+    // The generated file appears where `prepareProfile` writes it.
+    write(
+        &profile,
+        "cordis.yml",
+        b"# generated by prepareProfile\nbundles: []\n",
+    );
+    assert_eq!(
+        install.composite(),
+        base,
+        "a generated cordis.yml joins no component line"
+    );
+
+    // And it is rewritten, as every boot rewrites it.
+    write(
+        &profile,
+        "cordis.yml",
+        b"# generated by prepareProfile\nbundles: []\nrewritten: true\n",
+    );
+    assert_eq!(
+        install.composite(),
+        base,
+        "rewriting the generated cordis.yml moves no component line"
+    );
+
+    // The control: the patch file beside it is an input.
+    write(&profile, "cordis.patch.yml", b"[]\n# one more byte\n");
+    let moved = install.composite();
+    assert_eq!(
+        moved.profile_patch,
+        digest_of(b"[]\n# one more byte\n"),
+        "the profile patch is the digest of its own bytes"
+    );
+    assert_ne!(
+        base.canonical, moved.canonical,
+        "the fixture is capable of moving the composite at all"
+    );
+}
+
+/// The profile manifest's two required members, by the reason each defect
+/// raises. `bundles` and `patchReload` are read under different grammars —
+/// a non-empty array of scalars, and a closed pair of strings — so a
+/// missing member, a member of the wrong type and a member with an
+/// invalid value are separate refusals wherever the grammar separates
+/// them, and the same refusal where it does not (task 8.8(d), Pass D).
+#[test]
+fn the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart() {
+    // `bundles`: the grammar admits a non-empty ARRAY, so absence and
+    // every wrong type reach one reason, and a non-string ENTRY and an
+    // entry the scalar rule refuses reach two more.
+    for (case, bundles) in [
+        ("absent", None),
+        ("a string", Some("\"@deepseek-ai/dsh-base\"")),
+        ("an object", Some("{\"0\":\"@deepseek-ai/dsh-base\"}")),
+        ("null", Some("null")),
+        ("a number", Some("3")),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let manifest = match bundles {
+            Some(value) => format!(
+                "{{\"dsh\":{{\"profile\":{{\"bundles\":{value},\"patchReload\":\"startup\"}}}}}}"
+            ),
+            None => "{\"dsh\":{\"profile\":{\"patchReload\":\"startup\"}}}".to_string(),
+        };
+        write(
+            &home.join("profiles/headless"),
+            "package.json",
+            manifest.as_bytes(),
+        );
+        assert_eq!(
+            refused(read_profile(&home)),
+            "the DSH layout is unreadable: dsh.profile.bundles must be a non-empty array",
+            "{case}"
+        );
+    }
+
+    // `patchReload`: a missing member and one that is not a non-empty
+    // string share `required_string`'s reason, and a well-formed string
+    // outside the closed pair is the SEPARATE value refusal that names
+    // the value it read.
+    for (case, reload) in [
+        ("absent", None),
+        ("a number", Some("3")),
+        ("null", Some("null")),
+        ("an empty string", Some("\"\"")),
+        ("an array", Some("[\"startup\"]")),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let manifest = match reload {
+            Some(value) => format!(
+                "{{\"dsh\":{{\"profile\":{{\"bundles\":[\"x\"],\"patchReload\":{value}}}}}}}"
+            ),
+            None => "{\"dsh\":{\"profile\":{\"bundles\":[\"x\"]}}}".to_string(),
+        };
+        write(
+            &home.join("profiles/headless"),
+            "package.json",
+            manifest.as_bytes(),
+        );
+        assert_eq!(
+            refused(read_profile(&home)),
+            "the DSH layout is unreadable: dsh.profile: missing string 'patchReload'",
+            "{case}"
+        );
+    }
+
+    // Both admitted values, so the refusals above are the defects' alone.
+    for reload in ["live", "startup"] {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        write(
+            &home.join("profiles/headless"),
+            "package.json",
+            &profile_manifest(&["@deepseek-ai/dsh-base"], reload),
+        );
+        let profile = read_profile(&home).unwrap();
+        assert_eq!(profile.patch_reload, reload);
+        assert_eq!(profile.bundles, vec!["@deepseek-ai/dsh-base".to_string()]);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The measured rc.2 fixture (design D6, AK).
 //
 // Every input below is the LITERAL byte content measured on the installed
