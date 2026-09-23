@@ -929,11 +929,33 @@ fn the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta() {
 
     let index = fs::read_to_string(dir.join("lib/index.js")).unwrap();
     let adapted = "\tconst events = agent.session.snapshotEvents(firstSeq);";
+    let upstream_line = "\tconst events = agent.session.events;";
     assert_eq!(index.matches(adapted).count(), 1);
-    let upstream = index.replace(adapted, "\tconst events = agent.session.events;");
+    let upstream = index.replace(adapted, upstream_line);
     assert_eq!(
         digest_of(upstream.as_bytes()),
         "a40b52b3891485821ad01b00c322006abee8a51a0d4a2ae4ddb8427a0183d99b"
+    );
+
+    // PROVENANCE.md's delta digest was RECORDED and never recomputed, so
+    // nothing until now would have parted had the note's diff block and
+    // the committed bytes diverged. It is recomputed here over the same
+    // canonical text the note defines — the location, the upstream line
+    // prefixed `-`, the adapted line prefixed `+`, each newline-terminated
+    // — and both lines are the ones the substitution above already proved
+    // against the upstream file digest. The location is READ OFF the
+    // committed bytes rather than copied from the prose, so `253` is a
+    // measurement too: a line inserted above the expression parts this.
+    let line = index
+        .lines()
+        .position(|text| text == adapted)
+        .expect("the adapted expression occupies a whole line")
+        + 1;
+    assert_eq!(line, 253);
+    let canonical = format!("lib/index.js:{line}\n-{upstream_line}\n+{adapted}\n");
+    assert_eq!(
+        digest_of(canonical.as_bytes()),
+        "78256d2e114f7ae8caec22987c5793b7398018cd59cd24cf36e79d7be011a585"
     );
 }
 
