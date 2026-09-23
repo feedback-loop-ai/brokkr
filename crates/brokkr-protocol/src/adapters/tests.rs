@@ -4031,7 +4031,10 @@ fn the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary() {
     }
 
     // An ambient continuation is refused at the wrapper too, cold and
-    // warm alike, before any provider work.
+    // warm alike, before any provider work — by the COMPLETE reason, the
+    // same one claude's shape returns, because the wrapper shares the
+    // parser and must not soften or re-spell what it says (review
+    // 2026-09-23, finding 3).
     for offered in [None, Some(session)] {
         let Err(error) = claude_launch(
             wrapper,
@@ -4043,10 +4046,13 @@ fn the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary() {
         ) else {
             panic!("an ambient continuation must refuse before any provider work");
         };
-        assert!(error.contains("'--continue'"), "{error}");
-        assert!(
-            error.contains("refused before any provider work"),
-            "{error}"
+        assert_eq!(
+            error,
+            "refusing to invoke the agent CLI: the seat's arguments carry '--continue', which \
+             selects, copies or relocates a conversation. The engine decides which session an \
+             attempt rejoins (proposed decision 0056 ruling 4); an argument that decides it \
+             instead is refused before any provider work rather than dropped in silence",
+            "offered: {offered:?}"
         );
     }
 }
@@ -4856,14 +4862,21 @@ fn dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root() 
 /// session id, the plan carries no `--session`, and the row records no
 /// rejoin. The control is the same store with the address actually
 /// offered, which does rejoin (task 8.8(d), Pass D; site / SR3).
+///
+/// The home is the CANONICAL spelling of the temporary root, because the
+/// resolver canonicalizes the home before it compares a resolved root
+/// against it: a `TempDir` path reached through a symlinked ancestor —
+/// macOS's `/var` → `/private/var` — is a spelling the producer never
+/// returns (review 2026-09-23, finding 2).
 #[cfg(unix)]
 #[test]
 fn a_retained_dsh_directory_alone_never_supplies_a_provider_handle() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
     let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
-    let home = dir.path();
+    std::env::set_var("DSH_HOME", &root);
+    let home = root.as_path();
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(home, "dsh-retained", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -12176,14 +12189,19 @@ fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
 fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    // The CANONICAL spelling of the root, because the round trip below
+    // compares a resolved root against a path this test joins by hand
+    // (review 2026-09-23, finding 2).
+    let home = std::fs::canonicalize(dir.path()).unwrap();
+    let home = home.as_path();
     let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    std::env::set_var("DSH_HOME", home);
     let valid = format!("sessions/brokkr/{}", "a".repeat(64));
     assert_eq!(valid.chars().count(), 80, "the prefix itself is the bound");
-    plant_dsh_session(dir.path(), &valid, "--p--", "session-80", 2);
+    plant_dsh_session(home, &valid, "--p--", "session-80", 2);
     assert_eq!(
-        resolve_dsh_root(dir.path(), &valid, "session-80").unwrap(),
-        dir.path().join(&valid),
+        resolve_dsh_root(home, &valid, "session-80").unwrap(),
+        home.join(&valid),
         "the locator AT the bound round-trips to its own root"
     );
 
@@ -12194,7 +12212,7 @@ fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
     let overlong = format!("{valid}x");
     assert_eq!(overlong.chars().count(), 81);
     assert_eq!(
-        resolve_dsh_root(dir.path(), &overlong, "session-80").unwrap_err(),
+        resolve_dsh_root(home, &overlong, "session-80").unwrap_err(),
         "dsh driver: the owned persistence locator exceeds the admitted bound"
     );
     // The truncated evidence is unresolved, not resolved-to-the-prefix:
@@ -12202,24 +12220,24 @@ fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
     // is a SEPARATE refusal from the bound's, reached only when the
     // overlong one is read as a shorter valid address.
     assert!(
-        !dir.path().join(&overlong).exists(),
+        !home.join(&overlong).exists(),
         "the overlong address names nothing on disk"
     );
 
     let digest = "b".repeat(64);
-    let shim = dsh_version_shim(dir.path(), "dsh-prefix", "0.1.5-rc.1");
-    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let shim = dsh_version_shim(home, "dsh-prefix", "0.1.5-rc.1");
+    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, home);
     input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
     input["resume_context"]["originating_wrapper_digest"] = json!(digest);
     input["resume_context"]["owned_target"] = json!({
         "provider_id": "session-80",
         "persistence_locator": overlong,
-        "persistence_home": dir.path().to_str().unwrap(),
+        "persistence_home": home.to_str().unwrap(),
     });
     let launch = dsh_launch_with(
         &shim.to_string_lossy(),
         &[],
-        dir.path().to_str().unwrap(),
+        home.to_str().unwrap(),
         Some("session-80"),
         &input,
         || Ok(synthetic_dsh_composite(&digest)),

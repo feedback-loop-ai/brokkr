@@ -4079,17 +4079,30 @@ fn patch_elf_interpreter(working: &Path, dest: &Path, loader: &str) -> PathBuf {
 /// or a hash taken of an assembled `lines` buffer — and nothing wider:
 /// hashing one file's bytes on its own is an input hash, and stays
 /// permitted.
+///
+/// A NUL-bearing line that is BUILT rather than recorded is the same
+/// second producer under another spelling: Pass D's first profile suite
+/// assembled `profile-bundle` / `profile-patch-reload` / `home-patch`
+/// rows from the very case inputs its fixture had just written, and the
+/// two patterns above did not see it (review 2026-09-23, finding 1). So
+/// the NUL separator may appear in this source only in a RECORDED
+/// literal or where a producer value is taken apart; a line that puts it
+/// into a `format!`, a `write!` or a `push`/`push_str` is building the
+/// stream and is refused by name.
 #[test]
 fn no_test_reassembles_the_component_stream() {
     let source = include_str!("tests.rs");
     // Spelled in pieces so that this test's own text is not the block
     // it forbids.
     let nul_push = format!("push('{}')", "\\0");
+    let nul_escape = format!("\\u{}0{}", "{", "}");
+    let builders = ["format!", "write!", ".push(", ".push_str("];
     let hashed_stream = [
         format!("digest_of({}", "lines"),
         format!("sha256_text(&{}", "lines"),
         format!("sha256_hex({}", "lines"),
     ];
+    let mut built = 0usize;
     for (number, line) in source.lines().enumerate() {
         let line_number = number + 1;
         assert!(
@@ -4104,7 +4117,23 @@ fn no_test_reassembles_the_component_stream() {
                  component or composite is a second producer"
             );
         }
+        if !line.contains(nul_escape.as_str()) {
+            continue;
+        }
+        built += 1;
+        for builder in builders {
+            assert!(
+                !line.contains(builder),
+                "tests.rs:{line_number} builds a NUL-separated row with `{builder}`: a stream \
+                 assembled from a case's own inputs is a second producer, and an expectation \
+                 is a literal recorded from the sole producer"
+            );
+        }
     }
+    // The NUL-bearing lines exist and were examined, so a source that
+    // stopped spelling the separator at all could not pass this check by
+    // examining nothing.
+    assert!(built > 0, "the recorded streams carry the separator");
     // The check reads the file it lives in, which is not empty.
     assert!(source.contains("fn no_test_reassembles_the_component_stream"));
 }
@@ -11219,18 +11248,6 @@ fn the_extension_s_local_record_leaves_only_when_the_extension_resolves() {
 // evidence of upstream compatibility, qualification or enforcement.
 // ---------------------------------------------------------------------------
 
-/// The `Synthetic` install's component lines AHEAD of the profile rows:
-/// core, node, its one deduplicated dependency, the plugin component and
-/// the two patch digests, as literal bytes. Every profile case below
-/// shares this prefix exactly, so the tail each one pins is the only
-/// thing that may differ between them.
-const PROFILE_CASE_PREFIX: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
-     node\u{0}v22.23.2\n\
-     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
-     plugin\u{0}8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99\n\
-     plugin-patch\u{0}66e6d923ac24b898cc4d8b405e107adfca86b017b7b63d31287a71549c1580bd\n\
-     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n";
-
 /// The manifest that lists `bundles` in `order` with `reload`.
 fn profile_manifest(order: &[&str], reload: &str) -> Vec<u8> {
     let bundles = order
@@ -11242,21 +11259,6 @@ fn profile_manifest(order: &[&str], reload: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-/// The profile tail of D6's component stream: one `profile-bundle` row
-/// per declared name IN DECLARED ORDER, then `profile-patch-reload` and
-/// `home-patch`. Assembled from the same `order` the manifest above
-/// declares, so a test that expects a moved composite cannot accidentally
-/// expect a moved stream it never wrote.
-fn profile_tail(order: &[&str], reload: &str, home_patch: &str) -> String {
-    let mut tail = String::new();
-    for name in order {
-        tail.push_str(&format!("profile-bundle\u{0}{name}\n"));
-    }
-    tail.push_str(&format!("profile-patch-reload\u{0}{reload}\n"));
-    tail.push_str(&format!("home-patch\u{0}{home_patch}\n"));
-    tail
-}
-
 /// An additional bundle the profile may list, installed beneath the
 /// profile so it resolves: the composite gains a `profile-bundle` row and
 /// nothing else, because a bundle's own bytes reach the identity only
@@ -11265,15 +11267,27 @@ const ADDED_BUNDLE: &str = "@deepseek-ai/dsh-headless";
 
 /// A profile bundle added, dropped or reordered, a changed `patchReload`
 /// and an added home-level `cordis.patch.yml` each move the canonical
-/// composite, and each moves it to a value this test writes out by hand.
+/// composite, and each moves it to its own RECORDED value.
 ///
-/// The assertions are the exact component values and their order, and the
-/// exact identity bytes: every case's `canonical` is compared to the
-/// SHA-256 of the stream it should have serialized, not merely to the
-/// base case's digest. A serializer that sorted the bundle rows, dropped
-/// one, or left `patchReload` out would still differ from the base and
-/// still fail here, because the moved value is pinned too (task 8.8(d),
-/// Pass D; design D6).
+/// Every case asserts three independent things: the component values and
+/// their order as the producer reports them, the identity each mutation
+/// lands on as a literal digest recorded from that same sole producer,
+/// and that no two of the six collide. A serializer that sorted the
+/// bundle rows, dropped one, or left `patchReload` out would differ from
+/// the recorded digest and fail here, because the moved value is pinned
+/// and not merely required to differ from the base.
+///
+/// The digests below are literals: the first version of this suite
+/// rebuilt the `profile-bundle` / `profile-patch-reload` / `home-patch`
+/// rows from the same case inputs the fixture had just written and hashed
+/// them, which is the second serializer D6 forbids — it agreed with the
+/// producer by construction, not by evidence (review 2026-09-23, finding
+/// 1; `no_test_reassembles_the_component_stream` now refuses that
+/// spelling by name). The tail's BYTE FORM is pinned once, where a frozen
+/// recorded stream can pin it: `WORKED_CANONICAL_STREAM` carries the
+/// `profile-bundle` rows in declared order, `profile-patch-reload` and
+/// `home-patch` verbatim. What these six cases own is the MOVEMENT
+/// (task 8.8(d), Pass D; design D6).
 #[test]
 fn a_profile_bundle_added_dropped_or_reordered_moves_the_composite() {
     let install = Synthetic::new();
@@ -11290,17 +11304,45 @@ fn a_profile_bundle_added_dropped_or_reordered_moves_the_composite() {
     // Every case keeps `dsh-plugin-cli-session`, which the profile must
     // list: the dropped case drops the OTHER bundle, so a readable
     // removal is what is measured rather than the plugin refusal.
-    let cases: [(&str, Vec<&str>, &str, &str); 6] = [
-        ("base", BASE.to_vec(), "startup", "absent"),
+    //
+    // The fourth member of each row is the canonical composite this
+    // install yields under that profile, recorded from the producer.
+    let cases: [(&str, Vec<&str>, &str, &str, &str); 6] = [
+        (
+            "base",
+            BASE.to_vec(),
+            "startup",
+            "absent",
+            "286b90a009cb66135faa2566be7b26305e8470ae7761d1e3e4b6c74e9973c1c4",
+        ),
         (
             "added",
             vec![BASE[0], ADDED_BUNDLE, BASE[1]],
             "startup",
             "absent",
+            "b24fc83caefcc7cd6791e74959a6faebc5a617aace859fc0268fb59a78ebad44",
         ),
-        ("dropped", vec![BASE[1]], "startup", "absent"),
-        ("reordered", vec![BASE[1], BASE[0]], "startup", "absent"),
-        ("reload", BASE.to_vec(), "live", "absent"),
+        (
+            "dropped",
+            vec![BASE[1]],
+            "startup",
+            "absent",
+            "dd75d065a528545bd7b775c679fb9d2d099b960300577e5fc27db1e4b13d1710",
+        ),
+        (
+            "reordered",
+            vec![BASE[1], BASE[0]],
+            "startup",
+            "absent",
+            "ae478bfc13e8271728003dc2a2ab8ca0c808ff8a64df3d4004f92887a4081365",
+        ),
+        (
+            "reload",
+            BASE.to_vec(),
+            "live",
+            "absent",
+            "46af043de52f509bd66bcef35297d3ae4e2ca884d0b33ef698a13814f466fc16",
+        ),
         (
             "home patch",
             BASE.to_vec(),
@@ -11310,11 +11352,12 @@ fn a_profile_bundle_added_dropped_or_reordered_moves_the_composite() {
             // because a `home-patch` line changed from `absent`, not
             // because a new digest appeared anywhere.
             "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "021ee2d3a3edf28ca80b16794a9218bfd46474c486952468594b96f1e5e7262b",
         ),
     ];
 
     let mut digests: Vec<String> = Vec::new();
-    for (case, order, reload, home_patch) in &cases {
+    for (case, order, reload, home_patch, canonical) in &cases {
         write(&profile, "package.json", &profile_manifest(order, reload));
         if *home_patch == "absent" {
             let path = install.seams.home.join("cordis.patch.yml");
@@ -11348,15 +11391,11 @@ fn a_profile_bundle_added_dropped_or_reordered_moves_the_composite() {
         );
         assert_eq!(observed.extension, None, "{case}");
 
-        // The identity bytes: the SHA-256 of exactly these lines.
-        let stream = format!(
-            "{PROFILE_CASE_PREFIX}{}",
-            profile_tail(order, reload, home_patch)
-        );
+        // The identity: the value recorded from the producer for exactly
+        // this profile, not a value recomputed here from these inputs.
         assert_eq!(
-            observed.canonical,
-            digest_of(stream.as_bytes()),
-            "{case}: the canonical composite over the stream this case serializes"
+            observed.canonical, *canonical,
+            "{case}: the recorded canonical composite for this profile"
         );
         digests.push(observed.canonical.clone());
     }
@@ -11430,6 +11469,12 @@ fn a_rewritten_generated_cordis_yml_leaves_the_composite_untouched() {
 /// missing member, a member of the wrong type and a member with an
 /// invalid value are separate refusals wherever the grammar separates
 /// them, and the same refusal where it does not (task 8.8(d), Pass D).
+///
+/// Every home is built on a `FixtureRoot`, the canonical spelling of a
+/// temporary root: the reader canonicalizes the profile boundary before
+/// it reads a manifest, so a home glued from a raw `TempDir` path names a
+/// file by a spelling the producer never says on a host whose `$TMPDIR`
+/// is reached through a symlink (review 2026-09-23, finding 2).
 #[test]
 fn the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart() {
     // `bundles`: the grammar admits a non-empty ARRAY, so absence and
@@ -11442,8 +11487,8 @@ fn the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart() {
         ("null", Some("null")),
         ("a number", Some("3")),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("home");
+        let root = FixtureRoot::new();
+        let home = root.path().join("home");
         let manifest = match bundles {
             Some(value) => format!(
                 "{{\"dsh\":{{\"profile\":{{\"bundles\":{value},\"patchReload\":\"startup\"}}}}}}"
@@ -11473,8 +11518,8 @@ fn the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart() {
         ("an empty string", Some("\"\"")),
         ("an array", Some("[\"startup\"]")),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("home");
+        let root = FixtureRoot::new();
+        let home = root.path().join("home");
         let manifest = match reload {
             Some(value) => format!(
                 "{{\"dsh\":{{\"profile\":{{\"bundles\":[\"x\"],\"patchReload\":{value}}}}}}}"
@@ -11495,8 +11540,8 @@ fn the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart() {
 
     // Both admitted values, so the refusals above are the defects' alone.
     for reload in ["live", "startup"] {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("home");
+        let root = FixtureRoot::new();
+        let home = root.path().join("home");
         write(
             &home.join("profiles/headless"),
             "package.json",
