@@ -3838,6 +3838,225 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
     }
 }
 
+/// The LaneTally wrapper's own resume plan: the same argv rule as
+/// claude's, spent on the WRAPPER's shape and the WRAPPER's binary.
+///
+/// The wrapper shares claude's parsing and planner but is qualified on
+/// its own `wrapper-work-site` entry (design D6; proposed decision 0056
+/// ruling 5). This suite proved the wrapper's capture identity, its
+/// legacy override and its ledger, and proved the argv rule at claude's
+/// shape — but never at this one, so nothing here said that a claude
+/// measurement cannot open a wrapper session, or that plain claude never
+/// stands in for a missing wrapper. The cases below are that statement:
+/// exact cold and warm argv with the wrapper at argv[0], the current
+/// class/model/effort restrictions travelling as the generated fragment,
+/// and the four refusals — another shape's measurement, unsupported
+/// hands, a forged identifier and a nonpersistent shape — each landing
+/// on the same cold argv (task 8.8(d), Pass D; safety / AS1, AS3).
+// Unix only: the version probe stands behind a `#!/bin/sh` shim, and
+// `executable`/`version_preamble` are Unix-only helpers.
+#[cfg(unix)]
+#[test]
+fn the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary() {
+    const WRAPPER_VERSION: &str = "2.1.266";
+    let dir = tempfile::tempdir().unwrap();
+    // The wrapper, never plain claude: a missing wrapper is not cured by
+    // substituting the CLI it wraps, which would silently un-capture the
+    // session (proposed decision 0056 ruling 5).
+    let wrapper = executable(
+        dir.path(),
+        "claude-lanetally",
+        &format!(
+            "#!/bin/sh\n{}exit 1\n",
+            version_preamble(&format!("{WRAPPER_VERSION} (Claude Code)"))
+        ),
+    );
+    let wrapper = wrapper.to_str().unwrap();
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+
+    // The engine's generated restriction fragment: the current class,
+    // model and effort, and the provider-specific restrictions beside
+    // them. It travels in order and unaltered.
+    let restrictions = s(&[
+        "--permission-mode",
+        "acceptEdits",
+        "--model",
+        "claude-opus-5",
+        "--effort",
+        "high",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/run/hands.json",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ]);
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    let enabled = enabled_input(LANETALLY_SHAPE, WRAPPER_VERSION, std::path::Path::new("/w"));
+
+    let cold = claude_launch(
+        wrapper,
+        &restrictions,
+        None,
+        &enabled,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        cold.command[..5],
+        [
+            wrapper.to_string(),
+            "-p".into(),
+            "--output-format".into(),
+            "stream-json".into(),
+            "--verbose".into()
+        ],
+        "the wrapper's own binary opens the argv"
+    );
+    assert_eq!(
+        cold.command[5..],
+        restrictions[..],
+        "the generated fragment travels in order and unaltered"
+    );
+    assert!(cold.rejoining.is_none() && cold.refusal.is_none());
+
+    // The warm argv is that, plus exactly one owned selector.
+    let warm = claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &enabled,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    let mut expected = cold.command.clone();
+    expected.push("--resume".into());
+    expected.push(session.to_string());
+    assert_eq!(warm.command, expected);
+    assert_eq!(warm.rejoining.as_deref(), Some(session));
+    assert!(warm.refusal.is_none());
+    assert_eq!(
+        warm.command
+            .iter()
+            .filter(|part| *part == "--resume")
+            .count(),
+        1
+    );
+
+    // A claude measurement is not a wrapper measurement: the same input
+    // read at claude's shape enables, and at the wrapper's it does not.
+    let claude_only = enabled_input(CLAUDE_SHAPE, WRAPPER_VERSION, std::path::Path::new("/w"));
+    assert!(claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &claude_only,
+        CLAUDE_SHAPE,
+        None
+    )
+    .unwrap()
+    .refusal
+    .is_none());
+    let borrowed = claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &claude_only,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(borrowed.refusal, Some("unsupported-resume"));
+    assert!(borrowed.rejoining.is_none());
+
+    // Unsupported hands stay unsupported: a wrapper measured with no
+    // hands cannot open a session at a site whose hands Brokkr built.
+    let mut elsewhere = enabled_assessment(LANETALLY_SHAPE, WRAPPER_VERSION, "namespace", "none");
+    elsewhere["workdir"] = json!("/w");
+    elsewhere["hands"] = json!("boxed");
+    let unsupported = claude_launch(
+        wrapper,
+        &restrictions,
+        Some(session),
+        &elsewhere,
+        LANETALLY_SHAPE,
+        None,
+    )
+    .unwrap();
+    assert_eq!(unsupported.refusal, Some("restrictions-unavailable"));
+    assert!(unsupported.rejoining.is_none());
+
+    // A forged identifier and a nonpersistent shape, each landing on the
+    // same cold argv the wrapper would have run anyway.
+    for (case, extra, offered, refusal) in [
+        (
+            "a forged identifier never reaches an argv",
+            restrictions.clone(),
+            "--dangerously-skip-permissions",
+            "invalid-session-id",
+        ),
+        (
+            "an explicitly nonpersistent wrapper has no root to rejoin",
+            [restrictions.clone(), s(&["--no-session-persistence"])].concat(),
+            session,
+            "nonpersistent-session",
+        ),
+    ] {
+        let launch = claude_launch(
+            wrapper,
+            &extra,
+            Some(offered),
+            &enabled,
+            LANETALLY_SHAPE,
+            None,
+        )
+        .unwrap();
+        assert_eq!(launch.refusal, Some(refusal), "{case}");
+        assert!(launch.rejoining.is_none(), "{case}");
+        assert!(
+            !launch.command.iter().any(|part| part == "--resume"),
+            "{case}: the cold argv carries no selector"
+        );
+        assert!(
+            !launch
+                .command
+                .iter()
+                .any(|part| part.contains("dangerously")),
+            "{case}: a forged identifier never reaches an argv: {:?}",
+            launch.command
+        );
+    }
+
+    // An ambient continuation is refused at the wrapper too, cold and
+    // warm alike, before any provider work — by the COMPLETE reason, the
+    // same one claude's shape returns, because the wrapper shares the
+    // parser and must not soften or re-spell what it says (review
+    // 2026-09-23, finding 3).
+    for offered in [None, Some(session)] {
+        let Err(error) = claude_launch(
+            wrapper,
+            &[restrictions.clone(), s(&["--continue"])].concat(),
+            offered,
+            &enabled,
+            LANETALLY_SHAPE,
+            None,
+        ) else {
+            panic!("an ambient continuation must refuse before any provider work");
+        };
+        assert_eq!(
+            error,
+            "refusing to invoke the agent CLI: the seat's arguments carry '--continue', which \
+             selects, copies or relocates a conversation. The engine decides which session an \
+             attempt rejoins (proposed decision 0056 ruling 4); an argument that decides it \
+             instead is refused before any provider work rather than dropped in silence",
+            "offered: {offered:?}"
+        );
+    }
+}
+
 /// AS3's rule that invocation settings cannot weaken a resume: each
 /// authoritative claude restriction control is named at most once, with a
 /// value where the measured grammar requires one. A second spelling — or
@@ -4521,28 +4740,218 @@ fn dsh_session_ids_and_composite_digests_use_their_closed_grammars() {
 #[test]
 fn dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root() {
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
+    let home = std::fs::canonicalize(dir.path()).unwrap();
+    let home = home.as_path();
     plant_dsh_session(home, "sessions/brokkr/seat-1", "--w--", "session-1", 27);
+
+    // The round trip: the admitted locator names the ORIGINAL root — the
+    // home as it was spelled, joined with the locator as it was recorded
+    // — and the stored boundary read from it is the planted one.
     let root = resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-1").unwrap();
+    assert_eq!(root, home.join("sessions/brokkr/seat-1"));
+    let file = dsh_session_file(&root, "session-1").unwrap();
     assert_eq!(
-        dsh_session_last_seq(&dsh_session_file(&root, "session-1").unwrap()),
-        Some(27)
+        file,
+        home.join("sessions/brokkr/seat-1/--w--/session-1")
+            .join(DSH_TRANSCRIPT)
     );
-    // Absolute, traversal, missing and id-mismatched locators all refuse.
-    assert!(resolve_dsh_root(home, "/sessions/brokkr/seat-1", "session-1").is_err());
-    assert!(resolve_dsh_root(home, "sessions/../seat-1", "session-1").is_err());
-    assert!(resolve_dsh_root(home, "sessions/brokkr/absent", "session-1").is_err());
-    assert!(resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-2").is_err());
+    assert_eq!(dsh_session_last_seq(&file), Some(27));
 
-    // A second depth-zero file naming the same id is ambiguous.
+    // Each refusal by its own reason, because the reasons are how an
+    // operator tells a locator that escaped from one that was never
+    // spelled as a bounded relative path (evidence / LE2).
+    for (case, locator, id, reason) in [
+        (
+            "empty",
+            "",
+            "session-1",
+            "dsh driver: the owned target carries no persistence locator",
+        ),
+        (
+            "absolute",
+            "/sessions/brokkr/seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded relative path",
+        ),
+        (
+            "traversal",
+            "sessions/../seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded, round-tripping \
+             relative path",
+        ),
+        (
+            "a leading current-directory component",
+            "./sessions/brokkr/seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded, round-tripping \
+             relative path",
+        ),
+        (
+            "a component carrying the separator the shared clamp rewrites",
+            "sessions/brokkr\\seat-1",
+            "session-1",
+            "dsh driver: the owned persistence locator is not a bounded, round-tripping \
+             relative path",
+        ),
+        (
+            "absent",
+            "sessions/brokkr/absent",
+            "session-1",
+            "dsh driver: the owned persistence locator does not resolve",
+        ),
+        (
+            "another id",
+            "sessions/brokkr/seat-1",
+            "session-2",
+            "dsh driver: no stored depth-zero session names the offered id",
+        ),
+    ] {
+        assert_eq!(
+            resolve_dsh_root(home, locator, id).unwrap_err(),
+            reason,
+            "{case}"
+        );
+    }
+
+    // A locator naming a FILE is not a directory, which is its own reason
+    // rather than the enumeration failure behind it.
+    std::fs::write(home.join("sessions/brokkr/plain"), b"not a root\n").unwrap();
+    assert_eq!(
+        resolve_dsh_root(home, "sessions/brokkr/plain", "session-1").unwrap_err(),
+        "dsh driver: the owned persistence locator is not a directory"
+    );
+
+    // Ambiguity: a second depth-zero file naming the same id under the
+    // same root selects neither. The bounded selection is of exactly ONE
+    // matching depth-zero header, so two is a refusal and not a choice.
     plant_dsh_session(home, "sessions/brokkr/seat-1", "--x--", "session-1", 3);
-    assert!(dsh_session_file(&root, "session-1").is_err());
+    assert_eq!(
+        dsh_session_file(&root, "session-1").unwrap_err(),
+        "dsh driver: more than one stored session names the offered id"
+    );
+    assert_eq!(
+        resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-1").unwrap_err(),
+        "dsh driver: more than one stored session names the offered id",
+        "the ambiguity reaches the caller through the same locator"
+    );
 
-    // A symlink to an equal-shaped tree outside the home is an escape.
+    // A symlink to an equal-shaped tree outside the home is an escape:
+    // canonical home ownership, not a comparison of spellings.
     let outside = tempfile::tempdir().unwrap();
     plant_dsh_session(outside.path(), "tree", "--w--", "session-9", 1);
     std::os::unix::fs::symlink(outside.path().join("tree"), home.join("escape")).unwrap();
-    assert!(resolve_dsh_root(home, "escape", "session-9").is_err());
+    assert_eq!(
+        resolve_dsh_root(home, "escape", "session-9").unwrap_err(),
+        "dsh driver: the owned persistence locator escapes the dsh home"
+    );
+    // And the same tree planted INSIDE the home resolves, so the refusal
+    // above is the escape's and not the fixture's shape.
+    plant_dsh_session(home, "inside", "--w--", "session-9", 1);
+    assert_eq!(
+        resolve_dsh_root(home, "inside", "session-9").unwrap(),
+        home.join("inside")
+    );
+}
+
+/// A retained directory is never a provider handle.
+///
+/// A seat whose home already holds a complete, readable retained root —
+/// a depth-zero session file with a sequence behind it — still launches
+/// COLD when the offer names nothing: the directory on disk supplies no
+/// session id, the plan carries no `--session`, and the row records no
+/// rejoin. The control is the same store with the address actually
+/// offered, which does rejoin (task 8.8(d), Pass D; site / SR3).
+///
+/// The home is the CANONICAL spelling of the temporary root, because the
+/// resolver canonicalizes the home before it compares a resolved root
+/// against it: a `TempDir` path reached through a symlinked ancestor —
+/// macOS's `/var` → `/private/var` — is a spelling the producer never
+/// returns (review 2026-09-23, finding 2).
+#[cfg(unix)]
+#[test]
+fn a_retained_dsh_directory_alone_never_supplies_a_provider_handle() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &root);
+    let home = root.as_path();
+    let digest = "b".repeat(64);
+    let shim = dsh_version_shim(home, "dsh-retained", "0.1.5-rc.1");
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = home.to_str().unwrap();
+
+    // A complete retained root sits in the home, readable and current.
+    plant_dsh_session(home, "sessions/brokkr/seat-1", "--w--", "session-1", 9);
+    assert_eq!(
+        dsh_session_last_seq(
+            &dsh_session_file(&home.join("sessions/brokkr/seat-1"), "session-1").unwrap()
+        ),
+        Some(9)
+    );
+
+    // No offer: the directory is not read as one. The qualified cold
+    // route spells `--new` explicitly, its root is a FRESH one this
+    // launch allocated, and the fold has no stored boundary to start
+    // past — the retained root's nine sequences are not adopted.
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, home);
+    let cold = dsh_launch_with(&shim_text, &[], workdir, None, &input, || {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_eq!(cold.refusal, None);
+    assert_eq!(cold.rejoining, None);
+    assert_eq!(cold.first_seq, None);
+    assert_ne!(cold.root, home.join("sessions/brokkr/seat-1"));
+    assert!(cold.command.contains(&"--new".to_string()));
+    assert!(
+        !cold.command.contains(&"--session".to_string()),
+        "{:?}",
+        cold.command
+    );
+
+    // An id offered with no recorded address is still not a handle: the
+    // store holds that very id, and the offer is declined rather than
+    // matched against the directory.
+    let idless = dsh_launch_with(&shim_text, &[], workdir, Some("session-1"), &input, || {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_eq!(idless.refusal, Some("unverified-harness"));
+    assert!(!idless.stream_json);
+    assert_eq!(idless.rejoining, None);
+    assert_ne!(idless.root, home.join("sessions/brokkr/seat-1"));
+
+    // The control: the complete recorded address over the same store
+    // rejoins, so the two declines above are the missing ADDRESS's.
+    let mut offered = input.clone();
+    offered["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    offered["resume_context"]["originating_wrapper_digest"] = json!(digest);
+    offered["resume_context"]["owned_target"] = json!({
+        "provider_id": "session-1",
+        "persistence_locator": "sessions/brokkr/seat-1",
+        "persistence_home": home.to_str().unwrap(),
+    });
+    let warm = dsh_launch_with(
+        &shim_text,
+        &[],
+        workdir,
+        Some("session-1"),
+        &offered,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(warm.refusal, None);
+    assert!(warm.stream_json);
+    assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
+    assert_eq!(warm.first_seq, Some(9));
+    assert_eq!(warm.root, home.join("sessions/brokkr/seat-1"));
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 #[cfg(unix)]
@@ -11780,33 +12189,55 @@ fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
 fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    // The CANONICAL spelling of the root, because the round trip below
+    // compares a resolved root against a path this test joins by hand
+    // (review 2026-09-23, finding 2).
+    let home = std::fs::canonicalize(dir.path()).unwrap();
+    let home = home.as_path();
     let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    std::env::set_var("DSH_HOME", home);
     let valid = format!("sessions/brokkr/{}", "a".repeat(64));
     assert_eq!(valid.chars().count(), 80, "the prefix itself is the bound");
-    plant_dsh_session(dir.path(), &valid, "--p--", "session-80", 2);
-    assert!(resolve_dsh_root(dir.path(), &valid, "session-80").is_ok());
+    plant_dsh_session(home, &valid, "--p--", "session-80", 2);
+    assert_eq!(
+        resolve_dsh_root(home, &valid, "session-80").unwrap(),
+        home.join(&valid),
+        "the locator AT the bound round-trips to its own root"
+    );
 
     // One character beyond the bound names no admissible locator: the
-    // valid 80-character prefix is never selected by truncation.
+    // valid 80-character prefix is never selected by truncation. The
+    // reason is the bound's own, so an overlong locator is never reported
+    // as one whose root merely failed to resolve.
     let overlong = format!("{valid}x");
     assert_eq!(overlong.chars().count(), 81);
-    assert!(resolve_dsh_root(dir.path(), &overlong, "session-80").is_err());
+    assert_eq!(
+        resolve_dsh_root(home, &overlong, "session-80").unwrap_err(),
+        "dsh driver: the owned persistence locator exceeds the admitted bound"
+    );
+    // The truncated evidence is unresolved, not resolved-to-the-prefix:
+    // the 81st character names a directory that does not exist, and that
+    // is a SEPARATE refusal from the bound's, reached only when the
+    // overlong one is read as a shorter valid address.
+    assert!(
+        !home.join(&overlong).exists(),
+        "the overlong address names nothing on disk"
+    );
 
     let digest = "b".repeat(64);
-    let shim = dsh_version_shim(dir.path(), "dsh-prefix", "0.1.5-rc.1");
-    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let shim = dsh_version_shim(home, "dsh-prefix", "0.1.5-rc.1");
+    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, home);
     input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
     input["resume_context"]["originating_wrapper_digest"] = json!(digest);
     input["resume_context"]["owned_target"] = json!({
         "provider_id": "session-80",
         "persistence_locator": overlong,
-        "persistence_home": dir.path().to_str().unwrap(),
+        "persistence_home": home.to_str().unwrap(),
     });
     let launch = dsh_launch_with(
         &shim.to_string_lossy(),
         &[],
-        dir.path().to_str().unwrap(),
+        home.to_str().unwrap(),
         Some("session-80"),
         &input,
         || Ok(synthetic_dsh_composite(&digest)),
@@ -12965,5 +13396,386 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
         None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pass D part three: component drift, observed by the real producer and
+// spent by the planner.
+//
+// Every case below builds a readable synthetic installation beneath a
+// canonicalized temporary root, records an offer against the composite
+// THAT installation yields, then changes one source and asks the planner
+// again — over the production producer, not a chosen digest. These are
+// deterministic planner and storage shims. No case installs, contacts or
+// measures a live DSH pair, and none is evidence of upstream
+// compatibility, qualification or enforcement.
+// ---------------------------------------------------------------------------
+
+/// A readable synthetic DSH installation: the rc.2 core with its hidden
+/// lock, the `headless` profile with its pnpm lock, patch and installed
+/// plugin, and a scripted `node` the observation probes instead of the
+/// host's. The layout mirrors the composite suite's synthetic home,
+/// because it is the same producer that reads it.
+#[cfg(unix)]
+struct DshInstall {
+    #[allow(dead_code)]
+    dir: tempfile::TempDir,
+    root: std::path::PathBuf,
+    home: std::path::PathBuf,
+    seams: DshSeams,
+}
+
+#[cfg(unix)]
+impl DshInstall {
+    fn profile(&self) -> std::path::PathBuf {
+        self.home.join("profiles").join("headless")
+    }
+
+    fn core(&self) -> std::path::PathBuf {
+        self.root.join("core")
+    }
+
+    fn plugin(&self) -> std::path::PathBuf {
+        self.profile()
+            .join("node_modules")
+            .join("dsh-plugin-cli-session")
+    }
+
+    /// The observation the production producer makes of this
+    /// installation, right now.
+    fn composite(&self) -> DshComposite {
+        dsh_composite(&self.seams)
+            .unwrap_or_else(|error| panic!("the install is readable: {error}"))
+    }
+}
+
+/// Write `bytes` to `dir/relative`, creating the parents.
+#[cfg(unix)]
+fn write_under(dir: &Path, relative: &str, bytes: &[u8]) {
+    let path = dir.join(relative);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, bytes).unwrap();
+}
+
+/// The core's six plugin files and the extension's four, in the shapes
+/// the producer's walks declare. Each file carries its own relative name
+/// as its bytes, so a changed byte is a visible one-line edit below.
+#[cfg(unix)]
+const INSTALL_PLUGIN_FILES: [&str; 6] = [
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml",
+    "lib/index.js",
+    "lib/startup.js",
+    "package.json",
+];
+
+#[cfg(unix)]
+const INSTALL_EXTENSION_FILES: [&str; 4] =
+    ["LICENSE", "cordis.patch.yml", "index.js", "package.json"];
+
+#[cfg(unix)]
+fn synthetic_dsh_install() -> DshInstall {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let core = root.join("core");
+    let pkg = core.join("node_modules").join("@deepseek-ai").join("dsh");
+    write_under(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    write_under(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    // The resolver classifies the core script as a child's search would,
+    // and a child does not execute a mode-0644 file.
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            pkg.join("lib/bin.js"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+    write_under(
+        &core,
+        "node_modules/.package-lock.json",
+        br#"{"lockfileVersion":3,"packages":{
+          "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+          "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+          "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+        }}"#,
+    );
+
+    let home = root.join("home");
+    let profile = home.join("profiles").join("headless");
+    write_under(
+        &profile,
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    write_under(&profile, "cordis.patch.yml", b"[]\n");
+    write_under(
+        &profile,
+        "pnpm-lock.yaml",
+        b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n",
+    );
+    write_under(
+        &profile,
+        "node_modules/@deepseek-ai/dsh-base/package.json",
+        br#"{"name":"@deepseek-ai/dsh-base","version":"0.1.5-rc.2"}"#,
+    );
+    for file in INSTALL_PLUGIN_FILES {
+        write_under(
+            &profile.join("node_modules").join("dsh-plugin-cli-session"),
+            file,
+            file.as_bytes(),
+        );
+    }
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The `node` the retained selection hands the observation. It lives
+    // under a `bin/` directory, so the producer reads the ordinary
+    // runtime prefix beside it.
+    let node = executable(
+        &{
+            let bin = root.join("node").join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            bin
+        },
+        "node",
+        "#!/bin/sh\nprintf 'v22.23.2\\n'\n",
+    );
+    let bin = pkg.join("lib/bin.js");
+    let head = std::fs::read(&bin).unwrap();
+    DshInstall {
+        seams: DshSeams {
+            executable: bin.to_string_lossy().into_owned(),
+            home: home.clone(),
+            node: Some(DshNode {
+                invocation: DshInvocation::of(node.clone()),
+                path: node,
+            }),
+            head,
+        },
+        root,
+        home,
+        dir,
+    }
+}
+
+/// A version shim that APPENDS its whole argv to a log, so the case can
+/// read back how many times the provider binary ran and what it was
+/// asked. An identity probe is `--version` and nothing else; a work
+/// invocation would carry the profile, the patch and a selector.
+#[cfg(unix)]
+fn dsh_logging_version_shim(
+    dir: &Path,
+    name: &str,
+    version: &str,
+    log: &Path,
+) -> std::path::PathBuf {
+    executable(
+        dir,
+        name,
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {log}\ncase \"$1\" in --version|-V|-v) \
+             printf '{version}\\n'; exit 0 ;; esac\nexit 0\n",
+            log = log.display()
+        ),
+    )
+}
+
+/// Core, Node, dependency, plugin, patch, composed-profile and optional-
+/// extension drift each decline the offer with `unverified-harness`,
+/// before any provider work.
+///
+/// Every case starts from a READABLE installation and a valid offer
+/// recorded against the composite that installation actually yields, and
+/// proves the offer is honoured first — so the decline that follows is
+/// the changed source's and not the fixture's. The planner is handed the
+/// production producer over the changed tree, not a chosen digest: this
+/// is the seam between "the observation moved" and "the offer is
+/// refused", which a synthetic observation cannot exercise.
+///
+/// "Before any provider work" is read off the shim's own log: the only
+/// invocation of the provider binary is the `--version` identity probe,
+/// and the settled plan is the shipped cold route, which carries no
+/// `--session` and opens no stream (task 8.8(d), Pass D; design D6;
+/// safety / AS1, evidence / LE2).
+#[cfg(unix)]
+#[test]
+fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    let prior_user_home = std::env::var_os("HOME");
+    let prior_node_path = std::env::var_os("NODE_PATH");
+
+    // Each case is one drifted source, applied to its own fresh install.
+    type Drift = fn(&DshInstall);
+    let cases: [(&str, Drift); 7] = [
+        ("core", |install| {
+            // The core's recorded integrity, which is the core line's
+            // third field.
+            write_under(
+                &install.core(),
+                "node_modules/.package-lock.json",
+                br#"{"lockfileVersion":3,"packages":{
+                  "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-REPUBLISHED"},
+                  "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+                  "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+                }}"#,
+            );
+        }),
+        ("node", |install| {
+            // The runtime the shebang selects, answering a new version.
+            executable(
+                &install.root.join("node").join("bin"),
+                "node",
+                "#!/bin/sh\nprintf 'v22.23.3\\n'\n",
+            );
+        }),
+        ("dependency", |install| {
+            // One dependency's integrity in the profile's pnpm lock.
+            write_under(
+                &install.profile(),
+                "pnpm-lock.yaml",
+                b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-REBUILT}\n",
+            );
+        }),
+        ("plugin", |install| {
+            write_under(&install.plugin(), "lib/startup.js", b"// drifted\n");
+        }),
+        ("patch", |install| {
+            write_under(&install.profile(), "cordis.patch.yml", b"[]\n# drifted\n");
+        }),
+        ("composed profile", |install| {
+            write_under(
+                &install.profile(),
+                "package.json",
+                br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"live"}}}"#,
+            );
+        }),
+        ("optional extension", |install| {
+            for file in INSTALL_EXTENSION_FILES {
+                write_under(
+                    &install
+                        .profile()
+                        .join("node_modules")
+                        .join("brokkr-dsh-resume-policy"),
+                    file,
+                    file.as_bytes(),
+                );
+            }
+            write_under(
+                &install.profile(),
+                "package.json",
+                br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#,
+            );
+        }),
+    ];
+
+    for (case, drift) in cases {
+        let install = synthetic_dsh_install();
+        std::env::set_var("DSH_HOME", &install.home);
+        // The bundle search reads Node's global folders, which the child
+        // environment spells from `HOME` and `NODE_PATH`; both are pinned
+        // inside the fixture so no directory of this host's can answer a
+        // bundle lookup.
+        std::env::set_var("HOME", &install.root);
+        std::env::remove_var("NODE_PATH");
+
+        let declared = install.composite().canonical().to_string();
+        assert_eq!(declared.len(), 64, "{case}");
+        let log = install.root.join(format!("probe-{}.log", case.len()));
+        let shim = dsh_logging_version_shim(&install.root, "dsh-drift", "0.1.5-rc.2", &log);
+        let shim_text = shim.to_string_lossy().into_owned();
+        let workdir = install.root.to_str().unwrap().to_string();
+
+        plant_dsh_session(&install.home, "sessions/brokkr/seat-1", "--w--", "s-1", 4);
+        let mut input = dsh_enabled_input("0.1.5-rc.2", &declared, &install.root);
+        input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.2");
+        input["resume_context"]["originating_wrapper_digest"] = json!(declared);
+        input["resume_context"]["owned_target"] = json!({
+            "provider_id": "s-1",
+            "persistence_locator": "sessions/brokkr/seat-1",
+            "persistence_home": install.home.to_str().unwrap(),
+        });
+
+        // The offer against the READABLE install is honoured. The probe
+        // can fail transiently under load, which observes no version at
+        // all; that is a fact about the moment, so it is retried rather
+        // than asserted away.
+        let mut warm = None;
+        for _ in 0..8 {
+            let attempt = dsh_launch_with(&shim_text, &[], &workdir, Some("s-1"), &input, || {
+                dsh_composite(&install.seams).map_err(|error| error.to_string())
+            })
+            .unwrap();
+            let observed = attempt.observed.is_some();
+            warm = Some(attempt);
+            if observed {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let warm = warm.unwrap();
+        assert_eq!(warm.observed.as_deref(), Some("0.1.5-rc.2"), "{case}");
+        assert_eq!(
+            warm.wrapper_digest.as_deref(),
+            Some(declared.as_str()),
+            "{case}"
+        );
+        assert_eq!(
+            warm.refusal, None,
+            "{case}: the readable install is offerable"
+        );
+        assert!(warm.stream_json, "{case}");
+        assert_eq!(warm.rejoining.as_deref(), Some("s-1"), "{case}");
+        drop(warm);
+
+        // One source changes.
+        drift(&install);
+        let moved = install.composite();
+        assert_ne!(
+            moved.canonical(),
+            declared,
+            "{case}: the drift must move the observation for this case to mean anything"
+        );
+
+        std::fs::write(&log, b"").unwrap();
+        let drifted = dsh_launch_with(&shim_text, &[], &workdir, Some("s-1"), &input, || {
+            dsh_composite(&install.seams).map_err(|error| error.to_string())
+        })
+        .unwrap();
+        assert_eq!(drifted.refusal, Some("unverified-harness"), "{case}");
+        assert!(!drifted.stream_json, "{case}");
+        assert!(drifted.rejoining.is_none(), "{case}");
+        assert_eq!(
+            drifted.wrapper_digest, None,
+            "{case}: a drifted observation records no declared identity"
+        );
+        assert_shipped_cold_command(&drifted.command, &shim_text);
+
+        // The provider binary ran exactly once, and only to say what it
+        // is: the decline precedes every work invocation.
+        let probes = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(
+            probes.lines().collect::<Vec<_>>(),
+            vec!["--version"],
+            "{case}: the only provider invocation is the identity probe"
+        );
+    }
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+    match prior_user_home {
+        Some(value) => std::env::set_var("HOME", value),
+        None => std::env::remove_var("HOME"),
+    }
+    if let Some(value) = prior_node_path {
+        std::env::set_var("NODE_PATH", value);
     }
 }

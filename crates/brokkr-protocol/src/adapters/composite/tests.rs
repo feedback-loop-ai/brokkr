@@ -252,7 +252,13 @@ fn malformed_npm_keys_are_refused() {
         ("node_modules/", FORBIDDEN),
         ("node_modules/a/", FORBIDDEN),
         ("node_modules/a b", FORBIDDEN),
+        ("node_modules/a\tb", FORBIDDEN),
         ("node_modules/a\\b", FORBIDDEN),
+        // A key whose GROUPS are separated the other platform's way is
+        // not a key with one odd byte in a name: it is a spelling this
+        // reader never converts, so it is refused whole.
+        ("node_modules\\a", FORBIDDEN),
+        ("node_modules\\a\\node_modules\\b", FORBIDDEN),
         ("node_modules/a/node_modules/", FORBIDDEN),
         ("node_modules//a", "invalid unscoped component"),
         ("node_modules/.", "invalid unscoped component"),
@@ -264,6 +270,31 @@ fn malformed_npm_keys_are_refused() {
         // separately invalid: one passing is not the key passing.
         ("node_modules/@./name", "invalid scope or name component"),
         ("node_modules/@scope/.", "invalid scope or name component"),
+        // INCOMPLETE keys: a first group with no separator at all, and a
+        // trailing `node_modules` that opens a group it never fills.
+        ("node_modules", "expected a 'node_modules/' group"),
+        (
+            "node_modules/a/node_modules",
+            "expected a 'node_modules/' group",
+        ),
+        // TRAVERSAL, at each of the three places a key offers it: ahead
+        // of the first group, between two groups, and as a terminal or
+        // scoped component. None of them is normalized away.
+        ("../node_modules/a", "expected a 'node_modules/' group"),
+        (
+            "node_modules/a/../node_modules/b",
+            "expected a 'node_modules/' group",
+        ),
+        (
+            "node_modules/a/node_modules/../b",
+            "invalid unscoped component",
+        ),
+        (
+            "node_modules/@scope/../name",
+            "invalid scope or name component",
+        ),
+        // A valid terminal package cannot excuse a malformed group ahead
+        // of it: every group of every key is parsed and validated.
         (
             "node_modules/a/extra/node_modules/@scope/child",
             "expected a 'node_modules/' group",
@@ -1535,17 +1566,17 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh-base"}"#,
     );
-    let error = dsh_composite_with(
-        &install.seams,
-        &install.node(),
-        &[install.dir.path().join("global")],
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("bundle '@deepseek-ai/dsh-base' resolves outside"),
-        "{error}"
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &[install.dir.path().join("global")],
+        )),
+        format!(
+            "the DSH layout is unreadable: bundle '@deepseek-ai/dsh-base' resolves outside \
+             the core root and the profile ({})",
+            outside.canonicalize().unwrap().display()
+        )
     );
 
     // A core package whose shebang is not `env node` is refused — as
@@ -1557,12 +1588,12 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
     let bin = std::path::PathBuf::from(&install.seams.executable);
     write_executable(bin.parent().unwrap(), "bin.js", b"#!/bin/sh\n");
     install.seams.head = selected_head(&bin);
-    let error = dsh_composite_with(&install.seams, &install.node(), &[]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("first line is not the env node shebang"),
-        "{error}"
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        format!(
+            "the DSH layout is unreadable: {}: first line is not the env node shebang",
+            bin.canonicalize().unwrap().display()
+        )
     );
 
     // A profile that does not list the plugin is refused.
@@ -1572,12 +1603,9 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
         "package.json",
         br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"],"patchReload":"live"}}}"#,
     );
-    let error = dsh_composite_with(&install.seams, &install.node(), &[]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("the profile does not list dsh-plugin-cli-session"),
-        "{error}"
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "the DSH layout is unreadable: the profile does not list dsh-plugin-cli-session"
     );
 }
 
@@ -4051,17 +4079,30 @@ fn patch_elf_interpreter(working: &Path, dest: &Path, loader: &str) -> PathBuf {
 /// or a hash taken of an assembled `lines` buffer — and nothing wider:
 /// hashing one file's bytes on its own is an input hash, and stays
 /// permitted.
+///
+/// A NUL-bearing line that is BUILT rather than recorded is the same
+/// second producer under another spelling: Pass D's first profile suite
+/// assembled `profile-bundle` / `profile-patch-reload` / `home-patch`
+/// rows from the very case inputs its fixture had just written, and the
+/// two patterns above did not see it (review 2026-09-23, finding 1). So
+/// the NUL separator may appear in this source only in a RECORDED
+/// literal or where a producer value is taken apart; a line that puts it
+/// into a `format!`, a `write!` or a `push`/`push_str` is building the
+/// stream and is refused by name.
 #[test]
 fn no_test_reassembles_the_component_stream() {
     let source = include_str!("tests.rs");
     // Spelled in pieces so that this test's own text is not the block
     // it forbids.
     let nul_push = format!("push('{}')", "\\0");
+    let nul_escape = format!("\\u{}0{}", "{", "}");
+    let builders = ["format!", "write!", ".push(", ".push_str("];
     let hashed_stream = [
         format!("digest_of({}", "lines"),
         format!("sha256_text(&{}", "lines"),
         format!("sha256_hex({}", "lines"),
     ];
+    let mut built = 0usize;
     for (number, line) in source.lines().enumerate() {
         let line_number = number + 1;
         assert!(
@@ -4076,7 +4117,23 @@ fn no_test_reassembles_the_component_stream() {
                  component or composite is a second producer"
             );
         }
+        if !line.contains(nul_escape.as_str()) {
+            continue;
+        }
+        built += 1;
+        for builder in builders {
+            assert!(
+                !line.contains(builder),
+                "tests.rs:{line_number} builds a NUL-separated row with `{builder}`: a stream \
+                 assembled from a case's own inputs is a second producer, and an expectation \
+                 is a literal recorded from the sole producer"
+            );
+        }
     }
+    // The NUL-bearing lines exist and were examined, so a source that
+    // stopped spelling the separator at all could not pass this check by
+    // examining nothing.
+    assert!(built > 0, "the recorded streams carry the separator");
     // The check reads the file it lives in, which is not empty.
     assert!(source.contains("fn no_test_reassembles_the_component_stream"));
 }
@@ -8704,6 +8761,29 @@ fn npm_locks_reject_unparseable_and_incomplete_entries() {
     for (packages, reason) in [
         (r#"{"node_modules/a":5}"#, "entry is not an object"),
         (r#"{"node_modules/a":{}}"#, "no string 'version'"),
+        // A version that is present but is not a STRING is refused as a
+        // missing one rather than rendered into `5` or `true`: a JSON
+        // number is not a version this reader may spell for the lock.
+        (
+            r#"{"node_modules/a":{"version":5,"integrity":"sha512-A"}}"#,
+            "no string 'version'",
+        ),
+        (
+            r#"{"node_modules/a":{"version":true,"integrity":"sha512-A"}}"#,
+            "no string 'version'",
+        ),
+        (
+            r#"{"node_modules/a":{"version":null,"integrity":"sha512-A"}}"#,
+            "no string 'version'",
+        ),
+        (
+            r#"{"node_modules/a":{"version":"","integrity":"sha512-A"}}"#,
+            "version is empty",
+        ),
+        (
+            r#"{"node_modules/a":{"version":"1.0.0","integrity":5}}"#,
+            "no registry 'integrity'",
+        ),
         (
             r#"{"node_modules/a":{"version":"1.0.0"}}"#,
             "no registry 'integrity'",
@@ -9759,13 +9839,42 @@ fn the_root_package_lock_is_never_read_beside_or_instead_of_the_hidden_one() {
     // fallback: the refusal names the hidden locator.
     let hidden = core_root.join("node_modules").join(".package-lock.json");
     fs::remove_file(&hidden).unwrap();
+    let absent = format!(
+        "npm lock is unreadable: {}: {}",
+        hidden.display(),
+        // The host's own wording for the absent path: the exact
+        // filesystem cause is the platform's to phrase, and only the
+        // component and the locator are this producer's (Linux and
+        // macOS, decision 0063).
+        std::fs::read(&hidden).unwrap_err()
+    );
     assert_eq!(
         refused(dsh_composite_with(&install.seams, &install.node(), &[])),
-        format!(
-            "npm lock is unreadable: {}: {}",
-            hidden.display(),
-            std::fs::read(&hidden).unwrap_err()
-        )
+        absent
+    );
+
+    // The same absence beside a root lock in the full npm shape, whose
+    // `""` root entry the key rule refuses. The distinction the decoy
+    // above cannot draw: a reader that FELL BACK to this file would
+    // refuse too, but with `'': empty, absolute, trailing…` — a refusal
+    // naming the root lock's own first entry. The refusal is still the
+    // hidden lock's absence, so the root lock was never opened.
+    let rooted = r#"{"name":"dsh-home","version":"0.0.0","lockfileVersion":3,"requires":true,"packages":{
+      "":{"name":"dsh-home","version":"0.0.0","dependencies":{"decoy":"9.9.9"}},
+      "node_modules/decoy":{"version":"9.9.9","integrity":"sha512-DECOY"}
+    }}"#;
+    assert_eq!(
+        refused(npm_dependencies(&lock(rooted), &[])),
+        "npm key is unreadable: '': empty, absolute, trailing, or carries a forbidden byte",
+        "read as a lock, this file refuses by its own root entry — which is \
+         how a fallback would be visible below"
+    );
+    write(&core_root, "package-lock.json", rooted.as_bytes());
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        absent,
+        "the sole npm source is the hidden lock, and its absence is not \
+         cured by a root lock in any shape"
     );
 }
 
@@ -9831,6 +9940,1617 @@ fn dsh_composite_with_propagates_a_lock_refusal() {
         error.to_string().starts_with("pnpm lock is unreadable:"),
         "{error}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The worked lock-dialect vectors (Pass D, D1).
+//
+// One worked vector per dialect — npm's lockfile-3 hidden lock and pnpm's
+// lockfile 9.0 — read through the SOLE PRODUCER at D6's locators, pinning
+// the normalized dependency value bytes and the canonical composite's byte
+// form.
+//
+// Both vectors are SYNTHETIC excerpts written in the measured grammar, and
+// they are deterministic planner and storage shims: they are not live DSH
+// compatibility, qualification or enforcement evidence, and they make no
+// claim about the measured rc.2 tree, whose own literal bytes are the
+// fixture below. The measured hidden lock reaches two package groups; the
+// three-group key here is grammar coverage, not a deeper measured tree.
+// ---------------------------------------------------------------------------
+
+/// The worked npm vector: one lockfile-3 hidden lock carrying every key
+/// spelling D6's rule admits, both exclusions, and the four normalization
+/// outcomes (collapse, two versions, two integrities, a nested entry whose
+/// own bytes differ from its shallower namesake's).
+///
+/// Only ONE entry carries the optional `name` field, and it disagrees with
+/// its key: the terminal spelling is the name, and an entry's own
+/// `version` and `integrity` are the triple's, never an ancestor's, the
+/// optional name's, a manifest's or a URL's.
+const WORKED_NPM_LOCK: &str = r#"{"lockfileVersion":3,"packages":{
+  "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+  "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+  "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"},
+  "node_modules/express/node_modules/debug":{"version":"4.4.3","integrity":"sha512-DEEP"},
+  "node_modules/@scope/child":{"version":"1.0.0","integrity":"sha512-ONE"},
+  "node_modules/a/node_modules/@scope/child":{"name":"@wrong/spelling","version":"1.1.0","integrity":"sha512-TWO"},
+  "node_modules/@parent/b/node_modules/@scope/child":{"version":"1.2.0","integrity":"sha512-THREE"},
+  "node_modules/a/node_modules/@parent/b/node_modules/@scope/child":{"version":"2.0.0","integrity":"sha512-FOUR"},
+  "node_modules/@parent/b/node_modules/plain":{"version":"3.0.0","integrity":"sha512-PLAIN"},
+  "node_modules/x/node_modules/dup":{"version":"1.0.0","integrity":"sha512-DUP"},
+  "node_modules/y/node_modules/dup":{"version":"1.0.0","integrity":"sha512-DUP"},
+  "node_modules/split":{"version":"1.0.0","integrity":"sha512-SAME"},
+  "node_modules/z/node_modules/split":{"version":"1.0.0","integrity":"sha512-OTHER"},
+  "node_modules/versions":{"version":"1.0.0","integrity":"sha512-V"},
+  "node_modules/w/node_modules/versions":{"version":"2.0.0","integrity":"sha512-V"}
+}}"#;
+
+/// The worked pnpm vector: three records equivalent to npm ones — two of
+/// them the npm vector's nested entries — one record this dialect alone
+/// supplies, and the plugin's local tarball record beside its same-named
+/// registry record, so the exclusion is proved to identify a RECORD.
+const WORKED_PNPM_LOCK: &str = "lockfileVersion: '9.0'\n\npackages:\n\n  \
+    debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n\n  \
+    debug@4.4.3:\n    resolution: {integrity: sha512-DEEP, tarball: https://example.invalid/d.tgz}\n\n  \
+    '@scope/child@1.0.0':\n    resolution: {integrity: sha512-ONE}\n\n  \
+    '@pnpm/only@0.3.1':\n    resolution: {integrity: sha512-PNPM}\n\n  \
+    dsh-plugin-cli-session@file:./plugin.tgz:\n    \
+    resolution: {integrity: sha512-LOCAL, tarball: file:./plugin.tgz}\n    version: 0.2.0\n\n  \
+    dsh-plugin-cli-session@0.2.0:\n    resolution: {integrity: sha512-REG}\n";
+
+/// Every key spelling the npm vector carries, with the terminal package
+/// the rule takes from it and that entry's OWN version and integrity.
+///
+/// Top-level and nested unscoped names; a top-level scoped name; scoped
+/// names under an unscoped and under a scoped parent; a scoped parent
+/// with an unscoped terminal; and three successive groups whose terminal
+/// `@scope/child` carries a version and integrity distinct from both
+/// shallower `@scope/child` entries.
+const WORKED_NPM_KEY_CASES: [(&str, &str, &str, &str); 11] = [
+    ("node_modules/debug", "debug", "2.6.9", "sha512-DEBUG"),
+    (
+        "node_modules/express/node_modules/debug",
+        "debug",
+        "4.4.3",
+        "sha512-DEEP",
+    ),
+    (
+        "node_modules/@scope/child",
+        "@scope/child",
+        "1.0.0",
+        "sha512-ONE",
+    ),
+    (
+        "node_modules/a/node_modules/@scope/child",
+        "@scope/child",
+        "1.1.0",
+        "sha512-TWO",
+    ),
+    (
+        "node_modules/@parent/b/node_modules/@scope/child",
+        "@scope/child",
+        "1.2.0",
+        "sha512-THREE",
+    ),
+    (
+        "node_modules/a/node_modules/@parent/b/node_modules/@scope/child",
+        "@scope/child",
+        "2.0.0",
+        "sha512-FOUR",
+    ),
+    (
+        "node_modules/@parent/b/node_modules/plain",
+        "plain",
+        "3.0.0",
+        "sha512-PLAIN",
+    ),
+    (
+        "node_modules/x/node_modules/dup",
+        "dup",
+        "1.0.0",
+        "sha512-DUP",
+    ),
+    (
+        "node_modules/y/node_modules/dup",
+        "dup",
+        "1.0.0",
+        "sha512-DUP",
+    ),
+    ("node_modules/split", "split", "1.0.0", "sha512-SAME"),
+    (
+        "node_modules/z/node_modules/split",
+        "split",
+        "1.0.0",
+        "sha512-OTHER",
+    ),
+];
+
+/// The complete ordered dependency values the two worked vectors yield:
+/// the merged, deduplicated, bytewise-sorted set the serializer emits one
+/// `dependency` line per. Fourteen values over ten names.
+const WORKED_DEPENDENCIES: [&str; 14] = [
+    "@pnpm/only 0.3.1 sha512-PNPM",
+    "@scope/child 1.0.0 sha512-ONE",
+    "@scope/child 1.1.0 sha512-TWO",
+    "@scope/child 1.2.0 sha512-THREE",
+    "@scope/child 2.0.0 sha512-FOUR",
+    "debug 2.6.9 sha512-DEBUG",
+    "debug 4.4.3 sha512-DEEP",
+    "dsh-plugin-cli-session 0.2.0 sha512-REG",
+    "dup 1.0.0 sha512-DUP",
+    "plain 3.0.0 sha512-PLAIN",
+    "split 1.0.0 sha512-OTHER",
+    "split 1.0.0 sha512-SAME",
+    "versions 1.0.0 sha512-V",
+    "versions 2.0.0 sha512-V",
+];
+
+/// The synthetic install with both worked vectors written at D6's
+/// locators, recomposed in place: ONE home, so a difference between two
+/// observations is a difference between two LOCKS and nothing else. The
+/// same pair staged at two absolute paths is a separate matrix.
+fn recomposed(install: &Synthetic, npm: &str, pnpm: &str) -> DshComposite {
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        npm.as_bytes(),
+    );
+    write(&install.profile(), "pnpm-lock.yaml", pnpm.as_bytes());
+    install.composite()
+}
+
+/// The npm dialect, read through the producer: every key spelling binds
+/// to its terminal package, every group of every key is consumed, and the
+/// optional `name` field is not the name.
+#[test]
+fn the_worked_npm_vector_binds_every_key_spelling_to_its_terminal_package() {
+    let install = Synthetic::new();
+    let observed = recomposed(&install, WORKED_NPM_LOCK, WORKED_PNPM_LOCK);
+
+    for (key, name, version, integrity) in WORKED_NPM_KEY_CASES {
+        // The rule's own answer, and the value the composition carried it
+        // into: a key that bound correctly but reached no dependency line
+        // would pass the first assertion alone.
+        assert_eq!(npm_name(key).unwrap(), name, "{key}");
+        let value = format!("{name} {version} {integrity}");
+        assert!(
+            observed.dependencies.contains(&value),
+            "{key} yields {value:?}: {:?}",
+            observed.dependencies
+        );
+    }
+
+    // The vector really is what it claims: exactly one entry carries an
+    // optional `name`, and that name is NOT its key's terminal spelling.
+    // Every other entry has no `name` field at all.
+    let parsed = lock(WORKED_NPM_LOCK);
+    let named: Vec<(String, String)> = parsed["packages"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter_map(|(key, entry)| {
+            entry
+                .get("name")
+                .and_then(Value::as_str)
+                .map(|name| (key.clone(), name.to_string()))
+        })
+        .collect();
+    assert_eq!(
+        named,
+        vec![(
+            "node_modules/a/node_modules/@scope/child".to_string(),
+            "@wrong/spelling".to_string()
+        )],
+        "one conflicting optional name, and no other entry carries one"
+    );
+    assert!(
+        !observed
+            .dependencies
+            .iter()
+            .any(|value| value.contains("@wrong/spelling")),
+        "the optional name reaches no dependency value: {:?}",
+        observed.dependencies
+    );
+
+    // The four normalization outcomes, counted by name: one collapsed
+    // pair, two versions of one name, two integrities of one name and
+    // version, and a nested entry retained beside its shallower namesake.
+    let values = |name: &str| -> Vec<&String> {
+        observed
+            .dependencies
+            .iter()
+            .filter(|value| value.starts_with(&format!("{name} ")))
+            .collect()
+    };
+    assert_eq!(
+        values("dup"),
+        vec!["dup 1.0.0 sha512-DUP"],
+        "two keys with the same complete triple are one value"
+    );
+    assert_eq!(
+        values("versions"),
+        vec!["versions 1.0.0 sha512-V", "versions 2.0.0 sha512-V"],
+        "one name at two versions is two values"
+    );
+    assert_eq!(
+        values("split"),
+        vec!["split 1.0.0 sha512-OTHER", "split 1.0.0 sha512-SAME"],
+        "one name and version at two integrities is two values"
+    );
+    assert_eq!(
+        values("debug"),
+        vec!["debug 2.6.9 sha512-DEBUG", "debug 4.4.3 sha512-DEEP"],
+        "a nested entry's own bytes are retained beside the shallower one's"
+    );
+    assert_eq!(
+        values("@scope/child"),
+        vec![
+            "@scope/child 1.0.0 sha512-ONE",
+            "@scope/child 1.1.0 sha512-TWO",
+            "@scope/child 1.2.0 sha512-THREE",
+            "@scope/child 2.0.0 sha512-FOUR",
+        ],
+        "the three-group terminal is distinct from both shallower entries"
+    );
+
+    // Both exclusions identify exact RECORDS: the core's own hidden-lock
+    // key and the plugin's local `file:` record leave, and the plugin's
+    // same-named pnpm registry record stays.
+    assert!(
+        !observed
+            .dependencies
+            .iter()
+            .any(|value| value.starts_with("@deepseek-ai/dsh ")),
+        "the core's own record is not a dependency: {:?}",
+        observed.dependencies
+    );
+    assert_eq!(
+        values("dsh-plugin-cli-session"),
+        vec!["dsh-plugin-cli-session 0.2.0 sha512-REG"],
+        "the local tarball record leaves and the registry record stays"
+    );
+}
+
+/// The canonical composite's BYTE FORM over the two worked vectors.
+///
+/// `WORKED_CANONICAL_STREAM` is a frozen literal, not a computation: it
+/// is D6's `<component>\0<value>\n` form written out by hand, component
+/// name for component name, in the fixed order, with the final newline.
+/// It assembles nothing from the producer's output and cannot follow it —
+/// reordering the lines, dropping one, dropping the trailing newline or
+/// changing a separator in production leaves this literal behind and the
+/// digests unequal. That is what makes it an expectation rather than the
+/// second serializer `no_test_reassembles_the_component_stream` forbids.
+///
+/// `WORKED_CANONICAL` is the producer's own pinned output over the same
+/// inputs, so the form and the result are pinned independently.
+#[test]
+fn the_worked_vectors_pin_the_canonical_composite_byte_form() {
+    let install = Synthetic::new();
+    let observed = recomposed(&install, WORKED_NPM_LOCK, WORKED_PNPM_LOCK);
+
+    // Every component value, as literal bytes. Each is one line of the
+    // stream below, so a value that moved is named here before the digest
+    // comparison reports only that something did.
+    assert_eq!(observed.core, "@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE");
+    assert_eq!(observed.node, "v22.23.2");
+    assert_eq!(
+        observed.dependencies,
+        WORKED_DEPENDENCIES.map(str::to_string).to_vec(),
+        "the complete ordered dependency values"
+    );
+    // A dependency value's shape, read off each value rather than
+    // asserted of the list: name, ONE ASCII space, version, ONE ASCII
+    // space, integrity — and no other whitespace anywhere, which is what
+    // the one scalar rule buys the serializer.
+    for value in &observed.dependencies {
+        let fields: Vec<&str> = value.split(' ').collect();
+        assert_eq!(fields.len(), 3, "{value:?} is three space-separated fields");
+        for field in fields {
+            assert!(!field.is_empty(), "{value:?} carries an empty field");
+            assert!(
+                !field.contains(char::is_whitespace),
+                "{value:?} carries whitespace inside a field"
+            );
+        }
+    }
+    assert_eq!(observed.plugin, WORKED_PLUGIN_COMPONENT);
+    assert_eq!(
+        observed.plugin_patch,
+        digest_of(b"cordis.patch.yml"),
+        "the synthetic plugin's patch file carries its own name as bytes"
+    );
+    assert_eq!(observed.profile_patch, digest_of(b"[]\n"));
+    assert_eq!(
+        observed.profile_bundles,
+        vec!["@deepseek-ai/dsh-base", "dsh-plugin-cli-session"],
+        "the declared order"
+    );
+    assert_eq!(observed.profile_patch_reload, "startup");
+    assert_eq!(observed.home_patch, "absent");
+    assert_eq!(
+        observed.extension, None,
+        "this profile lists no extension, so the stream carries no extension line"
+    );
+
+    assert_eq!(
+        observed.canonical, WORKED_CANONICAL,
+        "the producer's pinned canonical composite over the worked vectors"
+    );
+    assert_eq!(
+        digest_of(WORKED_CANONICAL_STREAM.as_bytes()),
+        observed.canonical,
+        "the canonical composite is the SHA-256 of exactly these component \
+         lines, in this order, ending with a newline"
+    );
+}
+
+/// The producer's pinned canonical composite over the two worked vectors.
+const WORKED_CANONICAL: &str = "2b22346b648577b4ad3776fe926935a2506b5f35fe3df9a732a8b4bda7a466c9";
+
+/// The plugin component over the synthetic plugin set, whose six files
+/// each carry their own relative name as their bytes.
+const WORKED_PLUGIN_COMPONENT: &str =
+    "8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99";
+
+/// D6's component stream for the worked vectors, written out by hand:
+/// `core`, `node`, the bytewise-sorted complete `dependency` values,
+/// `plugin`, `plugin-patch`, `profile-patch`, the declared-order
+/// `profile-bundle` rows, `profile-patch-reload`, `home-patch`, and no
+/// `extension` line, each as `<component>\0<value>\n`.
+const WORKED_CANONICAL_STREAM: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
+     node\u{0}v22.23.2\n\
+     dependency\u{0}@pnpm/only 0.3.1 sha512-PNPM\n\
+     dependency\u{0}@scope/child 1.0.0 sha512-ONE\n\
+     dependency\u{0}@scope/child 1.1.0 sha512-TWO\n\
+     dependency\u{0}@scope/child 1.2.0 sha512-THREE\n\
+     dependency\u{0}@scope/child 2.0.0 sha512-FOUR\n\
+     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
+     dependency\u{0}debug 4.4.3 sha512-DEEP\n\
+     dependency\u{0}dsh-plugin-cli-session 0.2.0 sha512-REG\n\
+     dependency\u{0}dup 1.0.0 sha512-DUP\n\
+     dependency\u{0}plain 3.0.0 sha512-PLAIN\n\
+     dependency\u{0}split 1.0.0 sha512-OTHER\n\
+     dependency\u{0}split 1.0.0 sha512-SAME\n\
+     dependency\u{0}versions 1.0.0 sha512-V\n\
+     dependency\u{0}versions 2.0.0 sha512-V\n\
+     plugin\u{0}8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99\n\
+     plugin-patch\u{0}66e6d923ac24b898cc4d8b405e107adfca86b017b7b63d31287a71549c1580bd\n\
+     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n\
+     profile-bundle\u{0}@deepseek-ai/dsh-base\n\
+     profile-bundle\u{0}dsh-plugin-cli-session\n\
+     profile-patch-reload\u{0}startup\n\
+     home-patch\u{0}absent\n";
+
+/// Equivalent entries in the two dialects normalize to the SAME value
+/// bytes, and a complete triple present in both is one dependency.
+///
+/// Proved by identity rather than by comparing two lists: the same home,
+/// the same everything else, and the triple supplied by both locks, by
+/// npm alone and by pnpm alone. All three compose to one canonical
+/// composite. A pnpm record differing only in its integrity is the
+/// control that the comparison is capable of moving at all.
+#[test]
+fn equivalent_npm_and_pnpm_entries_compose_to_one_dependency() {
+    const NPM_ONLY: &str = r#"{"lockfileVersion":3,"packages":{
+      "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+      "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+      "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+    }}"#;
+    const NPM_BARE: &str = r#"{"lockfileVersion":3,"packages":{
+      "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+      "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true}
+    }}"#;
+    const PNPM_ONLY: &str =
+        "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n";
+    const PNPM_BARE: &str = "lockfileVersion: '9.0'\n\npackages:\n";
+    const PNPM_OTHER: &str =
+        "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-OTHER}\n";
+
+    let install = Synthetic::new();
+    let both = recomposed(&install, NPM_ONLY, PNPM_ONLY);
+    assert_eq!(both.dependencies, vec!["debug 2.6.9 sha512-DEBUG"]);
+    let npm_only = recomposed(&install, NPM_ONLY, PNPM_BARE);
+    let pnpm_only = recomposed(&install, NPM_BARE, PNPM_ONLY);
+    assert_eq!(
+        both.canonical, npm_only.canonical,
+        "the pnpm record equal to the npm one adds no dependency line"
+    );
+    assert_eq!(
+        both.canonical, pnpm_only.canonical,
+        "either dialect alone normalizes that entry to the same bytes"
+    );
+
+    let differing = recomposed(&install, NPM_ONLY, PNPM_OTHER);
+    assert_eq!(
+        differing.dependencies,
+        vec!["debug 2.6.9 sha512-DEBUG", "debug 2.6.9 sha512-OTHER"],
+        "a pnpm record differing only in integrity is a second dependency"
+    );
+    assert_ne!(both.canonical, differing.canonical);
+}
+
+/// A key whose terminal package is perfectly good and whose INTERMEDIATE
+/// group is not is refused, through the producer: every group of every
+/// key is consumed and validated, so no identity is composed from a lock
+/// this reader cannot spell.
+#[test]
+fn a_malformed_intermediate_group_refuses_the_whole_worked_lock() {
+    let install = Synthetic::new();
+    let base = recomposed(&install, WORKED_NPM_LOCK, WORKED_PNPM_LOCK);
+    assert_eq!(base.canonical, WORKED_CANONICAL);
+
+    let malformed = WORKED_NPM_LOCK.replace(
+        "  \"node_modules/debug\":",
+        "  \"node_modules/a/extra/node_modules/@scope/child\":{\"version\":\"9.9.9\",\"integrity\":\"sha512-EXTRA\"},\n  \"node_modules/debug\":",
+    );
+    assert!(
+        malformed.contains("node_modules/a/extra/node_modules/@scope/child"),
+        "the vector carries the malformed key"
+    );
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        malformed.as_bytes(),
+    );
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "npm key is unreadable: 'node_modules/a/extra/node_modules/@scope/child': \
+         expected a 'node_modules/' group"
+    );
+}
+
+/// Each construct the pnpm grammar does not recognize, refused through
+/// the PRODUCER: the reader's own vectors prove the reason, and these
+/// prove that an unrecognized construct composes no identity at all.
+#[test]
+fn the_unrecognized_pnpm_constructs_refuse_through_the_producer() {
+    let install = Synthetic::new();
+    // The legal control: the same document, admitted, with its triple in
+    // the composed dependency values. Every refusal below is a single
+    // departure from a spelling this producer does read.
+    let legal = composite_over_pnpm(
+        &install,
+        "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+    )
+    .unwrap();
+    assert!(legal
+        .dependencies
+        .contains(&"debug 2.6.9 sha512-X".to_string()));
+
+    for (lock, reason) in [
+        (
+            "\tlockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+            "a tab",
+        ),
+        (
+            "lockfileVersion: '9.0'\n# a comment\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+            "a comment or document marker",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  ---\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+            "a comment or document marker",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution:\n      integrity: sha512-X\n",
+            "a block-form or malformed resolution",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    engines: {node: '>=1'}\n",
+            "'debug@2.6.9': no resolution integrity",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    resolution: {integrity: sha512-Y}\n",
+            "'debug@2.6.9': repeated resolution",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug:\n    resolution: {integrity: sha512-X}\n",
+            "'debug': no '@' after the first character",
+        ),
+    ] {
+        assert_eq!(
+            refused_vector(composite_over_pnpm(&install, lock), lock),
+            format!("pnpm lock is unreadable: {reason}"),
+            "{lock:?}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The plugin component, equal staging, containment and conditional
+// extension vectors (Pass D, D2).
+//
+// The plugin and extension byte sets below are SYNTHETIC. They are written
+// in the declared SHAPE of the committed pair and they are not its bytes:
+// the measured rc.2 fixture at the end of this file holds those unchanged,
+// and `the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`
+// above remains the only test that reads the repository's own adaptation.
+// Like D1's lock vectors these are deterministic planner and storage shims,
+// not live DSH compatibility, qualification or enforcement evidence. Every
+// home is built under a canonicalized temporary root through `Synthetic`
+// and `FixtureRoot`; nothing here reads `.forge/`, none of it needs an
+// installed provider, and no repository extension is created to exercise a
+// case.
+// ---------------------------------------------------------------------------
+
+/// The worked plugin vector: the six declared relative paths and the exact
+/// bytes staged at each.
+///
+/// No two members share bytes, none carries its own relative path as its
+/// content, and none matches a member of the worked extension set below —
+/// so a walk that crossed two paths, reused one member's digest for
+/// another or read an extension file where a plugin file belongs cannot
+/// reach the pinned component.
+const WORKED_PLUGIN_SET: [(&str, &[u8]); 6] = [
+    ("LICENSE", b"MIT: the plugin's licence\n"),
+    ("README.md", b"# dsh-plugin-cli-session\n"),
+    ("cordis.patch.yml", b"- id: cli-session\n  config: {}\n"),
+    ("lib/index.js", b"module.exports = { name: 'index' }\n"),
+    ("lib/startup.js", b"module.exports = { name: 'startup' }\n"),
+    (
+        "package.json",
+        b"{\"name\":\"dsh-plugin-cli-session\",\"version\":\"0.2.0\"}\n",
+    ),
+];
+
+/// D6's component stream over the worked plugin set, written out by hand:
+/// one `<relative path>\0<file SHA-256>\n` line per declared file, in
+/// bytewise path order, ending with a newline.
+///
+/// It is a frozen literal, not a computation. It assembles nothing from
+/// the producer's output and cannot follow it: reordering the walk's
+/// lines, dropping a separator or dropping the final newline in production
+/// leaves this literal behind. `read_component_stream` PARSES it back
+/// rather than building it, which is what keeps it an expectation instead
+/// of the second serializer `no_test_reassembles_the_component_stream`
+/// forbids.
+const WORKED_PLUGIN_STREAM: &str =
+    "LICENSE\u{0}79dce08a18044a366563406c6a3c02cbd947989c47fdd64d0fbaf351ed1a83a4\n\
+     README.md\u{0}86f31cae9f04723ccacec665210e2fdb6fffe4ae7d19901e0420a81376d654ac\n\
+     cordis.patch.yml\u{0}2e5380d538ff7f04b1d0035336fd3937c6762ad7acf8a17e00a0a23bdf2d6bc2\n\
+     lib/index.js\u{0}e931e87e321b250f52712f4090c3c7b960a5e225f6a5eaf4b9f177f05faa1b24\n\
+     lib/startup.js\u{0}725cce087fb0ffa4df40acf9b5ac782097850db6da91e61ff29d5387266ba32d\n\
+     package.json\u{0}935f6e76f24a7b51dde7e944be8dfa5216f5d1058602cfd72a40ff6136cfebf0\n";
+
+/// The producer's pinned component over the worked plugin set.
+const WORKED_PLUGIN_VECTOR_COMPONENT: &str =
+    "d1f7df60c6c4eeda7797b4d2d54241cc7d1597b808b33422af87ee7ef9e09d7a";
+
+/// Stage one worked byte set beneath `dir`, each member at its declared
+/// relative path.
+fn stage_set(dir: &Path, set: &[(&str, &[u8])]) {
+    for (name, bytes) in set {
+        write(dir, name, bytes);
+    }
+}
+
+/// Read a frozen component-stream literal back as the form D6 declares,
+/// and bind it to one observation.
+///
+/// The literal is PARSED, never assembled: this proves the hand-written
+/// expectation really is `<relative path>\0<file SHA-256>\n` per line, in
+/// strictly increasing bytewise path order, over exactly the declared set,
+/// carrying exactly the digests the producer's walk observed — and it
+/// produces no component of its own.
+fn read_component_stream(stream: &str, expected: &[&str], observed: &BTreeMap<String, String>) {
+    let body = stream
+        .strip_suffix('\n')
+        .expect("the component stream ends with a newline");
+    let lines: Vec<&str> = body.split('\n').collect();
+    assert_eq!(
+        lines.len(),
+        expected.len(),
+        "one line per declared file: {lines:?}"
+    );
+    let mut previous = "";
+    for (line, file) in lines.iter().zip(expected) {
+        let (path, digest) = match line.split_once('\u{0}') {
+            Some(split) => split,
+            None => panic!("{line:?} carries no NUL separator"),
+        };
+        assert_eq!(path, *file, "the declared file at this position");
+        assert!(
+            previous < path,
+            "{previous:?} then {path:?} is not bytewise path order"
+        );
+        previous = path;
+        assert_eq!(
+            digest,
+            observed
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} was observed")),
+            "{path}: the line carries the observed digest"
+        );
+    }
+}
+
+/// The worked plugin vector: the component's bytewise path order, its
+/// exact input bytes and per-file digests, D6's stream form, and the
+/// producer's own pinned component over all six.
+///
+/// The files are staged in REVERSE declared order, so a component that
+/// followed the order the fixture wrote them in — or the order the
+/// platform's `read_dir` yields — parts from the pinned value.
+#[test]
+fn the_worked_plugin_vector_pins_the_bytewise_path_order_of_the_component() {
+    let dir = FixtureRoot::new();
+    for (name, bytes) in WORKED_PLUGIN_SET.iter().rev() {
+        write(dir.path(), name, bytes);
+    }
+
+    // The declared set is itself in bytewise order, so "declared order"
+    // and "bytewise order" below are the same claim about the same six
+    // paths rather than two that happen to agree.
+    assert!(
+        PLUGIN_FILES.windows(2).all(|pair| pair[0] < pair[1]),
+        "the declared plugin set is in strictly increasing bytewise order"
+    );
+
+    let observed =
+        plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES, &read_dir_entries).unwrap();
+    assert_eq!(
+        observed.keys().map(String::as_str).collect::<Vec<&str>>(),
+        PLUGIN_FILES.to_vec(),
+        "the walk observed exactly the declared six, in bytewise path order"
+    );
+
+    // Each member's EXACT input bytes reached the file, and each observed
+    // digest is that file's own. Hashing one file's bytes on its own is an
+    // input check, not a second component producer.
+    for (name, bytes) in WORKED_PLUGIN_SET {
+        assert_eq!(fs::read(dir.path().join(name)).unwrap(), bytes, "{name}");
+        assert_eq!(observed[name], digest_of(bytes), "{name}");
+    }
+
+    read_component_stream(WORKED_PLUGIN_STREAM, &PLUGIN_FILES, &observed);
+    let component = component_digest(&observed);
+    assert_eq!(
+        component, WORKED_PLUGIN_VECTOR_COMPONENT,
+        "the producer's pinned component over the worked plugin set"
+    );
+    assert_eq!(
+        digest_of(WORKED_PLUGIN_STREAM.as_bytes()),
+        component,
+        "the component is the SHA-256 of exactly these lines, in this \
+         order, ending with a newline"
+    );
+}
+
+/// The hidden lock the worked pair is staged with: the core's own record,
+/// the plugin's LOCAL `file:` tarball record, a same-named REGISTRY record
+/// of the plugin nested under another package, and one ordinary
+/// dependency the synthetic pnpm lock also carries.
+///
+/// Written in D1's grammar and read through the same producer; D1's own
+/// dialect matrix is not reopened here.
+const WORKED_PAIR_NPM_LOCK: &str = r#"{"lockfileVersion":3,"packages":{
+  "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+  "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+  "node_modules/nested/node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"https://registry.npmjs.org/dsh-plugin-cli-session-0.2.0.tgz","integrity":"sha512-NPMREG"},
+  "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+}}"#;
+
+/// The complete ordered dependency values the worked pair composes.
+const WORKED_PAIR_DEPENDENCIES: [&str; 2] = [
+    "debug 2.6.9 sha512-DEBUG",
+    "dsh-plugin-cli-session 0.2.0 sha512-NPMREG",
+];
+
+/// Install the worked pair into a synthetic home: the six worked plugin
+/// files at the profile's plugin locator, replacing the fixture's own, and
+/// the worked hidden lock at the core's. Everything else is
+/// `Synthetic::new`'s, so two homes prepared this way differ only in where
+/// they sit.
+fn worked_pair(install: &Synthetic) {
+    stage_set(
+        &install.profile().join("node_modules").join(PLUGIN_BUNDLE),
+        &WORKED_PLUGIN_SET,
+    );
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        WORKED_PAIR_NPM_LOCK.as_bytes(),
+    );
+}
+
+/// The plugin's own local tarball record leaves the dependency lines and
+/// its same-named registry record stays — through the PRODUCER, whose
+/// exclusion list carries the plugin exactly because the component above
+/// was measured from its installed bytes.
+#[test]
+fn the_plugin_s_own_tarball_record_leaves_and_its_registry_namesake_stays() {
+    let install = Synthetic::new();
+    worked_pair(&install);
+    let observed = install.composite();
+
+    assert_eq!(
+        observed.plugin, WORKED_PLUGIN_VECTOR_COMPONENT,
+        "the installed plugin is the worked set, so the exclusion is that set's"
+    );
+    assert_eq!(
+        observed.dependencies,
+        WORKED_PAIR_DEPENDENCIES.map(str::to_string).to_vec(),
+        "the local record leaves, the registry namesake stays, and the core's \
+         own record is never a dependency"
+    );
+
+    // What the exclusion is worth: the same lock read with NO name
+    // supplying a component refuses at that exact record, because a local
+    // `file:` entry carries no registry integrity. Composition above
+    // succeeded only because the record was excluded, and it was excluded
+    // as a RECORD — the nested registry entry of the same name survived
+    // beside it.
+    assert_eq!(
+        refused(npm_dependencies(&lock(WORKED_PAIR_NPM_LOCK), &[])),
+        "npm lock is unreadable: 'node_modules/dsh-plugin-cli-session': \
+         no registry 'integrity'"
+    );
+}
+
+/// The producer's pinned canonical composite over the worked pair in a
+/// synthetic home with no extension listed.
+const WORKED_PAIR_CANONICAL: &str =
+    "85f6e4b6653ca50a9004f067def20e5971192c8745bd7dce0f97543cd8bec54e";
+
+/// One seat's own overlay, staged the way the launch planner stages it:
+/// this seat's transcript root allocated under the home, and the rows
+/// that seat pins written to a temporary `--patch` file. The value is
+/// RETURNED to the caller because the patch file and its settings
+/// document live exactly as long as it does.
+///
+/// A per-seat overlay is not an identity-bearing patch. The composite's
+/// `plugin-patch`, `profile-patch` and `home-patch` lines are the
+/// installation's own `cordis.patch.yml` files; this is a file the driver
+/// hands the launcher, beside a directory under the home only this seat
+/// writes.
+fn seat_overlay(
+    home: &Path,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> crate::adapters::DshSeatOverlay {
+    let root = crate::transcript::dsh_transcript_root_under(Some(home.to_path_buf()))
+        .expect("the seat's transcript root is allocated under the home");
+    assert!(
+        root.starts_with(home),
+        "this seat's transcript root sits under the home: {}",
+        root.display()
+    );
+    crate::adapters::dsh_seat_overlay_with(model, effort, &root, None, None)
+        .expect("the planner stages this seat's overlay")
+}
+
+/// The same pair staged in two homes at different absolute paths, under
+/// two different per-seat overlays, is ONE identity — and so is the first
+/// home reached through a symlinked ancestor.
+///
+/// Unix only: a symlinked ancestor is one of the inputs, and Linux and
+/// macOS are the only hosts (decision 0063).
+#[cfg(unix)]
+#[test]
+fn one_pair_in_two_homes_under_two_seat_overlays_is_one_identity() {
+    let first = Synthetic::new();
+    let second = Synthetic::new();
+    assert_ne!(
+        first.seams.home, second.seams.home,
+        "the two homes are at different absolute paths"
+    );
+    worked_pair(&first);
+    worked_pair(&second);
+
+    // Two seats, each with its own overlay near its own home: different
+    // pinned rows, different `--patch` files, and a transcript root under
+    // each home that only that seat writes.
+    let one_seat = seat_overlay(
+        &first.seams.home,
+        Some("deepseek/deepseek-chat"),
+        Some("high"),
+    );
+    let two_seat = seat_overlay(&second.seams.home, None, None);
+    assert_ne!(
+        one_seat.path(),
+        two_seat.path(),
+        "each seat stages its own overlay file"
+    );
+    assert_ne!(
+        fs::read(one_seat.path()).unwrap(),
+        fs::read(two_seat.path()).unwrap(),
+        "the two seats pinned different rows"
+    );
+
+    let one = first.composite();
+    let two = second.composite();
+    // The invariance this case owns, asserted before the literals it is
+    // pinned to, so a producer that let a staging path or a seat's own
+    // file into the identity parts HERE rather than at an expectation
+    // that could be restated.
+    assert_eq!(
+        two.plugin, one.plugin,
+        "the same six files at another absolute path are the same component"
+    );
+    assert_eq!(
+        two.canonical, one.canonical,
+        "neither the staging path nor the seat beside it enters the identity"
+    );
+    assert_eq!(
+        one.plugin, WORKED_PLUGIN_VECTOR_COMPONENT,
+        "the worked plugin component, staged at an absolute path this \
+         fixture chose"
+    );
+    assert_eq!(
+        one.canonical, WORKED_PAIR_CANONICAL,
+        "the producer's pinned composite over the worked pair"
+    );
+
+    // The identity-bearing patches are equal, and the per-seat overlay is
+    // not one of them: a seat's own directory under the home leaves
+    // `home-patch` at the literal `absent`.
+    assert_eq!(
+        one.plugin_patch,
+        digest_of(b"- id: cli-session\n  config: {}\n"),
+        "the worked plugin's own cordis.patch.yml"
+    );
+    assert_eq!(two.plugin_patch, one.plugin_patch);
+    assert_eq!(one.profile_patch, two.profile_patch);
+    assert_eq!(
+        [one.home_patch.as_str(), two.home_patch.as_str()],
+        ["absent", "absent"],
+        "a seat's transcript root under the home is not a home patch"
+    );
+
+    // The same home, reached through a symlinked ancestor: the same
+    // bundles resolve, so the plugin and the composite are the same
+    // values. The raw anchor's own discriminator lives in
+    // `the_dsh_composite_accepts_a_symlinked_home_ancestor` and is not
+    // repeated here.
+    let alias = first.dir.path().join("alias");
+    std::os::unix::fs::symlink(&first.seams.home, &alias).unwrap();
+    let aliased = DshSeams {
+        executable: first.seams.executable.clone(),
+        home: alias,
+        node: None,
+        head: first.seams.head.clone(),
+    };
+    let through_alias = dsh_composite_with(&aliased, &first.node(), &[]).unwrap();
+    assert_eq!(through_alias.plugin, WORKED_PLUGIN_VECTOR_COMPONENT);
+    assert_eq!(through_alias.canonical, WORKED_PAIR_CANONICAL);
+
+    // The moving control: the comparison above is capable of parting. A
+    // home-level `cordis.patch.yml` — an identity-bearing patch, unlike
+    // the overlay — moves the second home's composite away from the
+    // first's.
+    write(&second.seams.home, "cordis.patch.yml", b"[]\n");
+    let patched = second.composite();
+    assert_eq!(patched.home_patch, digest_of(b"[]\n"));
+    assert_ne!(patched.canonical, one.canonical);
+}
+
+/// The manifest every general-bundle candidate in the containment cases
+/// carries: the same package at the same version, so which candidate the
+/// search reached is the only thing that can separate two observations.
+const BUNDLE_MANIFEST: &[u8] = br#"{"name":"@deepseek-ai/dsh-base","version":"0.1.5-rc.2"}"#;
+
+/// The refusal a listed bundle earns when the candidate the search
+/// reached lands outside both canonical roots.
+fn outside_both_roots(name: &str, dir: &Path) -> String {
+    format!(
+        "the DSH layout is unreadable: bundle '{name}' resolves outside the core root \
+         and the profile ({})",
+        dir.canonicalize().unwrap().display()
+    )
+}
+
+/// A bundle reached through a SYMLINK is judged where the link lands.
+///
+/// The boundary is canonical, so a candidate whose own spelling sits
+/// inside the profile and whose target does not earns its target's
+/// refusal, named by the canonical path. No fallback and no string-prefix
+/// comparison cures it.
+///
+/// Unix only: the symlink is the input, and Linux and macOS are the only
+/// hosts (decision 0063).
+#[cfg(unix)]
+#[test]
+fn a_bundle_directory_that_is_a_symlink_is_judged_where_it_lands() {
+    let install = Synthetic::new();
+    let installed = install
+        .profile()
+        .join("node_modules")
+        .join("@deepseek-ai/dsh-base");
+    fs::remove_dir_all(&installed).unwrap();
+
+    let elsewhere = install.dir.path().join("elsewhere/@deepseek-ai/dsh-base");
+    write(&elsewhere, "package.json", BUNDLE_MANIFEST);
+    std::os::unix::fs::symlink(&elsewhere, &installed).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        outside_both_roots("@deepseek-ai/dsh-base", &elsewhere),
+        "the candidate's own spelling is inside the profile; its target is not"
+    );
+
+    // The control: the same symlinked candidate whose target lands INSIDE
+    // the profile resolves, so the refusal above is the target's and not
+    // the link's.
+    fs::remove_file(&installed).unwrap();
+    let vendored = install.profile().join("vendor/@deepseek-ai/dsh-base");
+    write(&vendored, "package.json", BUNDLE_MANIFEST);
+    std::os::unix::fs::symlink(&vendored, &installed).unwrap();
+    assert_eq!(
+        install.composite().profile_bundles,
+        vec!["@deepseek-ai/dsh-base", "dsh-plugin-cli-session"]
+    );
+}
+
+/// The bundle search order D6 preserves, read off the producer: the core
+/// package's Node lookup, then the global folders, then the profile's own
+/// Node lookup from the RAW anchor upward.
+///
+/// Each position holds one candidate outside both canonical roots, so the
+/// refusal names the candidate the search reached first and removing it
+/// hands the next position its turn. Steps one and two are also the two
+/// shapes a listed general bundle escapes through — an ancestor
+/// `node_modules` and an injected global folder — and the contained copy
+/// the profile ships is present throughout, so no refusal here is a
+/// bundle the search simply could not find.
+#[test]
+fn the_bundle_search_order_is_core_ancestors_then_globals_then_the_profile() {
+    let install = Synthetic::new();
+    let root = install.dir.path().to_path_buf();
+    let bundle = "@deepseek-ai/dsh-base";
+
+    // An ancestor `node_modules` of the core package, above the core root
+    // `<root>/core` and outside the profile.
+    let ancestor = root.join("node_modules").join(bundle);
+    write(&ancestor, "package.json", BUNDLE_MANIFEST);
+    // An injected global folder, searched after the core's ancestors.
+    let global = root.join("global");
+    write(&global.join(bundle), "package.json", BUNDLE_MANIFEST);
+    // An ancestor `node_modules` of the home, above the profile boundary.
+    let above_profile = install.seams.home.join("node_modules").join(bundle);
+    write(&above_profile, "package.json", BUNDLE_MANIFEST);
+    // The contained copy the fixture ships, which the search prefers only
+    // when it is reached.
+    let contained = install.profile().join("node_modules").join(bundle);
+    assert!(contained.join("package.json").is_file());
+    let globals = [global.clone()];
+
+    // 1. The core package's own Node lookup is first.
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &globals
+        )),
+        outside_both_roots(bundle, &ancestor)
+    );
+
+    // 2. The global folders come next.
+    fs::remove_dir_all(root.join("node_modules")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &globals
+        )),
+        outside_both_roots(bundle, &global.join(bundle))
+    );
+
+    // 3. Then the profile's own lookup from the raw anchor, whose first
+    //    candidate is the contained copy: the layout composes, and the
+    //    candidate above the profile is never reached.
+    fs::remove_dir_all(global.join(bundle)).unwrap();
+    assert_eq!(
+        dsh_composite_with(&install.seams, &install.node(), &globals)
+            .unwrap()
+            .profile_bundles,
+        vec![bundle, PLUGIN_BUNDLE]
+    );
+
+    // 4. With the contained copy gone that walk climbs, and the candidate
+    //    above the profile is where it lands — outside both roots, and
+    //    still a refusal rather than a bundle taken from above.
+    fs::remove_dir_all(&contained).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(
+            &install.seams,
+            &install.node(),
+            &globals
+        )),
+        outside_both_roots(bundle, &above_profile)
+    );
+}
+
+/// The worked conditional-extension vector: the four declared relative
+/// paths and the exact bytes staged at each.
+///
+/// SYNTHETIC throughout. No repository extension exists and none is
+/// created here: these bytes are a temporary set staged under a temporary
+/// profile, and the Pass D clause comparing a real extension's committed
+/// files to its own provenance block applies only if an extension ever
+/// becomes required. No member shares bytes with a worked plugin member,
+/// so a walk that read one set where the other belongs cannot reach the
+/// pinned component.
+const WORKED_EXTENSION_SET: [(&str, &[u8]); 4] = [
+    ("LICENSE", b"MIT: the extension's licence\n"),
+    ("cordis.patch.yml", b"- id: resume-policy\n  config: {}\n"),
+    ("index.js", b"module.exports = { name: 'resume-policy' }\n"),
+    (
+        "package.json",
+        b"{\"name\":\"brokkr-dsh-resume-policy\",\"version\":\"0.1.0\"}\n",
+    ),
+];
+
+/// D6's component stream over the worked extension set, written out by
+/// hand in the same frozen form as `WORKED_PLUGIN_STREAM` and parsed back
+/// by `read_component_stream`.
+const WORKED_EXTENSION_STREAM: &str =
+    "LICENSE\u{0}f2b46aa194ff89288e43e52a6114072cd0e534f900b774aaf712c852d4820349\n\
+     cordis.patch.yml\u{0}9573302ca2ebd68d6d82706d7719b64e3263ae72ae207974230e72fb1beeec69\n\
+     index.js\u{0}875368ee35e942d7403b1dfc80c6cf471ae42c9f2bbe24790f6b9b3a86514733\n\
+     package.json\u{0}aeee393cadf790f650bdad1ece41c1dd4520fe78a4aaadad76f4a8643dbcf662\n";
+
+/// The producer's pinned component over the worked extension set.
+const WORKED_EXTENSION_COMPONENT: &str =
+    "7d95298968e908a8b10a692aff697b41d707f2b64f04b589cb7948c0f39a9cfd";
+
+/// The producer's pinned canonical composite over the worked pair with
+/// the worked extension listed and installed beside it.
+const WORKED_TRIO_CANONICAL: &str =
+    "2a08a17b3526f542138e760fa35c6e245be69d13380b32e2566ae82e13885183";
+
+/// The profile manifest that lists the conditional extension after the
+/// pair, so the declared order carries three `profile-bundle` rows.
+const TRIO_PROFILE_MANIFEST: &[u8] = br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#;
+
+/// D6's component stream for the worked pair with NO extension listed,
+/// written out by hand: the same frozen-literal discipline as D1's, and
+/// the direct statement that absence emits no `extension` line.
+const WORKED_PAIR_STREAM: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
+     node\u{0}v22.23.2\n\
+     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
+     dependency\u{0}dsh-plugin-cli-session 0.2.0 sha512-NPMREG\n\
+     plugin\u{0}d1f7df60c6c4eeda7797b4d2d54241cc7d1597b808b33422af87ee7ef9e09d7a\n\
+     plugin-patch\u{0}2e5380d538ff7f04b1d0035336fd3937c6762ad7acf8a17e00a0a23bdf2d6bc2\n\
+     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n\
+     profile-bundle\u{0}@deepseek-ai/dsh-base\n\
+     profile-bundle\u{0}dsh-plugin-cli-session\n\
+     profile-patch-reload\u{0}startup\n\
+     home-patch\u{0}absent\n";
+
+/// The same stream once the extension is listed and installed: one more
+/// `profile-bundle` row in declared order, and one `extension` line at
+/// the end.
+const WORKED_TRIO_STREAM: &str = "core\u{0}@deepseek-ai/dsh 0.1.5-rc.2 sha512-CORE\n\
+     node\u{0}v22.23.2\n\
+     dependency\u{0}debug 2.6.9 sha512-DEBUG\n\
+     dependency\u{0}dsh-plugin-cli-session 0.2.0 sha512-NPMREG\n\
+     plugin\u{0}d1f7df60c6c4eeda7797b4d2d54241cc7d1597b808b33422af87ee7ef9e09d7a\n\
+     plugin-patch\u{0}2e5380d538ff7f04b1d0035336fd3937c6762ad7acf8a17e00a0a23bdf2d6bc2\n\
+     profile-patch\u{0}37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570\n\
+     profile-bundle\u{0}@deepseek-ai/dsh-base\n\
+     profile-bundle\u{0}dsh-plugin-cli-session\n\
+     profile-bundle\u{0}brokkr-dsh-resume-policy\n\
+     profile-patch-reload\u{0}startup\n\
+     home-patch\u{0}absent\n\
+     extension\u{0}7d95298968e908a8b10a692aff697b41d707f2b64f04b589cb7948c0f39a9cfd\n";
+
+/// Stage the worked extension beneath the profile and list it after the
+/// pair. The files are written in REVERSE declared order, so a component
+/// that followed the fixture's write order parts from the pinned value.
+fn stage_worked_extension(install: &Synthetic) {
+    for (name, bytes) in WORKED_EXTENSION_SET.iter().rev() {
+        write(
+            &install
+                .profile()
+                .join("node_modules")
+                .join(EXTENSION_BUNDLE),
+            name,
+            bytes,
+        );
+    }
+    write(&install.profile(), "package.json", TRIO_PROFILE_MANIFEST);
+}
+
+/// The conditional extension: absent, then composed from its own four
+/// files, with both composites pinned twice and the ABSENCE stated as the
+/// missing line rather than as a missing value.
+#[test]
+fn the_conditional_extension_is_absent_or_composed_from_its_own_four_files() {
+    let install = Synthetic::new();
+    worked_pair(&install);
+
+    // Absent: the profile names no extension, so the stream carries no
+    // `extension` line at all.
+    let absent = install.composite();
+    assert_eq!(absent.extension, None);
+    assert_eq!(absent.canonical, WORKED_PAIR_CANONICAL);
+    assert!(
+        !WORKED_PAIR_STREAM.contains("extension"),
+        "absence emits no extension line"
+    );
+    assert_eq!(
+        digest_of(WORKED_PAIR_STREAM.as_bytes()),
+        absent.canonical,
+        "the composite over the pair is the SHA-256 of exactly these \
+         component lines, in this order"
+    );
+
+    // Present: the four declared files, in bytewise path order.
+    stage_worked_extension(&install);
+    assert!(
+        EXTENSION_FILES.windows(2).all(|pair| pair[0] < pair[1]),
+        "the declared extension set is in strictly increasing bytewise order"
+    );
+    let installed = install
+        .profile()
+        .join("node_modules")
+        .join(EXTENSION_BUNDLE);
+    let observed =
+        plugin_file_digests("extension", &installed, &EXTENSION_FILES, &read_dir_entries).unwrap();
+    assert_eq!(
+        observed.keys().map(String::as_str).collect::<Vec<&str>>(),
+        EXTENSION_FILES.to_vec(),
+        "the walk observed exactly the declared four, in bytewise path order"
+    );
+    for (name, bytes) in WORKED_EXTENSION_SET {
+        assert_eq!(fs::read(installed.join(name)).unwrap(), bytes, "{name}");
+        assert_eq!(observed[name], digest_of(bytes), "{name}");
+    }
+    read_component_stream(WORKED_EXTENSION_STREAM, &EXTENSION_FILES, &observed);
+    assert_eq!(
+        digest_of(WORKED_EXTENSION_STREAM.as_bytes()),
+        WORKED_EXTENSION_COMPONENT,
+        "the extension component is the SHA-256 of exactly these lines"
+    );
+
+    let present = install.composite();
+    assert_eq!(
+        present.extension.as_deref(),
+        Some(WORKED_EXTENSION_COMPONENT),
+        "the producer's pinned component over the worked extension set"
+    );
+    assert_eq!(
+        present.profile_bundles,
+        vec!["@deepseek-ai/dsh-base", PLUGIN_BUNDLE, EXTENSION_BUNDLE],
+        "the declared order, with the extension last"
+    );
+    assert_eq!(present.canonical, WORKED_TRIO_CANONICAL);
+    assert_ne!(present.canonical, absent.canonical);
+    assert_eq!(
+        digest_of(WORKED_TRIO_STREAM.as_bytes()),
+        present.canonical,
+        "the same stream with one more profile-bundle row and one \
+         extension line at the end"
+    );
+    // Read the frozen literal's last line back: the extension line is the
+    // final one, and it carries the observed component.
+    let last = WORKED_TRIO_STREAM
+        .strip_suffix('\n')
+        .expect("the stream ends with a newline")
+        .rsplit('\n')
+        .next()
+        .expect("the stream has a last line");
+    let (component, value) = last
+        .split_once('\u{0}')
+        .expect("the last line carries a NUL separator");
+    assert_eq!(component, "extension");
+    assert_eq!(value, WORKED_EXTENSION_COMPONENT);
+
+    // One changed byte in one extension file moves the extension
+    // component and the composite with it.
+    write(
+        &installed,
+        "index.js",
+        b"module.exports = { name: 'other' }\n",
+    );
+    let changed = install.composite();
+    assert_ne!(changed.extension, present.extension);
+    assert_ne!(changed.canonical, present.canonical);
+}
+
+/// A listed extension whose installed set has drifted is unreadable by
+/// the EXTENSION component — never plugin drift, and never absence.
+#[cfg(unix)]
+#[test]
+fn the_extension_walk_refuses_a_missing_extra_or_symlinked_member() {
+    let install = Synthetic::new();
+    worked_pair(&install);
+    stage_worked_extension(&install);
+    let installed = install
+        .profile()
+        .join("node_modules")
+        .join(EXTENSION_BUNDLE);
+    assert!(install.composite().extension.is_some());
+
+    // An EXTRA file the declared set does not name.
+    write(&installed, "extra.txt", b"x");
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "extension component is unreadable: unexpected entry 'extra.txt'"
+    );
+    fs::remove_file(installed.join("extra.txt")).unwrap();
+
+    // A declared file that is a SYMLINK, even to bytes that would hash to
+    // the same value: a hashed member is a regular non-symlink file.
+    let target = install.dir.path().join("licence-elsewhere");
+    fs::write(&target, b"MIT: the extension's licence\n").unwrap();
+    fs::remove_file(installed.join("LICENSE")).unwrap();
+    std::os::unix::fs::symlink(&target, installed.join("LICENSE")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "extension component is unreadable: 'LICENSE' is a symlink"
+    );
+    fs::remove_file(installed.join("LICENSE")).unwrap();
+
+    // A MISSING declared file — the same LICENSE, now simply gone.
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "extension component is unreadable: missing expected file 'LICENSE'"
+    );
+}
+
+/// The extension's own local `file:` record leaves the dependency lines
+/// only when the extension RESOLVED, because the exclusion list carries a
+/// name exactly when that name's installed bytes supplied a component.
+#[test]
+fn the_extension_s_local_record_leaves_only_when_the_extension_resolves() {
+    // The pair's lock with the extension's local tarball record and a
+    // same-named registry record beside it.
+    const TRIO_NPM_LOCK: &str = r#"{"lockfileVersion":3,"packages":{
+      "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+      "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+      "node_modules/nested/node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"https://registry.npmjs.org/dsh-plugin-cli-session-0.2.0.tgz","integrity":"sha512-NPMREG"},
+      "node_modules/brokkr-dsh-resume-policy":{"version":"0.1.0","resolved":"file:extension.tgz","link":true},
+      "node_modules/nested/node_modules/brokkr-dsh-resume-policy":{"version":"0.1.0","resolved":"https://registry.npmjs.org/brokkr-dsh-resume-policy-0.1.0.tgz","integrity":"sha512-EXTREG"},
+      "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+    }}"#;
+
+    let install = Synthetic::new();
+    worked_pair(&install);
+    stage_worked_extension(&install);
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        TRIO_NPM_LOCK.as_bytes(),
+    );
+    let observed = install.composite();
+    assert!(observed.extension.is_some());
+    assert_eq!(
+        observed.dependencies,
+        vec![
+            "brokkr-dsh-resume-policy 0.1.0 sha512-EXTREG".to_string(),
+            "debug 2.6.9 sha512-DEBUG".to_string(),
+            "dsh-plugin-cli-session 0.2.0 sha512-NPMREG".to_string(),
+        ],
+        "both local records leave and both registry namesakes stay"
+    );
+
+    // The SAME lock with the extension no longer listed: nothing supplied
+    // an extension component, so its local record is an ordinary entry —
+    // and an ordinary entry needs a registry integrity.
+    write(
+        &install.profile(),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "npm lock is unreadable: 'node_modules/brokkr-dsh-resume-policy': \
+         no registry 'integrity'"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Pass D part three: the profile's own lines, and the generated file that
+// is not one of them.
+//
+// SYNTHETIC deterministic storage shims over the canonical-root synthetic
+// home. Nothing here observes a live DSH installation, and no case is
+// evidence of upstream compatibility, qualification or enforcement.
+// ---------------------------------------------------------------------------
+
+/// The manifest that lists `bundles` in `order` with `reload`.
+fn profile_manifest(order: &[&str], reload: &str) -> Vec<u8> {
+    let bundles = order
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{\"dsh\":{{\"profile\":{{\"bundles\":[{bundles}],\"patchReload\":\"{reload}\"}}}}}}")
+        .into_bytes()
+}
+
+/// An additional bundle the profile may list, installed beneath the
+/// profile so it resolves: the composite gains a `profile-bundle` row and
+/// nothing else, because a bundle's own bytes reach the identity only
+/// through the plugin, the extension and the locks.
+const ADDED_BUNDLE: &str = "@deepseek-ai/dsh-headless";
+
+/// A profile bundle added, dropped or reordered, a changed `patchReload`
+/// and an added home-level `cordis.patch.yml` each move the canonical
+/// composite, and each moves it to its own RECORDED value.
+///
+/// Every case asserts three independent things: the component values and
+/// their order as the producer reports them, the identity each mutation
+/// lands on as a literal digest recorded from that same sole producer,
+/// and that no two of the six collide. A serializer that sorted the
+/// bundle rows, dropped one, or left `patchReload` out would differ from
+/// the recorded digest and fail here, because the moved value is pinned
+/// and not merely required to differ from the base.
+///
+/// The digests below are literals: the first version of this suite
+/// rebuilt the `profile-bundle` / `profile-patch-reload` / `home-patch`
+/// rows from the same case inputs the fixture had just written and hashed
+/// them, which is the second serializer D6 forbids — it agreed with the
+/// producer by construction, not by evidence (review 2026-09-23, finding
+/// 1; `no_test_reassembles_the_component_stream` now refuses that
+/// spelling by name). The tail's BYTE FORM is pinned once, where a frozen
+/// recorded stream can pin it: `WORKED_CANONICAL_STREAM` carries the
+/// `profile-bundle` rows in declared order, `profile-patch-reload` and
+/// `home-patch` verbatim. What these six cases own is the MOVEMENT
+/// (task 8.8(d), Pass D; design D6).
+#[test]
+fn a_profile_bundle_added_dropped_or_reordered_moves_the_composite() {
+    let install = Synthetic::new();
+    let profile = install.profile();
+    // The added bundle resolves inside the profile, so listing it is a
+    // profile change and never a containment refusal.
+    write(
+        &profile.join("node_modules").join(ADDED_BUNDLE),
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh-headless","version":"0.1.5-rc.2"}"#,
+    );
+
+    const BASE: [&str; 2] = ["@deepseek-ai/dsh-base", "dsh-plugin-cli-session"];
+    // Every case keeps `dsh-plugin-cli-session`, which the profile must
+    // list: the dropped case drops the OTHER bundle, so a readable
+    // removal is what is measured rather than the plugin refusal.
+    //
+    // The fourth member of each row is the canonical composite this
+    // install yields under that profile, recorded from the producer.
+    let cases: [(&str, Vec<&str>, &str, &str, &str); 6] = [
+        (
+            "base",
+            BASE.to_vec(),
+            "startup",
+            "absent",
+            "286b90a009cb66135faa2566be7b26305e8470ae7761d1e3e4b6c74e9973c1c4",
+        ),
+        (
+            "added",
+            vec![BASE[0], ADDED_BUNDLE, BASE[1]],
+            "startup",
+            "absent",
+            "b24fc83caefcc7cd6791e74959a6faebc5a617aace859fc0268fb59a78ebad44",
+        ),
+        (
+            "dropped",
+            vec![BASE[1]],
+            "startup",
+            "absent",
+            "dd75d065a528545bd7b775c679fb9d2d099b960300577e5fc27db1e4b13d1710",
+        ),
+        (
+            "reordered",
+            vec![BASE[1], BASE[0]],
+            "startup",
+            "absent",
+            "ae478bfc13e8271728003dc2a2ab8ca0c808ff8a64df3d4004f92887a4081365",
+        ),
+        (
+            "reload",
+            BASE.to_vec(),
+            "live",
+            "absent",
+            "46af043de52f509bd66bcef35297d3ae4e2ca884d0b33ef698a13814f466fc16",
+        ),
+        (
+            "home patch",
+            BASE.to_vec(),
+            "startup",
+            // `[]\n` is the profile patch's bytes too, so the home line
+            // takes a digest the stream already carries: the case moves
+            // because a `home-patch` line changed from `absent`, not
+            // because a new digest appeared anywhere.
+            "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "021ee2d3a3edf28ca80b16794a9218bfd46474c486952468594b96f1e5e7262b",
+        ),
+    ];
+
+    let mut digests: Vec<String> = Vec::new();
+    for (case, order, reload, home_patch, canonical) in &cases {
+        write(&profile, "package.json", &profile_manifest(order, reload));
+        if *home_patch == "absent" {
+            let path = install.seams.home.join("cordis.patch.yml");
+            if path.exists() {
+                fs::remove_file(&path).unwrap();
+            }
+        } else {
+            write(&install.seams.home, "cordis.patch.yml", b"[]\n");
+        }
+        let observed = install.composite();
+
+        // The component values, before any digest is compared.
+        assert_eq!(
+            observed.profile_bundles,
+            order
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>(),
+            "{case}: the declared bundle order"
+        );
+        assert_eq!(observed.profile_patch_reload, *reload, "{case}");
+        assert_eq!(observed.home_patch, *home_patch, "{case}");
+        assert_eq!(
+            observed.dependencies,
+            vec!["debug 2.6.9 sha512-DEBUG".to_string()],
+            "{case}: a profile change moves no dependency line"
+        );
+        assert_eq!(
+            observed.plugin, "8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99",
+            "{case}: a profile change moves no plugin byte"
+        );
+        assert_eq!(observed.extension, None, "{case}");
+
+        // The identity: the value recorded from the producer for exactly
+        // this profile, not a value recomputed here from these inputs.
+        assert_eq!(
+            observed.canonical, *canonical,
+            "{case}: the recorded canonical composite for this profile"
+        );
+        digests.push(observed.canonical.clone());
+    }
+
+    // Six streams, six identities: each mutation MOVED the composite, and
+    // no two of them collided.
+    let distinct: BTreeSet<&String> = digests.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        digests.len(),
+        "each profile mutation moves the composite to its own value: {digests:?}"
+    );
+}
+
+/// The generated `cordis.yml` is not a composite input, so rewriting it
+/// moves nothing.
+///
+/// The core rewrites this file from its own constant before every boot
+/// and the Loader may write it back between boots, which is exactly why
+/// D6 excludes it. The control is the file beside it: the profile's
+/// `cordis.patch.yml` IS an input, and one changed byte there moves the
+/// identity — so this test can tell "excluded" from "the fixture never
+/// changed anything" (task 8.8(d), Pass D; design D6).
+#[test]
+fn a_rewritten_generated_cordis_yml_leaves_the_composite_untouched() {
+    let install = Synthetic::new();
+    let profile = install.profile();
+    let base = install.composite();
+
+    // The generated file appears where `prepareProfile` writes it.
+    write(
+        &profile,
+        "cordis.yml",
+        b"# generated by prepareProfile\nbundles: []\n",
+    );
+    assert_eq!(
+        install.composite(),
+        base,
+        "a generated cordis.yml joins no component line"
+    );
+
+    // And it is rewritten, as every boot rewrites it.
+    write(
+        &profile,
+        "cordis.yml",
+        b"# generated by prepareProfile\nbundles: []\nrewritten: true\n",
+    );
+    assert_eq!(
+        install.composite(),
+        base,
+        "rewriting the generated cordis.yml moves no component line"
+    );
+
+    // The control: the patch file beside it is an input.
+    write(&profile, "cordis.patch.yml", b"[]\n# one more byte\n");
+    let moved = install.composite();
+    assert_eq!(
+        moved.profile_patch,
+        digest_of(b"[]\n# one more byte\n"),
+        "the profile patch is the digest of its own bytes"
+    );
+    assert_ne!(
+        base.canonical, moved.canonical,
+        "the fixture is capable of moving the composite at all"
+    );
+}
+
+/// The profile manifest's two required members, by the reason each defect
+/// raises. `bundles` and `patchReload` are read under different grammars —
+/// a non-empty array of scalars, and a closed pair of strings — so a
+/// missing member, a member of the wrong type and a member with an
+/// invalid value are separate refusals wherever the grammar separates
+/// them, and the same refusal where it does not (task 8.8(d), Pass D).
+///
+/// Every home is built on a `FixtureRoot`, the canonical spelling of a
+/// temporary root: the reader canonicalizes the profile boundary before
+/// it reads a manifest, so a home glued from a raw `TempDir` path names a
+/// file by a spelling the producer never says on a host whose `$TMPDIR`
+/// is reached through a symlink (review 2026-09-23, finding 2).
+#[test]
+fn the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart() {
+    // `bundles`: the grammar admits a non-empty ARRAY, so absence and
+    // every wrong type reach one reason, and a non-string ENTRY and an
+    // entry the scalar rule refuses reach two more.
+    for (case, bundles) in [
+        ("absent", None),
+        ("a string", Some("\"@deepseek-ai/dsh-base\"")),
+        ("an object", Some("{\"0\":\"@deepseek-ai/dsh-base\"}")),
+        ("null", Some("null")),
+        ("a number", Some("3")),
+    ] {
+        let root = FixtureRoot::new();
+        let home = root.path().join("home");
+        let manifest = match bundles {
+            Some(value) => format!(
+                "{{\"dsh\":{{\"profile\":{{\"bundles\":{value},\"patchReload\":\"startup\"}}}}}}"
+            ),
+            None => "{\"dsh\":{\"profile\":{\"patchReload\":\"startup\"}}}".to_string(),
+        };
+        write(
+            &home.join("profiles/headless"),
+            "package.json",
+            manifest.as_bytes(),
+        );
+        assert_eq!(
+            refused(read_profile(&home)),
+            "the DSH layout is unreadable: dsh.profile.bundles must be a non-empty array",
+            "{case}"
+        );
+    }
+
+    // `patchReload`: a missing member and one that is not a non-empty
+    // string share `required_string`'s reason, and a well-formed string
+    // outside the closed pair is the SEPARATE value refusal that names
+    // the value it read.
+    for (case, reload) in [
+        ("absent", None),
+        ("a number", Some("3")),
+        ("null", Some("null")),
+        ("an empty string", Some("\"\"")),
+        ("an array", Some("[\"startup\"]")),
+    ] {
+        let root = FixtureRoot::new();
+        let home = root.path().join("home");
+        let manifest = match reload {
+            Some(value) => format!(
+                "{{\"dsh\":{{\"profile\":{{\"bundles\":[\"x\"],\"patchReload\":{value}}}}}}}"
+            ),
+            None => "{\"dsh\":{\"profile\":{\"bundles\":[\"x\"]}}}".to_string(),
+        };
+        write(
+            &home.join("profiles/headless"),
+            "package.json",
+            manifest.as_bytes(),
+        );
+        assert_eq!(
+            refused(read_profile(&home)),
+            "the DSH layout is unreadable: dsh.profile: missing string 'patchReload'",
+            "{case}"
+        );
+    }
+
+    // Both admitted values, so the refusals above are the defects' alone.
+    for reload in ["live", "startup"] {
+        let root = FixtureRoot::new();
+        let home = root.path().join("home");
+        write(
+            &home.join("profiles/headless"),
+            "package.json",
+            &profile_manifest(&["@deepseek-ai/dsh-base"], reload),
+        );
+        let profile = read_profile(&home).unwrap();
+        assert_eq!(profile.patch_reload, reload);
+        assert_eq!(profile.bundles, vec!["@deepseek-ai/dsh-base".to_string()]);
+    }
 }
 
 // ---------------------------------------------------------------------------
