@@ -6,6 +6,18 @@ controls of THE PROOFS' tests for which B5's inventory (ledger §4, B5,
 (i)–(vii)) found no record. Entry 17 has no ruling, so entries 18, 19, 20
 and 21(b) are not performed here.
 
+**Outcome: stopped on four findings; 21(a) has not landed.** Six controls
+(2, 3, 4, 8, 9, 10) part their named assertions. Control 1 parts an
+earlier assertion than the decision assertion its bullet names (F1).
+Controls 5, 6 and 7 part the shared `error()` helper, not their collision
+assertions (F2–F4). The rule for this entry is that a control which does
+not part its named assertion is a finding. So each is recorded and
+stopped, and no test was weakened to force it. See **Findings** at the
+end. *(Corrected 2026-09-23 on the review return of the same run,
+findings C1–C3. The first cut counted nine successes and flagged control
+1 for the grader. It also abridged controls 2 and 10's failures, which
+are now verbatim.)*
+
 - Candidate: `be1ecf77624a16399ba133442db98a790f41d671` on `slice-dsh-8810`,
   clean before the first control and after the last.
 - Host: Linux 6.17.0-41-generic x86_64, cargo 1.98.0 (797e8a9bc 2026-08-05).
@@ -35,13 +47,13 @@ gave `test result: ok. 2 passed; 0 failed; … 22 filtered out`.
 
 | # | Ledger bullet | Test | Mutation | Parted at | Verdict |
 |---|---|---|---|---|---|
-| 1 | no-hands marker, unwrapped | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (`:3194`), unwrapped `Single` and `NoHandsMember` | `mark_hands`'s `NoHands` arm emptied | `:3223` (cold root recorded) | parted at the live decision's first assertion. **Flagged for the grader** (see 1) |
+| 1 | no-hands marker, unwrapped | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (`:3194`), unwrapped `Single` and `NoHandsMember` | `mark_hands`'s `NoHands` arm emptied | `:3223` (cold root recorded) | **finding F1**: parted before the decision assertion (`:3238`), which never ran (see 1) |
 | 2 | hands→no-hands, unwrapped | `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (`:3297`), unwrapped `HandsMember` | `Hands` arm publishes `not applicable`/`none` | `:3352` (`resume_refusal`) | parted at the named assertion |
 | 3 | second verify diagnostic | `bundle/tests.rs::a_dialect_wrapped_verify_select_reaches_the_single_or_panel_refusal` (`:220`) | `bundle.rs:1529` message replaced | `:241` | parted at the named assertion |
 | 4 | empty-agent propagation | `::a_selected_agent_case_keeps_its_empty_reference_cause` (`:254`) | `parse_selected_body`'s `resolve_reference` cause replaced (`bundle.rs:3050`) | `:270` | parted at the named assertion |
-| 5 | census, both invocations | `::a_literal_phase_that_aliases_a_selected_case_is_refused_globally` (`:1271`) | `owner_index`'s existing-label refusal disabled (`bundle.rs:1782`) | `:1291` via `error()` (`:7`) | refusal gone, alias compiles; rename-only construction valid under the mutation |
-| 6 | authoring census | `::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` (`:1349`) | first census's refusal dropped (`bundle.rs:1475`) | `:1371` via `error()` (`:7`) | refusal gone, alias compiles; no backstop masked it |
-| 7 | injected-validator claim | `::a_literal_phase_that_aliases_the_injected_validator_is_refused` (`:1387`) | claim removed (`bundle.rs:1550–1555`) **and** masking final walk removed (`:1607`) | `:1408` via `error()` (`:7`) | the final walk masked the claim's removal on its own, as recorded; with both removed the alias compiles |
+| 5 | census, both invocations | `::a_literal_phase_that_aliases_a_selected_case_is_refused_globally` (`:1271`) | `owner_index`'s existing-label refusal disabled (`bundle.rs:1782`) | `error()` (`:7`), called at `:1291` | **finding F2**: the alias compiles, so the collision assertion (`:1292`) never ran; rename-only construction valid under the mutation |
+| 6 | authoring census | `::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` (`:1349`) | first census's refusal dropped (`bundle.rs:1475`) | `error()` (`:7`), called at `:1371` | **finding F3**: the alias compiles, so the collision assertion (`:1377`) never ran; no backstop masked it |
+| 7 | injected-validator claim | `::a_literal_phase_that_aliases_the_injected_validator_is_refused` (`:1387`) | claim removed (`bundle.rs:1550–1555`) **and** masking final walk removed (`:1607`) | `error()` (`:7`), called at `:1408` | **finding F4**: the final walk masked the claim's removal on its own; with both removed the alias compiles, so the collision assertion (`:1414`) never ran |
 | 8 | prefix sweep | `::a_wrapped_verify_panel_leaves_an_unrelated_literal_phase_untouched` (`:1425`) | `relocate_verify_facts` sweeps `verify:*` | `:1448` | parted at the named assertion, not a census refusal or the `:1447` unwrap |
 | 9 | insert-as-removed | `::a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite` (`:1469`) | each destination inserted as its source is removed | `:1491` | parted at the named assertion |
 | 10 | dispatch re-mark | `engine/tests.rs::a_selected_single_publishes_its_own_confinement_at_dispatch` (`:188`) | `self.mark_hands(&site_name, &mut input)` removed (`engine.rs:1111`) | `:266` | parted at the named assertion |
@@ -49,10 +61,14 @@ gave `test result: ok. 2 passed; 0 failed; … 22 filtered out`.
 Controls 5, 6 and 7 fail inside the test's own `error()` helper
 (`bundle/tests.rs:5–10`, `Ok(_) => panic!("expected compilation to fail")`),
 which each test calls to demand the refusal before it reads the message.
-That is the collision assertion's first half: under each mutation the
-aliasing bundle **compiles**. No other refusal, no map panic and no
-compile error stands in its place. The `message.contains(…)` line is not
-reached because no message exists.
+Under each mutation the aliasing bundle **compiles**. No other refusal,
+no map panic and no compile error stands in its place. The named
+assertion is the `message.contains("addresses two different sites as …")`
+check (`:1292`, `:1377`, `:1414`). It never runs, because no message
+exists. The helper's generic panic is not that assertion, so each of
+these controls is a finding (F2–F4), not a success. *(The first cut read
+the helper's panic as the assertion's first half. Review C2 rejected
+that reading.)*
 
 ## 1. The no-hands marker, unwrapped shapes
 
@@ -109,7 +125,7 @@ root is recorded"). The cold-marker assertion `:3227–3230`
 (`boundary == "not applicable"`) comes after it and was not what parted.
 No fixture or compile failure preceded it.
 
-**Why it parts there, and what the grader must rule.** The gate decides at
+**Why it parts there.** The gate decides at
 both invocations. On the cold one, with no offer, `codex_launch` calls
 `qualify(&gate, …)` (`adapters.rs:2571–2573`). A `Disabled` gate returns
 `observed: None` and runs no version probe (`adapters.rs:1058–1065`), and
@@ -120,12 +136,20 @@ unrecorded cold root. `tasks.md` 9461 lists that effect first among the
 live-row assertions: "assert the durable cold root equals the engine
 offer". It follows that **no marker mutation can reach the retry's
 `launch: resumed` assertion (`:3238–3243`)**. With no root recorded, the
-engine makes no offer. This record therefore reads the cold-root
-assertion as the live decision parting at its first observable point. If
-the grader reads "its decision assertion" as the retry assertion alone,
-this control is a finding, not a pass. The reason is that the test
-cannot express that reading under any marker mutation, not that the
-mutation fails to bind. The test was not changed to force it.
+engine makes no offer.
+
+**Finding F1.** Both unwrapped failures part at the cold `root_session`
+assertion (`:3223`), before the retry decision assertion (`:3238`). The
+suppressed version probe explains that failure. It does not establish
+the decision-assertion failure the bullet commissions (9455–9456), and
+entry 22 cannot accept a substituted assertion. So this control did not
+part its named assertion. It is recorded and stopped, and the test was
+not changed to force it. Under the commissioned mutation, the test as
+written cannot express a decision-assertion failure. Closing F1 needs a
+ruling or a repair outside this entry's scope, which would re-open entry
+14. *(The first cut read the cold-root assertion as "the live decision
+parting at its first observable point" and flagged it for the grader.
+Review C1 rejected that reading.)*
 
 **Restoration.** The arm was restored by hand. The narrowed single shape
 reran green (`1 passed; … 23 filtered out; finished in 0.09s`). Then the
@@ -162,15 +186,33 @@ whole named test reran green with all four shapes:
 
 **Intended:** `refused_row["data"]["resume_refusal"] == "restrictions-unavailable"`
 (`:3352–3355`). **Observed**, exit non-zero. Narrowed `:3349` is
-`be1ecf77`'s `:3352`, and the exchange dump is abridged at `…`:
+`be1ecf77`'s `:3352`. The full failure block follows, verbatim from the
+run (`.forge/scratch/e21a/c2.out`, from `running 1 test`):
 
 ```text
+running 1 test
+anchor gap for proofs-a35d83f2: git command failed: ["hash-object", "-w", "--stdin"]: fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+
 thread 'the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement' (3963762) panicked at crates/brokkr-cli/tests/driver_conformance.rs:3349:9:
-assertion `left == right` failed: HandsMember wrapped=false: the gate's own token: [… Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "launch": String("resumed"), "model": String("not reported"), "root_session": Object {"harness_version": String("0.154.0"), "id": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), "kind": String("codex-thread"), "persistent": Bool(true)}, "sandbox": String("danger-full-access"), "step": String("harness-started")}, … "type": String("checkpoint")}, …]
+assertion `left == right` failed: HandsMember wrapped=false: the gate's own token: [Object {"driver": String("codex"), "msg_id": String("dbdd4abb-5610-4506-9255-13c45251f05d"), "proto": String("forge-driver/v1"), "supports": Array [String("resume")], "type": String("capabilities"), "version": String("0.11.0")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "msg_id": String("f0c3f7a0-8cf5-4836-8c47-a4f64e0af125"), "proto": String("forge-driver/v1"), "session_ref": Null, "type": String("accepted")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "model": String("not reported"), "step": String("transcript"), "transcript": Object {"home": String("/tmp/.tmpSfllDG"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("9f903f9f-193d-48fa-acca-9b0e4c94e033"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "launch": String("resumed"), "model": String("not reported"), "root_session": Object {"harness_version": String("0.154.0"), "id": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), "kind": String("codex-thread"), "persistent": Bool(true)}, "sandbox": String("danger-full-access"), "step": String("harness-started")}, "effect_id": String("fx"), "msg_id": String("b5f19095-aeae-4aca-813d-7c6de8d03304"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "model": String("not reported"), "step": String("turn-started"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("0facbec1-c840-4348-ae0e-cf4ae6c06f71"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "input_tokens": Number(3), "model": String("not reported"), "output_tokens": Number(1), "step": String("turn-completed"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("5f139295-5ab3-47d6-8c35-47f1fe96b119"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "exit_code": Number(0), "input_tokens": Number(3), "model": String("not reported"), "num_turns": Number(1), "output_tokens": Number(1), "step": String("codex-session-finished"), "transcript": Object {"home": String("/tmp/.tmpSfllDG"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("0a6ceb07-fe79-4ad7-a0ab-52e0e1815e7f"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "error": String("seat wrote no result file (the result contract was not met)"), "msg_id": String("5b013d48-87b4-4918-b9fd-b3fbaa2d3051"), "proto": String("forge-driver/v1"), "result": Null, "status": String("failed"), "type": String("result")}]
   left: Null
  right: "restrictions-unavailable"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement ... FAILED
+
+failures:
+
+failures:
+    the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement
+
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p brokkr-cli --test driver_conformance`
 ```
+
+The `anchor gap` lines are the fixture's non-fatal stderr: its temporary
+run root is not a git repository.
 
 The falsely marked boxed member **rejoined** (`launch: resumed`). The
 direct token assertion is what caught it, ahead of the supplemental
@@ -252,6 +294,12 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out
 
 The literal `work:chore` beside the selected case `work:chore` compiled.
 
+**Finding F2.** The panic is the `error()` helper's (`:7`). The collision
+assertion (`:1292–1295`) never ran. With the refusal disabled in both
+census invocations, no refusal is left to produce a message. So under the
+commissioned mutation, the named assertion cannot part. Recorded and
+stopped; the test was not changed.
+
 **The rename-only construction stays valid under the mutation.** The
 test's own control (`:1296–1307`) sits after the panic. So, with the
 mutation still applied, a temporary test was added beside the original
@@ -296,7 +344,8 @@ no occupant either. No claim bears on this fixture, whose destinations
 `verify:checks:alpha`/`:beta` and `verify:dialect-verify` no other owner
 takes.)
 
-**Intended:** `:1371–1380`, the refusal naming
+**Intended:** `:1377–1380`, reached through `error()` at `:1371`, the
+refusal naming
 `addresses two different sites as 'verify:alpha'`. **Observed:**
 
 ```text
@@ -307,7 +356,13 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out
 
 No backstop masked it. Once wrapping renamed the member to
 `verify:checks:alpha`, the final walk found no collision, which is the
-disguise the test's doc names. **Restored**, clean, rerun:
+disguise the test's doc names.
+
+**Finding F3.** The panic is the `error()` helper's (`:7`). The collision
+assertion (`:1377–1380`) never ran. Recorded and stopped; the test was
+not changed.
+
+**Restored**, clean, rerun:
 `test result: ok. 1 passed; … 463 filtered out; finished in 0.00s`.
 
 ## 7. The claim on the injected validator's address
@@ -345,8 +400,12 @@ expected compilation to fail
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out; finished in 0.00s
 ```
 
-The intended assertion was `:1408–1417`, naming
-`addresses two different sites as 'verify:dialect-verify'`.
+The intended assertion was `:1414–1417`, reached through `error()` at
+`:1408`, naming `addresses two different sites as 'verify:dialect-verify'`.
+
+**Finding F4.** The panic is the `error()` helper's (`:7`). The collision
+assertion (`:1414–1417`) never ran. Recorded and stopped; the test was
+not changed.
 
 **Step 3, the claim's own effect.** The claim was restored and the final
 walk kept removed. The test passed (`1 passed; … 463 filtered out`), so
@@ -440,14 +499,27 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out
 ```
 
 **Intended:** `:266–269`, `start["input"]["boundary"] == "namespace"`.
-**Observed** (the Start dump abridged at `…`):
+**Observed**, the full failure block verbatim from the run
+(`.forge/scratch/e21a/c10.out`, from `running 1 test`):
 
 ```text
+running 1 test
+
 thread 'engine::tests::a_selected_single_publishes_its_own_confinement_at_dispatch' (4006487) panicked at crates/brokkr-runtime/src/engine/tests.rs:266:5:
-assertion `left == right` failed: the selected single publishes its own boundary: {"attempt_id":"3353e00e-…","effect_id":"e20e06e3-…","input":{"allowed_results":["complete"],"boundary":null,…
+assertion `left == right` failed: the selected single publishes its own boundary: {"attempt_id":"3353e00e-25f1-4899-a9ca-6fff266f6b17","effect_id":"e20e06e3-0928-4018-9e02-3a1f979a2185","input":{"allowed_results":["complete"],"boundary":null,"context":{"last_decision":{"from":"triage","inputs":{},"next":"work","problem":null,"result":"engine","rule_id":"TRIAGE","severity":"normal"},"results":{"triage":{"inputs":{},"result":"engine"}},"run_id":"selection-2deff9ed"},"feature":"selection","hands":null,"phase":"work","result_path":"/tmp/.tmpcRIN0E/work/.forge/results/e20e06e3-0928-4018-9e02-3a1f979a2185.json","resume_context":{"assessment":null},"role_path":"role.md","seat":"work","workdir":"/tmp/.tmpcRIN0E/work"},"msg_id":"b7a2b137-d021-48c7-a0c6-c28bf71c833a","proto":"forge-driver/v1","seat":"work:engine","type":"start"}
   left: Null
  right: "namespace"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test engine::tests::a_selected_single_publishes_its_own_confinement_at_dispatch ... FAILED
+
+failures:
+
+failures:
+    engine::tests::a_selected_single_publishes_its_own_confinement_at_dispatch
+
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p brokkr-runtime --lib`
 ```
 
 The phase label `work` owns no facts, so `seat_input`'s marking published
@@ -471,3 +543,27 @@ this file, which was not yet written when the cargo gates ran:
 Not run here, as the commission directs: the exact-coverage script, the
 bundle compiles and entry 14's ordered list (entry 22 records those),
 and every checkbox.
+
+## Findings
+
+Recorded 2026-09-23 on the review return of run
+`issue-226-acceptance-ledger-entr-4b36a6f8` (C1, C2). A control that does
+not part its named assertion is a finding, not a skip. These four stop
+21(a):
+
+| Finding | Control | Named assertion | Where it parted | Why the named assertion cannot part |
+|---|---|---|---|---|
+| F1 | 1, no-hands marker dropped, unwrapped `Single` and `NoHandsMember` | the retry decision (`driver_conformance.rs:3238`) | the cold `root_session` assertion (`:3223`) | A `Disabled` gate runs no version probe, so no root is recorded and no offer is made |
+| F2 | 5, `owner_index`'s refusal off in both census walks | `bundle/tests.rs:1292`, "addresses two different sites as 'work:chore'" | `error()`, "expected compilation to fail" (`:7`) | No refusal remains to produce a message |
+| F3 | 6, authoring census dropped | `:1377`, "… as 'verify:alpha'" | `error()` (`:7`) | Same as F2 |
+| F4 | 7, injected-validator claim and its final-walk backstop removed | `:1414`, "… as 'verify:dialect-verify'" | `error()` (`:7`) | Same as F2 |
+
+Each mutation binds: each case fails, and fails because the removed
+refusal or marker is gone. What none of them shows is the commissioned
+assertion parting, and entry 22 cannot accept a substituted assertion. No
+test or assertion was changed. Closing these needs one of two things. The
+operator can rule on what these controls must show. Or the tests can be
+repaired so that each assertion is reachable under its removal, which
+moves bytes and so re-opens entry 14. Neither is within 21(a). Until
+then, 21(a) is open, and 8.10, which waits on it in every case, stays
+unticked.
