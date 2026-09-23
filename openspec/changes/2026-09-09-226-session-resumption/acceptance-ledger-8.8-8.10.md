@@ -2050,7 +2050,8 @@ symlink fixture and twenty planner vectors.
      retained and one cold launch row. Gates: fmt, workspace clippy,
      `-p brokkr-protocol` (430 lib), `-p brokkr-runtime` (464 + 94),
      `-p brokkr-cli` (468 + 318) and `git diff --check`. No checkbox
-     moved; regrading B16 and B20 is entry 22's.
+     moved; regrading B16 and B20 is entry 22's. Docs only, at
+     `7f2aaeda`; the ruling itself is at `4d2e9e72`.
 
 20. **If 17 rules no: replay the R1–R4 group's removals (8.8 only).** Added
    by the remediation. Covers N2 (M5, M6), N4 (M4, with entry 12's
