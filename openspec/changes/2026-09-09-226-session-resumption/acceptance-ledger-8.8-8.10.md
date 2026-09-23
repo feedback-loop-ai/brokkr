@@ -1001,6 +1001,43 @@ exist.
    gates green (463 lib plus 94 integration, 0 failed). Tests only; no
    checkbox moved.
 
+3b. **Complete B59's version-output matrix.** Added from the chief review of
+   run `issue-226-the-8-8-and-8-10-accep-b5a676bf` (C6, 2026-09-23); ordered
+   after 2d. `tasks.md` 5302–5306 asks for absent, malformed and unreadable
+   version output and a version-command failure, each exercised
+   independently. `a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route`
+   has `exit 3` and one successful `no-version-here` banner, and the matching
+   positive does not supply the rest. Touches
+   `crates/brokkr-protocol/src/adapters/tests.rs` only. Add distinct cases,
+   each on a successful exit: empty output (absent), output that is not a
+   version (malformed), and output that is not valid UTF-8 (unreadable). Keep
+   the `exit 3` case. Assert the exact reason each declines with. A vector
+   ACCEPTED on current production bytes is a production finding: stop and
+   report it. B59 is discharged only when all four are distinct and bound.
+
+   **Stopped 2026-09-23 on a production finding; no test landed.** Version
+   output that is **not valid UTF-8 is admitted** when it also carries the
+   matching version. `observed_version` (`adapters.rs:1005–1031`) reads the
+   probe's stdout through `String::from_utf8_lossy` (`:1010`), so the bytes
+   `0.1.5-rc.1\n\377\376\n` on exit 0 observe `0.1.5-rc.1`. So does
+   `0.1.5-rc.1 \377\n`. On the offered path of the test above, each
+   qualifies after one producer call. Each carries no refusal, plans
+   `stream_json`, rejoins `session-1` at its own root with `first_seq`
+   `Some(3)` and records the digest. This is against `tasks.md` 5302–5306
+   and `qualify`'s own contract at `adapters.rs:1049–1051` ("missing,
+   unreadable or different … disables resume"). A vector of invalid bytes
+   alone (`\377\376\n`) declines, but only because it carries no digit, so
+   it collapses onto the malformed case and cannot stand for "unreadable".
+   The other three were probed on the same offer, each isolated to one
+   property. Each is **not** a finding: empty output on exit 0,
+   `no-version-here` on exit 0, and the matching version printed before
+   `exit 3` each observe nothing, never reach the producer (a panicking
+   closure), and decline `unverified-harness` onto a fresh root under the
+   current home. B59's `discharged` grade is withdrawn for its unreadable
+   half. The remedy is a strict UTF-8 read of the probe's stdout, where
+   invalid bytes observe no version. Then this unit re-runs whole. The
+   probes were reverted.
+
 5. **Obtain the external evidence.** Closes **N13 (8.8.8.3)** and supplies
    B26's macOS half, N2's and N4's macOS legs and N11's native prerequisite.
    Touches nothing. `TMPDIR=/tmp bash scripts/coverage-exact.sh` on CI or a host
