@@ -407,11 +407,45 @@ executed in this seat (`No such file or directory: 'cargo'`), so fmt, clippy,
 both owning crate suites, workspace tests and self compilation are unavailable,
 not green. Full details are in evidence's unit 3 specification entry.
 
+Council design adoption, 2026-09-23, run
+`build-decision-0065-slice-one-re-29dd19f2`, baseline `12110687`: D5.7 reads
+and explicitly reconciles both current positions. Keep task 3.1 and aggregate
+4.2 open. Unit 3 retains structured composition on ChainEntry and native typed
+contribution/expectation in its producer before legacy projections. Candidate
+storage and all dispatch changes are unit 4 work; a helper pass is no proof
+of their transport. This placement follows SCM/NCC's existing unit boundary,
+without changing a requirement or activating refusal.
+
+Implement within the same three production files and two suites. Preserve
+current admission, direct-empty refusal, dormant hands semantics and exact
+mapped values. The seven scenario proof rows and their independent mutations
+are specified in D5.7. Exercise native expectations through the real producer
+from agents/tests.rs; hand-built decoder records cannot substitute for it.
+Record actual baseline, compiling mutation assertion and restored pass per
+new test/claimed row, never invented reds or a single first-row failure for
+an entire table. No tests, mutations or behavioral closure occurred in this
+design visit. See the unit 3 council entry in evidence.md for observed checks.
+
 ## 4. Unit 4 — Wire origins through runtime dispatch
 
 - [ ] 4.1 Unit 4 wires the selected candidate's private segments through engine.rs SiteSpawn, bundle projection, boundary composition, placeholder expansion and final input merging. Verify absent/reordered/overridden records refuse and legitimate typed controls survive. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; robustness runtime evidence. (previous 3.21)
 
 - [ ] 4.2 Units 3–4 lower typed restrictions and carry distinct authored/template/local/hands/native origins end to end through runtime SiteSpawn, boundary/expansion and input assembly. Close only after unit 4 verifies exact limits, selected candidate, reassembly and override refusal; 15.2 owns final authored-counterfeit refusal. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Reserved hands preserves the existing workspace authority][TD6]. Reopened/remaining: operator ruling 1–2. (previous 3.15)
+
+D5.7's inventoried storage split amends this future unit before implementation:
+production files are runtime agents.rs, bundle.rs and engine.rs (three total).
+Migrate Candidate storage, agents.rs::resolve_report and bundle.rs's model-policy
+and expanded-candidate constructors together. Existing engine/tests.rs,
+engine/agent_tests.rs and engine/resume_tests.rs join the already named
+engine/capability_tests.rs and engine/boundary_tests.rs for constructor updates;
+runtime tests/capability_launch.rs retains its integration obligation.
+These future edits do not widen unit 3. Carry the selected native and local
+expectations together with origins, project driver extras structurally, and
+write the private record after all untrusted input merges. Do not recover the
+richer record from Candidate::parts, raw bytes or the old authored/managed pair.
+Keep 4.1/4.2 open until their full protected-transport proofs pass; final
+serving-command and authored-counterfeit closure stays with 15.2. Any additional
+file or pin dependency requires an inventoried split before editing.
 
 ## 5. Unit 5 — Supply local mappings and scaffold support
 

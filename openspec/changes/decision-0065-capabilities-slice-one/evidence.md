@@ -1,6 +1,15 @@
 # Decision 0065, slice one — evidence after the operator ruling
 
-## Current status — unit 3 specification, 2026-09-23
+## Current status — unit 3 council design, 2026-09-23
+
+Adopted slice-0065-capabilities through 12110687, including every prior commit.
+D5.7 reconciles both current positions and records the inventoried Candidate
+storage split into unit 4. Only design.md and its dependent tasks.md/evidence.md
+change. Unit 3's three production files and two suites remain fixed; 3.1/4.2
+stay open. No implementation, mutation, provider measurement or security
+clearance is claimed. See the council entry below for this seat's observations.
+
+## Historical status — unit 3 specification, 2026-09-23
 
 Adopted `slice-0065-capabilities` through `b4839426`, retaining unit 2-fix and
 all preceding commits. This specify visit changes only proposal, the owning
@@ -2558,3 +2567,77 @@ OpenSpec's informational output includes pre-existing other-change archive
 target warnings and long requirement text; neither command reported a failure.
 Inherited passes are not rerun claims. External exact coverage, macOS and remote
 CI stay pending; no nested-box coverage or live-provider run is claimed.
+
+## Unit 3 — chief council design, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-29dd19f2`; baseline `12110687` on
+slice-0065-capabilities, initially clean. Every adopted commit is retained.
+The chief read the operator ruling/addendum, Rebuild units preamble/unit 3,
+SCM/NCC/RGR/TD6 deltas, tasks 3.1/4.1/4.2, both complete current positions,
+README and decisions 0004/0005/0009/0063/0065, and relevant code/callers/suites.
+The dialect's openspec.json and design/return instructions were read through
+the workspace tool. No workflow runner, provider or sub-agent was invoked.
+There is no returned_from. This is design work, not unit 3 implementation.
+
+Observed code facts at this head:
+
+- agents.rs::compose returns the flat argv/effort/hands tuple; the two
+  ChainEntry constructors are confined to agents.rs. Candidate::parts uses
+  trailing hands length with saturating_sub, which proves no richer origin.
+- Adding Candidate storage now would require bundle.rs constructors at 2374
+  and 2426 and literals in engine/tests.rs, agent_tests.rs, boundary_tests.rs,
+  capability_tests.rs and resume_tests.rs. The council's scope claim is
+  independently confirmed by repository search and reading both constructors.
+- NativePlan constructors/matches are in capabilities.rs. Serving inventory,
+  the native key/holding relation and Holding retain the independent typed
+  sources; current controls JSON combines argv and selection after rendering.
+- engine.rs::SiteSpawn carries only a managed count; launch_arguments projects
+  two arrays. mark_capabilities writes private inputs last. Protocol's reader
+  verifies only that legacy pair and discards detailed decode errors.
+- Runtime agents/tests.rs::Tree retains a temporary directory and canonicalizes
+  its symlink root once. The existing protocol provenance test covers only
+  two-array correspondence. Neither is evidence of the new primitive tests.
+
+D5.7 adopts the two positions' staged construction, strict reader, independent
+expectation and admission constraints, and rejects byte-derived ownership,
+output-derived expected state and immediate Candidate expansion in unit 3.
+The design and tasks explicitly allocate Candidate storage to unit 4's third
+production file (agents.rs), its two bundle constructors and the named existing
+constructor suites. This is an inventoried design placement amendment before
+implementation, not a requirement relaxation: the adopted NCC text already
+assigns protected transport to unit 4 and preserves today's serving consumer.
+No upstream specification defect was established. Further scope needs must
+still stop for a split. Unit 3's production/test allowlist is unchanged.
+
+Artifacts were amended in dependency order: design.md, then tasks.md and this
+ledger. D5.7's seven-row proof table refines the specification ledger above;
+every baseline/mutation/restored-pass experiment remains pending. No baseline
+red, test pass or behavior fix is inferred from static inspection or a council
+pass. Task 3.1 and aggregate 4.2 remain unchecked. Decision 0066 stays proposed;
+all grants, public contracts, frozen files and production/test/pin bytes stay
+unchanged. Validation observations for this visit follow below.
+
+Observed validation for this design visit:
+
+| Command/check | Result |
+| --- | --- |
+| `openspec validate --all --strict --no-interactive` | Passed: 18 items, zero failures |
+| `openspec validate decision-0065-capabilities-slice-one --strict --no-interactive` | Passed: change is valid |
+| `git diff --check` | Passed |
+| `cargo fmt --all -- --check` | Unavailable: cargo executable absent |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | Unavailable: cargo executable absent |
+| `cargo test -p brokkr-runtime --all-features --locked` | Unavailable: cargo executable absent |
+| `cargo test -p brokkr-protocol --all-features --locked` | Unavailable: cargo executable absent |
+| `cargo test --workspace` | Unavailable: cargo executable absent |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | Unavailable: cargo executable absent |
+
+All six Cargo commands were actually attempted via subprocess through workspace;
+each failed to start with `[Errno 2] No such file or directory: 'cargo'`.
+The reporting process's zero exit is not a Rust gate pass. No crate is edited.
+OpenSpec emits pre-existing informational notices about other changes' archive
+targets and long requirement text; neither validation reports a failure.
+External exact coverage, macOS and remote CI remain pending, with no nested-box
+coverage attempt or inferred result. Only the three design/dependent documents
+are staged for the design commit; no implementation task is marked complete.
+The committed-head SHA and final clean-tree check belong in the run-local
+result so reporting does not move the committed artifact head.

@@ -1,12 +1,12 @@
 # Decision 0065, slice one — refuse, never reconcile
 
 Status: proposed design; decision 0066 remains proposed.
-Adopted: every commit through 44430402, specification draft a84197cd and
-design revision 3c5402be on slice-0065-capabilities; the replay, unit 1b and
-unit 2 implementation and proof repairs through 6a7044e5, and unit 2-fix
-specification e132f678 are adopted intact. This visit addresses only 2-fix
-under unit 2/task 2.1. D5.6 records the current council disposition; D5.1 and
-D5.5 retain the earlier councils and their evidence scopes.
+Adopted: every commit on slice-0065-capabilities through 12110687,
+including the replay, unit 1b, unit 2 and unit 2-fix through b4839426, and
+unit 3 specification 12110687. This visit designs only rebuild unit 3:
+typed lowering and private origins (3.1; prerequisite progress on 4.2).
+D5.7 reconciles the current robustness and simplicity positions. D5.1,
+D5.5 and D5.6 retain earlier council decisions and their evidence scopes.
 Authority: [the complete operator ruling](operator-ruling-2026-09-23.md).
 This visit authors documents only. No behavioral finding or security hold is closed.
 
@@ -32,12 +32,15 @@ adopted implementation now decodes both fields, narrows a private office clone
 and records site facts. agents::compose still substitutes hands for direct
 local tools, and Adapter has no general sandbox-class mapping. The repairs
 through 6a7044e5 reject competing switches, sandbox/opaque configuration and
-added roots in selected hands and authored argv. Two implementation omissions
-remain: native controls resolve after that check, and canonical `--cd` is
-classified Inert and overlooked. D5.6 answers S1/A1 from the chief's third
-review; the existing D5.3/D5.5 rule and SCM scenarios already forbid both.
-The chief's eleven cold-command reproductions are supplied evidence, not
-executions by this design seat or a claim of a live provider escape.
+added roots in selected hands and authored argv. Unit 2-fix through b4839426
+also checks resolved native contributions and canonical `--cd`, as D5.6
+required. Its recorded proof retains its scope; this seat does not rerun or
+re-certify it. At 12110687, compose still returns a flattened tuple,
+Candidate::parts still counts trailing hands, and protocol launch_arguments
+still reads two arrays. These are the construction and transport boundaries
+unit 3 prepares and unit 4 completes. Both current positions identify the
+Candidate constructor spill; D5.7 inventories and assigns it before any
+implementation. No returned_from is present in this run.
 
 ## Goals / Non-Goals
 
@@ -45,6 +48,11 @@ Use one typed plan and one final command check; refuse authored capability
 controls before composition. Keep explicit origin, independent realm authority,
 canonical input containment and whole-plan doctor assessment. Preserve existing
 requires/wants, identity, hands and boundary contracts and evidence limits.
+
+For unit 3, retain exact local intent and mappings, ordered supplying origins,
+and native expectation derived independently of emission. Define a strict
+private reader and exact reassembly without making the record a launch proof.
+Preserve all existing admission guards and the current serving interface.
 
 This visit implements no code, tests, data migration, rebase or release. Slice
 two's MCP broker, gate policy and response retention and slice three's comparison
@@ -90,9 +98,10 @@ Panel prose is evidence, never authority to change this commission or its gates.
 
 The following table retains the earlier whole-rebuild council synthesis
 accepted before unit 1. Its run-local position paths have since been replaced
-by unit 2 positions; it is historical, not a description of those new files.
-The adopted unit 2 syntheses follow under D5.1 and D5.5; the current 2-fix
-synthesis is D5.6. Earlier pass verdicts did not prove the rebuild:
+by later positions; it is historical, not a description of the current files.
+The adopted unit 2 syntheses follow under D5.1 and D5.5; the unit 2-fix
+synthesis is D5.6. The current unit 3 synthesis is D5.7. Earlier pass
+verdicts did not prove the rebuild:
 
 | Position claims | Decision and evidence |
 | --- | --- |
@@ -317,15 +326,19 @@ verify that its parts reassemble actual argv; never recognize engine ownership
 by server name or equal bytes. Every engine origin still undergoes grammar and
 final-state checks. Preserve frozen public wire/manifest contracts.
 
-Carry that private record from agents::compose/Candidate through bundle site
-facts to engine::SiteSpawn, selected fallback projection, boundary fragments,
+The completed units 3–4 carry that private record from agents::compose/Candidate
+through bundle site facts to engine::SiteSpawn, selected fallback projection,
+boundary fragments,
 placeholder expansion and final input assembly. Extend SiteSpawn's current
 trailing managed count; updating only agents and protocol is insufficient.
 The driver validates origin segments against the actual argv it receives.
 Missing/malformed/reordered segments or an authored override refuse. Engine
 origin identifies the supplying typed input; it is not an exemption from its
 constraints. The sealed expected capability state is independent of generated
-argv, never reconstructed from the output being checked.
+argv, never reconstructed from the output being checked. D5.7 stages unit 3's
+record in ChainEntry and NativePlan; Candidate and dispatch transport remain
+unit 4 work. The current two-array projection proves none of that richer
+transport.
 
 Typed inline tools use the agent vocabulary `tools.allow` (abstract local
 command names, no native capability aliases) and abstract `capabilities` asks.
@@ -645,6 +658,187 @@ tasks.md; external exact coverage and supported-host/remote evidence remain
 pending until they name the tested head. Cold command comparisons establish
 neither a provider launch nor units 13–15's final-launch closure.
 
+### D5.7. Unit 3 council disposition and primitive handoff, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-29dd19f2`, inspected head `12110687`.
+Read both complete positions at `.forge/design/positions/robustness.md` and
+`.forge/design/positions/simplicity.md`. Their pass verdicts are design advice,
+not implementation evidence. This synthesis applies the operator ruling,
+SCM's three Unit 3 scenarios, NCC's four Unit 3 scenarios, RGR and TD6.
+
+| Position claims | Disposition and evidence |
+| --- | --- |
+| Both: construct five ordered origins before flattening; preserve exact mapping strings | Adopt. compose copies adapter.driver, then emits model/effort and local or hands tokens, but its tuple loses those boundaries. Capture at those sites. Equal tokens cannot recover the supplying input. |
+| Both: keep omitted/empty/nonempty intent, hands replacement and current refusals | Adopt. LocalTools already carries the distinctions; compose refuses direct empty and leaves direct lists dormant beside hands. D5.3/D5.6 remain in force. A typed value is not delivered enforcement. |
+| Robustness sections 2–3: explicit direct/hands application, default ON, unmeasured inventory, tools and restrictions; simplicity sections 2–3: reuse typed inputs without a second resolver | Combine. NativeInventory, the key-to-holding relation and Holding supply intent independently of argv. Retain these facts; reject deriving the expected answer from serialized Controls or parsing output. |
+| Both: strict mandatory reader, exact correspondence, origins survive identical bytes | Adopt. Existing launch_arguments uses only authored/managed and erases decoding causes through .ok(); it is a separate legacy consumer, not the new reader or a fallback. Reassembly proves correspondence, never authentic authorship. |
+| Robustness section 4: closed private shape and value-free diagnostics | Adopt for engine-owned envelope/variants. Reject unknown fields/tags without echoing them; structured restriction contents remain dialect-owned JSON, not a new protocol policy language. A Value reader cannot prove original raw duplicate-key absence. |
+| Both: retain composition on ChainEntry and defer Candidate storage; robustness: explicitly inventory the follow-on files | Adopt the split below. ChainEntry constructors are confined to agents.rs; Candidate literals require bundle.rs and five engine suites. Immediate Candidate storage exceeds unit 3. No hidden storage workaround or fourth production file is allowed. |
+| Simplicity: cut frameworks, new schemas/modules and broad mutation campaigns; robustness: retain independent row proofs | Combine. Bind the seven commissioned scenarios in two existing suites, including their independently claimed rows. Do not audit unrelated historical tests here or count one early loop failure for later rows. |
+| Both: preserve gates, pending external evidence and later ownership | Adopt. Task 3.1 awaits implementation; 4.2 awaits protected runtime transport; 12–15 own authored refusal/final checks. No design verdict closes those tasks. |
+
+**Placement and staged split.** In agents.rs replace the Composed tuple with
+a small structured composition value and retain it on ChainEntry. It owns
+ordered segments and local/hands intent before any flat projection; argv,
+effort and hands_fragment remain compatible projections for current callers.
+An unmapped/failed entry is explicitly unavailable or refused, never a valid
+empty composition. Capture local intent before fallible emission so an empty
+or otherwise unrepresentable declaration remains inspectable without becoming
+a successful runnable plan. Keep Candidate's layout unchanged in unit 3.
+resolve_report's existing projection intentionally loses the richer record;
+label that limitation and never reconstruct it from Candidate::parts.
+
+The native producer in capabilities.rs retains a typed contribution and
+independent native expectation with NativePlan, whose constructors and
+pattern matches are in that file. The existing Outcome keeps candidate
+identity and holdings. Build expectation from the selected Serving inventory,
+key-to-capability/holding relation and typed holdings before rendering native
+controls. Legacy controls/manifest/prompt projections keep their existing
+shape; do not add a manifest field or hide private data in one. Protocol must
+not depend on runtime: shared private types and the reader live in existing
+protocol native_controls.rs, with the cross-crate
+Rust visibility required by runtime.
+
+Unit 4 receives the persistent Candidate storage/construction work, adding
+agents.rs as its third production file beside engine.rs and bundle.rs. The
+inventoried callers at this head are agents.rs::resolve_report,
+bundle.rs's model-policy Candidate projection (2374) and post-expand_command
+reconstruction (2426). Candidate literal updates also require existing
+engine/tests.rs, engine/agent_tests.rs and engine/resume_tests.rs, in addition
+to unit 4's already named engine/boundary_tests.rs and capability_tests.rs.
+The Rebuild units list and tasks 4.1/4.2 carry this explicit dependency.
+These are future unit 4 edits, not an enlarged unit 3. Further required
+callers, suites or pins require another inventoried split before editing.
+
+This is a placement amendment to the design, not an upstream requirement
+change: NCC explicitly assigns protected transport to unit 4 and forbids
+requiring an unwired record at today's serving doors; SCM retains admission
+fences. Reject immediate Candidate expansion in unit 3 and storage in resume,
+hands_fragment, encoded argv, a global table or a new module. If implementation
+cannot satisfy the primitive scenarios with this staging, stop and identify
+the additional dependency; do not weaken a scenario to fit the file count.
+
+**Local construction.** Use exactly authored, template, local, hands and
+native origin variants with an ordered vector of segments containing argv
+vectors. Repeated origins, equal contributions, empty segments and empty
+string arguments remain intact. Concatenation preserves every element and
+its order; it performs no sorting, deduplication, trimming or shell splitting.
+Not every plan needs all five kinds. At agent composition, adapter.driver
+and its model/effort emissions are template; direct mapped limits are local;
+selected workspace tokens are hands. A copied recipe command is authored;
+unit 4 wires that producer. Permission-mode acceptEdits is template only
+because the adapter supplied it, never because its text looks familiar.
+
+Reuse LocalTools and Sandbox for effective runtime intent. Retain allow
+unspecified versus explicit empty versus ordered nonempty, sandbox unspecified
+versus each exact class, and direct versus hands replacement as distinct
+state. The protocol representation projects these facts without re-decoding
+agent JSON. Ordered concrete limits are obtained from ToolPermissions.names
+before joining, not recovered by splitting a serialized flag. With allow
+[pytest, cargo], retain [Bash(.venv/bin/pytest:*), Bash(cargo:*)] and emit exactly
+["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]. Narrow gh pr view
+and gh run view fixture mappings remain literal too; shipped additions are
+unit 5. A change confined to serialization cannot change those expectations.
+
+Capture intent separately from its fallible representation. Empty direct
+allow still produces the existing complete refusal, never join([]) as proof
+of no tools. Beside hands, retain even an empty or unmapped dormant declaration
+without requiring its unused mappings or emitting a local flag; known mapped
+native aliases still refuse. Mark concrete direct mappings inapplicable for
+a dormant list, not silently unrestricted. Required hands comes from the
+agent's HandsSpec, independently of whether native grants are empty. Preserve
+boxed workspace fragments and the declared harness fragments for later
+selection; compose cannot certify the gate/work choice it has not yet seen.
+A matching Codex sandbox remains represented once, by the selected hands
+fragment, with its exact class. Unit 4 binds that selection to intent. No
+second local --sandbox, guessed provider default or relaxed bundle guard.
+
+**Native construction and independent expectation.** Retain provider, actual
+harness and selected model identity; known or unmeasured inventory with its
+exact reason; abstract held and denied powers; admitted tool lists and each
+original structured restriction object. Retain local mappings and required
+hands in their own projections until unit 4 assembles the selected record.
+Do not union fallbacks, infer denial from an absent record, re-resolve grants
+in protocol, or use the emitted selection lists as the expected admitted set.
+Measured default ON remains held with no native argv; unmeasured remains
+unmeasured even when it also emits nothing. The native expectation is a
+separate typed value, not an alias into mutable controls JSON.
+
+The native contribution retains both raw argv/restriction transport and the
+existing typed Selection with its mappings. Raw controls acquire native origin
+at construction; selection retains native provenance before materialization.
+Do not flatten only raw argv and lose selection, emit either representation
+twice, or claim a complete argv record while a selection is still pending.
+Reuse the existing protocol selection-lowering path when materializing that
+contribution; any extracted helper stays in native_controls.rs. It must not
+consume recipe-authored list reconciliation to establish origins or expected
+state. Primitive tests assert raw controls, selection, restriction substitution
+and independent expectation separately. This staged native value is not the
+complete mixed-origin final command; engine-only composition and final semantic
+comparison remain units 12–15. Synthetic restriction transport can exercise
+byte preservation here but cannot qualify provider support or close unit 9.
+
+**Private reader and correspondence.** Define one richer record containing
+ordered segments and a mandatory expected-state envelope. Native, local and
+hands state and candidate identity are explicit, including known empty state,
+no required hands and unspecified local fields. Use explicit variants for
+unspecified intent; missing/null mandatory fields are never that variant.
+Within each variant require its fields, including structured restriction
+objects and string-valued argument/tool lists. Close the engine-owned shape:
+unknown members, inventory/application/sandbox/origin variants, missing/null
+fields, wrong containers and non-string argv members all refuse. Preserve
+arbitrary validated dialect restriction keys/JSON values inside their object;
+protocol does not reimplement the realm's schema validator.
+
+Diagnostics carry stable complete causes, fixed field paths and numeric
+segment/argument indices. Never interpolate supplied tags, keys, reasons,
+arguments or restriction payloads into decoding errors; do not expose generic
+serde/debug errors. Keep D6's 512-scalar option/cause bound and assert full
+causes, including long/newline/Unicode sentinels. No .ok(), unwrap_or_default,
+legacy-pair inference or optional reader fallback may turn a malformed richer
+record into valid state. Keep existing managed/launch_arguments consumers
+unchanged until transport is wired; their by-hand absence semantics do not
+apply to this mandatory primitive.
+
+The reader compares full ordered concatenation against the exact supplied
+argv slice, including length. Unit 3's composition tests use full candidate
+argv; protocol tests explicitly supply the slice represented by their record.
+It performs no wrapper trimming or token search. Unit 4 must project both
+segments and argv structurally to the driver extras boundary. Prefix/membership
+comparison, count-only checks, zip without length equality, saturation or
+silent truncation cannot establish correspondence. Added, deleted, replaced
+and distinctly reordered tokens refuse. Equal-byte origin swaps can still
+reassemble; assert preserved origin values separately. A self-consistent
+forged record can also reassemble: unit 4's selected-candidate binding and
+write-last protected input assembly supply authenticity, not this decoder.
+
+**Proof boundary and intended experiments.** Extend only runtime agents/tests.rs
+and protocol native_controls/tests.rs. Use the former's retained canonical Tree
+and real local/native producers (Authority resolution for native expectations);
+pure decoder cases may use in-memory records. No provider installation or
+.forge fixture, no new suite. All measurements below remain implementation work.
+
+| Owning scenario/proof | Independent compiling mutation and intended exact assertion |
+| --- | --- |
+| SCM exact mapped limits | Alter one emitted prefix, order or separator, or one template/local tag. Complete literal contribution equality fails while typed expectation remains unchanged under emission-only mutation; mutate expectation separately to bind its own literal assertion. |
+| SCM absence/empty/sandbox intent | Collapse one allow state or change one sandbox class. Exact intent equality fails independently for each claimed row; existing direct-empty full refusal stays bound. |
+| SCM delivery handoff | Append a dormant direct flag or drop hands separately. Exact argv/origin/hands equality fails; retain current native-alias and unsupported-path reasons. Bundle admission remains untouched, not newly proved by a protocol fixture. |
+| NCC equal bytes | Relabel or coalesce one contribution. Exact five-kind/order/occurrence equality fails even when flat bytes match. |
+| NCC mandatory private state | Bypass each independently claimed field/type/tag/unknown-member check. Its exact bounded refusal assertion must fail; an earlier table-row failure proves no later row. |
+| NCC reassembly | Bypass full correspondence and independently add, drop, change or distinctly reorder a contribution; remove an empty string in a separate case. Each exact mismatch or round-trip assertion fails. |
+| NCC independent expectation | Corrupt native argv, selection or restriction serialization alone and observe unchanged literal intent beside failed literal emission; separately mutate held/denied/subset/restriction/default-ON/unmeasured derivation to fail each claimed state assertion. |
+
+Record baseline outcomes before changing behavior: an already-correct mapping
+starts with a pass; a nonexistent API is unavailable as a compiling behavioral
+red. Each new test and independently claimed row owes a compiling mutation,
+the failing test and exact assertion/actual values, restoration and passing
+rerun. Do not compare two production-derived outputs as the oracle or use
+is_err()/substring refusals. Task 3.1 closes only on observed primitive proof
+and applicable gates; 4.2 remains open. Run fmt, locked all-target/all-feature
+workspace clippy, both owning crate suites, cargo test --workspace, self
+compilation, strict OpenSpec and diff checks after restoration. External exact
+coverage, macOS and remote results remain pending until observed on their head.
+
 ### D6. Refuse authored controls; validate declared and final meaning
 
 Ruling 1 says “Nothing is merged.” The exhaustive supported refusal catalogue,
@@ -785,6 +979,13 @@ final head. No leftover mutation, threshold reduction or stale report may discha
 
 ## Risks / Trade-offs
 
+- Temporary rich/legacy projections can drift → D5.7 derives legacy output
+  from construction, keeps admission unchanged and assigns persistent Candidate
+  transport explicitly to unit 4. Unit 3 helper tests certify no dispatch.
+- Equal-byte reassembly can accept a forged origin label → preserve labels,
+  but require unit 4's protected handoff before claiming authentic provenance.
+- An emission bug can become its own oracle → derive typed native/local/hands
+  expectations before serialization and mutate each side independently.
 - A decoder may accept data that the current command cannot express → D5.3
   keeps runnable admission refused until its lowering/transport is proven.
 - Hands and local restrictions can be mistaken for the same policy → D5.2
@@ -815,7 +1016,14 @@ final head. No leftover mutation, threshold reduction or stale report may discha
 
 ## Migration Plan
 
-Unit 2-fix requires no data migration. The repair makes inputs relying on
+Unit 3 introduces private construction/reader primitives only, with no public
+record, schema or data migration. Keep current Candidate/serving projections
+and all D5.3/D5.6 guards. Unit 4 migrates the inventoried constructors, candidate
+storage and dispatch together; a richer record is never inferred from the old
+two-array pair. This planned storage split preserves unit 3's three-file ceiling
+and gives unit 4 three named production files. No behavioral task closes here.
+
+The adopted unit 2-fix requires no data migration. The repair makes inputs relying on
 competing native or root controls refuse; valid matching fragments and native
 denial keep exact values. Do not roll back to unsafe admission to preserve such inputs;
 retain refusal while repairing within scope or inventory a split. This design
@@ -867,10 +1075,11 @@ to revert the release, never a hidden reconciliation compatibility mode.
   LaneTally retain independent uncertainty and Codex live evidence stays cold
   0.154.0. These are proof obligations, not unanswered permission to reconcile.
 
-Unit 2-fix has no unresolved design question. The inspected resolved-plan
-interface is sufficient; any contrary implementation evidence must identify
-the missing projection before using the conditional capabilities.rs scope.
-This contingency is not permission to defer S1/A1 or expand provider support.
+Unit 3's storage choice is answered in D5.7: retain pre-flatten composition
+in ChainEntry and the native producer, migrate Candidate in unit 4. No operator
+semantic ambiguity or upstream specification defect is established. Additional
+caller/pin needs discovered in implementation still require a named split before
+editing. Earlier unit 2-fix answers remain adopted; no admission is reopened.
 
 The operator's four rulings have no unresolved design alternative. Omission
 versus empty local permissions, origin ownership, diagnostic bounds and the
@@ -947,14 +1156,20 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    fallible private decoding/reassembly, without a new public contract.
    Tests: runtime agents/tests.rs and protocol native_controls/tests.rs; exact
    mapped limits and identical-byte origin distinction. No refusal activation.
+   D5.7 retains local composition on ChainEntry and typed native state in its
+   producer; the legacy Candidate projection remains explicitly lossy until
+   unit 4. No out-of-scope constructor or pin edits enter this unit.
 4. **Wire origins through runtime dispatch.** Close 4.1 and 4.2. Production:
-   `crates/brokkr-runtime/src/engine.rs`, `bundle.rs` in the same src root.
+   `crates/brokkr-runtime/src/engine.rs`, `bundle.rs`, `agents.rs` in the same
+   src root. D5.7 inventories agents.rs as the third file for persistent
+   Candidate storage/resolve_report projection, with both bundle constructors.
    Replace SiteSpawn's two-array reconstruction; carry the selected candidate's
    segments through boundary, expansion and final input merging using unit 3's
    contract. Tests: engine/capability_tests.rs, engine/boundary_tests.rs and
-   crates/brokkr-runtime/tests/capability_launch.rs. Prove reconstruction and
-   override/missing record refusal; copied bytes remain authored. Final
-   refusal proof stays open in 15.2.
+   crates/brokkr-runtime/tests/capability_launch.rs; constructor migrations also
+   name engine/tests.rs, engine/agent_tests.rs and engine/resume_tests.rs in the
+   runtime src root. Prove reconstruction and override/missing record refusal;
+   copied bytes remain authored. Final refusal proof stays open in 15.2.
 5. **Supply local mappings and scaffold support.** Close 5.1 and 5.2.
    Production: `adapters/claude.json`, `adapters/lanetally.json`,
    `crates/brokkr-cli/src/init.rs`. Preserve acceptEdits templates and supply
