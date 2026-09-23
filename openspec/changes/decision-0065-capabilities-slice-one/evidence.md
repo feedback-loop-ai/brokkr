@@ -2,6 +2,9 @@
 
 ## Current status — documentation revision, 2026-09-23
 
+Rebuild unit 1 has since rebased the branch onto origin/main 072cdd9b. Its
+mapping, conflicts, pins and gates are under "Unit 1" at the end of this file.
+
 Adopted branch `slice-0065-capabilities` at **44430402**, specification draft
 **a84197cd** and design revision **3c5402be**, retaining every commit. This
 sole tasks seat orders the existing rebuild ledger and updates its dependent
@@ -295,3 +298,147 @@ Gates on this visit's candidate:
 
 No production, test, shipped data, frozen or witness bytes changed. Every
 implementation obligation from unit 1 onward remains open.
+
+## Unit 1 — rebase onto origin/main, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-08fc67a8`. `git fetch origin` captured
+origin/main at **072cdd9b**. The old merge base was 5347c667 (engine 0.10.0).
+Main's seven-commit advance matched the inventory: b0ec5517 (#313), efbb035c
+(#315), 314e8786 (#320), e5921db6 (#321), 3d978bfd (#322), e50020ac (#323),
+072cdd9b (#326). `git rebase origin/main` replayed all 45 adopted commits
+(028871a2..6cac60bb), including a84197cd, 3c5402be and the tasks amendment,
+with the steward signature. None was dropped or squashed. No feature repair
+was made.
+
+### Replay mapping
+
+`git range-diff 5347c667..6cac60bb origin/main..HEAD` reports `=` (same
+patch) for 39 commits. It reports `!` for six: five had conflicts resolved,
+and commit 34 had only a context shift. It picked up main's `gpt-6-sol` roster
+line in the surrounding test context and did not change the patch.
+
+| # | old | new | # | old | new | # | old | new |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 028871a2 | ac665a9d | 16 | 6ec71432 | 2509b22f | 31 | 49fda5e6 | 787afcc5 |
+| 2 | 205eeb3e | a36fb0a1 | 17 | 12641369 | 75c41f9f | 32 | 90bf9d44 | eb5d59ec |
+| 3 | 303455fb | a3f70f77 | 18 | 9c709e22 | 203086e4 | 33 | a8950ded | e239acb7 |
+| 4 | ba7708ab | 1cb1d8d0 | 19 | 07c0653c | 7c65a3c2 | 34 ! | c68b0e34 | dd7a33ad |
+| 5 ! | bc3e1a3d | 53cfd0a0 | 20 | ecbdd68c | b4705c3a | 35 | 6103af88 | 1cdc3f1f |
+| 6 | 9fb2f3d9 | 7f20a7ef | 21 | f0264a9b | ad7940ce | 36 | c2e6950d | 5e12fff7 |
+| 7 | 69d67672 | c9f4cbb2 | 22 | 5c53a30f | 5cb59d81 | 37 | 2ad20be9 | 879d7c2a |
+| 8 ! | 65ddc65a | dfadcc9c | 23 | 6d47c120 | 3d2ef50d | 38 | 703a8897 | 7c636342 |
+| 9 ! | 4dc772b0 | 74460ce1 | 24 | e5408669 | 19ff3d2e | 39 | 27a28c90 | c6e7e71e |
+| 10 | 1ea9e6d0 | 101b13bd | 25 | cc0a9c31 | 688d4d65 | 40 | b6dbb057 | 89e46464 |
+| 11 | b2aff549 | 813e71f6 | 26 | b34e9c9a | 21714d8c | 41 | 44430402 | 1703fbdf |
+| 12 | 7b5601bd | af96d75e | 27 ! | 575915c8 | 23f57ea2 | 42 | a84197cd | 3119fd03 |
+| 13 | 4fab9683 | 61b19e43 | 28 | 59c3aa9c | db83c85c | 43 | 3c5402be | feb5af98 |
+| 14 ! | 97991a25 | 4f24af60 | 29 | f97b7e77 | ec8b96f3 | 44 | 955f588c | 4010bdb2 |
+| 15 | 3215b38d | cadbc98f | 30 | 3b31c5de | 809be145 | 45 | 6cac60bb | 784a1759 |
+
+The unit's own commit sits on 784a1759. It carries the measured pins, the two
+replay adaptations below and this record.
+
+### Conflicts, against the inventory
+
+- **Inventoried production files:** `adapters/claude.json`, `adapters/codex.json`
+  and `adapters/lanetally.json` auto-merged with no textual conflict. The merged
+  tree keeps main's roster lines: `opus: claude-opus-5-5`, `sol: gpt-6-sol`,
+  `luna: gpt-6-luna` and `opus-tallied: claude-opus-5-5`. Next to them are the
+  slice's `native_capabilities`. `Cargo.toml` and `Cargo.lock` equal main's
+  (v0.11.0, `git diff origin/main HEAD` empty for both).
+- **Production conflict not in the inventory (one file, below the ceiling of
+  three):** `crates/brokkr-protocol/src/adapters.rs`, `dsh_launch_with`, at
+  replayed commits 14 and 27. #313 put `dsh_input_boundaries(extra)?` at the
+  head of the function. The slice put its native-control guard there too:
+  `native_controls::managed` at commit 14, and at 27
+  `composed_launch("dsh", extra, input)` with `extra` rebound to the composed
+  argv. The resolution keeps both, the slice's first, so its "refused before
+  the seat's argv is read" still holds. Main's boundary check then runs on the
+  argv as handed over. Main's DSH tests carry no `native_controls` key, so the
+  slice guard admits them unchanged. No other production file conflicted, so no
+  split was needed.
+- **Inventoried test/pin conflicts:** `tests/witness_digests.rs` and
+  `bundle/compose_tests.rs` at commit 8. Both sides' prose was kept and the
+  slice's values were taken as placeholders. They were then re-measured at the
+  tip (below). `bundle/model_policy_tests.rs` had no textual conflict. It
+  broke semantically (below).
+- **Test and documentation conflicts not in the inventory:**
+  `crates/brokkr-protocol/src/adapters/tests.rs` at commit 5, where both sides
+  appended at end of file (#326's Pass D drift cases and the slice's
+  native-control cases), and `docs/guides/provider-adapters.md` at commit 9
+  (#315's "A work seat on a provider with no per-tool flags" subsection and the
+  slice's "Native capabilities" section). Both sides were kept verbatim in each
+  file.
+
+### Semantic replay breaks: baseline red, then fixed in the unit commit
+
+- `crates/brokkr-runtime/src/agents/tests.rs`: #315's test
+  `harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment`
+  called `compose(…, &mut Vec::new(), …)`. The slice had removed the `notices`
+  parameter by then. Baseline red: `error[E0061]: this function takes 5
+  arguments but 6 arguments were supplied` at two call sites. Fix: drop that
+  argument. The assertions are unchanged.
+- `crates/brokkr-runtime/src/bundle/model_policy_tests.rs`: #315's synthetic
+  `smith_codex` adapter declared no `native_capabilities`. Four tests failed
+  with the slice's 0066 ruling 1 refusal:
+  `the_same_seat_with_hands_compiles_under_namespace_through_the_workspace_fragment`,
+  `the_same_seat_under_harness_compiles_on_the_providers_work_fragment`,
+  `the_same_seat_is_refused_under_harness_naming_the_measured_work_gap` and
+  `the_same_seat_is_refused_under_harness_when_the_provider_declares_no_work_fragment`.
+  The refusal was "seat 'work' (office 'smith') in realm '<unmapped>':
+  provider 'codex' is known to carry native capability 'web-search', which
+  this seat does not hold, and no valid control denies it: its adapter
+  declares its native capabilities unmeasured …". Fix: the fixture declares
+  the shipped adapter's measured OFF (`-c web_search="disabled"`). After the
+  fix all four pass with their assertions unchanged. The baseline red is the
+  removal record: without the declaration all four fail on that exact
+  refusal.
+
+### Measured pins
+
+Every value is the left side the test reported, copied one failing pair at a
+time. None was recomputed. They moved because engine 0.10.0 became 0.11.0
+(#321), which enters every manifest's identity, and because the claude and
+codex model maps changed (#320).
+
+| Pin | replayed | measured |
+|---|---|---|
+| witness `recipes/fast` = compose `recipes/fast` | dcc9f956… | 72b516cf… |
+| witness `recipes/node` | b20e648b… | b53b1105… |
+| witness `recipes/preflight` | 451b90c7… | dfcf0823… |
+| witness `recipes/night-shift` | 11bd9bec… | b1eab215… |
+| witness `recipes/wager-harness` | 0f13ccdd… | 96033813… |
+| witness `recipes/triage` = compose triage manifest | e4f24ee6… | d888665e… |
+| witness `recipes/research` | cd9b978b… | ce0fd9f4… |
+| witness `recipes/research-dsh` | 22d9f849… | a58359d5… |
+| witness `recipes/gpt-flash` | d434415b… | 2533f3b9… |
+| witness `bundles/verify` = compose `bundles/verify` | 3248ac90… | fbceddeb… |
+| compose `recipes/panel-review` | 11cb41f0… | 9725d931… |
+| compose `bundles/self` | 596541a8… | c4e36f6f… |
+
+### Gates on the unit candidate (784a1759 plus the unit's working tree)
+
+- `cargo fmt --all -- --check`: passed, exit 0, after `cargo fmt --all`
+  reflowed the two edited `compose` calls.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  passed, exit 0, rerun after the last edit.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: exit 0 over
+  77 test binaries: 2412 passed, 0 failed, 5 ignored. After rustfmt's
+  whitespace-only reflow, `cargo test -p brokkr-runtime --all-features`
+  passed again (25 binaries ok, 0 failed).
+- `cargo run -p brokkr-cli -- compile --bundle bundles/self` and
+  `--bundle bundles/verify`: both exit 0.
+- `git diff --check`: passed, exit 0.
+- Frozen bytes: `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+  `reference/` and `extensions/` are equal to origin/main. `contracts/`
+  differs only by the adopted slice's additive new-version files, and this unit
+  touched none of them.
+- `openspec validate --all --strict`: **not run.** The seat's command
+  permissions refused it. No pass is claimed.
+- External exact coverage (`scripts/coverage-exact.sh`): **pending.** The
+  seat's permissions refused it, so it needs a host or CI run.
+- macOS host and remote CI on the pushed head: **pending.** This Linux seat
+  never pushes.
+
+Pending and not-run gates are not green. The replay, the pins and the local
+gates are done. Unit 2 inherits this head.

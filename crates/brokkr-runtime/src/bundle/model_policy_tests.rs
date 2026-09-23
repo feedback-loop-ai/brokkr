@@ -4297,6 +4297,15 @@ fn smith_codex(tool_permissions: Value, hands: Option<Value>) -> Value {
     codex["efforts"] = json!(["low", "medium", "high"]);
     codex["effort_flag"] = json!("--effort");
     codex["tool_permissions"] = tool_permissions;
+    // Decision 0066 ruling 1: codex is known to carry web search, so the
+    // smith is launched only with a delivered denial — the shipped
+    // adapter's measured OFF switch.
+    codex["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["web_search"],
+        "on": {"default": "measured cold default"},
+        "off": {"argv": ["-c", "web_search=\"disabled\""]},
+        "restrictions": {"unsupported": "no native restriction transport is established"},
+        "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}}});
     if let Some(hands) = hands {
         codex["hands"] = hands;
     }

@@ -1979,16 +1979,9 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
         "the control retains the harness work fragment"
     );
 
-    let refusal = compose(
-        agent,
-        &adapter,
-        "opus",
-        "claude-opus-5",
-        &mut Vec::new(),
-        true,
-    )
-    .expect_err("a boxed seat needs the workspace fragment")
-    .to_string();
+    let refusal = compose(agent, &adapter, "opus", "claude-opus-5", true)
+        .expect_err("a boxed seat needs the workspace fragment")
+        .to_string();
     assert_eq!(
         refusal,
         "agent 'tester' cannot be served by provider 'claude' on model 'opus': the provider \
@@ -1998,15 +1991,8 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
     );
     // Unboxed, the same adapter composes and carries neither fragment nor
     // tool list: the workspace requirement is the boxed path's alone.
-    let (argv, effort, hands_fragment) = compose(
-        agent,
-        &adapter,
-        "opus",
-        "claude-opus-5",
-        &mut Vec::new(),
-        false,
-    )
-    .expect("unboxed composition asks for no workspace fragment");
+    let (argv, effort, hands_fragment) = compose(agent, &adapter, "opus", "claude-opus-5", false)
+        .expect("unboxed composition asks for no workspace fragment");
     assert_eq!(
         argv,
         [

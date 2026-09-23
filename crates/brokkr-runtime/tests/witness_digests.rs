@@ -247,48 +247,54 @@ fn workspace() -> PathBuf {
 /// `recipes/research`, which seats it, pinned them. `recipes/research`
 /// keeps its digest for exactly that reason, and the six bundles that load
 /// no library are untouched: no charter, table, adapter or grant moved.
+/// Rebuild unit 1 replays the slice onto main at `072cdd9b` and moves all
+/// ten again, for main's two reasons meeting the slice's: the engine
+/// version (v0.11.0, #321) participates in every manifest's identity, and
+/// the 2026-09-22 roster's claude and codex model maps (#320) now sit
+/// beside the slice's `native_capabilities` in the same adapter files.
+/// No charter, table or grant moved in the replay.
 /// The values below are the final tree's actual compiles, never
 /// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "dcc9f956b41dc00a150b668c2a95914aab13886d8aab0e864e284203374e0061",
+        "72b516cf043cb3ce3b6c7b162fdcc784e26d5972d436a4577300143a2f679f1c",
     ),
     (
         "recipes/node",
-        "b20e648b338da91bb7296ad8c52e4962429b515498d254967efd561867cabed8",
+        "b53b11053c2f8d2f39f1e5c5a931d02239a43dbafffed0c632cee55144421c2e",
     ),
     (
         "recipes/preflight",
-        "451b90c7a17c51cb745ee8ea5c79a50ca603c6d3db047e0ae81a5177c61b29f4",
+        "dfcf08235c9c8076c44031d8bff3055100863d7d68d57cfc5b85b37ec44bd304",
     ),
     (
         "recipes/night-shift",
-        "11bd9becacc03d01f166c2453c2b9d67821596c22ae97c92628964068caffd1b",
+        "b1eab2157c70f1a2eb45550eec6ce2fe1133e0eb49baa5d4fbcea9033eebf01d",
     ),
     (
         "recipes/wager-harness",
-        "0f13ccddf7221b9bc2f689be17dab3cc4b061a435160699a3e6035e2e5502c97",
+        "960338130dc905b5877522f958921c7d3a9de1a5936e70f57940d37dcff93089",
     ),
     (
         "recipes/triage",
-        "e4f24ee6215b44b4b6b3f6ce42ef0db7665674944faada28c0801c9986954f77",
+        "d888665eef786b4b21bf1f91ce80f8665214c1686909c5d61a6b1c9c1045efab",
     ),
     (
         "recipes/research",
-        "cd9b978b95733549b953ca8b5b1d9643e4fc4dcd5ae11d98a665e7d8049661fc",
+        "ce0fd9f4a5f5802f2b3c4c1123c003f2c85e9bd7efa744b6f8d9aeeffdbf929c",
     ),
     (
         "recipes/research-dsh",
-        "22d9f849bd21b82170ae68b45e0683d78e830b971a27a9acd84019e9428dafbf",
+        "a58359d5a33afa3e55c86a1e3ced275794f3f55845d78fbb980212c28abc05bd",
     ),
     (
         "recipes/gpt-flash",
-        "d434415be1b8932e8cb206a18cb76714e9997ed2100051d581865da67de18d3d",
+        "2533f3b9a0b94c0c46a2821d355969cfc98c4e2b1e561dfc1cc423c8646ebf65",
     ),
     (
         "bundles/verify",
-        "3248ac9029564691afc50ef76969f01dafc646c2be9edf19aa18ddb9953d7af5",
+        "fbceddeb9c5713db6c1a62e9eebc50dc414b30f48cc2c2579aff44ce96c67681",
     ),
 ];
 
