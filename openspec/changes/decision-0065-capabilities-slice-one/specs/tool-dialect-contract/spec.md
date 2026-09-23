@@ -25,6 +25,7 @@ SHALL execute no server, provider or network request.
 - **WHEN** a valid provider-native dialect and realm grant exist but a seat also authors its harness's ON or OFF flag
 - **THEN** the authored option still refuses; only typed requests resolved through that dialect supply engine controls
 - **AND** both adapter-declared argv halves must parse at load even when this dialect selects only one
+- **AND** concrete control data retains engine origin through dispatch and still must pass the final exact-state check; a dialect cannot install new grammar or exempt its argv from validation
 
 #### Scenario: Mixed and unknown implementations refuse
 

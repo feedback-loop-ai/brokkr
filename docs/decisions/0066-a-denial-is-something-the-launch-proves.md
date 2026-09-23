@@ -47,6 +47,11 @@ including their superseded mechanisms and measurement claims.
    actual eligible resume, fallback and rejected-rejoin cold replacement obey
    the same check. Preserve existing eligibility; cold is not resume evidence.
    Private authority decoding remains fallible and cannot degrade to empty.
+   Expected state comes from sealed typed inputs, never the emitted command.
+   The existing final builder returns a private checked command consumed without
+   later argv edits at the known-harness serving spawn; replacement commands
+   obtain their own check. This introduces no new public contract or launch
+   framework, and assigns no capability guarantee to probes or opaque drivers.
 
 3. **A recipe cannot author a capability-bearing harness option.** Ruling 1
    says “Nothing is merged.” For Claude, Codex, DSH and LaneTally's Claude path,
@@ -57,13 +62,21 @@ including their superseded mechanisms and measurement claims.
    forms and aliases, including all five Codex config spellings. Unknown
    syntax/effects and opaque configuration refuse too. No special case remains
    for a local-only list, restrictive empty list or MCP deny pattern. A reason
-   names the normalized option and bounded cause, never its value.
+   names the normalized option and bounded cause, never its value; the option/cause
+   portion is limited to 512 Unicode scalar values and never truncates a raw
+   payload as a substitute for redaction.
 
    Tools come only from typed agent/seat declarations and the realm grant,
    composed by the engine. Preserve typed request subtraction. Separate authored
    inert argv, adapter template, typed local permission, hands and native plan
    origins; matching bytes or server names cannot counterfeit ownership.
    Engine-origin controls still parse and undergo the exact final check.
+   Carry those origins through Candidate, bundle projection, SiteSpawn, boundary
+   composition, expansion and final input assembly; a trailing hands count is
+   insufficient. Missing or non-reassembling records and authored overrides
+   refuse. The catalogue includes additional-directory permissions and tool
+   switches already admitted by the old grammar; calling them inert grants
+   no exception.
    Migrate shipped inline declarations before enabling refusal, including
    preflight's reviewer. The design lists every inventoried file.
 
@@ -100,7 +113,12 @@ including their superseded mechanisms and measurement claims.
    existing digest. Recheck owner, target and bytes at start, pinned-context
    resume and dispatch; equal-byte retargets refuse too. Pass the verified
    buffer to prompt rendering after input merges, without reopening the path
-   or swallowing failures. Unconsulted definitions remain outside identity;
+   or swallowing failures. Bind the actual read to the contained target through
+   an owner-rooted handle-based operation or refuse when that cannot be proved
+   on Linux/macOS. Canonicalize-then-reopen is not a race-safe containment proof;
+   controlled replacements must yield the already bound contained file or a
+   refusal, never unchecked replacement bytes.
+   Unconsulted definitions remain outside identity;
    active instructions never do.
 
 6. **Doctor submits the whole plan to the launch composer.** Ruling 4 rejects

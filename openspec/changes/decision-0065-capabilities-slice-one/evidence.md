@@ -2,7 +2,8 @@
 
 ## Current status — documentation revision, 2026-09-23
 
-Adopted branch `slice-0065-capabilities` at **44430402**, retaining every commit.
+Adopted branch `slice-0065-capabilities` at **44430402** and the specification
+seat's **a84197cd** draft, retaining every commit. This chief amends that draft.
 This visit changes only proposal, six spec deltas, design, tasks, this evidence
 and proposed decision 0066. It implements no code/test/data changes, rebase,
 new provider measurement, removal experiment or digest re-pin. The security
@@ -22,6 +23,10 @@ positions supply the return findings.
 - Complete operator ruling first; complete third security/correctness/compliance
   positions in `.forge/tasks/council-positions-80bfd784.md`, including blocked
   adversarial status and distinct validation outcomes.
+- Both current design positions, robustness and simplicity, in
+  `.forge/design/positions/`; their claims are explicitly adopted, combined or
+  rejected with source reasons in design D1. Their reported gates are separate
+  observations, not this chief's results.
 - First/second chief rulings `.forge/tasks/council-ruling-3c72a18a.md` and
   `.forge/tasks/council-ruling-25d222e6.md`.
 - README, decisions 0004/0005/0009/0063/0065, proposed 0066, adopted artifacts,
@@ -44,7 +49,7 @@ The following is the retained completion index, not a new test run.
 | 3.1, 3.2 | Original-source strict JSON and typed request inheritance/subtraction; source-specific R1/R2 removals below. No authored harness-list exception survives. |
 | 3.4, 3.5 | Shipped native declarations/uncertainty and researcher abstract wants/DATA charter. These declarations still owe the new both-halves parsing and exact final-state proof. |
 | 3.7 | Whole-loaded-library lint and consulted unseated definitions; R3/R4 removals below. |
-| 3.8 | Captured hands-fragment boundary and reassembly integrity only; R-H2b below. New template/typed-local origins remain 3.15, not claimed done. |
+| 3.8 | Captured hands-fragment boundary and reassembly integrity only; R-H2b below. New template/typed-local origins remain 3.15/3.20/3.21, including engine dispatch, not claimed done. |
 | 4.1, 4.2, 4.5 | Grant validation, pure request/grant intersection and known-native denial floor; first-chief repair and R-H1 proofs below. The total launch invariant is newly open. |
 | 8.5 | Independent realm/inventory/MCP-unbuilt reporting with no model or capability-server launch, as recorded in the first-hold implementation doctor evidence. Whole-plan assessment remains open. |
 | 9.1 | Separately runnable wants-only compatibility-removal assertions A/B below. They prove notices, not final command delivery. |
@@ -142,7 +147,7 @@ remain unmeasured. Deterministic command evidence establishes composition only.
 MCP runtime, slice-two gate policy/retention and slice-three comparisons remain
 out of scope. Only the operator can grant capabilities or accept proposed 0066.
 
-## This documentation visit's gates
+## Specification visit gates at a84197cd — historical
 
 - `git diff --check`: passed, exit 0.
 - `openspec validate --all --strict --no-interactive`: passed, 16 items, zero
@@ -154,5 +159,57 @@ out of scope. Only the operator can grant capabilities or accept proposed 0066.
   requested documentation gates; it claims no fresh workspace suite, clippy,
   bundle compilation, exact coverage, macOS, remote CI or provider result.
 
-The final docs commit and mandatory result record report this limitation. The
-rebuild ledger remains open wherever code, proof or external gates are owed.
+That specification visit reported formatting unavailable. The two design seats
+subsequently reported three passing documentation gates; those remain their
+observations, not a reason to rewrite the earlier failure or infer this chief's
+result. The rebuild ledger stays open wherever implementation proof is owed.
+
+## Chief design reconciliation, 2026-09-23
+
+Read both positions whole and checked their boundary claims against the current
+source. Candidate::parts and SiteSpawn::launch_arguments carry only the old
+hands split; grammar Problem displays raw tokens and config_key strips quotes;
+Codex composition still returns controls.argv verbatim. active_input returns a
+joined path, own_table reads policy separately from the walk, CharterPin lacks
+owner/target, and doctor uses denial_on in both reporting paths. These are
+source observations, not new behavioral probes or repaired code.
+
+Amended the proposal, six deltas, design, proposed 0066 and ledger in dependency
+order. Decisions now specify end-to-end private origins, a checked final command
+without subsequent argv edits, handle-bound contained input reads or refusal,
+exact local migration and complete doctor positives. Added scenarios at the
+owning deltas, including omission/empty local lists and diagnostic bounds.
+Re-read the migration inventory and local main log: the seven bundle files and
+seven main commits above still apply; --add-dir and Codex --include-plan-tool
+are additionally explicit authored refusals because the existing grammar
+admits those permission/tool options. No new remote freshness claim is made.
+
+The single rebuild order now has 27 visits. New task substeps 3.20/3.21/7.7
+expose previously bundled work; they are unchecked. Unit 1 remains rebase and
+measured pins, migration precedes refusal, and final assessment/cold/resume,
+charter dispatch/start-resume and compiled matrix/restriction proofs have
+separate visits. No feature unit exceeds three named production files.
+Qualification of the existing supported nonempty-restriction positive remains
+open in 0.3: neither panel supplied a provider-backed transport proof.
+
+This chief changed no production, test, shipped data, frozen bytes, witness
+pins or history. No behavioral finding, security hold, external gate, live
+measurement or task 12.1 is closed by this design revision.
+
+## Chief documentation gates
+
+Results are recorded below after running the commissioned commands through the
+workspace tool. This narrow visit does not run implementation suites or claim
+fresh clippy, bundle, coverage, macOS or remote CI results.
+
+- `git diff --check`: the first attempt caught one new blank line at EOF in
+  this file; it was removed. The final check passed, exit 0.
+- `cargo fmt --all -- --check`: could not start, exit 127, `cargo: command not
+  found` in this chief's workspace tool. No formatting pass is claimed; the
+  earlier positions' reported passes do not discharge this blocked attempt.
+- `openspec validate --all --strict`: passed, exit 0, 16 items and zero
+  failures. Existing long-requirement and unrelated archive notices were
+  informational. No workflow runner was invoked.
+- Scope audit: exactly the requested eleven Markdown artifacts are modified;
+  proposed 0066 stays proposed and every implementation task remains open or
+  retains only its explicitly indexed historical foundation evidence.

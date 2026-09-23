@@ -107,6 +107,12 @@ excuse escape. Lexical folding before symlink resolution SHALL NOT substitute
 for filesystem resolution. Both an excluded authored path and an excluded
 resolved target SHALL refuse. Missing, unreadable, nonregular or unpinned
 consumed inputs SHALL refuse with a bounded source/site/kind/path cause.
+The verified read SHALL bind the file supplying bytes to the checked contained
+target using owner-rooted, handle-based resolution, or refuse if that binding
+cannot be established on the supported host. Canonicalize-then-reopen alone
+SHALL NOT count as containment proof. A detected path/target replacement
+SHALL refuse even when it supplies equal bytes; consumed bytes SHALL be used
+from the verified buffer, never an unchecked later path read.
 Policy bytes SHALL be read and hashed from the same regular-file buffer that
 is parsed and bound to the declaring file-map pin, including overridden
 ancestors. FIFOs, devices and directories SHALL never supply policy bytes.
@@ -163,6 +169,12 @@ and digest route rather than be treated as escaping inline layer inputs.
 - **WHEN** a role or policy link resolves to a regular readable nonexcluded file within its declaring tree
 - **THEN** compilation pins and consumes that actual file; identical inputs remain stable and an independent byte change moves identity
 - **AND** an outside-tree target containing the same bytes still refuses
+
+#### Scenario: The file read is the contained file checked
+
+- **WHEN** a controlled replacement swaps a charter or policy path or ancestor between resolution and consumption, including equal-byte outward targets
+- **THEN** the operation either reads the already verified contained file through its bound handle or refuses; it never accepts replacement bytes through an unchecked reopen
+- **AND** inability to establish that binding refuses on Linux or macOS without claiming a race guarantee from two path-string comparisons
 
 #### Scenario: A FIFO is not a pinned policy
 

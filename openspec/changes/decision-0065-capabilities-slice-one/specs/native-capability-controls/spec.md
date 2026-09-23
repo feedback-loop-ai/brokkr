@@ -251,12 +251,39 @@ extra, contradictory or uninterpretable state SHALL refuse launch. Comparing
 only an intermediate composer or finding a flag substring SHALL NOT suffice.
 Compile admission SHALL preflight the complete shape available at compilation;
 launch SHALL repeat the check after actual expansion and session selection.
+The expected state SHALL come from sealed typed inputs, not from parsing the
+output being checked. Private origins SHALL survive selected-candidate
+projection, boundary composition, placeholder expansion and runtime input
+assembly. Missing, malformed or non-reassembling origin records SHALL refuse;
+model-authored input SHALL NOT replace them. A successful final check SHALL
+produce a private checked command consumed without further argv mutation at
+the serving spawn. Each replacement or fallback command needs its own check.
+This applies to known-harness serving commands; availability probes and opaque
+custom drivers SHALL NOT acquire capability guarantees from it.
 
 #### Scenario: Final serialization is checked rather than trusted
 
 - **WHEN** a valid plan loses OFF after a terminator, gains an extra tool, loses an empty restriction, changes a list separator, or duplicates an engine output-format option during final assembly
 - **THEN** the final parse or exact-state comparison refuses before spawning, on cold, actual eligible resume and cold replacement
 - **AND** valid complete commands parse back to exactly the planned ON/OFF, tools, restrictions and hands state
+
+#### Scenario: Runtime preserves origin through candidate and boundary selection
+
+- **WHEN** a production-compiled primary or fallback carries adapter templates, typed local permissions, hands and native controls through dispatch and expansion
+- **THEN** their distinct private origins reassemble the actual arguments and the final check compares against the selected candidate's sealed state
+- **AND** identical bytes supplied as authored input, missing origin segments, changed ordering or an authored override of the private record refuse before provider work
+
+#### Scenario: A checked command cannot be changed before serving
+
+- **WHEN** cold, eligible-resume, wrapper-child, DSH or rejected-rejoin replacement assembly adds its final engine and session arguments
+- **THEN** each serving command obtains its own checked value after those additions and the spawn consumes that value without another argv edit
+- **AND** any requested later mutation invalidates the check and requires recomposition and validation; an earlier cold check cannot certify a different resume or replacement
+
+#### Scenario: Managed effects and expected state remain independent
+
+- **WHEN** a managed deny pattern overlaps required hands, an include restriction contradicts a holding, or a setting has syntax but no bounded restriction meaning
+- **THEN** compilation refuses an unrepresentable plan, without deriving a replacement expected state from the emitted command
+- **AND** empty, absent and nonempty includes remain distinct; unknown DSH/LaneTally inventory is never converted into a verified empty inventory
 
 #### Scenario: Codex managed argv has no unchecked path
 

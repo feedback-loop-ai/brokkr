@@ -1,6 +1,7 @@
 Status: proposed specification of accepted decision 0065, slice one.
 Change: decision-0065-capabilities-slice-one.
-Adopted head: slice-0065-capabilities at 44430402; every commit is retained.
+Adopted: slice-0065-capabilities at 44430402 and specification draft a84197cd;
+every commit is retained. This design visit amends that draft with reasons.
 Authority: [operator ruling, 2026-09-23](operator-ruling-2026-09-23.md).
 
 ## Why
@@ -27,6 +28,11 @@ this highest-priority revision corrects the specification and plans the rebuild.
 - Doctor submits the whole plan to the launch composer and reports its
   admission or refusal, including interactions, without inventing a partial
   plan or promising live enforcement from static composition.
+- Carry private argument origins through runtime dispatch, and consume a checked
+  final command without further argv edits. Bind containment checks to the file
+  supplying the consumed bytes; a path check followed by an unchecked reopen
+  is insufficient. These clarify enforcement boundaries, without a new public
+  contract or subsystem.
 - Migrate shipped inline tool and permission flags to typed declarations
   before refusal lands. The file-by-file inventory is in design's Migration
   Plan, including preflight, fast, node, verify and Codex recipe modes.
@@ -63,5 +69,7 @@ There is no returned_from in the supplied run context. The explicit operator
 ruling and all three completed third-council positions supply this visit's
 findings; their individual dispositions are recorded under design Decisions.
 Earlier chief rulings remain evidence, with superseded remedies identified.
+The robustness and simplicity design positions are explicitly reconciled in
+design Decisions; their useful safeguards share the existing bounded machinery.
 The security hold remains unresolved; this documentation is not a repair pass.
 Only the operator can accept 0066. No archive, push or release is authorized.

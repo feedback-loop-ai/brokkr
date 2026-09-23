@@ -297,12 +297,31 @@ SHALL accept only read-only, workspace-write and danger-full-access under the
 existing realm/boundary authority; it SHALL NOT grant a capability or bypass
 hands. Agent-backed seats SHALL only narrow their office's restrictions.
 An unrepresentable local restriction SHALL refuse, never silently disappear.
+For inline local tools, omission SHALL preserve the existing local default;
+`tools.allow: []` SHALL express an empty local allow set. For agent-backed
+sites, omission SHALL inherit the office's local declaration and an explicit
+list SHALL only narrow it, with an empty list subtracting all local entries.
+Neither form grants native powers; independent native OFF remains required.
+Concrete mappings SHALL preserve their exact command-prefix restrictions.
 
 #### Scenario: Typed permissions preserve limits without inline options
 
 - **WHEN** a migrated Claude seat requests its local command subset, or a migrated Codex seat declares its existing sandbox restriction as typed data
 - **THEN** the engine alone emits the mapped controls, preserving the exact local limits and native OFF under empty realm grants
 - **AND** unknown local names/classes, native capability aliases, agent-backed widening and boundary-incompatible restrictions refuse with full bounded causes
+
+#### Scenario: Omitted and empty local permissions are distinct
+
+- **WHEN** an inline or agent-backed site omits local tools, declares an explicit empty allow list, or narrows an inherited local list
+- **THEN** omission retains the applicable default or inherited limit, explicit empty admits no local entries, and a subset preserves only its declared entries
+- **AND** neither absence nor subtraction enables a native capability; widening and unrepresentable emptiness refuse instead of restoring provider defaults
+
+#### Scenario: Migration preserves concrete prefix and sandbox limits
+
+- **WHEN** fast/node/preflight/verify and the three Codex recipe files in design's Migration Plan are migrated
+- **THEN** `pytest` still maps to `Bash(.venv/bin/pytest:*)`, verify keeps separate `Bash(gh pr view:*)` and `Bash(gh run view:*)`, and Claude permission templates preserve `acceptEdits`
+- **AND** standby implement and wager-harness implement retain danger-full-access, while standby review and review-first review retain workspace-write, subject to their existing realm/boundary constraints
+- **AND** independent compiled final-command expectations prove these limits, with no added realm grant or unrestricted replacement
 
 #### Scenario: The preflight reviewer has no inline authority flags
 

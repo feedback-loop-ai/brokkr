@@ -89,9 +89,9 @@ this catalogue SHALL NOT become a permissive spelling scanner.
 
 | Harness | Authored options/configuration refused |
 | --- | --- |
-| Claude | Tool lists `--tools`, `--allowedTools`, `--allowed-tools`, `--disallowedTools`, `--disallowed-tools`; MCP `--mcp-config`, `--strict-mcp-config`; plugin loading `--plugin-dir`; permission controls `--permission-mode`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-prompt-tool`; opaque settings/agent loading `--settings`, `--setting-sources`, `--agents`, `--agent`. WebSearch/WebFetch, MCP and wildcards in any list are already refused by the option, as are unsupported `--web`, `--web-search`, `--web-fetch`, `--search` forms. |
+| Claude | Tool lists `--tools`, `--allowedTools`, `--allowed-tools`, `--disallowedTools`, `--disallowed-tools`; MCP `--mcp-config`, `--strict-mcp-config`; plugin loading `--plugin-dir`; permission controls `--permission-mode`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-prompt-tool`, `--add-dir` (additional filesystem permission); opaque settings/agent loading `--settings`, `--setting-sources`, `--agents`, `--agent`. WebSearch/WebFetch, MCP and wildcards in any list are already refused by the option, as are unsupported `--web`, `--web-search`, `--web-fetch`, `--search` forms. |
 | LaneTally (Claude child) | Every Claude entry above, in the forwarded command or wrapper settings; the wrapper cannot launder a child capability option. Settings-source controls are refused, including `--settings` and `--setting-sources`. Wrapper-owned session settings keep engine provenance and undergo final validation. |
-| Codex | `-c` / `--config` assignments to `mcp_servers` and every descendant/table form; `web_search`, `web_search_mode`, `tools.web_search`, `features.web_search_request`, `features.web_search_cached`; permission/sandbox keys `approval_policy`, `sandbox_mode`, `sandbox_workspace_write` and descendants; tool/plugin/feature/MCP tables and descendants whose effects carry capabilities. `--search`; `--enable` / `--disable` capability features (including web_search_request/web_search_cached); `--sandbox` / `-s`, `--ask-for-approval` / `-a`, `--full-auto`, `--approve-for-me`, `--ignore-rules`, `--dangerously-bypass-approvals-and-sandbox` / `--yolo`; profile loading `--profile` / `-p`. Unclassified config keys, feature names and malformed assignments refuse, never pass through. |
+| Codex | `-c` / `--config` assignments to `mcp_servers` and every descendant/table form; `web_search`, `web_search_mode`, `tools.web_search`, `features.web_search_request`, `features.web_search_cached`; permission/sandbox keys `approval_policy`, `sandbox_mode`, `sandbox_workspace_write` and descendants; tool/plugin/feature/MCP tables and descendants whose effects carry capabilities. `--search`, `--include-plan-tool`; `--add-dir` (additional filesystem permission); `--enable` / `--disable` capability features (including web_search_request/web_search_cached); `--sandbox` / `-s`, `--ask-for-approval` / `-a`, `--full-auto`, `--approve-for-me`, `--ignore-rules`, `--dangerously-bypass-approvals-and-sandbox` / `--yolo`; profile loading `--profile` / `-p`. Unclassified config keys, feature names and malformed assignments refuse, never pass through. |
 | DSH | Capability-bearing `--patch` contents or seat settings: tool/MCP configuration, plugin loading, permissions or web/search enablement; arbitrary `--profile`, `web` and `plugin` launch subcommands; unbound/additional patches and opaque configuration. Unsupported tool-list/MCP/plugin/permission/web/search flags, including the names above, refuse rather than being forwarded. No short capability aliases are admitted by the supported DSH grammar; attempted aliases/attached forms refuse. The sole non-capability patch exception is the existing bound, contained, digest-checked route-only overlay. |
 
 Codex config forms SHALL include all five `-c KEY=VALUE`, `-c=KEY=VALUE`,
@@ -104,13 +104,28 @@ with bounded typed meaning. No arbitrary settings document is inert data.
 A refusal SHALL name a normalized option, provider, source/site and bounded
 cause, never its value (including joined/attached tokens or secret-bearing
 paths/config payloads). The option label SHALL come from the grammar or a
-bounded sanitized key-free label for unknown syntax, not the raw token.
+bounded sanitized key-free label for unknown syntax, not the raw token. The
+option/cause portion SHALL be at most 512 Unicode scalar values; truncating
+a raw token is not redaction. Known short aliases name their canonical long
+option; unknown short-attached input uses a fixed unknown-option label.
 
 #### Scenario: Every spelling refuses independently of authority
 
 - **WHEN** each catalogue option is authored in each split, equals, short-attached and alias form applicable to its harness, with grants absent and then present
 - **THEN** compilation refuses before any provider/plugin/server launch with the complete bounded option-naming reason, without echoing the value
 - **AND** all primary/fallback, inline/agent-backed, work/gate, panel/sequence and inherited sites obey that same refusal
+
+#### Scenario: Additional permissions and tool switches are authored authority
+
+- **WHEN** Claude, LaneTally's Claude child or Codex authors `--add-dir PATH` or `--add-dir=PATH`, including repeated or supported variadic forms, or Codex authors `--include-plan-tool`
+- **THEN** compilation refuses the normalized option without disclosing the directory or accepting the current grammar's inert/switch classification as authority
+- **AND** bare switches with attempted equals or attached values refuse as unsupported grammar, rather than becoming a forwarding exception
+
+#### Scenario: Short permission and profile aliases have no spelling gap
+
+- **WHEN** Codex authors each of `-s VALUE`, `-s=VALUE`, `-sVALUE`, `-a VALUE`, `-a=VALUE`, `-aVALUE`, `-p VALUE`, `-p=VALUE`, `-pVALUE`, and the split/equal long forms of sandbox, ask-for-approval and profile
+- **THEN** each refuses its canonical capability-bearing option regardless of a compatible realm grant or a restrictive value
+- **AND** `--yolo` and the other bare permission aliases refuse too; unsupported combinations and unknown aliases never pass through
 
 #### Scenario: Local lists and deny lists are not exceptions
 
@@ -149,6 +164,12 @@ An inert value SHALL NOT become an option through a later token scan.
 - **WHEN** an unknown joined option carries `REVIEW_SENTINEL`, a short-attached config carries it, or a rejected tool list contains it
 - **THEN** the complete bounded diagnostic names the option and position but contains no sentinel or raw value
 - **AND** an admitted inert value such as the word `resume` in `--image resume` remains a value through eligibility and final parsing
+
+#### Scenario: Diagnostics stay bounded through their outer consumers
+
+- **WHEN** joined options, attached short forms, config assignments, rejected positionals or list values contain long, newline-bearing or secret-path sentinels
+- **THEN** complete compile, launch and doctor diagnostics contain no payload sentinel and their option/cause portion remains within 512 Unicode scalar values
+- **AND** a fixed positional or unknown-option label supplies the bounded identity when the grammar cannot safely name an option
 
 #### Scenario: A closed grammar has no opaque remainder
 

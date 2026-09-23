@@ -94,6 +94,12 @@ plan may be assessed; no universal seat-launch promise is allowed.
 - **THEN** doctor reports the same bounded cause as launch admission and promises no delivery
 - **AND** an adapter-only assessment names its scope and leaves unassessed seat arguments unclaimed
 
+#### Scenario: A complete admitted plan is reported at its actual scope
+
+- **WHEN** a resolved seat has compatible local permissions, required hands and all native ON/OFF and restriction dispositions
+- **THEN** both doctor reporting paths submit that entire candidate and command shape to launch's final composer and report its statically admitted result
+- **AND** independent full-line expectations name the assessed seat and evidence scope; they are not generated from the composer under test and make no live-enforcement promise
+
 #### Scenario: Codex default search is made visible
 
 - **WHEN** Codex is installed and private grants nothing
