@@ -611,6 +611,25 @@ exist.
    This unit is named separately because its outcome is not predictable from
    anything opened here.
 
+   **Landed 2026-09-23 at `a4f7a5e0`; the member does not bind — no Pass-B
+   finding.** `escaping_member_layer` lists `recipe/link.yml` in `files`
+   with the digest of `work/outside.yml`, the bytes it reaches, and asserts
+   the fixture's own shape first (a symlink, canonicalising outside the
+   layer). `an_escaping_symlink_member_is_withheld_at_the_single_site` and
+   `an_escaping_symlink_member_is_withheld_at_the_panel_member` (beside a
+   sibling whose real member binds) each find the private context present
+   and no `route_overlay` key in it; the nonmember-symlink panel case is
+   retained. One mutation, compiled, run red and reverted: canonicalising
+   only the joined path's parent in `route_overlay_binding`, so the final
+   symlink is not followed, parts both new cases — `resume_tests.rs:1941`
+   and `:1998`, `Some({"digest":"fbf191b4…","value":"recipe/link.yml"})`
+   against `None` — while both existing nonmember cases stay green, which is
+   what the nonmember could not stand in for. `cargo fmt --all -- --check`,
+   `cargo clippy --workspace --all-targets --all-features --locked -- -D
+   warnings` and `cargo test -p brokkr-runtime --all-features --locked` (460
+   lib plus 94 integration passed, 0 failed) are green. Tests only; no
+   production line moved; no checkbox moved.
+
 2c. **Drive the reader's remaining classes through the three planner paths, and
    add the two classes that exist nowhere.** Closes B47, B49 and B50. Touches
    `crates/brokkr-protocol/src/adapters/tests.rs` (extend
