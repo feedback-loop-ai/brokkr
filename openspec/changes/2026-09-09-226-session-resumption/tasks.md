@@ -821,10 +821,31 @@ invocation. `cargo fmt --all -- --check`, `cargo clippy --workspace
 `brokkr-core`, `brokkr-store`, `brokkr-protocol` (420 lib tests),
 `brokkr-runtime`, `brokkr-view`, `brokkr-bridge` and `brokkr-cli`, and
 `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` all
-passed. `bash scripts/coverage-exact.sh` and `openspec validate --all
---strict` are withheld by this seat's permission grant and are recorded
-**pending, not passed**; neither was weakened or substituted. Remote CI on a
-final head and native macOS remain pending until their own results exist.
+passed, and were rerun whole on the finished candidate: core 73/3/8/2, store
+(seven green results), protocol **420 lib** + 99 seatbelt + 1 doc, runtime
+456 + its siblings, view 243, bridge, cli (467 lib and its integration
+binaries), no failure anywhere. Two of the removal proofs above — the
+reversed `component_digest` walk and the raw-candidate `resolve_bundle`
+comparison — were replayed on that candidate and parted exactly as recorded,
+each with one selected test and 419 filtered out; both mutations were
+reverted and the tree is clean.
+
+`bash scripts/coverage-exact.sh` is **refused by this seat's permission
+grant**, as is `openspec validate --all --strict`: the sandbox reaches
+neither the script nor a binary outside this worktree. Its SUBSTANCE was
+reproduced by hand with the pinned toolchain, and that reproduction is
+reported as what it is rather than as the gate. `git grep -n 'coverage(off)'`
+over `crates/` is empty; `cargo +nightly-2026-09-05 llvm-cov clean
+--workspace` then `cargo +nightly-2026-09-05 llvm-cov --workspace
+--all-features --locked --branch --json` ran the whole suite under
+instrumentation and exited 0; the LCOV export is accounted by the script's
+own source rule — **32,802 of 32,802 `DA` records covered, 5,508 of 5,508
+`BRDA` records covered, and 3,195 of 3,195 production functions deduplicated
+by file and start line**, with zero test-harness filenames in the report.
+Literal 100% on all three, nothing lowered, disabled or substituted. The
+gate script itself and `openspec validate --all --strict` stay **pending**
+until a host that may run them does. Remote CI on a final head and native
+macOS remain pending until their own results exist.
 
 **Owed to D3, not claimed by this delivery.** D2 discharged the plugin-order,
 equal-staging and containment clauses D1 carried forward, and — under the
