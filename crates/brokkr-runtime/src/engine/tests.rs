@@ -78,6 +78,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         hands: BTreeMap::new(),
         inline_resume: BTreeMap::new(),
         sites: Default::default(),
+        charters: Default::default(),
     }
 }
 
@@ -1626,24 +1627,29 @@ fn a_composed_run_resumes_and_refuses_when_its_base_moved() {
         .unwrap()
         .contains_key("@compose/0000/base"));
 
+    // Decision 0065 ruling 8 (design D7): every compiled bundle now pins
+    // its capability authority, and the frozen v2 lineage cannot carry
+    // it. Its own fail-closed list refuses the key BY NAME, before any
+    // row, rather than stripping the authority to make the round-trip
+    // fit — so a Looper-bound start of a compiled bundle is refused until
+    // that lineage gains a version that can carry `capabilities`.
     let store = Store::open(&dir.path().join("composed.db")).unwrap();
     let envelope = dispatch(&composed);
-    let engine = Engine::start_with_dispatch(
+    match Engine::start_with_dispatch(
         store,
         composed.clone(),
         "composed",
         Some(dir.path().into()),
         envelope,
-    )
-    .unwrap();
-    let resumed = Engine::resume(
-        engine.store,
-        composed.clone(),
-        "bound-run",
-        Some(dir.path().into()),
-    )
-    .unwrap();
-    assert_eq!(resumed.feature, "composed");
+    ) {
+        Err(EngineError::Dispatch(
+            brokkr_core::dispatch::DispatchError::ManifestKeyUnsupportedByDispatchLineage(key),
+        )) => assert_eq!(key, "capabilities"),
+        Err(other) => panic!("expected the named lineage refusal: {other}"),
+        Ok(_) => panic!("the v2 lineage cannot carry capability authority"),
+    }
+    let refused = Store::open(&dir.path().join("composed.db")).unwrap();
+    assert!(refused.list_runs().unwrap().is_empty());
 
     // A base that moved under a plain run surfaces BY NAME: resume
     // recompiles, re-resolves from the same library, and the existing
@@ -2165,6 +2171,25 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         .as_str()
         .unwrap()
         .contains("stderr tail"));
+}
+
+/// Give an operated repository the operator's abstract definitions. A
+/// compile that loads the shipped library consults the definitions every
+/// loaded agent names (decision 0065; design D3) and pins them, and the
+/// start fence reads those pins under the OPERATED repository — so a test
+/// that compiles against the workspace and starts somewhere else has to
+/// stand where a real operated repository stands: beside its definitions.
+fn carry_definitions(operated: &Path) {
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../capabilities");
+    std::fs::create_dir_all(operated.join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(shipped).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            operated.join("capabilities").join(entry.file_name()),
+        )
+        .unwrap();
+    }
 }
 
 fn git_commit(repo: &Path, message: &str) -> String {
@@ -3999,14 +4024,16 @@ fn world_with_house(dir: &Path, repo: &Path, house: &str) -> crate::realms::Worl
 
 fn engine_in(dir: &Path, world: Option<crate::realms::World>, repo: &Path) -> Engine {
     let store = Store::open(&dir.join("forge.db")).unwrap();
-    Engine::start_in_world(
-        store,
-        bundle(dir, single_body(vec!["driver".into()])),
-        "feature",
-        Some(repo.to_path_buf()),
-        world,
-    )
-    .unwrap()
+    // Compiled in the realm it is started in, granting nothing: the start
+    // fence compares both (decision 0065 ruling 3).
+    let mut bundle = bundle(dir, single_body(vec!["driver".into()]));
+    let realm = world
+        .as_ref()
+        .and_then(|world| world.realm_for(repo))
+        .map_or(crate::capabilities::UNMAPPED, |realm| &realm.name);
+    bundle.manifest["capabilities"] = json!({"realm": realm, "grants": {}, "definitions": {},
+        "dialects": {}, "sites": {}});
+    Engine::start_in_world(store, bundle, "feature", Some(repo.to_path_buf()), world).unwrap()
 }
 
 #[test]
@@ -4168,11 +4195,12 @@ fn a_run_in_a_world_with_a_crossing_records_the_digest_it_stood_on() {
     let started = &engine.store.load(&engine.run_id).unwrap()[0];
     assert_eq!(started.payload["manifest"], manifest);
 
-    // And it is the contract it claims: run-manifest/v10.
+    // And it is the contract it claims: run-manifest/v11, which is v10
+    // and the required `capabilities` section (decision 0065 ruling 8).
     let schema: Value = serde_json::from_slice(
         &std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../contracts/run-manifest.v10.schema.json"),
+                .join("../../contracts/run-manifest.v11.schema.json"),
         )
         .unwrap(),
     )
@@ -4215,6 +4243,16 @@ fn a_two_realm_run_with_no_crossing_stores_the_exact_earlier_shape() {
     let manifest = engine.store.manifest(&engine.run_id).unwrap();
     assert!(manifest.get("crossings").is_none(), "{manifest}");
     assert!(manifest.get("realms").is_some());
+    // The earlier shape, exactly: set the capability section every
+    // manifest now carries aside (decision 0065 ruling 8 — run-manifest
+    // v11), and what a world with no crossing writes is still what v9
+    // described.
+    let mut earlier = manifest.clone();
+    assert!(earlier
+        .as_object_mut()
+        .unwrap()
+        .remove("capabilities")
+        .is_some());
     let v9: Value = serde_json::from_slice(
         &std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -4224,7 +4262,7 @@ fn a_two_realm_run_with_no_crossing_stores_the_exact_earlier_shape() {
     )
     .unwrap();
     assert!(
-        jsonschema::draft7::new(&v9).unwrap().is_valid(&manifest),
+        jsonschema::draft7::new(&v9).unwrap().is_valid(&earlier),
         "a world with no crossing writes a manifest v9 still validates",
     );
 }
@@ -4615,7 +4653,7 @@ fn resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin() {
 /// answering with a fixed result. `driver_command` above is enough when
 /// only the outcome matters; a sequence's later step is judged by what
 /// it was TOLD, so this one keeps the evidence.
-fn capturing_driver_command(
+pub(super) fn capturing_driver_command(
     effect_id: &str,
     attempt_id: &str,
     capture: &Path,
@@ -4852,9 +4890,13 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     // fake below; the box itself has its dedicated boxed proof.
     bundle.hands.clear();
     bundle.sites.clear();
+    // Named for its dialect, started with no world at all: the fence reads
+    // the realm the bundle was resolved in (decision 0065 ruling 3).
+    bundle.manifest["capabilities"]["realm"] = json!(crate::capabilities::UNMAPPED);
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir(&work).unwrap();
+    carry_definitions(&work);
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let engine = Engine::start(store, bundle, "compiled SDD proof", Some(work)).unwrap();
     (dir, engine)
@@ -5362,6 +5404,7 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5405,6 +5448,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5453,6 +5497,7 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5527,6 +5572,7 @@ fn docs_only_review_commits_are_classified_and_never_claimed() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);
@@ -5575,6 +5621,7 @@ fn the_docs_class_is_read_at_the_entry_head_and_not_from_the_tree() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);
@@ -5649,6 +5696,7 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);

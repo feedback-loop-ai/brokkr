@@ -155,7 +155,16 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
             )));
         }
         let file = dir.join("bundle.json");
-        let document: Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
+        // Read STRICTLY from the layer's own bytes (decision 0065, design
+        // D3): a seat's capability requests are written here, and an
+        // ordinary JSON map keeps the last copy of a repeated key — so a
+        // `"requires"` followed by a `"wants"` under one name, or a second
+        // `capabilities` field, would weaken a requirement before any
+        // validation saw it. Every layer is read this way, so a leaf that
+        // replaces a seat cannot hide what its ancestor wrote twice.
+        let parsed = brokkr_core::canonical::parse_strict(&std::fs::read_to_string(&file)?)
+            .map_err(|problem| invalid(format!("{}: {problem}", file.display())))?;
+        let document: Map<String, Value> = serde_json::from_value(parsed)?;
         let name = document
             .get("name")
             .and_then(Value::as_str)
@@ -402,8 +411,22 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
             layer.file.display()
         ))
     })?;
-    let path = layer.dir.join(relative);
-    let table: Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    // Decision 0066 ruling 5, asked of EVERY layer before its table is
+    // read or merged: a leaf that declares its own table cannot hide what
+    // an ancestor read from under a name the file walk skips. Second
+    // council H5: the table is resolved to the file that will be READ —
+    // canonically, through every link — so the bytes this parse rules on
+    // are the bytes the identity walk hashes.
+    let path = super::active_input(&layer.dir, relative).map_err(|place| {
+        invalid(format!(
+            "{}: 'policy' names '{relative}', {place}. A table there could change how a run is \
+             ruled without moving the bundle's identity, so it is refused; move it to a path \
+             the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
+            layer.file.display()
+        ))
+    })?;
+    // One read: the buffer this parses is the buffer that was hashed.
+    let table: Map<String, Value> = serde_json::from_slice(&std::fs::read(&path)?)?;
     Ok(Some((table, path)))
 }
 
@@ -836,6 +859,10 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
             &no_hands,
             &Map::new(),
             brokkr_core::realms::Boundary::Namespace,
+            // Nor does an ancestor hold or grant a capability (decision
+            // 0065): authority belongs to the composed bundle compiled in
+            // a realm, so a layer's digest carries none and does not move.
+            None,
         )?;
         chain.insert(
             0,

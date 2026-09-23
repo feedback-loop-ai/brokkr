@@ -18,10 +18,21 @@ skill runs the Claude Code lane.
 ## Why the seat is inline
 
 dsh expresses no tool allow-list (`adapters/dsh.json` declares
-`tool_permissions` unsupported), so the library office's `webfetch` and
-`websearch` grants cannot be compiled onto it. The seat is therefore an
-inline dsh site, as night-shift's implementer is, and the fetch grant
-takes the shape dsh has: the headless profile's own web tools. Since
+`tool_permissions` unsupported), so the library office's tool
+restriction cannot be compiled onto it. The seat is therefore an
+inline dsh site, as night-shift's implementer is.
+
+Since decision 0065 the library office asks for `web-search` and
+`web-fetch` by abstract name, and only a realm grants them. This inline
+seat asks for nothing, and no tool dialect serves either capability
+through dsh: `adapters/dsh.json` declares dsh's native capabilities
+**unmeasured**, so nothing can be granted through it and no native
+denial is claimed for it either. What follows is therefore a statement
+about what dsh reaches on its own, not about a grant — and it is
+exactly the gap the adapter's reason names and the controller owes a
+measurement for.
+
+The reading dsh does takes the shape dsh has: the headless profile's own web tools. Since
 dsh 0.1.2-rc.1 that profile ships `web-fetch-http` with page fetch on
 (0.1.0-rc.6 shipped no fetch provider, and the first sweep read with
 curl). `drivers/research-web.yml` therefore carries only the Model

@@ -27,8 +27,8 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use crate::agents::{Candidate, HarnessHands, ResultDoor};
 use crate::bundle::{
-    dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState, PanelMember, Seat,
-    SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
+    charter_text, dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState,
+    PanelMember, Seat, SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -95,6 +95,34 @@ pub enum EngineError {
          one word (decision 0046 ruling 1)"
     )]
     BoundaryMismatch { compiled: Boundary, world: Boundary },
+    /// Decision 0065 ruling 3 at the same door: a bundle holds what the
+    /// realm it was COMPILED in grants, so it starts only in a world whose
+    /// operated realm grants exactly that. A different grant context is a
+    /// different authority, refused before any row is written.
+    #[error(
+        "this bundle was compiled under the capabilities realm '{compiled_realm}' grants \
+         ({compiled}), and the world it is started with resolves realm '{world_realm}' \
+         granting {world} for the operated repository; a seat holds only what the realm it \
+         runs in grants, so recompile in this world (decision 0065 ruling 3)"
+    )]
+    CapabilityMismatch {
+        compiled_realm: String,
+        compiled: String,
+        world_realm: String,
+        world: String,
+    },
+    /// The same door, for the bytes behind the grants (design D7): the
+    /// manifest pins every abstract definition and tool dialect the compile
+    /// consulted, by relative source and digest, and a resume must be able
+    /// to reproduce them. A run is not journaled against an input that has
+    /// already moved.
+    #[error(
+        "this bundle's capabilities were compiled against '{input}', which {problem} in the \
+         operator configuration this run is started with; a run pins the abstract definitions \
+         and tool dialects its holdings came from, so recompile in this world (decision 0065 \
+         ruling 8)"
+    )]
+    CapabilityInputMoved { input: String, problem: String },
     /// Decision 0046 ruling 6: `seatbelt` and `container` are named, pinned
     /// and admitted at compile, and built by slices (ii) and (iii). This
     /// engine composes nothing for either, and never simulates a boundary,
@@ -339,6 +367,46 @@ impl Engine {
                 compiled: bundle.boundary,
                 world: resolved,
             });
+        }
+        // Decision 0065 ruling 3, fenced the same way and for the same
+        // reason: the grants the operated realm declares TODAY are what
+        // this run may hold, and a bundle compiled under any other grant
+        // context — a neighbouring realm's, an edited map's, none at all
+        // — is refused before `create_run`, so nothing is journaled and no
+        // seat spawns.
+        let operated_realm = world.as_ref().and_then(|world| world.realm_for(&operated));
+        let world_realm = operated_realm.map_or(crate::capabilities::UNMAPPED, |realm| &realm.name);
+        let world_grants: Map<String, Value> = operated_realm
+            .into_iter()
+            .flat_map(|realm| &realm.grants)
+            .map(|(capability, grant)| (capability.clone(), grant.value()))
+            .collect();
+        // What is compared is the realm and its GRANTS, which is the
+        // authority: a bundle that records none was compiled under none,
+        // and a neighbouring realm granting the very same map is still a
+        // different office-holder's permission, not this one's.
+        let compiled = &bundle.manifest["capabilities"];
+        let compiled_grants = compiled.get("grants").cloned().unwrap_or_else(|| json!({}));
+        let compiled_realm = compiled["realm"]
+            .as_str()
+            .unwrap_or(crate::capabilities::UNMAPPED);
+        if compiled_grants != json!(world_grants) || compiled_realm != world_realm {
+            return Err(EngineError::CapabilityMismatch {
+                compiled_realm: compiled_realm.to_string(),
+                compiled: compiled_grants.to_string(),
+                world_realm: world_realm.to_string(),
+                world: Value::Object(world_grants).to_string(),
+            });
+        }
+        // And the bytes those grants were judged against, read where the
+        // compile read them: beside the map, else under the operated
+        // repository (design D2).
+        let operator_root = match &world {
+            Some(world) => world.source.parent().map(PathBuf::from).unwrap_or_default(),
+            None => operated.clone(),
+        };
+        if let Some((input, problem)) = moved_capability_input(compiled, &operator_root) {
+            return Err(EngineError::CapabilityInputMoved { input, problem });
         }
         // Pinned for the same operated repository the fence judged, so a
         // run started from a mapped workspace with no `--repo` still
@@ -1110,6 +1178,12 @@ impl Engine {
         // as a different effect.
         self.mark_hands(&site_name, &mut input);
         self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
+        self.mark_capabilities(
+            &site_name,
+            selection.get(&None),
+            single.as_ref(),
+            &mut input,
+        );
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -1245,6 +1319,47 @@ impl Engine {
                 input["hands"] = Value::Null;
             }
         }
+    }
+
+    /// Decision 0065 rulings 4 and 5: what the serving candidate of this
+    /// site holds, and the native controls its launch is composed with —
+    /// both read from the ONE outcome compiled for that candidate, so the
+    /// prompt, the argv and the manifest cannot disagree. A fallback link
+    /// gets its own outcome, never its primary's.
+    ///
+    /// `native_controls` is ALWAYS written: the plan, or `null` where no
+    /// outcome was computed for the site — which the model adapters refuse
+    /// before any provider work rather than launching a harness on its
+    /// own defaults. Written beside `mark_delivery`, outside the requested
+    /// digest, for the same reason: a chain fallback moves it.
+    ///
+    /// `launch_arguments` rides beside them (decision 0066 ruling 4): the
+    /// composed spawn's arguments in their two parts, what the recipe or
+    /// its agent authored and what the engine appended for the boundary.
+    /// All three are written LAST, after every merge of seat, context and
+    /// member input, so nothing a recipe, a result or a returned capability
+    /// response carries can mint or overwrite them; a fallback link brings
+    /// its own plan AND its own parts.
+    /// A panel or a sequence is no launch of its own — each member and step
+    /// is marked with its own spawn — so its seat-level input carries none.
+    fn mark_capabilities(
+        &self,
+        label: &str,
+        link: Option<&Candidate>,
+        spawn: Option<&SiteSpawn>,
+        input: &mut Value,
+    ) {
+        let outcome = self
+            .bundle
+            .sites
+            .get(label)
+            .and_then(|facts| facts.capabilities.as_ref())
+            .and_then(|site| {
+                site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
+            });
+        input["native_controls"] = outcome.map_or(Value::Null, |outcome| outcome.controls());
+        input["capabilities"] = outcome.map_or(Value::Null, |outcome| outcome.prompt());
+        input["launch_arguments"] = spawn.map_or(Value::Null, SiteSpawn::launch_arguments);
     }
 
     /// The judge's door under `harness` (decision 0046 ruling 4; design
@@ -1668,9 +1783,11 @@ impl Engine {
             );
         }
         let stamp = plan.map(|plan| plan.context.clone());
-        let process = match spawn_site(&self.bundle, spawn, &workdir, deadline) {
+        // The door returns the input the driver is actually sent: the same
+        // object, with the charter text it verified carried in it.
+        let (process, input) = match spawn_site(&self.bundle, spawn, &input, &workdir, deadline) {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
-            Ok(process) => process,
+            Ok(started) => started,
         };
         let mut checkpoint_error: Option<EngineError> = None;
         // A checkpoint the journal refused under the seat-record fence
@@ -1905,6 +2022,7 @@ impl Engine {
                     selection.get(&site),
                     input["result_path"].as_str().unwrap_or_default(),
                 );
+                self.mark_capabilities(&label, selection.get(&site), Some(&spawn), &mut input);
                 // Each member's OWN offer and stamps, never the panel's:
                 // selection is per site, not per aggregate (proposed
                 // decision 0056 ruling 1).
@@ -1966,41 +2084,45 @@ impl Engine {
                     let workdir = workdir.clone();
                     let sender = sender.clone();
                     scope.spawn(move || {
-                        let report = match spawn_site(bundle, &run.spawn, &workdir, deadline) {
-                            Err(e) => AttemptReport {
-                                outcome: AttemptOutcome::Failed {
-                                    error: format!("member driver did not spawn: {e}"),
+                        let report =
+                            match spawn_site(bundle, &run.spawn, &run.input, &workdir, deadline) {
+                                Err(e) => AttemptReport {
+                                    outcome: AttemptOutcome::Failed {
+                                        error: format!("member driver did not spawn: {e}"),
+                                    },
+                                    session_ref: None,
+                                    checkpoints: Vec::new(),
+                                    stderr: String::new(),
+                                    // Nothing ran, so nothing was
+                                    // accepted: the structural
+                                    // fail-to-start predicate holds.
+                                    accepted: false,
+                                    // No process existed for a watchdog to
+                                    // kill.
+                                    deadline_killed: false,
                                 },
-                                session_ref: None,
-                                checkpoints: Vec::new(),
-                                stderr: String::new(),
-                                // Nothing ran, so nothing was
-                                // accepted: the structural
-                                // fail-to-start predicate holds.
-                                accepted: false,
-                                // No process existed for a watchdog to
-                                // kill.
-                                deadline_killed: false,
-                            },
-                            Ok(process) => process.run_attempt_resuming(
-                                ENGINE_VERSION,
-                                effect_id,
-                                attempt_id,
-                                &run.driver_seat,
-                                run.input.clone(),
-                                // This member's own offer, decided in
-                                // `site_plans` before anything spawned.
-                                // Only its provider ID crosses the wire;
-                                // the locator rides the member's private
-                                // `resume_context`.
-                                run.offer.as_ref().map(|offer| offer.provider_id.clone()),
-                                // Live telemetry: hand each checkpoint to the
-                                // main thread — the store has one writer.
-                                |data| {
-                                    let _ = sender.send((checkpoint_name.clone(), data.clone()));
-                                },
-                            ),
-                        };
+                                // The door's own input, carrying the charter
+                                // text it verified for this member.
+                                Ok((process, input)) => process.run_attempt_resuming(
+                                    ENGINE_VERSION,
+                                    effect_id,
+                                    attempt_id,
+                                    &run.driver_seat,
+                                    input,
+                                    // This member's own offer, decided in
+                                    // `site_plans` before anything spawned.
+                                    // Only its provider ID crosses the wire;
+                                    // the locator rides the member's private
+                                    // `resume_context`.
+                                    run.offer.as_ref().map(|offer| offer.provider_id.clone()),
+                                    // Live telemetry: hand each checkpoint to the
+                                    // main thread — the store has one writer.
+                                    |data| {
+                                        let _ =
+                                            sender.send((checkpoint_name.clone(), data.clone()));
+                                    },
+                                ),
+                            };
                         (name, report)
                     })
                 })
@@ -2213,6 +2335,12 @@ impl Engine {
                         selection.get(&site),
                         input["result_path"].as_str().unwrap_or_default(),
                     );
+                    self.mark_capabilities(
+                        &step_label,
+                        selection.get(&site),
+                        Some(&spawn),
+                        &mut input,
+                    );
                     // A sequence step now HAS such an identity: proposed
                     // decision 0056 ruling 1 gives it a structural site
                     // key, so a work-class step rejoins its own session
@@ -2361,6 +2489,9 @@ impl Engine {
                         selection.get(&site),
                         input["result_path"].as_str().unwrap_or_default(),
                     );
+                    // The generated validator holds nothing, and says so
+                    // (decision 0065; design D5).
+                    self.mark_capabilities(&step_label, None, Some(&spawn), &mut input);
                     dialect_attempt_outcome(self.run_driver(
                         effect_id,
                         attempt_id,
@@ -4077,11 +4208,35 @@ struct MemberRun {
 fn spawn_site(
     bundle: &Bundle,
     spawn: &SiteSpawn,
+    input: &Value,
     workdir: &Path,
     deadline: std::time::Duration,
-) -> Result<DriverProcess, String> {
+) -> Result<(DriverProcess, Value), String> {
     if let Some(reason) = &spawn.refusal {
         return Err(reason.clone());
+    }
+    // Decision 0066 ruling 5: the driver renders the prompt from the role
+    // file it is handed, so the file is judged here, against the pin the
+    // compile took, immediately before the driver that will read it.
+    //
+    // Second council H6: and the TEXT that read produced rides the input
+    // from here, because a driver that reopened the path would read
+    // whatever it said by then. An exec site has no charter to load into
+    // a prompt; everything else answers to a pin, the layer's file map or
+    // the library record.
+    let mut input = input.clone();
+    let role = input["role_path"].as_str().unwrap_or_default().to_string();
+    if !role.is_empty() {
+        match charter_text(bundle, Path::new(&role)) {
+            Err((owner, key)) => {
+                return Err(format!(
+                    "dispatch refused: a charter of {owner} moved since the compile ({key}); \
+                     what a seat is told must be the bytes the bundle's identity names \
+                     (decision 0066 ruling 5)"
+                ))
+            }
+            Ok(text) => input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text),
+        }
     }
     if let Some(layer) = &spawn.rewalk {
         if let Some((layer, key)) = layer_drift(bundle, layer) {
@@ -4092,6 +4247,7 @@ fn spawn_site(
         }
     }
     DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
+        .map(|process| (process, input))
         .map_err(|error| error.to_string())
 }
 
@@ -4105,6 +4261,13 @@ pub struct SiteSpawn {
     pub env: SpawnEnv,
     pub rewalk: Option<PathBuf>,
     pub refusal: Option<String>,
+    /// How many TRAILING tokens of `argv` the engine composed for the
+    /// boundary — the adapter's workspace hands under the box, its harness
+    /// fragment unboxed — rather than the recipe or its agent (decision
+    /// 0066 ruling 4). Recorded where the fragment is appended, because the
+    /// flattened argv has lost the difference and an author can spell
+    /// whatever the engine can.
+    pub managed: usize,
 }
 
 impl SiteSpawn {
@@ -4116,7 +4279,22 @@ impl SiteSpawn {
             env: SpawnEnv::Inherit,
             rewalk: None,
             refusal: None,
+            managed: 0,
         }
+    }
+
+    /// The driver's private `launch_arguments`: the arguments after the
+    /// driver verb's `--`, exactly as the driver will read them, in their
+    /// two parts by who wrote them. The driver refuses a launch whose parts
+    /// do not reassemble what it was handed.
+    pub fn launch_arguments(&self) -> Value {
+        let arguments = self.argv.get(3..).unwrap_or_default();
+        let extra = match arguments.iter().position(|part| part == "--") {
+            Some(separator) => &arguments[separator + 1..],
+            None => arguments,
+        };
+        let (authored, managed) = extra.split_at(extra.len().saturating_sub(self.managed));
+        json!({"authored": authored, "managed": managed})
     }
 }
 
@@ -4292,7 +4470,15 @@ pub fn compose_site(
     }
     match boundary {
         BuiltBoundary::Namespace => {
-            SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots))
+            // A model seat's workspace fragment is already in its argv —
+            // `agents::compose` appended it last — and `hands_command`
+            // expands it token for token, so its length is unchanged. An
+            // inline site — an exec dispatch included — has no candidate:
+            // its argv is all the author's.
+            let managed = candidate.map_or(0, |candidate| candidate.hands_fragment.len());
+            let mut spawn = SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots));
+            spawn.managed = managed;
+            spawn
         }
         BuiltBoundary::Harness => {
             let mut argv = command;
@@ -4304,14 +4490,17 @@ pub fn compose_site(
                 SeatClass::Gate => candidate.harness.gate.as_deref(),
                 SeatClass::Work => candidate.harness.work.as_deref(),
             });
-            for token in fragment.unwrap_or(&[]) {
+            let fragment = fragment.unwrap_or(&[]);
+            for token in fragment {
                 argv.push(
                     token
                         .replace("{result_path}", result_path)
                         .replace("{brokkr}", &brokkr),
                 );
             }
-            SiteSpawn::inherit(argv)
+            let mut spawn = SiteSpawn::inherit(argv);
+            spawn.managed = fragment.len();
+            spawn
         }
         BuiltBoundary::Open => SiteSpawn::inherit(command),
     }
@@ -4578,6 +4767,31 @@ pub fn hands_command(
         .collect()
 }
 
+/// The first abstract definition or tool dialect a compiled `capabilities`
+/// section pins that `root` no longer reproduces: its relative source, and
+/// whether it is missing or changed. The digest is over the file's raw
+/// bytes, exactly as the compile took it. `None` where every pin holds —
+/// which a section that consulted nothing trivially does.
+fn moved_capability_input(compiled: &Value, root: &Path) -> Option<(String, String)> {
+    ["definitions", "dialects"]
+        .into_iter()
+        .filter_map(|records| compiled.get(records)?.as_object())
+        .flat_map(Map::values)
+        .find_map(|record| {
+            let source = record["source"].as_str().unwrap_or_default();
+            let problem = match std::fs::read(root.join(source)) {
+                Ok(bytes)
+                    if record["sha256"] == json!(brokkr_core::canonical::sha256_bytes(&bytes)) =>
+                {
+                    None
+                }
+                Ok(_) => Some("has changed since"),
+                Err(_) => Some("is missing"),
+            };
+            Some((source.to_string(), problem?.to_string()))
+        })
+}
+
 fn manifest_diff(pinned: &Value, current: &Value) -> String {
     let empty = Map::new();
     let pinned_files = pinned
@@ -4616,6 +4830,30 @@ fn manifest_diff(pinned: &Value, current: &Value) -> String {
             current
                 .get("boundary")
                 .map_or("no boundary".to_string(), Value::to_string)
+        );
+    }
+    // So is capability authority (decision 0065 ruling 8): a run resumes
+    // only under the grants, definitions, dialects and native declarations
+    // it was started with, and the refusal names capabilities and says
+    // which record moved. A run pinned before the ruling carries no such
+    // section, and is never rewritten to resume under authority it was not
+    // started with.
+    if pinned.get("capabilities") != current.get("capabilities") {
+        let Some(was) = pinned.get("capabilities") else {
+            return "capabilities differ: the run was pinned before decision 0065 and records no \
+                    capability authority, which every bundle compiled now carries; a historical \
+                    run is never rewritten to resume under authority it was not started with"
+                .to_string();
+        };
+        let moved: Vec<&str> = ["realm", "grants", "definitions", "dialects", "sites"]
+            .into_iter()
+            .filter(|record| was.get(record) != current.pointer(&format!("/capabilities/{record}")))
+            .collect();
+        return format!(
+            "capabilities differ: the run's pinned {} no longer match what the bundle compiles \
+             to here — a grant, an abstract definition, a tool dialect or an adapter's native \
+             declaration was added, removed or edited since the run started",
+            moved.join(", ")
         );
     }
     "non-file manifest fields differ (engine or contract version)".to_string()
@@ -4840,6 +5078,9 @@ mod agent_tests;
 
 #[cfg(test)]
 mod artifact_gate_tests;
+
+#[cfg(test)]
+mod capability_tests;
 
 #[cfg(test)]
 mod conclude_tests;

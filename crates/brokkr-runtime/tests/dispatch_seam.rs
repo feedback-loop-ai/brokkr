@@ -181,6 +181,22 @@ fn the_gate_witness_and_the_agent_pin_are_refused_by_name() {
     unboxed.as_object_mut().unwrap().remove("boundary");
     unboxed.as_object_mut().unwrap().remove("hands");
     let sha = canonical::sha256_hex(&unboxed);
+    // Decision 0065 ruling 8 (design D7): every compiled manifest now pins
+    // its capability authority, which the v2 round-trip cannot carry. The
+    // same fail-closed list names it — the next key past the six, in key
+    // order — rather than the authority being stripped to fit.
+    assert!(
+        fast.get("capabilities").is_some(),
+        "every compiled bundle pins its capability authority"
+    );
+    assert_eq!(
+        build_run_manifest_v2(&unboxed, envelope(&sha)),
+        Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(
+            "capabilities".into()
+        ))
+    );
+    unboxed.as_object_mut().unwrap().remove("capabilities");
+    let sha = canonical::sha256_hex(&unboxed);
     assert_eq!(
         build_run_manifest_v2(&unboxed, envelope(&sha)),
         Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(

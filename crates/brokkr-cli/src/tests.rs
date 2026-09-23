@@ -950,7 +950,10 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let refusal = run_in(&unmapped, cli(gated(Some(gated_dispatch_path))))
         .unwrap_err()
         .to_string();
-    assert!(refusal.contains("'drivers'"), "{refusal}");
+    // The list names the FIRST key it cannot carry, in key order: the
+    // witness is still pinned and still uncarriable, and since decision
+    // 0065 the capability authority sorts ahead of it.
+    assert!(refusal.contains("'capabilities'"), "{refusal}");
     assert!(refusal.contains("unresumable"), "{refusal}");
 
     // A bundle that consulted no declaration still dispatches: the
@@ -981,18 +984,45 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
             secrets_file: None,
         })
     };
-    let code = run_in(&unmapped, cli(accept(path.clone()))).unwrap();
-    assert_eq!(code, ExitCode::from(2));
+    // Decision 0065 ruling 8 (design D7) meets the same frozen lineage:
+    // EVERY compiled bundle now pins its capability authority — an
+    // explicit "this realm grants nothing" included — and the v2
+    // round-trip cannot carry it. So even this bundle is refused out
+    // loud, naming the key, by the very list that refused `drivers`
+    // above, rather than the authority being stripped to make the
+    // round-trip fit. No run row is written.
+    let refusal = run_in(&unmapped, cli(accept(path.clone())))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("'capabilities'"), "{refusal}");
+    assert!(refusal.contains("unresumable"), "{refusal}");
 
     // A map merely LYING in the workspace is not an instruction, and a
     // dispatched run is not refused for standing next to one — this
     // repository carries its own map at its root, and `--dispatch` is a
-    // documented entry point into it. The pin is dropped, out loud.
+    // documented entry point into it. The pin is dropped, out loud; the
+    // refusal that follows is not the map's. It is the envelope's own:
+    // compiled where a map names the realm, the bundle's capability
+    // authority names that realm, so an envelope sealed over the unmapped
+    // compile pins a different bundle and is refused before any row.
     let second = dispatch_for(&bundle, "bound-run-2", "https://dogfood.example");
     let second_path = dir.path().join("dispatch-2.json");
     std::fs::write(&second_path, serde_json::to_string(&second).unwrap()).unwrap();
-    let code = run_in(dir.path(), cli(accept(second_path))).unwrap();
-    assert_eq!(code, ExitCode::from(2));
+    let refusal = run_in(dir.path(), cli(accept(second_path)))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refusal.contains("dispatch recipe digest does not match the compiled bundle"),
+        "{refusal}"
+    );
+    assert!(
+        brokkr_store::Store::open(&dir.path().join("dispatch.db"))
+            .unwrap()
+            .list_runs()
+            .unwrap()
+            .is_empty(),
+        "a refused dispatch writes no run"
+    );
 }
 
 fn loopback_server(responses: Vec<String>) -> (String, std::thread::JoinHandle<()>) {
@@ -3659,6 +3689,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         &root,
         &root.join("recipes/triage"),
         &json!({"bundle_name":"unadopted"}),
+        &root,
     )
     .is_ok());
 
@@ -3679,6 +3710,20 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         )
         .unwrap();
     }
+    // The pinned world is where the operator's abstract definitions are
+    // read from, and a compile that loads the shipped library resolves the
+    // asks of EVERY loaded agent (decision 0066 ruling 8) — the researcher's
+    // two wants included, though triage seats it nowhere. A map directory
+    // without them refuses the compile, so this world carries them.
+    std::fs::create_dir(dir.path().join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(root.join("capabilities")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            dir.path().join("capabilities").join(entry.file_name()),
+        )
+        .unwrap();
+    }
     let map = json!({
         "schema":"forge.realms/v3",
         "realms":[{"name":"pinned","path":root,"default_branch":"main","dialect":"openspec"}],
@@ -3689,13 +3734,16 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let manifest = world
         .pinned(&json!({"bundle_name":"triage"}), Some(&root))
         .unwrap();
-    let bundle = compile_from_manifest(&root, &root.join("recipes/triage"), &manifest).unwrap();
+    let bundle =
+        compile_from_manifest(&root, &root.join("recipes/triage"), &manifest, &root).unwrap();
     assert_eq!(bundle.manifest["bundle_name"], "triage");
-    assert!(compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest).is_err());
+    assert!(
+        compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest, &root).is_err()
+    );
 
     let mut broken = manifest;
     broken["realms"]["sha256"] = json!("0".repeat(64));
-    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken).is_err());
+    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken, &root).is_err());
 
     let mut no_dialect = map;
     no_dialect["realms"][0]

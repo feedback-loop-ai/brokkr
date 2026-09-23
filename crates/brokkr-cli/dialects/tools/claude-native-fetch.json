@@ -1,0 +1,19 @@
+{
+  "schema": "brokkr.tool-dialect/v1",
+  "name": "claude-native-fetch",
+  "serves": "web-fetch",
+  "kind": "provider-native",
+  "provider": "claude",
+  "adapter_key": "web-fetch",
+  "tools": ["WebFetch"],
+  "classes": ["reads", "egress"],
+  "egress": "uncontracted",
+  "sends": {
+    "description": "A URL the model names, and a prompt it composes about the page, sent to Claude Code's built-in WebFetch tool; the named host sees the request.",
+    "seat_composed": true
+  },
+  "restrictions": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

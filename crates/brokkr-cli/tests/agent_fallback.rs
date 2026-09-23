@@ -64,10 +64,13 @@ impl Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
-        for sub in ["bundle", "agents/charters", "adapters", "state"] {
+        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
             std::fs::create_dir_all(ws.path().join(sub)).unwrap();
         }
         std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
+        // An inline seat's role stands inside its own bundle, where the
+        // file map pins it (decision 0066 ruling 5).
+        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
         std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         // A provider whose binary does not exist: every attempt on it
         // fails to spawn, which satisfies the structural predicate
@@ -157,7 +160,7 @@ impl Workspace {
     fn inline_review(&self) -> Value {
         json!({
             "results": ["clean"],
-            "role": "../agents/charters/work.md",
+            "role": "roles/work.md",
             "driver": {"command": [
                 brokkr_bin(), "fake-driver",
                 "--script", self.path().join("script.json").to_string_lossy(),
@@ -444,7 +447,7 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
             "limits": {"max_attempts": 1, "timeout_seconds": 60},
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
-                {"name": "check", "role": "../agents/charters/work.md",
+                {"name": "check", "role": "roles/work.md",
                  "driver": {"command": [
                      brokkr_bin(), "driver", "exec", "--",
                      "sh", "./check.sh", "{result_path}",
@@ -503,7 +506,7 @@ fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
             "limits": {"max_attempts": 2, "timeout_seconds": 60},
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
-                {"name": "echo", "role": "../agents/charters/work.md",
+                {"name": "echo", "role": "roles/work.md",
                  "driver": {"command": [
                      brokkr_bin(), "fake-driver",
                      "--script", ws.path().join("script.json").to_string_lossy(),

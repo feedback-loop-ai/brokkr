@@ -89,7 +89,7 @@ use anyhow::{bail, Context, Result};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
-use serde_json::{json, Map};
+use serde_json::{json, Map, Value};
 
 const OPENSPEC_DIALECT: &str = include_str!("../dialects/openspec.json");
 const SPECKIT_DIALECT: &str = include_str!("../dialects/speckit.json");
@@ -537,6 +537,72 @@ fn grants(detected: Option<&Detected>) -> Grants {
 /// `tools.allow` lists must be expressible here or the scaffold's own
 /// compile refuses. Where nothing was recognized the map stays EMPTY,
 /// and the README carries the sentence that says which of the two it is.
+/// Claude Code's native network tools, as `adapters/claude.json` declares
+/// them (decision 0065 ruling 4): each switched ON by admitting it to the
+/// seat's own tool lists and OFF by denying it by name. Adapter data and
+/// argv composition only — no live denial or enablement was measured, and
+/// the limitations say so. `init_stacks` holds this equal to the shipped
+/// declaration, so a scaffold cannot drift into a weaker one.
+fn claude_native_capabilities() -> Value {
+    let native = |capability: &str, tool: &str, restriction: &str, extra: &[&str]| {
+        let mut limitations = vec![
+            "that a boxed seat's empty --tools list under --strict-mcp-config leaves no native \
+             tool is adapter data, not a live measurement"
+                .to_string(),
+            format!(
+                "{tool} ON beside the hands tool, and {tool} OFF by --disallowedTools on an \
+                 unboxed seat, are both unmeasured live; the checks are owed to the controller"
+            ),
+        ];
+        limitations.extend(extra.iter().map(|gap| gap.to_string()));
+        json!({
+            "capability": capability,
+            "tools": [tool],
+            "on": {"selection": {"include": [tool], "allow": [tool], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": [tool]}},
+            "restrictions": {"unsupported": restriction},
+            "evidence": {
+                "source": "adapters/claude.json and the installed 2.1.266 help: --tools, \
+                           --allowedTools and --disallowedTools each take tool names",
+                "scope": format!(
+                    "adapter data and argv composition only; no live denial or enablement of \
+                     {tool} has been measured"
+                ),
+                "limitations": limitations,
+            },
+            "authored": {
+                "list_flags": ["--tools", "--allowedTools", "--allowed-tools"],
+                "value_flags": ["--model", "--effort", "--permission-mode", "--mcp-config"],
+            },
+        })
+    };
+    json!({
+        "known": {
+            "web-search": native(
+                "web-search",
+                "WebSearch",
+                "no native transport for a restriction on Claude Code's WebSearch has been \
+                 established",
+                &["this names the two native network tools that were known, not an exhaustive \
+                   inventory of what Claude Code can reach on its own"],
+            ),
+            "web-fetch": native(
+                "web-fetch",
+                "WebFetch",
+                "no native transport for a restriction on Claude Code's WebFetch has been \
+                 established; a WebFetch(domain:…) permission pattern was not measured as a \
+                 host allowlist",
+                &[],
+            ),
+        },
+        "selection": {
+            "include": {"flag": "--tools", "separator": ","},
+            "allow": {"flag": "--allowedTools", "separator": ","},
+            "deny": {"flag": "--disallowedTools", "separator": ","},
+        },
+    })
+}
+
 fn adapter_json(grants: &Grants) -> String {
     let mut names = Map::new();
     for tool in &grants.work {
@@ -562,6 +628,12 @@ fn adapter_json(grants: &Grants) -> String {
         "effort_flag": "--effort",
         "tool_permissions": {"flag": "--allowedTools", "separator": ",", "names": names},
         "mcp": {"flag": "--mcp-config", "servers": {}},
+        // Decision 0065 ruling 4: what this harness can already reach on
+        // its own, and how each such power is switched on and off. A
+        // scaffold grants nothing, so a stranger's first seats are
+        // launched with both denied by name — the same assessment the
+        // shipped adapter carries, word for word, evidence limits included.
+        "native_capabilities": claude_native_capabilities(),
         // What has been MEASURED about resuming this provider here, in
         // this workspace, on this machine: nothing (proposed decision
         // 0056 ruling 5). The scaffold could omit the key — absence

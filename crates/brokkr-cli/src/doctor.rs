@@ -678,7 +678,7 @@ pub fn doctor(
         Ok(Some(world)) => world.boundary_for(&workspace),
         _ => Boundary::Namespace,
     };
-    let mut report = doctor_in(
+    let (mut report, availability) = doctor_observed(
         bundle,
         db,
         Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
@@ -696,6 +696,13 @@ pub fn doctor(
             )
         }),
         dsh_provider_line,
+    );
+    report_capabilities(
+        &mut report,
+        &world,
+        &workspace,
+        Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        &availability,
     );
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
@@ -719,6 +726,428 @@ fn report_realm_world(
             report.ok("dialect", "no realms map; none declared".into());
         }
         Err(error) => report.missing("realms map", error.to_string()),
+    }
+}
+
+/// How one grant's office scope reads. The three are different facts and
+/// an empty list must never print as "all".
+fn scope_words(grant: &brokkr_core::realms::CapabilityGrant) -> String {
+    match grant.offices.as_deref() {
+        None => "all requesting offices".to_string(),
+        Some([]) => "no offices".to_string(),
+        Some(offices) => format!("offices [{}] only", offices.join(", ")),
+    }
+}
+
+/// How one declared native control reads, as the adapter data it is: the
+/// argv that switches it, the measured default that needs none, the tool
+/// lists it contributes to, or the reason it cannot be or has not been
+/// measured. Words for a readout, never a claim that the control held.
+fn disposition_words(disposition: &brokkr_runtime::capabilities::Disposition) -> String {
+    use brokkr_runtime::capabilities::Disposition;
+    match disposition {
+        Disposition::Argv(argv) => format!("argv [{}]", argv.join(" ")),
+        Disposition::Default(reason) => format!("the harness default ({reason})"),
+        Disposition::Selection(lists) => format!(
+            "tool lists include [{}] allow [{}] deny [{}]",
+            lists.include.join(", "),
+            lists.allow.join(", "),
+            lists.deny.join(", ")
+        ),
+        Disposition::Unsupported(reason) => format!("cannot be switched ({reason})"),
+        Disposition::Unmeasured(reason) => format!("unmeasured ({reason})"),
+    }
+}
+
+/// Design D8's unknown-authority half: a realms map that could not be read
+/// names no realm, so nothing here is keyed to one and nothing is said to
+/// be granted, not granted or switched off anywhere — an empty grant set
+/// invented for the occasion would be a denial doctor never read. What an
+/// installed harness HAS is still adapter data, and is still named: its
+/// tools, how ON and OFF are declared, the evidence scope and what stays
+/// unmeasured, or the reason its inventory is unmeasured at all.
+fn report_native_assessments(report: &mut Report, installed: &[&Adapter]) {
+    use brokkr_runtime::capabilities::NativeInventory;
+    for adapter in installed {
+        let provider = &adapter.provider;
+        let natives = match &adapter.native {
+            NativeInventory::Known { known, .. } => known,
+            NativeInventory::Unmeasured(reason) => {
+                report.warn(
+                    &format!("capabilities native {provider}"),
+                    format!(
+                        "native inventory unmeasured: {reason}. No native grant or denial is \
+                         claimed"
+                    ),
+                );
+                continue;
+            }
+        };
+        for native in natives.values() {
+            report.warn(
+                &format!("capabilities native {provider} '{}'", native.capability),
+                Safe::new(&format!(
+                    "declared by the adapter: tools [{}] · ON: {} · OFF: {} · evidence: {} · \
+                     still unmeasured: {} · whether any realm grants it is UNKNOWN, so neither \
+                     a grant nor a denial is claimed",
+                    native.tools.join(", "),
+                    disposition_words(&native.on),
+                    disposition_words(&native.off),
+                    native.evidence.scope,
+                    native.evidence.limitations.join("; ")
+                ))
+                .as_str()
+                .to_string(),
+            );
+        }
+    }
+}
+
+/// Decision 0065 ruling 4: per realm, what it grants — by which dialect,
+/// to which offices, with which tools and restrictions — and then every
+/// native capability an INSTALLED harness declares that the realm has not
+/// granted, so the day a realm loses a power it used without permission is
+/// loud rather than discovered later.
+///
+/// A line reports and never refuses, and independent results survive one
+/// another (design D8). Each realm is read under ITS OWN grants, never the
+/// current directory's, and each GRANT is validated on its own: one that
+/// does not validate — a missing definition, a conflicting dialect, an
+/// `mcp` grant slice two has not built — is its own failing line carrying
+/// the compiler's refusal, the realm's other grants are still shown, and a
+/// native power of the failing grant's name reads UNKNOWN under that realm
+/// rather than denied, because doctor could not read what would cover it.
+/// Definitions that cannot be read are one failing line of their own. A
+/// map that could not be read leaves authority UNKNOWN: no empty grant set
+/// is invented, and the installed harnesses are still assessed.
+///
+/// Nothing is run to say any of this: no model request, search, fetch or
+/// capability server. "Installed" is the availability `probe_providers`
+/// already recorded; a provider whose binary is absent keeps that line and
+/// gets no native one, because nothing was observed about it here. A
+/// declared control is adapter data — its evidence scope and its open
+/// limitations are printed beside it, and a green argv test upgrades
+/// neither. Adapter declarations that cannot be read say so here, so a
+/// report with no native line is never read as a harness with no native
+/// power.
+fn report_capabilities(
+    report: &mut Report,
+    world: &Result<Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>,
+    workspace: &Path,
+    adapters_root: &Path,
+    availability: &Availability,
+) {
+    use brokkr_runtime::capabilities::{
+        restriction_names, Authority, CapabilityContext, Definitions, Denial, NativeInventory,
+        Transport, UNMAPPED,
+    };
+    let adapters = match Adapters::load(adapters_root) {
+        Ok(adapters) => Some(adapters),
+        Err(error) => {
+            // A warning on `probe_providers`' terms: a tree with no
+            // adapters is a normal state there, and stays one here.
+            report.warn(
+                "capabilities native",
+                format!(
+                    "the adapter declarations at {} could not be read ({error}), so no \
+                     harness's native capabilities are named below; that is NOT a finding that \
+                     an installed harness has none",
+                    adapters_root.display()
+                ),
+            );
+            None
+        }
+    };
+    let installed: Vec<&Adapter> = adapters
+        .iter()
+        .flat_map(|adapters| adapters.providers())
+        .filter(|adapter| availability.presence(&adapter.provider) == Presence::Available)
+        .collect();
+    let (root, realms): (std::path::PathBuf, Vec<(String, _, &str)>) = match world {
+        // The definitions stand beside the map, as the engine reads them:
+        // the map is a file, so the directory it stands in is always there.
+        Ok(Some(world)) => (
+            workspace
+                .join(&world.source)
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
+            world
+                .map
+                .realms
+                .iter()
+                .map(|realm| (realm.name.clone(), realm.grants.clone(), "grants nothing"))
+                .collect(),
+        ),
+        Ok(None) => (
+            workspace.to_path_buf(),
+            vec![(
+                UNMAPPED.to_string(),
+                Default::default(),
+                "no realms map, so no capability grants are declared",
+            )],
+        ),
+        Err(_) => {
+            report.warn(
+                "capabilities",
+                "the realms map could not be read, so what each realm grants is UNKNOWN; \
+                 nothing is assumed granted and nothing is assumed denied"
+                    .into(),
+            );
+            report_native_assessments(report, &installed);
+            return;
+        }
+    };
+    if let Err(problem) = Definitions::load(&root) {
+        report.missing(
+            "capabilities definitions",
+            format!(
+                "{problem}; no grant can be validated and every compile under this \
+                 configuration refuses until it is repaired"
+            ),
+        );
+    }
+    for (realm, grants, nothing) in realms {
+        let what = format!("capabilities {realm}");
+        if grants.is_empty() {
+            report.ok(
+                &what,
+                format!(
+                    "{nothing}; every native capability is governed by the no-grant default — \
+                     switched off, or the seat is refused"
+                ),
+            );
+        }
+        // Each grant is judged ALONE, by the compiler's own validation:
+        // one that fails is its own line and takes no neighbour with it.
+        let mut valid = std::collections::BTreeMap::new();
+        let mut unread = BTreeSet::new();
+        for (capability, grant) in &grants {
+            let alone = CapabilityContext {
+                realm: realm.clone(),
+                grants: [(capability.clone(), grant.clone())].into(),
+                root: root.clone(),
+            };
+            let authority = match Authority::load(alone) {
+                Ok(authority) => authority,
+                Err(problem) => {
+                    report.missing(&format!("{what} '{capability}'"), problem);
+                    unread.insert(capability.as_str());
+                    continue;
+                }
+            };
+            let dialect = &authority.dialects[capability];
+            let (provider, key) = authority
+                .binding(capability)
+                .expect("a grant that loaded is bound to a provider");
+            let tools = grant.tools.as_ref().unwrap_or(&dialect.tools);
+            let restrictions = match grant.restrictions.is_empty() {
+                true => "none".to_string(),
+                false => serde_json::Value::Object(grant.restrictions.clone()).to_string(),
+            };
+            // A declaration is not a claim of usable authority: what the
+            // bound provider's adapter says of itself decides whether any
+            // seat can hold the capability through this grant.
+            let bound = adapters
+                .as_ref()
+                .and_then(|adapters| adapters.adapter(provider))
+                .map(|adapter| {
+                    (
+                        &adapter.native,
+                        brokkr_runtime::capabilities::harness_of(&adapter.driver),
+                    )
+                });
+            let unusable = match bound {
+                Some((NativeInventory::Known { known, selection }, harness)) => known
+                    .get(key)
+                    .filter(|native| {
+                        !grant.restrictions.is_empty()
+                            && matches!(native.restrictions, Transport::Unsupported(_))
+                    })
+                    .map(|native| {
+                        // What becomes of the seat that dropped the want is
+                        // the OFF disposition's to say, never the grant's
+                        // (finding M1) — asked of the provider that would
+                        // deliver it (second council M2): the same
+                        // assessment the launch uses.
+                        let dropped = match native.denial_on(harness, selection.as_ref()) {
+                            Denial::Delivered => {
+                                "one that wants it drops it with the native capability OFF"
+                                    .to_string()
+                            }
+                            Denial::Impossible(reason) => format!(
+                                "one that wants it drops it and is then refused, because the \
+                                 native capability cannot be switched off ({reason})"
+                            ),
+                            Denial::Unmeasured(reason) => format!(
+                                "one that wants it drops it and is then refused, because the \
+                                 native capability's OFF control is unmeasured ({reason}) and \
+                                 no denial is claimed"
+                            ),
+                            Denial::Refused(cause) => format!(
+                                "one that wants it drops it and is then refused, because the \
+                                 native capability's declared OFF control cannot be composed \
+                                 for this provider ({cause}) and no denial is claimed"
+                            ),
+                        };
+                        format!(
+                            " · provider '{provider}' cannot express restriction '{}': a seat \
+                             that requires the capability is refused, {dropped}, and it never \
+                             runs unrestricted",
+                            restriction_names("", &grant.restrictions).join("', '")
+                        )
+                    })
+                    .unwrap_or_default(),
+                Some((NativeInventory::Unmeasured(reason), _)) => format!(
+                    " · provider '{provider}' declares its native capabilities unmeasured \
+                     ({reason}): no seat can hold the capability through this grant, and no \
+                     native denial is claimed"
+                ),
+                None => String::new(),
+            };
+            report.ok(
+                &format!("{what} '{capability}'"),
+                Safe::new(&format!(
+                    "dialect '{}' ({}, provider '{provider}') · tools [{}] · {} · restrictions \
+                     {restrictions}{unusable}",
+                    dialect.name,
+                    dialect.kind.word(),
+                    tools.join(", "),
+                    scope_words(grant),
+                ))
+                .as_str()
+                .to_string(),
+            );
+            valid.insert(capability.as_str(), (provider.to_string(), key.to_string()));
+        }
+        for adapter in &installed {
+            let provider = &adapter.provider;
+            // Second council M2: the readout asks the HARNESS that would
+            // serve the seat whether the declared control can be composed,
+            // through the same composer the compiler uses. The driver kind
+            // an adapter dispatches is what its own invocation names.
+            let harness = brokkr_runtime::capabilities::harness_of(&adapter.driver);
+            let (natives, flags) = match &adapter.native {
+                NativeInventory::Known { known, selection } => (known, selection.as_ref()),
+                NativeInventory::Unmeasured(reason) => {
+                    report.warn(
+                        &format!("{what} native {provider}"),
+                        format!(
+                            "native inventory unmeasured: {reason}. Nothing is granted through \
+                             it and no native denial is claimed"
+                        ),
+                    );
+                    continue;
+                }
+            };
+            for (key, native) in natives {
+                let capability = &native.capability;
+                let line = format!("{what} native {provider} '{capability}'");
+                let granted = grants.get(capability).filter(|_| {
+                    valid.get(capability.as_str()) == Some(&(provider.clone(), key.clone()))
+                });
+                let evidence = format!(
+                    "evidence: {} · still unmeasured: {}",
+                    native.evidence.scope,
+                    native.evidence.limitations.join("; ")
+                );
+                // The OFF disposition is judged BEFORE the grant is described
+                // (finding M1): however a grant is scoped it leaves seats
+                // that do not hold the power, and what happens to those is
+                // the launch's own assessment — a declared control denies,
+                // an impossible one refuses, an unmeasured one claims
+                // nothing and refuses too (ruling 4).
+                let held_by = granted.map(|grant| {
+                    format!(
+                        "granted to {} through dialect '{}'",
+                        scope_words(grant),
+                        grant.dialect
+                    )
+                });
+                match (
+                    held_by,
+                    unread.contains(capability.as_str()),
+                    native.denial_on(harness, flags),
+                ) {
+                    (Some(held_by), _, Denial::Delivered) => report.ok(
+                        &line,
+                        format!(
+                            "{held_by}; every other seat on {provider} is launched with it \
+                             switched off · {evidence}"
+                        ),
+                    ),
+                    (Some(held_by), _, Denial::Impossible(reason)) => report.warn(
+                        &line,
+                        format!(
+                            "{held_by}, and it cannot be switched off ({reason}): a seat on \
+                             {provider} that does not hold it refuses compilation (decision \
+                             0065 ruling 4)"
+                        ),
+                    ),
+                    (Some(held_by), _, Denial::Unmeasured(reason)) => report.warn(
+                        &line,
+                        format!(
+                            "{held_by}, and its OFF control is unmeasured ({reason}); no denial \
+                             is claimed, and a seat on {provider} that does not hold it refuses \
+                             compilation (decision 0065 ruling 4)"
+                        ),
+                    ),
+                    // The realm DECLARES a grant of this name and doctor
+                    // could not read it: neither half may be asserted.
+                    (None, true, _) => report.warn(
+                        &line,
+                        format!(
+                            "UNKNOWN here: this realm's grant of '{capability}' did not \
+                             validate (its failing line is above), so neither a grant nor a \
+                             denial is claimed, and no seat compiles in this realm until it is \
+                             repaired · {evidence}"
+                        ),
+                    ),
+                    (None, false, Denial::Impossible(reason)) => report.warn(
+                        &line,
+                        format!(
+                            "NOT granted here, and it cannot be switched off ({reason}): \
+                             seating {provider} in this realm without granting it refuses \
+                             compilation (decision 0065 ruling 4)"
+                        ),
+                    ),
+                    (None, false, Denial::Unmeasured(reason)) => report.warn(
+                        &line,
+                        format!(
+                            "NOT granted here, and its OFF control is unmeasured ({reason}); no \
+                             denial is claimed, and seating {provider} in this realm without \
+                             granting it refuses compilation (decision 0065 ruling 4)"
+                        ),
+                    ),
+                    (None, false, Denial::Delivered) => report.warn(
+                        &line,
+                        format!(
+                            "NOT granted here: every seat on {provider} is launched with it \
+                             switched off by the adapter's declared control · {evidence}"
+                        ),
+                    ),
+                    // Second council M2: a control the serving provider's
+                    // launch cannot consume denies nothing. The readout
+                    // says what the compiler will say, and says why.
+                    (held_by, _, Denial::Refused(cause)) => report.warn(
+                        &line,
+                        match held_by {
+                            Some(held_by) => format!(
+                                "{held_by}, and its declared OFF control cannot be composed for \
+                                 provider '{provider}' ({cause}): a seat on {provider} that \
+                                 does not hold it refuses compilation, and no denial is claimed"
+                            ),
+                            None => format!(
+                                "NOT granted here, and its declared OFF control cannot be \
+                                 composed for provider '{provider}' ({cause}): seating \
+                                 {provider} in this realm refuses compilation, and no denial is \
+                                 claimed"
+                            ),
+                        },
+                    ),
+                }
+            }
+        }
     }
 }
 
@@ -947,6 +1376,8 @@ fn doctor_with_probe(
     )
 }
 
+/// The machine's report alone, which is what every unit test of it reads.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn doctor_in(
     bundle: Option<&Path>,
@@ -960,6 +1391,34 @@ fn doctor_in(
     compiled: Option<anyhow::Result<Bundle>>,
     composite: CompositeProbe,
 ) -> Report {
+    doctor_observed(
+        bundle,
+        db,
+        library_root,
+        adapters_root,
+        secrets_store,
+        probe,
+        ambient,
+        boundary,
+        compiled,
+        composite,
+    )
+    .0
+}
+
+#[allow(clippy::too_many_arguments)]
+fn doctor_observed(
+    bundle: Option<&Path>,
+    db: &Path,
+    library_root: &Path,
+    adapters_root: &Path,
+    secrets_store: &Path,
+    probe: fn(&str) -> Option<String>,
+    ambient: fn(&str) -> bool,
+    boundary: Boundary,
+    compiled: Option<anyhow::Result<Bundle>>,
+    composite: CompositeProbe,
+) -> (Report, Availability) {
     let mut report = Report {
         healthy: true,
         lines: Vec::new(),
@@ -1083,8 +1542,14 @@ fn doctor_in(
         }
     }
 
-    report
+    // The availability rides out beside the report: the capability lines
+    // (decision 0065 ruling 4) name the native powers of the harnesses
+    // that were actually found, and probing each binary a second time to
+    // learn that would be a second, possibly different, answer.
+    (report, availability)
 }
 
+#[cfg(test)]
+mod capability_tests;
 #[cfg(test)]
 mod tests;

@@ -1066,22 +1066,46 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// pins the codex adapter declaration its seats resolve, so the measured
 /// declaration edit moves their composed identity. `recipes/fast` and
 /// `bundles/verify` keep their digests.
+/// Decision 0065 slice one moves all four, for two reasons each one can
+/// be checked against. Every compiled manifest now carries the REQUIRED
+/// `capabilities` section (run-manifest v11): the operated realm, its
+/// grants — none here — and per executable site the office, its asks and
+/// one outcome per provider candidate, with the native powers composed
+/// off. "This realm grants nothing and this seat holds nothing" is part
+/// of what a bundle IS, so a bundle that now says it is a different
+/// bundle. And every adapter these bundles pin gained its
+/// `native_capabilities` declaration — Codex's measured OFF switch,
+/// Claude's two tools, `unmeasured` for dsh, LaneTally and exec — which is
+/// adapter data and rides the declaration digest as `resume` does.
+/// Composition still moves none of them: an ancestor layer holds no
+/// capability and its own digest carries no such section.
+/// Proposed decision 0066 ruling 8 (finding M3) moves `recipes/panel-review`
+/// and `bundles/self`, the two here that load the shipped library: a
+/// compile now resolves the asks of every loaded agent, seated or not, so
+/// the researcher's two wants are consulted and their definitions pinned
+/// though neither bundle seats it. `recipes/fast` and `bundles/verify` load
+/// no library and keep their digests. Rebuild unit 1 replays the slice
+/// onto main at `072cdd9b` and moves all four: the engine version
+/// (v0.11.0) participates in every manifest's identity, and the claude and
+/// codex adapters they pin carry the 2026-09-22 roster's model maps. The
+/// values below are the actual compiles of the final tree, never
+/// recomputed guesses.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "d0906fed3119985a38c8883a26b27cce299dbc0aa36352cb088f05d401d847d4",
+        "72b516cf043cb3ce3b6c7b162fdcc784e26d5972d436a4577300143a2f679f1c",
     ),
     (
         "recipes/panel-review",
-        "be90c7cfe7dc1ca2984b6ffd78c4ee7ed9dda73bdc6d8820ac5267a6c135c138",
+        "9725d931b24a032f2e044adab3557447f01390f5d39c148dee58bd5a5ea8f0b2",
     ),
     (
         "bundles/self",
-        "7718d5a5ee2d2a5ded5a7db73c41d8ddb80d1036363df754b1640e9f1e9c7b56",
+        "c4e36f6f330c956100bf08dc884ca449fc18a285b82a4394fe79699805a62011",
     ),
     (
         "bundles/verify",
-        "b10e1f471a874ff1a0e278e8f303bda9e3965345b509bde0de1287f4eeee9f03",
+        "fbceddeb9c5713db6c1a62e9eebc50dc414b30f48cc2c2579aff44ce96c67681",
     ),
 ];
 
@@ -1223,7 +1247,23 @@ fn a_composed_bundles_manifest_is_pinned() {
         // `hands` and `boundary` entries all changed. The value agrees with
         // the `recipes/triage` pin in `tests/witness_digests.rs`; both are
         // this tree's actual compile.
-        "53f0bfb28bc1a815430c1f59daaaad164b915f48bf659de673136ff1731155e1",
+        // Decision 0065 slice one moves it again: the manifest gains the
+        // required `capabilities` section — no grant, and per site of
+        // every case body its office, its asks and each candidate's
+        // outcome — and the adapters its lanes pin gained their
+        // `native_capabilities` declarations. Its ancestor `fast` layer's
+        // own digest did not move: a layer holds no capability.
+        // Proposed decision 0066 ruling 8 (finding M3) moves it once more:
+        // triage loads the shipped library without seating its researcher,
+        // and a compile now resolves every loaded agent's asks, so the
+        // researcher's `web-search` and `web-fetch` definitions are pinned
+        // as consulted. The `fast` layer's digest still does not move.
+        // Rebuild unit 1's replay onto main at `072cdd9b` moves it with the
+        // v0.11.0 engine version and the 2026-09-22 roster's model maps. This
+        // value agrees with the `recipes/triage` pin in
+        // `tests/witness_digests.rs`; both are the final tree's actual
+        // compile.
+        "d888665eef786b4b21bf1f91ce80f8665214c1686909c5d61a6b1c9c1045efab",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
@@ -1302,4 +1342,482 @@ fn a_bases_directory_name_and_declared_name_are_both_recorded() {
         .find(|ancestor| ancestor.name == "sdd")
         .expect("the renamed base is in the chain");
     assert_eq!(base_layer.reached_as.as_deref(), Some("innocuous"));
+}
+
+/// Finding M2: a recipe layer's requests are read from its SOURCE BYTES.
+/// An ordinary JSON map keeps the last copy of a repeated key, so a
+/// requirement written before a want under one name — or a second
+/// `capabilities` field, a later `{}` included — reached the capability
+/// pass already weakened. Each repetition is refused where the layer is
+/// read, at every site form and in an ancestor whose seat a leaf replaces,
+/// naming the layer's file, the key and where the parser stood. The
+/// fixtures are raw text: `json!` would erase the duplicate first.
+#[test]
+fn a_request_key_written_twice_in_a_recipe_layer_is_refused_from_its_bytes() {
+    // One seat body with `ASKS` where its requests are written, always
+    // followed by another member, so the parser stands just past the
+    // second copy's value in every form.
+    const SINGLE: &str = r#"{ASKS,"results":["complete"],"role":"roles/role.md","driver":{"command":["./drive","plain"]}}"#;
+    let forms = [
+        ("an ordinary seat", SINGLE.to_string()),
+        (
+            "a panel member",
+            r#"{"results":["complete"],"panel":{"one":SINGLE},"aggregate":"unanimous-pass"}"#
+                .replace("SINGLE", SINGLE),
+        ),
+        (
+            "a sequence step",
+            r#"{"results":["complete"],"sequence":[SINGLE]}"#.replace("SINGLE", SINGLE),
+        ),
+        (
+            "a selected case",
+            r#"{"results":["complete"],"select":"strategy","cases":{"engine":SINGLE}}"#
+                .replace("SINGLE", SINGLE),
+        ),
+    ];
+    // What is written, the key refused, and the second copy with its value.
+    let repetitions = [
+        (
+            r#""capabilities":{"web-search":"requires","web-search":"wants","web-fetch":"wants"}"#,
+            "web-search",
+            r#""web-search":"wants""#,
+        ),
+        (
+            r#""capabilities":{"web-search":"wants","web-search":"requires","web-fetch":"wants"}"#,
+            "web-search",
+            r#""web-search":"requires""#,
+        ),
+        (
+            r#""capabilities":{"web-search":"requires","web-search":"requires","web-fetch":"wants"}"#,
+            "web-search",
+            r#","web-search":"requires""#,
+        ),
+        (
+            r#""capabilities":{"web-search":"requires"},"capabilities":{}"#,
+            "capabilities",
+            r#""capabilities":{}"#,
+        ),
+        (
+            r#""capabilities":{},"capabilities":{"web-search":"requires"}"#,
+            "capabilities",
+            r#","capabilities":{"web-search":"requires"}"#,
+        ),
+    ];
+    let once = r#""capabilities":{"web-search":"requires","web-fetch":"wants"}"#;
+    let review =
+        r#"{"results":["clean"],"role":"roles/role.md","driver":{"command":["./drive","plain"]}}"#;
+    let bundle = |work: &str| {
+        r#"{"name":"base","policy":"policy.json","seats":{"work":WORK,"review":REVIEW}}"#
+            .replace("WORK", work)
+            .replace("REVIEW", review)
+    };
+    for (form, body) in &forms {
+        for (asks, key, second) in repetitions {
+            for inherited in [false, true] {
+                let library = Library::new();
+                let written = library.recipe("base", &base_bundle(), Some(&base_policy()));
+                let text = bundle(&body.replace("ASKS", asks));
+                std::fs::write(written.join("bundle.json"), &text).unwrap();
+                // Inherited: the leaf REPLACES the seat, and the ancestor's
+                // bytes are refused all the same — an override hides nothing.
+                let leaf = match inherited {
+                    false => written.clone(),
+                    true => library.recipe(
+                        "derived",
+                        &derived(json!({"override": {"seats": ["work"]},
+                                        "seats": {"work": seat(vec!["complete"])}})),
+                        None,
+                    ),
+                };
+                let column = text.rfind(second).unwrap() + second.len();
+                // What composing said, or what it composed: a reader that
+                // keeps the last copy fails HERE, showing what it kept.
+                let said = match resolve(&leaf) {
+                    Ok(resolved) => format!("composed {}", resolved.seats["work"]),
+                    Err(refusal) => refusal.to_string(),
+                };
+                assert_eq!(
+                    said,
+                    format!(
+                        "bundle: {}: key '{key}' is written twice at line 1 column {column}",
+                        written.join("bundle.json").display()
+                    ),
+                    "{form}, inherited: {inherited}, {asks}"
+                );
+                // The control: the same layer with each key once composes.
+                std::fs::write(
+                    written.join("bundle.json"),
+                    bundle(&body.replace("ASKS", once)),
+                )
+                .unwrap();
+                resolve(&leaf).unwrap_or_else(|error| panic!("{form}: {error}"));
+            }
+        }
+    }
+}
+
+// ------------------------------------------------ H4: active inputs
+
+/// What a compile said, or the identity it compiled to — so a fence that
+/// is missing fails at the equality that expects its refusal.
+fn said(leaf: &Path) -> String {
+    match Bundle::compile(leaf) {
+        Ok(bundle) => format!("compiled to {}", bundle.manifest_digest()),
+        Err(refusal) => refusal.to_string(),
+    }
+}
+
+fn role_refusal(layer: &Path, reference: &str, top: &str) -> String {
+    format!(
+        "{}: seat 'work' names role '{reference}', which stands under '{top}' — a top-level \
+         name the bundle's file walk does not pin, because it holds operator configuration. A \
+         charter there could change what the seat is told without moving the bundle's \
+         identity, so it is refused; move it to a path the bundle pins, such as 'roles/' \
+         (decision 0066 ruling 5)",
+        layer.join("bundle.json").display()
+    )
+}
+
+fn policy_refusal(layer: &Path, reference: &str, top: &str) -> String {
+    format!(
+        "{}: 'policy' names '{reference}', which stands under '{top}' — a top-level name the \
+         bundle's file walk does not pin, because it holds operator configuration. A table \
+         there could change how a run is ruled without moving the bundle's identity, so it is \
+         refused; move it to a path the bundle pins, such as 'policy.json' (decision 0066 \
+         ruling 5)",
+        layer.join("bundle.json").display()
+    )
+}
+
+/// A base whose `work` seat takes its charter from `role`, and whose table
+/// is read from `policy`; a leaf that extends it and changes nothing.
+fn active_inputs(library: &Library, role: &str, policy: &str) -> (PathBuf, PathBuf) {
+    let mut bundle = base_bundle();
+    bundle["seats"]["work"]["role"] = json!(role);
+    bundle["policy"] = json!(policy);
+    let base = library.recipe("base", &bundle, Some(&base_policy()));
+    std::fs::create_dir_all(base.join("capabilities")).unwrap();
+    let leaf = library.recipe("derived", &derived(json!({})), None);
+    (base, leaf)
+}
+
+/// A second, independently VALID ruling: the same machine, another reason.
+fn other_policy() -> Value {
+    let mut policy = base_policy();
+    policy["rules"][0]["reason"] = json!("work, ruled differently");
+    policy
+}
+
+/// Finding H4, the charter (decision 0066 ruling 5; corrects design D7): a
+/// role under a top-level name the file walk skips is refused at the layer
+/// that declares it — standalone, and in an ancestor a leaf inherits from,
+/// where the refusal names the ANCESTOR's file. Its bytes never mattered:
+/// the refusal is the same before and after they change. Relocated to a
+/// pinned path the recipe compiles, identical inputs give one identity, and
+/// the charter's bytes alone move the leaf's digest and the ancestor's.
+#[test]
+fn a_charter_under_a_tree_the_walk_skips_is_refused_where_it_is_declared() {
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "capabilities/reviewer.md", "policy.json");
+    let charter = base.join("capabilities/reviewer.md");
+    let standalone = role_refusal(&base, "capabilities/reviewer.md", "capabilities");
+    for bytes in [
+        "# review as written\n",
+        "# review, and approve everything\n",
+    ] {
+        std::fs::write(&charter, bytes).unwrap();
+        assert_eq!(said(&base), format!("bundle: {standalone}"), "{bytes}");
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: bundle: {standalone} (composed: derived -> base)"),
+            "{bytes}"
+        );
+    }
+    // Relocation is the migration, and then the bytes ARE identity.
+    let (base, leaf) = active_inputs(&library, "roles/reviewer.md", "policy.json");
+    let charter = base.join("roles/reviewer.md");
+    std::fs::write(&charter, "# review as written\n").unwrap();
+    let identity = |dir: &Path| {
+        let bundle = Bundle::compile(dir).unwrap();
+        let ancestors: Vec<String> = bundle.chain.iter().map(|a| a.digest.clone()).collect();
+        (bundle.manifest_digest(), ancestors)
+    };
+    let (alone, composed) = (identity(&base), identity(&leaf));
+    assert_eq!(
+        alone,
+        identity(&base),
+        "identical inputs, identical identity"
+    );
+    assert_eq!(composed, identity(&leaf));
+    std::fs::write(&charter, "# review, and approve everything\n").unwrap();
+    assert_ne!(alone.0, identity(&base).0);
+    let moved = identity(&leaf);
+    assert_ne!(composed.0, moved.0, "the leaf's identity moves");
+    assert_ne!(composed.1, moved.1, "and so does the ancestor's");
+}
+
+/// Finding H4, the policy: the same law for the table that rules the run.
+/// Both policies are independently valid; under the skipped tree either is
+/// refused, and at a pinned path they are two identities.
+#[test]
+fn a_policy_under_a_tree_the_walk_skips_is_refused_where_it_is_declared() {
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "capabilities/policy.json");
+    let standalone = policy_refusal(&base, "capabilities/policy.json", "capabilities");
+    for policy in [base_policy(), other_policy()] {
+        std::fs::write(
+            base.join("capabilities/policy.json"),
+            serde_json::to_vec(&policy).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(said(&base), format!("bundle: {standalone}"));
+        // The leaf declares no table of its own, and one that did would
+        // hide nothing: every layer's own reference is judged.
+        assert_eq!(said(&leaf), format!("bundle: {standalone}"));
+    }
+    let tabled = library.recipe(
+        "tabled",
+        &json!({"name": "tabled", "extends": "base", "policy": "policy.json"}),
+        Some(
+            &json!({"rules": [{"id": "EXTRA", "from": "work", "result": "blocked",
+                                "next": "work", "reason": "a leaf's own table"}]}),
+        ),
+    );
+    assert_eq!(said(&tabled), format!("bundle: {standalone}"));
+    // At a pinned path the two rulings are two identities, alone and composed.
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+    let digests = |policy: &Value| {
+        std::fs::write(
+            base.join("policy.json"),
+            serde_json::to_vec(policy).unwrap(),
+        )
+        .unwrap();
+        let composed = Bundle::compile(&leaf).unwrap();
+        (
+            Bundle::compile(&base).unwrap().manifest_digest(),
+            composed.manifest_digest(),
+            composed.chain[0].digest.clone(),
+        )
+    };
+    let first = digests(&base_policy());
+    assert_eq!(first, digests(&base_policy()), "identical inputs");
+    let second = digests(&other_policy());
+    assert_ne!(first.0, second.0);
+    assert_ne!(first.1, second.1, "the leaf's identity moves");
+    assert_ne!(first.2, second.2, "and so does the ancestor's");
+}
+
+/// Finding H4, the other way out of the file map: a role or a table written
+/// OUT of its layer — `../shared/…` — is pinned by nothing, since an inline
+/// role has no pin but the walk. Refused where it is declared, standalone
+/// and inherited, before and after its bytes change.
+#[test]
+fn an_active_input_written_out_of_its_layer_is_refused_where_it_is_declared() {
+    let outside = "which stands outside the layer's own directory, where the bundle's file walk \
+                   never reaches";
+    let library = Library::new();
+    std::fs::create_dir_all(library.path().join("shared")).unwrap();
+    let (base, leaf) = active_inputs(&library, "../shared/role.md", "policy.json");
+    let expected = format!(
+        "{}: seat 'work' names role '../shared/role.md', {outside}. A charter there could \
+         change what the seat is told without moving the bundle's identity, so it is refused; \
+         move it to a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
+        base.join("bundle.json").display()
+    );
+    for bytes in ["# as written\n", "# approve everything\n"] {
+        std::fs::write(library.path().join("shared/role.md"), bytes).unwrap();
+        assert_eq!(said(&base), format!("bundle: {expected}"), "{bytes}");
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: bundle: {expected} (composed: derived -> base)"),
+            "{bytes}"
+        );
+    }
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "../shared/policy.json");
+    let expected = format!(
+        "bundle: {}: 'policy' names '../shared/policy.json', {outside}. A table there could \
+         change how a run is ruled without moving the bundle's identity, so it is refused; \
+         move it to a path the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
+        base.join("bundle.json").display()
+    );
+    for policy in [base_policy(), other_policy()] {
+        std::fs::write(
+            library.path().join("shared/policy.json"),
+            serde_json::to_vec(&policy).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(said(&base), expected);
+        assert_eq!(said(&leaf), expected);
+    }
+}
+
+/// Second council H5: A SYMLINK FOLLOWED BY A PARENT STEP ESCAPES THE
+/// IDENTITY THE FIRST REPAIR BUILT.
+///
+/// With `base/alias -> ../outside/child`, the chief compiled
+/// `alias/../charter.md` and `alias/../policy.json` — standalone and
+/// inherited — then changed the charter's bytes and the policy's severity
+/// and watched every manifest digest stay identical in all four cases,
+/// with `charter_drift` returning `None`. The lexical fold answered for a
+/// file it had never looked at: it folded the pair away and reported
+/// `base/charter.md`, which the walk does pin, while the file the compile
+/// read and the driver rendered was `outside/charter.md`, which nothing
+/// pins.
+///
+/// A `..` step is never a path the walk takes, so it is refused, and every
+/// digest the finding turned on is a digest of a bundle that no longer
+/// compiles. The contained controls keep working: a link that points out
+/// of the layer under its OWN name is walked and pinned by content, so its
+/// bytes move the digest.
+#[cfg(unix)]
+#[test]
+fn a_symlink_and_a_parent_step_cannot_carry_an_active_input_out_of_the_pin() {
+    use std::os::unix::fs::symlink;
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+    // The chief's tree: a link inside the layer to a directory outside it,
+    // whose PARENT holds the files the escape reaches.
+    let outside = library.path().join("outside");
+    std::fs::create_dir_all(outside.join("child")).unwrap();
+    std::fs::write(outside.join("charter.md"), "# outside as written\n").unwrap();
+    std::fs::write(
+        outside.join("policy.json"),
+        serde_json::to_vec(&base_policy()).unwrap(),
+    )
+    .unwrap();
+    symlink("../outside/child", base.join("alias")).unwrap();
+    let step = |what: &str, reference: &str, tail: &str| {
+        format!(
+            "{}: {what} '{reference}', which reaches its file through a '..' step — never a \
+             path the bundle's file walk takes, so a link earlier in it can put the file a \
+             reader opens outside everything the walk pinned. {tail} (decision 0066 ruling 5)",
+            base.join("bundle.json").display()
+        )
+    };
+    let charter_tail = "A charter there could change what the seat is told without moving the \
+                        bundle's identity, so it is refused; move it to a path the bundle pins, \
+                        such as 'roles/'";
+    let table_tail = "A table there could change how a run is ruled without moving the bundle's \
+                      identity, so it is refused; move it to a path the bundle pins, such as \
+                      'policy.json'";
+    // Standalone and inherited, charter and table, before and after the
+    // bytes outside change: the refusal never depended on them.
+    for bytes in ["# outside as written\n", "# approve everything\n"] {
+        std::fs::write(outside.join("charter.md"), bytes).unwrap();
+        let mut bundle = base_bundle();
+        bundle["seats"]["work"]["role"] = json!("alias/../charter.md");
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        let expected = step(
+            "seat 'work' names role",
+            "alias/../charter.md",
+            charter_tail,
+        );
+        assert_eq!(said(&dir), format!("bundle: {expected}"), "{bytes}");
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: bundle: {expected} (composed: derived -> base)"),
+            "{bytes} inherited"
+        );
+    }
+    for severity in ["r", "ruled differently"] {
+        let mut table = base_policy();
+        table["rules"][0]["reason"] = json!(severity);
+        std::fs::write(
+            outside.join("policy.json"),
+            serde_json::to_vec(&table).unwrap(),
+        )
+        .unwrap();
+        let mut bundle = base_bundle();
+        bundle["policy"] = json!("alias/../policy.json");
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        let expected = step("'policy' names", "alias/../policy.json", table_tail);
+        assert_eq!(said(&dir), format!("bundle: {expected}"), "{severity}");
+        // A table is read while the layers are, before anything is
+        // composed, so the ancestor's own refusal is what a leaf gets.
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: {expected}"),
+            "{severity} inherited"
+        );
+    }
+    // The contained control: a link under its own name inside the layer is
+    // walked and pinned by CONTENT, so the bytes it points at move the
+    // digest — which is why the escape had to be closed and not the link.
+    std::fs::write(outside.join("charter.md"), "# contained target\n").unwrap();
+    symlink("../../outside/charter.md", base.join("roles/linked.md")).unwrap();
+    let mut bundle = base_bundle();
+    bundle["seats"]["work"]["role"] = json!("roles/linked.md");
+    let dir = library.recipe("base", &bundle, Some(&base_policy()));
+    let first = said(&dir);
+    assert!(first.starts_with("compiled to"), "{first}");
+    assert_eq!(said(&dir), first, "identical inputs, one identity");
+    std::fs::write(outside.join("charter.md"), "# edited through the link\n").unwrap();
+    let moved = said(&dir);
+    assert!(moved.starts_with("compiled to"), "{moved}");
+    assert_ne!(moved, first, "the bytes a pinned link reaches are pinned");
+}
+
+/// Finding H4, the aliases: neither a spelling nor a link hides the target.
+/// A reference that normalises into the skipped tree is refused as written;
+/// an allowed path whose CANONICAL target stands there is refused too; and
+/// a path written under the skipped tree is refused even where a link
+/// points back out of it, because the link itself is bytes nobody pins.
+#[cfg(unix)]
+#[test]
+fn no_spelling_and_no_link_hides_an_active_input_under_a_skipped_tree() {
+    use std::os::unix::fs::symlink;
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
+    std::fs::write(base.join("capabilities/reviewer.md"), "# hidden\n").unwrap();
+    std::fs::write(
+        base.join("capabilities/policy.json"),
+        serde_json::to_vec(&base_policy()).unwrap(),
+    )
+    .unwrap();
+    symlink("../capabilities/reviewer.md", base.join("roles/alias.md")).unwrap();
+    symlink("../capabilities", base.join("roles/linked")).unwrap();
+    symlink("../roles/role.md", base.join("capabilities/out.md")).unwrap();
+    symlink("capabilities/policy.json", base.join("table.json")).unwrap();
+    let absolute = base.join("capabilities/reviewer.md");
+    for (role, top) in [
+        ("./capabilities/reviewer.md", "capabilities"),
+        ("roles/../capabilities/reviewer.md", "capabilities"),
+        (absolute.to_str().unwrap(), "capabilities"),
+        ("roles/alias.md", "capabilities"),
+        ("roles/linked/reviewer.md", "capabilities"),
+        ("capabilities/out.md", "capabilities"),
+        ("dialects/../capabilities/reviewer.md", "capabilities"),
+    ] {
+        let mut bundle = base_bundle();
+        bundle["seats"]["work"]["role"] = json!(role);
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        assert_eq!(
+            said(&dir),
+            format!("bundle: {}", role_refusal(&base, role, top)),
+            "{role}"
+        );
+    }
+    for policy in ["./capabilities/policy.json", "table.json"] {
+        let mut bundle = base_bundle();
+        bundle["policy"] = json!(policy);
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        assert_eq!(
+            said(&dir),
+            format!("bundle: {}", policy_refusal(&base, policy, "capabilities")),
+            "{policy}"
+        );
+    }
+    // The other two names the walk skips are no different.
+    std::fs::create_dir_all(base.join("dialects")).unwrap();
+    std::fs::write(base.join("dialects/charter.md"), "# hidden\n").unwrap();
+    let mut bundle = base_bundle();
+    bundle["seats"]["work"]["role"] = json!("dialects/charter.md");
+    let dir = library.recipe("base", &bundle, Some(&base_policy()));
+    assert_eq!(
+        said(&dir),
+        format!(
+            "bundle: {}",
+            role_refusal(&base, "dialects/charter.md", "dialects")
+        )
+    );
 }

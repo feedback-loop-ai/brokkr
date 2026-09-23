@@ -128,6 +128,85 @@ fn compile_dialect_fixture(
     )
 }
 
+/// Decision 0065 ruling 4 at the ONE site no author wrote: the dialect
+/// validator the wrapper injects runs through the `exec` driver, asks for
+/// nothing, and is still judged like every seat. Against adapters whose
+/// `exec` harness declares a native power it cannot switch off, the
+/// generated site refuses compilation by name — it is never given a quiet
+/// empty outcome because the engine wrote it.
+#[test]
+fn a_generated_validator_is_refused_on_a_harness_whose_native_power_cannot_be_switched_off() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let adapters = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(root.join("adapters")).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            std::fs::copy(&path, adapters.path().join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    let exec = adapters.path().join("exec.json");
+    let mut declared: Value = serde_json::from_slice(&std::fs::read(&exec).unwrap()).unwrap();
+    declared["native_capabilities"] = json!({"known": {"ambient-net": {
+        "capability": "ambient-net", "tools": ["net"],
+        "on": {"default": "always on"},
+        "off": {"unsupported": "the child inherits the host network"},
+        "restrictions": {"unsupported": "none"},
+        "evidence": {"source": "a test", "scope": "a test", "limitations": []}}}});
+    std::fs::write(&exec, serde_json::to_vec(&declared).unwrap()).unwrap();
+
+    // No authored site touches `exec`: opaque custom drivers throughout,
+    // and no dialect step, so the first exec site is the generated one.
+    let plain = json!({"role":"roles/role.md","driver":{"command":["driver"]}});
+    let (mut config, policy) = dialect_config(json!({
+        "results":["pass","fail"],"role":"roles/role.md","driver":{"command":["driver"]}}));
+    config["seats"]["design"] = plain.clone();
+    config["seats"]["design"]["results"] = json!(["drafted", "fail"]);
+    std::fs::write(
+        fixture.dir.path().join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.dir.path().join("policy.json"),
+        serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap();
+    let compile = |adapters: &Path| {
+        Bundle::compile_with_realm(
+            fixture.dir.path(),
+            &root.join("agents"),
+            adapters,
+            None,
+            Some(&dialect),
+            Boundary::Namespace,
+        )
+    };
+    assert_eq!(
+        compile(adapters.path()).unwrap_err().to_string(),
+        "bundle: seat 'verify:dialect-verify' (office 'verify:dialect-verify') in realm \
+         '<unmapped>': provider 'exec' cannot switch off its native capability 'ambient-net', \
+         which this seat does not hold (the child inherits the host network; evidence: a test, \
+         scope: a test); an ungranted native capability that cannot be disabled cannot be \
+         seated in this realm (decision 0065 ruling 4)"
+    );
+    // The control: the same bundle under the shipped adapters compiles,
+    // and the generated site carries its explicit empty outcome.
+    let compiled = compile(&root.join("adapters")).unwrap();
+    let generated = compiled.sites["verify:dialect-verify"]
+        .capabilities
+        .as_ref()
+        .expect("the generated validator has an outcome");
+    assert_eq!(generated.asks.office, "verify:dialect-verify");
+    assert!(generated.outcomes[0].held.is_empty());
+}
+
 #[test]
 fn dialect_sites_and_verify_composition_cover_every_body_boundary() {
     let fixture = Fixture::new();
@@ -1191,6 +1270,7 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             &BTreeMap::new(),
             &serde_json::Map::new(),
             Boundary::Namespace,
+            None,
         )
         .is_ok());
     }

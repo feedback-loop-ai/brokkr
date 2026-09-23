@@ -618,3 +618,70 @@ so a v2-schema manifest never carries `crossings` any more than it
 carries `realms`, and `build_run_manifest_v2` would refuse the key by the
 fail-closed guard it has held over the whole key space since decision
 0021's witness — loudly, on the day it arrived, rather than quietly.
+
+Decision 0065 (slice one) adds three files and changes none of the bytes
+above — `realms.v5`'s and `run-manifest.v10`'s included, which are now
+pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the capabilities each realm grants | `realms.v6.schema.json` | brokkr-core (shape and refusals), brokkr-runtime (grant validation and resolution), brokkr-cli (doctor) |
+| Tool dialect: one abstract capability bound to one implementation kind | `tool-dialect.v1.schema.json` | brokkr-runtime (loader; an embedded copy held byte-equal by test) |
+| Run manifest with the capability authority the bundle compiled under | `run-manifest.v11.schema.json` | brokkr-runtime, brokkr-store export/resume |
+
+`forge.realms/v6` is `v5` plus exactly one optional property per realm:
+`capabilities`, a map from an abstract capability name to the grant that
+makes it concrete in that realm — the tool dialect that serves it, an
+optional `tools` subset, an optional `offices` scope, and the dialect's
+own restriction keys, which the dialect's embedded schema defines and the
+engine passes through without interpreting. Absent and `{}` both grant
+nothing. The two optional lists keep absence apart from emptiness
+because they mean opposite things: no `offices` reaches every requesting
+office and `[]` reaches none; no `tools` admits the dialect's whole set
+and `[]` admits none. The word is refused under every older label **even
+written empty**, because presence is what a version gate judges, and a
+v6 map additionally refuses a key written twice. Every older version
+keeps loading and grants nothing: there is no grandfathering (ruling 4).
+**Only a realm grants.** A recipe and an agent request, by abstract name,
+`requires` or `wants`; neither carries a catalogue, a server definition or
+a dialect choice.
+
+`brokkr.tool-dialect/v1` is a closed discriminated shape: `serves` names
+the abstract capability, and `kind` is exactly one of `provider-native`
+(a capability a harness already has, addressed by `provider` and the
+`adapter_key` of that adapter's `native_capabilities`), `mcp` (exactly one
+connection form — a stdio `argv` or a `url` without userinfo — the named
+tools, a pinned `version`, the decision-0012 binding names it needs and an
+optional `retained` declaration) and `hands` (reserved for decision 0043's
+workspace tool, which does not move). A dialect's `classes`, when written,
+assert equality with the operator's abstract definition under
+`capabilities/<name>.json` and never supply or override it; its `egress`
+is decision 0036's separate vocabulary and absent reads `uncontracted`.
+The `mcp` kind is whole as DATA in this slice and refused as a grant:
+brokers, gate rules, checkpoint attribution and retained results are
+decision 0065's slice two. Brokkr ships dialect files for provider-native
+capabilities only, and no MCP server.
+
+`run-manifest.v11` is `v10` plus one REQUIRED property, `capabilities`:
+the operated realm, every grant it declares (used or not, restrictions as
+written), every abstract definition and tool dialect the compile consulted
+with the sha256 of its raw bytes, and per executable site the office, what
+it asked for, what it subtracted and one record per provider candidate —
+held, not held and why, the notices for wants it lost, and the native
+controls composed for it. It is written even where nothing is granted and
+nothing is asked: "this realm grants nothing and this seat holds nothing"
+is a fact about the bundle. Unlike `realms` and `crossings` this key is
+BUNDLE identity — `bundle_manifest_from_run` keeps it — so a changed
+grant, scope, tool subset, restriction, definition or dialect byte moves
+the bundle digest and is refused by the resume comparison. Sources are
+relative to the operator's configuration directory; no host path, expanded
+argv or secret value is recorded. An ancestor layer's own digest carries
+no such section: a layer is compiled in no realm and holds nothing.
+
+The Looper-bound `run-manifest.v2` lineage cannot carry the key, and says
+so: `build_run_manifest_v2` refuses `capabilities` by the fail-closed
+guard it has held over the whole key space since decision 0021's witness,
+before any run row, rather than the authority being stripped to make the
+round-trip fit. Since every compiled bundle now pins its authority, a
+`--dispatch` start of a compiled bundle is refused until a jointly agreed
+v2-lineage version carries it.

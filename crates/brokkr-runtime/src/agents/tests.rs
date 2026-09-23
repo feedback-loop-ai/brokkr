@@ -3,14 +3,29 @@ use std::path::Path;
 
 /// A throwaway library + adapters tree. Every test writes exactly the
 /// data it is about, so a rejection message can be asserted verbatim.
+///
+/// The tree is REACHED THROUGH A SYMLINK on every host, and `root` is that
+/// alias canonicalised once, here. The loaders canonicalise what they are
+/// given, so a diagnostic names the canonical place; macOS hands out
+/// temporary directories under `/var`, itself a link to `/private/var`,
+/// and an expectation glued from the lexical path passes on Linux and
+/// fails there. With the alias the same habit fails on Linux too. Every
+/// write and every expected path is derived from `root`.
 struct Tree {
-    dir: tempfile::TempDir,
+    /// Held for its drop: the directory lives as long as the fixture.
+    _guard: tempfile::TempDir,
+    root: PathBuf,
 }
 
 impl Tree {
     fn new() -> Tree {
+        let guard = tempfile::tempdir().unwrap();
+        std::fs::create_dir(guard.path().join("real")).unwrap();
+        let alias = guard.path().join("alias");
+        std::os::unix::fs::symlink("real", &alias).unwrap();
         let tree = Tree {
-            dir: tempfile::tempdir().unwrap(),
+            root: alias.canonicalize().unwrap(),
+            _guard: guard,
         };
         std::fs::create_dir_all(tree.library_root().join("charters")).unwrap();
         std::fs::create_dir_all(tree.adapters_root()).unwrap();
@@ -19,23 +34,23 @@ impl Tree {
     }
 
     fn library_root(&self) -> PathBuf {
-        self.dir.path().join("agents")
+        self.root.join("agents")
     }
 
     fn adapters_root(&self) -> PathBuf {
-        self.dir.path().join("adapters")
+        self.root.join("adapters")
     }
 
     fn write(&self, relative: &str, body: &Value) {
         std::fs::write(
-            self.dir.path().join(relative),
+            self.root.join(relative),
             serde_json::to_vec_pretty(body).unwrap(),
         )
         .unwrap();
     }
 
     fn raw(&self, relative: &str, body: &str) {
-        std::fs::write(self.dir.path().join(relative), body).unwrap();
+        std::fs::write(self.root.join(relative), body).unwrap();
     }
 
     fn library(&self) -> Library {
@@ -236,20 +251,161 @@ fn an_agent_without_tools_allow_declares_no_restriction() {
     );
 }
 
-/// A named MCP server the provider declares is composed onto the command
-/// line; matching is per named item.
+/// Decision 0065 ruling 3: an agent requests and only a realm grants, so
+/// an agent no longer NAMES an MCP server — required or optional, served
+/// by its adapter or not. The legacy list is refused with the migration,
+/// and no server reaches a command line from agent data; the empty list
+/// every shipped agent writes stays valid and composes nothing.
 #[test]
-fn a_declared_mcp_server_reaches_the_command_line() {
+fn an_agent_naming_an_mcp_server_is_refused_and_never_reaches_a_command_line() {
+    for need in [
+        json!([{"server": "github"}]),
+        json!([{"server": "github", "optional": true}]),
+        json!("github"),
+    ] {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        body["tools"]["mcp"] = need;
+        tree.write("agents/tester.json", &body);
+        // The adapter DOES map the server: the legacy map is no authority.
+        tree.write("adapters/claude.json", &claude_body());
+        // The WHOLE migration reason, agent and file named (SC7): a suffix
+        // would pass on a refusal that blamed the wrong definition.
+        let file = tree
+            .library_root()
+            .canonicalize()
+            .unwrap()
+            .join("tester.json");
+        assert_eq!(
+            tree.library_error(),
+            format!(
+                "agent 'tester' ({}) 'tools.mcp' names an MCP server; an agent no longer names \
+                 one, because a server an office could name would be a door a pulled bundle \
+                 could open. Request the capability by abstract name under 'capabilities' \
+                 (\"requires\" or \"wants\") and let realms.json grant it through a tool dialect \
+                 (decision 0065 rulings 1 and 3)",
+                file.display()
+            )
+        );
+    }
+    let tree = ready();
+    let resolution = resolved(&tree, &Availability::unspecified());
+    assert!(!resolution.candidates[0]
+        .argv
+        .iter()
+        .any(|part| part == "--mcp-config"));
+    assert!(resolution.notices.is_empty());
+    assert_eq!(resolution.record["notices"], json!([]));
+}
+
+/// An agent asks for capabilities by ABSTRACT name, and the loader holds
+/// the map to its two-word vocabulary; an absent map asks for nothing.
+#[test]
+fn an_agent_requests_capabilities_by_abstract_name() {
     let tree = Tree::new();
     let mut body = agent_body();
-    body["tools"]["mcp"] = json!([{"server": "github"}]);
+    body["capabilities"] = json!({"web-fetch": "wants", "library-docs": "requires"});
     tree.write("agents/tester.json", &body);
-    tree.write("adapters/claude.json", &claude_body());
-    let resolution = resolved(&tree, &Availability::unspecified());
-    assert!(resolution.candidates[0]
-        .argv
-        .windows(2)
-        .any(|pair| pair == ["--mcp-config", "/etc/github.json"]));
+    let library = tree.library();
+    let asks = &library.agent("tester").unwrap().capabilities;
+    assert_eq!(asks["web-fetch"], crate::capabilities::Strength::Wants);
+    assert_eq!(
+        asks["library-docs"],
+        crate::capabilities::Strength::Requires
+    );
+
+    body["capabilities"] = json!({"web-fetch": {"dialect": "fetch-mcp"}});
+    tree.write("agents/tester.json", &body);
+    assert_eq!(
+        tree.library_error(),
+        "agent 'tester' requests capability 'web-fetch' as {\"dialect\":\"fetch-mcp\"}; a \
+         request is \"requires\" or \"wants\" and nothing else — a dialect, a tool list, a \
+         class or a grant belongs to realms.json and the operator's definitions (decision 0065 \
+         ruling 3)"
+    );
+    assert!(ready()
+        .library()
+        .agent("tester")
+        .unwrap()
+        .capabilities
+        .is_empty());
+}
+
+/// Finding M2: an agent's requests are read from its SOURCE BYTES. An
+/// ordinary JSON map keeps the last copy of a repeated key, so
+/// `"web-search": "requires"` followed by `"web-search": "wants"` loaded as
+/// a want — a requirement weakened before any validation saw it. Every
+/// repetition is refused where the file is read: either strength order, an
+/// equal repetition, and a second `capabilities` field, a later `{}`
+/// included. The fixtures are raw text, because `json!` would erase the
+/// duplicate before the reader met it.
+#[test]
+fn a_request_key_written_twice_in_an_agent_source_is_refused_from_its_bytes() {
+    let tree = Tree::new();
+    let path = tree.library_root().join("tester.json");
+    let agent = |capabilities: &str| {
+        format!(
+            "{{\"description\": \"a test agent\", \"charter\": \"charters/c.md\", \
+             \"models\": [\"opus\"], \"efforts\": {{\"opus\": \"high\"}}, {capabilities}}}"
+        )
+    };
+    // The control: the same document with each key once loads, and the
+    // requirement is a requirement.
+    tree.raw(
+        "agents/tester.json",
+        &agent(r#""capabilities": {"web-search": "requires"}"#),
+    );
+    assert_eq!(
+        tree.library().agent("tester").unwrap().capabilities["web-search"],
+        crate::capabilities::Strength::Requires
+    );
+    for (capabilities, key) in [
+        (
+            r#""capabilities": {"web-search": "requires", "web-search": "wants"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "wants", "web-search": "requires"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "requires", "web-search": "requires"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "requires"}, "capabilities": {}"#,
+            "capabilities",
+        ),
+        (
+            r#""capabilities": {}, "capabilities": {"web-search": "requires"}"#,
+            "capabilities",
+        ),
+    ] {
+        let text = agent(capabilities);
+        tree.raw("agents/tester.json", &text);
+        // Each second copy is the LAST entry of its object, and the parser
+        // closes that object before it reports: it stands past the inner
+        // map's brace for a repeated name, past the document's own for a
+        // repeated field.
+        let column = match key {
+            "capabilities" => text.len(),
+            _ => text.len() - 1,
+        };
+        // What loading said, or what it loaded: a reader that keeps the last
+        // copy fails HERE, showing the strength it kept.
+        let said = match Library::load(&tree.library_root()) {
+            Ok(library) => format!("loaded {:?}", library.agent("tester").unwrap().capabilities),
+            Err(refusal) => refusal.to_string(),
+        };
+        assert_eq!(
+            said,
+            format!(
+                "{}: key '{key}' is written twice at line 1 column {column}",
+                path.display()
+            ),
+            "{capabilities}"
+        );
+    }
 }
 
 // ------------------------------------------------------- honesty rules
@@ -351,6 +507,135 @@ fn a_tool_the_provider_does_not_name_is_a_hard_failure() {
     );
 }
 
+/// Decision 0065, no grandfathering (SC7): `websearch` in `tools.allow`
+/// used to put `WebSearch` on the harness's allowed list — a second way to
+/// hold a capability only the realm grants. An allow entry that maps to a
+/// tool of one of the provider's NATIVE capabilities is refused with the
+/// way out, never composed and never dropped in silence; the local command
+/// entries beside it keep their meaning, and so does the same alias on a
+/// provider whose inventory does not own the tool.
+#[test]
+fn a_legacy_allow_entry_cannot_authorize_a_native_capability() {
+    let tree = Tree::new();
+    let mut agent = agent_body();
+    agent["tools"]["allow"] = json!(["cargo", "websearch"]);
+    tree.write("agents/tester.json", &agent);
+    let mut adapter = claude_body();
+    adapter["tool_permissions"]["names"]["websearch"] = json!("WebSearch");
+    tree.write("adapters/claude.json", &adapter);
+
+    // An unmeasured inventory owns no tool name: the mapping is an
+    // ordinary permission, exactly as before.
+    let plain = resolved(&tree, &Availability::unspecified());
+    assert!(
+        plain.candidates[0]
+            .argv
+            .contains(&"Bash(cargo:*),WebSearch".to_string()),
+        "{:?}",
+        plain.candidates[0].argv
+    );
+
+    adapter["native_capabilities"] = json!({"known": {"web-search": {
+        "capability": "web-search", "tools": ["WebSearch"],
+        "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+        "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+        "restrictions": {"unsupported": "no native restriction transport is established"},
+        "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+        "selection": {"include": {"flag": "--tools", "separator": ","},
+                      "allow": {"flag": "--allowedTools", "separator": ","},
+                      "deny": {"flag": "--disallowedTools", "separator": ","}}});
+    tree.write("adapters/claude.json", &adapter);
+    assert_eq!(
+        refusal(&tree, "tester"),
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': tool permission \
+         'websearch' maps to 'WebSearch', a tool of the provider's native capability \
+         'web-search'; a legacy allow entry cannot authorize a capability, so request \
+         'web-search' by name under 'capabilities' and let the realm grant it through a tool \
+         dialect (decision 0065 ruling 3). A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    );
+
+    // The local entries alone still compose.
+    agent["tools"]["allow"] = json!(["cargo"]);
+    tree.write("agents/tester.json", &agent);
+    let local = resolved(&tree, &Availability::unspecified());
+    assert!(local.candidates[0]
+        .argv
+        .contains(&"Bash(cargo:*)".to_string()));
+}
+
+/// An adapter that declares native capabilities is authority data
+/// (decision 0065 ruling 4): a key written twice anywhere in the file is
+/// refused rather than read as its second copy, and a selection mapping
+/// that cannot be composed is refused where the adapter loads — each
+/// naming the adapter file and the place.
+#[test]
+fn a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refused() {
+    let tree = Tree::new();
+    let native = |selection: Value| {
+        let mut adapter = claude_body();
+        adapter["native_capabilities"] = json!({"known": {"web-search": {
+            "capability": "web-search", "tools": ["WebSearch"],
+            "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+            "restrictions": {"unsupported": "no native restriction transport is established"},
+            "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+            "selection": selection});
+        adapter
+    };
+    let flags = json!({"include": {"flag": "--tools", "separator": ","},
+                       "allow": {"flag": "--allowedTools", "separator": ","},
+                       "deny": {"flag": "--disallowedTools", "separator": ","}});
+    // Sound as written; then the same bytes with ONE key repeated, deep
+    // inside the declaration. `serde_json` alone would keep the second.
+    let sound = serde_json::to_string(&native(flags.clone())).unwrap();
+    tree.raw("adapters/claude.json", &sound);
+    tree.adapters();
+    let repeated = sound.replacen(
+        r#""scope":"declared""#,
+        r#""scope":"declared","scope":"measured live""#,
+        1,
+    );
+    assert_ne!(repeated, sound, "the fixture repeats a key");
+    tree.raw("adapters/claude.json", &repeated);
+    let what = format!(
+        "adapter 'claude' ({})",
+        tree.adapters_root().join("claude.json").display()
+    );
+    // The parser stands just past the second copy's value.
+    let second = r#""scope":"measured live""#;
+    let column = repeated.rfind(second).unwrap() + second.len();
+    assert_eq!(
+        tree.adapters_error(),
+        format!("{what}: key 'scope' is written twice at line 1 column {column}")
+    );
+    // A list flag with no separator cannot be composed into one argument.
+    let mut no_separator = flags.clone();
+    no_separator["deny"]
+        .as_object_mut()
+        .unwrap()
+        .remove("separator");
+    tree.write("adapters/claude.json", &native(no_separator));
+    assert_eq!(
+        tree.adapters_error(),
+        format!(
+            "{what} 'native_capabilities' at '/selection/deny': it does not satisfy \
+             '/definitions/list/required'"
+        )
+    );
+    // Nor can a mapping that names a list the harness does not have.
+    let mut unknown_list = flags;
+    unknown_list["exclude"] = json!({"flag": "--exclude", "separator": ","});
+    tree.write("adapters/claude.json", &native(unknown_list));
+    assert_eq!(
+        tree.adapters_error(),
+        format!(
+            "{what} 'native_capabilities' at '/selection': it does not satisfy \
+             '/properties/selection/additionalProperties'"
+        )
+    );
+}
+
 /// A provider that serves the model but cannot be told which model would
 /// run its own default and let the run claim the pinned one.
 #[test]
@@ -363,59 +648,6 @@ fn a_provider_that_cannot_pin_the_model_is_a_hard_failure() {
     let message = refusal(&tree, "tester");
     assert!(message.contains("model_flag unsupported"), "{message}");
     assert!(message.contains("default would run"), "{message}");
-}
-
-/// A REQUIRED MCP server the provider cannot serve fails, whether the
-/// provider lacks MCP entirely or merely lacks that server.
-#[test]
-fn a_required_mcp_grant_the_provider_cannot_serve_is_a_hard_failure() {
-    for (adapter_mcp, expected) in [
-        (json!("unsupported"), "declares mcp unsupported"),
-        (
-            json!({"flag": "--mcp-config", "servers": {}}),
-            "declares no MCP server named 'github'",
-        ),
-    ] {
-        let tree = Tree::new();
-        let mut body = agent_body();
-        body["tools"]["mcp"] = json!([{"server": "github"}]);
-        tree.write("agents/tester.json", &body);
-        let mut adapter = claude_body();
-        adapter["mcp"] = adapter_mcp;
-        tree.write("adapters/claude.json", &adapter);
-        let message = refusal(&tree, "tester");
-        assert!(message.contains(expected), "{message}");
-    }
-}
-
-/// AC-3: an OPTIONAL grant gap warns rather than failing, and the
-/// warning is a value that reaches the manifest record — never a print.
-#[test]
-fn an_optional_mcp_grant_gap_becomes_a_notice_in_the_record() {
-    for adapter_mcp in [
-        json!("unsupported"),
-        json!({"flag": "--mcp-config", "servers": {}}),
-    ] {
-        let tree = Tree::new();
-        let mut body = agent_body();
-        body["tools"]["mcp"] = json!([{"server": "github", "optional": true}]);
-        tree.write("agents/tester.json", &body);
-        let mut adapter = claude_body();
-        adapter["mcp"] = adapter_mcp;
-        tree.write("adapters/claude.json", &adapter);
-        let resolution = resolved(&tree, &Availability::unspecified());
-        // Two chain entries, both on the same gapped provider.
-        assert_eq!(resolution.notices.len(), 2);
-        let notice = &resolution.notices[0];
-        assert_eq!(notice.capability, "mcp");
-        assert_eq!(notice.item, "github");
-        assert!(notice.message.contains("less power"), "{notice:?}");
-        let recorded = resolution.record["notices"].as_array().unwrap();
-        assert_eq!(recorded.len(), 2);
-        assert_eq!(recorded[0]["item"], "github");
-        assert_eq!(recorded[0]["agent"], "tester");
-        assert_eq!(recorded[0]["provider"], "claude");
-    }
 }
 
 /// The pinch of salt made mechanical: a gap on a NON-CHOSEN entry fails
@@ -775,17 +1007,17 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
                    "tools": {"mcp": "no"}}),
-            "'tools.mcp' must be an array",
+            "'tools.mcp' names an MCP server",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
                    "tools": {"mcp": [{"invented": 1}]}}),
-            "'tools.mcp' entry has unknown key",
+            "'tools.mcp' names an MCP server",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
-                   "tools": {"mcp": [{"server": "GitHub"}]}}),
-            "'tools.mcp.server' names 'GitHub'",
+                   "capabilities": ["web-search"]}),
+            "'capabilities' must be an object",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
@@ -829,7 +1061,7 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
 #[test]
 fn a_charter_outside_the_library_root_is_refused() {
     let tree = Tree::new();
-    std::fs::write(tree.dir.path().join("escape.md"), "# outside\n").unwrap();
+    std::fs::write(tree.root.join("escape.md"), "# outside\n").unwrap();
     let mut body = agent_body();
     body["charter"] = json!("../escape.md");
     tree.write("agents/tester.json", &body);
@@ -861,11 +1093,11 @@ fn unparseable_and_missing_trees_are_refused_by_name() {
     assert!(tree.library_error().contains("tester.json"));
 
     let missing = Tree::new();
-    let message = Library::load(&missing.dir.path().join("absent"))
+    let message = Library::load(&missing.root.join("absent"))
         .unwrap_err()
         .to_string();
     assert!(message.contains("agent library"), "{message}");
-    let message = Adapters::load(&missing.dir.path().join("absent"))
+    let message = Adapters::load(&missing.root.join("absent"))
         .unwrap_err()
         .to_string();
     assert!(message.contains("adapters"), "{message}");
@@ -1747,16 +1979,9 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
         "the control retains the harness work fragment"
     );
 
-    let refusal = compose(
-        agent,
-        &adapter,
-        "opus",
-        "claude-opus-5",
-        &mut Vec::new(),
-        true,
-    )
-    .expect_err("a boxed seat needs the workspace fragment")
-    .to_string();
+    let refusal = compose(agent, &adapter, "opus", "claude-opus-5", true)
+        .expect_err("a boxed seat needs the workspace fragment")
+        .to_string();
     assert_eq!(
         refusal,
         "agent 'tester' cannot be served by provider 'claude' on model 'opus': the provider \
@@ -1766,15 +1991,8 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
     );
     // Unboxed, the same adapter composes and carries neither fragment nor
     // tool list: the workspace requirement is the boxed path's alone.
-    let (argv, effort, hands_fragment) = compose(
-        agent,
-        &adapter,
-        "opus",
-        "claude-opus-5",
-        &mut Vec::new(),
-        false,
-    )
-    .expect("unboxed composition asks for no workspace fragment");
+    let (argv, effort, hands_fragment) = compose(agent, &adapter, "opus", "claude-opus-5", false)
+        .expect("unboxed composition asks for no workspace fragment");
     assert_eq!(
         argv,
         [

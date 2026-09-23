@@ -14,11 +14,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::{sha256_bytes, sha256_hex};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 use super::{
-    valid_name, Adapter, Agent, EgressClass, HarnessHands, McpNeed, McpSupport, ResultDoor,
+    valid_name, Adapter, Agent, EgressClass, HarnessHands, McpSupport, ResultDoor,
     ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus, ToolPermissions,
     TrustTier, NAME_GRAMMAR,
 };
@@ -86,6 +86,19 @@ fn read_json(path: &Path) -> Result<Value, LibraryError> {
     let bytes = std::fs::read(path)?;
     serde_json::from_slice(&bytes)
         .map_err(|e| LibraryError::Invalid(format!("{}: {e}", path.display())))
+}
+
+/// An agent's source, read STRICTLY from its bytes (decision 0065, design
+/// D3): the file is where an office's capability requests are written, and
+/// an ordinary JSON map keeps the last copy of a repeated key — so
+/// `"requires"` followed by `"wants"` under one name, or a second
+/// `capabilities` field, would weaken a requirement before any validation
+/// saw it. A key written twice anywhere in the document is refused here,
+/// naming the file, the key and where the parser stood.
+fn read_request_source(path: &Path) -> Result<Value, LibraryError> {
+    let text = std::fs::read_to_string(path)?;
+    brokkr_core::canonical::parse_strict(&text)
+        .map_err(|problem| LibraryError::Invalid(format!("{}: {problem}", path.display())))
 }
 
 fn object<'a>(value: &'a Value, what: &str) -> Result<&'a Map<String, Value>, LibraryError> {
@@ -483,7 +496,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     if !valid_name(name) {
         return invalid(format!("{what}: the file name must match {NAME_GRAMMAR}"));
     }
-    let source = read_json(path)?;
+    let source = read_request_source(path)?;
     let map = object(&source, &what)?;
     only_keys(
         map,
@@ -493,12 +506,21 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
             "models",
             "efforts",
             "tools",
+            "capabilities",
             "hands",
             "limits",
             "inputs",
         ],
         &what,
     )?;
+    // Decision 0065 ruling 1: what the office asks for, by abstract name.
+    // Syntax only here — whether each name has a definition is the
+    // operator's configuration to answer, at lint and at compile.
+    let capabilities = match map.get("capabilities") {
+        None => Default::default(),
+        Some(raw) => crate::capabilities::parse_requests(&format!("agent '{name}'"), raw)
+            .map_err(LibraryError::Invalid)?,
+    };
     let description = string(map, "description", &what)?;
     let charter_rel = string(map, "charter", &what)?;
     let charter = contained(root, &charter_rel, &what)?;
@@ -530,7 +552,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
             ));
         }
     }
-    let (allow, mcp) = parse_tools(map, &what)?;
+    let allow = parse_tools(map, &what)?;
     // Decision 0043: one boxed tool instead of a list. Refused at the
     // same place a malformed tool list is, naming the agent.
     let hands = match map.get("hands") {
@@ -553,7 +575,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         models,
         efforts,
         allow,
-        mcp,
+        capabilities,
         hands,
         limits,
         inputs,
@@ -582,12 +604,9 @@ fn contained(root: &Path, relative: &str, what: &str) -> Result<PathBuf, Library
     Ok(canonical)
 }
 
-fn parse_tools(
-    map: &Map<String, Value>,
-    what: &str,
-) -> Result<(Option<Vec<String>>, Vec<McpNeed>), LibraryError> {
+fn parse_tools(map: &Map<String, Value>, what: &str) -> Result<Option<Vec<String>>, LibraryError> {
     let Some(raw) = map.get("tools") else {
-        return Ok((None, Vec::new()));
+        return Ok(None);
     };
     let tools = object(raw, &format!("{what} 'tools'"))?;
     only_keys(tools, &["allow", "mcp"], &format!("{what} 'tools'"))?;
@@ -608,30 +627,19 @@ fn parse_tools(
             Some(names)
         }
     };
-    let mut mcp = Vec::new();
-    if let Some(entries) = tools.get("mcp") {
-        let Some(entries) = entries.as_array() else {
-            return invalid(format!("{what} 'tools.mcp' must be an array"));
-        };
-        for entry in entries {
-            let need = object(entry, &format!("{what} 'tools.mcp' entry"))?;
-            only_keys(
-                need,
-                &["server", "optional"],
-                &format!("{what} 'tools.mcp' entry"),
-            )?;
-            let server = string(need, "server", &format!("{what} 'tools.mcp' entry"))?;
-            named(std::slice::from_ref(&server), "tools.mcp.server", what)?;
-            mcp.push(McpNeed {
-                server,
-                optional: need
-                    .get("optional")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            });
-        }
+    // Decision 0065 ruling 3: an agent requests and only a realm grants.
+    // The empty list every shipped agent writes stays valid and means what
+    // it always meant; a NAMED server — optional or not — was a second
+    // authority path, and is refused rather than grandfathered.
+    if tools.get("mcp").is_some_and(|mcp| *mcp != json!([])) {
+        return invalid(format!(
+            "{what} 'tools.mcp' names an MCP server; an agent no longer names one, because a \
+             server an office could name would be a door a pulled bundle could open. Request \
+             the capability by abstract name under 'capabilities' (\"requires\" or \"wants\") \
+             and let realms.json grant it through a tool dialect (decision 0065 rulings 1 and 3)"
+        ));
     }
-    Ok((allow, mcp))
+    Ok(allow)
 }
 
 fn parse_limits(map: &Map<String, Value>, what: &str) -> Result<Option<Limits>, LibraryError> {
@@ -762,9 +770,21 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             "mcp",
             "hands",
             "resume",
+            "native_capabilities",
         ],
         &what,
     )?;
+    // Decision 0065 ruling 4: what the harness can already do, and how
+    // each such power is switched on and off. An adapter that declares it
+    // is authority data, so a key written twice anywhere in the file is a
+    // refusal rather than whichever copy came second.
+    if map.contains_key("native_capabilities") {
+        let text = std::fs::read_to_string(path)?;
+        brokkr_core::canonical::parse_strict(&text)
+            .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
+    }
+    let native = crate::capabilities::NativeInventory::parse(&what, map.get("native_capabilities"))
+        .map_err(LibraryError::Invalid)?;
     let provider = string(map, "provider", &what)?;
     if provider != name {
         return invalid(format!(
@@ -938,6 +958,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         harness,
         mcp,
         resume: resume_assessment(map, &what)?,
+        native,
         digest: sha256_bytes(&std::fs::read(path)?),
     })
 }

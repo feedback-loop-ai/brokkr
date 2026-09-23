@@ -11,6 +11,7 @@ pub mod dsh_sandbox;
 pub mod fake;
 pub mod hands;
 pub mod legacy;
+pub mod native_controls;
 pub mod oneshot;
 pub mod process;
 pub mod secret;

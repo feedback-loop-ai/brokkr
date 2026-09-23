@@ -219,46 +219,82 @@ fn workspace() -> PathBuf {
 /// `gpt-6-luna`, each probed live that day. An adapter's model map is
 /// bundle data, so every witness that resolves a seat through the claude
 /// or codex adapter moves; each digest below is the actual compile.
+/// Decision 0065 slice one moves ALL ten, and each for reasons that can
+/// be read off its manifest. (1) Every compiled manifest gains the
+/// required `capabilities` section of run-manifest v11 — the operated
+/// realm, its grants (none), and per executable site the office, its asks
+/// and one outcome per provider candidate with the native controls
+/// composed for it — so a bundle that now states the authority it
+/// compiled under is a different bundle; this alone moves the gate-only
+/// `bundles/verify` and `recipes/preflight`. (2) Every adapter gained its
+/// `native_capabilities` declaration — `adapters/codex.json` the measured
+/// `-c web_search="disabled"` OFF switch, `adapters/claude.json` WebSearch
+/// and WebFetch, and `unmeasured` with its reason for dsh, LaneTally and
+/// exec — and an adapter declaration is bundle data every `drivers` and
+/// `agents` pin already witnesses. (3) `recipes/research` moves a third
+/// way: the researcher now ASKS for `web-search` and `web-fetch` as wants
+/// instead of naming Claude's tools, its charter says returned material is
+/// data, both wants are dropped in this realm with a recorded notice, and
+/// both consulted definitions are pinned. (4) `recipes/research-dsh` moves
+/// with the charter copy it holds equal to the library's, and with its
+/// README, which now says what decision 0065 makes of dsh's own web tools.
+/// Proposed decision 0066 ruling 8 (finding M3) moves the three bundles
+/// that LOAD the shipped library without seating its researcher —
+/// `recipes/night-shift`, `recipes/triage` and `recipes/gpt-flash`: a
+/// compile now resolves the asks of every loaded agent, seated or not, so
+/// the researcher's `web-search` and `web-fetch` wants are consulted and
+/// their definitions pinned in each of these manifests, where before only
+/// `recipes/research`, which seats it, pinned them. `recipes/research`
+/// keeps its digest for exactly that reason, and the six bundles that load
+/// no library are untouched: no charter, table, adapter or grant moved.
+/// Rebuild unit 1 replays the slice onto main at `072cdd9b` and moves all
+/// ten again, for main's two reasons meeting the slice's: the engine
+/// version (v0.11.0, #321) participates in every manifest's identity, and
+/// the 2026-09-22 roster's claude and codex model maps (#320) now sit
+/// beside the slice's `native_capabilities` in the same adapter files.
+/// No charter, table or grant moved in the replay.
+/// The values below are the final tree's actual compiles, never
+/// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "d0906fed3119985a38c8883a26b27cce299dbc0aa36352cb088f05d401d847d4",
+        "72b516cf043cb3ce3b6c7b162fdcc784e26d5972d436a4577300143a2f679f1c",
     ),
     (
         "recipes/node",
-        "84741c8452aec3e04f4fd7bfd7d5569bc36e884915d291103a2979c47fad725c",
+        "b53b11053c2f8d2f39f1e5c5a931d02239a43dbafffed0c632cee55144421c2e",
     ),
     (
         "recipes/preflight",
-        "a99bb568b244c74efa99d9a01a7efb2de57fb2c3ed14607821b2ed6645da08f9",
+        "dfcf08235c9c8076c44031d8bff3055100863d7d68d57cfc5b85b37ec44bd304",
     ),
     (
         "recipes/night-shift",
-        "12270381a037b59bf146ecd544882ff7498cae0075fa96d7c807aa73dadbf75a",
+        "b1eab2157c70f1a2eb45550eec6ce2fe1133e0eb49baa5d4fbcea9033eebf01d",
     ),
     (
         "recipes/wager-harness",
-        "198f49dbf455b3af1150470ff7d0c4885fa2d98276a3702865fb866f68c09ec8",
+        "960338130dc905b5877522f958921c7d3a9de1a5936e70f57940d37dcff93089",
     ),
     (
         "recipes/triage",
-        "53f0bfb28bc1a815430c1f59daaaad164b915f48bf659de673136ff1731155e1",
+        "d888665eef786b4b21bf1f91ce80f8665214c1686909c5d61a6b1c9c1045efab",
     ),
     (
         "recipes/research",
-        "393ffd7c5c396d74ed68b23191751e6517ac691c344067d8abd6803037940a9b",
+        "ce0fd9f4a5f5802f2b3c4c1123c003f2c85e9bd7efa744b6f8d9aeeffdbf929c",
     ),
     (
         "recipes/research-dsh",
-        "208a1c88c88fdc84a98bdcacf3b0f2fcf9c2a2348951d6db8a99baa8cdb5e0cc",
+        "a58359d5a33afa3e55c86a1e3ced275794f3f55845d78fbb980212c28abc05bd",
     ),
     (
         "recipes/gpt-flash",
-        "e7f9cc846063353d5db55b59f1991634a22e04ec3761b857c44f3bd85f52df5d",
+        "2533f3b9a0b94c0c46a2821d355969cfc98c4e2b1e561dfc1cc423c8646ebf65",
     ),
     (
         "bundles/verify",
-        "b10e1f471a874ff1a0e278e8f303bda9e3965345b509bde0de1287f4eeee9f03",
+        "fbceddeb9c5713db6c1a62e9eebc50dc414b30f48cc2c2579aff44ce96c67681",
     ),
 ];
 
@@ -333,11 +369,17 @@ fn pinned_bundles_keep_their_recorded_digest() {
 /// run-manifest/v9 — v8 plus the `boundary` map beside `hands`, present
 /// exactly with it. Every witness validates, and the ones that box
 /// something carry both keys over the same site labels.
+///
+/// Since decision 0065 the contract a compiled manifest claims is
+/// run-manifest/v11: v9's `hands`/`boundary` clauses carried forward
+/// unchanged, plus the REQUIRED `capabilities` section every compile now
+/// writes. The test keeps its name and its boundary assertions; the file
+/// it validates against is the version the manifests actually are.
 #[test]
 fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
     let root = workspace();
     let schema: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(root.join("contracts/run-manifest.v9.schema.json")).unwrap(),
+        &std::fs::read(root.join("contracts/run-manifest.v11.schema.json")).unwrap(),
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
