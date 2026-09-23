@@ -297,7 +297,7 @@ owning requirements:
       counts and actual outcomes. Inspect the diff to ensure no mutation,
       admission relaxation, diagnostic leak or rename retry survives.
       **Requirements: [LE1], [LE3], [LE5], [AS4], [PM4].**
-- [ ] 8.8.14.2 On the restored candidate run each D11 gate separately, in order:
+- [x] 8.8.14.2 On the restored candidate run each D11 gate separately, in order:
       `cargo fmt --all -- --check`;
       `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`;
       `cargo test -p brokkr-core --all-features --locked`, followed by the same
@@ -311,6 +311,11 @@ owning requirements:
       execute green. An unavailable tool is not a pass. The recipe's separate
       workspace verify exec remains required by its design, not a smith-selected
       command or finding. **Requirements: [LE5], [PM4].**
+      Ticked 2026-09-23 by acceptance-ledger entry 22, on the host's run of
+      this exact list, in order, on `43d8b8b8`. Every command exited 0, and
+      strict OpenSpec passed 17 of 17 (`.forge/tasks/entry14-43d8b8b8/`).
+      The per-command record is under *Validation and record — acceptance
+      ledger entries 11–21* below.
 - [x] 8.8.14.3 Prepare the unchanged external exact-coverage handoff for the
       candidate: `bash scripts/coverage-exact.sh` on CI/a host that can create
       the boundary namespace. Verify no pin, gate, exclusion, denominator or
@@ -343,9 +348,117 @@ owning requirements:
       tracked write. Do not report delivery before that commit or represent
       pending external gates as passed. Never push. **Requirements: [LE5],
       [PM1], [PM4].**
+      Not ticked 2026-09-23 (acceptance-ledger entry 22). The delivery is
+      recorded below, 8.8.14.2 is ticked, and `git diff --check`, the
+      inventory, the frozen surfaces, 0056 and the DSH route are verified.
+      Strict active-change validation of this candidate is not verified:
+      the seat's grant refused `openspec validate`, and the host's 17/17
+      predates this candidate's document edits. The clause ticks when that
+      run passes on entry 22's commit.
 
 The final whole-change archive/fold remains group 15's last operation, after
 all of its prerequisites; it is not an action or completion claim of 8.8.15.
+
+## Validation and record — acceptance ledger entries 11–21, 2026-09-23
+
+Recorded by acceptance-ledger entry 22 (run
+`issue-226-acceptance-ledger-entr-b22f02b9`) on `slice-dsh-8810`, parent
+`d6fc4ed3`. `git diff --stat 43d8b8b8..d6fc4ed3` names three documents of
+this change and no code, so the code this record describes is `43d8b8b8`'s.
+This seat opened every artefact cited below, except where a line says it
+was reported.
+
+**Entry 14, the D11 gate list in order (8.8.14.2 and 8.8.8.2's list).**
+The host ran it on `43d8b8b8` with rustc 1.98.0 and openspec 1.12.0.
+`.forge/tasks/entry14-43d8b8b8/gates.log` records each command separately,
+in this order, each finishing before the next:
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all -- --check` | rc 0 |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | rc 0 |
+| `cargo test -p brokkr-core --all-features --locked` | rc 0; 86 passed |
+| `cargo test -p brokkr-store --all-features --locked` | rc 0; 64 passed |
+| `cargo test -p brokkr-protocol --all-features --locked` | rc 0; 430 + 99 (2 ignored) + 1 |
+| `cargo test -p brokkr-runtime --all-features --locked` | rc 0; 464 lib + 94 integration over 22 binaries |
+| `cargo test -p brokkr-view --all-features --locked` | rc 0; 243 (3 ignored) |
+| `cargo test -p brokkr-bridge --all-features --locked` | rc 0; 13 |
+| `cargo test -p brokkr-cli --all-features --locked` | rc 0; 468 lib + 318 integration, `doctor_dsh_selection` and `driver_conformance` among them |
+| `openspec validate --all --strict` | rc 0; 17 passed, 0 failed |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | rc 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | rc 0 |
+
+No crate log holds a `FAILED` result or a panic. Each suite ran under
+`timeout 2400`.
+
+**Exact coverage (N13's evidence; 8.8.8.3 is not ticked here).** The same
+host ran `scripts/coverage-exact.sh` on `43d8b8b8` (`coverage.out`, rc 0):
+lines 32,458 / 32,458, branches 5,508 / 5,508, functions 3,161 / 3,161. The
+denominator reconciliation against chief `124cca78`'s baseline is N13's,
+owned by entry 23.
+
+**External evidence (S12 records it and does not complete it).** PR #327's
+CI on `43d8b8b8` was reported to this seat as all twelve checks passing,
+including `test (macos-latest)`, `test (ubuntu-latest)` and the exact
+coverage gate. This seat's grant refused `gh pr checks`, so that report is
+recorded as supplied and not opened. The native macOS leg of N2, N4 and
+13-fix's Apple rows is entry 23's to reconcile. **Entry 16, N11's positive
+and its two removals, is pending.** No host with `node` on `/bin:/usr/bin`
+has run it, so it is not passed.
+
+**Entries 11–21, with their commands and results** (each from its dated
+record in the acceptance ledger, §6):
+
+| Entry | Landed | What it did | Gates recorded |
+|---|---|---|---|
+| 11 | `6e1e7066`, `471bc740` | `the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes`: the production adapter under the engine, cold, confirmed rejoin, failed and succeeding declined offers, no route byte or carrier on any surface; mutations part `resume_tests.rs:2434`, `:3364`, `:3507`, `:2439` | fmt, clippy, `-p brokkr-runtime` 464 + 94 |
+| 12 | `36b16922` | N2's no-second-search and N4's injected-callback cells; mutations part `composite/tests.rs:3040` and `doctor/tests.rs:2836` | fmt, clippy, `-p brokkr-protocol`, `-p brokkr-cli` |
+| 13-fix | `1d2763cf`, `4ce6eba2` | Apple walks past an unreadable-metadata candidate; sealed-directory cells, explicit and inherited; mutations part `composite/tests.rs:2458`, `:7328`, `:7332`, `:8234` and `native_matrix.rs:272` | fmt, clippy, `-p brokkr-protocol` 430 + 99 + 1 |
+| 13 | `fcb91ad2` | sixteen host-retrieved sources pinned and re-read (`source-pins-2026-09-23.md`); comments only | fmt, clippy, `-p brokkr-protocol` 430 + 99 + 1 |
+| 14 | host run above | the ordered list | all rc 0 |
+| 15 | `6d316980` | the route overlay's test module moved beside it; `--list` identical; the host's coverage above | fmt, clippy, `-p brokkr-protocol` 430 + 99 + 1, `git diff --check` |
+| 16 | — | pending: needs a host with `node` on the default search path | — |
+| 17 | `4d2e9e72` | ruled: yes for 27 of 29 rows, B5 over all eight groups; no for B16 and B20 | docs only |
+| 18, 20, 21(b) | — | no work under 17's ruling | — |
+| 19 | `7f2aaeda`, `d6fc4ed3` | B16's four and B20's one, each at its named assertion (`removal-controls-2026-09-23.md`, Entry 19) | fmt, clippy, `-p brokkr-protocol` 430, `-p brokkr-runtime` 464 + 94, `-p brokkr-cli` 468 + 318, `git diff --check` |
+| 21(a) | `90b548e3`, closed `a60631dd` | THE PROOFS' ten unrecorded controls: six at their named assertions, four (F1–F4) under the operator's ruling | fmt, clippy, `-p brokkr-runtime`, `-p brokkr-cli`, `git diff --check` |
+
+**Regrade.** On opened tests and records, the acceptance ledger regrades
+these rows to discharged:
+- A42, A67, B27, B39, B47, B49, B50, B60, B71, B99, A13 and B13, and A64's
+  8.8 half (its other half is 9.6's);
+- A53, B30, B42 and B55, on entry 11;
+- B16 and B20, on entry 19;
+- A61, B5, B77, S1 and S3–S10, on entry 17's ruling;
+- S11, on entry 14.
+
+Every condition entry 22 sets for ticking 8.10 holds. Only B2 and B10 read
+otherwise, because both ride S12.
+
+**Ticks.** 8.8.14.2 is ticked. **8.8.15.1 and 8.10 are not.** 8.8.15.1
+asks for strict active-change validation of the candidate it commits, and
+this seat's grant refused both `openspec validate --all --strict` and
+`openspec validate 2026-09-09-226-session-resumption --strict`. The host's
+17/17 is on `43d8b8b8`, before this record and entries 17 and 19's
+documents. An unavailable tool is not a pass. When that command passes on
+this commit, 8.8.15.1 and then 8.10 tick beside its result. 8.8, 9.6, 11.x,
+the numbered 8.8.1.1–8.8.8.4 and groups 14 and 15 are untouched.
+
+**Verified here.**
+- `git diff --check` and `cargo fmt --all -- --check` pass.
+- `git diff --name-only origin/main...HEAD` over `contracts`,
+  `policy/phase-machine.json`, `policy/schemas`, `reference`, `fixtures`,
+  `extensions` and `docs/decisions` is empty.
+- Decision 0056 reads `Status: proposed`, and `adapters/dsh.json`
+  `headless-work` reads `unmeasured`.
+- Inventory: 101 global identifiers, 86 checked and 15 pending, unchanged.
+  The numbered 8.8 subtasks are 33, now 24 checked and 9 pending, after
+  8.8.14.2's tick. The five deltas hold 20 requirements and 236 scenarios:
+  launch evidence 5/44, resume safety 5/128, boundary record 1/11,
+  progress markers 4/20, site resumption 5/33.
+
+This record moves no crate byte and needs no crate suite. Its commit is
+unsigned, as CONTRIBUTING.md asks of seat commits.
 
 ## Tasks-phase validation — Pass C R1–R3, 2026-09-21
 
@@ -5517,6 +5630,14 @@ saved for the phase commit.
       `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, on the
       final candidate. No other control is accepted by substitution; the
       F1–F4 ruling stays entry 21(a)'s alone. The ruling ticks nothing.
+      Acceptance-ledger entry 22, 2026-09-23: entry 19 has replayed B16's
+      four and B20's one, each at its named assertion. Every 8.10 row the
+      ruling, entries 11 and 19 and units 1–10 close is regraded
+      discharged on opened evidence, and every condition entry 22 lists
+      for this tick holds. 8.10 stays unchecked only because 8.8.15.1 is
+      (its strict validation was refused to the seat), and B2 and B10 ride
+      8.8.15.1. See *Validation and record — acceptance ledger entries
+      11–21* under 8.8.15.
 - [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
