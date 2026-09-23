@@ -564,6 +564,19 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    No feature repair here. A fourth production conflict requires an inventoried
    split before resolution; replaying main's committed files is not permission
    to hide extra manual repairs. Unavailable gates do not count as green.
+   **1b. Bind the guard order in dsh_launch_with.** Close 1.2, the inventoried
+   split of unit 1's X1 (evidence.md, "Review return, 2026-09-23"). The replay
+   kept #313's `dsh_input_boundaries` and the slice's `composed_launch` and
+   chose their order by hand; no test bound it. The operator ruled the order
+   (operator-ruling-2026-09-23.md, addendum): the authority refusal wins, and
+   the boundary check reads the composed argv. Production:
+   `crates/brokkr-protocol/src/adapters.rs` (only `dsh_launch_with` and its
+   comment). Tests: `adapters/tests.rs` in that same src root. Record the
+   ruling as one native-control delta requirement with a scenario. Build the
+   case that tells the orders apart (a native control beside a
+   boundary-faulted argv, exact reasons) and a positive both guards admit;
+   an order-swap mutation must fail it. Change production code only if the
+   test shows it differs from the ruling. Unit 1's external gates stay with 1.1.
 2. **Decode typed inline declarations.** Close 2.1. Production:
    `crates/brokkr-runtime/src/agents.rs`, `agents/load.rs`, `bundle.rs` in that
    same src root. Add D5 tools.allow/tools.sandbox decoding and strict local

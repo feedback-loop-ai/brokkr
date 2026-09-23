@@ -14743,6 +14743,149 @@ fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work()
     }
 }
 
+/// The two guards of the DSH launch, in the order the operator ruled
+/// (ruling of 2026-09-23, addendum; rebuild unit 1b). The authority
+/// refusal wins: a plan carrying a native control, or no plan at all, is
+/// refused at composition before the boundary check reads any argv. The
+/// boundary check then inspects the COMPOSED argv, the command that will
+/// launch, which for DSH is the argv as handed over. Each argv below is a
+/// boundary fault on its own, so each refusal names the guard that ran
+/// first.
+#[cfg(unix)]
+#[test]
+fn a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.to_str().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &root);
+
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let unmeasured = json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+                            "reason": "unsupported mcp and tool_permissions do not establish \
+                                       absence of native egress"});
+    let launch = |extra: &[String], input: &Value| {
+        dsh_launch_with("/nonexistent/dsh", extra, workdir, None, input, || {
+            panic!("the disabled gate must not recompute the composite")
+        })
+    };
+    let no_model = "dsh driver: --model needs a model id after it";
+    // The DSH grammar reads a lone `-` as a positional and admits it as
+    // the model's value; the boundary refuses any `-`-led value.
+    let stdin_model = s(&["--model", "-"]);
+    // The grammar and the boundary both refuse an option in a value slot.
+    let flag_model = s(&["--model", "--effort"]);
+
+    // With no plan (a driver launched by hand) composition passes the argv
+    // through untouched, and each fault is the boundary's own.
+    let by_hand = json!({"workdir": &root});
+    for extra in [&stdin_model, &flag_model] {
+        assert_eq!(
+            launch(extra, &by_hand).err().as_deref(),
+            Some(no_model),
+            "{extra:?}"
+        );
+    }
+    // Under the plan the engine writes, the grammar-admitted fault still
+    // reaches the boundary: the check reads the composed argv.
+    let planned = engine_input(
+        json!({"workdir": &root}),
+        unmeasured.clone(),
+        &stdin_model,
+        0,
+    );
+    assert_eq!(
+        launch(&stdin_model, &planned).err().as_deref(),
+        Some(no_model)
+    );
+
+    // Beside a native control, composition refuses the plan and the
+    // boundary is never read.
+    let unconsumed = |form: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the capability plan carries {form} for provider \
+             'dsh', which its launch does not consume; a control that cannot reach the final \
+             command is refused rather than recorded and dropped (decision 0066 ruling 3)"
+        )
+    };
+    // A plan carries a native control only on a known inventory: an
+    // unmeasured one reads no argv and no selection. The managed fragment
+    // is one the DSH grammar parses, so the refusal is the plan's and not
+    // the fragment's spelling.
+    let known = json!({"inventory": "known", "provider": "dsh", "harness": "dsh",
+                       "on": [], "off": [], "argv": [], "guards": []});
+    let fragment = s(&["--effort", "low"]);
+    let mut managed = known.clone();
+    managed["argv"] = json!(fragment);
+    let with_managed = [stdin_model.clone(), fragment.clone()].concat();
+    let input = engine_input(json!({"workdir": &root}), managed.clone(), &with_managed, 2);
+    assert_eq!(
+        launch(&with_managed, &input).err(),
+        Some(unconsumed("managed arguments"))
+    );
+    let mut selected = known;
+    selected["selection"] = json!({
+        "include": [], "allow": [], "deny": ["WebSearch"],
+        "flags": {
+            "include": {"flag": "--tools", "separator": ","},
+            "allow": {"flag": "--allowedTools", "separator": ","},
+            "deny": {"flag": "--disallowedTools", "separator": ","}
+        }
+    });
+    let input = engine_input(json!({"workdir": &root}), selected, &stdin_model, 0);
+    assert_eq!(
+        launch(&stdin_model, &input).err(),
+        Some(unconsumed("a tool selection"))
+    );
+    // Composition also parses the authored argv, so an option in a value
+    // slot is refused there as authored input, whatever the plan carries.
+    let with_managed = [flag_model.clone(), fragment].concat();
+    let input = engine_input(json!({"workdir": &root}), managed, &with_managed, 2);
+    assert_eq!(
+        launch(&with_managed, &input).err().as_deref(),
+        Some(
+            "refusing to invoke the agent CLI: the seat's arguments do not parse: the 'dsh' \
+             command grammar cannot place argument 2 ('--effort'): it stands where the value of \
+             '--model' belongs but reads as an option, so which of the two it is cannot be told. \
+             A harness brokkr launches is parsed against a model of its options, and a token \
+             that grammar cannot place is refused rather than passed through, because a control \
+             nobody can read is a control nobody can rule on (decision 0066 ruling 6)"
+        )
+    );
+    // And a site the engine computed no authority for.
+    let missing = json!({"workdir": &root, "native_controls": null});
+    for extra in [&stdin_model, &flag_model] {
+        assert_eq!(
+            launch(extra, &missing).err().as_deref(),
+            Some(NO_AUTHORITY),
+            "{extra:?}"
+        );
+    }
+
+    // Both guards admit a well-formed pair under the plan the engine writes,
+    // and the pair reaches the overlay, never the launcher's argv.
+    let admitted = s(&["--model", "deepseek-v4-flash", "--effort", "high"]);
+    let planned = engine_input(json!({"workdir": &root}), unmeasured, &admitted, 0);
+    let launched = launch(&admitted, &planned).unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        launched.command,
+        [
+            "/nonexistent/dsh",
+            "--profile",
+            "headless",
+            "--patch",
+            launched.overlay.path().to_str().unwrap(),
+        ]
+    );
+    assert_eq!(launched.refusal, None);
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
 /// Every recognized MODEL launch path, at the one dispatcher a seat's
 /// driver enters through: Claude, LaneTally's wrapper, Codex and DSH each
 /// refuse a site with no computed authority, spawn nothing and publish no

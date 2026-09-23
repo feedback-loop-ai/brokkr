@@ -3735,6 +3735,10 @@ fn dsh_launch_with(
     // recorded and dropped, and the engine's provenance must reassemble
     // the argv like any other launch's. What comes back is the argv as it
     // was handed over: DSH folds nothing in.
+    //
+    // The order is the operator's (ruling of 2026-09-23, addendum): the
+    // authority refusal wins, and the boundary check below inspects the
+    // COMPOSED argv, the command that will actually launch (ruling 2).
     let composed = composed_launch("dsh", extra, input)?;
     let extra = composed.extra.as_slice();
     // Original adjacency next: the three extractions below are

@@ -423,6 +423,26 @@ These tests SHALL NOT substitute for a live provider measurement.
 - **THEN** delivery notes still list Codex live resumed denial and enablement, explicit ON values and other versions, Claude live controls, DSH native inventory/controls and LaneTally native inventory/controls as unmeasured and owed to the controller
 - **AND** no failed, absent or unrun live check is described as passed
 
+### Requirement: A DSH launch refuses authority before it reads its boundary
+
+A DSH launch SHALL compose its plan before it checks its argument boundaries.
+A site with no engine-computed authority, a plan carrying a native control DSH
+does not consume, and an authored argv the DSH grammar cannot parse SHALL each
+refuse at composition, with that refusal's reason, before the boundary check
+reads any argument. The boundary check SHALL then inspect the composed argv,
+the command that will actually launch, never the argv as handed over in its
+place. DSH folds no control in today, so the two are the same bytes; a later
+composition that adds controls stays covered by the check.
+
+#### Scenario: The authority refusal wins over a boundary fault
+
+- **GIVEN** a DSH seat argv that the boundary check alone refuses, such as `--model -` (the grammar reads the lone `-` as the model's value) or `--model --effort`
+- **WHEN** the launch carries managed arguments, a tool selection, or no computed authority
+- **THEN** it refuses with the exact composition reason (managed arguments or a tool selection not consumed, the missing authority, or the grammar's authored-parse refusal for `--model --effort`), and never the boundary's `--model needs a model id after it`
+- **AND** the same `--model -` under the plan the engine writes for DSH, and either argv launched by hand, refuses with the boundary's own reason
+- **AND** a well-formed `--model <id> --effort <level>` under that plan passes both guards and launches
+- **AND** moving the boundary check ahead of composition fails this scenario's native-control assertion
+
 ## Decisions
 
 Ruling 2 makes decision 0066 total: declared halves parse at load and the
@@ -434,3 +454,6 @@ restrictions still need compiled cold and actual-resume proofs; no authored
 list is allowed to compete with them. C6/R10 retain the obligation to compile a
 real held nonempty restriction and prove independent final-delivery removals.
 Static command equality never becomes live provider enforcement evidence.
+The DSH guard order is the operator's addendum of 2026-09-23 (rebuild unit
+1b): the authority refusal wins, and the boundary check reads the composed
+argv under ruling 2.

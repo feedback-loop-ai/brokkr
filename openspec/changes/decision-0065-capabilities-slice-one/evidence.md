@@ -510,3 +510,81 @@ this seat's command permissions and is **not run** here. The review
 independently recorded a strict 18/18 pass on 07d65e71, before this
 evidence-only edit. External exact coverage, macOS and remote CI are still
 **pending**.
+
+## Unit 1b — the DSH guard order, X1 bound, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-bc7556ea`, based on c5aacc75. This is
+task 1.2: the split of X1 that the review return requested.
+
+**(i) The order, from the specs.** Triage found that no clause decided the
+order between the two guards. The operator ruled it in the addendum to
+`operator-ruling-2026-09-23.md` (c5aacc75). The authority refusal wins:
+composition runs first, and it refuses a missing authority, a native control
+the launch does not consume, or an unparseable authored argv before the
+boundary check reads any argument. The boundary check then inspects the
+composed argv (ruling 2). This visit records that addendum as the
+native-control delta requirement "A DSH launch refuses authority before it
+reads its boundary", with one scenario. The replayed code already follows the
+ruled order, so **the order did not change**. The only production edit is to
+the `dsh_launch_with` comment, which now cites the addendum.
+
+**(ii) The case that tells the orders apart.** The new test is
+`adapters::tests::a_dsh_native_control_is_refused_before_the_boundary_check_reads_the_argv`
+in `crates/brokkr-protocol/src/adapters/tests.rs`. Its fixture uses a
+canonicalised tempdir as both the workdir and `DSH_HOME`. It installs no
+provider (`/nonexistent/dsh`), and its composite closure panics if it is
+called. Every assertion compares the exact reason:
+
+| Input | Argv | Refusal |
+|---|---|---|
+| none (by hand) | `--model -`, `--model --effort` | `dsh driver: --model needs a model id after it` |
+| unmeasured plan (the plan the engine writes) | `--model -` | the same boundary reason |
+| known plan, managed argv `--effort low` | `--model -` + fragment | `…carries managed arguments for provider 'dsh', which its launch does not consume…` |
+| known plan, a tool selection | `--model -` | `…carries a tool selection for provider 'dsh'…` |
+| known plan, managed argv | `--model --effort` + fragment | the seat's arguments do not parse: the 'dsh' grammar cannot place argument 2 ('--effort')… |
+| `native_controls: null` | both | the missing-authority reason (`NO_AUTHORITY`) |
+| unmeasured plan (positive) | `--model deepseek-v4-flash --effort high` | launches as `dsh --profile headless --patch <overlay>`, with no refusal |
+
+Two things were observed while building the case.
+
+- **`--model --effort` alone cannot bind the order under a plan.**
+  Composition parses the authored argv against the DSH grammar, and that parse
+  already refuses an option in a value slot. So under any engine-written plan
+  this argv is refused at composition whatever the plan carries, and it never
+  reaches the boundary. The shape that separates the two guards is
+  `--model -`: the grammar reads the lone `-` as a positional and accepts it
+  as the model value, while the boundary check refuses any value that starts
+  with `-`. `--model --effort` is kept as a composition-reason row.
+- **An `unmeasured` plan's decoder ignores `argv` and `selection`**
+  (`native_controls.rs` `decode`). A native control therefore rides only a
+  `known` plan, which the fixture uses. A plan that carries those keys under
+  an unmeasured inventory is not refused, and its launch-arguments fragment
+  still reaches the composed argv. That code is outside this unit's files and
+  has not changed. It is recorded here for the unit that owns the plan decode
+  under operator ruling 2.
+
+**(iii) Binding mutation.** In `dsh_launch_with`, `dsh_input_boundaries(extra)?`
+was moved above `composed_launch("dsh", extra, input)?`, so it ran on the raw
+argv. This is the swap recorded under "Review return", and the code compiled.
+`cargo test -p brokkr-protocol --all-features --locked --lib dsh` then showed
+**87 passed, 31 failed**. The one real failure was the new test's
+managed-arguments assertion (`adapters/tests.rs:14823`,
+`assert_eq!(launch(&with_managed, &input).err(), Some(unconsumed("managed arguments")))`),
+with left `Some("dsh driver: --model needs a model id after it")` and right
+the managed-arguments refusal. The other 30 were `ADAPTER_ENV` `PoisonError`
+failures in sibling tests, caused by that panic. The swap was then reverted,
+and `git diff` showed only the comment edit in `adapters.rs`.
+
+**Gates** (c5aacc75 plus this unit's working tree): `cargo fmt --all -- --check`
+passed. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+passed. `cargo test -p brokkr-protocol --all-features --locked` passed: lib 467
+passed and 0 failed (466 before, plus this test), `seatbelt_lifetime_probe`
+99 passed with 2 ignored, and the remaining binary 1 passed. `git diff --check`
+passed. `openspec validate --all --strict` was refused by this seat's command
+permissions and was **not run**. `cargo run --locked -p brokkr-cli -- compile
+--bundle bundles/self` passed (digest `185ef2ca…d894`). The
+`brokkr-runtime` `witness_digests` pins passed 4/4, so no pin moved. The
+full workspace suite and the verify bundle were not rerun in this visit.
+Task 1.1 keeps unit 1's external gates, which the
+host owns: exact coverage on a4b08863 is running, and draft PR #319 carries
+macOS and remote CI. None of them is claimed here.
