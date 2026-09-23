@@ -1202,3 +1202,96 @@ order. Production, tests, measured pins, shipped data and frozen bytes do not
 change. The final commit and post-commit OpenSpec/diff/scope results are
 recorded in this run's result file so that recording them does not move the
 validated documentation head. No push.
+
+
+## Unit 2 — tasks re-adoption and remaining repair order, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-e332dc8d`, phase `tasks`, adopted head
+`107c4d179fc0a5807ade3d4f3628d8c8ec77a7c5`, branch
+`slice-0065-capabilities`. The worktree began clean. All four commissioned
+commits (`d9816374`, `4a6a2288`, `308a8a28`, `f9a691cf`), proof correction
+`368bc34e` and council amendment `107c4d17` remain ancestors. No replay,
+replacement specification/design or implementation occurred. The supplied
+context has no `returned_from`; the failed review startup is not proof of
+correctness or a new behavioral finding.
+
+Read the operator ruling/addendum first, then the Rebuild units preamble and
+unit 2, current tasks, D5.2–D5.5, SCM/SC8 scenarios, historical unit 2 evidence,
+and the relevant production/test seams. Read README and decisions 0004/0005/
+0009, decision 0065's standing authority context, and the installed dialect's
+`openspec/tasks.md` and `openspec/return.md`. No provider, workflow runner,
+delegation, archive or host-shell fallback was used.
+
+### Observed gaps and executable order
+
+The adopted implementation is present. `expressed_sandbox` uses the existing
+public grammar but checks only `--sandbox` and configuration under
+`sandbox_mode`; its loop does not judge the two recognized switches or
+`sandbox_workspace_write`. This source observation corroborates D5.5 and the
+previous council's attributed probes; it is not a fresh compile or live
+provider experiment. The narrowing test still has field-only
+`.unwrap_err().0` assertions. The strict raw-bundle test reaches
+`compose::resolve(&dir)?` in the allowed bundle.rs caller; no compiling
+mutation at that seam was executed or claimed in this tasks phase.
+
+The previous wording still commissioned initial decoding/wiring and called
+pre-f9a691cf behavior today's baseline. Group 2 now retains the implementation
+and sufficient existing experiments, names the actual remaining work, and
+keeps missing original baseline reds historical. A retrospective run cannot
+be relabelled as the original observation. All eight unit 2 boxes remain open;
+all task IDs, previous-ID traceability and tasks outside group 2 are retained.
+
+| Ordered task | Remaining work and requirement coverage |
+| --- | --- |
+| 2.1.1 | Inventory the 17 new tests (7 agent, 10 bundle) plus amended loader rows against retained/missing proof; record current baselines and canonical fixture facts. SCM strict local values and SC8 truthful baseline/removal/canonical-root evidence. |
+| 2.1.2 | Retain decoding/narrowing, replace partial errors with complete independent causes, and bind remaining malformed/duplicate/inheritance/order/class rows. SCM strict values, malformed tools and field-wise narrowing; SC7 no grandfathering; SC8 full reasons. |
+| 2.1.3 | Retain private-clone composition, whole-chain validation, exact mappings and hands replacement; supply only missing independent proofs. SCM hands/later-candidate scenarios, SC7 native aliases, TD6 unchanged hands authority and SC8 exact values/causes. |
+| 2.1.4 | Bind missing executable/container/context/shared-office/wrapper rows and each strict raw-bundle duplicate case through an allowed caller or existing test seam. SCM site ownership and original-source strictness, SC7 no silent authority and SC8 independent rows. An unworkable seam requires an inventoried split before widening. |
+| 2.1.5 | Add exact regressions before the bundle.rs guard repair. Pair full-auto, sandbox bypass, sandbox_mode config and sandbox_workspace_write config independently with authored and selected engine contributions. Keep already-refusing rows labelled baseline passes; retain supported hands/effort and boxed/gate/work positives, precedence, holdings and OFF facts. SCM exact-fragment/unrepresentable scenarios, RGR realm-only authority, TD6 hands, NCR native denial and SC8 baseline/removal/restoration. |
+| 2.1.6 | Audit every independently claimed row against retained or new compiling mutation, exact failure and restored pass; preserve missing historical reds as missing. SCM/SC7 coverage and SC8 evidence integrity. |
+| 2.1.7 | Run restored local gates, record external status and commit only in-scope work. SC8 observed checks, MP5 truthful pins/history and SCM bounded completion. |
+
+The paired sandbox cases use a matching requested class so a mismatch cannot
+mask the competing control. The tasks require existing parsed option/config
+identities, not another parser or blanket configuration refusal. Each missing
+row must reach its own intended assertion; the first failure in a loop is not
+proof for later rows. The raw-source mutation must target the enforcement,
+not substitute an unrelated fixture or diagnostic failure. If that proof
+cannot fit, the existing stop-and-split rule applies before another file moves.
+
+No earlier artifact needs changing for an honest breakdown: D5.5 and SCM's
+existing no-competing-control scenario already own the demonstrated gap.
+Proposal, deltas, design/Rebuild units and proposed decision 0066 are unchanged.
+The three production/two suite ceiling, later lowering/migration/final-launch
+ownership and conditional final archive remain in force. This visit does not
+claim unit 2 completion, final launch proof or fully green status.
+
+### Observed validation and limits
+
+On the adopted source plus these documentation edits:
+
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Existing requirement-length and unrelated archive-target notices are
+  informational; no archive was attempted.
+- Requirement/link audit: **passed**. Every unit 2 checkbox cites existing
+  requirement titles and anchors; all eight remain unchecked and the task
+  bytes outside group 2 are unchanged.
+- Read-only `openspec instructions apply --change
+  decision-0065-capabilities-slice-one --json`: all eight unit 2 entries are
+  recognized as unchecked tasks. No apply workflow was executed.
+- `git merge-base --is-ancestor`: **passed** for each of the six adopted
+  commits named above. `git diff --check`: **passed**.
+- All seven Cargo commands in 2.1.7 were explicitly attempted: format,
+  locked all-target/all-feature clippy, runtime all-feature suite, both
+  workspace suites and self/verify compiles. Each subprocess failed to start
+  because `cargo` is absent in this workspace box. **Unavailable**, not
+  passed; no test execution, compiler version, new baseline red, mutation or
+  restoration is claimed. Historical passes remain historical.
+- External exact coverage, macOS and remote CI remain **pending**. Their
+  absence does not require an earlier spec/design repair or prevent a task
+  draft; it does prevent a fully green implementation claim.
+
+Only tasks.md and evidence.md are changed and committed for this phase.
+Production, tests, pins, shipped data, grants and frozen surfaces are unchanged.
+The final SHA and post-commit checks go in the required run-local result file
+so that recording them does not move the committed documentation head. No push.
