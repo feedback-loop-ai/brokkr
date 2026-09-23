@@ -730,3 +730,89 @@ evidence.md belong in this design commit. The mandatory chief result is a
 separate gitignored run-local record with inputs.change. Final committed-head
 OpenSpec/diff checks and scope verification are recorded there after commit;
 these document checks cannot establish a fully green implementation.
+
+
+## Unit 2 — executable task breakdown, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-9f0b932b`, phase `tasks`, based on
+`4a6a2288e2825c29e23ec9515e66613fbf53462c` on `slice-0065-capabilities`.
+The worktree began clean. All preceding commits, including replay, unit 1b,
+unit 2 specification and chief design, remain adopted. The supplied run
+context has no `returned_from`. This visit changes only tasks.md and this
+record; it adds no Rust tests, implementation, task completion or gate claim.
+
+Read the operator ruling/addendum before Rebuild units and unit 2, then the
+current task, proposal, D5.1–D5.4 and Open Questions, owning SCM/SC7/SC8/RGR
+requirements and related hands/native-denial requirements. Checked the named
+production files and owning fixture/suite paths against that design, and read
+README and decisions 0004/0005/0009. Read dialects/openspec.json and its tasks
+and return instructions, and rendered `openspec instructions tasks --change
+ decision-0065-capabilities-slice-one`. No workflow runner, provider, council,
+replay or delegation was invoked.
+
+### Breakdown and requirement coverage
+
+Task 2.1 remains the accepted closure anchor (previous 3.14). Its seven new
+numbered checkbox substeps execute in dependency order inside the same unit;
+they do not commission seven additional visits. Every checkbox names and
+links its requirements. All eight entries stay unchecked. Every task and
+status outside group 2 is byte-identical to the adopted head.
+
+| Ordered work | Requirement/scenario coverage |
+| --- | --- |
+| 2.1.1, baseline and canonical fixtures | SC8 full refusal/mutation proof and canonical-root scenario; SCM's distinct empty, sandbox and inline baseline behaviors. |
+| 2.1.2, shared decoding and pure narrowing | SCM strict decoding, malformed tools, field omission/empty and local widening scenarios; SC7 empty/nonempty MCP migration; SC8 exact values/causes and original-source duplicates. |
+| 2.1.3, effective clone and candidate compatibility | SCM unchanged hands, unavailable later candidate and ordered restrictions; SC7 native alias refusal; TD6 unchanged workspace authority; SC8 independent mapping/fallback proofs. |
+| 2.1.4, executable traversal and checked facts | SCM each executable/container, inherited/selected/default body and shared-office isolation scenarios; strict original source keys, fallible adapter context and wrapper relocation; SC8 full site/source causes. |
+| 2.1.5, existing representation or refusal | SCM all D5.3 rows, unsupported intermediate lowering, exact Codex fragments and independent boundary authority; RGR typed authority only; TD6 unchanged hands; NCR unchanged native OFF; SC8 independent admission/refusal assertions. |
+| 2.1.6, per-test/per-row proof audit | SC8 baseline/fix/compiling mutation/restoration record, including tests already passing baseline; SCM/SC7 owning scenarios. A first table failure proves no subsequent row. |
+| 2.1.7, gates and committed evidence | SC8 actual results and evidence limits; MP5 measured pins/history and split before out-of-scope pin work; SCM bounded unit completion. |
+
+The source check agrees with the chief's design: `parse_tools` currently
+returns only optional allow and rejects empty; `report_under` clones the
+agent before composition; `resolve_report` checks every entry's gap;
+`SiteFacts` has no local restriction field; `needs_adapters` does not yet
+account for typed tools. `AgentFixture` currently derives paths from a
+lexical TempDir while agents' `Tree` already retains a canonical root.
+These are observations of source, not executed behavioral reds.
+
+No earlier artifact needs changing to write this breakdown. D5.3 and its
+owning scenarios already settle the intermediate representation question:
+keep runnable restrictions refused until they can be delivered, with bounded
+matching existing Codex/hands fragments as specified. Unit 9's nonempty
+capability-restriction transport is a later dependency, not a new assumption
+for local tools decoding. Unit 1's external gates stay pending. No design
+choice, scenario, proposed decision or accepted unit order is amended here.
+The three production/two suite ceiling and stop-before-split rule are explicit;
+lowering/origin transport, migration, final launch and archive remain deferred
+to their existing owners.
+
+### Observed validation and limits
+
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Existing long-requirement notices and unrelated archive-target notices for
+  adapter-resume-safety / sdd-progress-markers remain informational.
+- Read-only `openspec instructions apply --change
+  decision-0065-capabilities-slice-one --json`: its task parser recognizes
+  2.1 and 2.1.1–2.1.7 as eight separate unchecked entries. No apply workflow
+  or implementation was run.
+- A read-only requirement/link audit verified every unit 2 checkbox cites
+  existing requirement titles and matching anchors, and verified task bytes
+  outside group 2 are unchanged. `git diff --check`: **passed**.
+- Each of the seven Cargo commands listed in task 2.1.7 was attempted here:
+  format, workspace clippy, runtime suite, both workspace suites and self/verify
+  bundle compilation. Every command exited **127**, `cargo: command not found`.
+  These checks are **unavailable**, not passed. The task draft remains usable;
+  an implementation seat with Cargo must execute and record all of them.
+- No new Rust test, baseline failure, compiling mutation or restored pass was
+  produced by this document-only phase. Those remain explicit implementation
+  obligations, not task-draft completion evidence.
+- External exact coverage, macOS and remote CI remain **pending**. No new host
+  or remote result was observed and no fully green claim is made.
+
+The document commit contains only tasks.md and evidence.md. Production, tests,
+pins, grants, frozen contracts, policy/schemas, policy/phase-machine.json,
+fixtures, reference and extensions retain the adopted bytes. The engine result
+is a separate gitignored run-local JSON record with result `drafted` and
+inputs.change; its notes record the committed SHA and final document checks.
+No push or archive occurs.

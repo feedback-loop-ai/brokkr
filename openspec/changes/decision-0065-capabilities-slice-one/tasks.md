@@ -75,31 +75,66 @@ is not green. No archive occurs until the final conditional task is authorized.
 
 ## 2. Unit 2 — Decode typed inline declarations
 
-- [ ] 2.1 Unit 2 adds D5 typed inline tools/checked sandbox restrictions. Verify agent/seat narrowing, unknown classes, boundary incompatibility and source causes. Requirements: [Legacy concrete permissions cannot grandfather a capability][SC7], [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR]. Reopened/remaining: operator ruling 1–2. (previous 3.14)
+Tasks-phase baseline: `4a6a2288e2825c29e23ec9515e66613fbf53462c`, on
+`slice-0065-capabilities`, 2026-09-23. Adopt every preceding commit, including
+unit 1b, specification `d9816374` and design `4a6a2288`; replay nothing.
+There is no `returned_from`. D5.1–D5.4 answer this unit's design questions;
+Open Questions for unit 9 and external gates retain their separate ownership.
 
-Unit 2 specification visit, 2026-09-23, adopted head 5a47b090: task 2.1 stays
-open. Its owning SCM scenarios now spell out strict tools keys/types, duplicate
-and abstract-name checks, per-field inheritance, explicit empty, allow subsets,
-sandbox narrowing and the existing boundary/hands refusal. Use only the three
-production and two test files named in design's unit 2. Capture baseline reds
-for inline tools, empty agent allow and sandbox decoding before implementation;
-source inspection in evidence.md is not an executed red. Check exact decoded
-values and whole invalid/widening causes at each executable body, with fixtures
-rooted at one canonical temporary directory and no provider or `.forge/` reads.
-Each new test needs its own compiling removal failure at the intended assertion
-and restored pass. Units 3–4 own lowering/origins; no later unit closes here.
+Production paths below are under `crates/brokkr-runtime/src/`: only
+`agents.rs`, `agents/load.rs` and `bundle.rs`. Tests stay in `agents/tests.rs`
+and `bundle/agent_tests.rs`. The other two writable artifacts are this file
+and evidence.md. A fourth production file, another suite or a measured pin
+edit requires an inventoried split **before** editing. No new module,
+Candidate field, dependency, public contract, shipped JSON, grant or frozen
+byte belongs to unit 2. Decision 0066 stays proposed.
 
-Unit 2 design visit, 2026-09-23, adopted head d9816374: D5.1–D5.4 reconcile
-both current council positions and answer the representation/handoff questions.
-Implement the shared decoder and per-field narrowing without changing Candidate;
-keep checked local facts with the site. Apply D5.3's exact admission/refusal
-table: an unimplemented lowering path must refuse runnable compilation, while
-pure decode/narrow tests retain every class and explicit empty. Preserve the
-standing hands replacement and constitutional error precedence. Cover distinct
-sites sharing an office, incompatible later candidates and selected engine
-fragments with complete assertions. Every new test still owes its compiling
-mutation failure and restored pass in the two named suites. The design adds no
-implementation, gate completion or task tick; 2.1 and later units remain open.
+- [ ] 2.1 Complete D5 typed declaration decoding and strict local admission in the three named production files, with all ordered substeps 2.1.1–2.1.7 below finished. Tick this aggregate only after its implementation, exact proofs, applicable observed gates and commit are recorded; pending external results stay pending and do not establish fully green completion. This remains the accepted Rebuild units closure anchor, not a new unit. Requirements: [Legacy concrete permissions cannot grandfather a capability][SC7], [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Refusal proofs assert the full reason][SC8]. Reopened/remaining: operator rulings 1–2. (previous 3.14)
+
+Execute the following substeps in order within this one visit. For each
+behavioral substep, establish the baseline assertion before its repair, then
+independently mutate, restore and rerun its proof before advancing. Substep
+2.1.6 audits those records; it does not defer all mutation work to the end.
+
+- [ ] 2.1.1 Establish the fixture and baseline record in the two owning suites and evidence.md before production changes. Retain agents' canonical `Tree`; canonicalize `AgentFixture`'s retained TempDir once and derive writes and expected paths from that root. New inline roles contain actual bytes inside the bundle, not outward charter links. List every intended test/row, input, independent exact expected value or complete refusal, baseline command and observed outcome. Exercise today's empty-agent-allow rejection, absent sandbox decoding and inline-tools key rejection; record already-passing strict-reader/hands controls as passes, not invented reds. New-type-dependent assertions may follow the minimum compiling type scaffold, but a compiler error is never baseline or mutation proof: first bind the delivered behavior through existing entry points. Verify each recorded red reaches its intended assertion without a provider installation or any `.forge/` read. Requirements: [Refusal proofs assert the full reason][SC8], [Shipped inline permissions migrate before refusal lands][SCM]. (substep of previous 3.14)
+
+- [ ] 2.1.2 Implement the shared strict decoder and pure narrowing in `agents.rs` / `agents/load.rs`. Retain the sole `Agent.allow`, add the three-case sandbox enum and one two-field local value, and expose existing `parse_tools` narrowly for bundle use. Accept only allow/sandbox/absent-or-exactly-empty MCP; preserve ordered `Some([])`, omitted fields and all three exact sandbox values. Narrow each field independently: omitted tools, `{}` or a missing sibling inherits; explicit allow retains written order and must be a subset of any office list; unspecified office fields may be restricted; an empty office list cannot widen; sandbox reach is read-only <= workspace-write <= danger-full-access, with no clamping. Verify in `agents/tests.rs` complete values and causes for null/non-object tools, unknown keys, null/non-array allow, non-string/duplicate/malformed names (including raw harness patterns), null/non-string/unknown sandbox, malformed/nonempty MCP, every sandbox comparison, independent field widenings and partial inheritance. From original raw agent JSON, independently verify repeated tools/allow/sandbox keys, including equal repeats; retain `read_request_source` strictness. Require a compiling mutation and restored pass for each new test and each independently claimed table row. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Legacy concrete permissions cannot grandfather a capability][SC7], [Refusal proofs assert the full reason][SC8]. (substep of previous 3.14)
+
+- [ ] 2.1.3 Apply the effective declaration to a private office clone before existing composition in `agents.rs`, factoring `report_under` only as needed and keeping source/digest and Candidate unchanged. Validate the whole candidate chain, including unavailable later candidates, while retaining existing hands/model-policy refusal precedence. Where direct tools apply, use each candidate's exact `ToolPermissions.names` values and `native.capability_of`; unknown mappings and arbitrary mapped native aliases refuse with full agent/provider/model/field causes. Preserve hands replacement: syntax/subset checks still apply, known mapped native aliases still refuse, but dormant direct lists need no otherwise-unused direct mapping and empty does not disable hands. Direct explicit empty stays unrepresentable until lowering exists. Verify in `agents/tests.rs` exact ordered mapped argv, unchanged hands fragments and declaration values, independent unknown/native/fallback-only refusals, and that optional wants do not forgive local errors; mutate each enforcement independently and restore. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Legacy concrete permissions cannot grandfather a capability][SC7], [Reserved hands preserves the existing workspace authority][TD6], [Refusal proofs assert the full reason][SC8]. (substep of previous 3.14)
+
+- [ ] 2.1.4 Wire shared decoding, effective office narrowing and checked local facts through existing executable paths in `bundle.rs`. Add tools to SEAT_KEYS/BODY_KEYS/MEMBER_KEYS/STEP_KEYS while explicitly refusing it, even `{}`, on panel/sequence/selection containers, panel-valued steps and dialect steps without executable checks. An exec-generated check must refuse nonempty local fields it cannot represent. Validate shape/placement before representation; obtain required adapter data through the existing fallible context and extend `needs_adapters` without opening an unused agent library or swallowing load failures. Store `Some(local value)` for every visited executable, including two unspecified fields; leave unvisited facts distinguishable and relocate the entire fact with wrappers. Verify `bundle/agent_tests.rs` ordinary seats, panel members, sequence steps, every selected case/default and inherited bodies, each with omission/subset/empty/malformed/widening cases and complete owning-site causes. Verify raw duplicate tools/allow/sandbox source refusal without editing `bundle/compose.rs`, missing/malformed adapter-context refusal, and two sites sharing one office in both traversal orders with exact isolated fields and unchanged office source/digest. Independently mutate each path/check in the named files and restore. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Legacy concrete permissions cannot grandfather a capability][SC7], [Refusal proofs assert the full reason][SC8]. (substep of previous 3.14)
+
+- [ ] 2.1.5 Enforce D5.3's intermediate admission table in `agents.rs` / `bundle.rs` before any newly typed restriction can become a runnable command. Keep unspecified defaults and existing mapped nonempty agent-direct/hands paths; refuse inline direct allow, direct empty and unsupported sandbox lowering with the exact owning-field/representation cause. After independent constitutional checks, admit explicit sandbox only for actual Codex dispatch with hands and exactly matching existing engine fragments: harness gate read-only, harness work workspace-write, boxed read-only. Use the existing public protocol grammar to require exactly one sandbox control of the requested class and refuse competing controls or opaque configuration in other contributions; authored bytes cannot supply representation. Refuse each nonmatching class, missing fragment, open work, no-hands/inline sandbox, opaque dispatch labelled codex, and Claude/LaneTally/DSH/exec sandbox. Verify every D5.3 row independently in the owning suites, with exact effective fields, selected fragments, boundary and complete refusals; prove existing open-gate/missing-hands/model-policy errors keep precedence and later candidates cannot hide a mismatch. Under empty realm grants, compare full holdings/native OFF facts for admitted fixtures and confirm hands policy/boundary stay unchanged. Mutate each guard or selected-fragment check independently, observe the intended exact assertion fail, restore and pass. These are compile-admission proofs; no final-launch or live-provider claim follows. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Reserved hands preserves the existing workspace authority][TD6], [Known native powers require a valid delivered denial or refusal][NCR], [Refusal proofs assert the full reason][SC8]. (substep of previous 3.14)
+
+- [ ] 2.1.6 Audit the accumulated baseline/fix/removal/restoration ledger in evidence.md against every new test and each independently claimed row in the two owning suites. Record the revision, exact test and row, command, compiling in-scope mutation, actual left/right or full failing assertion, restoration and passing rerun. A table aborting at its first row proves no later row; isolate mutations/filters so each claimed row reaches its assertion. Reject `is_err()`, substring-only reasons, production-derived expected output, compilation errors or unrelated fixture failures as proof. Confirm every mutation is restored and all new fixtures retain one canonical temporary root, with no `.forge/` reads or installed provider. Verify coverage against SCM's unit 2 scenarios and SC7/SC8, distinguishing later migration/final-command scenarios that remain open. Requirements: [Refusal proofs assert the full reason][SC8], [Shipped inline permissions migrate before refusal lands][SCM], [Legacy concrete permissions cannot grandfather a capability][SC7]. (substep of previous 3.14)
+
+- [ ] 2.1.7 Run the local gates below on restored work, record their actual results and exact external-evidence status in evidence.md, and inspect the diff against this unit's file allowlist. Stop for an inventoried split if gates expose a necessary out-of-scope edit; do not re-pin another suite or repair a later unit here. Only tick completed work; commit tasks/evidence with the implementation in repository style, never push. Verify the committed SHA, clean worktree and retained ancestry; record the committed-head result in the run-local result so recording it does not move the validated source head. External exact coverage and relevant Linux/macOS/CI evidence must identify their tested head; unavailable/pending gates cannot be called green or close unit 1's pending results. Requirements: [Refusal proofs assert the full reason][SC8], [Digest pins are measured and their history remains truthful][MP5], [Shipped inline permissions migrate before refusal lands][SCM]. (substep of previous 3.14)
+
+Local gates for 2.1.7, from the house and D5.4/D10:
+
+```text
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test -p brokkr-runtime --all-features --locked
+cargo test --workspace
+cargo test --workspace --all-features --locked
+cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
+cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+openspec validate --all --strict --no-interactive
+git diff --check
+```
+
+External exact coverage is `bash scripts/coverage-exact.sh` on a capable host
+or CI, with nonzero covered/total equality for lines, branches and logical
+functions and the pinned compiler agreement. Keep it pending until observed;
+never lower the gate or substitute a nested-box failure. Supported-host
+claims require actual Linux/macOS evidence.
+
+Units 3–4 own new lowering/origin transport. Their later implementation may
+remove a temporary refusal only once that path delivers its restriction;
+unit 2 never accepts then discards it. Shipped migrations, general authored-flag
+refusal, final command/resume proofs and archive remain in their assigned
+later units. This tasks visit ticks none of the above.
 
 ## 3. Unit 3 — Lower typed tools and define private origins
 
