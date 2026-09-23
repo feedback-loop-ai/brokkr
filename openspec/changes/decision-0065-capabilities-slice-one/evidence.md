@@ -3627,3 +3627,54 @@ After the last restore, the whole `brokkr-runtime` suite passed.
 
 **Pending, not claimed:** the operator's C1 scope ruling, external
 `bash scripts/coverage-exact.sh`, macOS, and remote CI.
+
+## Unit 4 — re-run under the scope ruling, 2026-09-24
+
+Run `triage-directive-operator-ruling-0842e965`, triage `chore`, phase
+implement, sole seat. The head was `2835618a` on `slice-0065-capabilities`,
+clean. There is no `returned_from`. `07d88b44` and `e361a36e` are adopted
+unchanged and remain ancestors of the head.
+
+### C1: resolved by the operator's ruling
+
+The operator ruled (a) on 2026-09-24, in the addendum to
+`operator-ruling-2026-09-23.md` (`2835618a`): design D5.7's inventory governs
+unit 4. Its production files are runtime `engine.rs`, `bundle.rs` and
+`agents.rs`, within the preamble's three-file limit. `engine/tests.rs`,
+`engine/agent_tests.rs` and `engine/resume_tests.rs` carry the `Candidate`
+constructor migration. No separate unit is split out.
+
+`git diff --stat 48779b32 2835618a` names exactly those three production files,
+the three constructor-migration suites, `engine/capability_tests.rs`,
+`engine/boundary_tests.rs`, `tests/capability_launch.rs` and this change's
+three records. No other source file, pin, shipped JSON or frozen byte moved.
+The admitted edits are within the ruled scope.
+
+### What this visit changed
+
+Only `tasks.md` and this file. No code, test or mutation ledger changed. The
+implementation's ledger (M1–M23) and the review return's (R1–R7) stand as
+recorded. SC1–SC3 stand as answered; SC3 still binds no test on Linux, and
+none is claimed.
+
+### Gates on `2835618a` (this visit)
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | passed |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | passed |
+| `cargo test -p brokkr-runtime --all-features --locked` | passed; lib 548, `capability_launch` 19, 25 result lines, all ok |
+| `cargo test --workspace --all-features --locked` | passed; 77 result lines, all ok, exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | exit 0 |
+| `openspec validate --all --strict --no-interactive` | 18 passed, 0 failed |
+| `git diff --check 48779b32 2835618a` | passed |
+
+Each count equals the review return's. 4.1 and 4.2 are ticked on this local
+record.
+
+**Pending, not claimed:** external `bash scripts/coverage-exact.sh`, macOS, and
+remote CI. Unit 4 is not fully green until those results exist. 15.2 still owns
+final authored-counterfeit refusal, and units 12–15 own the serving command's
+final parse and state check. The driver still reads the legacy pair. Nothing is
+pushed.
