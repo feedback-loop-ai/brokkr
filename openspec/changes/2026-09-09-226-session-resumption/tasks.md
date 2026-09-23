@@ -329,7 +329,7 @@ owning requirements:
 
 ## 8.8.15. Record this slice and commit its reviewed bytes
 
-- [ ] 8.8.15.1 After the scoped implementation/proofs and local gates above pass,
+- [x] 8.8.15.1 After the scoped implementation/proofs and local gates above pass,
       record actual R1–R3 delivery, per-ending removal results, restored test
       results and external pending evidence. Tick each finished scoped task
       beside its evidence, preserving open whole-task 8.8/8.10/9.6 and all
@@ -355,6 +355,23 @@ owning requirements:
       the seat's grant refused `openspec validate`, and the host's 17/17
       predates this candidate's document edits. The clause ticks when that
       run passes on entry 22's commit.
+      Ticked 2026-09-23 by acceptance-ledger entry 22's closing visit (run
+      `issue-226-acceptance-ledger-entr-aaa075ff`), beside the host's strict
+      validation of entry 22's commit. `.forge/tasks/host-openspec-0046ef43.txt`
+      records, on head `0046ef431c4491b24c253876ee52e23921144f96` with
+      openspec 1.12.0: `openspec validate --all --strict` → Totals 17
+      passed, 0 failed, rc 0; `openspec validate
+      2026-09-09-226-session-resumption --strict` → valid, rc 0. The
+      closing visit did not rerun it. Its commit moves only this file's
+      ticks and prose and the acceptance ledger; `proposal.md`, `design.md`
+      and every spec delta are byte-identical to `0046ef43`, so the
+      validated bytes are unchanged, but the run is on `0046ef43`, not on
+      the commit carrying this tick. `git diff --check`, the checkbox
+      inventory (8.8.15.1 and 8.10 the only moves), the frozen-path diff
+      against `origin/main` (empty), 0056 `proposed` and `adapters/dsh.json`
+      `headless-work` `unmeasured` were verified again. The commit is
+      unsigned (CONTRIBUTING.md, §5); its hash is handed off in the run's
+      result, not written here.
 
 The final whole-change archive/fold remains group 15's last operation, after
 all of its prerequisites; it is not an action or completion claim of 8.8.15.
@@ -443,6 +460,14 @@ this seat's grant refused both `openspec validate --all --strict` and
 documents. An unavailable tool is not a pass. When that command passes on
 this commit, 8.8.15.1 and then 8.10 tick beside its result. 8.8, 9.6, 11.x,
 the numbered 8.8.1.1–8.8.8.4 and groups 14 and 15 are untouched.
+
+**Closing, 2026-09-23** (run `issue-226-acceptance-ledger-entr-aaa075ff`).
+The host ran both strict commands on `0046ef43`, this record's commit
+(`.forge/tasks/host-openspec-0046ef43.txt`: `--all --strict` 17 passed,
+0 failed, rc 0; the single change valid, rc 0; openspec 1.12.0).
+8.8.15.1 is ticked beside that result, and then 8.10. The acceptance
+ledger regrades S12, B2 and B10 to discharged, keeping their old grades.
+Nothing else is ticked.
 
 **Verified here.**
 - `git diff --check` and `cargo fmt --all -- --check` pass.
@@ -5250,7 +5275,7 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 This whole-change acceptance remains pending. For the current
+- [x] 8.10 This whole-change acceptance remains pending. For the current
       AU/D7 Pass C repair, execute only 8.8.9.1–8.8.15.1: R1–R3 plus the
       bounded watcher-rule controls, both terminal endings, completed production
       observations, independent compiling removals and positive/cold preservation
@@ -5638,6 +5663,14 @@ saved for the phase commit.
       (its strict validation was refused to the seat), and B2 and B10 ride
       8.8.15.1. See *Validation and record — acceptance ledger entries
       11–21* under 8.8.15.
+      Ticked 2026-09-23 by entry 22's closing visit, after 8.8.15.1 ticked
+      beside the host's strict validation of `0046ef43` (17 passed, 0
+      failed; the single change valid; both rc 0;
+      `.forge/tasks/host-openspec-0046ef43.txt`). B2 and B10, the last
+      rows riding 8.8.15.1, are regraded discharged in the acceptance
+      ledger. The tick is 8.10's scoped acceptance, "execute only
+      8.8.9.1–8.8.15.1", as the ledger grades it. 8.8, 9.6, 11.x and
+      groups 14 and 15 stay open.
 - [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
