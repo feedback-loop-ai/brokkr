@@ -890,7 +890,7 @@ numbers. The map:
 | 11 | — (new: unit 7's unproved half) | landed `6e1e7066`, `471bc740` |
 | 12 | — (new: N2/N4 unasserted cells) | landed `36b16922` |
 | 13-fix | — (new: finding P1, entry 13's stop) | landed `1d2763cf` |
-| 13 | — (new: source retrieval) | open, externally owned |
+| 13 | — (new: source retrieval) | landed `fcb91ad2` (after a stop; host-retrieved sources) |
 | 14 | 4 | open |
 | 15 | 5 | open, externally owned |
 | 16 | — (new: N11 on a capable host) | open, externally owned |
@@ -1800,6 +1800,27 @@ symlink fixture and twenty planner vectors.
    That would be a change to 8.8's acceptance, not satisfaction of it. It is
    prepared in entry 23, and it does not replace this entry unless the
    operator says so.
+
+   **Landed 2026-09-23 at `fcb91ad2`, from host-retrieved sources (run
+   `issue-226-acceptance-ledger-entr-a5dcdf46`).** All sixteen digests
+   were re-hashed locally, and every cited range was re-read against the
+   port. `source-pins-2026-09-23.md` records each source, tag, commit,
+   SHA-256 and range. The first visit stopped on P1, which was repaired
+   by 13-fix. The second visit found P2, which is not a production
+   finding: the renamed-symlink refusal comes from Ubuntu's AppArmor
+   patch on uutils 0.2.2, and upstream has no such check. The refusal is
+   kept, and only its attribution was corrected. Only comments moved:
+   - `strchrnul` replaces `strsep`;
+   - the pinned ranges replace D10's moving-`main` ones;
+   - the default search is attributed to `_execvpe`;
+   - `paths.h` is cited at line 65;
+   - the xnu `PATH_MAX` is cited;
+   - Apple's env is cited at `env/env.c`.
+
+   `tasks.md` records the delivery under 8.8.1.1 and 8.8.2.1. design.md's
+   matching prose (2954–2957, 2988, 2996–3006 and 3036–3045) is recorded
+   for entry 22. Native macOS is still pending. fmt, workspace clippy
+   and `-p brokkr-protocol` (430 + 99 + 1) are green. No checkbox moved.
 
 14. *(recorded as 4)* **Run the gate list, in order, on the final
    candidate.** Closes S11 (8.8.14.2), **N12 (8.8.8.2)** and B10's gate half.
