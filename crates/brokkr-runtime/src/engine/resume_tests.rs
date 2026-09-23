@@ -1773,7 +1773,7 @@ fn a_valid_route_overlay_binds_at_the_panel_member() {
 /// outcome — no `route_overlay` member — never a start failure. Each
 /// member of one panel carries one shape, and every member still starts
 /// and is sent its context. The single-site half of "at either call
-/// site" is the nonmember case below.
+/// site" is the nonmember case and the remaining-shape case below.
 #[test]
 fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
     let dir = tempfile::tempdir().unwrap();
@@ -1903,6 +1903,97 @@ fn a_non_binding_route_overlay_withholds_the_member_at_the_single_site() {
         context.get("route_overlay"),
         None,
         "a nonmember --patch must carry no route_overlay at the single site, got {context}"
+    );
+}
+
+/// The remaining non-binding shapes at the SINGLE site (B38(ii)), each
+/// driven through `run_driver` in a run of its own on a canonical root.
+/// Every value names bytes a lookup could find: the shadow and the
+/// ancestor file are spelled `route.yml` beside a member of that name,
+/// the ancestor records its file in its own `files`, and the `..` value
+/// and the absolute `./` expansion both resolve to the member itself —
+/// so each is withheld by the rule for its shape, not by a missing file.
+/// Each shape that nevertheless carries a `route_overlay` is collected
+/// with it, and the assertion is that none does.
+#[test]
+fn every_remaining_non_binding_shape_is_withheld_at_the_single_site() {
+    let member_bytes = b"route: member\n";
+    let ancestor_bytes = b"route: ancestor\n";
+    let shapes = [
+        ("shadow", "route.yml"),
+        ("ancestor", "base/route.yml"),
+        ("traversal", "../work/recipe/route.yml"),
+        ("absolute", ""),
+    ];
+    let mut bound = Vec::new();
+    for (shape, spelled) in shapes {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let work = root.join("work");
+        let layer = work.join("recipe");
+        let ancestor = work.join("base");
+        std::fs::create_dir_all(&layer).unwrap();
+        std::fs::create_dir_all(&ancestor).unwrap();
+        std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
+        // The working-directory shadow of the bundled path.
+        std::fs::write(work.join("route.yml"), b"route: shadow\n").unwrap();
+        // An ancestor layer's same-named file.
+        std::fs::write(ancestor.join("route.yml"), ancestor_bytes).unwrap();
+        // What `./route.yml` expands to in a compiled command
+        // (`bundle.rs`'s `dir.join(rel)`): already absolute.
+        let value = match shape {
+            "absolute" => layer.join("route.yml").display().to_string(),
+            _ => spelled.to_string(),
+        };
+
+        let mut seats = BTreeMap::new();
+        seats.insert(
+            "work".into(),
+            seat(
+                single(
+                    patched(driver(&root, "work", &["complete"]), &value),
+                    Vec::new(),
+                ),
+                &["complete"],
+                1,
+            ),
+        );
+        seats.insert(
+            "review".into(),
+            seat(
+                single(driver(&root, "review", &["clean"]), Vec::new()),
+                &["clean"],
+                1,
+            ),
+        );
+        let mut bundle = bundle(&layer, seats);
+        bundle.roots = vec![layer.clone(), ancestor.clone()];
+        let mut ancestor_files = serde_json::Map::new();
+        ancestor_files.insert("route.yml".into(), json!(overlay_digest(ancestor_bytes)));
+        bundle.chain = vec![crate::Ancestor {
+            name: "base".into(),
+            reached_as: None,
+            dir: ancestor.clone(),
+            digest: "c".repeat(64),
+            files: ancestor_files,
+        }];
+        bundle.manifest["files"] = json!({ "route.yml": overlay_digest(member_bytes) });
+
+        run(&root, bundle);
+
+        let context = route_start(&root, "work")["input"]["resume_context"].clone();
+        assert!(
+            context.is_object(),
+            "{shape}: the single site still receives its private context, got {context}"
+        );
+        if let Some(binding) = context.get("route_overlay") {
+            bound.push((shape, binding.clone()));
+        }
+    }
+    assert_eq!(
+        bound,
+        Vec::<(&str, Value)>::new(),
+        "a non-binding --patch must carry no route_overlay at the single site"
     );
 }
 
@@ -2207,6 +2298,63 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         assert_eq!(binding["value"], "recipe/route.yml", "start {index}");
         assert_eq!(binding["digest"], digest, "start {index}");
     }
+}
+
+/// The binding is present on an OFFERED start at the PANEL-MEMBER call
+/// site too. The panel positive above is a cold first start, and the
+/// offered positive above rides the single site; here the member is sent
+/// back into by the phase machine's re-entry and offered the session its
+/// first start opened, and both of its starts carry the same member and
+/// the manifest's recorded digest.
+#[test]
+fn a_valid_route_overlay_binds_on_an_offered_panel_member_start_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let layer = root.join("work").join("recipe");
+    let bytes = b"route: offered panel\n";
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::write(layer.join("route.yml"), bytes).unwrap();
+    let digest = overlay_digest(bytes);
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![member(
+                "alpha",
+                patched(model_driver(&root, "alpha", &["pass"]), "recipe/route.yml"),
+            )]),
+            &["pass", "fail"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(&root, "review", &["residual", "clean"]), Vec::new()),
+            &["residual", "clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.machine = panel_machine();
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+
+    run(&root, bundle);
+
+    let received = received(&root, "alpha");
+    assert_eq!(
+        offers(&received),
+        [None, Some("alpha-1".into())],
+        "the member's re-entry is the offered start"
+    );
+    let bindings: Vec<Value> = received
+        .iter()
+        .filter(|message| message["type"] == "start")
+        .map(|start| start["input"]["resume_context"]["route_overlay"].clone())
+        .collect();
+    let expected = json!({ "value": "recipe/route.yml", "digest": digest });
+    assert_eq!(bindings, [expected.clone(), expected]);
 }
 
 // ---------------------------------------------------------------------------
