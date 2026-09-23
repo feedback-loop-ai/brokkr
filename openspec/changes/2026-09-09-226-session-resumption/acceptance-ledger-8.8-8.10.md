@@ -93,6 +93,18 @@ say which half 4a did not prove.
 | 4 | Four claims were false and are corrected. The R3 raw-span matrix is not exclusive to the doctor suite. `doctor_dsh_selection.rs` has historical recorded executions. `69cac25d` is D3's returned-review head, not Pass C's. N13 has a failed gate run, so it is not "nothing" | 5 |
 | 5 | §1 is eighteen rows, not sixteen. Unit 17's list is counted. §6 is one numbered list in dependency order, and §7 gives the three one-line answers first | 6 |
 
+*The fourth return* (the chief review of this run over `e84fe794` and
+`b0d17e67`) confirmed the remediation and left one medium and three low
+findings, all author correctness. This revision answers them. It still changes
+no code, no test and no checkbox.
+
+| | Change | Finding |
+|---|---|---|
+| 1 | B5's "every new test" had no fallback for THE PROOFS' tests (`tasks.md` 5095–5099). B5 now carries a test-by-test inventory of them. B4 now names the two reachable refusal tests the commission meant. Controls with **no record found** are a third class, which a ruling cannot accept. Unit 21 now has a half, 21(a), that performs them whatever unit 17 rules, so 8.10 waits on it in every case | C1 |
+| 2 | F5's S rows are fifteen, not sixteen. N5d names six mutations (M1–M3, M7–M9), not five | C2 |
+| 3 | B5 closes on unit 17 or units 18, 19 and 21(b), with 21(a) in both cases. It no longer says "18–21 all", because unit 20 is 8.8's alone | C3 |
+| 4 | 9.6's detail counts two required rulings, 17 and 23. The scope change stays optional, as unit 23 and the 8.8 answer already say | C4 |
+
 ## How to read a row
 
 | Field | Meaning |
@@ -304,7 +316,7 @@ waiver (unit 15).
 | N5a | 8.8.3.1(1) | `[x]` | **Shared preparation.** Prepare profile and bounded pnpm observation "before authority for either DSH or Node version probing"; retain declarations, patchReload, raw anchor, canonical boundary and dependencies "in a small privately constructed value"; "Composition consumes them once, without profile/lock rereads"; "Preparation computes no digest"; a located pnpm admission failure "blocks both probes" | 1314–1329 | `composite/tests.rs:3074` `::the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained` — `DshPrepared::admit` returns the retained value, `prepared.invocation()` and `prepared.seams()` are asserted, its `Debug` carries the admitted dependency, and the test's own doc records the repair: "The lock was parsed last — after doctor's DSH probe and the producer's Node probe… Admission is now the selection's, and the producer's own first step" | discharged |
 | N5b | 8.8.3.1(2) | `[x]` | **R1 separation.** At `split_flow_entry` consume "the entire admitted ASCII-space separator run before `flow_scalar` inspects opening syntax"; test `{node:  *missing}`, `{node:  &}`, `{node:  %bad}` "with one, two and additional separator spaces" through the sole producer and built doctor; "One-space and padded numeric controls (`22`) and valid quoted controls remain readable with the same control composite" | 1331–1345 | Producer: `composite/tests.rs:3128–3130` drives `engines: {node:  *missing}` to the exact member cause naming the `'*'` indicator; `::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` (`:4155`) holds the padded controls at `:4497–4499` — `{node:    22}`, `{node:  '>=18',   npm:     "9"}`, `{node:   '  *kept  '}` — each readable. Built doctor: `doctor_dsh_selection.rs::ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor` (`:2256`) drives `{node:      %bad}` to its named cause | discharged for assertion coverage. The built-doctor half has **historical recorded execution only**, reported by earlier seats and never on the final candidate (see *Recorded execution*; unit 14). An earlier revision called that suite "unrun", which was false |
 | N5c | 8.8.3.1(3) | `[x]` | **R3 raw span.** Bound the original implicit block-key slice before trimming; "Count Unicode characters including quotes and pre-colon spaces"; maximum 1,024; cover "1,024/1,025 ASCII characters; 1,023/1,024 plus one space; and quoted keys with 1,022/1,023 content characters"; "Include otherwise admitted multibyte keys to prove character rather than byte counting, and long scalar values to rule out a blanket line/value cap" | 1346–1359 | `doctor_dsh_selection.rs` — the refusal side at `:2545–2560` (`"k".repeat(1025)` plain, then `.repeat(1024)` plus a pre-colon space, each to `IMPLICIT_KEY_REFUSAL`, whose text at `:2241–2243` names "YAML's implicit-key lookahead limit of 1,024 characters"); the **admitted** side at `:2660–2673`, which is the whole matrix in one list: `repeat(1024)` plain, `repeat(1023)` plus a space, `'{repeat(1022)}'` quoted, **`"\u{e9}".repeat(1024)`** (the multibyte character-not-byte control), a long scalar value, and a 1,024-key *with* a long quoted value — each asserted to keep the control composite. **Producer:** `composite/tests.rs::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`, `:4553–4619`, carries the same matrix through the sole producer. It has fifteen cells: 1,024/1,025 plain; 1,023/1,024 plus one space; a padded-over-limit key; single- and double-quoted 1,022/1,023; multibyte `é` at 1,024/1,025, plus one space, and quoted. Each admitted cell is asserted equal to the body control's composite, and each refused cell to the exact lookahead-limit reason (`:4588–4601`). Three 4,096-byte long values follow, each keeping the control composite (`:4603–4619`) | discharged for assertion coverage at **both** levels. The matrix is complete and was opened cell by cell. **Correction (third return, finding 5):** the previous revisions said the doctor suite "is the only place the raw-span matrix lives". That was false: the producer suite holds it with real equality and refusal assertions, and ran on the ledger seat's revision (`--lib`, 426 passed). The built-doctor half has historical recorded execution only (see *Recorded execution*) |
-| N5d | 8.8.3.1(4) | `[x]` | **Independent proof.** "Restore one-space consumption for R1; remove the raw-span guard for R3; separately move R3's guard after trimming"; "Separately bypass admission before DSH and before Node"; "Separately reopen retained pnpm/profile input after a version probe rewrites it: the retain-and-reuse assertion fails"; "Record each guard/wiring path and focused command, restore one mutation at a time" | 1360–1371 | Nothing in the tree. Five distinct compiling mutations are named and none leaves an artefact | **partially discharged — evidence-verification gap (F5).** The guards these mutations target are opened at N5a–N5c and pass; the five removals are narrative |
+| N5d | 8.8.3.1(4) | `[x]` | **Independent proof.** "Restore one-space consumption for R1; remove the raw-span guard for R3; separately move R3's guard after trimming"; "Separately bypass admission before DSH and before Node"; "Separately reopen retained pnpm/profile input after a version probe rewrites it: the retain-and-reuse assertion fails"; "Record each guard/wiring path and focused command, restore one mutation at a time" | 1360–1371 | Nothing in the tree. Six distinct compiling mutations are named: one-space consumption, the removed raw-span guard, the guard moved after trimming, admission bypassed before DSH, admission bypassed before Node, and reopened retained input. The R1–R4 record gives them as M1–M3 and M7–M9 (`tasks.md` 1665–1673). None leaves an artefact. *(Corrected, fourth return: this cell said "Five", which undercounted the clause's two admission bypasses as one)* | **partially discharged — evidence-verification gap (F5).** The guards these mutations target are opened at N5a–N5c and pass. The six removals are recorded, not re-derived |
 | N6a | 8.8.4.1 | `[x]` | track admitted decoded package headings separately; reject repetitions and conflicting records "with `repeated package key` and the decoded key"; preserve legitimate equal-triple deduplication | 1376–1390 | `composite.rs:1573` emits `a repeated package key '{key}'`; `composite/tests.rs` 5394, 5408, 5414 assert that exact sentence with the decoded key, including the excluded local-tarball key; dedup retention is `::npm_three_group_and_dedup_vectors_retain_distinct_triples`. **Removal** (third return, finding 2): the clause goes on, "Remove the heading-set rejection and observe those named assertions fail; restore it and rerun positive and negative controls" (1383–1386). The one record of it is M8 at `tasks.md` 12377: "`pnpm_dependencies`: `seen_packages.insert` no longer refuses a repeat" parts `duplicate_decoded_pnpm_package_keys_refuse_before_triple_normalization` (`composite/tests.rs:5337`) with "`identical` was accepted" | **partially discharged — evidence-verification gap.** The rejection, its exact sentence, the decoded key and the dedup retention are opened and asserted. The removal and restoration are **recorded but unverified** (F5), so unit 17 rules them. The previous revisions graded this row `discharged` over a clause whose last two sentences are a removal, which is the grading error F5 exists to prevent |
 | N6b | 8.8.4.1, both returns | `[x]` | the two extensions the row acquired on return: "the same singleton rule holds in **every mapping scope** the grammar admits without reading — a flow map, an ignored block body at every depth, a package child spelled twice — **by DECODED key and per block**, so one key in two sibling blocks stays two keys"; then "keys are compared as YAML compares them — the padding before a plain key's colon is the separator's, and **a plain key spelling a typed scalar is refused by its cause before any comparison**, in every admitted scope" | 1391–1401 | All of it in `composite/tests.rs::missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` (`:4155–5052`), which is where this ledger had not looked. **Per scope:** `a repeated package child 'cpu'` (`:4397`) and `'peerDependencies'` (`:4401`); a repeat inside an ignored block body, "the entry 'react' at 6 spaces, which repeats a key of its block" (`:4413–4415`). **Padding is the separator's:** that same vector spells the repeat `react : '>=17'`. **Typed scalars refused by cause:** four vectors at `:4419–4439` — `'11', which is a number and not a string`, and `'true', which is a boolean and not a string` — matching `composite.rs:750–757` `mapping_key`, whose doc records the reason ("This grammar resolves no scalar type"); `::pnpm_identity_strings_preserve_the_distinction_from_typed_scalars` (`:5127`) asserts the same shape at `:5184`. **Keys YAML keeps apart:** `:4450–4456` — plain `react` beside quoted `'react '`, and the quoted typed scalars `{'true': a, 'True': b}` and `{'11': 1, '0xB': 2}`, which are strings and therefore two keys each. **Sibling blocks stay two keys:** `:4656` composes a two-importer, two-record lock and asserts `two_records.canonical` equals a lock with no importers at all — "the sibling blocks are admitted and ignored" | **partially discharged — evidence-verification gap.** Assertion coverage is complete, on evidence the first revision did not cite and the second nearly recorded as absent. But the clause's own words make the removals part of it: "Each scope's guard is **proved by its own removal** (D1–D3)… proved by removals D4–D5" (1395–1401). Those five are **recorded but unverified**: D1–D3 at `tasks.md` 1920–1922, D4–D5 at 2057–2058. Each names the protocol and built-doctor assertion that parted (F5), so unit 17 rules them. The previous revision graded this row `discharged` while saying in the same cell that the removals were narrative. That was incoherent, and the grade has moved |
 | N7 | 8.8.5.1 | `[x]` | replace the loop/hash oracle in `the_plugin_component_is_bytewise_path_order_and_fails_closed` "with a literal recorded from the existing sole production producer"; "no prose/helper/generator computes another component or canonical serialization" | 1405–1417 | That test and `::the_worked_plugin_vector_pins_the_bytewise_path_order_of_the_component`, both opened at A18/B90; `::no_test_reassembles_the_component_stream` is the guard | **partially discharged — evidence-verification gap.** The literal and the guard are opened. Its "alter production path/line ordering in a compiling mutation" half is recorded, not re-derived (F5) |
@@ -440,8 +452,8 @@ acceptance, and unit 23 keeps it separate.
 | B1 | "This whole-change acceptance remains pending." | 5089 | `tasks.md:5089` reads `- [ ] 8.10` | discharged — and unchanged here |
 | B2 | "execute only 8.8.9.1–8.8.15.1: R1–R3 plus the bounded watcher-rule controls, both terminal endings, completed production observations, independent compiling removals and positive/cold preservation" | 5089–5093 | Rows S1–S13 | partially discharged — S11 and S12 are open, and every removal-bearing row among S1–S9e carries an evidence-verification gap (F5). Note the scope word: 8.10 says "execute **only** 8.8.9.1–8.8.15.1", so §1's numbered tasks are not 8.10's work — they bear on 8.8's tick, not this one's |
 | B3 | "Do not repeat adopted Codex or Pass B work, open Pass D's unrelated matrix or tick this whole task" | 5093–5094 | Pass C's commit touched `adapters.rs` and `adapters/tests.rs` only; 8.10 is `[ ]` | discharged (scope rule) |
-| B4 | "six wrapped/unwrapped compiled Codex gate decisions and supported exact-root exchanges, then `bundle.rs`'s two reachable refusal tests and unreachable census-arm consolidation" | 5095–5098 | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (four shapes: single/no-hands-member × wrapped/unwrapped, each asserting the recorded root, the `resumed` row, no refusal and the exact resume argv) and `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (two) = six; `bundle/tests.rs::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` and `::a_literal_phase_that_aliases_the_injected_validator_is_refused`, with `bundle.rs:2949` `claim_address` as the consolidated arm worded like the final walk's | discharged |
-| B5 | "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass." | 5098–5099 | Recorded mutation ledgers: Pass C's twelve rows (465–480), D1's two (616–623), D2's seven (803–816), D3's six plus one discarded (992–1008), and the returned review's two (1058–1074). Each names the case that parted | **partially discharged — evidence-verification gap.** This is the clause the narrative rule bites hardest: "**Every** new test needs an **observed** compiling mutation failure at its claimed assertion and a restored pass." Every such observation in this change is a delivery record. What is opened here is that no mutation survives (`git diff origin/main`) and that the cases those mutations aimed at exist, assert what is claimed, and pass (F5). **Scope, third return (finding 3):** "Every new test" covers every suite this change added tests to, not only the terminal body. That includes the Codex bridge and conformance suites, and the tests units 1–10 landed on `slice-dsh-8810`, each of which recorded its own compiling mutations under §6. It closes on a unit-17 ruling that covers it by name, or after units 18–21 all land |
+| B4 | "six wrapped/unwrapped compiled Codex gate decisions and supported exact-root exchanges, then `bundle.rs`'s two reachable refusal tests and unreachable census-arm consolidation" | 5095–5098 | `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` (four shapes: single/no-hands-member × wrapped/unwrapped, each asserting the recorded root, the `resumed` row, no refusal and the exact resume argv) and `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (two) = six; `bundle/tests.rs::a_dialect_wrapped_verify_select_reaches_the_single_or_panel_refusal` (`:220`, asserting "dialect verify currently requires a single or panel verify seat") and `::a_selected_agent_case_keeps_its_empty_reference_cause` (`:254`, asserting "seat 'work:engine' agent must be a non-empty string"). The consolidated arm is `owner_index`'s one existing-label refusal (`bundle.rs:1741`, message "addresses two different sites as"), which `::a_literal_phase_that_aliases_a_selected_case_is_refused_globally` (`:1271`) drives | discharged. *(Corrected, fourth return: this row named `::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused` (`:1349`) and `::a_literal_phase_that_aliases_the_injected_validator_is_refused` (`:1387`) as "the two reachable refusal tests", with `claim_address` (`bundle.rs:2949`) as the arm. The commission itself says otherwise. THE PROOFS item 4 names `assemble`'s second verify refusal and `parse_selected_body`'s empty agent reference as the reachable pair, and `owner_index`'s same-owner tolerance as the arm to remove (`tasks.md` 9465–9502). `4a3854ca`'s message agrees: "new compiler tests reach the second verify refusal… and the selected agent resolver error". The two tests this row cited are D10 F2 authoring-census refusals, added by `4daaa7d2`. They are new tests of this change too, so B5 inventories them. All five exist and assert what is claimed, so the grade stands)* |
+| B5 | "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass." | 5098–5099 | Recorded mutation ledgers: Pass C's twelve rows (465–480), D1's two (616–623), D2's seven (803–816), D3's six plus one discarded (992–1008), and the returned review's two (1058–1074). Each names the case that parted | **partially discharged — evidence-verification gap.** This is the clause the narrative rule bites hardest: "**Every** new test needs an **observed** compiling mutation failure at its claimed assertion and a restored pass." Every such observation in this change is a delivery record. What is opened here is that no mutation survives (`git diff origin/main`) and that the cases those mutations aimed at exist, assert what is claimed, and pass (F5). **Scope, third return (finding 3):** "Every new test" covers every suite this change added tests to, not only the terminal body. That includes the Codex bridge and conformance suites, and the tests units 1–10 landed on `slice-dsh-8810`, each of which recorded its own compiling mutations under §6. **Fourth return (finding 1): THE PROOFS' tests, one by one.** The clause's own sentence covers them: its "Every new test" follows "six wrapped/unwrapped compiled Codex gate decisions… then `bundle.rs`'s two reachable refusal tests and unreachable census-arm consolidation" (5095–5099), and the commission asks for "exact mutation diffs/failures/restored passes for both new refusal tests and the census control" (9504–9505). Searched: `tasks.md` (each test name occurs only in its commissioning clause), the landing messages of `4daaa7d2` and `4a3854ca`, the squash `5ef4a842` and `.forge/`. (i) The six compiled Codex cases (`driver_conformance.rs:3194`, `:3297`, B4): **recorded but unverified** for three of D10's four bindings. `4a3854ca` says "disabling whole relocation, dropping the no-hands marker, and falsely marking a hands member as no-hands each broke the named test", naming no assertion. **No record found** for the fourth, "delete the independent absence refusal to break otherwise supported unknown-marker controls" (9454–9455). (ii) `bundle/tests.rs:220` and `:254`, the two reachable refusals: **no record found**. (iii) The census control, `owner_index`'s refusal disabled in both census invocations against `:1271` (9497–9502): **no record found**. (iv) `bundle/tests.rs:1349` and `:1387`, the D10 F2 collision refusals from `4daaa7d2`: **no record found**. A ruling can accept a record. It cannot accept an observation nobody recorded. So (i)'s fourth binding and all of (ii)–(iv) belong to unit 21(a) in every case, and (i)'s three recorded removals go with the class to unit 17, or to unit 21(b) after a no. B5 closes when unit 21(a) has landed **and** either a unit-17 ruling names B5 or units 18, 19 and 21(b) have landed. Unit 20 is 8.8's alone, so B5 does not wait on it. *(Fourth return, findings 1 and 3: this cell said "after units 18–21 all land", which both over-required unit 20 and left (i)–(iv) with no work)* |
 | B6 | "Extend the existing runtime/protocol/CLI suites using the test-only seam; do not substitute fabricated roots, repaired markers or map assertions." | 5099–5101 | All new cases live in the four existing suites; the seams are `run_seat_with`, `invoke_dsh_launch_observed`, `dsh_launch_with` and `DSH_STAGING_CALLS`, all private | discharged |
 | B7 | "A no-offer refusal is judged by the private production gate with actual composed facts." | 5102–5103 | `::a_closed_dsh_gate_…` drives `dsh_launch_with` with composed `resume_context` inputs and reads `launch.refusal` | discharged |
 | B8 | "Namespace/boxed remains refused; preserve shipping harness/none and no-hands live controls." | 5103–5104 | `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` (`restrictions-unavailable`, then a fresh cold launch); `boundary_tests.rs::the_seat_input_names_the_boundary_and_the_marker_only_under_a_box` | discharged |
@@ -637,9 +649,16 @@ why.
   The recorded-but-unverified class is therefore **N2, N4, N5d, N6a, N6b,
   N7–N10, A61, S1, S3–S7, S8a–c, S9a–e, S10, B5, B16, B20 and B77**:
   twenty-nine rows. Counted: nine N rows (N2, N4, N5d, N6a, N6b, N7, N8, N9,
-  N10), one A row, sixteen S rows (S1, S3, S4, S5, S6, S7, S8a, S8b, S8c, S9a,
+  N10), one A row, fifteen S rows (S1, S3, S4, S5, S6, S7, S8a, S8b, S8c, S9a,
   S9b, S9c, S9d, S9e, S10, and no S2) and four B rows. The previous revision
-  called its list "twenty-five" while it listed twenty-six.
+  called its list "twenty-five" while it listed twenty-six. *(Fourth return:
+  this sentence said "sixteen S rows" over the same fifteen names. The total
+  of twenty-nine was right.)*
+
+  **Fourth return (finding 1): a third kind, no record found.** B5 reaches
+  tests whose controls no opened record describes (B5's inventory in §4). For
+  those there is nothing for a ruling to accept, just as with N11. So they sit
+  outside this class, and unit 21(a) performs them in every case.
   S6 deserves a note — its clause does not merely require a removal, it requires
   a *property of the observed failure* ("must fail the intended terminal
   assertion, **not time out**"), which no record can supply after the fact.
@@ -671,6 +690,9 @@ why.
   (`tasks.md` 5121–5125), B20's selector mutation (5131–5135), or B5's
   **every** new test (5098–5099) in the suites outside the terminal body.
   Units 18–21 enumerate the replays by suite, and each is a single visit.
+  *(Fourth return, finding 1: the enumeration still missed THE PROOFS' tests,
+  and some of their controls have no record at all. Unit 21(a) performs
+  those in every case. Unit 21(b) replays the rest after a no.)*
 - **F6 — strict OpenSpec has passed three times on this change's candidates, and
   both previous cuts misreported that (C8).** The first cut said the gate "has
   never run on a Pass C or Pass D candidate". The second cut corrected that to
@@ -857,7 +879,8 @@ numbers. The map:
 | 15 | 5 | open, externally owned |
 | 16 | — (new: N11 on a capable host) | open, externally owned |
 | 17 | 9 | open, an operator ruling |
-| 18–21 | — (new: replays after a negative ruling) | conditional on 17 |
+| 18–20 | — (new: replays after a negative ruling) | conditional on 17 |
+| 21 | — (new: (a) THE PROOFS' unrecorded controls; (b) the remaining replays) | (a) open in every case; (b) conditional on 17 |
 | 22 | 6 | open |
 | 23 | 7 | open, prepares an operator ruling |
 | 24 | 8 | open, 9.6's, not this change's |
@@ -868,15 +891,19 @@ numbers. The map:
 | **Externally owned evidence**: a grant or host no seat of this change has had | 13, 15, 16 |
 | **Gate execution**, nothing to write | 14 |
 | **An operator ruling**, not labour | 17 (and 23 prepares one) |
-| **Replays**, only if 17 rules no | 18, 19, 20, 21 |
+| **Controls never recorded**, performed whatever 17 rules | 21(a) |
+| **Replays**, only if 17 rules no | 18, 19, 20, 21(b) |
 | **Record and reconcile** | 22, 23 |
 | Missing **behaviour**, not this change's | 24 |
 
 **What gates what.** Entry 14 runs on the head that will be ticked, so every
 entry that can move a byte comes before it: 11 and 12 write tests, and 13 may
 correct the port's source citations or find a divergence. 17 is ruled against
-that gated head. 22 ticks 8.10 only when 17's ruling covers every 8.10
-removal predicate, or when 18, 19 and 21 have landed. 23 needs 13, 15, 16 and
+that gated head. 22 ticks 8.10 only when 21(a) has landed and either 17's
+ruling covers every 8.10 removal predicate or 18, 19 and 21(b) have landed.
+21(a) runs on 14's gated candidate and moves no byte that survives. If one
+of its controls does not part its case, that is a finding, and a repair
+re-opens 14. 23 needs 13, 15, 16 and
 17 (or 20). **15 is not a predecessor of 22.** S12 asks that external
 evidence be *recorded*, "when supplied, otherwise explicitly
 pending/unavailable" (314–326). So 22 may close over a pending 15 if it
@@ -1711,13 +1738,16 @@ symlink fixture and twenty planner vectors.
    removal?* The operator may answer per row, and a ruling covers only the
    rows it names. For 8.10 it must name B5, B16, B20 and B77, and through B2,
    S1 and S3–S10. Anything short of that leaves 8.10 on entries 18, 19 and
-   21.
+   21(b). No ruling covers the controls B5's inventory found no record of.
+   Those are entry 21(a)'s whatever this entry rules.
 
    The unit prepares the answer and does not take it. It presents:
    - the mutation ledgers: Pass C's twelve (465–480); D1's two; D2's seven;
      D3's six plus one discarded; the returned review's two; the R1–R4 group's
      M1–M9 (1665–1673), D1–D5 (1920–1922, 2057–2058) and the earlier M1–M12
-     (12366–12383); and entries 1–10's own records under §6;
+     (12366–12383); entries 1–10's own records under §6; and `4a3854ca`'s
+     three recorded Codex removals, which name "the named test" but no
+     assertion (B5, inventory (i));
    - the confirmation that **no mutation survives** in the tree
      (`git diff origin/main`), and that every case the mutations aimed at
      exists, asserts what is claimed and passes.
@@ -1757,12 +1787,52 @@ symlink fixture and twenty planner vectors.
    `tasks.md` 1665–1673, 1920–1922, 2057–2058 and 12366–12383. Same method.
    8.10 does not wait on this entry; 8.8 does.
 
-21. **If 17 rules no: replay the remaining new tests' removals.** Added by
-   the remediation (third return, finding 3). B5's remainder: D1's two, D2's
-   seven, D3's six and the returned review's two recorded mutations (616–623,
-   803–816, 992–1008, 1058–1074), and the compiling mutations entries 1–10
-   recorded under §6. Same method. If one visit cannot hold it, it splits at
-   the protocol/runtime crate boundary, and the ledger records the split.
+21. **Perform THE PROOFS' unrecorded controls, and, if 17 rules no, replay
+   the remaining new tests' removals.** Added by the remediation (third
+   return, finding 3). Split in two by the fourth return (finding 1), because
+   B5's inventory found controls with no record, and a ruling cannot accept
+   those. Touches nothing that survives. Same method and evidence file as
+   entry 18. A control that does not part its named assertion is a finding,
+   not a skip.
+
+   **(a) In every case, whatever 17 rules.** Covers the B5 controls for which
+   no record was found (B5's inventory (i)–(iv); `tasks.md` 5095–5099,
+   9449–9505):
+   - delete the independent absence refusal, and observe the otherwise
+     supported unknown-marker controls fail in
+     `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root`
+     (`:3194`) or `::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement`
+     (`:3297`), whichever asserts the decision (9454–9455);
+   - mutate `assemble`'s second verify diagnostic, and observe
+     `bundle/tests.rs::a_dialect_wrapped_verify_select_reaches_the_single_or_panel_refusal`
+     (`:220`) fail its "requires a single or panel verify seat" assertion;
+   - mutate `parse_selected_body`'s empty-agent diagnostic or its
+     propagation, and observe `::a_selected_agent_case_keeps_its_empty_reference_cause`
+     (`:254`) fail its "agent must be a non-empty string" assertion;
+   - disable `owner_index`'s existing-label refusal in **both** census
+     invocations, observe `::a_literal_phase_that_aliases_a_selected_case_is_refused_globally`
+     (`:1271`) fail its collision assertion while its rename-only
+     construction stays valid (9497–9502);
+   - for `::a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused`
+     (`:1349`) and `::a_literal_phase_that_aliases_the_injected_validator_is_refused`
+     (`:1387`), remove the refusal each test names, one at a time. For
+     `:1349` that is the authoring census `4daaa7d2` runs before the wrapper
+     renames an address. For `:1387` it is the claim on the injected
+     validator's address. Disable any backstop that would mask either, as
+     9497–9502 does for the census control, and observe each test's
+     "addresses two different sites as" assertion fail.
+
+   Restore each exactly and rerun green. 8.10 waits on this half in every
+   case.
+
+   **(b) If 17 rules no.** B5's remainder: D1's two, D2's seven, D3's six and
+   the returned review's two recorded mutations (616–623, 803–816, 992–1008,
+   1058–1074); the compiling mutations entries 1–10 recorded under §6; and
+   `4a3854ca`'s three recorded Codex removals (whole relocation disabled, the
+   no-hands marker dropped, a hands member falsely marked no-hands), each
+   against its named assertion in the two `driver_conformance.rs` cases
+   above. If one visit cannot hold it, it splits at the protocol/runtime
+   crate boundary, and the ledger records the split.
 
 22. *(recorded as 6)* **Regrade, record, tick and commit the D7/Pass-C/Pass-D
    account.** Closes S12 (8.8.15.1), S11 (8.8.14.2) beside entry 14's record,
@@ -1776,9 +1846,10 @@ symlink fixture and twenty planner vectors.
    which point at them. It ticks 8.10 only if **all** of these hold:
    - entry 14 is recorded green;
    - entry 11 has landed, closing B42's and B30's open half;
+   - entry 21(a) has landed;
    - entry 17's ruling names every 8.10 removal predicate — B5 over every
      suite, B16, B20, B77, and S1 and S3–S10 through B2 — or, after a no,
-     entries 18, 19 and 21 have landed;
+     entries 18, 19 and 21(b) have landed;
    - every 8.10 row reads discharged, withdrawn by decision 0063, or not this
      slice's by its own words.
 
@@ -1833,12 +1904,12 @@ symlink fixture and twenty planner vectors.
   regrades and records, and entry 23 closes N1–N4, N11 and N14 on the
   retrieved pins and native results. Ticking N1 and N3 without the pins would
   be an operator scope change, not satisfaction.
-- **8.10 — Yes, conditionally.** It ticks only after entries 11 and 14 land
-  and entry 17's ruling covers every 8.10 removal predicate: B5 over every
-  suite, B16's four, B20's one, B77, and S1 and S3–S10 through B2. After a
-  negative ruling, it waits for entries 18, 19 and 21 instead. In either case
-  entry 22 regrades the stale rows and ticks it. No seat may tick it
-  otherwise.
+- **8.10 — Yes, conditionally.** It ticks only after entries 11, 14 and
+  21(a) land and entry 17's ruling covers every 8.10 removal predicate: B5
+  over every suite, B16's four, B20's one, B77, and S1 and S3–S10 through B2.
+  After a negative ruling, it waits for entries 18, 19 and 21(b) instead.
+  In either case entry 22 regrades the stale rows and ticks it. No seat may
+  tick it otherwise.
 - **9.6 — It waits on both ticks**, its own "After 8.8 and 8.10" (5499). So it
   waits on everything above, entry 13's source pins and entry 16's host run
   included, and then on its own unstarted work, starting with entry 24.
@@ -1871,13 +1942,19 @@ beside B16's four separately observed failures, B20's paired selector
 mutation, B77, and the S rows B2 brings in. Every observation for them in
 this change is a record (F5). The previous cut's fallback, S6 plus B5 on the
 terminal body, could not reach B16, B20 or B5 in the other suites, and it
-promised a tick over clauses it left open (finding 3). So the answer is the
-conditional one above.
+promised a tick over clauses it left open (finding 3). The third cut's
+fallback still missed THE PROOFS' tests, some of whose controls were never
+recorded at all (fourth return, finding 1). Those are entry 21(a)'s whatever
+the ruling says. So the answer is the conditional one above.
 
 **9.6, in detail.** Its precondition at 5499 is "After 8.8 and 8.10", so it
-waits on both ticks. That means **three** operator rulings: entry 17 for the
-removal class, entry 23 for N1–N4/N11, and any scope change the operator
-chooses there. It also means the externally owned entries 13, 15 and 16.
+waits on both ticks. That means **two** operator rulings: entry 17 for the
+removal class and entry 23's reconciliation of N1–N4/N11. A scope change at
+entry 23 is a third only if the operator chooses one. It is never required,
+because entries 13, 15 and 16 can satisfy those rows instead. *(Fourth
+return, finding 4: this said "three", counting the optional scope change as
+mandatory.)* It also means the externally owned entries 13, 15 and 16, and
+entry 21(a).
 Then comes its own accounting and compatibility acceptance, which is **not
 started**:
 - cold/warm retained-store integration, including the verified first-match
