@@ -818,6 +818,52 @@ exist.
    because nothing opened establishes the exclusion either way (F8). Ordered
    before unit 4 so its result is inside the gated candidate.
 
+   **Landed 2026-09-23 at `3a80b1d8`; every exclusion holds on current
+   production bytes — no Pass-B finding.** Built to the unit and both review
+   addenda. Engine: both `an_offered_dsh_start_carries_the_recorded_home_at_…`
+   cases run on a canonicalised root, on the DSH-shaped checkpoint fixture
+   (`dsh_model_driver`: `dsh-session` root plus `transcript`), with a bound
+   `--patch` route whose display name, key variable and endpoint carry a
+   marker. The offered start's private context holds the binding, the owned
+   target and the assessment; the journaled launch row of that attempt keeps
+   `root_session` and `transcript` exactly and carries none of them; every
+   journaled event is searched for the marker, `recipe/route.yml`, the
+   file's path and digest and every private-carrier key, the pinned
+   manifest's `files` entry (spec: the provenance the bundle digest already
+   covers) asserted and removed first. Adapter:
+   `a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_journal`
+   validates the marked route, then over a synthetic install and the real
+   producer composes one identity under a bound and an unbound route
+   (recomputed while the bound overlay is staged), and drives the route
+   through `run_seat_with` → `dsh_launch_with` → `invoke_dsh_launch` on
+   qualified cold, confirmed rejoin, closed-gate shipped cold and a declined
+   offer: the child receives the route, the launch row holds exactly its own
+   vocabulary (retained root and address where confirmed), and no wire
+   message carries the route's content, path, digest, binding or a private
+   carrier. Nine mutations, compiled, run red and reverted: the binding
+   written into the launch row's `model` at the single site parts
+   `resume_tests.rs:2279` with the panel case green, and at the member site
+   parts the panel case alone at `:2279`; the offered attempt's `transcript`
+   dropped parts `:2338`; the private context in the stderr tail parts `:2279`
+   at an unfenced `EffectFailed`; the staged overlay copied into the launch
+   row as `sandbox` parts `tests.rs:14265` (key set), into `effort` parts
+   `:14321` on `cold`, and on the shipped route only parts `:14321` on
+   `disabled`; the route folded into the compared composite parts `:14099`
+   (`None` against the declared digest); the owned target in the finishing
+   record parts `:14321` on `resumed` alone. `resume_context` inserted into a
+   journaled checkpoint is refused by the closed v5 seat-record schema — a
+   second layer, recorded, not the proof. `cargo fmt --all -- --check`,
+   `cargo clippy --workspace --all-targets --all-features --locked -- -D
+   warnings`, `cargo test -p brokkr-protocol --all-features --locked` (429 +
+   99 + 1 passed) and `cargo test -p brokkr-runtime --all-features --locked`
+   (460 lib plus 94 integration passed) are green. **Closes** A53's exclusion
+   half, B30's launch-evidence and retained-fields halves, B42's second
+   sentence and B55. **Stays open:** no case runs the real DSH adapter under
+   the engine in one process — the two halves meet at the driver wire, the
+   adapter proving its wire clean and the engine proving it adds no route
+   byte or carrier to what it journals; that seam is the one this unit did
+   not close. Tests only; the DSH route stays disabled; no checkbox moved.
+
 5. **Obtain the external evidence.** Closes **N13 (8.8.8.3)** and supplies
    B26's macOS half, N2's and N4's macOS legs and N11's native prerequisite.
    Touches nothing. `TMPDIR=/tmp bash scripts/coverage-exact.sh` on CI or a host
