@@ -99,3 +99,22 @@ delta, and binds it with a test that tells the two orders apart: a native
 control plus a boundary-faulted argv such as `--model --effort`, asserting the
 authority refusal's exact reason. It changes no production code unless the
 test shows the code differs from this ruling.
+
+## Addendum, 2026-09-24: rebuild unit 4's file inventory
+
+Rebuild unit 4's implement seat (run `triage-directive-operator-ruling-dbc7463e`)
+found two council-accepted texts naming different production files for the
+unit. The unit's own text under "Rebuild units" names `engine.rs` and
+`bundle.rs`, under a stop-and-split rule. Design D5.7, added by unit 3 and
+accepted by its clean council, names `agents.rs` as the third file, for
+Candidate storage and the `resolve_report` projection. D5.7 also forbids
+recovering the lowering from `Candidate::parts` or bytes, so the unit cannot
+be built without it.
+
+The operator ruled **(a): D5.7's inventory governs unit 4.** Its production
+files are `engine.rs`, `bundle.rs` and `agents.rs`, which is within the
+preamble's three-file limit, and its test files include `engine/tests.rs`,
+`engine/agent_tests.rs` and `engine/resume_tests.rs` for the Candidate
+constructor migration. The edits already on the branch (07d88b44 and the
+review return e361a36e) are admitted under this ruling. No separate unit is
+split out.
