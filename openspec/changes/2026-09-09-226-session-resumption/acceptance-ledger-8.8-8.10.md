@@ -896,7 +896,7 @@ numbers. The map:
 | 16 | — (new: N11 on a capable host) | open, externally owned |
 | 17 | 9 | open, an operator ruling |
 | 18–20 | — (new: replays after a negative ruling) | conditional on 17 |
-| 21 | — (new: (a) THE PROOFS' unrecorded controls; (b) the remaining replays) | (a) landed `90b548e3` (control 1's reading flagged for the grader); (b) conditional on 17 |
+| 21 | — (new: (a) THE PROOFS' unrecorded controls; (b) the remaining replays) | (a) **open**: performed at `90b548e3`, stopped on four findings (F1–F4: controls 1, 5, 6, 7); (b) conditional on 17 |
 | 22 | 6 | open |
 | 23 | 7 | open, prepares an operator ruling |
 | 24 | 8 | open, 9.6's, not this change's |
@@ -2063,30 +2063,42 @@ symlink fixture and twenty planner vectors.
    decision arm (`:2086–2089`), with the failing case named. If one visit cannot hold it, it splits at the protocol/runtime
    crate boundary, and the ledger records the split.
 
-   **(a) landed 2026-09-23 at `90b548e3`, on `be1ecf77`'s bytes (run
-   `issue-226-acceptance-ledger-entr-4b36a6f8`); no byte survives.**
-   `removal-controls-2026-09-23.md` records all ten controls. Each has
-   its diff, any narrowing or backstop removal, the verbatim failure and
-   the restored green rerun. Nine part their named assertions:
+   **(a) performed 2026-09-23 at `90b548e3`, on `be1ecf77`'s bytes (run
+   `issue-226-acceptance-ledger-entr-4b36a6f8`); no byte survives. Not
+   landed: stopped on four findings.** `removal-controls-2026-09-23.md`
+   records all ten controls. Each has its diff, any narrowing or backstop
+   removal, the verbatim failure and the restored green rerun. Six part
+   their named assertions:
    - hands→no-hands on the unwrapped `HandsMember` at `:3352`, where the
      boxed member rejoined;
    - `bundle/tests.rs` `:241`, `:270`, `:1448` and `:1491`, and
-     `engine/tests.rs:266`;
-   - `:1271`, `:1349` and `:1387`, whose aliases compile, so each
-     test's own `error()` refusal expectation parts. `:1271`'s
-     rename-only construction passed under the mutation as a
+     `engine/tests.rs:266`.
+
+   Four do not, and each is a finding (the evidence file's **Findings**):
+   - **F1**, control 1. The dropped no-hands marker parts both unwrapped
+     live shapes at the cold `root_session` assertion (`:3223`), before
+     the retry decision assertion (`:3238`). A `Disabled` gate runs no
+     version probe, so no root is recorded and the engine makes no offer.
+     That explains the failure, but it is not the commissioned decision
+     assertion, and entry 22 cannot accept a substituted one.
+   - **F2–F4**, controls 5, 6 and 7 (`:1271`, `:1349`, `:1387`). Each
+     removal lets the alias compile. So each fails in the shared `error()`
+     helper's "expected compilation to fail" (`bundle/tests.rs:7`), and
+     the collision assertion (`:1292`, `:1377`, `:1414`) never runs.
+     `:1271`'s rename-only construction passed under the mutation as a
      temporary verbatim copy. `:1387`'s claim was masked by the final
      walk alone, which was then disabled and recorded.
 
-   **Flagged, control 1.** The no-hands marker dropped parts both
-   unwrapped live shapes at the cold `root_session` assertion (`:3223`).
-   A `Disabled` gate runs no version probe, so no root is recorded, the
-   engine makes no offer, and no marker mutation can reach the retry's
-   `resumed` assertion (`:3238`). Entry 22 must rule whether that is the
-   bullet's "decision assertion". If it is not, this is a finding. Gates
-   on the restored bytes: fmt, workspace clippy, `-p brokkr-runtime`
+   No test was weakened. Closing F1–F4 needs an operator ruling on what
+   these controls must show, or a test repair that re-opens 14. Gates on
+   the restored bytes: fmt, workspace clippy, `-p brokkr-runtime`
    (464 + 94), `-p brokkr-cli` (468 + 318) and `git diff --check`. No
    checkbox moved.
+
+   - 2026-09-23, review return of the same run (C1–C3): the first cut's
+     "nine part" became six, with F1–F4 recorded as findings, and 21(a)
+     reopened. Controls 2 and 10's failures are now verbatim in the
+     evidence file, no longer abridged. Docs only, at `7e3454ce`.
 
 22. *(recorded as 6)* **Regrade, record, tick and commit the D7/Pass-C/Pass-D
    account.** Closes S12 (8.8.15.1), S11 (8.8.14.2) beside entry 14's record,
