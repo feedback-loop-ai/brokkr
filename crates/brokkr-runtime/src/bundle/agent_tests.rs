@@ -1602,8 +1602,11 @@ fn every_executable_form_owns_its_local_declaration() {
     }
     // An inherited body: the base layer declares the narrowing and the leaf
     // declares nothing, so the effective value comes from the layer that
-    // wrote it. Its rows stand in the same table as the forms above, so a
-    // failure in the table does not hide them (review return F4).
+    // wrote it — and so does a refusal, at the same owning site (review
+    // return P2: an inherited explicit empty, malformed or widening
+    // declaration refuses with the complete cause the leaf form gives).
+    // These rows stand in the same table as the forms above, so a failure
+    // in the table does not hide them (review return F4).
     let base = fixture.root.join("base");
     std::fs::create_dir_all(base.join("roles")).unwrap();
     std::fs::copy(
@@ -1616,25 +1619,27 @@ fn every_executable_form_owns_its_local_declaration() {
         serde_json::to_vec(&policy()).unwrap(),
     )
     .unwrap();
-    let mut base_config = fixture.config();
-    base_config["name"] = json!("base");
-    base_config["seats"]["work"] = json!({"results": ["complete"], "agent": "office",
-                                         "tools": {"allow": ["git"]}});
-    std::fs::write(
-        base.join("bundle.json"),
-        serde_json::to_vec(&base_config).unwrap(),
-    )
-    .unwrap();
     std::fs::write(
         fixture.bundle().join("bundle.json"),
         serde_json::to_vec(&json!({"name": "fixture", "extends": "base"})).unwrap(),
     )
     .unwrap();
-    let inherited =
-        Bundle::compile_with(&fixture.bundle(), &fixture.library(), &fixture.adapters());
+    let inherited = |tools: Value| {
+        let mut base_config = fixture.config();
+        base_config["name"] = json!("base");
+        base_config["seats"]["work"] =
+            json!({"results": ["complete"], "agent": "office", "tools": tools});
+        std::fs::write(
+            base.join("bundle.json"),
+            serde_json::to_vec(&base_config).unwrap(),
+        )
+        .unwrap();
+        Bundle::compile_with(&fixture.bundle(), &fixture.library(), &fixture.adapters())
+    };
+    let subset = inherited(json!({"allow": ["git"]}));
     rows.push((
         "inherited body, work".to_string(),
-        match &inherited {
+        match &subset {
             Ok(bundle) => format!("{:?}", bundle.sites["work"].local),
             Err(error) => error.to_string(),
         },
@@ -1642,13 +1647,37 @@ fn every_executable_form_owns_its_local_declaration() {
     ));
     rows.push((
         "inherited body, review".to_string(),
-        match &inherited {
+        match &subset {
             Ok(bundle) => format!("{:?}", bundle.sites["review"].local),
             Err(error) => error.to_string(),
         },
         format!("{:?}", Some(LocalTools::unspecified())),
     ));
-    assert_eq!(rows.len(), 27);
+    // A composed bundle's refusal is the leaf form's complete cause, with
+    // the chain it was composed from appended once (`Resolved::chain_note`).
+    let composed = |cause: String| format!("bundle: {cause} (composed: fixture -> base)");
+    rows.push((
+        "inherited body, explicit empty".to_string(),
+        outcome(inherited(json!({"allow": []}))),
+        composed(empty_refusal("work", "office", "claude", "opus")),
+    ));
+    rows.push((
+        "inherited body, widening".to_string(),
+        outcome(inherited(json!({"allow": ["make"]}))),
+        composed(widening(
+            "work",
+            "office",
+            "allow",
+            "names 'make', which the office's 'tools.allow' [\"cargo\", \"git\"] does not; a \
+             site subtracts from its office and never adds to it",
+        )),
+    ));
+    rows.push((
+        "inherited body, malformed".to_string(),
+        outcome(inherited(json!({"allow": [1]}))),
+        composed("bundle: seat 'work' 'tools' 'allow' must hold strings only".to_string()),
+    ));
+    assert_eq!(rows.len(), 30);
     each_row(rows);
 }
 
@@ -2380,12 +2409,15 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
 /// D5.3 as D5.5 makes it explicit: a matching `--sandbox` is insufficient
 /// beside a control that lifts or replaces the sandbox. Each of
 /// `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`,
-/// configuration under `sandbox_mode` and configuration under
-/// `sandbox_workspace_write` is paired independently with the authored
-/// command and with each selected engine fragment (workspace, gate, work),
-/// under a MATCHING requested class so a mismatch cannot hide the
-/// competing control. Every row refuses with the full cause; the same
-/// fixtures without the control admit with their exact facts.
+/// configuration under `sandbox_mode`, configuration under
+/// `sandbox_workspace_write` and `--add-dir` in both its split and its
+/// `=` spelling (review return S1: a filesystem root added beside the
+/// class is a competing control on the same reach) is paired
+/// independently with the authored command and with each selected engine
+/// fragment (workspace, gate, work), under a MATCHING requested class so a
+/// mismatch cannot hide the competing control. Every row refuses with the
+/// full cause; the same fixtures without the control admit with their
+/// exact facts.
 #[test]
 fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution() {
     let fixture = AgentFixture::new();
@@ -2415,6 +2447,12 @@ fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution(
              control that no typed class can be checked against — refused (design D5.3)"
         )
     };
+    let added = || {
+        "carries `--add-dir`, which adds a filesystem root the `--sandbox` class would not \
+         reach, a competing control on the same reach that no typed class can be checked \
+         against — refused (design D5.3)"
+            .to_string()
+    };
     let controls: Vec<(&str, Vec<&str>, String)> = vec![
         ("--full-auto", vec!["--full-auto"], switch("--full-auto")),
         (
@@ -2432,6 +2470,10 @@ fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution(
             vec!["-c", "sandbox_workspace_write.network_access=true"],
             door("sandbox_workspace_write"),
         ),
+        // A root added to the sandbox, in the two spellings the codex
+        // grammar accepts; the path is never echoed.
+        ("--add-dir split", vec!["--add-dir", "/srv/shared"], added()),
+        ("--add-dir equals", vec!["--add-dir=/srv/shared"], added()),
     ];
     let refusal = |part: &str, cause: &str| {
         format!(
@@ -2498,7 +2540,7 @@ fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution(
             "`hands.harness.work` fragment",
         );
     }
-    assert_eq!(rows.len(), 16);
+    assert_eq!(rows.len(), 24);
     each_row(rows);
 
     // The controls: the same three fragments without a competing control

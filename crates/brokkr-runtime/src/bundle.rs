@@ -2637,7 +2637,10 @@ fn record_inline_tools(
 /// made explicit by D5.5): a switch that lifts or replaces the sandbox
 /// (`--full-auto`, `--dangerously-bypass-approvals-and-sandbox`), or a
 /// configuration assignment into `sandbox_mode` or `sandbox_workspace_write`,
-/// which is the same control through an opaque door. So does an OPAQUE
+/// which is the same control through an opaque door, or `--add-dir`, which
+/// adds a filesystem root the class would not reach (review return S1: a
+/// control on the same reach, in the split or the `=` spelling, whatever
+/// its value). So does an OPAQUE
 /// contribution (review return F2): an option the grammar types as a load
 /// (`--profile`) reads a whole configuration document the engine cannot
 /// see into, and a configuration assignment outside the two tables the
@@ -2659,6 +2662,9 @@ fn expressed_sandbox(
         ["--full-auto", "--dangerously-bypass-approvals-and-sandbox"];
     /// The two configuration tables that reach the same control.
     const SANDBOX_TABLES: [&str; 2] = ["sandbox_mode", "sandbox_workspace_write"];
+    /// The option that widens the sandbox's reach by a root, whose value
+    /// is authored bytes and is never echoed.
+    const ADDED_ROOT: &str = "--add-dir";
     /// The configuration keys an existing fragment is ESTABLISHED to write
     /// (design D5.3): the boxed hands transport, as a table, and the
     /// effort assignment, exactly. Every other assignment is unqualified.
@@ -2685,6 +2691,14 @@ fn expressed_sandbox(
                  carries `{switch}`, a switch that lifts or replaces the sandbox a `--sandbox` \
                  class would express, so no typed class can be checked against it — refused \
                  (design D5.3)"
+            )));
+        }
+        if node.name() == ADDED_ROOT {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                 carries `{ADDED_ROOT}`, which adds a filesystem root the `--sandbox` class \
+                 would not reach, a competing control on the same reach that no typed class can \
+                 be checked against — refused (design D5.3)"
             )));
         }
         if node.spec.effect == grammar::Effect::Load {

@@ -199,6 +199,25 @@ carry no net change. 2.1 and its substeps stay ticked on the same stated
 basis: fresh local gates on the restored tree, external exact coverage,
 macOS and remote CI pending.
 
+Second review return, the same run, phase `implement` based on `4a441bf7`
+(2026-09-23), recorded in full under evidence.md "Unit 2 — second review
+return, S1 and three proof gaps answered". The chief (gpt-6-astra,
+`residual`, medium security) found `expressed_sandbox` ignoring `--add-dir`
+(S1), substring-only assertions for the unknown direct mapping and the
+later-candidate gap with no unavailable-fallback case (P1), inherited-body
+rows short of explicit empty, malformed and widening (P2), and two ledger
+rows (B6, R2b) claiming assertions their experiments never reached (P3).
+All four are answered: `bundle.rs::expressed_sandbox` refuses `--add-dir`
+in both spellings wherever it stands, with eight rows observed red on the
+adopted guard and then green (2.1.5); both agent tests assert the complete
+refusal and a new unavailable-fallback test binds the whole-chain check
+(2.1.3); the executable-forms table carries the three inherited rows with
+their complete composed causes (2.1.4); B6 and R2b are corrected in place
+and reruns S-M8/S-M9 reach the rows they claimed (2.1.6). Ledger rows
+S-M1–S-M9 bind every new row. Fresh local gates passed on the restored tree
+(2.1.7). 2.1 and its substeps stay ticked on the same stated basis; external
+exact coverage, macOS and remote CI remain pending.
+
 Local gates for 2.1.7, from the house and D5.4/D10:
 
 ```text

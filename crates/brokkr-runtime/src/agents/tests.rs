@@ -134,6 +134,24 @@ fn refusal(tree: &Tree, name: &str) -> String {
     .to_string()
 }
 
+/// A resolution's outcome as one string, whichever way it went: a chain
+/// that unexpectedly RESOLVES is reported beside the expected refusal —
+/// as its candidates' providers and models — rather than aborting at an
+/// `unwrap_err` before the exact assertion (SC8).
+fn resolution_outcome(tree: &Tree, availability: &Availability) -> String {
+    match resolve(&tree.library(), &tree.adapters(), availability, "tester") {
+        Ok(resolution) => format!(
+            "resolved: {:?}",
+            resolution
+                .candidates
+                .iter()
+                .map(|candidate| format!("{}/{}", candidate.provider, candidate.model))
+                .collect::<Vec<_>>()
+        ),
+        Err(error) => error.to_string(),
+    }
+}
+
 // ------------------------------------------------------------- purity
 
 /// AC-1's anti-drift half: the resolver module names no filesystem, no
@@ -502,7 +520,9 @@ fn a_declared_gap_needs_an_actual_reason() {
 }
 
 /// Per named item, never per class: the provider expresses tool
-/// permissions, just not this one.
+/// permissions, just not this one. The whole refusal is the contract —
+/// agent, provider, model and the unmapped name (task 2.1.3; review
+/// return P1).
 #[test]
 fn a_tool_the_provider_does_not_name_is_a_hard_failure() {
     let tree = Tree::new();
@@ -510,10 +530,11 @@ fn a_tool_the_provider_does_not_name_is_a_hard_failure() {
     let mut adapter = claude_body();
     adapter["tool_permissions"]["names"] = json!({"cargo": "Bash(cargo:*)"});
     tree.write("adapters/claude.json", &adapter);
-    let message = refusal(&tree, "tester");
-    assert!(
-        message.contains("maps no tool permission named 'git'"),
-        "{message}"
+    assert_eq!(
+        resolution_outcome(&tree, &Availability::unspecified()),
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': the provider \
+         maps no tool permission named 'git'. A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
     );
 }
 
@@ -663,7 +684,8 @@ fn a_provider_that_cannot_pin_the_model_is_a_hard_failure() {
 /// The pinch of salt made mechanical: a gap on a NON-CHOSEN entry fails
 /// exactly as loudly as one on the chosen entry, because a chain that
 /// would widen the agent's blast radius on fallback is a design-time
-/// error, not a 2am surprise.
+/// error, not a 2am surprise. The whole refusal names the later link's
+/// provider and model and the gap itself (task 2.1.3; review return P1).
 #[test]
 fn a_capability_gap_on_a_later_chain_entry_fails_just_as_loudly() {
     let tree = Tree::new();
@@ -685,9 +707,56 @@ fn a_capability_gap_on_a_later_chain_entry_fails_just_as_loudly() {
             "mcp": "unsupported",
         }),
     );
-    let message = refusal(&tree, "tester");
-    assert!(message.contains("provider 'codex'"), "{message}");
-    assert!(message.contains("model 'sonnet'"), "{message}");
+    assert_eq!(
+        resolution_outcome(&tree, &Availability::unspecified()),
+        "agent 'tester' cannot be served by provider 'codex' on model 'sonnet': the provider \
+         declares tool_permissions unsupported, so the agent's restriction to [\"cargo\", \
+         \"git\"] cannot be expressed and the agent would run with MORE power than it \
+         declares. A capability the provider cannot express fails compilation here rather \
+         than degrading silently at run time"
+    );
+}
+
+/// SCM "Every candidate is validated": an otherwise-valid primary does not
+/// carry a fallback that this machine reports UNAVAILABLE and that is
+/// locally incompatible — the fallback maps no permission for a name the
+/// office allows — because the chain is judged whole before availability
+/// filters it (task 2.1.3; review return P1). The same chain with the
+/// fallback's mapping complete resolves to the primary alone, the
+/// unavailable link skipped and recorded.
+#[test]
+fn an_unavailable_fallback_with_a_local_gap_still_refuses_the_whole_chain() {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &agent_body());
+    let mut claude = claude_body();
+    claude["models"] = json!({"opus": "claude-opus-5"});
+    tree.write("adapters/claude.json", &claude);
+    let mut second = claude_body();
+    second["provider"] = json!("second");
+    second["binary"] = json!("second");
+    second["models"] = json!({"sonnet": "second-sonnet"});
+    second["tool_permissions"]["names"] = json!({"cargo": "Bash(cargo:*)"});
+    tree.write("adapters/second.json", &second);
+    let mut availability = Availability::unspecified();
+    availability.record("claude", Presence::Available);
+    availability.record("second", Presence::Unavailable);
+    assert_eq!(
+        resolution_outcome(&tree, &availability),
+        "agent 'tester' cannot be served by provider 'second' on model 'sonnet': the provider \
+         maps no tool permission named 'git'. A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    );
+    // The control: the fallback made compatible resolves to the primary
+    // alone; unavailability skips a link, it never forgives one.
+    second["tool_permissions"]["names"]["git"] = json!("Bash(git:*)");
+    tree.write("adapters/second.json", &second);
+    assert_eq!(
+        resolution_outcome(&tree, &availability),
+        "resolved: [\"claude/opus\"]"
+    );
+    let resolution = resolved(&tree, &availability);
+    assert_eq!(resolution.record["chosen_index"], 0);
+    assert_eq!(resolution.record["skipped"], json!([]));
 }
 
 /// Decision 0035 ruling 5's three refusals, each tripped on its own. A

@@ -1,6 +1,14 @@
 # Decision 0065, slice one — evidence after the operator ruling
 
-## Current status — unit 2 council design, 2026-09-23
+## Current status — unit 2 second review return, 2026-09-23
+
+The second review return on `4a441bf7` (S1 `--add-dir`, P1–P3 proof gaps)
+is answered; see “Unit 2 — second review return” at the end of this file.
+Task 2.1 and its substeps stay ticked on the stated basis: fresh local
+gates on the restored tree, with external exact coverage, macOS and remote
+CI pending. Earlier sections retain their dates and scope.
+
+## Historical status — unit 2 council design, 2026-09-23
 
 The rerun adopts all work through `368bc34e`. Design D5.5 reconciles both
 positions, retains D5 and assigns the demonstrated sandbox admission defect
@@ -1406,7 +1414,7 @@ where a refusal was expected; the full left/right is in the log.
 | B3 | agents.rs `report_narrowed` does not apply `effective.allow` | report_narrowed `tests.rs:3282` left `allow: Some(["cargo","git"])` right `Some(["git"])`; optional-want `:3453` left `Some(["cargo","git"])` right `Some([])`; narrows `:1126` subset local; forms: subset and explicit empty for every non-member form |
 | B4 | bundle.rs `record_inline_tools` allow presence `false` | inline: `allow: []`, `allow: [cargo]`, both fields; dialect: validate allow [] and [cargo] |
 | B5 | bundle.rs `open` routed through the harness fragments | admission: open work (left the work-fragment mismatch) |
-| B6 | bundle.rs `needs_adapters` key `tools-never` | adapter-context: compiled (`:9:18`, before conversion to rows; both rows share the enforcement) |
+| B6 | bundle.rs `needs_adapters` key `tools-never` | adapter-context: compiled (`:9:18`). CORRECTED (second review return, P3): this run happened before the test was rows, and the old `error` helper aborted at the missing-directory case, so the malformed-adapter assertion was never reached; "both rows share the enforcement" was an inference, not an observation. The rerun that reaches both rows is S-M8 below. |
 | B7 | bundle.rs `MEMBER_KEYS` without `tools` | forms: work:a ×4 (unknown key); two-sites: unwrap on unknown key 'tools' at work:a |
 | C1 | load.rs allow `Some(String(one)) => Some(vec![one])` | decoder: `{"allow":"cargo"}` |
 | C2 | agents.rs `reach` WorkspaceWrite => 3 | narrowing: widens the class, valid subset beside a widened class, WW under DFA, DFA under WW |
@@ -1626,7 +1634,7 @@ a refusal was expected.
 | R1b | bundle.rs `Effect::Load` check `&& false` | admission: workspace fragment loads a profile, authored command loads a profile (compiled) |
 | R1c | bundle.rs `!established && false` | admission: workspace fragment / authored command assigns unestablished configuration (compiled) |
 | R2a | bundle.rs `ESTABLISHED_KEYS` = `model_reasoning_effort_never` | admission: established transport and effort admit (left: the unestablished refusal at argument 8) |
-| R2b | bundle.rs harness check exempts `lanetally`, `dsh`, `exec` | admission: lanetally and dsh with hands (left: the codex grammar cannot read `--tools`), exec with hands (left: no `hands.workspace` fragment); `<custom>` unaffected, as intended |
+| R2b | bundle.rs harness check exempts `lanetally`, `dsh`, `exec` | admission: lanetally and dsh with hands (left: the codex grammar cannot read `--tools`), exec with hands (left: no `hands.workspace` fragment). CORRECTED (second review return, P3): the `<custom>` row (`bundle/agent_tests.rs`, the bare-program adapter) was excluded from this mutation by design and so was NOT bound by it; the ledger's "as intended" claimed a row this experiment never reached. The mutation that binds it is S-M9 below. |
 | R2c | bundle.rs dialect `record_inline_tools` call replaced by `let _` | dialect-wrapped: verify:dialect-verify (left `Some((None, 0))`) |
 | R2d | bundle.rs `relocate_verify_facts` inserts `local: None` | dialect-wrapped: verify:checks (left `Some((None, 1))`) |
 | R3 | load.rs `parse_tools` omission → `allow: Some([])` | decode-positive: tools omitted (left `allow: Some([])`); every bundle test aborted at its fixture's inline review seat — counted for the decoder row only, superseded by R3b for bundle rows |
@@ -1691,6 +1699,160 @@ restored.
 - `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`:
   **passed**, the compiled bundle printed
   (`.forge/unit2r-gate-self-final.log`).
+- External exact coverage (`scripts/coverage-exact.sh`), macOS and remote
+  CI: **pending**, not observed here; nothing is called fully green on
+  their account, and unit 1's pending results stay pending.
+
+## Unit 2 — second review return, S1 and three proof gaps answered, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-e332dc8d`, phase `implement`, returned
+from `review` (chief gpt-6-astra, result `residual`, medium security
+residual) on head `4a441bf7`, `slice-0065-capabilities`. The worktree began
+clean; every earlier commit of this unit remains an ancestor and none was
+replayed. This seat had cargo 1.98.0 and openspec 1.12.0; every Rust result
+below is a fresh observation on this revision. The chief's four findings
+(S1, P1, P2, P3) are the work this visit owns; R1 is the chief's own
+disposition of gate-directed prose and needs no action here. Production
+edits stay inside `bundle.rs`; `agents.rs` and `agents/load.rs` carry no net
+change (they were mutated and restored byte for byte). No new module,
+dependency, `Candidate` field, public contract, shipped JSON, grant, pin or
+frozen byte.
+
+### Findings and answers
+
+- **S1 (medium, security) — `expressed_sandbox` ignored `--add-dir`.**
+  Confirmed at the source: the codex grammar types `--add-dir` as
+  `Effect::Inert` with `equals: true` and `repeat: true`, and the guard
+  acted on `--sandbox`, the two switches, the two tables, `Load` and
+  `Config` only, so a harness work seat requesting `workspace-write` with
+  hands admitted `--add-dir /srv/shared` and `--add-dir=/srv/shared` in the
+  authored command and in every selected fragment. Repaired in the same
+  loop: a node whose canonical name is `--add-dir` refuses, naming the
+  option and never its value, wherever it stands (selected fragment or
+  authored command). Eight rows join the competing-control regression
+  (`a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution`,
+  now 24 rows): the split and the `=` spelling, each paired with the
+  authored command, the `hands.workspace` fragment under a box (read-only),
+  the `hands.harness.gate` fragment (read-only) and the `hands.harness.work`
+  fragment (workspace-write). The three plain positives at the end of that
+  test are the supported positive: the same fragments without the control
+  admit with the exact effective value and, for the box, the exact argv.
+  The codex grammar declares `--add-dir` `attached: false`, so there is no
+  third spelling to cover.
+- **P1 (medium, spec-compliance) — substring assertions at
+  `agents/tests.rs` for the unknown direct mapping and the later-candidate
+  gap.** Both now assert the complete refusal through a new
+  `resolution_outcome` helper that renders an unexpected resolution as its
+  candidates' provider/model pairs beside the expected refusal, so a
+  mutation reaches the exact assertion instead of an `unwrap_err` panic:
+  `a_tool_the_provider_does_not_name_is_a_hard_failure` expects the whole
+  claude/opus refusal naming `'git'`;
+  `a_capability_gap_on_a_later_chain_entry_fails_just_as_loudly` expects the
+  whole codex/sonnet `tool_permissions unsupported` refusal with the
+  restriction `["cargo", "git"]`. New test
+  `an_unavailable_fallback_with_a_local_gap_still_refuses_the_whole_chain`:
+  an otherwise-valid claude primary (recorded `Available`) with a `second`
+  fallback recorded `Unavailable` that maps no permission for `git`
+  refuses with the whole second/sonnet cause; the same chain with the
+  fallback's mapping completed resolves to `["claude/opus"]` alone,
+  `chosen_index` 0, `skipped` empty.
+- **P2 (medium, spec-compliance) — the inherited body covered a subset and
+  the unspecified inline site only.** The executable-forms table
+  (`every_executable_form_owns_its_local_declaration`) now writes the base
+  layer per row and carries inherited explicit empty, widening and
+  malformed declarations (30 rows). Each refuses with the leaf form's
+  complete owning-site cause (`seat 'work'`), wrapped once by the existing
+  composition note `(composed: fixture -> base)` from
+  `compose.rs::Resolved::chain_note`; the assertion is the exact printed
+  string including that note. The three rows were observed passing on the
+  adopted bytes (they are not a new refusal, they are a composed input the
+  table had not exercised) and are bound by S-M5, S-M6 and S-M7 below.
+- **P3 (medium, spec-compliance) — two ledger rows overstated.** Both rows
+  are corrected in place above (B6, R2b) rather than rewritten: B6's run
+  predates the row conversion and its log shows the old `error` helper
+  aborting at the missing-directory case, so the malformed-adapter
+  assertion was never reached; R2b excluded `<custom>` by construction, so
+  "unaffected, as intended" claimed a row the experiment never reached.
+  S-M8 reruns B6 against the row-based test and reaches both rows; S-M9 is
+  a new mutation that reaches the `<custom>` row.
+
+### Baseline observed before the repair
+
+On the adopted `bundle.rs` bytes with the eight new rows present
+(`.forge/unit2s-baseline-red-S1.log`): **8 of 24 rows failed**, every one
+`compiled: … ("work", Some(LocalTools { allow: Some(["cargo"]), sandbox:
+Some(ReadOnly | WorkspaceWrite) }))` where the full `--add-dir` refusal was
+expected — the authored split and equals rows and the three fragments for
+each. The sixteen earlier rows passed. After the repair the same test
+shows 24 of 24 rows refusing (`.forge/unit2s-post-repair-S1.log`). The
+pre-edit suites on `4a441bf7` were **100 passed**; after the repair and the
+new tests: **101 passed** (67 agent, 34 bundle;
+`.forge/unit2s-after-tests.log`). The P1 exact assertions and the P2
+inherited rows passed at baseline and are bound by mutation below.
+
+### Mutation ledger, second review return
+
+Each mutation is a compiling edit inside the three production files, run
+against both owning suites (`cargo test -p brokkr-runtime --all-features
+--locked --lib -- agents::tests bundle::agent_tests`), then restored from a
+byte copy taken before the first mutation and checked with `cmp` (logs
+`.forge/unit2s-mut-M*.log`). Each mutation was applied alone.
+
+| # | File, mutation | Rows that failed (test: row, left) |
+| --- | --- | --- |
+| S-M1 | bundle.rs `node.name() == ADDED_ROOT && false` | competing: all eight `--add-dir` rows (split and equals × authored, workspace, gate, work), each `compiled: …`; nothing else |
+| S-M2 | agents.rs compose `names.get(tool).or_else(\|\| names.values().next())` | unknown mapping `tests.rs:533` (left `resolved: ["claude/opus", "claude/sonnet"]`); unavailable-fallback `:743` (left `resolved: ["claude/opus"]`); sibling `report_walks_the_whole_chain_without_refusing` (`gap.is_some()`) |
+| S-M3 | agents.rs `resolve_report` gap check `.filter(\|_\| entry.presence != Presence::Unavailable)` | unavailable-fallback `:743` only (left `resolved: ["claude/opus"]`) |
+| S-M4 | agents.rs `resolve_report` first loop `.iter().take(1)` | later-link gap `tests.rs:710` (left `resolved: ["claude/opus", "codex/sonnet"]`); unavailable-fallback `:743`; three siblings that rely on the whole-chain walk (`mapped above` expects, `unwrap_err` on Ok) |
+| S-M5 | agents.rs `narrow` allow widening `.filter(\|_\| false)` (B2 rerun) | forms: inherited body, widening (left the compose gap "maps no tool permission named 'make'", composed) plus the five leaf widening rows; narrowing ×3; report_narrowed, optional-want, per-field narrows |
+| S-M6 | agents.rs explicit-empty compose guard `&& false` (C5 rerun) | forms: inherited body, explicit empty (left `compiled: … allow: Some([])`) plus the five leaf explicit-empty rows; explicit-empty test; optional-want; narrows |
+| S-M7 | load.rs `string_array` non-string `=> continue` (D1 rerun) | forms: inherited body, malformed (left the explicit-empty refusal, composed — `[1]` decoded as `[]`) plus the five leaf malformed rows; inline forms ×4; decoder `{"allow":[1]}`; two loader tests |
+| S-M8 | bundle.rs `needs_adapters` key `tools-never` (B6 rerun) | adapter-context: **both** rows — missing adapters directory (left `compiled: …`) and malformed adapter file (left `compiled: …`); nothing else |
+| S-M9 | bundle.rs `dispatch_driver(..).unwrap_or_else(\|\| "codex".to_string())` | admission: `custom with hands` only (left the missing-`hands.workspace`-fragment refusal for provider 'custom', right the `<custom>` harness refusal) |
+
+Every mutation was restored; after each the mutated file matched its saved
+copy byte for byte, and after the last `git status` showed only
+`bundle.rs`, `agents/tests.rs` and `bundle/agent_tests.rs` modified.
+
+Honest limits:
+
+- S-M2 and S-M4 fail sibling tests beside the rows they bind; each row
+  above names the one mutation that explains it, and the siblings are
+  recorded as siblings, not as proof of anything further.
+- The inherited rows (P2) are composed inputs reaching the same
+  enforcement the leaf rows reach; S-M5–S-M7 are reruns of B2, C5 and D1
+  observed on this revision with the inherited rows named, not new
+  enforcement.
+- The `--add-dir` refusal is a compile-admission proof under the typed
+  sandbox guard only. It is not unit 12's general authored-flag refusal,
+  and it claims nothing about a live provider or a host escape.
+- No test reads `.forge/`, discovers a provider or starts a model.
+
+### Gates on the restored tree
+
+All on `4a441bf7` plus this working tree, after every mutation was
+restored.
+
+- `cargo fmt --all -- --check`: **passed** (after `cargo fmt --all`
+  reflowed the edited files).
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: **passed**, no warning (`.forge/unit2s-gate-clippy.log`).
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**
+  (informational length notices only; `.forge/unit2s-openspec.log`).
+- `git diff --check`: **passed**.
+- `cargo test -p brokkr-runtime --all-features --locked`: **passed**, 529
+  library tests plus every integration binary of the crate, 25 green
+  result lines (`.forge/unit2s-gate-runtime.log`).
+- `cargo test --workspace --all-features --locked`: **passed**, 77 green
+  result lines, no failure, no panic, under a 580 s timeout
+  (`.forge/unit2s-gate-ws-all-features.log`).
+- `cargo test --workspace`: **passed**, 77 green result lines under the
+  same timeout (`.forge/unit2s-gate-ws.log`).
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `... --bundle bundles/verify`: both **compiled**
+  (`.forge/unit2s-gate-self.log`, `.forge/unit2s-gate-verify.log`).
+- Frozen paths (`policy/`, `contracts/`, `fixtures/`, `reference/`,
+  `extensions/`): `git diff --stat` empty.
 - External exact coverage (`scripts/coverage-exact.sh`), macOS and remote
   CI: **pending**, not observed here; nothing is called fully green on
   their account, and unit 1's pending results stay pending.
