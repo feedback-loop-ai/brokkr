@@ -77,3 +77,25 @@ admits or refuses. It never promises a combination the composer would refuse.
 Decision 0065's standing rulings are unchanged: off by default with no
 grandfathering, realm-only grants, and tools as an abstraction with dialects
 as the concrete.
+
+## Addendum, 2026-09-23: precedence in `dsh_launch_with` (rebuild unit 1b)
+
+Rebuild unit 1b's triage (run `build-decision-0065-slice-one-re-bc7556ea`)
+found that no clause settles the order of the two guards the replay kept in
+`dsh_launch_with`. The operator ruled the current order:
+
+1. **The authority refusal wins.** Composition runs first. A plan carrying a
+   native control, or a site with no engine-computed authority, is refused
+   there, before the boundary check reads any argv. Under ruling 1, a
+   capability-bearing flag the recipe wrote is refused as authored input,
+   whatever else is wrong with the argv.
+2. **The boundary check inspects the composed argv,** the command that will
+   actually launch (ruling 2). For DSH, which folds nothing in, this is
+   byte-for-byte the argv as handed over today. If the path ever composes
+   controls, the check covers them too.
+
+Unit 1b records this as one requirement with a scenario in the native-control
+delta, and binds it with a test that tells the two orders apart: a native
+control plus a boundary-faulted argv such as `--model --effort`, asserting the
+authority refusal's exact reason. It changes no production code unless the
+test shows the code differs from this ruling.
