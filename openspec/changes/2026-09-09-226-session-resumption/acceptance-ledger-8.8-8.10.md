@@ -1951,8 +1951,8 @@ symlink fixture and twenty planner vectors.
      holds the question, one row per ledger row in the class (29 recounted, with
      19 for 8.10), each ledger located at current `tasks.md` lines, the
      no-surviving-mutation and entry 14 log checks on `be1ecf77`, and eight
-     observations for the ruling. Docs only; no ruling is recorded and no
-     checkbox moved.
+     observations for the ruling. Docs only, at `88ff2e10`; no ruling is
+     recorded and no checkbox moved.
 
 18. **If 17 rules no: replay the terminal-body removals.** Added by the
    remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,
