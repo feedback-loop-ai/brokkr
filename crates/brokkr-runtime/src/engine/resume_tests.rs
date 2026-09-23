@@ -2429,7 +2429,12 @@ fn assert_journal_free_of_route_and_carriers(events: &[EventEnvelope], layer: &P
                 .unwrap()
                 .remove("route.yml");
         }
-        let text = serde_json::to_string(&payload).unwrap().to_lowercase();
+        // A string field (an error's stderr tail) escapes the quotes of a
+        // carrier it copied; the search reads it unescaped as well.
+        let text = serde_json::to_string(&payload)
+            .unwrap()
+            .replace("\\\"", "\"")
+            .to_lowercase();
         for needle in &needles {
             assert_eq!(
                 text.find(&needle.to_lowercase()),
@@ -3173,7 +3178,7 @@ fn dsh_assessment_measuring(measured: &str) -> crate::agents::ResumeAssessment {
 /// gate is really open: the synthetic install above is selected by the
 /// production resolver, its composite is computed by the production
 /// producer, and the seat's declaration is `supported` with that measured
-/// digest. The seat's `--patch` binds the marked route. Three attempts of
+/// digest. The seat's `--patch` binds the marked route. Four attempts of
 /// one site:
 ///
 /// 1. a qualified cold start: stream-json, `--new`, confirmed as `s-1`,
@@ -3183,7 +3188,9 @@ fn dsh_assessment_measuring(measured: &str) -> crate::agents::ResumeAssessment {
 ///    confirmed; it drifts the core's reported version and exits 3;
 /// 3. the next retry, offered `s-1` again: the probe now observes another
 ///    version, so the adapter declines `unverified-harness` and runs the
-///    shipped cold route, which succeeds.
+///    shipped cold route, which exits 3, so the decline's stderr is
+///    journaled (an accepted success journals none);
+/// 4. the last retry declines the same way, and succeeds.
 ///
 /// For each, every journaled event, launch row and stderr tail, and the
 /// adapter's raw stdout, carry no route content, path, digest, binding,
@@ -3239,6 +3246,8 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
              {{\"source\":{{\"model\":\"deepseek-v4-flash\"}}}},\"usage\":{{\"inputTokens\":3,\
              \"outputTokens\":1}}}}}}\\n' >> \"$store/session.v3.jsonl\"\n\
              printf '0.1.5-rc.3\\n' > '{version}'\n\
+             exit 3 ;;\n\
+             3)\n\
              exit 3 ;;\n\
              esac\n\
              result=$(printf '%s\\n' \"$last\" | grep '/.forge/results/' | head -n 1 | sed 's/^ *//')\n\
@@ -3322,7 +3331,7 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
-        seat(single(argv, vec![candidate]), &["complete"], 3),
+        seat(single(argv, vec![candidate]), &["complete"], 4),
     );
     seats.insert(
         "review".into(),
@@ -3349,12 +3358,12 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     // went well; every surface it searched is asserted to exist below.
     assert_journal_free_of_route_and_carriers(&events, &layer, &digest);
 
-    // The adapter's whole stdout on all three attempts: the harness line
+    // The adapter's whole stdout on all four attempts: the harness line
     // is all that was taken out, every other line is a protocol message,
     // and none of it carries the route or a carrier.
     let raw = std::fs::read_to_string(root.join("work.stdout")).unwrap();
     let dropped: Vec<&str> = raw.lines().filter(|line| !line.starts_with('{')).collect();
-    assert_eq!(dropped, ["", HARNESS_LINE].repeat(3), "{raw}");
+    assert_eq!(dropped, ["", HARNESS_LINE].repeat(4), "{raw}");
     for line in raw.lines().filter(|line| line.starts_with('{')) {
         let message: Value = serde_json::from_str(line).unwrap();
         assert_eq!(message["proto"], "forge-driver/v1", "{line}");
@@ -3368,8 +3377,8 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
         );
     }
 
-    // Three starts of the real adapter, the second and third offered the
-    // root the first confirmed. Each held the binding and the measured
+    // Four starts of the real adapter, every later one offered the root
+    // the first confirmed. Each held the binding and the measured
     // assessment privately, and each child received the route.
     let received = received(&root, "work");
     let starts: Vec<Value> = received
@@ -3377,10 +3386,15 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
         .filter(|message| message["type"] == "start")
         .cloned()
         .collect();
-    assert_eq!(starts.len(), 3, "two failing attempts are retried");
+    assert_eq!(starts.len(), 4, "three failing attempts are retried");
     assert_eq!(
         offers(&received),
-        [None, Some("s-1".into()), Some("s-1".into())]
+        [
+            None,
+            Some("s-1".into()),
+            Some("s-1".into()),
+            Some("s-1".into())
+        ]
     );
     for (index, start) in starts.iter().enumerate() {
         let private = &start["input"]["resume_context"];
@@ -3406,7 +3420,7 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     );
 
     // What the adapter decided, read off the launched argv: stream-json
-    // with `--new`, then `--session s-1`, then the shipped route.
+    // with `--new`, then `--session s-1`, then the shipped route twice.
     let launched = |n: usize| -> Vec<String> {
         std::fs::read_to_string(root.join(format!("argv-{n}")))
             .unwrap()
@@ -3421,10 +3435,13 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
         ["--output-format", "stream-json", "--session", "s-1"]
     );
     assert_eq!(launched(3), Vec::<String>::new());
+    assert_eq!(launched(4), Vec::<String>::new());
 
-    // The three attempts, as journaled: one launch row each, the first two
-    // failed with the child's own stderr line as their tail, the third
-    // succeeded.
+    // The four attempts, as journaled: one launch row each, the first
+    // three failed with the child's own stderr line as their tail, the
+    // fourth succeeded. The third is the declined offer that FAILED: an
+    // accepted success journals no stderr at all, so only a failed decline
+    // puts the adapter's stderr on a decline under the journal's search.
     let attempts: Vec<&str> = starts
         .iter()
         .map(|start| start["attempt_id"].as_str().unwrap())
@@ -3454,7 +3471,7 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
         .iter()
         .filter(|event| event.event_type == EventType::EffectFailed)
         .collect();
-    assert_eq!(failed.len(), 2, "{failed:?}");
+    assert_eq!(failed.len(), 3, "{failed:?}");
     for (n, event) in failed.iter().enumerate() {
         assert_eq!(event.attempt_id.as_deref(), Some(attempts[n]));
         assert_eq!(
@@ -3462,20 +3479,22 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
             format!(
                 "agent CLI exited 3; stderr tail: dsh child {} wrote this\n",
                 n + 1
-            )
+            ),
+            "attempt {}",
+            n + 1
         );
     }
     assert!(
         events.iter().any(|event| {
             event.event_type == EventType::EffectSucceeded
-                && event.attempt_id.as_deref() == Some(attempts[2])
+                && event.attempt_id.as_deref() == Some(attempts[3])
         }),
-        "the declined offer ran cold and succeeded"
+        "the second declined offer ran cold and succeeded"
     );
 
     // Each launch row is exactly its own vocabulary. The cold start's root
-    // and address are the owned target the next two starts were offered,
-    // and the confirmed rejoin keeps them exactly.
+    // and address are the owned target the next three starts were
+    // offered, and the confirmed rejoin keeps them exactly.
     let cold = launch_row(attempts[0]);
     let locator = cold["transcript"]["locator"].as_str().unwrap().to_string();
     assert!(locator.starts_with("sessions/brokkr/"), "{cold}");
@@ -3507,7 +3526,12 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     assert_eq!(launch_row(attempts[1]), expected, "the confirmed rejoin");
     let mut expected = vocabulary("cold");
     expected["resume_refusal"] = json!("unverified-harness");
-    assert_eq!(launch_row(attempts[2]), expected, "the declined offer");
+    assert_eq!(
+        launch_row(attempts[2]),
+        expected,
+        "the failed declined offer"
+    );
+    assert_eq!(launch_row(attempts[3]), expected, "the declined offer");
     for start in &starts[1..] {
         assert_eq!(
             start["input"]["resume_context"]["owned_target"],
