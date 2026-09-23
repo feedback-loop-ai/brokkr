@@ -2330,10 +2330,14 @@ enum Library {
     /// `posix_spawnp` for production's own `Command` form and
     /// `gen/FreeBSD/exec.c`'s `execvP` for an explicit child `PATH` and
     /// for `env`'s nested search (`Operation`). Both continue past
-    /// `ELOOP`, `ENAMETOOLONG`, `ENOENT` and `ENOTDIR` after the attempt
-    /// and remember `EACCES`. The rest of that switch is NOT pinned by
-    /// this seat, and an errno outside those arms refuses as
-    /// unestablished rather than guessing.
+    /// `ELOOP`, `ENAMETOOLONG`, `ENOENT` and `ENOTDIR` after the attempt.
+    /// `EACCES` is remembered only where the candidate's metadata was
+    /// read: at Libc-1752.120.2 (`4e34d055`) `default` does `if
+    /// (stat(bp, &sb) != 0) break;` before `eacces = 1`
+    /// (`sys/posix_spawn.c` 178–193, `gen/FreeBSD/exec.c` 273–289). The
+    /// rest of that switch is read at the same pin and NOT ported, and an
+    /// errno outside those arms refuses as unestablished rather than
+    /// guessing.
     Apple,
     /// A target whose lookup this resolver has not read from source:
     /// FreeBSD's `execvPe` switch, bionic, the other BSDs. An
@@ -2704,8 +2708,12 @@ enum Step {
 /// The library's switch on an errno, arm by arm, each cited. An errno
 /// no pinned arm names is neither continued on nor stopped on by guess:
 /// it is a limitation the caller reports.
+///
+/// `operation` is the question that failed, `metadata` or `access`.
+/// glibc and musl decide on the errno alone; Apple's switch also asks
+/// whether the candidate's metadata could be read.
 #[cfg(unix)]
-fn step(library: Library, errno: rustix::io::Errno) -> Result<Step, &'static str> {
+fn step(library: Library, operation: &str, errno: rustix::io::Errno) -> Result<Step, &'static str> {
     use rustix::io::Errno;
     match library {
         // `posix/execvpe.c` 136–158: `case EACCES: got_eacces = true;`
@@ -2725,12 +2733,22 @@ fn step(library: Library, errno: rustix::io::Errno) -> Result<Step, &'static str
             Errno::NOENT | Errno::NOTDIR => Step::Continue { denied: false },
             _ => Step::Stop,
         }),
-        // `sys/posix_spawn.c`: ELOOP, ENAMETOOLONG, ENOENT and ENOTDIR
-        // `break` to the next entry, and EACCES is the remembered
-        // denial (D10, 2026-09-20). The remaining arms of that switch
-        // are not pinned here.
+        // Libc-1752.120.2 (`4e34d055`): ELOOP, ENAMETOOLONG, ENOENT and
+        // ENOTDIR `break` to the next entry (`sys/posix_spawn.c`
+        // 146–150; `gen/FreeBSD/exec.c` 232–235 and 266–267). EACCES
+        // falls to `default` (posix_spawn.c 178–193, exec.c 273–289),
+        // whose `if (stat(bp, &sb) != 0) break;` walks past a candidate
+        // whose metadata cannot be read WITHOUT remembering it: only a
+        // candidate `stat` read sets `eacces`. So a failed metadata
+        // question walks on unremembered, and a failed access question,
+        // asked only of a file whose metadata was read, is the
+        // remembered denial. A search that remembers none ends in
+        // ENOENT (posix_spawn.c 195–204, exec.c 293–306). The remaining
+        // arms are read at that pin and not ported here.
         Library::Apple => match errno {
-            Errno::ACCESS => Ok(Step::Continue { denied: true }),
+            Errno::ACCESS => Ok(Step::Continue {
+                denied: operation != "metadata",
+            }),
             Errno::LOOP | Errno::NAMETOOLONG | Errno::NOENT | Errno::NOTDIR => {
                 Ok(Step::Continue { denied: false })
             }
@@ -2810,7 +2828,7 @@ fn lookup_failure(
             candidate.display()
         )))
     };
-    match step(library, errno) {
+    match step(library, operation, errno) {
         // A DIRECT name's refusal may not vary by library, because at a
         // direct name no library's switch runs: `execvp` and
         // `posix_spawnp` alike hand a name containing `/` straight to
@@ -3116,7 +3134,7 @@ impl Search {
         let stops = std::fs::metadata(candidate)
             .err()
             .and_then(|error| errno_of(&error))
-            .filter(|errno| step(self.library, *errno) == Ok(Step::Stop));
+            .filter(|errno| step(self.library, "metadata", *errno) == Ok(Step::Stop));
         if let Some(errno) = stops {
             return stop_cause(candidate, "metadata", errno);
         }
@@ -3288,7 +3306,10 @@ fn classify_in(
     let passed = |why: String, denied: bool| Candidate::Passed { why, denied };
     // The kernel's answer to the candidate's path, decided by the
     // library's own switch on that errno and nothing else: ENOENT and
-    // ENOTDIR walk on, EACCES walks on and is remembered, ENAMETOOLONG
+    // ENOTDIR walk on; EACCES walks on, remembered by glibc and musl and
+    // not by Apple, whose `default` walks past an unstatable candidate
+    // before it remembers anything (`sys/posix_spawn.c` 186–187,
+    // `gen/FreeBSD/exec.c` 282–283 at Libc-1752.120.2); ENAMETOOLONG
     // and ELOOP stop glibc's search — and a failure with no errno at
     // all (a NUL in the path) is one no switch decides, so it refuses.
     let metadata = match std::fs::metadata(candidate) {

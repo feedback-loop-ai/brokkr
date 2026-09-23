@@ -2353,6 +2353,116 @@ fn an_empty_path_entry_is_the_working_directory_and_is_refused() {
     assert!(output.status.success(), "{said}");
 }
 
+/// Apple's switch remembers a denial only for a candidate whose metadata
+/// it read (entry 13-fix, finding P1). At Libc-1752.120.2 (`4e34d055`)
+/// EACCES falls to `default`, which does `if (stat(bp, &sb) != 0)
+/// break;` before `eacces = 1` (`sys/posix_spawn.c` 178–193,
+/// `gen/FreeBSD/exec.c` 273–289). A `PATH` directory without search
+/// permission is therefore walked past unremembered, and a search that
+/// remembers nothing ends in ENOENT (posix_spawn.c 195–204, exec.c
+/// 293–306). glibc's `case EACCES: got_eacces = true;` and musl's
+/// `seen_eacces` remember it whichever question failed. Each library's
+/// rule is a plain test on this host because `Search` carries the
+/// library it translates.
+#[cfg(unix)]
+#[test]
+fn apple_walks_past_a_sealed_directory_without_remembering_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = FixtureRoot::new();
+    // Readable, regular and not executable: its metadata is read and its
+    // access question fails, which every library remembers.
+    let readable = root.path().join("readable");
+    fs::create_dir_all(&readable).unwrap();
+    let decoy = readable.join("dsh");
+    fs::write(&decoy, b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(&decoy, fs::Permissions::from_mode(0o644)).unwrap();
+    // A directory without search permission, holding a runnable `dsh` no
+    // unprivileged child reaches: the candidate's metadata is unreadable.
+    let sealed = root.path().join("sealed");
+    fs::create_dir_all(&sealed).unwrap();
+    stage_executable(&sealed, "dsh", b"#!/bin/sh\ntrue\n");
+    let hidden = sealed.join("dsh");
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let search = |library: Library, operation: Operation, entries: String| Search {
+        entries: OsString::from(entries),
+        default: false,
+        library,
+        operation,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    let alone = sealed.display().to_string();
+    let last = format!("{}:{}", readable.display(), sealed.display());
+    let direct = hidden.display().to_string();
+    let unreadable = fs::metadata(&hidden)
+        .err()
+        .and_then(|error| errno_of(&error));
+    let mut answers = Vec::new();
+    for library in [Library::Apple, Library::Glibc, Library::Musl] {
+        for operation in [Operation::Exec, Operation::Spawn] {
+            for (cell, command, entries) in [
+                ("alone", "dsh", &alone),
+                ("last", "dsh", &last),
+                ("direct", direct.as_str(), &last),
+            ] {
+                let answer = lookup_in(
+                    command,
+                    &search(library, operation, entries.clone()),
+                    &mut Vec::new(),
+                )
+                .map(|selected| selected.path)
+                .map_err(|error| error.to_string());
+                answers.push((library, operation, cell, answer));
+            }
+        }
+    }
+    // Restored before anything is asserted, so the tree can be removed.
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(
+        unreadable,
+        Some(rustix::io::Errno::ACCESS),
+        "the sealed candidate's metadata is unreadable to this process"
+    );
+
+    let not_on_path = format!(
+        "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended at {}: Permission \
+         denied (os error 13))",
+        hidden.display()
+    );
+    let remembered = format!(
+        "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: \
+         Permission denied (os error 13)",
+        hidden.display()
+    );
+    let decoy_denied = format!(
+        "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: is \
+         not executable by this process",
+        decoy.display()
+    );
+    let direct_denied =
+        format!("the DSH layout is unreadable: {direct}: Permission denied (os error 13)");
+    assert_eq!(answers.len(), 18);
+    for (library, operation, cell, answer) in answers {
+        let expected = match (cell, library) {
+            // The only candidate: Apple exhausts to NotFound at it, and
+            // glibc and musl report the remembered EACCES.
+            ("alone", Library::Apple) => &not_on_path,
+            ("alone", _) => &remembered,
+            // The last candidate, after a readable non-executable file:
+            // that file's denial stands on every arm.
+            ("last", _) => &decoy_denied,
+            // A direct name runs no switch: one answer on every arm.
+            _ => &direct_denied,
+        };
+        assert_eq!(
+            answer.as_ref(),
+            Err(expected),
+            "{library:?} under {operation:?}, the sealed directory {cell}"
+        );
+    }
+}
+
 /// The working-directory refusal names the SEARCHED NAME, whichever
 /// library's rule the search translates. The candidate a platform builds
 /// for its cwd iteration is not one spelling: glibc and musl build the
@@ -7124,78 +7234,104 @@ fn env_identity_is_the_file_and_never_a_name() {
 fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     use rustix::io::Errno;
 
-    // glibc `posix/execvpe.c` 136–158: the literal continue-set, EACCES
-    // remembered, and everything else terminal — ENAMETOOLONG, ELOOP,
-    // EIO, EINVAL, ENOEXEC, ETXTBSY, EPERM included.
+    // Every arm is asked under both questions a lookup can fail: only
+    // Apple's switch reads which one it was, and glibc's and musl's must
+    // answer alike under each.
+    for question in ["metadata", "access"] {
+        // glibc `posix/execvpe.c` 136–158: the literal continue-set,
+        // EACCES remembered, and everything else terminal — ENAMETOOLONG,
+        // ELOOP, EIO, EINVAL, ENOEXEC, ETXTBSY, EPERM included.
+        assert_eq!(
+            step(Library::Glibc, question, Errno::ACCESS),
+            Ok(Step::Continue { denied: true }),
+            "{question}"
+        );
+        for errno in [
+            Errno::NOENT,
+            Errno::STALE,
+            Errno::NOTDIR,
+            Errno::NODEV,
+            Errno::TIMEDOUT,
+        ] {
+            assert_eq!(
+                step(Library::Glibc, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [
+            Errno::NAMETOOLONG,
+            Errno::LOOP,
+            Errno::IO,
+            Errno::INVAL,
+            Errno::NOEXEC,
+            Errno::TXTBSY,
+            Errno::PERM,
+            Errno::NOMEM,
+        ] {
+            assert_eq!(
+                step(Library::Glibc, question, errno),
+                Ok(Step::Stop),
+                "{question} {errno}"
+            );
+        }
+        // musl `src/process/execvp.c`: EACCES remembered, ENOENT and
+        // ENOTDIR continue, and nothing else — not even ESTALE.
+        assert_eq!(
+            step(Library::Musl, question, Errno::ACCESS),
+            Ok(Step::Continue { denied: true }),
+            "{question}"
+        );
+        for errno in [Errno::NOENT, Errno::NOTDIR] {
+            assert_eq!(
+                step(Library::Musl, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [Errno::STALE, Errno::NAMETOOLONG, Errno::LOOP, Errno::IO] {
+            assert_eq!(
+                step(Library::Musl, question, errno),
+                Ok(Step::Stop),
+                "{question} {errno}"
+            );
+        }
+        // Apple at Libc-1752.120.2: ELOOP, ENAMETOOLONG, ENOENT and
+        // ENOTDIR continue (`sys/posix_spawn.c` 146–150), and an arm this
+        // resolver does not port is a limitation rather than either
+        // guess.
+        for errno in [Errno::LOOP, Errno::NAMETOOLONG, Errno::NOENT, Errno::NOTDIR] {
+            assert_eq!(
+                step(Library::Apple, question, errno),
+                Ok(Step::Continue { denied: false }),
+                "{question} {errno}"
+            );
+        }
+        for errno in [Errno::IO, Errno::INVAL, Errno::STALE, Errno::NOEXEC] {
+            assert_eq!(
+                step(Library::Apple, question, errno),
+                Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
+                "{question} {errno}"
+            );
+        }
+        assert_eq!(
+            step(Library::Unestablished, question, Errno::NOENT),
+            Err("this target's native program lookup rule is not established"),
+            "{question}"
+        );
+    }
+    // Apple's EACCES falls to `default`, which asks `stat` first
+    // (`sys/posix_spawn.c` 178–193, `gen/FreeBSD/exec.c` 273–289): a
+    // candidate whose METADATA cannot be read is walked past and NOT
+    // remembered, and only a failed access question — asked of a file
+    // whose metadata was read — is the remembered denial.
     assert_eq!(
-        step(Library::Glibc, Errno::ACCESS),
-        Ok(Step::Continue { denied: true })
+        step(Library::Apple, "metadata", Errno::ACCESS),
+        Ok(Step::Continue { denied: false })
     );
-    for errno in [
-        Errno::NOENT,
-        Errno::STALE,
-        Errno::NOTDIR,
-        Errno::NODEV,
-        Errno::TIMEDOUT,
-    ] {
-        assert_eq!(
-            step(Library::Glibc, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [
-        Errno::NAMETOOLONG,
-        Errno::LOOP,
-        Errno::IO,
-        Errno::INVAL,
-        Errno::NOEXEC,
-        Errno::TXTBSY,
-        Errno::PERM,
-        Errno::NOMEM,
-    ] {
-        assert_eq!(step(Library::Glibc, errno), Ok(Step::Stop), "{errno}");
-    }
-    // musl `src/process/execvp.c`: EACCES remembered, ENOENT and
-    // ENOTDIR continue, and nothing else — not even ESTALE.
     assert_eq!(
-        step(Library::Musl, Errno::ACCESS),
+        step(Library::Apple, "access", Errno::ACCESS),
         Ok(Step::Continue { denied: true })
-    );
-    for errno in [Errno::NOENT, Errno::NOTDIR] {
-        assert_eq!(
-            step(Library::Musl, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [Errno::STALE, Errno::NAMETOOLONG, Errno::LOOP, Errno::IO] {
-        assert_eq!(step(Library::Musl, errno), Ok(Step::Stop), "{errno}");
-    }
-    // Apple `sys/posix_spawn.c`: ELOOP, ENAMETOOLONG, ENOENT and ENOTDIR
-    // continue, EACCES is remembered, and an arm this seat did not pin
-    // is a limitation rather than either guess.
-    assert_eq!(
-        step(Library::Apple, Errno::ACCESS),
-        Ok(Step::Continue { denied: true })
-    );
-    for errno in [Errno::LOOP, Errno::NAMETOOLONG, Errno::NOENT, Errno::NOTDIR] {
-        assert_eq!(
-            step(Library::Apple, errno),
-            Ok(Step::Continue { denied: false }),
-            "{errno}"
-        );
-    }
-    for errno in [Errno::IO, Errno::INVAL, Errno::STALE, Errno::NOEXEC] {
-        assert_eq!(
-            step(Library::Apple, errno),
-            Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
-            "{errno}"
-        );
-    }
-    assert_eq!(
-        step(Library::Unestablished, Errno::NOENT),
-        Err("this target's native program lookup rule is not established")
     );
 
     // The candidate SEQUENCE each walk constructs over the exact PATH
@@ -7401,6 +7537,29 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
         )),
         "passed (true): Permission denied (os error 13)"
     );
+    // Apple walks past the same unreadable candidate without remembering
+    // it (`sys/posix_spawn.c` 186–187), and remembers the denial only of
+    // a file whose metadata it read.
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "metadata",
+            Errno::ACCESS,
+            Position::Searched
+        )),
+        "passed (false): Permission denied (os error 13)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "access",
+            Errno::ACCESS,
+            Position::Searched
+        )),
+        "passed (true): is not executable by this process"
+    );
     // ELOOP is the one errno in this table whose NUMBER is the host's
     // rather than the constant's: 40 under Linux, 62 under Darwin, while
     // ENOENT, EACCES, EIO and ENOTDIR agree across both. The switch under
@@ -7530,11 +7689,6 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             Errno::ACCESS,
             "passed (true): is not executable by this process",
         ),
-        (
-            "metadata",
-            Errno::ACCESS,
-            "passed (true): Permission denied (os error 13)",
-        ),
     ] {
         for library in [Library::Apple, Library::Glibc, Library::Musl] {
             assert_eq!(
@@ -7549,6 +7703,27 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
                 "{library:?} answers a direct name's {errno} as every other arm does"
             );
         }
+    }
+    // A metadata EACCES at a direct name carries the same words on every
+    // arm, and only the remembered flag is the library's: Apple's switch
+    // remembers no unstatable candidate. A direct name has no search to
+    // exhaust, so `lookup_in` reads the words and never the flag.
+    for (library, denied) in [
+        (Library::Apple, false),
+        (Library::Glibc, true),
+        (Library::Musl, true),
+    ] {
+        assert_eq!(
+            describe(lookup_failure(
+                candidate,
+                library,
+                "metadata",
+                Errno::ACCESS,
+                Position::Direct
+            )),
+            format!("passed ({denied}): Permission denied (os error 13)"),
+            "{library:?} answers a direct name's metadata EACCES in every arm's words"
+        );
     }
     // The ONE arm that audit found still library-dependent at a direct
     // name, recorded rather than guessed at: an errno OUTSIDE Apple's

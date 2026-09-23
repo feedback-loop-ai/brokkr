@@ -128,8 +128,9 @@ const CWD_LENGTHS: [usize; 3] = [4095, 4096, 5000];
 /// file prefix, then missing-then-existing, at the working directory
 /// and with no candidate at all; its explicit-path spelling; the
 /// `NAME_MAX` boundary; the valid-length positive; the two ordered
-/// exhaustion causes; and the default-search positive.
-const CONTROLS: [&str; 13] = [
+/// exhaustion causes; the default-search positive; and a directory
+/// without search permission as the only candidate and as the last one.
+const CONTROLS: [&str; 15] = [
     "overlong-bare-name",
     "overlong-under-missing-prefix",
     "overlong-under-file-prefix",
@@ -143,6 +144,8 @@ const CONTROLS: [&str; 13] = [
     "exhaustion-missing-then-file",
     "exhaustion-file-then-missing",
     "default-search-sh",
+    "sealed-directory-alone",
+    "non-executable-then-sealed-directory",
 ];
 
 /// What a candidate is made of.
@@ -2215,6 +2218,84 @@ fn child_controls() {
             }
         });
     }
+
+    // A `PATH` directory without search permission, so its candidate's
+    // metadata cannot be read. glibc remembers that EACCES (`case
+    // EACCES: got_eacces = true;`). Apple's `default` walks past it
+    // unremembered (`if (stat(bp, &sb) != 0) break;`, `sys/posix_spawn.c`
+    // 186–187 and `gen/FreeBSD/exec.c` 282–283 at Libc-1752.120.2). As
+    // the only candidate, the search ends in EACCES on glibc and in ENOENT
+    // on Apple (posix_spawn.c 195–204, exec.c 293–306). As the last one,
+    // after a readable non-executable file, it ends in that file's denial
+    // on both.
+    let sealed = root.join("controls-sealed");
+    fs::create_dir_all(&sealed).unwrap();
+    stage_executable(&sealed, "dsh", b"#!/bin/sh\nprintf 'MARK:sealed\\n'\n");
+    let hidden = sealed.join("dsh");
+    let readable = root.join("controls-readable");
+    fs::create_dir_all(&readable).unwrap();
+    let decoy = readable.join("dsh");
+    fs::write(&decoy, b"#!/bin/sh\nprintf 'MARK:never\\n'\n").unwrap();
+    fs::set_permissions(&decoy, fs::Permissions::from_mode(0o644)).unwrap();
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+    for (what, path) in [
+        ("sealed-directory-alone", sealed.clone().into_os_string()),
+        (
+            "non-executable-then-sealed-directory",
+            OsString::from(format!("{}:{}", readable.display(), sealed.display())),
+        ),
+    ] {
+        collecting(&mut failures, &format!("control:{what}"), || {
+            let unreadable = fs::metadata(&hidden).unwrap_err();
+            assert_eq!(
+                errno_of(&unreadable),
+                Some(rustix::io::Errno::ACCESS),
+                "{what}: the sealed candidate's metadata is unreadable to this process"
+            );
+            let native = oracle(
+                Command::new("dsh")
+                    .arg("--list")
+                    .stdin(Stdio::null())
+                    .env("PATH", &path),
+                &format!("control:{what}"),
+            );
+            let resolved = resolve_executable_in("dsh", Some(path.clone()));
+            let (errno, reason) = match (what, LIBRARY) {
+                ("sealed-directory-alone", Library::Apple) => (
+                    rustix::io::Errno::NOENT,
+                    format!(
+                        "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended \
+                         at {}: {unreadable})",
+                        hidden.display()
+                    ),
+                ),
+                ("sealed-directory-alone", Library::Glibc) => (
+                    rustix::io::Errno::ACCESS,
+                    format!(
+                        "the DSH layout is unreadable: 'dsh' is not executable by this process \
+                         on PATH: {}: {unreadable}",
+                        hidden.display()
+                    ),
+                ),
+                (_, Library::Apple | Library::Glibc) => (
+                    rustix::io::Errno::ACCESS,
+                    format!(
+                        "the DSH layout is unreadable: 'dsh' is not executable by this process \
+                         on PATH: {}: is not executable by this process",
+                        decoy.display()
+                    ),
+                ),
+                _ => return record(what, &native, &resolved),
+            };
+            let Outcome::Failed(error) = &native else {
+                panic!("{what}: the native child ran a dsh: {native:?}");
+            };
+            assert_eq!(errno_of(error), Some(errno), "{what}: {error}");
+            assert_eq!(refused(resolved), reason, "{what}");
+        });
+    }
+    // Restored whatever the controls answered, so the tree can be removed.
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).unwrap();
 
     // The default-search positive AO requires beside the all-negative
     // absent-PATH cells: `sh` runs with PATH removed, and the resolver

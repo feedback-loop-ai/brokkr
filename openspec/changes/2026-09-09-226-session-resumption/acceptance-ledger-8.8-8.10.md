@@ -889,6 +889,7 @@ numbers. The map:
 | 10 | 3b | landed `cb5bbd9a` (after a stop) |
 | 11 | — (new: unit 7's unproved half) | landed `6e1e7066`, `471bc740` |
 | 12 | — (new: N2/N4 unasserted cells) | landed `36b16922` |
+| 13-fix | — (new: finding P1, entry 13's stop) | open |
 | 13 | — (new: source retrieval) | open, externally owned |
 | 14 | 4 | open |
 | 15 | 5 | open, externally owned |
@@ -1659,6 +1660,47 @@ symlink fixture and twenty planner vectors.
    `doctor/tests.rs:2836` with nothing spawned, M4's callback failure. Tests
    only; fmt, clippy, `-p brokkr-protocol` and `-p brokkr-cli` green; no
    checkbox moved.
+
+13-fix. **The Apple arm remembers only what native remembers.** Added for
+   finding P1, which entry 13 stopped on (run
+   `issue-226-acceptance-ledger-entr-61b7a860`). It is a production fix and
+   comes before 13, which still owes its pins. At Libc-1752.120.2
+   (`4e34d055`), `sys/posix_spawn.c` 178–193 and `gen/FreeBSD/exec.c`
+   273–289 read `if (stat(bp, &sb) != 0) break;`. A candidate whose
+   METADATA cannot be read (for example a `PATH` directory without search
+   permission, where `stat` fails with EACCES) is walked past and NOT
+   remembered. EACCES is remembered only when `stat` SUCCEEDS and the later
+   access or regular-file check fails. An otherwise empty search then ends
+   in ENOENT (posix_spawn.c 195–204, exec.c 293–306). The port remembered
+   every Apple EACCES: `step` in `composite.rs`, the doc comments on
+   `Library::Apple` and on `step`'s Apple arm, and the assertion in
+   `the_lookup_rule_is_each_librarys_own_switch_arm_by_arm`. It reached
+   this through `classify_in`'s metadata EACCES → `Passed { denied: true }`
+   → `Search::find`'s "is not executable by this process", where native
+   macOS reports NotFound.
+
+   **Fix.** Make the Apple arm depend on WHICH question failed, not on the
+   errno alone. A metadata failure is walked past unremembered. An access
+   or not-regular failure on a file whose metadata was read is remembered
+   as the denial. The Linux/glibc and musl arms do not change. Correct the
+   doc comments to cite the pinned lines.
+
+   **Tests.** `composite/tests.rs` (correct the assertion to native's
+   reading) and `composite/tests/native_matrix.rs`. Add the cell no test
+   has: a sealed directory (no search permission) as the ONLY Apple
+   candidate, which must end NotFound, and as the LAST candidate after a
+   readable non-executable file, which must end with that file's denial.
+   Fixtures build on a canonicalised temporary root, and the sealed
+   directory has its permission restored before cleanup.
+
+   **Proof.** Restore errno-only remembering in a compiling mutation; the
+   new cells fail; record the test and assertion; restore. Selection is
+   unchanged: every existing positive stays green. If the Linux or musl
+   arms would ALSO have to change to pass, the unit stops and reports.
+
+   **Files.** `crates/brokkr-protocol/src/adapters/composite.rs`
+   (production: the Apple arm and its comments only),
+   `composite/tests.rs`, `composite/tests/native_matrix.rs`.
 
 13. **Retrieve, pin and verify the Apple and env sources.** Added by the
    remediation (third return, finding 1). **Externally owned**: it needs a
