@@ -4,7 +4,11 @@ The dated evidence file the acceptance ledger's entry 18 prescribes, and
 which entries 19–21 share. This revision holds **entry 21(a)** alone: the
 controls of THE PROOFS' tests for which B5's inventory (ledger §4, B5,
 (i)–(vii)) found no record. Entry 17 has no ruling, so entries 18, 19, 20
-and 21(b) are not performed here.
+and 21(b) are not performed here. *(2026-09-23, entry 19: entry 17 was
+then ruled "yes, all but B16 and B20, replay those in entry 19", so this
+file also holds **entry 19**, B16's four controls and B20's one, in the
+section **Entry 19** at the end. Entries 18, 20 and 21(b) have no work
+under that ruling.)*
 
 **Outcome: all ten of 21(a)'s controls are closed; 21(a) has landed.**
 Six controls (2, 3, 4, 8, 9, 10) part their named assertions. Four
@@ -623,3 +627,293 @@ With the six controls that part their named assertions, all ten of
 from 8.10's path. It does not tick 8.10: entry 22 still waits on entry
 17's ruling (or on entries 18, 19 and 21(b) after a no), and on the rest
 of its list.
+
+## Entry 19 — B16's four and B20's one, replayed
+
+Entry 17's ruling, 2026-09-23: "yes, all but B16 and B20, replay those in
+entry 19". This section is that replay. The F1–F4 ruling does not extend
+here: a control that did not part its named assertion would be a finding.
+**None was needed. All five controls part their named assertions**, and
+the paired B20 test passes beside the selector mutation with two children,
+no selector, the retained sandbox and one cold launch row.
+
+- Revision: `4d2e9e72df0f08e86080ab7816689d8c6287bf4d` on `slice-dsh-8810`.
+  It is `43d8b8b8` plus the docs-only commit recording entry 17's ruling,
+  so the code bytes are `43d8b8b8`'s. The tree was clean before the first
+  control and after every restoration (`git status --porcelain` empty).
+- Host: Linux 6.17.0-41-generic x86_64, cargo 1.98.0 (797e8a9bc 2026-08-05).
+- Run: `issue-226-acceptance-ledger-entr-2bea60a7`, implement seat.
+- Method: as above. Baseline green, one compiling mutation, each named
+  test run alone with `--exact --nocapture`, failure captured, restored by
+  hand, tree clean, rerun green. Line numbers are this revision's.
+
+Tests, abbreviated below:
+
+| Short | Test |
+|---|---|
+| BT | `crates/brokkr-runtime/src/engine/boundary_tests.rs::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin` (`:1695`) |
+| DC-h | `crates/brokkr-cli/tests/driver_conformance.rs::the_shipped_codex_harness_work_seat_rejoins_its_retry` (`:2250`) |
+| DC-i | `crates/brokkr-cli/tests/driver_conformance.rs::the_shipped_inline_codex_work_seat_rejoins_its_retry` (`:2434`) |
+| SEL | `crates/brokkr-protocol/src/adapters/tests.rs::a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too` (`:1827`) |
+| PAIR | `crates/brokkr-protocol/src/adapters/tests.rs::a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled` (`:2768`) |
+
+Command forms:
+
+```text
+cargo test --locked -p brokkr-runtime --all-features --lib engine::boundary_tests::<name> -- --exact --nocapture
+cargo test --locked -p brokkr-cli --all-features --test driver_conformance <name> -- --exact --nocapture
+cargo test --locked -p brokkr-protocol --all-features --lib adapters::tests::<name> -- --exact --nocapture
+```
+
+Baseline before any mutation: BT `1 passed; … 463 filtered out`; DC-h
+and DC-i together `2 passed; … 22 filtered out`; SEL and PAIR together
+`2 passed; … 428 filtered out`.
+
+### Summary
+
+| # | Row | Mutation | Named assertion | Parted | Also observed |
+|---|---|---|---|---|---|
+| E19-1 | B16 disabled status | `adapters/codex.json` `work-site.status` `supported` → `unmeasured` | DC-h retry `launch_row(&resumed, "resumed")` (`:2374`, asserting at `:2783`) | yes: `cold` vs `resumed`, row `resume_refusal: unsupported-resume` | BT `:1715`; DC-i `:2512` |
+| E19-2 | B16 boxed hands | `adapters/codex.json` `work-site.hands` `none` → `boxed` | DC-h retry `launch_row(&resumed, "resumed")` (`:2374` → `:2783`) | yes: `cold` vs `resumed`, row `resume_refusal: restrictions-unavailable` | BT `:1720`; DC-i `:2512` |
+| E19-3 | B16 harness fragment | `compose_site`'s harness fragment suppressed (`engine.rs:4306`) | BT the shipped `harness.work` fragment (`:1758–1763`) | yes | DC-h `:2299`; DC-i not reached (green) |
+| E19-4 | B16 boundary mark | `mark_hands`'s boundary write dropped from the `Hands` arm (`engine.rs:1227`) | BT `seat["boundary"] == "harness"` (`:1780`) | yes | DC-h and DC-i not reached (green) |
+| E19-5 | B20 selector | `codex_selector_conflict` never matches (`adapters.rs:2502`) | SEL `codex_selector_conflict(&extra) == Some(part)` (`:1845`) | yes | PAIR green beside it: two children, no selector, retained sandbox, one cold launch row |
+
+The named assertions are the ones the implementation record gives for
+each control (`tasks.md`, the 2026-09-15 record: "status back to
+`unmeasured` failed the retry with `resume_refusal: unsupported-resume`;
+declared hands back to `boxed` failed it cold with
+`restrictions-unavailable`; suppressing `compose_site`'s harness fragment
+or `mark_hands`'s boundary write each failed the bridge"; Low 3, "guard
+returned `None`"), located as the brief locates them (B16, B20 rows).
+
+### E19-1. Disabled status
+
+```diff
+     "work-site": {
+-      "status": "supported",
++      "status": "unmeasured",
+```
+
+DC-h, the named assertion. `left` is the retry's launch row, so this is
+the `"resumed"` call at `:2374` (the cold call at `:2355` passed):
+
+```text
+thread 'the_shipped_codex_harness_work_seat_rejoins_its_retry' (2346292) panicked at crates/brokkr-cli/tests/driver_conformance.rs:2783:5:
+assertion `left == right` failed: [Object {"driver": String("codex"), "msg_id": String("f9975cf8-a322-43ef-8849-f99d40750ad6"), "proto": String("forge-driver/v1"), "supports": Array [String("resume")], "type": String("capabilities"), "version": String("0.11.0")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "msg_id": String("09b4f469-0a07-42dd-b2a9-8cb22a347a48"), "proto": String("forge-driver/v1"), "session_ref": Null, "type": String("accepted")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "model": String("not reported"), "step": String("transcript"), "transcript": Object {"home": String("/tmp/.tmpzl89aC"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("ca57aa4a-3c1d-4186-a109-7ef5311e09a4"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "launch": String("cold"), "model": String("not reported"), "resume_refusal": String("unsupported-resume"), "step": String("harness-started")}, "effect_id": String("fx"), "msg_id": String("25dfbd3c-d94b-413d-964c-cdab5ab16548"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "model": String("not reported"), "step": String("turn-started"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("a59ee57e-c340-496b-a7d3-161acbb1e8e4"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "input_tokens": Number(3), "model": String("not reported"), "output_tokens": Number(1), "step": String("turn-completed"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("c05c7262-6126-44d6-8370-6f97bee7dc3c"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "exit_code": Number(0), "input_tokens": Number(3), "model": String("not reported"), "num_turns": Number(1), "output_tokens": Number(1), "step": String("codex-session-finished"), "transcript": Object {"home": String("/tmp/.tmpzl89aC"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("8b25427e-6ba0-41b7-b574-2d87674521b2"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "error": Null, "msg_id": String("1d36cfb3-cdb7-44e3-b354-32b38a842086"), "proto": String("forge-driver/v1"), "result": Object {"effort": String("not reported"), "input_tokens": Number(3), "model": String("not reported"), "notes": String("shim"), "num_turns": Number(1), "output_tokens": Number(1), "result": String("resolved"), "transcript": Object {"home": String("/tmp/.tmpzl89aC"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "status": String("succeeded"), "type": String("result")}]
+  left: String("cold")
+ right: "resumed"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.02s
+```
+
+The retry's only launch row is `launch: cold` with
+`resume_refusal: unsupported-resume`: the gate declined the offer.
+
+BT, at its declaration read-back:
+
+```text
+thread 'engine::boundary_tests::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin' (2345844) panicked at crates/brokkr-runtime/src/engine/boundary_tests.rs:1715:5:
+assertion `left == right` failed
+  left: "unmeasured"
+ right: "supported"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out; finished in 0.01s
+```
+
+DC-i, at the cold root assertion. A disabled gate runs no version probe,
+so no root is recorded (the same mechanism as §1's F1):
+
+```text
+thread 'the_shipped_inline_codex_work_seat_rejoins_its_retry' (2347013) panicked at crates/brokkr-cli/tests/driver_conformance.rs:2512:5:
+assertion `left == right` failed: the enabled inline shape records the qualified root the retry offers: [Object {"driver": String("codex"), "msg_id": String("14a3202f-ee1d-43c2-ab42-f0f62d5654b4"), "proto": String("forge-driver/v1"), "supports": Array [String("resume")], "type": String("capabilities"), "version": String("0.11.0")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "msg_id": String("f39ecb88-1d2a-43ac-822a-b4f30c65c6c8"), "proto": String("forge-driver/v1"), "session_ref": Null, "type": String("accepted")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "model": String("not reported"), "step": String("transcript"), "transcript": Object {"home": String("/tmp/.tmpgL5Qt1"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("5b4d6e28-c1a2-4f1c-988e-b69f3c0541fd"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "launch": String("cold"), "model": String("not reported"), "step": String("harness-started")}, "effect_id": String("fx"), "msg_id": String("31ed193e-0663-4fc4-adaf-27f0c7002d82"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "model": String("not reported"), "step": String("turn-started"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("cab4a2f1-da3e-43f9-b956-c471d75c2272"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "input_tokens": Number(3), "model": String("not reported"), "output_tokens": Number(1), "step": String("turn-completed"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("55c5b783-1171-449d-a6be-f64757f02f72"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "exit_code": Number(0), "input_tokens": Number(3), "model": String("not reported"), "num_turns": Number(1), "output_tokens": Number(1), "step": String("codex-session-finished"), "transcript": Object {"home": String("/tmp/.tmpgL5Qt1"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("d985cdad-d69b-4cee-87aa-2d972e269000"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "error": Null, "msg_id": String("a6fc9d70-fc46-4fb8-b570-8897fb9894d0"), "proto": String("forge-driver/v1"), "result": Object {"effort": String("not reported"), "input_tokens": Number(3), "model": String("not reported"), "notes": String("shim"), "num_turns": Number(1), "output_tokens": Number(1), "result": String("resolved"), "transcript": Object {"home": String("/tmp/.tmpgL5Qt1"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "status": String("succeeded"), "type": String("result")}]
+  left: Null
+ right: "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.01s
+```
+
+**Restored**, clean, reran: BT `1 passed; … 463 filtered out; finished in
+0.01s`; DC-h and DC-i `2 passed; … 22 filtered out; finished in 0.02s`.
+
+### E19-2. Boxed hands
+
+```diff
+         "not applicable"
+       ],
+-      "hands": "none",
++      "hands": "boxed",
+```
+
+DC-h, the named assertion, again at the retry's `"resumed"` call:
+
+```text
+thread 'the_shipped_codex_harness_work_seat_rejoins_its_retry' (2351177) panicked at crates/brokkr-cli/tests/driver_conformance.rs:2783:5:
+assertion `left == right` failed: [Object {"driver": String("codex"), "msg_id": String("69fa7979-9e5a-4e24-9f78-e54c3fd9b743"), "proto": String("forge-driver/v1"), "supports": Array [String("resume")], "type": String("capabilities"), "version": String("0.11.0")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "msg_id": String("3d40cce9-60e0-4ae8-8b49-1a658da3267b"), "proto": String("forge-driver/v1"), "session_ref": Null, "type": String("accepted")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "model": String("not reported"), "step": String("transcript"), "transcript": Object {"home": String("/tmp/.tmpB26m5j"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("2f1547b8-9983-4421-a4cd-1976c3ee167f"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "launch": String("cold"), "model": String("not reported"), "resume_refusal": String("restrictions-unavailable"), "step": String("harness-started")}, "effect_id": String("fx"), "msg_id": String("da8e7d1b-de02-4c4e-9de7-b52b1200290c"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "model": String("not reported"), "step": String("turn-started"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("62553a1a-098f-4f1d-a1f8-5a8a60e11339"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "harness": String("codex"), "input_tokens": Number(3), "model": String("not reported"), "output_tokens": Number(1), "step": String("turn-completed"), "turn": Number(1)}, "effect_id": String("fx"), "msg_id": String("0c23a29a-dea7-463e-ac96-da0fca1533c8"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "data": Object {"effort": String("not reported"), "exit_code": Number(0), "input_tokens": Number(3), "model": String("not reported"), "num_turns": Number(1), "output_tokens": Number(1), "step": String("codex-session-finished"), "transcript": Object {"home": String("/tmp/.tmpB26m5j"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "effect_id": String("fx"), "msg_id": String("8333add1-b5ff-486b-ba42-f1fde92a4d4a"), "proto": String("forge-driver/v1"), "type": String("checkpoint")}, Object {"attempt_id": String("a1"), "effect_id": String("fx"), "error": Null, "msg_id": String("b7d93968-cab3-4a52-a8b9-5d9492edfaad"), "proto": String("forge-driver/v1"), "result": Object {"effort": String("not reported"), "input_tokens": Number(3), "model": String("not reported"), "notes": String("shim"), "num_turns": Number(1), "output_tokens": Number(1), "result": String("resolved"), "transcript": Object {"home": String("/tmp/.tmpB26m5j"), "kind": String("codex-thread"), "locator": String("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")}}, "status": String("succeeded"), "type": String("result")}]
+  left: String("cold")
+ right: "resumed"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.02s
+```
+
+The retry went cold with `resume_refusal: restrictions-unavailable`: the
+declaration no longer covers a no-hands seat.
+
+BT, at its declaration read-back:
+
+```text
+thread 'engine::boundary_tests::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin' (2351088) panicked at crates/brokkr-runtime/src/engine/boundary_tests.rs:1720:5:
+assertion `left == right` failed
+  left: "boxed"
+ right: "none"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out; finished in 0.01s
+```
+
+DC-i, at the cold root assertion (`:2512`), `left: Null`,
+`right: "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"`. Abridged, because this
+is not the control's named assertion: the full message is the same shape
+as E19-1's, with the cold row `launch: cold` and no
+`root_session` (thread `2351424`, tmp home `/tmp/.tmpAjNx78`,
+`test result: FAILED. 0 passed; 1 failed; … 23 filtered out; finished in 0.01s`).
+
+**Restored**, clean, reran: BT `1 passed; … 463 filtered out; finished in
+0.01s`; DC-h and DC-i `2 passed; … 22 filtered out; finished in 0.02s`.
+
+### E19-3. Harness fragment
+
+```diff
+                 SeatClass::Work => candidate.harness.work.as_deref(),
+             });
++            let fragment = fragment.filter(|_| false);
+             for token in fragment.unwrap_or(&[]) {
+```
+
+BT, the named assertion:
+
+```text
+thread 'engine::boundary_tests::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin' (2355578) panicked at crates/brokkr-runtime/src/engine/boundary_tests.rs:1758:5:
+assertion `left == right` failed: the shipped harness.work fragment: ["{brokkr}", "driver", "codex", "--", "--model", "gpt-6-astra", "--effort", "xhigh"]
+  left: ["--effort", "xhigh"]
+ right: ["--sandbox", "workspace-write"]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out; finished in 0.01s
+```
+
+DC-h composes the same argv and parts at its own pin of it:
+
+```text
+thread 'the_shipped_codex_harness_work_seat_rejoins_its_retry' (2358421) panicked at crates/brokkr-cli/tests/driver_conformance.rs:2299:5:
+assertion `left == right` failed: ["{brokkr}", "driver", "codex", "--", "--model", "gpt-6-astra", "--effort", "xhigh"]
+  left: ["--effort", "xhigh"]
+ right: ["--sandbox", "workspace-write"]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.00s
+```
+
+DC-i passed under the mutation
+(`test the_shipped_inline_codex_work_seat_rejoins_its_retry ... ok`,
+`1 passed; … 23 filtered out; finished in 0.02s`). That is expected, not
+a finding: the inline coordinate's argv is author-written and never goes
+through `compose_site`, so no harness fragment exists for it to lose.
+
+**Restored**, clean, reran: BT `1 passed; … finished in 0.01s`; DC-h and
+DC-i `2 passed; … 22 filtered out; finished in 0.02s`.
+
+### E19-4. Boundary mark
+
+```diff
+             Some(HandsState::Hands(_)) => {
+-                input["boundary"] = json!(self.boundary.word());
+                 input["hands"] = json!(if self.boundary.is_boxed() {
+```
+
+BT, the named assertion:
+
+```text
+thread 'engine::boundary_tests::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin' (2365324) panicked at crates/brokkr-runtime/src/engine/boundary_tests.rs:1780:5:
+assertion `left == right` failed
+  left: Null
+ right: "harness"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 463 filtered out; finished in 0.01s
+```
+
+DC-h and DC-i were rebuilt against the mutated `brokkr-runtime` and
+passed (`2 passed; … 22 filtered out; finished in 0.03s`). That is
+expected: both write the engine's words into their driver input by hand
+(`"boundary": "harness"` at DC `:2338`, `"not applicable"` at `:2495`),
+which is why BT is the bridge that pins what `mark_hands` publishes.
+
+**Restored**, clean, reran: BT `1 passed; … finished in 0.01s`; DC-h and
+DC-i `2 passed; … 22 filtered out; finished in 0.02s`.
+
+### E19-5. The Codex cold selector, paired
+
+```diff
+ fn codex_selector_conflict(extra: &[String]) -> Option<&'static str> {
+     extra
+         .iter()
+-        .any(|part| part == CODEX_SELECTOR)
++        .any(|part| part == CODEX_SELECTOR && false)
+         .then_some(CODEX_SELECTOR)
+ }
+```
+
+SEL, the named assertion:
+
+```text
+thread 'adapters::tests::a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too' (2376319) panicked at crates/brokkr-protocol/src/adapters/tests.rs:1845:9:
+assertion `left == right` failed
+  left: None
+ right: Some("resume")
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 429 filtered out; finished in 0.00s
+```
+
+PAIR, run beside the same mutation, passed:
+`test adapters::tests::a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled ... ok`,
+`1 passed; … 429 filtered out; finished in 0.01s`. Its own assertions
+are the clause's four: two children (`:2801`), no selector in the
+replacement (`:2803`), the retained sandbox (`:2804`) and one cold launch
+row (`:2810–2816`). To show them rather than infer them, a second run
+under the mutation added two temporary diagnostic lines after the last
+assertion, touching no assertion:
+
+```diff
+     assert!(invocation.stderr.is_empty(), "{}", invocation.stderr);
++    eprintln!("E19 children: {attempts:?}");
++    eprintln!("E19 launch rows: {launches:?}");
+ }
+```
+
+```text
+running 1 test
+E19 children: ["exec resume --json -c sandbox_mode=\"read-only\" 01a06183-5173-7aa2-8fd6-c2f4923a93a1 -", "exec --json -C /tmp/.tmpz2e1Kc --sandbox read-only"]
+E19 launch rows: [Object {"harness": String("codex"), "launch": String("cold"), "resume_refusal": String("harness-refused"), "step": String("harness-started")}]
+test adapters::tests::a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 429 filtered out; finished in 0.01s
+```
+
+Two children: the refused `exec resume`, then the cold replacement
+`exec … --sandbox read-only`, which carries no `resume` selector and keeps
+the seat's sandbox. One launch row, `launch: cold` with
+`resume_refusal: harness-refused`. The pairing matters because the
+mutation disables the only guard that would refuse a bundle-authored
+`resume` word; PAIR shows the engine's own replacement argv never carries
+one, so the replacement does not depend on that guard.
+
+**Restored**: both diagnostic lines and the guard, clean, reran SEL and
+PAIR together: `2 passed; 0 failed; 0 ignored; 0 measured; 428 filtered
+out; finished in 0.01s`.
+
+### Gates after restoration (entry 19)
+
+Run on `4d2e9e72`'s bytes with every mutation restored. The only
+difference was this file and the ledger, neither yet written when the
+cargo gates ran:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all -- --check` | pass |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | pass |
+| `cargo test -p brokkr-protocol --all-features --locked` | pass. lib 430; then 99 passed with 2 ignored, and 1 |
+| `cargo test -p brokkr-runtime --all-features --locked` | pass. lib 464, integration 94 over 22 binaries |
+| `cargo test -p brokkr-cli --all-features --locked` | pass. lib 468, integration 318, `driver_conformance` 24 |
+| `git diff --check` | pass |
+
+Not run here, as the commission directs: the exact-coverage script and
+every checkbox. B16 and B20 now have observed removals on this revision;
+regrading their rows and ticking is entry 22's.

@@ -2033,6 +2033,25 @@ symlink fixture and twenty planner vectors.
    launch row (5131–5135). This is B5's share for those suites. Same method
    and evidence file as entry 18.
 
+   - 2026-09-23, **entry 19 landed** (run
+     `issue-226-acceptance-ledger-entr-2bea60a7`, on `4d2e9e72`'s bytes,
+     which are `43d8b8b8`'s code). `removal-controls-2026-09-23.md`,
+     section **Entry 19**, records five controls, each with its diff, the
+     verbatim failure and the restored green rerun; no byte survives. All
+     five part their named assertions, so there is no finding. B16:
+     disabled status and boxed hands each part DC's retry
+     `launch_row(&resumed, "resumed")` (`driver_conformance.rs:2374` →
+     `:2783`), with `unsupported-resume` and `restrictions-unavailable` on
+     the cold row; the harness fragment parts the bridge's `:1758` and
+     the boundary mark its `:1780` (`boundary_tests.rs`). B20: the
+     selector guard parts `adapters/tests.rs:1845`, and the paired
+     `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled` passes
+     beside it, printing two children, no selector, `--sandbox read-only`
+     retained and one cold launch row. Gates: fmt, workspace clippy,
+     `-p brokkr-protocol` (430 lib), `-p brokkr-runtime` (464 + 94),
+     `-p brokkr-cli` (468 + 318) and `git diff --check`. No checkbox
+     moved; regrading B16 and B20 is entry 22's.
+
 20. **If 17 rules no: replay the R1–R4 group's removals (8.8 only).** Added
    by the remediation. Covers N2 (M5, M6), N4 (M4, with entry 12's
    callback-test half), N5d (M1–M3, M7–M9), N6a (M8), N6b (D1–D5), N7 (the
