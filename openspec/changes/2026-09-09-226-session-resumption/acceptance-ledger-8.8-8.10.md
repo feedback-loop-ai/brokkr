@@ -1001,6 +1001,57 @@ exist.
    gates green (463 lib plus 94 integration, 0 failed). Tests only; no
    checkbox moved.
 
+3b-fix. **An unreadable version output observes no version.** The production
+   remedy for unit 3b's finding below (run
+   `issue-226-acceptance-ledger-unit-86b33424`, recorded at `7fb456d2`),
+   ordered before 3b's re-run. `tasks.md` 5302–5306 requires unreadable
+   version output to be exercised on its own, and `qualify`'s doc comment
+   (`adapters.rs:1049–1051`) disables resume on a version "missing,
+   unreadable or different". `observed_version` decoded stdout lossily, so
+   invalid bytes beside the matching version qualified. Touches
+   `crates/brokkr-protocol/src/adapters.rs` (decode strictly; stdout that
+   is not valid UTF-8 observes `None`) and
+   `crates/brokkr-protocol/src/adapters/tests.rs` (the unreadable vector
+   only). The vector: invalid bytes with the matching version, on exit 0,
+   on the offered path. It declines `unverified-harness` with `observed`
+   `None`, calls the producer zero times (a panicking closure) and plans a
+   fresh cold root under the current home. Proof: restoring
+   `from_utf8_lossy` in a compiling mutation parts the new vector. The
+   valid-UTF-8 positives for codex, claude and dsh stay green unchanged.
+   Unit 3b's other vectors stay with 3b, which re-runs whole.
+
+   **The second caller.** `dsh_launch_with` calls `observed_version`
+   directly (`adapters.rs:3617`), and only once the gate is open and a
+   declared digest is recordable. Strict decoding changes one thing there:
+   invalid bytes now leave `observed` `None`. The composite producer is
+   then never called, `qualified` stays false, an offer declines
+   `unverified-harness` onto a fresh root, and a cold seat plans the
+   shipped route with no version or digest recorded. That is the
+   fail-closed path the exit-3 and banner vectors already take, so nothing
+   beyond strict decoding was needed there.
+
+   **Landed 2026-09-23 at `6a5f1bc9`.** `observed_version` now reads
+   `std::str::from_utf8(&output.stdout).ok()?`.
+   `a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route`
+   drives `0.1.5-rc.1\n\377\376\n` and `0.1.5-rc.1 \377\n` on the warm
+   offer whose unvaried control rejoins. It first checks each shim's exact
+   bytes and that they fail a UTF-8 decode. Each shape declines
+   `unverified-harness` with `observed` and `wrapper_digest` `None` and
+   never reaches the producer. It gets no stream-json, no rejoin, no fold
+   boundary and no `--session`, and a root whose parent is the
+   canonicalised home's `sessions/brokkr`. One mutation, compiled, run red
+   and reverted: `from_utf8_lossy` restored parts `tests.rs:10626`, the
+   panicking producer reached on `invalid line after the version`. A
+   diagnostic under the same mutation, with the producer answering, parts
+   `:10630` on `invalid byte beside the version` (`None` against
+   `Some("unverified-harness")`). The first shape qualified the same way.
+   `the_version_probe_reads_the_number_out_of_each_measured_banner` (codex,
+   claude, dsh) passes unchanged. `cargo fmt --all -- --check`, `cargo
+   clippy --workspace --all-targets --all-features --locked -- -D warnings`
+   and `cargo test -p brokkr-protocol --all-features --locked` (429 + 99 +
+   1 passed, 0 failed) are green. The DSH route stays disabled; no
+   checkbox moved.
+
 3b. **Complete B59's version-output matrix.** Added from the chief review of
    run `issue-226-the-8-8-and-8-10-accep-b5a676bf` (C6, 2026-09-23); ordered
    after 2d. `tasks.md` 5302–5306 asks for absent, malformed and unreadable
