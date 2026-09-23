@@ -341,7 +341,7 @@ on their delivered-repair half with their inherited predicates recorded — whic
 | B56 | the gate-before-probe matrix: "missing/unmeasured/unsupported assessments and missing accounting evidence (`unsupported-resume`), incompatible boundary/hands (`restrictions-unavailable`), missing/mistyped applicable identity and absent/mistyped/malformed declared digest (`unverified-harness`)" | 5291–5295 | `::a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route` — `absent`, `unmeasured`, `unsupported`, `missing-accounting`, `restrictions`, `hands-mismatch`, `no-identity`, `mistyped-identity`, `no-declared-digest`, `mistyped-declared-digest`, each × offer and no-offer, each asserting its exact token; the *malformed* declared digest (`"A"×64`) is driven in `::a_dsh_identity_mismatch_…` 10492–10508 | discharged |
 | B57 | "Use a recording version shim and a panicking or counted composite closure; assert zero calls to both. A nonexistent executable alone does not prove no version attempt." | 5295–5298 | `dsh_recording_version_shim` (`:10218`, touches a marker file on every invocation) and `Cell`-counted or `panic!`ing closures, in every gate case | discharged |
 | B58 | "Assert the complete shipped cold argv and overlay, not merely `stream_json == false`: no `--new`, `--session` or `--output-format`, no rejoining target or offerable-root claim, and a refusal token only when an offer was declined." | 5298–5301 | Same test 10351–10383 — `command[0]`, `command[1..4] == ["--profile","headless","--patch"]`, exactly one `--patch`, none of the three selectors, and the overlay's transcript/compression/model rows read off disk | discharged |
-| B59 | "independently exercise matching observations, absent/malformed/unreadable version output, version-command failure and version drift, producer error and canonical-composite mismatch. A matching version invokes the sole producer once; earlier failures invoke it zero times." | 5302–5306 | `::a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route` 10406–10471 — producer error, composite mismatch, `exit 3` version failure, unreadable banner, drift with `calls == 0`; and `::a_qualified_dsh_launch_…` for the matching case | discharged |
+| B59 | "independently exercise matching observations, absent/malformed/unreadable version output, version-command failure and version drift, producer error and canonical-composite mismatch. A matching version invokes the sole producer once; earlier failures invoke it zero times." | 5302–5306 | `::a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route` 10406–10473 — producer error, composite mismatch, cold `exit 3` and banner, drift with `calls == 0`; on the offer (units 3b-fix, 3b) absent, malformed, unreadable and matching-then-`exit 3` output, each declining `unverified-harness` with `calls == 0`; and `::a_qualified_dsh_launch_…` for the matching case | discharged |
 | B60 | "**independently** vary originating **version and digest** through missing, mistyped, malformed and different values; these declines may follow one producer call" | 5306–5308 | Same test, `adapters/tests.rs:10527–10556` — the loop's three labels are exactly `("originating version", "version")`, `("originating digest", "digest")` and `("missing originating digest", "null")`, mutating to `"0.1.4-rc.1"`, `"d"×64` and `Value::Null` | **partially discharged.** Two fields × four values = eight vectors required; three exist. Driven: different version, different digest, **missing digest**. Undriven: **missing version**, mistyped version, malformed version, mistyped digest, malformed digest. The first cut listed the gap as two (mistyped, malformed) by treating `Value::Null` as covering both fields' missing case; it covers the digest's only. `adapters.rs:1097–1110` reads both through `Value::as_str`, so the undriven five collapse onto the driven two in behaviour — the independent variation the clause asks for is what is missing. See F3 and unit 3 |
 | B61 | "Require `unverified-harness`, the exact shipped cold route under the current home and no offerable root on any failed qualification. No-offer mismatch has no refusal token. Observed version/digest must not be replaced by requested pins." | 5308–5311 | The same declines assert `refusal`, `!stream_json`, `rejoining.is_none()`; `assert_shipped_cold_command` in `::every_dsh_component_drift_…`; `drifted.observed == Some("9.9.9")` | discharged |
 | B62 | "Retain the producer's existing component-drift suites; extending the full composite/doctor/adaptation matrix below belongs to D." | 5311–5314 | `composite/tests.rs::the_measured_composite_moves_with_every_component_it_names` retained; D's matrix is rows B82–B102 | discharged |
@@ -1088,6 +1088,21 @@ exist.
    half. The remedy is a strict UTF-8 read of the probe's stdout, where
    invalid bytes observe no version. Then this unit re-runs whole. The
    probes were reverted.
+
+   **Re-run landed 2026-09-23 at `cb5bbd9a`; each vector declines on
+   current production bytes — no production finding.** On the warm offer
+   whose control rejoins, beside 3b-fix's unreadable vector (not
+   duplicated): nothing on exit 0 (absent), a valid-UTF-8 `no-version-here`
+   on exit 0 (malformed), the matching version then `exit 3` (failure),
+   each shim's status and bytes checked first; each declines
+   `unverified-harness`, `observed` and digest `None`, producer unreached,
+   fresh root under the current home. Mutations, run red and reverted:
+   exit status ignored parts `tests.rs:10632` (`version command failure`);
+   digit filter dropped parts `:10636` (`malformed version output`,
+   `Some("no-version-here")`), the cold banner at `:10452` silenced as a
+   diagnostic; empty output read as the version parts `:10632` (`absent
+   version output`). fmt, clippy and `cargo test -p brokkr-protocol`
+   (429 + 99 + 1) green. B59 discharged; tests only; no checkbox moved.
 
 5. **Obtain the external evidence.** Closes **N13 (8.8.8.3)** and supplies
    B26's macOS half, N2's and N4's macOS legs and N11's native prerequisite.
