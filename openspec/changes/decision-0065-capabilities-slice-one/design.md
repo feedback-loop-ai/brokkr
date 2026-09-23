@@ -3,9 +3,10 @@
 Status: proposed design; decision 0066 remains proposed.
 Adopted: every commit through 44430402, specification draft a84197cd and
 design revision 3c5402be on slice-0065-capabilities; the replay, unit 1b and
-unit 2 specification, design, tasks and implementation through f9a691cf, and
-proof correction 368bc34e are adopted intact. This rerun addresses unit 2/task
-2.1 only; D5.5 records the current council disposition without replacing D5.
+unit 2 implementation and proof repairs through 6a7044e5, and unit 2-fix
+specification e132f678 are adopted intact. This visit addresses only 2-fix
+under unit 2/task 2.1. D5.6 records the current council disposition; D5.1 and
+D5.5 retain the earlier councils and their evidence scopes.
 Authority: [the complete operator ruling](operator-ruling-2026-09-23.md).
 This visit authors documents only. No behavioral finding or security hold is closed.
 
@@ -29,10 +30,14 @@ Before unit 2, agents/load.rs::parse_tools rejected empty allow and knew no
 sandbox field, and bundle.rs rejected tools at its executable key lists. The
 adopted implementation now decodes both fields, narrows a private office clone
 and records site facts. agents::compose still substitutes hands for direct
-local tools, and Adapter has no general sandbox-class mapping. The rerun
-identifies missing exact proofs and a D5.3 implementation gap: recognized
-bypass/configuration controls can coexist with an admitted typed sandbox.
-See D5.5 and evidence.md; the existing specification already forbids this.
+local tools, and Adapter has no general sandbox-class mapping. The repairs
+through 6a7044e5 reject competing switches, sandbox/opaque configuration and
+added roots in selected hands and authored argv. Two implementation omissions
+remain: native controls resolve after that check, and canonical `--cd` is
+classified Inert and overlooked. D5.6 answers S1/A1 from the chief's third
+review; the existing D5.3/D5.5 rule and SCM scenarios already forbid both.
+The chief's eleven cold-command reproductions are supplied evidence, not
+executions by this design seat or a claim of a live provider escape.
 
 ## Goals / Non-Goals
 
@@ -86,8 +91,8 @@ Panel prose is evidence, never authority to change this commission or its gates.
 The following table retains the earlier whole-rebuild council synthesis
 accepted before unit 1. Its run-local position paths have since been replaced
 by unit 2 positions; it is historical, not a description of those new files.
-The adopted first unit 2 synthesis follows under D5.1, and the current rerun
-synthesis under D5.5. Earlier pass verdicts did not prove the rebuild:
+The adopted unit 2 syntheses follow under D5.1 and D5.5; the current 2-fix
+synthesis is D5.6. Earlier pass verdicts did not prove the rebuild:
 
 | Position claims | Decision and evidence |
 | --- | --- |
@@ -539,6 +544,107 @@ retain refusal on unsupported paths and D5.4's rollback rule. There is no new
 unit 2 open question; external evidence and later-unit questions retain their
 owners. The accepted Rebuild units order is unchanged.
 
+### D5.6. Unit 2-fix council disposition, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-11592690`, reviewed head
+`e132f6783bdd3f3c72e1ac96c91621fdf587eb53`. Read every current position in full:
+`.forge/design/positions/robustness.md` and
+`.forge/design/positions/simplicity.md`. These paths now hold this run's
+positions; D5.1/D5.5 describe their historical predecessors. There is no
+`returned_from`. Adopt the chief's S1/A1 findings from the third review of
+unit 2, without accepting their security residual. The owning SCM scenarios
+already specify resolved contributions, root controls and valid denial; no
+upstream specification fault or new semantic ruling was found.
+
+| Position claim | Disposition and inspected evidence |
+| --- | --- |
+| Both: retain earlier authority checks; inspect native controls after resolution | Adopt. `admit_local_sandbox` runs before native resolution; `record_capabilities` has the resolved outcomes before storing notices/facts. Keep both checks at the points their inputs exist. Moving resolution earlier changes refusal precedence without answering another requirement. |
+| Robustness: use effective inherited sandbox, inspect every candidate and refuse unreadable plans; simplicity: reuse the existing resolved projection | Combine. `SiteFacts.local` records the effective declaration, `site_capabilities` constructs outcomes in candidate order, and `Outcome::controls()` plus `native_controls::managed` expose typed `Controls.argv`. Iterate every outcome directly; neither primary-only selection nor a silently truncating new zip establishes whole-chain admission. Missing/malformed controls cannot become empty argv. |
+| Both: inspect selected ON/OFF and substituted restrictions, not inventory labels | Adopt. `native_plan` appends selected disposition argv and nonempty instantiated restriction transport to the same resolved vector; its `on`/`off` arrays are keys. Scan the complete resolved argv once without re-resolving or reconstructing origin substrings. A site/link/resolved-native diagnostic is sufficient here; richer origins remain in units 3–4. |
+| Both: canonical `--cd` refusal through the existing grammar | Adopt. The grammar already maps `--cd PATH`, `--cd=PATH`, `-C PATH` and `-CPATH` to `Node::name() == "--cd"`. Its Inert effect does not establish sandbox safety. Reject raw-prefix scanning, path reconciliation and the unestablished assertion that a later `-C` wins. |
+| Robustness: explicit private contribution context; simplicity: a small helper argument, no hierarchy | Combine in the existing bundle helper. Distinguish resolved-native configuration from authored/hands configuration explicitly. No new public origin type, module, parser, registry or outcome field is needed. The context selects a narrow config allowance; it never skips competing-control checks. |
+| Both: preserve native denial without trusting all native config | Adopt the exact canonical `web_search` key allowance described below. The shipped Codex OFF is `-c`, `web_search="disabled"`; the current helper would reject it as unqualified config. Reject both applying the helper unchanged and permitting arbitrary native keys/descendants or adapter-defined exceptions. |
+| Both: every new row needs independent proof; robustness: inheritance, later candidates, untyped control and redaction | Adopt the proof obligations below in `bundle/agent_tests.rs`. Its canonical `AgentFixture`, production compile path and `each_row` already provide the needed seams. No live probe, additional suite or manufactured Outcome is evidence for this repair. |
+| Both: one production file should suffice; capabilities.rs only if projection is missing | Adopt bundle.rs as the planned production change: inspection found the projection already exists. Retain the commission's conditional capabilities.rs allowance only if implementation demonstrates a concrete missing exposure. Reject pipeline refactoring, grammar edits, new lowering, unused-template validation and deferral to units 13–15. |
+| Both: no semantic decision, migration or completion claim from design | Adopt. Decision 0066 stays proposed, all adopted commits remain, and external exact coverage/macOS/remote results stay pending. Design answers neither security finding with a gate or implementation claim. |
+
+**Resolved admission.** Preserve `enforce_model_policy` and
+`admit_local_sandbox` ordering. In `record_capabilities`, after successful
+`site_capabilities` resolution and before publishing its notices or capability
+facts, check the complete resolved argv for every outcome of a site with an
+effective typed sandbox. Use the effective local fact, including an inherited
+office class; a fresh read of only seat-authored tools would miss inheritance.
+Actual Codex dispatch and matching hands representation must already have
+passed D5.3. Sites without a typed sandbox retain existing admission behavior.
+Use the existing typed managed decoder; errors remain refusals with bounded
+context, never `filter_map`, a default plan or an empty-vector fallback.
+
+Apply the shared `expressed_sandbox` judgment to all parsed occurrences in
+selected hands, authored argv and the resolved native vector. `--cd` refuses
+for any value, even the current workspace. Retain `--add-dir`, bypass/full-auto,
+sandbox-table, opaque-load and duplicate/malformed-command refusals. Only the
+selected hands fragment supplies the single matching sandbox representation;
+any native `--sandbox` is a competing control even when its class agrees.
+No OFF label, granted ON state or restriction schema exempts its resolved
+bytes. A legitimate control preceding a competing option cannot end the scan.
+
+**Compatible native configuration.** Retain established hands transport and
+effort support. Only in the resolved-native context, additionally recognize
+the exact canonical configuration key `web_search` using the existing grammar
+key helper. This preserves the measured denial pair and its exact bytes.
+The allowance is for sandbox compatibility; it neither qualifies additional
+provider values nor replaces the existing native resolver's independent
+control checks. It is not a prefix allowance for `web_search.*`, a whole
+`features`/`tools` table, arbitrary documents or metadata-supplied guard keys.
+All occurrences still face the sandbox-effect checks. Do not add this
+allowance to authored/hands input. Preserve other established compatible
+native controls; if another valid denial needs a configuration rule, ground
+that narrow rule in evidence and an exact positive before adding it. No new
+TOML interpreter or provider-support claim belongs here.
+
+**Diagnostics and proof.** New refusals identify the owning site, candidate
+link, contribution and canonical option. Root-changing cases name `--cd`;
+configuration cases name `--config` and may identify a fixed known sandbox
+table, never the authored assignment. Never echo a path, attached token or
+truncated payload, including through an outer wrapper. The option/cause
+portion stays within 512 Unicode scalars. Keep complete independently written
+literal expectations and the existing bounded grammar refusals.
+
+Implementation first observes the eleven chief cases from the specification
+evidence ledger on the adopted guard: S1.1–S1.3 native OFF plus added root,
+bypass or sandbox network configuration, and A1.1–A1.8 all four spellings
+independently in authored argv and hands.harness.work. Then bind the resolved
+ON, OFF and nonempty substituted restriction paths, including all four root
+spellings in each. ON needs a real temporary realm grant/holding; restrictions
+need a nonempty validated value and an actually reached transport. Such
+adversarial transport fixtures do not qualify provider restriction support
+or close unit 9. Add a valid primary with a conflicting later candidate,
+inherited effective sandbox coverage, an untyped preservation control, and
+long Unicode/newline values within the grammar's input limits with the
+identical value-free bounded cause.
+
+Keep the two chief harness gate/work positives under empty grants and the
+existing boxed read-only, hands and effort positives. Assert exact effective
+local values, selected fragments, boundary, holdings, native OFF facts and
+the full resolved denial argv. OFF inventory labels alone cannot prove that
+the denial survived. For every new test and separately claimed row, record
+an independent compiling in-scope mutation, intended failing assertion with
+actual left/right values, restoration and passing rerun. For each defect the
+mutation must wrongly admit that case. Removal of the native denial allowance
+must independently fail its positive; first-row failures, unrelated errors
+and uncompilable mutations prove nothing about subsequent cases. Existing
+correct neighbors begin with observed passes, never fabricated baseline reds.
+
+**Scope and handoff.** This design and its dependent tasks/evidence are the
+only tracked artifacts authored by this seat. The repair visit is bounded to
+bundle.rs, conditionally capabilities.rs, bundle/agent_tests.rs, and the
+existing tasks/evidence. That narrower 2-fix scope governs over D5.4's original
+unit 2 file list. Stop for an inventoried split before any additional file,
+suite, pin or semantic change. Run the restored-tree house gates recorded in
+tasks.md; external exact coverage and supported-host/remote evidence remain
+pending until they name the tested head. Cold command comparisons establish
+neither a provider launch nor units 13–15's final-launch closure.
+
 ### D6. Refuse authored controls; validate declared and final meaning
 
 Ruling 1 says “Nothing is merged.” The exhaustive supported refusal catalogue,
@@ -687,6 +793,11 @@ final head. No leftover mutation, threshold reduction or stale report may discha
   D5.3 validates each candidate's actual selected fragment and refuses unknown
   representations; later final-command proof remains independently required.
 
+- Native inspection may reject valid denial or overlook a later contribution →
+  D5.6 uses a narrow native config context, scans the complete resolved argv
+  and binds exact denial positives plus every candidate/contribution path.
+- Moving resolution could change earlier refusal precedence → D5.6 leaves
+  the existing guards in place and checks resolved facts before publication.
 - Refusal breaks shipped inline permissions → migrate every inventoried file
   before enabling refusal; prove preserved local limits and empty realm grants.
 - Grammar/provider disagreement → bound supported syntax, reject ambiguous
@@ -703,6 +814,12 @@ final head. No leftover mutation, threshold reduction or stale report may discha
   expectations and scoped provider evidence remain required.
 
 ## Migration Plan
+
+Unit 2-fix requires no data migration. The repair makes inputs relying on
+competing native or root controls refuse; valid matching fragments and native
+denial keep exact values. Do not roll back to unsafe admission to preserve such inputs;
+retain refusal while repairing within scope or inventory a split. This design
+visit changes no production, test, grant, schema or pin bytes.
 
 Inventory re-read at a84197cd using recursive searches of adapters/, recipes/,
 agents/, extensions/ and additionally bundles/. Re-run after rebase. Files below
@@ -749,6 +866,11 @@ to revert the release, never a hidden reconciliation compatibility mode.
   coverage and remote CI remain unobserved on the rebuilt candidate. DSH and
   LaneTally retain independent uncertainty and Codex live evidence stays cold
   0.154.0. These are proof obligations, not unanswered permission to reconcile.
+
+Unit 2-fix has no unresolved design question. The inspected resolved-plan
+interface is sufficient; any contrary implementation evidence must identify
+the missing projection before using the conditional capabilities.rs scope.
+This contingency is not permission to defer S1/A1 or expand provider support.
 
 The operator's four rulings have no unresolved design alternative. Omission
 versus empty local permissions, origin ownership, diagnostic bounds and the
@@ -807,6 +929,16 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    same src root. Add D5 tools.allow/tools.sandbox decoding and strict local
    subset/empty/omission validation under existing realm/boundary authority.
    Tests: agents/tests.rs, bundle/agent_tests.rs; full invalid/widening causes.
+   **2-fix. Repair the third-review S1/A1 admission omissions.** Retain unit 2
+   through 6a7044e5 and the 2-fix specification e132f678. Close only the 2-fix
+   remainder of 2.1/2.1.5–2.1.7 using D5.6: check actual resolved native
+   ON/OFF/restriction argv, preserve valid native denial, and refuse canonical
+   `--cd` in authored, selected hands and resolved native contributions.
+   Production: `crates/brokkr-runtime/src/bundle.rs`; capabilities.rs in that
+   src root only if exposure proves necessary. Tests: bundle/agent_tests.rs
+   only. Bind all eleven chief cases and every added row with exact baseline,
+   independent compiling mutation and restored-pass records in tasks/evidence.
+   This repair precedes unit 3 and adds no renumbered unit or later-launch work.
 3. **Lower typed tools and define private origins.** Close 3.1; advance 4.2.
    Production: `crates/brokkr-runtime/src/agents.rs`,
    `crates/brokkr-runtime/src/capabilities.rs`,

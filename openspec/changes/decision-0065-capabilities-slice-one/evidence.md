@@ -1981,3 +1981,80 @@ result is written through workspace hands to its commissioned run-local file,
 not committed as a fifth artifact. The final commit and post-commit checks
 belong in that result so recording them does not move the validated head.
 No push occurs.
+
+## Unit 2-fix — council design adoption, 2026-09-23
+
+Run `build-decision-0065-slice-one-re-11592690`, phase `design`, began clean at
+`e132f6783bdd3f3c72e1ac96c91621fdf587eb53` on `slice-0065-capabilities`.
+Adopted `decision-0065-capabilities-slice-one` and every preceding commit;
+unit 2 through `6a7044e5` and specification `e132f678` remain intact. There is
+no `returned_from`. S1/A1 are the supplied third-review findings, with their
+residual unaccepted, not an upstream specification defect.
+
+Read the operator ruling/addendum before the Rebuild units preamble/unit 2,
+then the owning tasks/deltas, D5.3–D5.5 and both current council positions in
+full: `.forge/design/positions/robustness.md` and `simplicity.md`. Read README,
+decisions 0004/0005/0009 and the relevant 0063/0065 rules; inspected the named
+Rust files, existing grammar/managed decoder and Codex adapter read-only.
+Read `dialects/openspec.json`, its design/return instructions, and rendered
+`openspec instructions design --change decision-0065-capabilities-slice-one
+--json` through workspace hands. No workflow runner or provider was invoked.
+
+### Council disposition and dependent artifacts
+
+Authored design first, then updated dependent tasks and this evidence. D5.6's
+claim-by-claim table adopts or combines both positions on the inspected seams:
+`record_capabilities` has every resolved outcome before facts/notices are
+published; `Outcome::controls()` and the managed decoder already expose its
+selected/substituted argv; the grammar already canonicalizes all four root
+spellings. Thus bundle.rs alone is the planned production repair, with
+capabilities.rs conditional only on demonstrated missing exposure.
+
+D5.6 preserves earlier refusal precedence, uses the effective inherited sandbox,
+checks every outcome and every parsed contribution, and refuses canonical
+`--cd` without a value. It combines robustness's explicit private context
+with simplicity's small helper argument: a narrow native-only canonical
+`web_search` key allowance preserves the measured OFF pair without exempting
+competing controls. It rejects blanket native-config refusal or trust,
+primary-only/OFF-only checks, priority assumptions, duplicate resolution,
+new origin machinery, and deferral to final-launch units, with reasons.
+No new spec ambiguity was found: the adopted SCM scenarios already encode
+S1/A1 and valid-denial behavior, so the proposal and deltas remain unchanged.
+Decision 0066 remains proposed.
+
+Tasks 2-fix.1–2-fix.4 remain unchecked, as do the reopened portions of
+2.1/2.1.5–2.1.7. They now reference D5.6's implementation seam and exact proof
+requirements: every chief case, all four root spellings in resolved native
+ON/OFF/nonempty substituted restriction paths, inherited sandbox, later
+candidate, untyped preservation, bounded Unicode/newline diagnostics, and
+full matching denial values. Every new independently claimed row needs a
+compiling mutation and observed assertion failure followed by restoration
+and pass. The chief's eleven cold-command cases/two controls remain supplied
+evidence; this seat ran no Rust regression, mutation or reproduction. Synthetic
+restriction refusal fixtures will not close unit 9's provider qualification.
+The Rebuild units list retains its numbered order, with 2-fix nested under
+unit 2; no later unit is pulled forward or closed.
+
+### Observed checks and limits
+
+- `openspec validate decision-0065-capabilities-slice-one --strict --no-interactive`:
+  **passed**.
+- `openspec validate --all --strict --no-interactive`: **passed, 18/18**.
+  Informational long-requirement and unrelated archive-target advisories remain;
+  no archive was attempted.
+- `git diff --check`: **passed**.
+- Each exact cargo command from tasks.md's local-gate list was attempted:
+  format; locked all-target/all-feature clippy; runtime all-feature tests;
+  `cargo test --workspace`; locked all-feature workspace tests; self and verify
+  compiles. All seven were **unavailable** with `FileNotFoundError: cargo`.
+  No cargo process ran, and the reporting script's exit 0 is not a Rust gate
+  pass. No host-shell fallback or prebuilt binary was substituted.
+- External exact coverage, macOS and remote CI remain **pending**. Historical
+  results retain their original tested scope; no fully green claim is made.
+
+Only design.md, tasks.md and evidence.md are committed for this design seat.
+No Rust/test, pin, shipped data, grant, frozen contract, policy, fixture,
+reference or extension edits are made. Final artifact/ancestry checks and the
+committed SHA are recorded in the required run-local result through workspace
+hands, so recording the result cannot move the validated source head. No
+push, security closure or implementation completion follows from this draft.
