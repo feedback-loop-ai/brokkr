@@ -1962,6 +1962,18 @@ symlink fixture and twenty planner vectors.
      C3: all five ignored tests are listed (two protocol, three
      `brokkr-view`). C4: S4's M9 assertion is A:6630–6634. Docs only, at
      `feeb2921`; no ruling recorded, no checkbox moved.
+   - 2026-09-23, second review return (C5–C7) answered in the brief. C5:
+     the closing now requires an eighth B5 group, the R1–R4 group's RR
+     M1–M9, DR1/DR2 D1–D5 and HM M1–M12, and observation 9 discloses that
+     this ledger reads two ways on it: B5's scope (467) reaches those tests,
+     while B5's cell and entry 20 (1998) say B5 does not wait on entry 20;
+     HM M1–M7 are in no entry's list. Nothing extended or assigned. C6:
+     `f030cce5`'s glibc/Apple `confstr` search is kept apart from current
+     production's per-target table (musl, Apple and FreeBSD literals,
+     `confstr` for Linux/glibc only). C7: the path inventories count this
+     brief (thirteen against `origin/main`, three documents since
+     `be1ecf77`) and give the pre-brief counts at `0af3a3c9`. Docs only; no
+     ruling recorded, no checkbox moved.
 
 18. **If 17 rules no: replay the terminal-body removals.** Added by the
    remediation (third return, finding 3). Covers S1, S3–S7, S8a–c, S9a–e,

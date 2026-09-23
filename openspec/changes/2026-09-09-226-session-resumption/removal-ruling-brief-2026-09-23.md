@@ -22,7 +22,8 @@ governs 8.8.1.1's resolver alone (ledger F5).
 
 ## How to read the table
 
-**Line numbers.** `tasks.md` lines are **current** (HEAD `0af3a3c9`). The
+**Line numbers.** `tasks.md` lines are **current** (`0af3a3c9`, and
+unchanged since). The
 ledger cites `origin/main`'s numbering. Entry 13 inserted 14 lines after main's
 1252 and 23 after main's 1287. So a ledger citation at or below 1252 is
 unchanged, 1253–1287 is +14, and 1288 onward is +37. For example, the ledger's
@@ -122,7 +123,7 @@ the cited source line and asserts what its record claims, unless a note under
 | **S9d** | 8.8.13.4, 267–276. Removal at 272–274: "applicable pair-set/occurrence-reuse and equal-total/identity mutations, disclosing overlapping offered-address protection" | **PC M5** (472), **M5b** (473) and **M5+M7** (474), with the overlap disclosed in 474: "counted containment alone also refuses a moved offer, so the address check is only separable jointly" | `A::dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids` A:6524, cases A:6527, A:6536 and A:6546, PL:250 | yes, through B2 | yes / no |
 | **S9e** | 8.8.13.5, 277–287. Removal at 286–287: "run applicable removals on new assertions to exclude unconditional refusal or whole-census equality" | **PC M9** (478), **M10** (479) and **M12** (480), as for S4 and S1 | `A::dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body` A:6590, PL:251. `A::dsh_cold_noise_and_a_root_mismatch_keep_their_terminal_behaviour` A:6756, PL:237. `A::a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms` A:7158, PL:174 | yes, through B2 | yes / no |
 | **S10** | 8.8.14.1, 291–299: the "task -> scenario -> actual test/ending -> mutation -> failed assertion -> restored pass ledger", and "Inspect the diff to ensure no mutation… survives" | The whole **PC** ledger, 451–489, with its fourteen rows and the disclosure paragraph at 482–489. The diff-inspection half is re-confirmed by this brief (below) | All fourteen PC-targeted tests, as for A61 | yes, through B2 | yes / no |
-| **B5** | 8.10, 5135–5136: "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass" | Every recorded ledger below: PC's fourteen; RR's M1–M9; DR1/DR2's D1–D5; HM's M1–M12; Pass D's D1, D2, D3 and returned-review records; entries 1–10's own records; entries 11, 12 and 13-fix's records, which entry 17's list omits but B5 reaches (observation 8); `4a3854ca`'s three Codex removals, which **name no assertion**; and task 10.5's M8, M8a, M9 and M9a. The last four each failed `tests.rs:2030:43 <case>: must not enable` and were restored to "1 passed" (10267–10270). Not reached by a ruling: the ten 21(a) controls, closed under the operator's F1–F4 ruling | Every targeted case exists and reads `ok` (the ledger section below). 10.5's target is `A::a_supported_assessment_without_both_affirmative_markers_declines` A:1987, whose decision arm is at A:2086–2089, PL:200. `4a3854ca`'s targets are `DC::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` DC:3194, CL:663, and `DC::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` DC:3297, CL:664. See observation 6 | **yes** | yes / no |
+| **B5** | 8.10, 5135–5136: "Every new test needs an observed compiling mutation failure at its claimed assertion and a restored pass" | Every recorded ledger below: PC's fourteen; RR's M1–M9, DR1/DR2's D1–D5 and HM's M1–M12, the R1–R4 group's records, which entry 17's list names and the ledger's B5 cell does not (observation 9); Pass D's D1, D2, D3 and returned-review records; entries 1–10's own records; entries 11, 12 and 13-fix's records, which entry 17's list omits but B5 reaches (observation 8); `4a3854ca`'s three Codex removals, which **name no assertion**; and task 10.5's M8, M8a, M9 and M9a. The last four each failed `tests.rs:2030:43 <case>: must not enable` and were restored to "1 passed" (10267–10270). Not reached by a ruling: the ten 21(a) controls, closed under the operator's F1–F4 ruling | Every targeted case exists and reads `ok` (the ledger section below). 10.5's target is `A::a_supported_assessment_without_both_affirmative_markers_declines` A:1987, whose decision arm is at A:2086–2089, PL:200. `4a3854ca`'s targets are `DC::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root` DC:3194, CL:663, and `DC::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement` DC:3297, CL:664. See observation 6 | **yes** | yes / no |
 | **B16** | 8.10, 5156–5162: "…with separately observed disabled-status, boxed-hands, harness-fragment and boundary-mark mutation failures" | **CX** (9134–9138), with the same four restated in 11.1's prose (5979–5985). The shipped status reverted to `unmeasured` failed the retry with `resume_refusal: unsupported-resume`. Declared hands reverted to `boxed` failed it cold with `restrictions-unavailable`. Suppressing `compose_site`'s harness fragment, and separately `mark_hands`'s boundary write, "each failed the bridge". "Every mutation was restored and rerun green." **The record names no run.** For the two bridge controls it names no assertion | `BT::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin` BT:1695, RT:275. Its fragment assertion is BT:1758–1763 and its boundary assertion BT:1780, but the record does not say which parted. `DC::the_shipped_codex_harness_work_seat_rejoins_its_retry` DC:2250, CL:656: `launch_row(&resumed, "resumed")` at DC:2374 asserts at DC:2783. `DC::the_shipped_inline_codex_work_seat_rejoins_its_retry` DC:2434, CL:655 | **yes** | yes / no |
 | **B20** | 8.10, 5167–5172: "pair its selector mutation with the existing protocol adapter test `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, verifying two children, no selector and the retained sandbox in the replacement argv, and one cold launch row" | **CX Low 3** (9150–9151): "The cold-selector test failed (guard returned `None`) with the selector guard bypassed. Restored." The commission is at 9017–9035. **The record does not say the paired test was run beside the mutation** | `A::a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too` A:1827. Its guard assertion `codex_selector_conflict(&extra) == Some(part)` is at A:1845, PL:180. The paired `A::a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled` A:2768 asserts two children (A:2801), no selector (A:2803), the retained sandbox (A:2804) and one cold launch row (A:2810–2816), PL:231 | **yes** | yes / no |
 | **B77** | 8.10, 5395–5400: "…and each regression/ending's compiling removal/restoration" | All fourteen **PC** rows, as for A61 | As for A61 | **yes** | yes / no |
@@ -151,8 +152,10 @@ disagrees with the table it counts, both are given.
 
 ## What was confirmed on the tree
 
-**No mutation survives.** `git diff origin/main` names twelve paths. Its
-production hunks are all recorded landings:
+**No mutation survives.** `git diff origin/main` names thirteen paths: eight
+code and test files, `tasks.md`, and four documents in this change's
+directory, one of them this brief. At `0af3a3c9`, before this brief, it named
+twelve. Its production hunks are all recorded landings:
 
 - `adapters.rs:1007–1014`: entry 9's strict UTF-8 decode, `6a5f1bc9`;
 - `route_overlay.rs:111–116`: entry 4's pin filter, `289d9c5b`;
@@ -192,8 +195,9 @@ case is among the five. Each targeted case's `ok` line is cited in the
 table and ledger section.
 
 Since `be1ecf77`, only documentation has moved. `git diff --name-status
-be1ecf77 HEAD` lists exactly the acceptance ledger and
-`removal-controls-2026-09-23.md`, from entry 21(a)'s performance and close.
+be1ecf77 HEAD` lists exactly three documents: the acceptance ledger and
+`removal-controls-2026-09-23.md`, from entry 21(a)'s performance and close,
+and this brief. At `0af3a3c9`, before this brief, it listed the first two.
 
 Entry 14's own delivery record is entry 22's to write. This brief cites the
 host log and does not record entry 14 as closed.
@@ -222,13 +226,22 @@ stands.
      `:161`, "the refusal names the absent PATH" (12403–12406).
    - *The change.* `f030cce5` (2026-09-20, "resolve a program the
      platform's way") removed the unconditional refusal. With no `PATH`, a
-     name is now searched on the C library's default search path, read
-     through `confstr(_CS_PATH)` as `execvp` does. A refusal names that
-     search (`Search::capture`, `composite.rs:2994`, message at 3095).
-     Current production keeps this. The code M1 mutated no longer exists in
-     that form. That commit reports nine removals of its own "recorded in
+     name was then searched on a default search path: glibc's and Apple's
+     read through `confstr(_CS_PATH)`, and musl's own literal (`git show
+     f030cce5:crates/brokkr-protocol/src/adapters/composite.rs`,
+     1532–1559). That commit reports nine removals of its own "recorded in
      the tasks account". Entry 17 does not list them, and this brief did not
      open them.
+   - *Current production* no longer asks `confstr` everywhere. It selects
+     the search per target through `default_search_of`
+     (`composite.rs:3221–3231`): musl's literal (3188), Apple's
+     `_PATH_DEFPATH` literal `/usr/bin:/bin` (3205), FreeBSD's own literal
+     (3213), and the `confstr(_CS_PATH)` query for Linux/glibc alone
+     (3258–3280). Any other target refuses as unestablished (3261–3263).
+     The Apple literal replaced the query in the #311 squash `e78c1da1`
+     (its comment cites review 2026-09-20, F2). A refusal names the search
+     it ran (`Search::capture`, `composite.rs:2994`, message at 3095). The
+     code M1 mutated no longer exists in that form.
    - *Now.* The current assertions are these, each passing in entry 14's
      run.
      `C::an_absent_path_is_a_named_refusal_and_never_the_working_directory`
@@ -242,7 +255,7 @@ stands.
    A yes on B5 would accept M1 and M2 as records against `d54a9f7b`'s
    refusal. It would not make them removal evidence for today's
    default-search arm. M1 and M2 serve no row of this class directly. They
-   are B5's reach.
+   are B5's reach, and after a no no entry replays them (observation 9).
 3. **N2's M6 on current bytes.** Two assertions now run before the
    invocation assertion M6 names (C:3160–3166). They are C:3119, direct env's
    `DshInvocation`, and C:3155, "the invocation runs without a search", which
@@ -292,6 +305,40 @@ stands.
      plausibly `each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm`
      (C:8169), but that is inferred.
    - Its Apple rows remain pending the macOS leg.
+9. **The R1–R4 group's records and B5: the ledger reads two ways.** RR's
+   M1–M9, DR1/DR2's D1–D5 and HM's M1–M12 are compiling mutations against
+   new tests of this change. Every targeted case exists and passed in entry
+   14's run: the N rows' cases as cited in the table; HM M1 and M2's as in
+   observation 2; HM M3 and M4's
+   `B::an_obstructed_path_search_takes_the_explicit_safe_refusal` B:685,
+   with its interpreter assertion at B:713 and B's sentinel assertion at
+   B:737, CL:625, and the classifier C:5621, PL:166; HM M5 and M6's C:4310,
+   PL:150; and HM M7's
+   `C::pnpm_identity_strings_preserve_the_distinction_from_typed_scalars`
+   C:5282, whose `refused_vector` is at C:5330, PL:96.
+
+   The ledger does not say whether B5 reaches them:
+   - its B5 scope, "every suite this change added tests to" (ledger 467),
+     reaches them, and entry 17's list names all three ledgers (ledger
+     1937–1939);
+   - its B5 cell does not list them, and both that cell and entry 20 say
+     "Unit 20 is 8.8's alone, so B5 does not wait on it" (ledger 467, 1998).
+
+   Entry 20 replays only the mutations that serve the N rows: RR M1–M9,
+   DR1/DR2 D1–D5 and HM M8–M12. HM M1–M7 serve the first hold's findings
+   S1, 2 and 3, not a row of this class, and no entry lists them.
+
+   So:
+   - a yes that names B5 meets it only if it also names these three
+     records, unless the operator rules that B5's "every new test" does not
+     reach the R1–R4 group's tests;
+   - after a no, if B5 reaches them, B5 waits on entry 20 and on a replay
+     of HM M1–M7 that **no entry owns**. That contradicts the ledger's "B5
+     does not wait on unit 20". If B5 does not reach them, entry 20 stays
+     8.8's alone, as the ledger says.
+
+   This brief discloses the conflict. It does not extend entry 20 or 21(b),
+   and it does not assign the HM M1–M7 replay.
 
 ## Closing: what a "yes" must name, and what a "no" leaves
 
@@ -302,7 +349,8 @@ that names exactly these **nineteen rows**:
 > S9d, S9e, S10**
 
 The fifteen S rows are reached through B2. For B5, the yes must cover the
-recorded controls in every suite. All seven are required:
+recorded controls in every suite. All eight groups are required, unless the
+operator rules the eighth outside B5 (observation 9):
 
 - the Pass C terminal body;
 - the Codex bridge and conformance suites;
@@ -312,7 +360,10 @@ recorded controls in every suite. All seven are required:
 - entries 1–10's records;
 - entries 11, 12 and 13-fix's records (observation 8). B5's "every new
   test" reaches their tests, so a yes that leaves them out does not meet
-  B5.
+  B5;
+- the R1–R4 group's records: RR M1–M9, DR1/DR2 D1–D5 and HM M1–M12
+  (observation 9). Naming N2–N10 for 8.8 names all but HM M1–M7; B5 needs
+  all three records named in its own right.
 
 That meets this one prerequisite. Entry 22 still owns the rest of its list and
 the regrade and tick. The rest of the list is:
@@ -334,14 +385,15 @@ entries 13, 15, 16 and 23.
 | **18** | S1, S3–S7, S8a–c, S9a–e, S10, A61 and B77, and B5's share for the Pass C tests | Replay Pass C's fourteen (465–480) one at a time, capturing each failing assertion verbatim. For S6, record that the failure is the terminal assertion and not a timeout, with elapsed time. Restore and rerun green, into a dated evidence file |
 | **19** | B16's four (disabled status, boxed hands, harness fragment, boundary mark) and B20's selector with its paired `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, and B5's share for those suites | Same method as entry 18 |
 | **21(b)** | B5's remainder | D1's two, D2's (tabulated eight), D3's (tabulated seven) and the returned review's two; entries 1–10's recorded mutations; `4a3854ca`'s three, each against a named assertion; and task 10.5's M8, M8a, M9 and M9a against A:2086–2089. Entries 11, 12 and 13-fix are not in its list (observation 8) |
-| **none** | Entries 11, 12 and 13-fix's records, B5's last share | No entry owns this replay. If the operator does not name these records in a yes, B5 stays unmet until a replay is assigned. This brief does not assign one |
-| **20** | 8.8 only: N2 (M5, M6), N4 (M4, with entry 12's callback half), N5d (M1–M3, M7–M9), N6a (HM M8), N6b (D1–D5), N7 (HM M9), N8 (HM M10), N9 (HM M11) and N10 (HM M12) | 8.10 does not wait on this entry |
+| **none** | Entries 11, 12 and 13-fix's records, and HM M1–M7 if B5 reaches the R1–R4 group (observation 9): B5's last share | No entry owns this replay. If the operator does not name these records in a yes, B5 stays unmet until a replay is assigned. This brief does not assign one |
+| **20** | N2 (M5, M6), N4 (M4, with entry 12's callback half), N5d (M1–M3, M7–M9), N6a (HM M8), N6b (D1–D5), N7 (HM M9), N8 (HM M10), N9 (HM M11) and N10 (HM M12) | The ledger says 8.10 does not wait on this entry (467, 1998). If B5 reaches the R1–R4 group's tests, these replays are also B5's share, and 8.10 would wait on it. The brief discloses this and does not rule it (observation 9) |
 
 After a no, 8.10 waits on entries 18, 19 and 21(b), all of them. Entry 22's
 list accepts those three as the alternative to a yes. But they do not reach
-entries 11, 12 and 13-fix, so B5 would still not read discharged, and entry
-22's last condition would stay unmet, until those records are ruled or
-replayed. The operator's
+entries 11, 12 and 13-fix, or the R1–R4 group's records. So B5 would still
+not read discharged, and entry 22's last condition would stay unmet, until
+those records are ruled or replayed, or the operator rules the R1–R4 group
+outside B5. The operator's
 F1–F4 ruling covers exactly entry 21(a)'s four controls. In entries 18–21(b), a
 control that does not part its named assertion is a finding. Observations 3
 and 4 name two places where that may happen on current bytes.
