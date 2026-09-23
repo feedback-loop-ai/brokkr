@@ -876,6 +876,202 @@ Nothing under 9.6, 10.x, 11.x or whole-change closure is touched, and no
 provider installation, live qualification, route enablement or release work
 is part of D2.
 
+## Implementation delivery — Pass D part three, drift, the profile, the locator and the planner, 2026-09-23
+
+Run `dsh-pass-d-part-three-of-three-d-144c7c79`, implement seat, branch
+`slice-dsh-pass-d` off D2's head `8fbe325d`. Pass D is split into three
+narrow runs; this is **D3 only**: component drift reaching planner
+admission, the profile's own composite lines, the remaining unreadable
+profile-manifest reasons, the bounded locator, and the other adapters'
+retained resume cases. D1's and D2's commits are adopted unchanged and
+neither is re-audited. **8.8 and 8.10 stay unticked**, no checkbox row is
+added or moved, and the inventory is unchanged: 152 checkbox rows, 125
+checked / 27 unchecked.
+
+Four signed commits, in two test files and nothing else: `33aecdbf` the
+profile's own lines and the generated file that is not one, `d983bb27`
+seven drifted sources, `69f555d8` the bounded locator by its own reasons,
+`b990217a` the wrapper's resume plan. `git diff 8fbe325d --name-only`
+names `crates/brokkr-protocol/src/adapters/composite/tests.rs` and
+`crates/brokkr-protocol/src/adapters/tests.rs`, so production is
+byte-identical to D2's head and no production line entered or left the
+coverage denominator. No contract, `policy/phase-machine.json`, schema,
+fixture, `reference/`, `extensions/dsh/` or decision byte moved; 0056 stays
+proposed, the DSH route stays disabled, no repository extension was
+created, and nothing was pushed.
+
+**What was built.** Every case is a SYNTHETIC deterministic planner or
+storage shim, labelled as such in the source. None is live DSH
+compatibility, qualification or enforcement evidence. Every home is built
+beneath a canonicalized temporary root, no test reads `.forge/`, and none
+needs an installed provider.
+
+- **Drift reaching admission.** `every_dsh_component_drift_declines_the_offer_before_any_provider_work`
+  builds a readable synthetic installation — the rc.2 core with its hidden
+  lock, the `headless` profile with its pnpm lock, patch and installed
+  plugin, and a scripted `node` — records an offer against the composite
+  that installation actually yields, and proves the offer is HONOURED
+  before anything is changed. Then core, Node, dependency, plugin, patch,
+  composed-profile and optional-extension drift are applied one at a time,
+  each to its own fresh install, and each declines `unverified-harness`
+  with no stream and no rejoin. The planner is handed the production
+  producer `dsh_composite` over the changed tree rather than a chosen
+  digest, which is the seam between "the observation moved" and "the offer
+  is refused" that a synthetic observation cannot exercise. A drifted
+  observation records NO declared identity, so the current-identity gate
+  is the one that refused, ahead of the originating comparison behind it.
+  "Before any provider work" is read off the shim's own log: the single
+  invocation of the provider binary is the `--version` identity probe, and
+  the settled plan is the shipped cold route. `HOME` and `NODE_PATH` are
+  pinned inside the fixture, under the suite's one environment lock, so no
+  directory of the host's can answer a bundle lookup.
+- **The profile's own lines.** `a_profile_bundle_added_dropped_or_reordered_moves_the_composite`
+  runs six cases — base, added, dropped, reordered, a changed
+  `patchReload` and an added home-level `cordis.patch.yml` — over one
+  synthetic home. Each asserts the exact declared bundle order, the exact
+  reload value and the exact `home-patch` value, that no dependency line
+  and no plugin byte moved, and then the exact identity bytes: the
+  canonical composite is compared to the SHA-256 of the component stream
+  that case serializes, written out by hand from a shared literal prefix.
+  Six streams, six identities, none colliding. The dropped case keeps the
+  required plugin and drops the other bundle, so what is measured is a
+  readable removal and not the plugin refusal.
+- **The generated file that is not an input.**
+  `a_rewritten_generated_cordis_yml_leaves_the_composite_untouched`:
+  `cordis.yml` appearing where `prepareProfile` writes it, and then
+  rewritten, leaves the whole observation equal — every member, not only
+  the digest. The control beside it is the profile's own
+  `cordis.patch.yml`, whose one added byte does move the identity.
+- **The profile manifest's missing and mistyped members.**
+  `the_profile_manifest_names_a_missing_mistyped_and_invalid_member_apart`
+  separates the defects where the grammar separates them: `bundles` absent,
+  a string, an object, `null` and a number all reach the non-empty-array
+  reason, because that is the one arm the grammar has; `patchReload`
+  absent, a number, `null`, empty and an array all reach `required_string`'s
+  reason; and a well-formed value outside the closed pair keeps its own
+  separate refusal naming what it read. Both admitted values are read back
+  as the control.
+- **The bounded locator.** `dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root`
+  is raised from `is_err()` to exact reasons. The round trip is stated as
+  bytes: the admitted locator names the home as spelled joined with the
+  locator as recorded, the header it selects is the planted file, and the
+  boundary read off it is the planted sequence. Empty, absolute,
+  traversal, a leading `./` component, a component carrying the separator
+  the shared clamp rewrites, an unresolved address, an id no stored header
+  names, and a locator naming a file each assert their one production
+  reason. Ambiguity is a refusal and not a choice — two depth-zero headers
+  naming one id select neither, and that reaches the caller through the
+  same locator. The symlinked escape is asserted by reason with its
+  control: the same tree planted inside the home resolves.
+  `a_dsh_overlong_locator_is_never_truncated_into_another_valid_root` now
+  reads the 80-character locator back as its own root and refuses the
+  81st character by the bound's own reason, with the overlong address
+  naming nothing on disk.
+- **A retained directory is never a handle.**
+  `a_retained_dsh_directory_alone_never_supplies_a_provider_handle`: a
+  home holding a complete, readable retained root with nine stored
+  sequences still launches cold when the offer names nothing — `--new`,
+  no `--session`, a freshly allocated root and no stored boundary — and an
+  id offered with no recorded address is declined the same way, even
+  though the store holds that very id. The control is the complete
+  recorded address over the same store, which rejoins at sequence nine.
+- **The wrapper's own resume plan.**
+  `the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary`
+  closes the one adapter with no resume-plan case of its own. The wrapper
+  shares claude's parsing and planner but is qualified on its own
+  `wrapper-work-site` entry, and nothing said so: exact cold and warm argv
+  with the wrapper at `argv[0]` and exactly one owned selector; the
+  current class, model and effort restrictions travelling in order and
+  unaltered as the generated fragment; a claude measurement that enables
+  at claude's shape and not at the wrapper's; unsupported hands staying
+  unsupported; a forged identifier and a nonpersistent wrapper landing on
+  the same cold argv with the forged id nowhere in it; and an ambient
+  `--continue` refused before any provider work, cold and warm alike.
+
+**Removal proofs.** Six production mutations were compiled, run red against
+the case they were aimed at and reverted; production ends the slice
+unchanged and none was committed. A seventh attempt — `profile_patch`
+reading `cordis.yml` outright — was DISCARDED as evidence: it parted the
+base composite on a missing file, which is an unrelated guard and not the
+intended behavioural failure. It was replaced by the fold below, which
+leaves the base readable and moves only when the generated file appears.
+
+| Mutation | Case that parted |
+|---|---|
+| `canonical_composite` sorts the `profile-bundle` rows | the reordered case, at its pinned stream digest |
+| `read_profile` defaults a missing `patchReload` to `startup` | the manifest matrix, at the first admitted defect |
+| `profile_patch` folds `cordis.yml` over the patch digest when present | the generated file moved the whole observation |
+| the composite comparison tests digest LENGTH, not equality | every drift recorded the drifted observation as the current identity |
+| `dsh_session_file_reading` takes the first of several matches | ambiguity selected a header instead of refusing |
+| `resolve_dsh_root` drops the canonical-home containment test | the symlinked escape was admitted |
+| `resume_gate` falls back to another shape's assessment entry | a claude measurement opened a wrapper session |
+
+**Gates.** Run sequentially, from this worktree, each crate suite in its own
+invocation. `cargo fmt --all -- --check` PASS; `cargo clippy --workspace
+--all-targets --all-features --locked -- -D warnings` PASS; `cargo test`
+PASS for `brokkr-core` (73/3/8/2), `brokkr-store`, `brokkr-protocol` (**426
+lib** + 99 seatbelt + 1 doc), `brokkr-runtime` (456 + siblings),
+`brokkr-view` (243), `brokkr-bridge` (13) and `brokkr-cli` (467 lib and
+every integration binary, `driver_conformance` among them, retained and
+unextended); `cargo run --locked -p brokkr-cli -- compile --bundle
+bundles/self` PASS.
+
+`bash scripts/coverage-exact.sh` and `openspec validate --all --strict` are
+**refused by this seat's permission grant**, as they were for D2. The
+coverage SUBSTANCE was measured again on this candidate with the pinned
+toolchain and is reported as a reproduction, not as the gate:
+`git grep -n 'coverage(off)'` over `crates/` is empty; `cargo
++nightly-2026-09-05 llvm-cov clean --workspace` then `cargo
++nightly-2026-09-05 llvm-cov --workspace --all-features --locked --branch
+--json` ran the whole suite under instrumentation and exited 0; the LCOV
+export carries **32,802 of 32,802 `DA` records covered and 5,508 of 5,508
+`BRDA` records covered**, with zero test-harness filenames in the report.
+The deduplicated function count could not be recomputed here — the seat's
+command checker refuses the accounting `awk` — and it is unchanged by
+construction: this delivery adds no production line, so the function
+denominator and every production line's status are D2's measured 3,195 of
+3,195. Nothing was lowered, disabled or substituted. The gate script
+itself and `openspec validate --all --strict` stay **pending** until a host
+that may run them does; remote CI on a final head and native macOS remain
+pending until their own results exist.
+
+**Pass D clause mapping.** Every clause of the authoritative Pass D
+paragraph above, against the run that discharged it:
+
+| Clause | Owner |
+|---|---|
+| npm lockfile-3 hidden-lock and pnpm 9.0 worked vectors; key spellings, three package groups, malformed intermediate group, hidden lock as sole source with no root-lock fallback | D1 |
+| exact normalized value bytes, npm/pnpm equivalence, complete-triple dedup, distinct version/integrity retention, malformed key and version refusals | D1 |
+| every unrecognized pnpm construct | D1 |
+| plugin component bytewise path order; the plugin's own tarball excluded; equal composite across two homes and two per-seat overlays; the symlinked home ancestor | D2 |
+| general bundle, plugin and synthetic-extension containment; retained lookup anchor and order; unresolvable boundary, escaping symlink, near-prefix sibling, outside first hit; a listed bundle in an ancestor `node_modules` or a global folder | D2 |
+| the conditional extension: synthetic absent and present sets, exact four-file order, changed bytes, missing and extra files, symlinks, out-of-profile resolution, and no `extension` line for absence | D2 |
+| a profile bundle added, dropped or reordered; a changed `patchReload`; an added home-level `cordis.patch.yml`; a rewritten `cordis.yml` that moves nothing | **D3** |
+| missing or malformed `bundles` or `patchReload` | **D3** (D2's inherited cases retained and extended with the missing/mistyped separation) |
+| an executable that is not the core's `env node` script | inherited (`the_core_executable_must_be_lib_bin_js_with_the_exact_shebang`, `the_dsh_composite_refuses_a_layout_outside_the_locators`), retained and credited |
+| core, Node, dependency, plugin, patch, composed-profile and optional-extension drift yielding `unverified-harness` before provider work | **D3** |
+| bounded locator round-trip and refusal of truncation, ambiguity, traversal and symlink escape; a retained directory is never a handle | **D3** |
+| the exact resume argv and complete current class/model/effort for every other adapter, generated fragment versus passthrough, no ambient cold or gate continuation, nonpersistent refusal, identifier injection, unsupported hands, cold and resume inability to honour the class | **D3** (the wrapper's gap closed; the claude, codex and dsh cases retained and named) |
+| 8.8's committed-bytes test pinning the adaptation's six-file set against its provenance block | inherited (`the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`), retained unchanged |
+| doctor reporting a matching, differing, undeclared and unreadable composite | 8.8(a–c), merged (`crates/brokkr-cli/src/doctor/tests.rs`) |
+| retained-storage admission, unsafe candidates, stored sequences and storage-refusal fields | Passes B and C, merged |
+| every case building its homes in temporary directories, reading no `.forge/` and needing no installed provider | all three |
+
+One clause remains conditional by its own terms and is NOT claimed: "if the
+extension is required, also compare its committed set to its own provenance
+block through the same function." No extension is required, none is
+commissioned, and the paragraph forbids creating a speculative one — so the
+comparison has no subject. On that reading, and with the pending gates named
+above, the Pass D paragraph's commissioned matrix is discharged across D1,
+D2 and D3. **This claim ticks nothing**: 8.8 and 8.10 stay unchecked, and
+the controller reconciles them against the whole task, including the
+pending coverage script, OpenSpec validation, remote CI and the live
+qualification this slice never touched.
+
+Nothing under 9.6, 10.x, 11.x or whole-change closure is touched, and no
+provider installation, live qualification, route enablement or release work
+is part of D3.
+
 ## Historical composite decisions and execution clauses
 
 The following composite scope, task states, verification commands and dated
