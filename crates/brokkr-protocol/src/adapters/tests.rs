@@ -12967,3 +12967,384 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
         None => std::env::remove_var("DSH_HOME"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Pass D part three: component drift, observed by the real producer and
+// spent by the planner.
+//
+// Every case below builds a readable synthetic installation beneath a
+// canonicalized temporary root, records an offer against the composite
+// THAT installation yields, then changes one source and asks the planner
+// again — over the production producer, not a chosen digest. These are
+// deterministic planner and storage shims. No case installs, contacts or
+// measures a live DSH pair, and none is evidence of upstream
+// compatibility, qualification or enforcement.
+// ---------------------------------------------------------------------------
+
+/// A readable synthetic DSH installation: the rc.2 core with its hidden
+/// lock, the `headless` profile with its pnpm lock, patch and installed
+/// plugin, and a scripted `node` the observation probes instead of the
+/// host's. The layout mirrors the composite suite's synthetic home,
+/// because it is the same producer that reads it.
+#[cfg(unix)]
+struct DshInstall {
+    #[allow(dead_code)]
+    dir: tempfile::TempDir,
+    root: std::path::PathBuf,
+    home: std::path::PathBuf,
+    seams: DshSeams,
+}
+
+#[cfg(unix)]
+impl DshInstall {
+    fn profile(&self) -> std::path::PathBuf {
+        self.home.join("profiles").join("headless")
+    }
+
+    fn core(&self) -> std::path::PathBuf {
+        self.root.join("core")
+    }
+
+    fn plugin(&self) -> std::path::PathBuf {
+        self.profile()
+            .join("node_modules")
+            .join("dsh-plugin-cli-session")
+    }
+
+    /// The observation the production producer makes of this
+    /// installation, right now.
+    fn composite(&self) -> DshComposite {
+        dsh_composite(&self.seams)
+            .unwrap_or_else(|error| panic!("the install is readable: {error}"))
+    }
+}
+
+/// Write `bytes` to `dir/relative`, creating the parents.
+#[cfg(unix)]
+fn write_under(dir: &Path, relative: &str, bytes: &[u8]) {
+    let path = dir.join(relative);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, bytes).unwrap();
+}
+
+/// The core's six plugin files and the extension's four, in the shapes
+/// the producer's walks declare. Each file carries its own relative name
+/// as its bytes, so a changed byte is a visible one-line edit below.
+#[cfg(unix)]
+const INSTALL_PLUGIN_FILES: [&str; 6] = [
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml",
+    "lib/index.js",
+    "lib/startup.js",
+    "package.json",
+];
+
+#[cfg(unix)]
+const INSTALL_EXTENSION_FILES: [&str; 4] =
+    ["LICENSE", "cordis.patch.yml", "index.js", "package.json"];
+
+#[cfg(unix)]
+fn synthetic_dsh_install() -> DshInstall {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let core = root.join("core");
+    let pkg = core.join("node_modules").join("@deepseek-ai").join("dsh");
+    write_under(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    write_under(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    // The resolver classifies the core script as a child's search would,
+    // and a child does not execute a mode-0644 file.
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            pkg.join("lib/bin.js"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+    write_under(
+        &core,
+        "node_modules/.package-lock.json",
+        br#"{"lockfileVersion":3,"packages":{
+          "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+          "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+          "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+        }}"#,
+    );
+
+    let home = root.join("home");
+    let profile = home.join("profiles").join("headless");
+    write_under(
+        &profile,
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    write_under(&profile, "cordis.patch.yml", b"[]\n");
+    write_under(
+        &profile,
+        "pnpm-lock.yaml",
+        b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n",
+    );
+    write_under(
+        &profile,
+        "node_modules/@deepseek-ai/dsh-base/package.json",
+        br#"{"name":"@deepseek-ai/dsh-base","version":"0.1.5-rc.2"}"#,
+    );
+    for file in INSTALL_PLUGIN_FILES {
+        write_under(
+            &profile.join("node_modules").join("dsh-plugin-cli-session"),
+            file,
+            file.as_bytes(),
+        );
+    }
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The `node` the retained selection hands the observation. It lives
+    // under a `bin/` directory, so the producer reads the ordinary
+    // runtime prefix beside it.
+    let node = executable(
+        &{
+            let bin = root.join("node").join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            bin
+        },
+        "node",
+        "#!/bin/sh\nprintf 'v22.23.2\\n'\n",
+    );
+    let bin = pkg.join("lib/bin.js");
+    let head = std::fs::read(&bin).unwrap();
+    DshInstall {
+        seams: DshSeams {
+            executable: bin.to_string_lossy().into_owned(),
+            home: home.clone(),
+            node: Some(DshNode {
+                invocation: DshInvocation::of(node.clone()),
+                path: node,
+            }),
+            head,
+        },
+        root,
+        home,
+        dir,
+    }
+}
+
+/// A version shim that APPENDS its whole argv to a log, so the case can
+/// read back how many times the provider binary ran and what it was
+/// asked. An identity probe is `--version` and nothing else; a work
+/// invocation would carry the profile, the patch and a selector.
+#[cfg(unix)]
+fn dsh_logging_version_shim(
+    dir: &Path,
+    name: &str,
+    version: &str,
+    log: &Path,
+) -> std::path::PathBuf {
+    executable(
+        dir,
+        name,
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {log}\ncase \"$1\" in --version|-V|-v) \
+             printf '{version}\\n'; exit 0 ;; esac\nexit 0\n",
+            log = log.display()
+        ),
+    )
+}
+
+/// Core, Node, dependency, plugin, patch, composed-profile and optional-
+/// extension drift each decline the offer with `unverified-harness`,
+/// before any provider work.
+///
+/// Every case starts from a READABLE installation and a valid offer
+/// recorded against the composite that installation actually yields, and
+/// proves the offer is honoured first — so the decline that follows is
+/// the changed source's and not the fixture's. The planner is handed the
+/// production producer over the changed tree, not a chosen digest: this
+/// is the seam between "the observation moved" and "the offer is
+/// refused", which a synthetic observation cannot exercise.
+///
+/// "Before any provider work" is read off the shim's own log: the only
+/// invocation of the provider binary is the `--version` identity probe,
+/// and the settled plan is the shipped cold route, which carries no
+/// `--session` and opens no stream (task 8.8(d), Pass D; design D6;
+/// safety / AS1, evidence / LE2).
+#[cfg(unix)]
+#[test]
+fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    let prior_user_home = std::env::var_os("HOME");
+    let prior_node_path = std::env::var_os("NODE_PATH");
+
+    // Each case is one drifted source, applied to its own fresh install.
+    type Drift = fn(&DshInstall);
+    let cases: [(&str, Drift); 7] = [
+        ("core", |install| {
+            // The core's recorded integrity, which is the core line's
+            // third field.
+            write_under(
+                &install.core(),
+                "node_modules/.package-lock.json",
+                br#"{"lockfileVersion":3,"packages":{
+                  "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-REPUBLISHED"},
+                  "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+                  "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+                }}"#,
+            );
+        }),
+        ("node", |install| {
+            // The runtime the shebang selects, answering a new version.
+            executable(
+                &install.root.join("node").join("bin"),
+                "node",
+                "#!/bin/sh\nprintf 'v22.23.3\\n'\n",
+            );
+        }),
+        ("dependency", |install| {
+            // One dependency's integrity in the profile's pnpm lock.
+            write_under(
+                &install.profile(),
+                "pnpm-lock.yaml",
+                b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-REBUILT}\n",
+            );
+        }),
+        ("plugin", |install| {
+            write_under(&install.plugin(), "lib/startup.js", b"// drifted\n");
+        }),
+        ("patch", |install| {
+            write_under(&install.profile(), "cordis.patch.yml", b"[]\n# drifted\n");
+        }),
+        ("composed profile", |install| {
+            write_under(
+                &install.profile(),
+                "package.json",
+                br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"live"}}}"#,
+            );
+        }),
+        ("optional extension", |install| {
+            for file in INSTALL_EXTENSION_FILES {
+                write_under(
+                    &install
+                        .profile()
+                        .join("node_modules")
+                        .join("brokkr-dsh-resume-policy"),
+                    file,
+                    file.as_bytes(),
+                );
+            }
+            write_under(
+                &install.profile(),
+                "package.json",
+                br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#,
+            );
+        }),
+    ];
+
+    for (case, drift) in cases {
+        let install = synthetic_dsh_install();
+        std::env::set_var("DSH_HOME", &install.home);
+        // The bundle search reads Node's global folders, which the child
+        // environment spells from `HOME` and `NODE_PATH`; both are pinned
+        // inside the fixture so no directory of this host's can answer a
+        // bundle lookup.
+        std::env::set_var("HOME", &install.root);
+        std::env::remove_var("NODE_PATH");
+
+        let declared = install.composite().canonical().to_string();
+        assert_eq!(declared.len(), 64, "{case}");
+        let log = install.root.join(format!("probe-{}.log", case.len()));
+        let shim = dsh_logging_version_shim(&install.root, "dsh-drift", "0.1.5-rc.2", &log);
+        let shim_text = shim.to_string_lossy().into_owned();
+        let workdir = install.root.to_str().unwrap().to_string();
+
+        plant_dsh_session(&install.home, "sessions/brokkr/seat-1", "--w--", "s-1", 4);
+        let mut input = dsh_enabled_input("0.1.5-rc.2", &declared, &install.root);
+        input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.2");
+        input["resume_context"]["originating_wrapper_digest"] = json!(declared);
+        input["resume_context"]["owned_target"] = json!({
+            "provider_id": "s-1",
+            "persistence_locator": "sessions/brokkr/seat-1",
+            "persistence_home": install.home.to_str().unwrap(),
+        });
+
+        // The offer against the READABLE install is honoured. The probe
+        // can fail transiently under load, which observes no version at
+        // all; that is a fact about the moment, so it is retried rather
+        // than asserted away.
+        let mut warm = None;
+        for _ in 0..8 {
+            let attempt = dsh_launch_with(&shim_text, &[], &workdir, Some("s-1"), &input, || {
+                dsh_composite(&install.seams).map_err(|error| error.to_string())
+            })
+            .unwrap();
+            let observed = attempt.observed.is_some();
+            warm = Some(attempt);
+            if observed {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let warm = warm.unwrap();
+        assert_eq!(warm.observed.as_deref(), Some("0.1.5-rc.2"), "{case}");
+        assert_eq!(
+            warm.wrapper_digest.as_deref(),
+            Some(declared.as_str()),
+            "{case}"
+        );
+        assert_eq!(
+            warm.refusal, None,
+            "{case}: the readable install is offerable"
+        );
+        assert!(warm.stream_json, "{case}");
+        assert_eq!(warm.rejoining.as_deref(), Some("s-1"), "{case}");
+        drop(warm);
+
+        // One source changes.
+        drift(&install);
+        let moved = install.composite();
+        assert_ne!(
+            moved.canonical(),
+            declared,
+            "{case}: the drift must move the observation for this case to mean anything"
+        );
+
+        std::fs::write(&log, b"").unwrap();
+        let drifted = dsh_launch_with(&shim_text, &[], &workdir, Some("s-1"), &input, || {
+            dsh_composite(&install.seams).map_err(|error| error.to_string())
+        })
+        .unwrap();
+        assert_eq!(drifted.refusal, Some("unverified-harness"), "{case}");
+        assert!(!drifted.stream_json, "{case}");
+        assert!(drifted.rejoining.is_none(), "{case}");
+        assert_eq!(
+            drifted.wrapper_digest, None,
+            "{case}: a drifted observation records no declared identity"
+        );
+        assert_shipped_cold_command(&drifted.command, &shim_text);
+
+        // The provider binary ran exactly once, and only to say what it
+        // is: the decline precedes every work invocation.
+        let probes = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(
+            probes.lines().collect::<Vec<_>>(),
+            vec!["--version"],
+            "{case}: the only provider invocation is the identity probe"
+        );
+    }
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+    match prior_user_home {
+        Some(value) => std::env::set_var("HOME", value),
+        None => std::env::remove_var("HOME"),
+    }
+    if let Some(value) = prior_node_path {
+        std::env::set_var("NODE_PATH", value);
+    }
+}
