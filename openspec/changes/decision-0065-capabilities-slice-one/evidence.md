@@ -1,6 +1,15 @@
 # Decision 0065, slice one — evidence after the operator ruling
 
-## Current status — unit 2 second review return, 2026-09-23
+## Current status — unit 3 specification, 2026-09-23
+
+Adopted `slice-0065-capabilities` through `b4839426`, retaining unit 2-fix and
+all preceding commits. This specify visit changes only proposal, the owning
+seat/native deltas and tasks/evidence; see “Unit 3 — specification adoption”
+below. Task 3.1 remains open and 4.2 awaits unit 4. No implementation,
+compiling mutation or fully green claim is made. External exact coverage,
+macOS and remote CI remain pending.
+
+## Historical status — unit 2 second review return, 2026-09-23
 
 The second review return on `4a441bf7` (S1 `--add-dir`, P1–P3 proof gaps)
 is answered; see “Unit 2 — second review return” at the end of this file.
@@ -2477,3 +2486,75 @@ restored and formatting was applied:
 - The coverage diagnostic was **not** run this visit. External exact
   coverage, macOS and remote CI are **pending**. Nothing is called fully
   green.
+
+
+## Unit 3 — specification adoption, 2026-09-23
+
+Run: `build-decision-0065-slice-one-re-29dd19f2`; phase: specify, sole chief.
+Baseline: `b4839426` on `slice-0065-capabilities`, initially clean. Adopted the
+named change and every commit; no replay, reset, runner invocation or council.
+No `returned_from` is present. Read the operator ruling first, Rebuild units
+preamble/unit 3, tasks 3.1/4.2 and owning SCM/NCC deltas; also the dialect's
+JSON and specify/return instructions, README, decisions 0004/0005/0009/0063,
+0065 and proposed 0066, D5 and relevant code/tests/history.
+
+Observed prerequisites, not execution proofs:
+
+- `agents::compose` currently flattens template, model/effort and direct local
+  mappings; `Candidate::parts` retains only the appended hands boundary. Unit
+  3 must preserve origins at construction rather than recover them from bytes.
+- Explicit direct empty still refuses in agents.rs, and D5.3's inline/sandbox
+  admission fences remain in bundle.rs. Lowering alone cannot remove them.
+- `Authority::native_plan` carries ON/OFF, argv and selection; typed holdings
+  retain structured restrictions. Unit 3 must retain expected state independent
+  of serialization, including zero-argv default ON and unmeasured inventory.
+- Protocol `launch_arguments` checks only authored/managed reassembly today.
+  Its existing test proves that limited record, not five origins or authentic
+  engine ownership of an arbitrary record.
+
+The proposal was amended before the two deltas, followed by tasks/evidence.
+SCM/NCC scenarios answer the unit boundary and equality ambiguities; their
+Decisions reject byte-based ownership, output-derived expectations and premature
+admission. The accepted design order and proposed decision status are retained.
+No upstream fault or scope split is established by this specification reading.
+
+Intended implementation proof ledger (all measurements pending):
+
+| Obligation | Owning suite | Intended independent compiling mutation and exact assertion |
+| --- | --- | --- |
+| Exact local mapping and template/local separation | runtime agents/tests.rs | Change a mapped prefix/order or relabel local output; fail complete contribution and expected-value equality |
+| Omitted/empty/sandbox state and hands replacement | runtime agents/tests.rs | Collapse one state or add a dormant direct flag; fail complete state/argv equality, preserving admission fences |
+| Five origins, identical bytes and repeated occurrences | protocol native_controls/tests.rs; runtime agents/tests.rs for construction | Relabel or coalesce a contribution; fail complete ordered segment equality even when flattened bytes match |
+| Mandatory private state and typed decoding | protocol native_controls/tests.rs | Default one missing/malformed case or accept an unknown origin; fail its complete refusal equality |
+| Ordered exact reassembly | protocol native_controls/tests.rs | Remove the correspondence check for an independently changed/dropped/added/reordered contribution; fail the full mismatch equality |
+| Independent candidate expectation | owning agents/native_controls suites | Reconstruct expected state from emitted bytes, lose default ON or replace unmeasured with empty; fail the independent literal state assertion |
+
+These are planned experiments, not observed reds. Each new test/row still owes
+its baseline outcome, the compiling mutation and actual failing assertion, and
+the restored pass. A not-yet-existing API does not count as a compiling red.
+Unit 4 owns dispatch/override protection; units 12–15 own activation and final
+launch checks. No new test, production file, public contract, shipped JSON,
+frozen bytes or measured pin changes in this visit.
+
+Validation observed in this specification visit:
+
+| Check | Result |
+| --- | --- |
+| `openspec validate --all --strict --no-interactive` | Passed: 18 items, zero failures |
+| `openspec validate decision-0065-capabilities-slice-one --strict --no-interactive` | Passed: change is valid |
+| `git diff --check` | Passed |
+| `cargo fmt --all -- --check` | Unavailable: executable `cargo` not found |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | Unavailable: executable `cargo` not found |
+| `cargo test -p brokkr-runtime --all-features --locked` | Unavailable: executable `cargo` not found |
+| `cargo test -p brokkr-protocol --all-features --locked` | Unavailable: executable `cargo` not found |
+| `cargo test --workspace` | Unavailable: executable `cargo` not found |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | Unavailable: executable `cargo` not found |
+
+Each Cargo command was attempted through the workspace tool using subprocess;
+each failed to start with `[Errno 2] No such file or directory: 'cargo'`.
+The reporting script's zero exit is not a successful Rust gate. No crate was
+edited, and no implementation test or mutation was added in this specify visit.
+OpenSpec's informational output includes pre-existing other-change archive
+target warnings and long requirement text; neither command reported a failure.
+Inherited passes are not rerun claims. External exact coverage, macOS and remote
+CI stay pending; no nested-box coverage or live-provider run is claimed.

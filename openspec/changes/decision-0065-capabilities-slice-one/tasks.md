@@ -376,6 +376,37 @@ later units. This tasks re-adoption ticks none of the above; its completion is a
 
 - [ ] 3.1 Unit 3 defines typed lowering and private segment decoding/reassembly, with expected state independent of generated argv. Verify exact mappings and identical-byte origin distinction in agents/native-controls suites; no public schema. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; both design positions. (previous 3.20)
 
+Specification adoption, 2026-09-23, baseline `b4839426`: this visit amends
+only unit 3's acceptance detail in SCM/NCC and records no implementation
+completion. Preserve the three production files and two owning suites named
+in Rebuild units. Task 3.1 remains open; 4.2 advances only when the primitives
+are implemented and remains open until unit 4 proves transport. Do not remove
+unit 2 guards or activate authored refusal to make a primitive test pass.
+
+For 3.1, bind SCM's three Unit 3 scenarios and NCC's four Unit 3 scenarios:
+exact mapped prefixes/order and separate template/local origins; omitted,
+empty and sandbox expected values with hands semantics retained; all five
+origin kinds including equal-byte copies; fallible mandatory-state decoding;
+exact ordered reassembly; independent expected native/local/hands state.
+Use the existing runtime `agents/tests.rs` and protocol
+`native_controls/tests.rs`, with canonical temporary roots and no installed
+provider or `.forge/` reads. Every added test/row needs its observed baseline,
+independent compiling mutation, exact failing assertion and restored pass in
+evidence. Existing passing neighbours are labelled as such, never invented
+reds. An unavailable primitive is not a compiling baseline failure.
+
+Run fmt, workspace clippy, each touched crate suite, workspace tests, self
+bundle compilation, strict OpenSpec validation and diff checks on restored
+work. Keep external exact coverage and unobserved host/remote results pending.
+If the primitive requires changes beyond the named production/test scope,
+stop and inventory a split before implementation, preserving prior commits.
+
+Observed specify checks: strict OpenSpec all-items validation passed 18/18,
+and change validation and `git diff --check` passed. Cargo could not be
+executed in this seat (`No such file or directory: 'cargo'`), so fmt, clippy,
+both owning crate suites, workspace tests and self compilation are unavailable,
+not green. Full details are in evidence's unit 3 specification entry.
+
 ## 4. Unit 4 — Wire origins through runtime dispatch
 
 - [ ] 4.1 Unit 4 wires the selected candidate's private segments through engine.rs SiteSpawn, bundle projection, boundary composition, placeholder expansion and final input merging. Verify absent/reordered/overridden records refuse and legitimate typed controls survive. Requirements: [Shipped inline permissions migrate before refusal lands][SCM], [Authored provider configuration cannot supply capability authority][RGR], [Every accepted native control reaches the final command][NCC]. New explicit substep of 4.2: operator rulings 1–2; robustness runtime evidence. (previous 3.21)

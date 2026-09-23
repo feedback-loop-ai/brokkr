@@ -261,6 +261,55 @@ the serving spawn. Each replacement or fallback command needs its own check.
 This applies to known-harness serving commands; availability probes and opaque
 custom drivers SHALL NOT acquire capability guarantees from it.
 
+Before flattening, the private plan SHALL distinguish contributions supplied
+by authored commands, adapter templates, typed local permissions, engine hands
+and realm-derived native controls. Ordered segments SHALL retain their source
+kind and exact argv, including empty values and repeated equal bytes; engine
+ownership SHALL NOT be recovered by matching values, flags or server names.
+The independent expected state SHALL retain provider/harness identity, known
+or unmeasured inventory, held and denied powers, admitted tools, structured
+restrictions, local limits and required hands as applicable. A measured default
+ON with no emitted argv SHALL still retain its expected holding; unmeasured
+inventory SHALL NOT become a known empty one.
+
+The new private decoder/reassembler SHALL be fallible. It SHALL reject missing
+mandatory state, malformed shapes/types, unknown origin kinds and segments
+whose ordered concatenation differs from the supplied argv. It SHALL NOT
+repair them into empty or recover the richer origins from the old two-array
+record. Reassembly proves byte correspondence, not permission or authentic
+engine authorship: unit 4 supplies the protected runtime handoff, while later
+units judge grammar, authored refusal and the complete final command. Unit 3
+SHALL define and test the new primitives without activating that later refusal
+or changing the existing serving consumers to require an unwired record.
+No versioned public contract or manifest field is added for this private data.
+
+#### Scenario: Unit 3 equal bytes retain different supplying origins
+
+- **GIVEN** private records containing byte-identical argument contributions supplied independently as authored, template, local, hands and native segments
+- **WHEN** the new primitive decodes and reassembles each record, including a record with repeated identical contributions
+- **THEN** the flattened bytes match exactly while the decoded origin sequence remains different and preserves every occurrence and its order
+- **AND** an authored copy remains authored; equal bytes neither grant authority nor prove that an untrusted record was sealed by the engine
+
+#### Scenario: Unit 3 private decoding never defaults missing authority
+
+- **WHEN** a record or mandatory expected-state field is absent or null, a segment/argv has the wrong type, an argv element is not a string, or an origin tag is unknown
+- **THEN** decoding returns the complete bounded owning cause, distinct from a valid explicitly empty contribution or known empty state
+- **AND** tests assert exact reasons without echoing argument payloads; the old authored/managed pair is not sufficient input to the richer decoder
+
+#### Scenario: Unit 3 reassembly checks every argument in order
+
+- **GIVEN** a well-formed private record and its supplied argument vector
+- **WHEN** an argument is independently dropped, added, changed, or distinct segments are reordered so their concatenation differs
+- **THEN** reassembly refuses with its exact full mismatch reason
+- **AND** the valid record round-trips exact segments and argv, including empty strings; exchanging byte-identical contributions is distinguished by recorded origin values, not by a claim that byte equality detects their exchange
+
+#### Scenario: Unit 3 expected state is independent of emission
+
+- **GIVEN** sealed typed inputs for a particular candidate's held/denied native powers, admitted tools and restrictions, local limits and required hands
+- **WHEN** the primitives produce contributions, including a measured default ON with no argv or an explicitly unmeasured inventory
+- **THEN** the expected state equals an independent literal derived from those inputs and preserves the default holding or unmeasured reason exactly
+- **AND** changing only emitted argv cannot rewrite that expected state; this is a primitive-state proof, while refusal of a semantically mismatched final serving command remains with units 13–15
+
 #### Scenario: Final serialization is checked rather than trusted
 
 - **WHEN** a valid plan loses OFF after a terminator, gains an extra tool, loses an empty restriction, changes a list separator, or duplicates an engine output-format option during final assembly
@@ -457,3 +506,17 @@ Static command equality never becomes live provider enforcement evidence.
 The DSH guard order is the operator's addendum of 2026-09-23 (rebuild unit
 1b): the authority refusal wins, and the boundary check reads the composed
 argv under ruling 2.
+
+Unit 3 specification clarification (2026-09-23, based on b4839426): D5 and
+rulings 1–2 require explicit origins before flattening and expectations derived
+from typed inputs. The current hands suffix remains historical evidence only.
+Reject string matching, saturating a missing boundary into an empty segment,
+inferring the richer record from two arrays, and deriving expected state from
+the command being checked. Equal-byte reassembly is necessary but cannot
+authenticate a model-supplied origin label; the protected handoff is unit 4's
+obligation, and final counterfeit refusal remains in 15.2. Define the fallible
+primitive now without requiring an unwired format at today's serving doors.
+The Rust interface may cross runtime/protocol internally; this is no new public
+wire or manifest contract. No authored-refusal activation, unused-half load
+validation, grammar campaign or final checked-command implementation is moved
+into unit 3. Decision 0066 remains proposed.

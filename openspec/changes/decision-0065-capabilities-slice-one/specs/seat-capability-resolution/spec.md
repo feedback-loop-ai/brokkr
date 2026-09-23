@@ -334,6 +334,37 @@ executable site, the offending field and the complete validation or widening
 cause; boundary conflicts SHALL also name the resolved boundary. No invalid
 field SHALL be coerced, ignored or treated as omitted.
 
+Typed lowering SHALL retain the effective local declaration and its concrete
+mapping separately from serialized argv. It SHALL preserve each mapped value
+and the declared list order, without broadening a command prefix, substituting
+a provider default or reclassifying local permissions as a native grant.
+Omitted, empty and nonempty local restrictions SHALL remain distinct in the
+expected state even where a serving path cannot yet represent one of them.
+Hands replacement and realm/boundary checks remain independent constraints.
+Producing a private lowering value SHALL NOT by itself admit a previously
+unsupported runnable path.
+
+#### Scenario: Unit 3 lowering preserves exact mapped limits
+
+- **GIVEN** an effective direct allow list `["pytest", "cargo"]` and adapter mappings `pytest` to `Bash(.venv/bin/pytest:*)` and `cargo` to `Bash(cargo:*)`, with `--allowedTools` and separator `,`
+- **WHEN** the local lowering primitive composes this declaration
+- **THEN** its local contribution is exactly `["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]`, its typed expectation retains the ordered names and mapped limits, and it grants no native capability
+- **AND** the adapter driver template, including any `--permission-mode acceptEdits`, remains a separate template contribution; identical authored bytes never acquire that origin
+
+#### Scenario: Unit 3 lowering retains absence empty and sandbox intent
+
+- **WHEN** the lowering primitives receive omitted allow, explicit `[]`, a nonempty subset, or each valid typed sandbox class
+- **THEN** their expected values distinguish all three allow states and preserve exactly read-only, workspace-write or danger-full-access when requested; omitted sandbox remains unspecified
+- **AND** no empty string joined into an allow flag is accepted as proof of an empty local tool surface, and no provider default is accepted as proof of a sandbox class
+- **AND** an unsupported representation retains its full refusal; the existing matching Codex hands fragments retain their exact class and hands origin without gaining a second competing local control
+
+#### Scenario: Unit 3 primitives cannot bypass the delivery handoff
+
+- **GIVEN** unit 2's refused inline direct allow, direct empty or unsupported sandbox path, or a local list dormant beside hands
+- **WHEN** unit 3 adds local lowering and origin primitives without unit 4's bundle and dispatch transport
+- **THEN** the unsupported paths remain refused and the hands path keeps replacement semantics, without adding a direct allow flag or silently discarding an effective restriction
+- **AND** exact lowering tests close only the primitive obligation; compiled delivery, shipped migration and final launch evidence remain in their assigned later units
+
 #### Scenario: Strict typed decoding preserves exact local values
 
 - **WHEN** an agent or executable site declares `tools: {"allow":["git","cargo"],"sandbox":"read-only"}`
@@ -594,3 +625,14 @@ not a proven provider escape. No provider was launched in the chief's cold
 command reproduction. No new design choice or upstream specification fault
 is introduced; implementation and independent refusal proofs remain open in
 2-fix, not deferred to units 13–15. Decision 0066 remains proposed.
+
+Unit 3 specification clarification (2026-09-23, based on b4839426): adopt
+D5's separation of local typed input, concrete mappings and emitted argv.
+Reject treating an adapter template or a generated local permission as
+recipe-authored merely because Candidate currently flattens it into the base
+array. Reject inferring an empty restriction from a joined empty string or a
+sandbox class from provider defaults. These primitives do not relax D5.3's
+admission guards: unit 4 must prove any newly admitted path reaches dispatch.
+The existing three sandbox classes and hands replacement semantics stand;
+no new provider mapping or live-enforcement claim is made here. Unit 3 closes
+3.1 only after its own proofs; 4.2 and all later delivery proofs remain open.
