@@ -630,6 +630,44 @@ exist.
    lib plus 94 integration passed, 0 failed) are green. Tests only; no
    production line moved; no checkbox moved.
 
+2c-fix. **Refuse a route beside a model pin with no provider segment.** The
+   production remedy for unit 2c's Pass-B finding below, ordered before 2c's
+   re-run. Touches `crates/brokkr-protocol/src/adapters/route_overlay.rs`
+   (the `claim` boundary and its test module) and
+   `crates/brokkr-protocol/src/adapters/tests.rs` (the segment-less vector in
+   `dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path`).
+   A pin without a `/` provider segment refuses with the absent pin's bounded
+   reason, before any file is read or staged, echoing no value. Proof: a
+   route keyed `deepseek-official`, model item `deepseek-v4-flash` with a
+   `reasoningEfforts` block, beside `--model deepseek-v4-flash`, refuses on
+   disabled, offered and cold with `dsh_staging_calls() == 0`, zero producer
+   calls and the exact reason; removing the check in a compiling mutation
+   parts the new vectors; a pinned-segment positive still passes unchanged.
+
+   **Landed 2026-09-23 at `289d9c5b`.** `claim_with` now reads the pin through
+   `model.filter(|model| model.contains('/'))`, so a segment-less pin takes
+   the absent-pin arm (`` refusing to invoke the dsh driver: a route overlay
+   needs a pinned `--model` with a provider segment ``) before the path checks,
+   the `stat` or the read. The matrix carries the vector above as `model pin
+   without a provider segment`, asserting the reason whole and no echo of
+   `deepseek-v4-flash` or `deepseek-official`, and
+   `route_overlay.rs::a_bound_route_beside_a_segment_less_pin_refuses_before_any_read`
+   proves the same bytes pass `validate` for that pin, refuse at `claim_with`
+   with injected readers that panic if reached, and admit when the route and
+   pin name `deepseek`. One mutation, compiled, run red and reverted: the
+   filter removed parts the matrix at `tests.rs:12725` (`model pin without a
+   provider segment/disabled must refuse`; a diagnostic run under the same
+   mutation saw each of disabled, offered and cold admit with
+   `dsh_staging_calls() == 1`) and the reader test at `route_overlay.rs:935`
+   (the injected `stat` reached). The existing positives
+   `claim_reads_the_bound_file_and_requires_the_digest_before_the_shape` and
+   `a_dsh_route_overlay_planner_folds_on_the_offered_and_unmeasured_paths`
+   pass unchanged. `cargo fmt --all -- --check`, `cargo clippy --workspace
+   --all-targets --all-features --locked -- -D warnings` and `cargo test -p
+   brokkr-protocol --all-features --locked` (427 + 99 + 1 passed, 0 failed)
+   are green. The DSH route stays disabled; unit 2c's other classes are
+   untouched and 2c re-runs whole; no checkbox moved.
+
 2c. **Drive the reader's remaining classes through the three planner paths, and
    add the two classes that exist nowhere.** Closes B47, B49 and B50. Touches
    `crates/brokkr-protocol/src/adapters/tests.rs` (extend
