@@ -100,6 +100,10 @@ fn fixture() -> (Value, DispatchEnvelopeV2, OffsetDateTime) {
     (manifest, dispatch, now)
 }
 
+/// The audience `fixture()` seals, which a mock transport delivers to
+/// unless a test names another origin.
+const FIXTURE_AUDIENCE: &str = "https://dogfood.feedback-loop.ai";
+
 #[derive(Default)]
 struct MockTransport {
     state: Option<RegistrationState>,
@@ -107,14 +111,21 @@ struct MockTransport {
     commands: Vec<ProducerCommand>,
     receipts: Vec<CommandReceipt>,
     replay_all: bool,
+    origin: Option<String>,
+    registrations: usize,
 }
 
 impl ProducerTransport for MockTransport {
+    fn origin(&self) -> &str {
+        self.origin.as_deref().unwrap_or(FIXTURE_AUDIENCE)
+    }
+
     fn register(
         &mut self,
         dispatch: &DispatchEnvelopeV2,
         _: &Value,
     ) -> Result<RegistrationState, BridgeError> {
+        self.registrations += 1;
         Ok(self
             .state
             .get_or_insert_with(|| RegistrationState {
@@ -498,8 +509,12 @@ fn http_transport_refuses_origin_status_connection_and_shape_defects() {
     let mut wrong_origin = HttpTransport::new("http://127.0.0.1:1", "secret");
     assert!(matches!(
         wrong_origin.register(&dispatch, &json!({})),
-        Err(BridgeError::Transport(message)) if message.contains("sealed callback audience")
+        Err(BridgeError::AudienceMismatch)
     ));
+    assert_eq!(
+        BridgeError::AudienceMismatch.to_string(),
+        "producer transport: transport origin does not match the sealed callback audience"
+    );
 
     let (base_url, server) = loopback_server(vec![(401, json!({"error": "no"}).to_string())]);
     let error = HttpTransport::new(&base_url, "secret")
@@ -976,4 +991,66 @@ fn sync_replays_and_receipts_cover_rejected_and_cursor_refusals() {
     let transport = bridge.into_transport();
     assert_eq!(transport.receipts[0].outcome, "rejected");
     assert!(transport.receipts[0].reason.is_some());
+}
+
+#[test]
+fn sync_refuses_a_transport_whose_origin_is_not_the_sealed_audience() {
+    // The audience rule belongs to the bridge, not to one transport: a
+    // transport that delivers anywhere else is refused before it is
+    // asked to register, so no registration and no event leaves.
+    let (manifest, _, now) = fixture();
+    for origin in [
+        "http://127.0.0.1:1",
+        "https://dogfood.feedback-loop.ai.attacker.example",
+        "https://dogfood.feedback-loop.ai/elsewhere",
+        "",
+    ] {
+        let (_, mut store) = store_with_manifest(&manifest, "forge-run-1");
+        let mut bridge = Bridge::new(MockTransport {
+            origin: Some(origin.into()),
+            ..Default::default()
+        });
+        let error = bridge
+            .sync_once(&mut store, "forge-run-1", now, 0)
+            .unwrap_err();
+        assert!(
+            matches!(error, BridgeError::AudienceMismatch),
+            "{origin}: {error}"
+        );
+        let transport = bridge.into_transport();
+        assert_eq!(transport.registrations, 0, "{origin}: registered anyway");
+        assert!(transport.events.is_empty(), "{origin}: submitted anyway");
+    }
+}
+
+#[test]
+fn sync_admits_the_sealed_audience_with_or_without_a_trailing_slash() {
+    let (manifest, _, now) = fixture();
+    for origin in [FIXTURE_AUDIENCE.to_string(), format!("{FIXTURE_AUDIENCE}/")] {
+        let (_, mut store) = store_with_manifest(&manifest, "forge-run-1");
+        let mut bridge = Bridge::new(MockTransport {
+            origin: Some(origin.clone()),
+            ..Default::default()
+        });
+        bridge
+            .sync_once(&mut store, "forge-run-1", now, 0)
+            .unwrap_or_else(|error| panic!("{origin}: {error}"));
+        assert_eq!(bridge.into_transport().registrations, 1);
+    }
+}
+
+#[test]
+fn checkpoint_fields_outside_the_producer_vocabulary_stay_withheld() {
+    // `effort` and `reasoning_output_tokens` reached checkpoints after
+    // the producer vocabulary was fixed. Forwarding them is a change to
+    // that vocabulary, ruled on its consumer's side, so they are withheld
+    // on purpose and this pins it: the next field is a decision, not a
+    // drift.
+    let safe = safe_checkpoint(&json!({
+        "step": "seat-turn",
+        "input_tokens": 12,
+        "effort": "high",
+        "reasoning_output_tokens": 34,
+    }));
+    assert_eq!(safe, json!({"step": "seat-turn", "input_tokens": 12}));
 }
