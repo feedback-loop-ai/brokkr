@@ -1,6 +1,6 @@
 # 0069 — A boxed seat is told how to find its hands: the adapter names two tools, the engine decides who hears them, and the result contract says it
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-25)
 Date: 2026-09-24
 Change: `2026-09-24-codex-0156-boxed-seat`
 
