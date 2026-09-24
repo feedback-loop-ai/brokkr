@@ -1148,11 +1148,32 @@ const PERMISSION_CONTROLS: [(&str, &[&str], Option<&str>); 11] = [
     ),
 ];
 
+/// Codex's permission and sandbox configuration tables, beside the
+/// canonical name a refusal gives an assignment in, or under, each
+/// (realm-capability-grants, the native-control table; rebuild unit
+/// 5c-fix-b, the second returned R1).
+const PERMISSION_CONFIG: [(&str, &str); 3] = [
+    ("approval_policy", "--config approval_policy"),
+    ("sandbox_mode", "--config sandbox_mode"),
+    (
+        "sandbox_workspace_write",
+        "--config sandbox_workspace_write",
+    ),
+];
+
+/// The spellings that carry a Codex configuration assignment in one token,
+/// longest first so `-c=KEY=VALUE` is not read as `-c` carrying `=KEY`.
+const CONFIG_JOINED: [&str; 4] = ["--config=", "--config", "-c=", "-c"];
+
 /// The permission control `token` spells, by its canonical name, or `None`
 /// (rebuild unit 5c-fix-b). The name is read before any `=`, an alias is
 /// its control, and a short option is matched with its value attached, so
-/// every spelling of one control is the same control. Only the canonical
-/// name is returned, so a refusal built on it never echoes the token.
+/// every spelling of one control is the same control. A Codex
+/// configuration assignment carried whole in the token — `--config=KEY=V`,
+/// `-c=KEY=V` or `-cKEY=V`, however the key is quoted or spaced — is the
+/// control of a permission or sandbox table it assigns into, or under.
+/// Only the canonical name is returned, so a refusal built on it never
+/// echoes the token.
 pub fn permission_control(token: &str) -> Option<&'static str> {
     let name = token.split_once('=').map_or(token, |(name, _)| name);
     PERMISSION_CONTROLS
@@ -1163,6 +1184,16 @@ pub fn permission_control(token: &str) -> Option<&'static str> {
                 || short.is_some_and(|short| token.starts_with(short))
         })
         .map(|(canonical, _, _)| *canonical)
+        .or_else(|| {
+            let assignment = CONFIG_JOINED
+                .iter()
+                .find_map(|spelling| token.strip_prefix(spelling))?;
+            let key = grammar::config_key(assignment);
+            PERMISSION_CONFIG
+                .iter()
+                .find(|(table, _)| grammar::config_under(&key, table))
+                .map(|(_, canonical)| *canonical)
+        })
 }
 
 /// Why a `template`-origin contribution behind a driver template is not a
@@ -1181,7 +1212,12 @@ pub fn pin_fault(driver: &[String], pin: &[String]) -> Option<&'static str> {
     let [flag, value] = pin else {
         return Some("is not one option and its value");
     };
-    if permission_control(flag).is_some() || permission_control(value).is_some() {
+    // Joined, a split `-c KEY=VALUE` is judged as the assignment it is,
+    // under a harness brokkr models or not.
+    if [flag.clone(), value.clone(), format!("{flag}={value}")]
+        .iter()
+        .any(|token| permission_control(token).is_some())
+    {
         return Some("spells a permission control");
     }
     if value.starts_with('-') {

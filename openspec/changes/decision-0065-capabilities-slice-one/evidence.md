@@ -5313,3 +5313,107 @@ saved copy, and `cmp` showed it byte-identical.
   the box), macOS and remote CI on the committed head. The whole-workspace
   run keeps brokkr-cli's `bootstrap_bench` red, the known interim agent-arm
   refusal, until 5c-fix2. Nothing is pushed.
+
+## Unit 5c-fix-b — second review return, 2026-09-25
+
+Run `triage-directive-operator-ruling-ce9cceae`. The council reviewed
+`cc8cbd52..67f6858b` and returned a residual at medium, with no security
+residual and no specification defect. This visit answers that return. It
+changes one production file, `native_controls.rs`, and two authorized test
+files, `native_controls/tests.rs` and `capability_launch.rs`. `bundle.rs` and
+`engine.rs` are unchanged since `3c9f25cc`; both reach the repair through
+`permission_control` and `pin_fault`.
+
+### The finding and its disposition
+
+- **R1 (medium, correctness/spec compliance).** `permission_control` read
+  only option names, so a Codex configuration assignment into a permission
+  or sandbox table — `-capproval_policy=never`,
+  `-c=sandbox_mode="danger-full-access"`,
+  `--config=sandbox_workspace_write.network_access=true` — was no control.
+  Declared as the `effort_flag` of an effortless Codex route whose office
+  pins no effort, it was DORMANT, so no effort segment existed for
+  `pin_fault` to judge; the seat compiled, sealed `none` and launched. The
+  specified keys are `approval_policy`, `sandbox_mode` and
+  `sandbox_workspace_write` with descendants, in all five config spellings
+  (specs/realm-capability-grants, the native-control table and the Codex
+  config forms). **Repaired:** `permission_control` also reads a token that
+  carries a whole assignment (`--config=`, `--config`, `-c=`, `-c`, longest
+  first) and returns `--config <table>` where its key, folded by
+  `grammar::config_key`, stands in or under one of the three tables
+  (`grammar::config_under`, dotted components). The two split spellings
+  `-c KEY=V` and `--config KEY=V` span two tokens; `pin_fault` now also
+  judges a pin's flag and value joined by `=`, so a split assignment spells
+  its control behind any driver, modelled or opaque. The refusal names the
+  field and the table, never the value. Model reasoning effort,
+  `mcp_servers` (its own guard) and a bare `-c`/`--config` stay unclassified
+  here, so the legitimate Codex `--effort` pin, which the driver turns into
+  `-c model_reasoning_effort=…`, still compiles.
+
+### Tests
+
+- `native_controls/tests.rs`,
+  `every_spelling_of_a_permission_control_is_named_canonically`: 25 to 36
+  rows. New: the three spellings above (to `--config approval_policy`,
+  `--config sandbox_mode`, `--config sandbox_workspace_write`), a quoted and
+  spaced `--config="approval_policy" = "never"`, a one-token
+  `-c 'sandbox_mode'=read-only`; and `None` for
+  `--config=sandbox_workspace_writes=1` (a sibling key, not a descendant),
+  `-cmodel_reasoning_effort=high`, `--config=model_reasoning_effort=high`,
+  `--config=mcp_servers.x.command=x`, `-c` and `--config`.
+- `native_controls/tests.rs`,
+  `only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin`: 18 to 21
+  rows. "a permission assignment behind codex" (`-c approval_policy=never`)
+  now asserts `spells a permission control` (it was `is not its harness's
+  model or effort option`). New: "a sandbox assignment behind an opaque
+  driver" (`--config sandbox_workspace_write.network_access=true`) asserts
+  `spells a permission control`; "an effort assignment behind codex"
+  (`-c model_reasoning_effort=high`) asserts the not-a-pin cause; "an effort
+  assignment behind an opaque driver" asserts `None`.
+- `capability_launch.rs`, new test
+  `a_codex_adapter_whose_effort_flag_assigns_a_permission_table_refuses_the_compile`,
+  8 rows on a canonicalised copy of the shipped adapters with a fixture
+  effortless route (`route/gpt-6-astra`):
+  - "the legitimate model pin, no effort": `Ok(()) {"kind":"none"} launched
+    ["codex","exec","--json","-C","/w","--model","route/gpt-6-astra","-c","web_search=\"disabled\""]`.
+  - "the legitimate model and effort pins" (office pins `high`, model
+    `gpt-6-astra`): `Ok(()) {"kind":"none"} launched
+    ["codex","exec","--json","-C","/w","-c","model_reasoning_effort=\"high\"","--model","gpt-6-astra","-c","web_search=\"disabled\""]`.
+  - Three DORMANT rows (no effort pinned) and three EMITTED rows (`high`
+    pinned), one per spelling above as `effort_flag`, each pinning the whole
+    declaration refusal: "bundle: seat 'work': the 'codex' adapter declares
+    its effort_flag as the permission control '--config approval_policy'
+    [or sandbox_mode, sandbox_workspace_write]; a model or effort pin names a
+    model or an effort and never carries a permission mode, so the
+    declaration is refused rather than composed (operator ruling 1 of
+    2026-09-23; rebuild unit 5c-fix-b)".
+
+### Mutations (each alone, compiling, run, restored)
+
+| # | Mutation (`native_controls.rs`) | Failing test: rows (assertion) |
+| --- | --- | --- |
+| N1 | the table lookup made unreachable (`config_under(&key, table) && false`) — the baseline | spellings (`tests.rs:2559`): the five new classified rows, left `None`; pin (`:2691`): "a permission assignment behind codex" (left: not its harness's option) and "a sandbox assignment behind an opaque driver" (left `None`); compile (`capability_launch.rs:1279`): **all three dormant rows compiled, sealed `none` and launched** `[… "--model","route/gpt-6-astra","-c","web_search=\"disabled\""]` — the chief's three scenarios reproduced — and the three emitted rows were refused only by the later pin check ("segment 3 … is not its harness's model or effort option"), not as declarations |
+| N2 | `pin_fault` stops judging the joined split form (`[flag, value]` only) | pin (`:2691`): "a permission assignment behind codex" (left: not its harness's option) and "a sandbox assignment behind an opaque driver" (left `None`); spellings passed |
+| N3 | spelling order swapped (`"-c"` before `"-c="`) | spellings (`:2559`): exactly `-c=sandbox_mode="danger-full-access"` (left `None`); pin: "a permission assignment behind codex" |
+| N4 | descendants dropped (`key == *table` for `config_under`) | spellings (`:2559`): exactly `--config=sandbox_workspace_write.network_access=true` (left `None`); pin: "a sandbox assignment behind an opaque driver" (left `None`) |
+
+After N1 to N4 the tree was restored by the inverse edit; the gates below
+ran on the restored tree.
+
+### Gates (on the restored tree)
+
+- `cargo fmt --all -- --check`: passed, after `cargo fmt` rewrapped the
+  `sandbox_workspace_write` entry.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: passed.
+- `cargo test --locked --all-features -p brokkr-protocol`: 474, 99 (2
+  ignored) and 1 passed, with 0 failed.
+- `cargo test --locked --all-features -p brokkr-runtime`: every binary
+  passed, with 0 failed. The lib has 551 tests and `capability_launch` has
+  32.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+- **Pending:** external exact coverage, macOS and remote CI on the committed
+  head, as before; brokkr-cli's `bootstrap_bench` stays red until 5c-fix2.
+  Nothing is pushed.

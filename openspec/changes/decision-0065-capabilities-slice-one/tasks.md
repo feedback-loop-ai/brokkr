@@ -860,9 +860,24 @@ driver-contradiction rows or the omission assertion (R2). The return visit
 `native_controls.rs`, so it now has eleven controls with long aliases. It
 added dormant and emitted declaration rows with the exact refusal, and M1 to
 M6 each bound and were restored. M4, M5 and M6 each fail exactly the omission
-assertion or one contradiction row. 5c-fix-b.1 and 5c-fix.1 close on that
-return's evidence. The gates are recorded there, and the pending items above
-still hold.
+assertion or one contradiction row. The gates are recorded there, and the
+pending items above still hold.
+
+Returned again 2026-09-25 by its council (residual, medium; no security
+residual, no specification defect). **Correction:** the first return's
+evidence did not support the tick above or 5c-fix.1's closure either.
+`permission_control` read only option names, so the specified Codex
+permission/sandbox assignments (`-capproval_policy=never`,
+`-c=sandbox_mode="danger-full-access"`,
+`--config=sandbox_workspace_write.network_access=true`) were no control;
+declared as a dormant `effort_flag` on an effortless Codex route, the seat
+compiled, sealed `none` and launched (R1). The second return (evidence.md,
+"Unit 5c-fix-b — second review return") classifies a whole assignment into or
+under `approval_policy`, `sandbox_mode` or `sandbox_workspace_write` in every
+config spelling, joins a split pin before judging it, and adds exact dormant
+and emitted Codex declaration rows beside the legitimate model and effort
+pins; N1 to N4 each bound and were restored. 5c-fix-b.1 and 5c-fix.1 close
+on that return's evidence.
 
 - [ ] 5c-fix2.1 Unit 5c-fix2 records the template in the expected state, agent-backed arm: the composition carries the adapter's declared template as a typed fact, and `expected_state` fills the agent arm from it instead of refusing, so agent-backed Claude and LaneTally seats seal again with the template recorded and the contradiction check in force. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2. (split from 5c by the operator; run `triage-directive-operator-ruling-0bdb3908`)
 

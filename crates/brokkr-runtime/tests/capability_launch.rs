@@ -1143,6 +1143,142 @@ fn an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Rebuild unit 5c-fix-b (the second returned R1): Codex's permission and
+/// sandbox configuration assignments are permission controls a model or
+/// effort flag may not be either. On a Codex route whose office pins no
+/// effort, the effort flag is DORMANT — no effort segment is composed for a
+/// later check to see — and an adapter declaring it as a `-cKEY=V`,
+/// `-c=KEY=V` or `--config=KEY=V` assignment into or under
+/// `approval_policy`, `sandbox_mode` or `sandbox_workspace_write` refuses
+/// the compile naming the field and the table, never the value; so does
+/// the same flag where an office pins an effort and it would be EMITTED.
+/// The legitimate model pin, with no effort and with one, compiles, seals
+/// `none` and reaches the final command with native search switched off.
+#[test]
+fn a_codex_adapter_whose_effort_flag_assigns_a_permission_table_refuses_the_compile() {
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let declared = |field: &str, control: &str| {
+        format!(
+            "bundle: seat 'work': the 'codex' adapter declares its {field} as the permission control \
+             '{control}'; a model or effort pin names a model or an effort and never carries a \
+             permission mode, so the declaration is refused rather than composed (operator ruling \
+             1 of 2026-09-23; rebuild unit 5c-fix-b)"
+        )
+    };
+    let launched = |pins: &[&str]| {
+        let mut argv = vec!["codex", "exec", "--json", "-C", "/w"];
+        argv.extend(pins);
+        argv.extend(["-c", "web_search=\"disabled\""]);
+        format!(
+            "{:?} {} launched {argv:?}",
+            Ok::<(), String>(()),
+            json!({"kind": "none"})
+        )
+    };
+    let rows: [(&str, Option<&str>, &str, String); 8] = [
+        (
+            "the legitimate model pin, no effort",
+            None,
+            "",
+            launched(&["--model", "route/gpt-6-astra"]),
+        ),
+        (
+            "the legitimate model and effort pins",
+            None,
+            "high",
+            launched(&[
+                "-c",
+                "model_reasoning_effort=\"high\"",
+                "--model",
+                "gpt-6-astra",
+            ]),
+        ),
+        (
+            "dormant: an attached approval policy",
+            Some("-capproval_policy=never"),
+            "",
+            declared("effort_flag", "--config approval_policy"),
+        ),
+        (
+            "dormant: an equals-joined sandbox mode",
+            Some("-c=sandbox_mode=\"danger-full-access\""),
+            "",
+            declared("effort_flag", "--config sandbox_mode"),
+        ),
+        (
+            "dormant: a long workspace-write descendant",
+            Some("--config=sandbox_workspace_write.network_access=true"),
+            "",
+            declared("effort_flag", "--config sandbox_workspace_write"),
+        ),
+        (
+            "emitted: an attached approval policy",
+            Some("-capproval_policy=never"),
+            "high",
+            declared("effort_flag", "--config approval_policy"),
+        ),
+        (
+            "emitted: an equals-joined sandbox mode",
+            Some("-c=sandbox_mode=\"danger-full-access\""),
+            "high",
+            declared("effort_flag", "--config sandbox_mode"),
+        ),
+        (
+            "emitted: a long workspace-write descendant",
+            Some("--config=sandbox_workspace_write.network_access=true"),
+            "high",
+            declared("effort_flag", "--config sandbox_workspace_write"),
+        ),
+    ];
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, flag, effort, expected)| {
+            let adapters = copied_adapters();
+            let root = std::fs::canonicalize(adapters.path()).unwrap();
+            edit_adapter(&root, "codex", |adapter| {
+                adapter["effortless_routes"] = json!({"route": "a fixture route"});
+                adapter["models"]["astra"] = json!("route/gpt-6-astra");
+                if let Some(flag) = flag {
+                    adapter["effort_flag"] = json!(flag);
+                }
+            });
+            agent_backed_solo(&operator, effort);
+            let mut office = json!({
+                "description": "an office that declares no local tools",
+                "charter": "charters/searcher.md",
+                "models": ["astra"],
+            });
+            if !effort.is_empty() {
+                // An effort pinned on an effortless route still reaches the
+                // declaration check first: it is refused whichever it pins.
+                edit_adapter(&root, "codex", |adapter| {
+                    adapter["models"]["astra"] = json!("gpt-6-astra");
+                });
+                office["efforts"] = json!({"astra": effort});
+            }
+            write(operator.root(), "agents/plain.json", &office);
+            let observed = match solo_bundle(&operator, &root, &context) {
+                Ok(bundle) => {
+                    let (spawn, sealing) = sealing(&bundle, "work", 0, &bundle.sites["work"]);
+                    let final_command = match try_launch(&bundle, "work", 0) {
+                        Ok(argv) => format!("launched {argv:?}"),
+                        Err(refusal) => format!("the driver said: {refusal}"),
+                    };
+                    format!(
+                        "{sealing:?} {} {final_command}",
+                        spawn.launch_record()["expected"]["template"]
+                    )
+                }
+                Err(refusal) => refusal,
+            };
+            (observed != expected)
+                .then(|| format!("row {label}:\n  left:  {observed}\n  right: {expected}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// Rebuild unit 5c-fix-b (chief R1, scenario 1): EVERY template
 /// contribution of an agent-backed seat is judged, before the expectation
 /// and at the seal, not only its driver template. On a Claude adapter whose

@@ -2474,10 +2474,16 @@ fn a_native_contribution_materializes_once_through_the_launch_lowering() {
 /// short options, attached — and a model or effort option is none. The
 /// returned R1: the whole specified inventory, Claude's prompt tool and
 /// additional directories and Codex's additional directories, its two
-/// relaxing switches and `--yolo`, the alias of its bypass switch.
+/// relaxing switches and `--yolo`, the alias of its bypass switch. The
+/// second returned R1: a Codex configuration assignment carried whole in
+/// one token — `-cKEY=V`, `-c=KEY=V`, `--config=KEY=V`, quoted or spaced —
+/// into or under `approval_policy`, `sandbox_mode` or
+/// `sandbox_workspace_write` is that table's control, judged on dotted
+/// components; model reasoning effort, `mcp_servers` (refused by its own
+/// guard) and a bare config option are not permission controls.
 #[test]
 fn every_spelling_of_a_permission_control_is_named_canonically() {
-    let rows: [(&str, Option<&str>); 25] = [
+    let rows: [(&str, Option<&str>); 36] = [
         ("--permission-mode", Some("--permission-mode")),
         ("--permission-prompt-tool", Some("--permission-prompt-tool")),
         (
@@ -2521,6 +2527,26 @@ fn every_spelling_of_a_permission_control_is_named_canonically() {
         ("--effort", None),
         ("bypassPermissions", None),
         ("--permission-modes", None),
+        ("-capproval_policy=never", Some("--config approval_policy")),
+        (
+            "-c=sandbox_mode=\"danger-full-access\"",
+            Some("--config sandbox_mode"),
+        ),
+        (
+            "--config=sandbox_workspace_write.network_access=true",
+            Some("--config sandbox_workspace_write"),
+        ),
+        (
+            "--config=\"approval_policy\" = \"never\"",
+            Some("--config approval_policy"),
+        ),
+        ("-c 'sandbox_mode'=read-only", Some("--config sandbox_mode")),
+        ("--config=sandbox_workspace_writes=1", None),
+        ("-cmodel_reasoning_effort=high", None),
+        ("--config=model_reasoning_effort=high", None),
+        ("--config=mcp_servers.x.command=x", None),
+        ("-c", None),
+        ("--config", None),
     ];
     let failures: Vec<String> = rows
         .iter()
@@ -2538,7 +2564,9 @@ fn every_spelling_of_a_permission_control_is_named_canonically() {
 /// token of it spells a permission control, its value does not read as an
 /// option and, behind a modelled harness, it parses as that harness's
 /// model or effort option. A legitimate `--model`/`--effort` pin — and an
-/// opaque driver's own model flag — stays a pin.
+/// opaque driver's own model flag — stays a pin. The second returned R1: a
+/// split `-c KEY=VALUE` into a permission or sandbox table spells its
+/// control behind any driver; an effort assignment does not.
 #[test]
 fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
     let claude = argv(&["{brokkr}", "driver", "claude", "--"]);
@@ -2549,7 +2577,7 @@ fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
     const OPTION: &str = "carries a value that reads as an option";
     const NOT_PIN: &str = "is not its harness's model or effort option";
     type Row<'a> = (&'a str, &'a [String], &'a [&'a str], Option<&'a str>);
-    let rows: [Row; 18] = [
+    let rows: [Row; 21] = [
         (
             "claude model",
             &claude,
@@ -2620,10 +2648,28 @@ fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
             Some(NOT_PIN),
         ),
         (
-            "a configuration assignment behind codex",
+            "a permission assignment behind codex",
             &codex,
             &["-c", "approval_policy=never"],
+            Some(CONTROL),
+        ),
+        (
+            "a sandbox assignment behind an opaque driver",
+            &opaque,
+            &["--config", "sandbox_workspace_write.network_access=true"],
+            Some(CONTROL),
+        ),
+        (
+            "an effort assignment behind codex",
+            &codex,
+            &["-c", "model_reasoning_effort=high"],
             Some(NOT_PIN),
+        ),
+        (
+            "an effort assignment behind an opaque driver",
+            &opaque,
+            &["-c", "model_reasoning_effort=high"],
+            None,
         ),
         (
             "an option claude does not model",
