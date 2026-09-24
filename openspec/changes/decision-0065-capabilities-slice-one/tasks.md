@@ -738,6 +738,31 @@ closed, because neither the delta nor the reference classifies them. The
 acceptEdits template is unchanged. **Not fully green:** external exact
 coverage, macOS and remote CI are pending.
 
+**Correction (5b-fix3):** the tick above says `--effort` stands only with a
+value the adapter declares, and sweep row 16 records that. Its council
+returned a residual (maximum medium, security). Adapter membership is
+declaration, not classification: an adapter that added `ultracode` admitted it
+(R2). The refusal also printed the adapter's unbounded effort vocabulary (R1),
+and an alias was labelled by the spelling written rather than its canonical
+option (R3). 5b-fix2 completes only with 5b-fix3 below.
+
+- [x] 5b-fix3 Unit 5b-fix3 repairs unit 5b a third time, under the 5b-fix2 council's residual (chief R1, R2, R3). On the inline typed path, an authored `--effort` stands only with one of the CLI reference's plain levels (`low`, `medium`, `high`, `xhigh`, `max`), whatever the adapter declares. Every other value refuses, `ultracode` included, under a fixed cause that names neither the value nor the adapter's vocabulary. An unplaceable alias is labelled by its canonical option. Requirements: operator ruling 1; realm-capability-grants "Authored provider configuration cannot supply capability authority" (bounded cause, canonical alias names); [Refusal proofs assert the full reason][SC8]. (run `triage-directive-operator-ruling-ffd42ea5`)
+
+Observed 2026-09-24 (evidence.md, "Unit 5b-fix3"). The only production file
+changed is `bundle.rs`. The adapter-membership effort check is removed.
+`authored_capability_control` gains an `--effort` arm judged against the fixed
+plain levels, and `unplaced_label` returns `spec.canonical`. `grammar.rs` is
+unchanged. The inline-lowers test grows from 91 to 109 rows: 6 alias rows, 10
+unplain-effort refusals and 4 plain admissions, over fixture adapters that
+declare `ultracode` and a 2055-character name. capability_launch gains the
+shipped-adapter effort test. At `8c2924f1`, 20 of 109 rows and the new launch
+test were red. M1–M3 each bound and were restored. fmt, clippy, the
+brokkr-runtime suite (550 lib tests and every integration suite), both bundle
+compiles, `openspec validate --all --strict` (18 passed) and `git diff
+--check` passed. **Open, operator's:** unchanged (`--bg`, `--input-format`,
+the acceptEdits template). **Not fully green:** external exact coverage, macOS
+and remote CI are pending.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

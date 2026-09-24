@@ -2756,26 +2756,6 @@ fn lower_inline_allow(
                  unrestricted (decision 0065 slice one, design D5.3)"
             ))
         })?;
-    // An effort value can turn on more than effort: the CLI reference's
-    // `ultracode` turns on workflows. Only an effort the adapter declares
-    // stands beside the typed list, and the value is read, never echoed
-    // (rebuild unit 5b-fix2 sweep).
-    if let Some(node) = authored.nodes.iter().find(|node| {
-        node.name() == "--effort"
-            && !node
-                .values
-                .iter()
-                .all(|value| adapter.efforts.contains(value))
-    }) {
-        return Err(refuse(format!(
-            "while its authored command carries '--effort' (argument {}) with a value outside \
-             the adapter's declared efforts ({}); an undeclared effort can turn on more than \
-             effort, so only a declared one stands beside the typed list (operator ruling 1 of \
-             2026-09-23; decision 0065 slice one, design D5.3)",
-            node.at + 1,
-            adapter.efforts.join(", ")
-        )));
-    }
     crate::agents::lower_allow(adapter, allow, "site")
         .map_err(|cause| CompileError::Invalid(format!("seat '{what}': {cause}")))
 }
@@ -2785,15 +2765,26 @@ fn lower_inline_allow(
 /// 5b-fix2), or `None` for an option that bears no capability. Judged on
 /// the parsed node, so every spelling of one option — split, `=`-joined,
 /// an alias, repeated or variadic — is judged at once, and its value is
-/// never read: a permission mode is refused whichever mode it names. Web
+/// never echoed and, but for an effort's, never read: a permission mode is
+/// refused whichever mode it names. Web
 /// and search reach Claude only as tool names, which ride a list; an
 /// option the grammar does not model never parses. The whole sweep of the
 /// Claude/LaneTally grammar, with the options judged inert and why, is
 /// recorded in evidence.md ("Unit 5b-fix2").
+///
+/// An effort is the one option whose VALUE decides it (rebuild unit
+/// 5b-fix3, R2): the CLI reference's `ultracode` requests `xhigh` with
+/// workflows turned on, so only the reference's plain levels stand, by this
+/// fixed classification and never by an adapter's declaration — adding a
+/// name to adapter data does not make its meaning inert — and the refusal
+/// names the fixed levels, never the value or the adapter's list (R1).
 fn authored_capability_control(
     node: &brokkr_protocol::native_controls::grammar::Node,
 ) -> Option<&'static str> {
     use brokkr_protocol::native_controls::grammar::Effect;
+    /// The effort values the CLI reference gives as a level and nothing
+    /// more (https://code.claude.com/docs/en/cli-reference, `--effort`).
+    const PLAIN_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
     Some(match (node.spec.effect, node.name()) {
         (Effect::List(_), _) => "a tool list",
         (Effect::Load | Effect::Config, _) => {
@@ -2812,14 +2803,24 @@ fn authored_capability_control(
             "an input format, whose streamed input can carry control messages the engine does not \
              compose"
         }
+        (_, "--effort")
+            if !node
+                .values
+                .iter()
+                .all(|value| PLAIN_EFFORTS.iter().any(|plain| plain == value)) =>
+        {
+            "an effort other than the reference's plain levels (low, medium, high, xhigh, max), \
+             which can turn on more than effort"
+        }
         _ => return None,
     })
 }
 
 /// A bounded, value-free label for the token a grammar could not place
 /// (rebuild unit 5b-fix2, S2): the modelled option it names, read before
-/// any `=`, or what kind of token it is. An unmodelled name is authored
-/// text of any length, so it is never echoed either.
+/// any `=` and named by its canonical spelling whichever alias was written
+/// (rebuild unit 5b-fix3, R3), or what kind of token it is. An unmodelled
+/// name is authored text of any length, so it is never echoed either.
 fn unplaced_label(
     grammar: &brokkr_protocol::native_controls::grammar::Grammar,
     token: &str,
@@ -2831,11 +2832,10 @@ fn unplaced_label(
     grammar
         .options
         .iter()
-        .flat_map(|spec| std::iter::once(spec.canonical).chain(spec.aliases.iter().copied()))
-        .find(|known| *known == name)
+        .find(|spec| spec.canonical == name || spec.aliases.contains(&name))
         .map_or_else(
             || format!("an option the '{}' grammar does not model", grammar.harness),
-            |known| format!("'{known}'"),
+            |spec| format!("'{}'", spec.canonical),
         )
 }
 

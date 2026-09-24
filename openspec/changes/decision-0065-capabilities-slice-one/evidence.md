@@ -4441,3 +4441,129 @@ re-run after that row was added. The workspace gate decides.
   redaction for every caller outside the inline typed path.
 - **Pending:** external exact coverage, macOS and remote CI on the committed
   head. Nothing is pushed.
+
+## Unit 5b-fix3 — third repair of unit 5b: the effort judgment and alias labels, 2026-09-24
+
+Run `triage-directive-operator-ruling-ffd42ea5`, returned from review at
+`8c2924f1` with a residual (maximum medium, security). This visit answers the
+chief's R1, R2 and R3. It does not accept the residual. No specification
+defect was found. Production: `bundle.rs` only, of unit 5b's inventory.
+`grammar.rs` is unchanged. Tests: `bundle/agent_tests.rs` and
+`tests/capability_launch.rs`. No recipe, adapter, pin, contract, fixture or
+policy byte moved. No permission mode is emitted; the acceptEdits template
+stays the operator's. P1 (panel integrity) asks nothing of the implementer.
+
+### R2: an effort is judged by a fixed classification, not by adapter data
+
+At `8c2924f1`, `--effort V` stood beside a typed allow whenever the adapter's
+`efforts` listed `V`. Adapter data is a declaration, not a classification of
+meaning, so an adapter that added `ultracode` let `--effort ultracode` and
+`--effort=ultracode` compile for both drivers. The CLI reference
+(https://code.claude.com/docs/en/cli-reference, `--effort`, fetched
+2026-09-24) reads: "Options: `low`, `medium`, `high`, `xhigh`, `max`, or
+`ultracode` … `ultracode` requests `xhigh` effort with ultracode turned on".
+The first five set a level and nothing more; `ultracode` turns on workflows.
+
+The adapter-membership check is removed. `authored_capability_control` gains
+an `--effort` arm. Every value of the node must be one of the fixed plain
+levels (`low`, `medium`, `high`, `xhigh`, `max`, compared exactly), whatever
+the adapter declares. Anything else refuses as "an effort other than the
+reference's plain levels (low, medium, high, xhigh, max), which can turn on
+more than effort". That includes `ultracode`, `ULTRACODE` and a value the
+reference does not give. Because the arm is in the capability judgment, it
+refuses before the adapter is looked up. Sweep row 16 above is superseded:
+`--effort` is **admitted only with one of the reference's five plain levels,
+by a fixed classification independent of the adapter**. Adapter membership
+still governs the effort pin (decision 0035), which is a different rule.
+
+### R1: the refusal names no adapter vocabulary
+
+The `8c2924f1` refusal printed `adapter.efforts.join(", ")`. The adapter
+loader checks each effort name's alphabet but bounds neither its length nor
+the list's count, so a 2055-character name reached stderr whole. The new
+cause is fixed text. It names the five reference levels and never the value
+or the adapter's list. The cause is 117 scalars, and with `'--effort'
+(argument N), ` in front the option/cause portion is about 142, well under
+the delta's 512 (realm-capability-grants, "The option/cause portion SHALL be
+at most 512 Unicode scalar values"). An authored value longer than the effort
+pin's 40-scalar bound (`command_pins_effort`) is refused earlier by the pin
+rule ("do not pin an effort"), which is value-free. So a long authored value
+never reaches this check, and the rows use `unknown` for an undeclared value.
+
+### R3: an alias is labelled by its canonical option
+
+`unplaced_label` flattened each spec's names and returned the spelling that
+matched. It now finds the owning spec and returns `spec.canonical`. So a
+dangling `-r` is labelled `'--resume'`, a malformed `-c=V` `'--continue'`,
+and a duplicate `--allowed-tools=V` `'--allowedTools'`. The grammar's own
+cause already used the canonical name. This meets the delta's "Known short
+aliases name their canonical long option".
+
+### New and changed tests
+
+- `bundle/agent_tests.rs::an_inline_claude_or_lanetally_site_lowers_…` grows
+  from 91 to 109 rows, with the count asserted.
+  - R3: six rows, three per driver: `-r` dangling (argument 5, cause "takes
+    a value and is the last argument"), `-c=SENTINEL` (argument 5, cause
+    "names no option, or names one that has no equals-joined spelling"), and
+    `--allowed-tools=SENTINEL-a --allowed-tools=SENTINEL-b` (argument 6, the
+    grammar's repeat cause). Each has its canonical label and whole reason.
+  - R1/R2: the fixture adapters for claude and lanetally are rewritten to
+    declare `low, medium, high, ultracode` and a 2055-character name. For each
+    driver, five rows refuse with the fixed cause at argument 3: `--effort
+    ultracode`, `--effort=ultracode`, `--effort unknown`, `--effort=unknown`
+    and `--effort ULTRACODE`. Two rows admit `--effort=xhigh` and
+    `--effort=max`, which those adapters do not declare, and assert the exact
+    lowering. The fixture adapters are restored after.
+  - The two earlier `ultracode` rows, whose expected text echoed the adapter's
+    vocabulary, are replaced by the rows above.
+- `tests/capability_launch.rs::an_inline_typed_allow_beside_an_unplain_effort_refuses_whatever_the_adapter_declares`
+  (new). It copies the shipped adapters and adds `ultracode` and the
+  2055-character name to both vocabularies. For both drivers, `--effort
+  ultracode`, `--effort=ultracode`, `--effort unknown` and `--effort=unknown`
+  must each produce the whole fixed refusal. Its length in scalars must equal
+  the same compile's on the unmodified shipped adapters. Then `--effort=max`
+  compiles.
+
+### Baseline reds (at `8c2924f1`'s `bundle.rs`, the tests above in place)
+
+- inline-lowers: 20 of 109 rows red.
+  - The six R3 rows. Left: the alias label, e.g. `… argument 5 ('-r') …`.
+  - Four `ultracode`/`=ultracode` rows. Left: `compiled: …`.
+  - Six `unknown`/`ULTRACODE` rows. Left: the old reason, echoing `(low,
+    medium, high, ultracode, uuuu…)`, all 2055 scalars.
+  - Four `xhigh`/`max` rows. Left: the old refusal, because the fixture
+    adapters do not declare them.
+- effort launch test: left `"compiled"` at `claude ["--effort",
+  "ultracode"]`.
+
+### Mutations (each compiling, restored, then rerun green)
+
+| # | Mutation (`bundle.rs`) | Failing test: rows / assertion |
+| --- | --- | --- |
+| M1 | the `--effort` arm disabled (`if false && …`) and `8c2924f1`'s adapter-membership check, echoing `adapter.efforts.join`, restored in `lower_inline_allow` | inline-lowers: 14 rows. The four `ultracode` rows' left was `compiled`. Six `unknown`/`ULTRACODE` rows and four `xhigh`/`max` rows had a left carrying the 2055-character vocabulary. Effort launch test: `assert_eq!(refusal, refused)` at `claude ["--effort", "ultracode"]`, left `"compiled"` |
+| M2 | `PLAIN_EFFORTS[..4]` (drops `max`) | inline-lowers: 2 `--effort=max` rows. Effort launch test: the final `--effort=max` assertion, left the fixed refusal |
+| M3 | `unplaced_label` returns the matched spelling (`format!("'{name}'")`) | inline-lowers: the 6 R3 rows. Left: `'-r'`, `'-c'`, `'--allowed-tools'` |
+
+M2 and M3 ran together because they bind disjoint rows. Each row's failure is
+attributed to one mutation.
+
+### Gates
+
+`cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings` passed (clippy asked for
+`aliases.contains(&name)` in place of a manual `any`). `cargo test -p
+brokkr-runtime --all-features --locked` passed: 550 lib tests and every
+integration suite, capability_launch with 26 tests. Both `compile --bundle
+bundles/self` and `bundles/verify` passed, as did `openspec validate --all
+--strict` (18 passed) and `git diff --check`. brokkr-cli was not touched and
+its suites were not re-run.
+
+### Owed and open
+
+- **Open, for the operator:** unchanged. `--bg` and `--input-format` are
+  refused fail closed (sweep rows 14 and 15), and the acceptEdits template is
+  still open before unit 6.
+- **Unit 10:** unchanged from 5b-fix2.
+- **Pending:** external exact coverage, macOS and remote CI on the committed
+  head. Nothing is pushed.

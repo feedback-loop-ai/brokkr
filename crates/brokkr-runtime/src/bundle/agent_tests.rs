@@ -1842,32 +1842,100 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
             }
         }
     }
-    // An undeclared effort value can turn on more than effort (the CLI
-    // reference's `ultracode`), in either spelling; it is read, not echoed.
-    for written in [
-        ["--effort", "ultracode"].as_slice(),
-        &["--effort=ultracode"],
-    ] {
+    // A modelled alias is named by its canonical option however the
+    // grammar fails on it (rebuild unit 5b-fix3, R3): a dangling `-r`, a
+    // malformed `-c=`, and a duplicate written through an alias.
+    for driver in ["claude", "lanetally"] {
+        for (written, at, canonical, cause) in [
+            (
+                vec!["-r"],
+                5,
+                "--resume",
+                "takes a value and is the last argument, so it has none".to_string(),
+            ),
+            (
+                vec!["-c=SENTINEL"],
+                5,
+                "--continue",
+                "names no option, or names one that has no equals-joined spelling".to_string(),
+            ),
+            (
+                vec!["--allowed-tools=SENTINEL-a", "--allowed-tools=SENTINEL-b"],
+                6,
+                "--allowedTools",
+                repeats("--allowedTools"),
+            ),
+        ] {
+            rows.push((
+                format!("{driver} {}", written.join(" ")),
+                outcome(compiled(
+                    claude_inline(driver, &written),
+                    allow.clone(),
+                    false,
+                )),
+                unreadable_inline(driver, at, &format!("'{canonical}'"), &cause),
+            ));
+        }
+    }
+    // An effort is judged by a fixed classification of its value, never
+    // by the adapter's declaration (rebuild unit 5b-fix3, R2): adapters
+    // that declare `ultracode` and a 2055-character name beside the plain
+    // levels still see `ultracode` refused, in either spelling and case,
+    // for both drivers, and an effort they do not declare is refused under
+    // the same fixed cause, which names neither the value nor the adapter's
+    // vocabulary (R1) — while the reference's plain levels the adapters do
+    // not declare stand beside the list. (An authored value past the effort
+    // pin's 40-scalar bound never reaches this check: the pin refuses it.)
+    let long = "u".repeat(2055);
+    let declared = json!(["low", "medium", "high", "ultracode", long]);
+    let mut declaring = claude();
+    declaring["efforts"] = declared.clone();
+    fixture.write("adapters/claude.json", declaring);
+    let mut declaring = lanetally.clone();
+    declaring["efforts"] = declared;
+    fixture.write("adapters/lanetally.json", declaring);
+    let effort = |driver: &str, written: &[&str]| {
         let mut command = vec![
             "{brokkr}",
             "driver",
-            "claude",
+            driver,
             "--",
             "--model",
             "claude-opus-5",
         ];
         command.extend(written);
-        rows.push((
-            written.join(" "),
-            outcome(compiled(json!(command), allow.clone(), false)),
-            "bundle: seat 'review' declares 'tools.allow' while its authored command carries \
-             '--effort' (argument 3) with a value outside the adapter's declared efforts (low, \
-             medium, high); an undeclared effort can turn on more than effort, so only a declared \
-             one stands beside the typed list (operator ruling 1 of 2026-09-23; decision 0065 \
-             slice one, design D5.3)"
-                .to_string(),
-        ));
+        json!(command)
+    };
+    let unplain = "an effort other than the reference's plain levels (low, medium, high, xhigh, \
+                   max), which can turn on more than effort";
+    for driver in ["claude", "lanetally"] {
+        for written in [
+            ["--effort", "ultracode"].as_slice(),
+            &["--effort=ultracode"],
+            &["--effort", "unknown"],
+            &["--effort=unknown"],
+            &["--effort", "ULTRACODE"],
+        ] {
+            rows.push((
+                format!("{driver} {}", written.join(" ")),
+                outcome(compiled(effort(driver, written), allow.clone(), false)),
+                carries("--effort", 3, unplain),
+            ));
+        }
+        for level in ["xhigh", "max"] {
+            let joined = format!("--effort={level}");
+            rows.push((
+                format!("{driver} {joined}"),
+                match compiled(effort(driver, &[&joined]), allow.clone(), false) {
+                    Ok(bundle) => format!("{:?}", bundle.sites["review"].inline_local),
+                    Err(error) => error.to_string(),
+                },
+                format!("{:?}", cargo_lowering()),
+            ));
+        }
     }
+    fixture.write("adapters/claude.json", claude());
+    fixture.write("adapters/lanetally.json", lanetally.clone());
     // The adapter's own gaps: a mapped native alias, and no mapping at all.
     let mut aliased = claude();
     aliased["tool_permissions"]["names"]["webfetch"] = json!("WebFetch");
@@ -1931,7 +1999,7 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
              declares",
         ),
     ));
-    assert_eq!(rows.len(), 91);
+    assert_eq!(rows.len(), 109);
     each_row(rows);
 }
 

@@ -949,6 +949,73 @@ fn an_inline_typed_allow_beside_an_unreadable_long_value_refuses_without_echoing
     }
 }
 
+/// Rebuild unit 5b-fix3 (review R1 and R2): an authored effort beside a
+/// typed allow stands only as one of the CLI reference's plain levels, by a
+/// fixed classification rather than the adapter's declaration. Copies of
+/// the shipped adapters that add `ultracode` and a 2055-character name to
+/// their vocabulary still refuse `ultracode` and an undeclared name, for
+/// both drivers and both spellings, under a fixed cause that is the same
+/// length whatever the adapters declare; a plain level still compiles.
+#[test]
+fn an_inline_typed_allow_beside_an_unplain_effort_refuses_whatever_the_adapter_declares() {
+    let long = "u".repeat(2055);
+    let adapters = copied_adapters();
+    for provider in ["claude", "lanetally"] {
+        edit_adapter(adapters.path(), provider, |adapter| {
+            adapter["efforts"] =
+                json!(["low", "medium", "high", "xhigh", "max", "ultracode", long]);
+        });
+    }
+    let beside = |adapters: &Path, driver: &str, written: &[&str]| {
+        let operator = Operator::new();
+        let mut authored = vec![
+            "{brokkr}",
+            "driver",
+            driver,
+            "--",
+            "--model",
+            "claude-opus-5-5",
+        ];
+        authored.extend(written);
+        one_inline_seat(&operator, &authored);
+        typed_allow(&operator, json!(["cargo"]));
+        let context = CapabilityContext::no_grants("private", operator.root());
+        match solo_bundle(&operator, adapters, &context) {
+            Ok(_) => "compiled".to_string(),
+            Err(refusal) => refusal,
+        }
+    };
+    let refused = "bundle: seat 'work' declares 'tools.allow' while its authored command carries \
+                   '--effort' (argument 3), an effort other than the reference's plain levels \
+                   (low, medium, high, xhigh, max), which can turn on more than effort; the \
+                   engine composes the typed list as its own contribution and a recipe authors \
+                   no capability-bearing option beside it, so the site is refused rather than \
+                   reconciled (operator ruling 1 of 2026-09-23; decision 0065 slice one, design \
+                   D5.3)";
+    for driver in ["claude", "lanetally"] {
+        for written in [
+            &["--effort", "ultracode"][..],
+            &["--effort=ultracode"][..],
+            &["--effort", "unknown"][..],
+            &["--effort=unknown"][..],
+        ] {
+            let refusal = beside(adapters.path(), driver, written);
+            assert_eq!(refusal, refused, "{driver} {written:?}");
+            assert_eq!(
+                refusal.chars().count(),
+                beside(&workspace().join("adapters"), driver, written)
+                    .chars()
+                    .count(),
+                "{driver} {written:?}"
+            );
+        }
+    }
+    assert_eq!(
+        beside(adapters.path(), "claude", &["--effort=max"]),
+        "compiled"
+    );
+}
+
 /// Rebuild unit 5b at a LaneTally seat, which shares Claude's composition
 /// path: its typed allow is lowered onto LaneTally's own tool permissions
 /// and reaches the spawn and its sealed record as the engine's `local`
