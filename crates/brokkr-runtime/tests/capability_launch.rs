@@ -831,6 +831,45 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
     );
 }
 
+/// Rebuild unit 5b-fix (finding S1): the typed allow is never lowered beside
+/// a permission mode its author wrote, which could approve tools the
+/// engine's list does not name. On the shipped adapters, the seat unit 5b
+/// admitted — `tools.allow` with an authored `bypassPermissions` beside it
+/// — refuses at compile in both spellings, naming the option and its
+/// position and never the mode.
+#[test]
+fn an_inline_typed_allow_beside_an_authored_permission_mode_refuses_the_compile() {
+    for written in [
+        &["--permission-mode", "bypassPermissions"][..],
+        &["--permission-mode=bypassPermissions"][..],
+    ] {
+        let operator = Operator::new();
+        let mut authored = vec![
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+        ];
+        authored.extend(written);
+        one_inline_seat(&operator, &authored);
+        typed_allow(&operator, json!(["cargo"]));
+        let context = CapabilityContext::no_grants("private", operator.root());
+        assert_eq!(
+            solo(&operator, &workspace().join("adapters"), &context),
+            "bundle: seat 'work' declares 'tools.allow' while its authored command carries \
+             '--permission-mode' (argument 5), a permission mode; the engine composes the typed \
+             list as its own contribution and a recipe authors no capability-bearing option \
+             beside it, so the site is refused rather than reconciled (operator ruling 1 of \
+             2026-09-23; decision 0065 slice one, design D5.3)",
+            "{written:?}"
+        );
+    }
+}
+
 /// Rebuild unit 5b at a LaneTally seat, which shares Claude's composition
 /// path: its typed allow is lowered onto LaneTally's own tool permissions
 /// and reaches the spawn and its sealed record as the engine's `local`
@@ -890,6 +929,156 @@ fn an_inline_lanetally_seats_typed_allow_reaches_its_spawn_as_the_engines_local_
                                       "limits": ["Bash(git:*)", "Bash(gh pr view:*)"]}},
         })
     );
+}
+
+/// Rebuild unit 5b-fix (finding C1): the same LaneTally seat through the
+/// driver's SERVING branch — `brokkr driver lanetally`, which composes the
+/// wrapper's command under LaneTally's own shape — read off the command
+/// the wrapper was actually spawned with. The whole ordered argv: the
+/// stream shape, the authored pins, the engine's lowered list and the
+/// native OFF, and nothing else. Provider-free: the wrapper is a recording
+/// shim, and the driver is this test binary re-entered as
+/// [`lanetally_serving_child`], because the serving branch is reached only
+/// through the driver's own stdin protocol.
+#[cfg(unix)]
+#[test]
+fn an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with_native_off() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let operator = Operator::new();
+    let adapters = copied_adapters();
+    let claude: Value =
+        serde_json::from_slice(&std::fs::read(adapters.path().join("claude.json")).unwrap())
+            .unwrap();
+    edit_adapter(adapters.path(), "lanetally", |adapter| {
+        adapter["native_capabilities"] = claude["native_capabilities"].clone();
+    });
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "lanetally",
+            "--",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+        ],
+    );
+    typed_allow(&operator, json!(["git", "gh-pr-view"]));
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, adapters.path(), &context).unwrap();
+    let (spawn, sealed_input) = sealed(&bundle, "work", 0);
+    let outcome = &bundle.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
+
+    // The wrapper: answers the version probe, records any other argv.
+    let root = operator.root();
+    let recorded = root.join("wrapper-argv.txt");
+    let staged = root.join("claude-lanetally.staged");
+    std::fs::write(
+        &staged,
+        [
+            "#!/bin/sh\n",
+            "case \"$1\" in --version) printf '2.1.266 (Claude Code)\\n'; exit 0;; esac\n",
+            "printf '%s\\n' \"$0\" \"$@\" > '",
+            recorded.to_str().unwrap(),
+            "'\n",
+        ]
+        .concat(),
+    )
+    .unwrap();
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let wrapper = root.join("claude-lanetally");
+    std::fs::rename(&staged, &wrapper).unwrap();
+
+    // What the engine hands the driver: its extras, and the input.
+    let extra: Vec<String> =
+        spawn.argv[spawn.argv.iter().position(|part| part == "--").unwrap() + 1..].to_vec();
+    std::fs::create_dir_all(root.join("work")).unwrap();
+    let input = json!({
+        "feature": "serving", "phase": "work", "seat": "work",
+        "role_path": root.join("solo/roles/role.md"), "role_text": "# role\n",
+        "workdir": root.join("work"),
+        "result_path": root.join("work/result.json"),
+        "allowed_results": ["complete"], "context": {},
+        "native_controls": outcome.controls(),
+        "launch_arguments": spawn.launch_arguments(),
+        "launch_record": sealed_input["launch_record"],
+    });
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "lanetally_serving_child",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(SERVE_LANETALLY, serde_json::to_string(&extra).unwrap())
+        .env("BROKKR_LANETALLY_BIN", &wrapper)
+        .env_remove("FORGE_LANETALLY_BIN")
+        .env("HOME", &home)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for message in [
+        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
+               "engine_version": "test"}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
+               "effect_id": "fx", "attempt_id": "a1", "seat": "work", "input": input}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
+    ] {
+        writeln!(stdin, "{message}").unwrap();
+    }
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    let said = String::from_utf8_lossy(&out.stdout).into_owned();
+    let spawned = std::fs::read_to_string(&recorded)
+        .unwrap_or_else(|_| panic!("the wrapper was never spawned; the driver said: {said}"));
+    assert_eq!(
+        spawned.lines().collect::<Vec<_>>(),
+        [
+            wrapper.to_str().unwrap(),
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+            "--allowedTools",
+            "Bash(git:*),Bash(gh pr view:*)",
+            "--disallowedTools",
+            "WebFetch,WebSearch",
+        ],
+        "the driver said: {said}"
+    );
+}
+
+/// The variable that turns [`lanetally_serving_child`] into the LaneTally
+/// driver, carrying the extras the engine hands it as a JSON array.
+const SERVE_LANETALLY: &str = "BROKKR_TEST_SERVE_LANETALLY";
+
+/// Not a test of its own: the driver half of the serving test above, run
+/// only when that test re-enters this binary with [`SERVE_LANETALLY`] set.
+/// It serves the driver protocol on this process's stdin and stdout, as
+/// `brokkr driver lanetally -- <extras>` does, then exits before the test
+/// harness can report on it.
+#[test]
+fn lanetally_serving_child() {
+    let Ok(extra) = std::env::var(SERVE_LANETALLY) else {
+        return;
+    };
+    let extra: Vec<String> = serde_json::from_str(&extra).unwrap();
+    brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind::Lanetally, extra)
+        .unwrap();
+    std::process::exit(0);
 }
 
 /// Declare `allow` as the solo work seat's typed local list.

@@ -3963,6 +3963,10 @@ a compiling red (D5.7). The obsolete rows were replaced with exact causes:
 `undelivered_allow` for opaque and `exec` commands, and
 `inline_sandbox_refusal` for the unchanged sandbox rows.
 
+*Corrected by 5b-fix (E1):* a compiling baseline red did exist. A
+behavioural success assertion needs none of the new APIs. It is recorded
+under "Unit 5b-fix", E1.
+
 ### Tests
 
 - `bundle/agent_tests.rs::an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses`
@@ -3992,6 +3996,9 @@ a compiling red (D5.7). The obsolete rows were replaced with exact causes:
   its own terms, so its fixture copies Claude's native declarations. The
   lanetally harness command is built by a private protocol function, so the
   spawn the driver receives is the final command asserted here.
+  *Corrected by 5b-fix (C1):* the spawn is not the wrapper's final command.
+  The serving branch composes it afterwards. 5b-fix adds a test that reads
+  the wrapper's own argv.
 
 ### Mutations (each alone, compiling, restored, then rerun green)
 
@@ -4044,5 +4051,179 @@ filled twice during the unit, from outside this worktree. This worktree's own
   question above. Without a ruling, migrating fast, node and preflight either
   keeps an authored `--permission-mode` (refused at unit 12) or drops
   acceptEdits (SCM forbids).
+- **Pending:** external exact coverage, macOS and remote CI on the committed
+  head. Nothing is pushed.
+
+## Unit 5b-fix — repairs unit 5b under its SECURITY-HOLD, 2026-09-24
+
+Run `triage-directive-operator-ruling-5b7b5137`, triage `chore`, phase
+implement, sole seat. The base was `efb61050` on `slice-0065-capabilities`,
+clean. It answers the unit 5b council's chief (S1, C1, C2, E1). It does not
+accept the residual. No specification defect was found. Production:
+`bundle.rs` only (of unit 5b's `agents.rs`, `bundle.rs`, `engine.rs`). Tests:
+`bundle/agent_tests.rs`, `tests/capability_launch.rs`, plus the one regression
+the commission permitted in `engine/capability_tests.rs` (C2). No recipe,
+adapter, pin, contract, fixture or policy byte moved. `adapters.rs` and
+`engine.rs` were mutated only for proofs, and each was restored to HEAD byte
+for byte. The acceptEdits template question stays with the operator. This
+unit emits no permission mode.
+
+### S1: every authored capability control refuses on the inline typed path
+
+At `efb61050`, `lower_inline_allow` refused an authored option only if its
+grammar effect was a tool list. `--permission-mode` parses as `Inert`, so
+`tools.allow: [cargo]` beside `--permission-mode bypassPermissions` compiled.
+Its final command was `claude -p --output-format stream-json --verbose --model
+claude-opus-5-5 --effort high --permission-mode bypassPermissions --allowedTools
+Bash(cargo:*) --disallowedTools WebFetch,WebSearch`, and the record claimed
+listed/direct. M1 below reproduces exactly that argv.
+
+The list check is now `authored_capability_control(node)`. It judges the
+parsed node, so every spelling of an option is judged at once, and it never
+reads the value:
+
+- `Effect::List(_)` is "a tool list": `--tools`, `--allowedTools`,
+  `--disallowedTools` and their aliases and `=` forms.
+- `Effect::Load | Effect::Config` "loads or configures a server, a plugin or a
+  settings document": `--mcp-config`, `--plugin-dir`, `--settings` and
+  `--agents`. Claude's grammar models no `Config` option.
+- `--permission-mode` is "a permission mode", in its split and `=` forms.
+- `--strict-mcp-config` is "an MCP configuration control".
+
+The refusal names the canonical option and its 1-based harness-argument
+position, never the value. Web and search reach Claude only as tool names,
+which travel in a list. An option the grammar does not model, such as
+`--dangerously-skip-permissions`, never parses, so the existing grammar cause
+refuses it without echoing anything but its name. LaneTally is parsed by the
+same table under its own name, so its wrapper participates.
+
+### C1: LaneTally's serving branch, read off the wrapper's own argv
+
+`an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with_native_off`
+(capability_launch, unix) compiles the LaneTally seat, seals it as dispatch
+does, and hands the driver what the engine hands it (the extras after `--`,
+the input with `native_controls`, `launch_arguments`, `launch_record` and
+`role_text`). It then drives `brokkr_protocol::adapters::serve(Lanetally, …)`
+over its stdin protocol. That is the only public way into the serving branch
+(`adapters.rs` `invoke_with_stager`, `claude_launch(…, LANETALLY_SHAPE, …)`).
+The driver is this test binary, re-entered as `lanetally_serving_child` with
+`BROKKR_TEST_SERVE_LANETALLY` set. That entry returns immediately in a normal
+run. The wrapper is a staged-and-renamed recording shim under the
+canonicalised root (`BROKKR_LANETALLY_BIN`), with `HOME` and `PATH` test-owned.
+It answers `--version` and records any other argv. There is no provider and no
+network. The asserted final command, whole and ordered, is `<shim> -p
+--output-format stream-json --verbose --model claude-opus-5-5 --effort high
+--allowedTools Bash(git:*),Bash(gh pr view:*) --disallowedTools
+WebFetch,WebSearch`.
+
+### C2: the dispatch handoff, through real dispatches
+
+`engine/capability_tests.rs::every_dispatch_composes_the_lowered_allow_of_its_own_site`
+gives four inline sites four different lowered allows (as `SiteFacts.local`
+plus `inline_local`) and runs them through the engine's own dispatch:
+
+- `work`, a single seat run by `Engine::drive`: `cargo`;
+- `work:draft`, a sequence step run by `execute_sequence`: `git`;
+- `work:finish:a` and `work:finish:b`, the two members of a panel step inside
+  that sequence: `npm` and `node`.
+
+Each capturing driver records the argv it was spawned with (every token
+behind its `sh -c SCRIPT`) and the start input it was handed. The test asserts
+each site's exact `--allowedTools Bash(<name>:*)`, the sealed record's single
+`local` segment, and its listed/direct expectation, under that site's own
+seat label. The dialect-step call site (`engine.rs`, the validator's gate
+step) cannot carry an inline allow: its command is the validator's `exec`,
+which the compiler refuses, so no fixture can make it deliver one.
+
+### E1: an honest retrospective baseline red
+
+The unit 5b record said that no compiling baseline existed for the new
+behaviour. That was wrong. A behavioural success assertion needs none of the
+new APIs. `git checkout c10fc837 -- crates/brokkr-runtime/src
+crates/brokkr-runtime/tests` restored unit 5b's parent. The runtime library
+at that point is exactly `c10fc837`'s, because unit 5b touched no other
+runtime source. The following assertion was then appended to the baseline
+`tests/capability_launch.rs`:
+
+    one_inline_seat(claude, --model claude-opus-5-5 --effort high)
+    tools = {"allow": ["pytest", "cargo"]}
+    assert_eq!(solo_bundle(shipped adapters, no grants).map(|_| "compiled"), Ok("compiled"))
+
+`cargo test -p brokkr-runtime --test capability_launch e1_retrospective` was
+red at the intended assertion (`capability_launch.rs:2351`):
+`left: Err("bundle: seat 'work' declares 'tools.allow' on a site whose command
+no office composes; the engine does not yet lower a typed local allow into an
+authored command, … (design D5.3); an authored flag cannot stand in for it")`,
+`right: Ok("compiled")`. HEAD (`efb61050`) was then restored and the same
+assertion appended. It passed (1 passed). The scratch assertion was removed
+(`git checkout HEAD --`), and the tree was clean before this unit's edits
+began. This is the retrospective red for unit 5b's positive behaviour. The
+restored pass is the same assertion at `efb61050`, carried on by the inline
+Claude test's `solo_bundle(…).unwrap()`.
+
+### New and changed tests
+
+- `bundle/agent_tests.rs::an_inline_claude_or_lanetally_site_lowers_…` grows
+  from 18 to 28 rows, with the count asserted. The four list rows now carry
+  the new exact reason with position. New rows: `--permission-mode
+  bypassPermissions`, `--permission-mode=bypassPermissions`, lanetally
+  `--verbose --permission-mode bypassPermissions` (argument 6),
+  `--mcp-config servers.json`, `--mcp-config=servers.json`,
+  `--strict-mcp-config`, `--plugin-dir plugins`, `--settings=s.json`,
+  `--agents agents.json`, and `--dangerously-skip-permissions` (the grammar
+  cause). Each asserts the whole reason. None contains its value.
+- `tests/capability_launch.rs::an_inline_typed_allow_beside_an_authored_permission_mode_refuses_the_compile`:
+  the chief's exact shape on the shipped adapters, in the split and `=`
+  forms, asserting the whole compile refusal.
+- `tests/capability_launch.rs`: the C1 serving test and its
+  `lanetally_serving_child` entry.
+- `engine/capability_tests.rs`: the C2 dispatch test.
+
+### Mutations (each alone, compiling, restored, then rerun green)
+
+| # | Mutation | Failing test: rows / assertion (actual) |
+| --- | --- | --- |
+| M1 | `--permission-mode` arm removed | inline-lowers: 3 permission-mode rows; permission-mode launch test (left: `launched ["claude", …, "--permission-mode", "bypassPermissions", "--allowedTools", "Bash(cargo:*)", "--disallowedTools", "WebFetch,WebSearch"]`) |
+| M2 | `Load \| Config` arm removed | inline-lowers: 5 rows (`--mcp-config` ×2, `--plugin-dir`, `--settings`, `--agents`). Left: the later capability-server cause "(office 'review') in realm '<unmapped>': its arguments carry '--mcp-config', which configures a capability server…". These options are still refused downstream, so the rows bind this path's reason, not the only refusal. |
+| M3 | `--strict-mcp-config` arm removed | inline-lowers: `--strict-mcp-config` (left: compiled) |
+| M4 | tool-list arm removed | inline-lowers: 4 list rows (left: compiled) |
+| M5 | position `node.at` (0-based) | inline-lowers: 13 rows; permission-mode launch test |
+| M6 | serving branch drops the last two extras (`adapters.rs`, LaneTally arm) | C1 serving test: wrapper never spawned (driver: "…does not reassemble the arguments the driver was handed…"). The spawn-only LaneTally test stays green. |
+| M7 | serving branch spawns `plan.command` less its last two tokens | C1 serving test (left ends `--allowedTools Bash(git:*),Bash(gh pr view:*)`, native OFF lost). The spawn-only test stays green. |
+| M8 | `compose_at` hands `None` facts (`label.and(None)`), the survivor unit 5b recorded | C2: `work` (left: argv `["sh"]`, segments `[]`, local still listed/direct) |
+| M9 | single-seat call site passes `None` | C2: `work` (same left) |
+| M10 | member call site passes `Some("work:finish:a")` | C2: sequence assertion (member `b` composed `npm`) |
+| M11 | sequence-step call site passes `None` | C2: sequence assertion (`work:draft` lost `git`) |
+
+M8's left is itself a finding for ruling 2. Under it, the dispatch door
+admitted a record that expects listed/direct while the spawned argv carried no
+list, because `verify_record` checks reassembly, not meaning. Ruling 2's
+final-command comparison (units 12–15) owns that. This unit adds no launch
+check.
+
+### Gates
+
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings`, `cargo test -p brokkr-runtime
+--all-features --locked` (25 suites, lib 550, capability_launch 24, all
+green), both `compile --bundle bundles/self` and `bundles/verify`,
+`openspec validate --all --strict` and `git diff --check` passed after
+restoration.
+
+A seat-side diagnostic, which is not the gate, was also run:
+`cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --all-features
+--locked --branch --lcov`. It reported no uncovered line or branch in
+`bundle.rs` lines 2670–2779, which hold `lower_inline_allow` and
+`authored_capability_control`. The match's arms carry no branch counters;
+lines 2686, 2702 and 2720 carry them, and every branch is taken. Its only
+zeros nearby are in `engine.rs` 2686/2701–2702, which this unit did not touch
+and which a runtime-only run can leave unreached. The workspace gate decides.
+
+### Owed and open
+
+- **Open, for the operator before unit 6:** unchanged from unit 5b. How the
+  adapter's acceptEdits template reaches an inline command. This unit keeps
+  emitting no permission mode, and now refuses an authored one beside a typed
+  allow.
 - **Pending:** external exact coverage, macOS and remote CI on the committed
   head. Nothing is pushed.

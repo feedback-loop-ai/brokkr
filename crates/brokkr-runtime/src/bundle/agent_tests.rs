@@ -1503,30 +1503,131 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
             expected,
         ));
     }
-    // An authored tool list of any kind, in any spelling, is refused beside
-    // the typed one rather than merged with it (operator ruling 1).
-    for (written, canonical) in [
-        (vec!["--allowedTools", "Bash(git:*)"], "--allowedTools"),
-        (vec!["--allowed-tools=Bash(git:*)"], "--allowedTools"),
-        (vec!["--tools", "Bash"], "--tools"),
-        (vec!["--disallowedTools", "WebSearch"], "--disallowedTools"),
+    // An authored capability-bearing option of any kind, in any spelling,
+    // is refused beside the typed list rather than merged with or ordered
+    // against it, named by its canonical option and position and never by
+    // its value (operator ruling 1; rebuild unit 5b-fix, finding S1).
+    let loads = "which loads or configures a server, a plugin or a settings document";
+    for (driver, written, canonical, at, kind) in [
+        (
+            "claude",
+            vec!["--allowedTools", "Bash(git:*)"],
+            "--allowedTools",
+            5,
+            "a tool list",
+        ),
+        (
+            "claude",
+            vec!["--allowed-tools=Bash(git:*)"],
+            "--allowedTools",
+            5,
+            "a tool list",
+        ),
+        (
+            "claude",
+            vec!["--tools", "Bash"],
+            "--tools",
+            5,
+            "a tool list",
+        ),
+        (
+            "claude",
+            vec!["--disallowedTools", "WebSearch"],
+            "--disallowedTools",
+            5,
+            "a tool list",
+        ),
+        (
+            "claude",
+            vec!["--permission-mode", "bypassPermissions"],
+            "--permission-mode",
+            5,
+            "a permission mode",
+        ),
+        (
+            "claude",
+            vec!["--permission-mode=bypassPermissions"],
+            "--permission-mode",
+            5,
+            "a permission mode",
+        ),
+        (
+            "lanetally",
+            vec!["--verbose", "--permission-mode", "bypassPermissions"],
+            "--permission-mode",
+            6,
+            "a permission mode",
+        ),
+        (
+            "claude",
+            vec!["--mcp-config", "servers.json"],
+            "--mcp-config",
+            5,
+            loads,
+        ),
+        (
+            "claude",
+            vec!["--mcp-config=servers.json"],
+            "--mcp-config",
+            5,
+            loads,
+        ),
+        (
+            "claude",
+            vec!["--strict-mcp-config"],
+            "--strict-mcp-config",
+            5,
+            "an MCP configuration control",
+        ),
+        (
+            "claude",
+            vec!["--plugin-dir", "plugins"],
+            "--plugin-dir",
+            5,
+            loads,
+        ),
+        ("claude", vec!["--settings=s.json"], "--settings", 5, loads),
+        (
+            "claude",
+            vec!["--agents", "agents.json"],
+            "--agents",
+            5,
+            loads,
+        ),
     ] {
         rows.push((
-            written.join(" "),
+            format!("{driver} {}", written.join(" ")),
             outcome(compiled(
-                claude_inline("claude", &written),
+                claude_inline(driver, &written),
                 allow.clone(),
                 false,
             )),
             format!(
                 "bundle: seat 'review' declares 'tools.allow' while its authored command carries \
-                 '{canonical}', a tool list; the engine composes the typed list as its own \
-                 contribution and never merges it with an authored one, so the site is refused \
-                 rather than reconciled (operator ruling 1 of 2026-09-23; decision 0065 slice \
-                 one, design D5.3)"
+                 '{canonical}' (argument {at}), {kind}; the engine composes the typed list as its \
+                 own contribution and a recipe authors no capability-bearing option beside it, so \
+                 the site is refused rather than reconciled (operator ruling 1 of 2026-09-23; \
+                 decision 0065 slice one, design D5.3)"
             ),
         ));
     }
+    // A switch that bypasses permissions is no option the grammar models,
+    // so it never parses; a web option reaches Claude only as a tool name.
+    rows.push((
+        "--dangerously-skip-permissions".to_string(),
+        outcome(compiled(
+            claude_inline("claude", &["--dangerously-skip-permissions"]),
+            allow.clone(),
+            false,
+        )),
+        site(
+            "its arguments do not parse: the 'claude' command grammar cannot place argument 5 \
+             ('--dangerously-skip-permissions'): it names no option. A harness brokkr launches is \
+             parsed against a model of its options, and a token that grammar cannot place is \
+             refused rather than passed through, because a control nobody can read is a control \
+             nobody can rule on (decision 0066 ruling 6)",
+        ),
+    ));
     // The adapter's own gaps: a mapped native alias, and no mapping at all.
     let mut aliased = claude();
     aliased["tool_permissions"]["names"]["webfetch"] = json!("WebFetch");
@@ -1590,7 +1691,7 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
              declares",
         ),
     ));
-    assert_eq!(rows.len(), 18);
+    assert_eq!(rows.len(), 28);
     each_row(rows);
 }
 

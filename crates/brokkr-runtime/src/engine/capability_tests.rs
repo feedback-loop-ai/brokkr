@@ -824,6 +824,159 @@ fn a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone() {
     );
 }
 
+/// An inline site whose compiled facts carry a lowered typed allow of the
+/// one tool `name` (rebuild unit 5b), as the compiler records it.
+fn lowered_inline(engine: &mut Engine, label: &str, name: &str) {
+    let limit = format!("Bash({name}:*)");
+    let site = engine.bundle.sites.entry(label.into()).or_default();
+    site.capabilities = Some(two_candidates());
+    site.local = Some(crate::agents::LocalTools {
+        allow: Some(vec![name.to_string()]),
+        sandbox: None,
+    });
+    site.inline_local = Some(crate::agents::LocalLowering {
+        segment: Segment::new(Origin::Local, &strings(&["--allowedTools", &limit])),
+        limits: vec![limit],
+    });
+}
+
+/// A capturing driver that also records the argv it was spawned with: every
+/// token behind its own `sh -c SCRIPT`, one per line.
+fn argv_capturing(name: &str, captures: &Path, result: &str) -> Vec<String> {
+    let mut command = capturing_driver_command(
+        "capability-effect",
+        "capability-attempt",
+        &captures.join(format!("{name}.json")),
+        json!({"result": result, "notes": name}),
+    );
+    let argv = captures.join(format!("{name}.argv"));
+    command[2] = format!(
+        "printf '%s\\n' \"$0\" \"$@\" > '{}'; {}",
+        argv.display(),
+        command[2]
+    );
+    command
+}
+
+/// What one capturing driver was spawned with and handed: its argv behind
+/// the script, and its sealed launch record's segments and local intent.
+fn delivered(captures: &Path, name: &str) -> Value {
+    let argv = std::fs::read_to_string(captures.join(format!("{name}.argv"))).unwrap();
+    let start: Value =
+        serde_json::from_slice(&std::fs::read(captures.join(format!("{name}.json"))).unwrap())
+            .unwrap();
+    let record = &start["input"][LAUNCH_RECORD];
+    json!({
+        "seat": start["input"]["seat"],
+        "argv": argv.lines().collect::<Vec<_>>(),
+        "segments": record["segments"],
+        "local": record["expected"]["local"],
+    })
+}
+
+/// What a site whose facts lowered `name` must have been delivered.
+fn lowered_delivery(seat: &str, name: &str) -> Value {
+    let limit = format!("Bash({name}:*)");
+    json!({
+        "seat": seat,
+        "argv": ["--allowedTools", limit],
+        "segments": [{"origin": "local", "argv": ["--allowedTools", limit]}],
+        "local": {"allow": {"kind": "listed", "names": [name]},
+                  "sandbox": {"kind": "unspecified"},
+                  "application": {"kind": "direct", "limits": [limit]}},
+    })
+}
+
+/// Rebuild unit 5b-fix (finding C2): the label each REAL dispatch hands
+/// `Engine::compose_at` is the one whose compiled facts its composition
+/// reads. A single seat, a sequence step and two panel members inside it
+/// each carry a different lowered allow, and each spawned driver is read
+/// for what it was actually started with: its argv behind the script, the
+/// sealed record's origins and its local expectation. A handoff that lost
+/// the label, or read a neighbour's, delivers the wrong list or none.
+#[test]
+fn every_dispatch_composes_the_lowered_allow_of_its_own_site() {
+    let captures = tempfile::tempdir().unwrap();
+    let captures = std::fs::canonicalize(captures.path()).unwrap();
+
+    // The single seat, through the engine's own drive.
+    let (_dir, mut engine) =
+        canonical_engine(single_body(argv_capturing("single", &captures, "complete")));
+    lowered_inline(&mut engine, "work", "cargo");
+    engine.drive().unwrap();
+    assert_eq!(
+        delivered(&captures, "single"),
+        lowered_delivery("work", "cargo")
+    );
+
+    // A sequence step and the two members of a panel step inside it.
+    let steps = vec![
+        SequenceStep {
+            name: "draft".into(),
+            class: SeatClass::Work,
+            results: vec!["drafted".into()],
+            body: StepBody::Single {
+                role_path: "draft.md".into(),
+                command: argv_capturing("draft", &captures, "drafted"),
+                candidates: Vec::new(),
+            },
+        },
+        SequenceStep {
+            name: "finish".into(),
+            class: SeatClass::Work,
+            results: vec!["pass".into(), "fail".into()],
+            body: StepBody::Panel {
+                members: vec![
+                    member("a", argv_capturing("a", &captures, "pass")),
+                    member("b", argv_capturing("b", &captures, "pass")),
+                ],
+                aggregate: Aggregate::UnanimousPass,
+            },
+        },
+    ];
+    let (_dir, mut engine) = canonical_engine(SeatBody::Sequence {
+        steps: steps.clone(),
+    });
+    engine.bundle.seats.get_mut("work").unwrap().results = vec!["pass".into(), "fail".into()];
+    for (label, name) in [
+        ("work:draft", "git"),
+        ("work:finish:a", "npm"),
+        ("work:finish:b", "node"),
+    ] {
+        lowered_inline(&mut engine, label, name);
+    }
+    let input = engine
+        .seat_input(
+            &state(Some("work"), Cursor::Idle),
+            "work",
+            "capability-effect",
+        )
+        .unwrap();
+    engine
+        .execute_sequence(
+            "capability-effect",
+            "capability-attempt",
+            "work",
+            &steps,
+            &input,
+            std::time::Duration::from_secs(10),
+            &Selection::new(),
+        )
+        .unwrap();
+    assert_eq!(
+        json!([
+            delivered(&captures, "draft"),
+            delivered(&captures, "a"),
+            delivered(&captures, "b"),
+        ]),
+        json!([
+            lowered_delivery("work:draft", "git"),
+            lowered_delivery("work:finish:a", "npm"),
+            lowered_delivery("work:finish:b", "node"),
+        ])
+    );
+}
+
 /// [`engine`] over a canonicalised temporary root, so every fixture path
 /// is the one the filesystem resolves (macOS's `/var` is `/private/var`).
 fn canonical_engine(body: SeatBody) -> (tempfile::TempDir, Engine) {

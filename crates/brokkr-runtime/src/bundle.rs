@@ -2669,9 +2669,10 @@ fn record_inline_tools(
 
 /// Rebuild unit 5b (design D5.3, D5.7): the one inline shape whose typed
 /// allow the engine delivers — a command that dispatches the claude or
-/// lanetally driver, with no hands and no tool list of its author's, whose
-/// adapter maps every name. The list is lowered by the same function that
-/// lowers an agent's, and every other shape refuses with its own cause.
+/// lanetally driver, with no hands and no capability-bearing option of its
+/// author's (rebuild unit 5b-fix), whose adapter maps every name. The list
+/// is lowered by the same function that lowers an agent's, and every other
+/// shape refuses with its own cause.
 fn lower_inline_allow(
     what: &str,
     raw: &Value,
@@ -2708,25 +2709,27 @@ fn lower_inline_allow(
         ));
     }
     // Operator ruling 1 of 2026-09-23: the engine composes the typed list
-    // as its own contribution, and nothing it composes is merged with an
-    // author's list, read under the harness's own grammar.
+    // as its own contribution, and nothing it composes is merged with or
+    // ordered against a capability control of the author's, read under the
+    // harness's own grammar.
     let authored = brokkr_protocol::native_controls::parse_origin(
         &driver,
         brokkr_protocol::native_controls::harness_arguments(command),
         true,
     )
     .map_err(|refusal| CompileError::Invalid(refusal.at_compile(&format!("seat '{what}'"))))?;
-    if let Some(node) = authored
+    if let Some((node, kind)) = authored
         .iter()
         .flat_map(|parsed| &parsed.nodes)
-        .find(|node| node.list().is_some())
+        .find_map(|node| authored_capability_control(node).map(|kind| (node, kind)))
     {
         return Err(refuse(format!(
-            "while its authored command carries '{}', a tool list; the engine composes the typed \
-             list as its own contribution and never merges it with an authored one, so the site \
-             is refused rather than reconciled (operator ruling 1 of 2026-09-23; decision 0065 \
-             slice one, design D5.3)",
-            node.name()
+            "while its authored command carries '{}' (argument {}), {kind}; the engine composes \
+             the typed list as its own contribution and a recipe authors no capability-bearing \
+             option beside it, so the site is refused rather than reconciled (operator ruling 1 \
+             of 2026-09-23; decision 0065 slice one, design D5.3)",
+            node.name(),
+            node.at + 1
         )));
     }
     let adapter = adapters
@@ -2740,6 +2743,29 @@ fn lower_inline_allow(
         })?;
     crate::agents::lower_allow(adapter, allow, "site")
         .map_err(|cause| CompileError::Invalid(format!("seat '{what}': {cause}")))
+}
+
+/// What a capability-bearing option an author wrote at an inline typed
+/// site is (operator ruling 1 of 2026-09-23; rebuild unit 5b-fix), or
+/// `None` for an option that bears no capability. Judged on the parsed
+/// node, so every spelling of one option — split, `=`-joined, an alias —
+/// is judged at once, and its value is never read: a permission mode is
+/// refused whichever mode it names. Web and search reach Claude only as
+/// tool names, which ride a list; an option the grammar does not model
+/// never parses.
+fn authored_capability_control(
+    node: &brokkr_protocol::native_controls::grammar::Node,
+) -> Option<&'static str> {
+    use brokkr_protocol::native_controls::grammar::Effect;
+    Some(match (node.spec.effect, node.name()) {
+        (Effect::List(_), _) => "a tool list",
+        (Effect::Load | Effect::Config, _) => {
+            "which loads or configures a server, a plugin or a settings document"
+        }
+        (_, "--permission-mode") => "a permission mode",
+        (_, "--strict-mcp-config") => "an MCP configuration control",
+        _ => return None,
+    })
 }
 
 /// Which contribution [`expressed_sandbox`] judges (design D5.6): bytes an

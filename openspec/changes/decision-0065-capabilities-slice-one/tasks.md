@@ -689,6 +689,31 @@ to rule before unit 6:** how the adapter's acceptEdits template reaches an
 inline command once ruling 1 removes the authored `--permission-mode`. **Not
 fully green:** external exact coverage, macOS and remote CI are pending.
 
+**Correction (5b-fix):** the tick at `efb61050` overstated completion, and
+5b.1 completes only with 5b-fix below. Its council held the unit
+(SECURITY-HOLD) on three counts. First, the inline path refused authored
+tool lists only, so `--permission-mode bypassPermissions` beside a typed
+allow compiled (S1). Second, "the final Claude command" was proved for
+Claude and not for LaneTally, whose serving branch was never observed (C1).
+Third, the dispatch handoff was unbound (C2).
+
+- [x] 5b-fix Unit 5b-fix repairs unit 5b under its council's SECURITY-HOLD (chief S1, C1, C2, E1). On the inline typed path, every authored capability-bearing option refuses at compile with a bounded reason. That covers tool lists, MCP/plugin/settings/agents loads, `--strict-mcp-config` and `--permission-mode` in split and `=` forms, in the claude and lanetally grammars. The reason names the canonical option and its position and never its value. A provider-free LaneTally serving test proves the wrapper's whole ordered final argv with native OFF. An engine-dispatch test proves that each site composes its own lowered allow. An honest retrospective baseline red is recorded for 5b's positive behaviour. Requirements: operator ruling 1, [Refusal proofs assert the full reason][SC8]. (run `triage-directive-operator-ruling-5b7b5137`)
+
+Observed 2026-09-24 (evidence.md, "Unit 5b-fix"). Production: `bundle.rs`
+(`authored_capability_control` replaces the list-only check). The inline
+lowering test grows from 18 to 28 exact rows, and capability_launch gains the
+permission-mode compile regression on the shipped adapters, the LaneTally
+serving test and its re-entered driver. `engine/capability_tests.rs` gains the
+dispatch test (single, sequence step and two panel members, each with its own
+list), as the commission permitted. The E1 retrospective restored `c10fc837`'s
+runtime sources: the success assertion was red with the D5.3 refusal and
+passed at `efb61050`. M1–M11 each bound and were restored. M2's rows still
+refuse downstream, by the capability-server cause. M8, the survivor unit 5b
+recorded, now fails C2. fmt, clippy, the brokkr-runtime suite, both bundle
+compiles, `openspec validate` and `git diff --check` passed. **Open,
+operator's:** the acceptEdits template for inline commands (unchanged). **Not
+fully green:** external exact coverage, macOS and remote CI are pending.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)
