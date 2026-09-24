@@ -763,6 +763,31 @@ compiles, `openspec validate --all --strict` (18 passed) and `git diff
 the acceptEdits template). **Not fully green:** external exact coverage, macOS
 and remote CI are pending.
 
+## 5c. Unit 5c — Emit the adapter's permission template at inline typed sites
+
+- [x] 5c.1 Unit 5c emits the adapter's declared permission template (for claude, `--permission-mode acceptEdits`) at an inline Claude or LaneTally site whose typed declaration lowers, as the engine's own `template` segment read from the adapter data, the way agent composition emits it. The sealed record carries it, and the launch parses it back with the rest of the final command. An authored permission mode stays refused, every inline shape that does not lower keeps its refusal, and a seat whose adapter declares no template gets none. Verify the whole ordered final command for an inline claude site and a LaneTally site, the no-template seat and the authored-mode refusal, each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 ("the permission template at inline sites"), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the operator's ruling (a); run `triage-directive-operator-ruling-9d597b08`)
+
+Observed 2026-09-24 (evidence.md, "Unit 5c"). Production: `agents.rs`
+(`driver_template`, which `compose` now calls, and `inline_template`, the
+part of it behind the driver verb), `bundle.rs` (`SiteFacts.inline_template`,
+recorded only beside `inline_local`) and `engine.rs` (`compose_site_at`
+places it between the authored command and the `local` segment, the order an
+agent's composition gives them). An adapter whose own driver does not
+dispatch the site's driver is refused with an exact cause. The three 5b
+launch tests now assert the template in the spawn, the sealed segments and
+the whole ordered final Claude and LaneTally wrapper commands. These three
+were red at `83a30446`. One new launch test covers a no-template adapter, and
+the refusal test gained authored `acceptEdits` rows. One new agent_tests
+table has 11 rows and did not compile at baseline, because the field was
+absent. M1–M8 each bound and were restored. The expected state
+(`native_controls::Expected`) has no template member. The template is sealed
+as a `template`-origin segment of the launch record, which is how an
+agent-backed seat records its own; a dedicated member would be a fourth
+production file. fmt, clippy, the brokkr-runtime suite, both bundle
+compiles, `openspec validate --all --strict` and `git diff --check` passed.
+**Not fully green:** external exact coverage, macOS and remote CI are
+pending.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

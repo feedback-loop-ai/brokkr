@@ -4567,3 +4567,142 @@ its suites were not re-run.
 - **Unit 10:** unchanged from 5b-fix2.
 - **Pending:** external exact coverage, macOS and remote CI on the committed
   head. Nothing is pushed.
+
+## Unit 5c — the permission template at inline typed sites, 2026-09-24
+
+Run `triage-directive-operator-ruling-9d597b08`, based on `83a30446`. This
+implements the operator's ruling (a) of 2026-09-24
+(operator-ruling-2026-09-23.md, addendum "the permission template at inline
+sites"). Production: `agents.rs`, `bundle.rs` and `engine.rs`, unit 5b's
+inventory. Tests: `bundle/agent_tests.rs` and `tests/capability_launch.rs`.
+No recipe, adapter, pin, contract, fixture or policy byte moved. No recipe is
+migrated; that is unit 6.
+
+### Where the template comes from
+
+The adapter declares its permission template as the tail of its `driver`
+behind the dispatch verb. In `adapters/claude.json` and
+`adapters/lanetally.json` the driver is `["{brokkr}", "driver", <kind>, "--",
+"--permission-mode", "acceptEdits"]`. `adapters/codex.json` and
+`adapters/dsh.json` end at `"--"`. Agent composition already emits the whole
+driver as one `template` segment, and the spawn's extras cut keeps only its
+tail. That is why an agent-backed Claude seat's sealed record opens with
+`{"origin": "template", "argv": ["--permission-mode", "acceptEdits"]}`
+(`a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits` in
+capability_launch).
+
+- `agents.rs`: `compose` now takes its first segment from `driver_template`.
+  The new `inline_template(adapter, kind)` takes the same segment and returns
+  the part behind the verb, read by the protocol's own `harness_arguments`,
+  in the same `template` origin. It returns `None` when nothing follows the
+  verb. When the adapter's own driver does not dispatch `kind`, it refuses
+  with a fixed cause that echoes no driver bytes. An opaque driver such as
+  `["claude-wrapper", …]` counts: its tail could not be placed behind an
+  inline `<kind>` command.
+- `bundle.rs`: `lower_inline_allow` returns the lowering and the template
+  together. `record_inline_tools` records `SiteFacts.inline_template`,
+  expanded as the local segment is, only where `inline_local` is recorded.
+  An inline site whose allow does not lower records no template.
+- `engine.rs`: `compose_site_at` composes `[authored, template?, local]`. The
+  template comes before the local list, the order an agent's composition
+  gives them.
+
+**Expected state.** `native_controls::Expected` (identity, native, local,
+hands) has no template member, and an agent-backed seat does not put its
+template there either. The template is sealed as a `template`-origin segment
+of the launch record. `verify_record` compares that segment with the sealed
+one and reassembles it against the driver's extras, and the driver parses it
+with the rest of the final command in `compose_for_provider`. That parse is
+the parse-back that exists today; the whole-command final assessment is units
+13–15. A dedicated `Expected` member would move `native_controls.rs` (a
+fourth production file) and the record's closed JSON. It was not made, and
+it is named here for the council.
+
+### New and changed tests
+
+- `tests/capability_launch.rs`:
+  - `an_inline_claude_seats_typed_allow_reaches_its_final_command_…`
+    (changed). The spawn, the sealed segments `[authored, template
+    ["--permission-mode","acceptEdits"], local]`, the typed expectation, and
+    the whole ordered final Claude command `claude -p --output-format
+    stream-json --verbose --model claude-opus-5-5 --effort high
+    --permission-mode acceptEdits --allowedTools
+    Bash(.venv/bin/pytest:*),Bash(cargo:*) --disallowedTools
+    WebFetch,WebSearch`.
+  - `an_inline_lanetally_seats_typed_allow_reaches_its_spawn_…` (changed).
+    The spawn and the three sealed segments.
+  - `an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with_native_off`
+    (changed). The wrapper's whole recorded argv now carries
+    `--permission-mode acceptEdits` between the pins and the lowered list,
+    through the driver's serving branch.
+  - `an_inline_claude_seat_whose_adapter_declares_no_template_gets_none`
+    (new). A copy of the shipped Claude adapter whose driver ends at `"--"`:
+    its spawn, segments `[authored, local]` and whole final command carry no
+    permission mode.
+  - `an_inline_typed_allow_beside_an_authored_capability_option_refuses_the_compile`
+    (changed). Rows `--permission-mode acceptEdits` and
+    `--permission-mode=acceptEdits` (the template's own bytes) for both
+    drivers, each with the whole 5b-fix refusal at argument 5.
+- `bundle/agent_tests.rs::an_inline_site_records_its_adapters_permission_template_only_where_its_allow_lowers`
+  (new, 11 rows, count asserted). Rows:
+  - claude and lanetally adapters that declare the template record
+    `Some(Segment{Template, ["--permission-mode","acceptEdits"]})` beside
+    the cargo lowering, with the authored command untouched.
+  - No `tools`, and `tools: {}`, record neither.
+  - Authored `--permission-mode acceptEdits` and `=acceptEdits` refuse with
+    `carries(…, 5, "a permission mode")`.
+  - Hands keeps its refusal.
+  - A claude adapter whose driver dispatches `lanetally`, and an opaque
+    driver, refuse with the whole new cause.
+  - Drivers ending at `"--"` and at the verb record `None` beside the
+    lowering.
+
+### Baseline reds (at `83a30446`'s three production files, the tests above in place)
+
+- capability_launch: 3 of 27 red, the claude final-command test and the two
+  LaneTally tests. Each left lacks the `template` segment and
+  `--permission-mode acceptEdits`. The no-template test and the
+  authored-mode refusal test were green at baseline, as intended: they are
+  guards against the new emission.
+- agent_tests: the new table did not compile (`error[E0609]: no field
+  inline_template on type SiteFacts`).
+
+### Mutations (each alone, compiling, restored, then rerun green)
+
+| # | Mutation | Failing test: rows / assertion |
+| --- | --- | --- |
+| M1 | `engine.rs`: the template link dropped (`facts.and_then(\|_\| None)`) | the 3 launch tests at their whole-value `assert_eq!` (claude final, LaneTally spawn, LaneTally wrapper argv) |
+| M2 | `engine.rs`: template placed after the local segment | the same 3 launch tests, on order |
+| M3 | `engine.rs`: template re-labelled `Origin::Authored` | the 2 record tests (claude, LaneTally spawn), on `segments`. The wrapper-argv test is bytes-only and stayed green, as expected |
+| M4 | `agents.rs`: `inline_template` returns `Some` even for an empty tail | launch: the no-template test (an empty `template` segment in the record). agent_tests: rows "no template behind the terminator" and "no terminator and no template" |
+| M5a | `agents.rs`: the kind check dropped (`!dispatched.is_empty()`) | agent_tests: row "a driver dispatching another kind" |
+| M5b | `agents.rs`: an opaque driver read as no template (`[_, marker, ..] if marker != "driver" => Ok(None)`) | agent_tests: row "an opaque driver" |
+| M6 | `bundle.rs`: the template never recorded (`template.filter(\|_\| false)`) | the 3 launch tests. agent_tests: rows "claude with a template", "lanetally with a template" |
+| M7 | `bundle.rs`: a template recorded where the allow does not lower | agent_tests: rows "no typed allow", "an unspecified declaration" |
+| M8 | `bundle.rs`: the `--permission-mode` arm of `authored_capability_control` disabled | launch: the authored-option refusal test (first failing row `claude ["--permission-mode", "bypassPermissions"]`). agent_tests: both authored `acceptEdits` rows, left `compiled: …` |
+
+After restoring, the production diff was compared byte for byte with the diff
+saved before M1, and they were identical.
+
+### Gates
+
+`cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings` passed. `cargo test -p
+brokkr-runtime --all-features --locked` passed: 551 lib tests and every
+integration suite, including capability_launch with 27 tests and
+witness_digests. No pin moved, because the template is private site data and
+not a manifest field. Both `compile --bundle bundles/self` and
+`bundles/verify` passed, as did `openspec validate --all --strict` and `git
+diff --check`. brokkr-cli was not touched and its suites were not re-run.
+
+### Owed and open
+
+- **For the council:** whether "the expected state records the template"
+  requires an `Expected` member. The reading here is that the sealed launch
+  record's `template` segment records it, as it does for an agent. The
+  alternative is a split unit on `native_controls.rs`.
+- **Open, for the operator:** `--bg` and `--input-format`, unchanged.
+- **Unit 6** can now migrate `fast`, `node` and `preflight`. The template
+  reaches their inline commands from the adapter.
+- **Pending:** external exact coverage, macOS and remote CI on the committed
+  head. Nothing is pushed.

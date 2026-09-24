@@ -994,7 +994,7 @@ fn compose(
     boxed: bool,
 ) -> Result<Composition, ResolveError> {
     let intent = Intent::of(agent);
-    let mut segments = vec![Segment::new(Origin::Template, &adapter.driver)];
+    let mut segments = vec![driver_template(adapter)];
     // A provider that serves the model but cannot be TOLD which model is
     // the silent-substitution case in its purest form: it would run its
     // own default and the run would claim the pinned one.
@@ -1128,6 +1128,39 @@ fn compose(
         intent,
         application,
     })
+}
+
+/// The adapter's declared driver as the `template` segment that opens every
+/// command it composes (design D5.7). Its dispatch verb supplies no driver
+/// extra; what follows the verb — Claude's `--permission-mode acceptEdits`
+/// — is the adapter's permission template.
+fn driver_template(adapter: &Adapter) -> Segment {
+    Segment::new(Origin::Template, &adapter.driver)
+}
+
+/// Rebuild unit 5c (operator ruling of 2026-09-24, "the permission
+/// template at inline sites"): the part of [`driver_template`] an agent's
+/// composition hands its driver behind the verb, for an inline site whose
+/// command dispatches `kind` and whose typed allow lowers. It is the
+/// adapter's declaration, never the recipe's, in the engine's `template`
+/// origin; an adapter that declares nothing behind its verb contributes no
+/// segment. An adapter whose own driver does not dispatch `kind` declares
+/// no template that could stand behind that command, and is refused.
+pub fn inline_template(adapter: &Adapter, kind: &str) -> Result<Option<Segment>, String> {
+    let driver = driver_template(adapter);
+    match driver.argv.as_slice() {
+        [_, marker, dispatched, ..] if marker == "driver" && dispatched == kind => {
+            let template = brokkr_protocol::native_controls::harness_arguments(&driver.argv);
+            Ok((!template.is_empty()).then(|| Segment::new(driver.origin, template)))
+        }
+        _ => Err(format!(
+            "the '{kind}' adapter's own driver does not dispatch the '{kind}' driver, so the \
+             permission template it declares cannot be placed behind an inline '{kind}' command; \
+             the engine emits an adapter's template only as that adapter's agents receive it, \
+             and the site is refused rather than launched without it (operator ruling of \
+             2026-09-24, the permission template at inline sites)"
+        )),
+    }
 }
 
 /// A direct allow list lowered onto one adapter's tool permissions (design

@@ -748,9 +748,12 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
 /// Rebuild unit 5b (design D5.3, D5.7): an inline Claude seat that declares
 /// a typed allow and writes no capability flag compiles, and the engine
 /// appends the adapter's exact mapped limits behind the authored command as
-/// its own `local` segment. The authored command is never rewritten, the
-/// sealed record carries both origins and the typed expectation, and the
-/// final Claude command carries the lowered list beside the native OFF.
+/// its own `local` segment. Rebuild unit 5c: between them, the adapter's
+/// declared permission template as the engine's own `template` segment,
+/// read from the shipped adapter data. The authored command is never
+/// rewritten, the sealed record carries all three origins and the typed
+/// expectation, and the whole ordered final Claude command carries the
+/// template and the lowered list beside the native OFF.
 #[test]
 fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_local_limits() {
     let operator = Operator::new();
@@ -790,11 +793,12 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
             "authored command": [&exe, "driver", "claude", "--",
                                  "--model", "claude-opus-5-5", "--effort", "high"],
             "spawn": [&exe, "driver", "claude", "--", "--model", "claude-opus-5-5",
-                      "--effort", "high",
+                      "--effort", "high", "--permission-mode", "acceptEdits",
                       "--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"],
             "segments": [
                 {"origin": "authored",
                  "argv": ["--model", "claude-opus-5-5", "--effort", "high"]},
+                {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
                 {"origin": "local",
                  "argv": ["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]},
             ],
@@ -821,8 +825,75 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
                     "claude-opus-5-5",
                     "--effort",
                     "high",
+                    "--permission-mode",
+                    "acceptEdits",
                     "--allowedTools",
                     "Bash(.venv/bin/pytest:*),Bash(cargo:*)",
+                    "--disallowedTools",
+                    "WebFetch,WebSearch"
+                ]
+            ),
+        })
+    );
+}
+
+/// Rebuild unit 5c: a seat whose adapter declares no permission template
+/// gets none. A copy of the shipped Claude adapter whose driver ends at its
+/// verb composes the same inline seat with no `template` segment, and its
+/// whole ordered final command carries the pins, the lowered list and the
+/// native OFF, and no permission mode.
+#[test]
+fn an_inline_claude_seat_whose_adapter_declares_no_template_gets_none() {
+    let operator = Operator::new();
+    let adapters = copied_adapters();
+    edit_adapter(adapters.path(), "claude", |adapter| {
+        adapter["driver"] = json!(["{brokkr}", "driver", "claude", "--"]);
+    });
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+        ],
+    );
+    typed_allow(&operator, json!(["cargo"]));
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, adapters.path(), &context).unwrap();
+    let (spawn, input) = sealed(&bundle, "work", 0);
+    assert_eq!(
+        json!({
+            "spawn": spawn.argv[1..],
+            "segments": input["launch_record"]["segments"],
+            "final": solo(&operator, adapters.path(), &context),
+        }),
+        json!({
+            "spawn": ["driver", "claude", "--", "--model", "claude-opus-5-5", "--effort", "high",
+                      "--allowedTools", "Bash(cargo:*)"],
+            "segments": [
+                {"origin": "authored",
+                 "argv": ["--model", "claude-opus-5-5", "--effort", "high"]},
+                {"origin": "local", "argv": ["--allowedTools", "Bash(cargo:*)"]},
+            ],
+            "final": format!(
+                "launched {:?}",
+                [
+                    "claude",
+                    "-p",
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                    "--model",
+                    "claude-opus-5-5",
+                    "--effort",
+                    "high",
+                    "--allowedTools",
+                    "Bash(cargo:*)",
                     "--disallowedTools",
                     "WebFetch,WebSearch"
                 ]
@@ -864,7 +935,11 @@ fn inline_typed_allow_beside(driver: &str, written: &[&str]) -> String {
 /// `tools.allow` with an authored `bypassPermissions` or `--add-dir` beside
 /// it — refuse at compile for both drivers in every spelling the chief
 /// probed and the repeated and variadic ones, naming the option and its
-/// position and never the mode or the directory.
+/// position and never the mode or the directory. Rebuild unit 5c: with the
+/// engine now emitting the adapter's `acceptEdits` template, an authored
+/// `acceptEdits` — the template's own bytes — still refuses; the template is
+/// the engine's because the adapter supplied it, never because a recipe's
+/// text matches it.
 #[test]
 fn an_inline_typed_allow_beside_an_authored_capability_option_refuses_the_compile() {
     let carries = |canonical: &str, at: usize, kind: &str| {
@@ -887,6 +962,18 @@ fn an_inline_typed_allow_beside_an_authored_capability_option_refuses_the_compil
             ),
             (
                 &["--permission-mode=bypassPermissions"][..],
+                "--permission-mode",
+                5,
+                "a permission mode",
+            ),
+            (
+                &["--permission-mode", "acceptEdits"][..],
+                "--permission-mode",
+                5,
+                "a permission mode",
+            ),
+            (
+                &["--permission-mode=acceptEdits"][..],
                 "--permission-mode",
                 5,
                 "a permission mode",
@@ -1019,10 +1106,11 @@ fn an_inline_typed_allow_beside_an_unplain_effort_refuses_whatever_the_adapter_d
 /// Rebuild unit 5b at a LaneTally seat, which shares Claude's composition
 /// path: its typed allow is lowered onto LaneTally's own tool permissions
 /// and reaches the spawn and its sealed record as the engine's `local`
-/// segment. The shipped LaneTally inventory is unmeasured, which refuses
-/// every LaneTally seat on its own terms, so this fixture copies Claude's
-/// measured native declarations into it — the lowering is under test, not
-/// the wrapper's confinement.
+/// segment, behind LaneTally's own declared permission template as the
+/// engine's `template` segment (rebuild unit 5c). The shipped LaneTally
+/// inventory is unmeasured, which refuses every LaneTally seat on its own
+/// terms, so this fixture copies Claude's measured native declarations into
+/// it — the lowering is under test, not the wrapper's confinement.
 #[test]
 fn an_inline_lanetally_seats_typed_allow_reaches_its_spawn_as_the_engines_local_limits() {
     let operator = Operator::new();
@@ -1063,10 +1151,12 @@ fn an_inline_lanetally_seats_typed_allow_reaches_its_spawn_as_the_engines_local_
         }),
         json!({
             "spawn": [&exe, "driver", "lanetally", "--", "--model", "claude-opus-5-5",
-                      "--effort", "high", "--allowedTools", "Bash(git:*),Bash(gh pr view:*)"],
+                      "--effort", "high", "--permission-mode", "acceptEdits",
+                      "--allowedTools", "Bash(git:*),Bash(gh pr view:*)"],
             "segments": [
                 {"origin": "authored",
                  "argv": ["--model", "claude-opus-5-5", "--effort", "high"]},
+                {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
                 {"origin": "local", "argv": ["--allowedTools", "Bash(git:*),Bash(gh pr view:*)"]},
             ],
             "local": {"allow": {"kind": "listed", "names": ["git", "gh-pr-view"]},
@@ -1081,8 +1171,9 @@ fn an_inline_lanetally_seats_typed_allow_reaches_its_spawn_as_the_engines_local_
 /// driver's SERVING branch — `brokkr driver lanetally`, which composes the
 /// wrapper's command under LaneTally's own shape — read off the command
 /// the wrapper was actually spawned with. The whole ordered argv: the
-/// stream shape, the authored pins, the engine's lowered list and the
-/// native OFF, and nothing else. Provider-free: the wrapper is a recording
+/// stream shape, the authored pins, the adapter's permission template
+/// (rebuild unit 5c), the engine's lowered list and the native OFF, and
+/// nothing else. Provider-free: the wrapper is a recording
 /// shim, and the driver is this test binary re-entered as
 /// [`lanetally_serving_child`], because the serving branch is reached only
 /// through the driver's own stdin protocol.
@@ -1198,6 +1289,8 @@ fn an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with
             "claude-opus-5-5",
             "--effort",
             "high",
+            "--permission-mode",
+            "acceptEdits",
             "--allowedTools",
             "Bash(git:*),Bash(gh pr view:*)",
             "--disallowedTools",

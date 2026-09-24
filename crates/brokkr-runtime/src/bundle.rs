@@ -423,6 +423,13 @@ pub struct SiteFacts {
     /// its own `local` segment at dispatch; the authored command never
     /// carries it. `None` at every other site.
     pub inline_local: Option<crate::agents::LocalLowering>,
+    /// Rebuild unit 5c (operator ruling of 2026-09-24): the permission
+    /// template the site's adapter declares behind its driver verb, taken
+    /// where `inline_local` is and nowhere else. The engine appends it as
+    /// its own `template` segment between the authored command and the
+    /// lowered list. `None` where the allow does not lower or the adapter
+    /// declares no template.
+    pub inline_template: Option<Segment>,
 }
 
 /// Every agent charter one compile bound, keyed by the path the seat will
@@ -2657,13 +2664,19 @@ fn record_inline_tools(
     facts.local = Some(local);
     // Expanded as an agent's composition is, segment by segment, so the
     // engine's contribution names this machine's paths as the command does.
+    let expanded = |segment: Segment| Segment {
+        origin: segment.origin,
+        argv: expand_command(dir, &segment.argv),
+    };
+    let (lowered, template) = match lowered {
+        Some((lowered, template)) => (Some(lowered), template),
+        None => (None, None),
+    };
     facts.inline_local = lowered.map(|lowered| crate::agents::LocalLowering {
-        segment: Segment {
-            origin: lowered.segment.origin,
-            argv: expand_command(dir, &lowered.segment.argv),
-        },
+        segment: expanded(lowered.segment),
         limits: lowered.limits,
     });
+    facts.inline_template = template.map(expanded);
     Ok(())
 }
 
@@ -2672,14 +2685,16 @@ fn record_inline_tools(
 /// lanetally driver, with no hands and no capability-bearing option of its
 /// author's (rebuild unit 5b-fix), whose adapter maps every name. The list
 /// is lowered by the same function that lowers an agent's, and every other
-/// shape refuses with its own cause.
+/// shape refuses with its own cause. Beside it comes the adapter's declared
+/// permission template, which the engine emits here as it does for an
+/// agent (rebuild unit 5c), or `None` where the adapter declares none.
 fn lower_inline_allow(
     what: &str,
     raw: &Value,
     command: &[String],
     allow: &[String],
     adapters: Option<&crate::agents::Adapters>,
-) -> Result<crate::agents::LocalLowering, CompileError> {
+) -> Result<(crate::agents::LocalLowering, Option<Segment>), CompileError> {
     let refuse = |cause: String| {
         CompileError::Invalid(format!("seat '{what}' declares 'tools.allow' {cause}"))
     };
@@ -2756,8 +2771,10 @@ fn lower_inline_allow(
                  unrestricted (decision 0065 slice one, design D5.3)"
             ))
         })?;
-    crate::agents::lower_allow(adapter, allow, "site")
-        .map_err(|cause| CompileError::Invalid(format!("seat '{what}': {cause}")))
+    let refused = |cause: String| CompileError::Invalid(format!("seat '{what}': {cause}"));
+    let lowered = crate::agents::lower_allow(adapter, allow, "site").map_err(refused)?;
+    let template = crate::agents::inline_template(adapter, &driver).map_err(refused)?;
+    Ok((lowered, template))
 }
 
 /// What a capability-bearing option an author wrote at an inline typed

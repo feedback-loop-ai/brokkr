@@ -2003,6 +2003,176 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
     each_row(rows);
 }
 
+/// Rebuild unit 5c (operator ruling of 2026-09-24, "the permission template
+/// at inline sites"): where an inline Claude or LaneTally site's typed allow
+/// lowers, the compiler records the permission template its adapter declares
+/// behind the driver verb as the engine's own `template` segment, beside the
+/// lowered list and with the authored command untouched. An adapter that
+/// declares none gives none; a site whose allow does not lower records none;
+/// an adapter whose own driver does not dispatch the site's driver refuses;
+/// and an authored permission mode — the template's own bytes included —
+/// and hands keep their refusals.
+#[test]
+fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_lowers() {
+    let fixture = AgentFixture::new();
+    let compiled = |command: Value, tools: Option<Value>, hands: bool| {
+        let mut config = fixture.config();
+        config["seats"]["review"]["driver"]["command"] = command;
+        if let Some(tools) = tools {
+            config["seats"]["review"]["tools"] = tools;
+        }
+        if hands {
+            config["seats"]["review"]["hands"] =
+                json!({"kind": "workspace", "network": false, "binds": []});
+        }
+        fixture.compile(config)
+    };
+    // The template, the lowered list and the command the author wrote.
+    let recorded = |result: Result<Bundle, CompileError>| match result {
+        Ok(bundle) => format!(
+            "{:?} {:?} {:?}",
+            bundle.sites["review"].inline_template,
+            bundle.sites["review"].inline_local,
+            command_of(&bundle, "review")[1..].to_vec()
+        ),
+        Err(error) => error.to_string(),
+    };
+    let expected = |template: Option<&[&str]>, lowering, driver: &str| {
+        format!(
+            "{:?} {:?} {:?}",
+            template.map(|argv| Segment::new(
+                brokkr_protocol::native_controls::Origin::Template,
+                &argv.iter().map(|part| part.to_string()).collect::<Vec<_>>()
+            )),
+            lowering,
+            [
+                "driver",
+                driver,
+                "--",
+                "--model",
+                "claude-opus-5",
+                "--effort",
+                "high"
+            ]
+        )
+    };
+    let accept: &[&str] = &["--permission-mode", "acceptEdits"];
+    let with_driver = |provider: &str, driver: Value| {
+        let mut adapter = claude();
+        adapter["provider"] = json!(provider);
+        adapter["driver"] = driver;
+        if provider == "lanetally" {
+            adapter["models"] = json!({"opus-tallied": "claude-opus-5"});
+        }
+        fixture.write(&format!("adapters/{provider}.json"), adapter);
+    };
+    let allow = || Some(json!({"allow": ["cargo"]}));
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for driver in ["claude", "lanetally"] {
+        with_driver(
+            driver,
+            json!([
+                "{brokkr}",
+                "driver",
+                driver,
+                "--",
+                "--permission-mode",
+                "acceptEdits"
+            ]),
+        );
+        rows.push((
+            format!("{driver} with a template"),
+            recorded(compiled(claude_inline(driver, &[]), allow(), false)),
+            expected(Some(accept), cargo_lowering(), driver),
+        ));
+    }
+    rows.push((
+        "no typed allow".to_string(),
+        recorded(compiled(claude_inline("claude", &[]), None, false)),
+        expected(None, None, "claude"),
+    ));
+    rows.push((
+        "an unspecified declaration".to_string(),
+        recorded(compiled(
+            claude_inline("claude", &[]),
+            Some(json!({})),
+            false,
+        )),
+        expected(None, None, "claude"),
+    ));
+    for written in [
+        &["--permission-mode", "acceptEdits"][..],
+        &["--permission-mode=acceptEdits"][..],
+    ] {
+        rows.push((
+            format!("an authored {written:?}"),
+            outcome(compiled(claude_inline("claude", written), allow(), false)),
+            carries("--permission-mode", 5, "a permission mode"),
+        ));
+    }
+    rows.push((
+        "beside hands".to_string(),
+        outcome(compiled(claude_inline("claude", &[]), allow(), true)),
+        "bundle: seat 'review' declares 'tools.allow' beside the site's own hands; hands \
+         replace the harness's tools, so a direct local list at an inline site would stand \
+         beside the box's restriction rather than express it — it is kept exactly and \
+         refused (decision 0065 slice one, design D5.3)"
+            .to_string(),
+    ));
+    let elsewhere = |driver: &str| {
+        format!(
+            "bundle: seat 'review': the '{driver}' adapter's own driver does not dispatch the \
+             '{driver}' driver, so the permission template it declares cannot be placed behind \
+             an inline '{driver}' command; the engine emits an adapter's template only as that \
+             adapter's agents receive it, and the site is refused rather than launched without \
+             it (operator ruling of 2026-09-24, the permission template at inline sites)"
+        )
+    };
+    for (label, driver) in [
+        (
+            "a driver dispatching another kind",
+            json!([
+                "{brokkr}",
+                "driver",
+                "lanetally",
+                "--",
+                "--permission-mode",
+                "acceptEdits"
+            ]),
+        ),
+        (
+            "an opaque driver",
+            json!(["claude-wrapper", "--permission-mode", "acceptEdits"]),
+        ),
+    ] {
+        with_driver("claude", driver);
+        rows.push((
+            label.to_string(),
+            outcome(compiled(claude_inline("claude", &[]), allow(), false)),
+            elsewhere("claude"),
+        ));
+    }
+    for (label, driver) in [
+        (
+            "no template behind the terminator",
+            json!(["{brokkr}", "driver", "claude", "--"]),
+        ),
+        (
+            "no terminator and no template",
+            json!(["{brokkr}", "driver", "claude"]),
+        ),
+    ] {
+        with_driver("claude", driver);
+        rows.push((
+            label.to_string(),
+            recorded(compiled(claude_inline("claude", &[]), allow(), false)),
+            expected(None, cargo_lowering(), "claude"),
+        ));
+    }
+    assert_eq!(rows.len(), 11);
+    each_row(rows);
+}
+
 /// A typed declaration opens the adapters through the existing fallible
 /// context (design D5.2): a bundle that declares one and has no adapter
 /// data refuses with the loader's own words, while the same bundle without

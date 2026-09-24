@@ -1215,6 +1215,25 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    The design does not settle how the adapter's permission-mode template
    (acceptEdits) reaches an inline command, which unit 6 needs; that is the
    operator's to rule (evidence.md, "Unit 5b").
+   **5c. Emit the adapter's permission template at inline typed sites.**
+   Inserted before unit 6 by the operator's ruling (a) of 2026-09-24
+   (operator-ruling-2026-09-23.md, addendum "the permission template at
+   inline sites"). Close 5c.1. At an inline Claude or LaneTally site whose
+   typed declaration lowers (unit 5b's path), the engine appends the
+   adapter's declared permission template, read from the adapter data (for
+   claude, `--permission-mode acceptEdits`), as its own engine-owned segment
+   in the `template` origin, exactly as agent composition already emits it;
+   reuse that code path, do not duplicate it. The expected state records the
+   template, and the launch's parse-back sees it (ruling 2). An authored
+   permission mode stays refused (5b-fix), and every inline shape that does
+   not lower keeps its refusal. A seat whose adapter declares no template
+   gets none. Production: within unit 5b's files (bundle.rs, agents.rs,
+   engine.rs), at most three. Tests: bundle/agent_tests.rs and
+   crates/brokkr-runtime/tests/capability_launch.rs, covering the whole
+   ordered final command for an inline claude site and a LaneTally site with
+   the template in place, a seat whose adapter declares none, and an
+   authored mode still refused, each bound by a compiling mutation, recorded
+   then restored. Migrate no recipe: that is unit 6.
 6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,

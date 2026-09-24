@@ -4803,9 +4803,11 @@ pub fn compose_site(
 /// [`compose_site`] at a compiled site, with its facts: an inline site
 /// whose typed allow the compiler lowered (rebuild unit 5b; design D5.3,
 /// D5.7) is composed from its authored command and, behind it, the
-/// engine's own `local` segment, carried as the compiler recorded it and
-/// never recognised in the argv. Every other site is [`compose_site`]
-/// exactly.
+/// adapter's declared permission template as the engine's own `template`
+/// segment where the adapter declares one (rebuild unit 5c), then the
+/// engine's own `local` segment — the order an agent's composition gives
+/// them — each carried as the compiler recorded it and never recognised in
+/// the argv. Every other site is [`compose_site`] exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn compose_site_at(
     facts: Option<&SiteFacts>,
@@ -4826,10 +4828,10 @@ pub fn compose_site_at(
         (None, Some(lowered)) => compose_segments(
             boundary,
             class,
-            vec![
-                Segment::new(Origin::Authored, &command),
-                lowered.segment.clone(),
-            ],
+            std::iter::once(Segment::new(Origin::Authored, &command))
+                .chain(facts.and_then(|facts| facts.inline_template.clone()))
+                .chain([lowered.segment.clone()])
+                .collect(),
             hands,
             None,
             workdir,
