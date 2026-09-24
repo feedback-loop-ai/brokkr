@@ -5178,3 +5178,138 @@ here. It is recorded for the council.
   evidence. 5c.1 and 5c-fix2.1 stay unticked.
 - **Pending:** external exact coverage (`scripts/coverage-exact.sh`, outside
   the box), macOS and remote CI on the committed head. Nothing is pushed.
+
+## Unit 5c-fix-b — review return, 2026-09-24
+
+Run `triage-directive-operator-ruling-ce9cceae`. The council reviewed
+`cc8cbd52..3c9f25cc` and returned a residual at medium, with no security
+residual and no specification defect. This visit answers that return. It
+changes one production file, `native_controls.rs`, and two of the authorized
+test files, `native_controls/tests.rs` and `capability_launch.rs`. `bundle.rs`
+and `engine.rs` are unchanged since `3c9f25cc`.
+
+### The findings and their disposition
+
+- **R1 (medium, spec compliance).** `PERMISSION_CONTROLS` held seven of the
+  specified controls. It omitted Claude's `--permission-prompt-tool` and
+  `--add-dir` and Codex's `--add-dir`, `--approve-for-me`, `--ignore-rules`
+  and `--yolo`, the alias of `--dangerously-bypass-approvals-and-sandbox`
+  (specs/realm-capability-grants, the native-control table). The adapter
+  declaration check depends on that list. A DORMANT `effort_flag`, on a route
+  that pins no effort (`route_is_effortless`, agents.rs), composes no effort
+  segment, so no later pin check could catch an omitted spelling.
+  **Repaired:** the list now holds the whole specified inventory, eleven
+  controls. Each entry is `(canonical, long aliases, short)`, and `--yolo` is
+  the bypass switch's alias, so every spelling returns the one canonical name.
+  The declaration refusal therefore covers dormant and emitted flags with the
+  same bounded, value-free reason.
+- **R2 (medium, proof).** The first visit recorded no independent compiling
+  mutation for the two driver-contradiction rows or for the omission
+  assertion. Its E1/E3 mutations left the driver-tail checks in place. E2
+  made the table fail before the omission assertion could run. **Answered:**
+  mutations M4 to M6 below each fail exactly one of those assertions while
+  every other row passes. The first visit's claims for 5c-fix-b.1 and 5c-fix.1
+  were unsupported on its own evidence. They are corrected in tasks.md and now
+  rest on this return's evidence.
+- **R3 (low, run integrity).** This was prose in the panel that tried to
+  direct the verdict, and the chief rejected it. It has no code consequence
+  and this visit changes nothing for it.
+
+### Tests (no new test function; rows in the existing tables)
+
+- `native_controls/tests.rs`,
+  `every_spelling_of_a_permission_control_is_named_canonically`: 17 to 25
+  rows. The new rows are `--permission-prompt-tool`, `…=mcp__gate__approve`,
+  `--add-dir`, `--add-dir=/`, `--approve-for-me`, `--ignore-rules`, `--yolo`
+  and `--yolo=true`. The `--yolo` rows map to
+  `--dangerously-bypass-approvals-and-sandbox`.
+- `native_controls/tests.rs`,
+  `only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin`: 14 to 18
+  rows. "the bypass alias as an opaque driver's value" (`-m --yolo`), "a
+  relaxing switch behind an opaque driver" (`--approve-for-me x`),
+  "additional directories behind claude" (`--add-dir /`) and "a prompt tool
+  behind claude" (`--permission-prompt-tool gate`) each assert `spells a
+  permission control`. The existing "a value that reads as an option" row
+  now uses `-m --fast`, because `--yolo` is a control and no longer tests
+  that cause.
+- `capability_launch.rs`,
+  `an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the_compile`:
+  8 to 14 rows. An empty effort row gives the Claude adapter a fixture
+  effortless route (`route/…`) and an office that pins no effort, so no
+  effort segment is composed.
+  - "the legitimate model pin with no effort pinned" pins `Ok(())
+    {"kind":"none"}` and the whole final command
+    `["claude","-p","--output-format","stream-json","--verbose","--model","route/claude-opus-5-5","--disallowedTools","WebFetch,WebSearch"]`.
+    This proves the dormant route compiles on its own.
+  - Two dormant rows: `effort_flag` `--add-dir` and `--yolo`.
+  - Three emitted rows: `model_flag` `--permission-prompt-tool` and
+    `effort_flag` `--approve-for-me` and `--ignore-rules`.
+  - Each of those five rows pins the complete declaration refusal, with the
+    canonical control name and no value.
+
+### Baseline (the tests above against `3c9f25cc`'s `native_controls.rs`)
+
+- Spelling table: all eight new rows gave `None`.
+- Pin table: `-m --yolo` gave "carries a value that reads as an option".
+  `--approve-for-me x` behind an opaque driver gave `None`, so it was
+  admitted as a pin. `--add-dir /` and `--permission-prompt-tool gate` gave
+  "is not its harness's model or effort option".
+- Compile table: **both dormant rows compiled, sealed `none` and launched**
+  `[… "--model", "route/claude-opus-5-5", "--disallowedTools",
+  "WebFetch,WebSearch"]` with no refusal. This was R1's hole. The three
+  emitted rows were refused only by the later pin check ("composition
+  carries a template contribution (segment 2|3) … that is not its harness's
+  model or effort option"), not as declarations.
+
+### Mutations (each alone, compiling, run, restored)
+
+| # | Mutation | Failing test: rows (assertion) |
+| --- | --- | --- |
+| M1 | `native_controls.rs`: the alias check made unreachable (`false && aliases.contains(&name)`) | spellings: `--yolo`, `--yolo=true` (left `None`); pin: "the bypass alias as an opaque driver's value" (left: reads as an option); compile table: "a dormant effort_flag: the bypass alias" (left `Ok(()) {"kind":"none"} launched […]`) |
+| M2 | `native_controls.rs`: the `--add-dir` entry renamed | spellings: `--add-dir`, `--add-dir=/`; pin: "additional directories behind claude" (left: not its harness's option); compile table: "a dormant effort_flag: additional directories" (left: launched) |
+| M3 | `bundle.rs`: the adapter-declaration judgment unreachable (`.filter(\|_\| false)`) | compile table: both dormant rows (left: launched, with no later check to catch them) and the three new emitted rows plus the four existing declaration rows (left: the segment 2/3 pin refusal) |
+| M4 | `engine.rs` `seal`: the comparison skipped when the spawn emits nothing (`!emitted.is_empty() && …`) | seal test: the **omission** `assert_eq!` (`capability_launch.rs:1323`) after all eight table rows passed. Left `["Ok(())","Ok(())",{sealed record}]`, right `["Ok(())",TEMPLATE_CONTRADICTED,null]` |
+| M5 | `engine.rs` `emitted_template`: the driver tail dropped from the agent arm (`permission_template(&driver.argv)[..0]`) | seal table: exactly one row, "contradiction: the driver emits the shipped template in the spawn". Left `Ok(()) {"kind":"none"}`, right `TEMPLATE_CONTRADICTED` |
+| M6 | `engine.rs` `agent_template`: the driver-tail condition made vacuous (`true \|\| …is_empty()`) | seal table: exactly one row, "contradiction: the driver emits the shipped template in the composition". Left `TEMPLATE_CONTRADICTED` (the seal backstops), right `AGENT_TEMPLATE_REFUSED` |
+
+Every other row passed under M4, M5 and M6, so each of these mutations binds
+its own assertion. Earlier failures do not mask it. After each restoration,
+`cmp` against saved copies confirmed that all three production files were
+byte-identical to the finals.
+
+**Replayed on resumption.** The seat that wrote the rows above did not
+commit. A later seat audited the uncommitted tree, then replayed M2, M4, M5
+and M6 alone, each with the same edit, and restored after each:
+- M4 failed at `capability_launch.rs:1323`, the omission `assert_eq!`, after
+  the table passed. Left: the sealed record with template `declared
+  ["--permission-mode","acceptEdits"]`. Right: `TEMPLATE_CONTRADICTED`,
+  `null`.
+- M5 failed at the table assertion, `capability_launch.rs:1315`, on exactly
+  "contradiction: the driver emits the shipped template in the spawn".
+- M6 failed at `:1315` on exactly "contradiction: the driver emits the shipped
+  template in the composition".
+- M2 failed at `capability_launch.rs:1143` on exactly "a dormant effort_flag:
+  additional directories". Left: `Ok(()) {"kind":"none"} launched […]`.
+  Right: the declaration refusal naming `'--add-dir'`.
+
+`engine.rs` was restored with `git checkout` and `native_controls.rs` from a
+saved copy, and `cmp` showed it byte-identical.
+
+### Gates (on the restored tree)
+
+- `cargo fmt --all -- --check`: passed, after `cargo fmt` rewrapped the
+  `--yolo` entry.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: passed.
+- `cargo test --locked --all-features -p brokkr-protocol`: 474, 99 (2
+  ignored) and 1 passed, with 0 failed.
+- `cargo test --locked --all-features -p brokkr-runtime`: every binary
+  passed, with 0 failed. The lib has 551 tests and `capability_launch` has
+  31.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+- **Pending:** external exact coverage (`scripts/coverage-exact.sh`, outside
+  the box), macOS and remote CI on the committed head. The whole-workspace
+  run keeps brokkr-cli's `bootstrap_bench` red, the known interim agent-arm
+  refusal, until 5c-fix2. Nothing is pushed.

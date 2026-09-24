@@ -1123,33 +1123,46 @@ pub fn harness_arguments(argv: &[String]) -> &[String] {
 }
 
 /// The permission controls of the harnesses brokkr drives, by canonical
-/// spelling, beside the short options that attach their value (rebuild
-/// unit 5c-fix-b, chief R1): Claude's and LaneTally's permission mode and
-/// its two bypass switches, and Codex's approval policy, sandbox class and
-/// the two switches that replace them.
-const PERMISSION_CONTROLS: [(&str, Option<&str>); 7] = [
-    ("--permission-mode", None),
-    ("--dangerously-skip-permissions", None),
-    ("--allow-dangerously-skip-permissions", None),
-    ("--ask-for-approval", Some("-a")),
-    ("--sandbox", Some("-s")),
-    ("--full-auto", None),
-    ("--dangerously-bypass-approvals-and-sandbox", None),
+/// spelling, beside their long aliases and the short options that attach
+/// their value — the specified inventory (realm-capability-grants, the
+/// native-control table; rebuild unit 5c-fix-b, chief R1 and its returned
+/// R1): Claude's and LaneTally's permission mode, its prompt tool, its two
+/// bypass switches and its additional directories, and Codex's approval
+/// policy, sandbox class, additional directories and the switches that
+/// replace or relax them.
+const PERMISSION_CONTROLS: [(&str, &[&str], Option<&str>); 11] = [
+    ("--permission-mode", &[], None),
+    ("--permission-prompt-tool", &[], None),
+    ("--dangerously-skip-permissions", &[], None),
+    ("--allow-dangerously-skip-permissions", &[], None),
+    ("--add-dir", &[], None),
+    ("--ask-for-approval", &[], Some("-a")),
+    ("--sandbox", &[], Some("-s")),
+    ("--full-auto", &[], None),
+    ("--approve-for-me", &[], None),
+    ("--ignore-rules", &[], None),
+    (
+        "--dangerously-bypass-approvals-and-sandbox",
+        &["--yolo"],
+        None,
+    ),
 ];
 
 /// The permission control `token` spells, by its canonical name, or `None`
-/// (rebuild unit 5c-fix-b). The name is read before any `=`, and a short
-/// option is matched with its value attached, so every spelling of one
-/// control is the same control. Only the canonical name is returned, so a
-/// refusal built on it never echoes the token.
+/// (rebuild unit 5c-fix-b). The name is read before any `=`, an alias is
+/// its control, and a short option is matched with its value attached, so
+/// every spelling of one control is the same control. Only the canonical
+/// name is returned, so a refusal built on it never echoes the token.
 pub fn permission_control(token: &str) -> Option<&'static str> {
     let name = token.split_once('=').map_or(token, |(name, _)| name);
     PERMISSION_CONTROLS
         .iter()
-        .find(|(canonical, short)| {
-            name == *canonical || short.is_some_and(|short| token.starts_with(short))
+        .find(|(canonical, aliases, short)| {
+            name == *canonical
+                || aliases.contains(&name)
+                || short.is_some_and(|short| token.starts_with(short))
         })
-        .map(|(canonical, _)| *canonical)
+        .map(|(canonical, _, _)| *canonical)
 }
 
 /// Why a `template`-origin contribution behind a driver template is not a

@@ -2471,11 +2471,28 @@ fn a_native_contribution_materializes_once_through_the_launch_lowering() {
 
 /// Rebuild unit 5c-fix-b (chief R1): every spelling of a permission control
 /// is found by its canonical name — split, `=`-joined and, for Codex's
-/// short options, attached — and a model or effort option is none.
+/// short options, attached — and a model or effort option is none. The
+/// returned R1: the whole specified inventory, Claude's prompt tool and
+/// additional directories and Codex's additional directories, its two
+/// relaxing switches and `--yolo`, the alias of its bypass switch.
 #[test]
 fn every_spelling_of_a_permission_control_is_named_canonically() {
-    let rows: [(&str, Option<&str>); 17] = [
+    let rows: [(&str, Option<&str>); 25] = [
         ("--permission-mode", Some("--permission-mode")),
+        ("--permission-prompt-tool", Some("--permission-prompt-tool")),
+        (
+            "--permission-prompt-tool=mcp__gate__approve",
+            Some("--permission-prompt-tool"),
+        ),
+        ("--add-dir", Some("--add-dir")),
+        ("--add-dir=/", Some("--add-dir")),
+        ("--approve-for-me", Some("--approve-for-me")),
+        ("--ignore-rules", Some("--ignore-rules")),
+        ("--yolo", Some("--dangerously-bypass-approvals-and-sandbox")),
+        (
+            "--yolo=true",
+            Some("--dangerously-bypass-approvals-and-sandbox"),
+        ),
         (
             "--permission-mode=bypassPermissions",
             Some("--permission-mode"),
@@ -2532,7 +2549,7 @@ fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
     const OPTION: &str = "carries a value that reads as an option";
     const NOT_PIN: &str = "is not its harness's model or effort option";
     type Row<'a> = (&'a str, &'a [String], &'a [&'a str], Option<&'a str>);
-    let rows: [Row; 14] = [
+    let rows: [Row; 18] = [
         (
             "claude model",
             &claude,
@@ -2569,8 +2586,32 @@ fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
         (
             "a value that reads as an option",
             &opaque,
-            &["-m", "--yolo"],
+            &["-m", "--fast"],
             Some(OPTION),
+        ),
+        (
+            "the bypass alias as an opaque driver's value",
+            &opaque,
+            &["-m", "--yolo"],
+            Some(CONTROL),
+        ),
+        (
+            "a relaxing switch behind an opaque driver",
+            &opaque,
+            &["--approve-for-me", "x"],
+            Some(CONTROL),
+        ),
+        (
+            "additional directories behind claude",
+            &claude,
+            &["--add-dir", "/"],
+            Some(CONTROL),
+        ),
+        (
+            "a prompt tool behind claude",
+            &claude,
+            &["--permission-prompt-tool", "gate"],
+            Some(CONTROL),
         ),
         (
             "a loading option behind claude",

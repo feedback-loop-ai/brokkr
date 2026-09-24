@@ -1041,8 +1041,62 @@ fn an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the
             Box::new(|adapter| adapter["model_flag"] = json!("--settings")),
             contribution(2, "is not its harness's model or effort option"),
         ),
+        // The returned R1: the whole specified inventory, on a DORMANT
+        // effort_flag (the office pins no effort, so no effort segment is
+        // ever composed for a later check to see) and on emitted ones.
+        (
+            "the legitimate model pin with no effort pinned",
+            "",
+            Box::new(|_| {}),
+            format!(
+                "{:?} {} launched {:?}",
+                Ok::<(), String>(()),
+                json!({"kind": "none"}),
+                [
+                    "claude",
+                    "-p",
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                    "--model",
+                    "route/claude-opus-5-5",
+                    "--disallowedTools",
+                    "WebFetch,WebSearch"
+                ]
+            ),
+        ),
+        (
+            "a dormant effort_flag: additional directories",
+            "",
+            Box::new(|adapter| adapter["effort_flag"] = json!("--add-dir")),
+            declared("effort_flag", "--add-dir"),
+        ),
+        (
+            "a dormant effort_flag: the bypass alias",
+            "",
+            Box::new(|adapter| adapter["effort_flag"] = json!("--yolo")),
+            declared("effort_flag", "--dangerously-bypass-approvals-and-sandbox"),
+        ),
+        (
+            "an emitted model_flag: the permission prompt tool",
+            "high",
+            Box::new(|adapter| adapter["model_flag"] = json!("--permission-prompt-tool")),
+            declared("model_flag", "--permission-prompt-tool"),
+        ),
+        (
+            "an emitted effort_flag: approve for me",
+            "high",
+            Box::new(|adapter| adapter["effort_flag"] = json!("--approve-for-me")),
+            declared("effort_flag", "--approve-for-me"),
+        ),
+        (
+            "an emitted effort_flag: ignore rules",
+            "high",
+            Box::new(|adapter| adapter["effort_flag"] = json!("--ignore-rules")),
+            declared("effort_flag", "--ignore-rules"),
+        ),
     ];
-    assert_eq!(rows.len(), 8);
+    assert_eq!(rows.len(), 14);
     let failures: Vec<String> = rows
         .into_iter()
         .filter_map(|(label, effort, edit, expected)| {
@@ -1051,6 +1105,23 @@ fn an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the
             untemplated_claude(&root);
             edit_adapter(&root, "claude", |adapter| edit(adapter));
             agent_backed_solo(&operator, effort);
+            if effort.is_empty() {
+                // The office pins no effort: its model resolves to an
+                // effortless route, so no effort segment is composed.
+                edit_adapter(&root, "claude", |adapter| {
+                    adapter["effortless_routes"] = json!({"route": "a fixture route"});
+                    adapter["models"]["opus"] = json!("route/claude-opus-5-5");
+                });
+                write(
+                    operator.root(),
+                    "agents/plain.json",
+                    &json!({
+                        "description": "an office that declares no local tools",
+                        "charter": "charters/searcher.md",
+                        "models": ["opus"],
+                    }),
+                );
+            }
             let observed = match solo_bundle(&operator, &root, &context) {
                 Ok(bundle) => {
                     let (spawn, sealing) = sealing(&bundle, "work", 0, &bundle.sites["work"]);
