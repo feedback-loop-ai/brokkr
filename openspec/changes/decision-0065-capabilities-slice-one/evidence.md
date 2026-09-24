@@ -4706,3 +4706,60 @@ diff --check`. brokkr-cli was not touched and its suites were not re-run.
   reaches their inline commands from the adapter.
 - **Pending:** external exact coverage, macOS and remote CI on the committed
   head. Nothing is pushed.
+
+## Unit 5c — review return, 2026-09-24
+
+The review of `83a30446..193ef089` (run
+`triage-directive-operator-ruling-9d597b08`, gpt-6-astra, result `residual`,
+floor high) returned the unit with two findings. This visit answered them as
+follows.
+
+**R1 (high): the expected state does not record the template. Blocked on a
+split.** The council settled the question left open above: a sealed
+`template` segment does not satisfy addendum item 2 ("the expected state
+records it") or this unit's text. `SiteSpawn::seal` copies the segments that
+were already emitted, and `verify_record` binds that copy to the spawn. So if
+the template were omitted or altered before sealing, no independent
+expectation would contradict it. Two things record the independent
+expectation. One is the D5.7 expected state, `native_controls::Expected`
+(identity, native, local, hands). The other is its closed JSON in
+`LaunchRecord::value`/`decode_record`. Both are in
+`crates/brokkr-protocol/src/native_controls.rs`. That is not one of unit 5c's
+three production files (bundle.rs, agents.rs, engine.rs), and no existing
+member can hold a template without misstating it. The commission says to
+stop and report the split rather than widen, so no production file moved in
+this visit.
+
+The split needed, proposed as **unit 5c-fix** (closes the reopened 5c.1):
+
+- Production (three files):
+  - `crates/brokkr-protocol/src/native_controls.rs`: `Expected` gains a
+    mandatory `template` member, kind-tagged `none` | `declared {argv}`, in
+    `value` and `decode_record`. Absence, null, an unknown kind and an unknown
+    member each refuse with a fixed path.
+  - `crates/brokkr-runtime/src/bundle.rs`: `SiteFacts` records the adapter's
+    declared template as a typed fact, separately from the emitted segment.
+  - `crates/brokkr-runtime/src/engine.rs`: `expected_state` fills the member
+    from that fact, never from the segment. Sealing refuses a record whose
+    `template`-origin segments contradict it, with an exact reason.
+- Tests: `native_controls/tests.rs` (decode refusal rows),
+  `bundle/agent_tests.rs`, `tests/capability_launch.rs` (the expected-state
+  pins now carry `template`), and the two `Expected` constructors in
+  `agents/tests.rs`. The omission and alteration cases must each be bound by
+  a compiling mutation.
+- **Open for the ruling:** an agent-backed seat's expected state has no
+  template either. Once the member is mandatory, that arm must fill it. It
+  can be filled independently only if `Composition` carries the adapter's
+  declared template as a typed fact, which moves `agents.rs`, a fourth file.
+  So either the agent arm gets its own unit, or the ruling says what that arm
+  records until then.
+
+**R2 (low): fixed.**
+`an_inline_claude_seat_whose_adapter_declares_no_template_gets_none` now
+canonicalises the copied adapter root once, at creation. Its adapter edit,
+compile and launch all take that path. `cargo test -p brokkr-runtime --test
+capability_launch` passed with 27 tests.
+
+`tasks.md` 5c.1 is unticked. Emission, order, the no-template omission and
+the authored-mode refusal stand as observed above. **Pending:** unit 5c-fix,
+external exact coverage, macOS and remote CI. Nothing is pushed.

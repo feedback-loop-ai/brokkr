@@ -765,7 +765,7 @@ and remote CI are pending.
 
 ## 5c. Unit 5c — Emit the adapter's permission template at inline typed sites
 
-- [x] 5c.1 Unit 5c emits the adapter's declared permission template (for claude, `--permission-mode acceptEdits`) at an inline Claude or LaneTally site whose typed declaration lowers, as the engine's own `template` segment read from the adapter data, the way agent composition emits it. The sealed record carries it, and the launch parses it back with the rest of the final command. An authored permission mode stays refused, every inline shape that does not lower keeps its refusal, and a seat whose adapter declares no template gets none. Verify the whole ordered final command for an inline claude site and a LaneTally site, the no-template seat and the authored-mode refusal, each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 ("the permission template at inline sites"), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the operator's ruling (a); run `triage-directive-operator-ruling-9d597b08`)
+- [ ] 5c.1 Unit 5c emits the adapter's declared permission template (for claude, `--permission-mode acceptEdits`) at an inline Claude or LaneTally site whose typed declaration lowers, as the engine's own `template` segment read from the adapter data, the way agent composition emits it. The sealed record carries it, and the launch parses it back with the rest of the final command. An authored permission mode stays refused, every inline shape that does not lower keeps its refusal, and a seat whose adapter declares no template gets none. Verify the whole ordered final command for an inline claude site and a LaneTally site, the no-template seat and the authored-mode refusal, each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 ("the permission template at inline sites"), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the operator's ruling (a); run `triage-directive-operator-ruling-9d597b08`)
 
 Observed 2026-09-24 (evidence.md, "Unit 5c"). Production: `agents.rs`
 (`driver_template`, which `compose` now calls, and `inline_template`, the
@@ -787,6 +787,16 @@ production file. fmt, clippy, the brokkr-runtime suite, both bundle
 compiles, `openspec validate --all --strict` and `git diff --check` passed.
 **Not fully green:** external exact coverage, macOS and remote CI are
 pending.
+
+Returned 2026-09-24 by review (evidence.md, "Unit 5c — review return").
+**Reopened, blocked on a split.** R1 (high): the addendum's item 2 and this
+unit say that the expected state records the template. The sealed record
+above does not meet that. `Expected` is in
+`crates/brokkr-protocol/src/native_controls.rs`, which is outside this unit's
+three files, so the box above is unticked until a split unit lands. R2 (low)
+is fixed: the no-template launch test builds on a canonicalised adapter root.
+Emission, order, the no-template omission and the authored-mode refusal stay
+as observed above.
 
 ## 6. Unit 6 — Migrate Claude recipes
 

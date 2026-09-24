@@ -846,7 +846,8 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
 fn an_inline_claude_seat_whose_adapter_declares_no_template_gets_none() {
     let operator = Operator::new();
     let adapters = copied_adapters();
-    edit_adapter(adapters.path(), "claude", |adapter| {
+    let root = std::fs::canonicalize(adapters.path()).unwrap();
+    edit_adapter(&root, "claude", |adapter| {
         adapter["driver"] = json!(["{brokkr}", "driver", "claude", "--"]);
     });
     one_inline_seat(
@@ -864,13 +865,13 @@ fn an_inline_claude_seat_whose_adapter_declares_no_template_gets_none() {
     );
     typed_allow(&operator, json!(["cargo"]));
     let context = CapabilityContext::no_grants("private", operator.root());
-    let bundle = solo_bundle(&operator, adapters.path(), &context).unwrap();
+    let bundle = solo_bundle(&operator, &root, &context).unwrap();
     let (spawn, input) = sealed(&bundle, "work", 0);
     assert_eq!(
         json!({
             "spawn": spawn.argv[1..],
             "segments": input["launch_record"]["segments"],
-            "final": solo(&operator, adapters.path(), &context),
+            "final": solo(&operator, &root, &context),
         }),
         json!({
             "spawn": ["driver", "claude", "--", "--model", "claude-opus-5-5", "--effort", "high",
