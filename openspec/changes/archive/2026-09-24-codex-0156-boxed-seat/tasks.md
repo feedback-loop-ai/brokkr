@@ -41,13 +41,29 @@ visit changes only the task breakdown and claims no runtime or mutation proof.
 
 Implementation visit (2026-09-24): Cargo 1.98.0 was on this seat's PATH,
 and every check below was actually run. The semantic decision is
-[0069](../../../docs/decisions/0069-a-boxed-seat-is-told-how-to-find-its-hands.md)
+[0069](../../../../docs/decisions/0069-a-boxed-seat-is-told-how-to-find-its-hands.md)
 (`Status: proposed`; 0066 is unclaimed on main but skipped, since numbers
 collide when claimed out of order). The measured identities, the scenario
 map and all 40 restored compiling mutations are recorded in the run-local
 ledger `.forge/tasks/codex-0156-boxed-seat-proof.md`. Its essentials are
 also in the decision's enforcement bindings and in the pin comments of
 `tests/witness_digests.rs` and `bundle/compose_tests.rs`.
+
+Returned implementation visit (2026-09-24, review residual R1–R5 on
+`088519b9`): tasks 6.3, 7.1, 7.4, 7.5, 7.6, 9.4 and 9.8–9.10 had been
+ticked with proof that stopped short of their text. They are now
+discharged as written. Task 7.5 gains the agent-reference, member, step,
+selected-body and composed-override boundaries, and dispatched legal
+declared inputs. Task 7.6 gains hostile house and feature text, and runs
+every attack against boxed Claude and unboxed and handless Codex sites
+too. Tasks 7.1 and 7.4 gain dispatched exec and dispatched `verify:checks`
+proofs rendered through the production renderer. Task 6.3 now pins every
+historical limitation, the evidence and the reason as exact literals.
+Multi-case tests compare one gathered table, so each case's outcome is
+observed independently. The twenty new restored, compiling mutations are
+in the ledger's section 6. No production code or adapter byte moved.
+Every house gate, including exact coverage (lines 32580/32580, branches
+5540/5540), was re-run green on the result.
 
 Exact coverage (task 10.3) ran on the host with the pinned nightly, over the
 final implementation source before the archive: the unchanged
