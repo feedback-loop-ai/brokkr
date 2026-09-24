@@ -5644,3 +5644,53 @@ Witness and compose pins did not move.
 **Pending:** operator admission (above), exact coverage green on the final
 head (the eight baseline records above are unchanged by this return), macOS
 and remote CI. Nothing is pushed.
+
+### Re-run, 2026-09-25: the admission, and the evidence on this head
+
+Run `0065-rebuild-unit-5c-fix2-re-run-5112c091`, on `5fe9d77b`. The first
+run stopped IMPL-BLOCKED on the open question above.
+
+**Admission.** The commissioner answered it in the unit's re-run note of
+2026-09-25: "those four lines, and only those, join 5c-fix2's test
+inventory. They are compiler-forced, add no assertion and change no
+behaviour; this is the same kind of admission made for 5c-fix-b's
+engine/capability_tests.rs." The admitted lines are the four listed in the
+disposition above. The re-run adopts `207cab5e` and `5fe9d77b` and changes no
+code.
+
+**Checked on this head, before the ticks:**
+
+- `git diff b91ec0f7 HEAD` over `engine/tests.rs`,
+  `engine/capability_tests.rs` and `engine/boundary_tests.rs` shows exactly
+  four added lines, which are the admitted `template:` fields. Nothing is
+  removed and no other line changes.
+- `cargo fmt --all -- --check`: passed. `cargo clippy --workspace
+  --all-targets --all-features --locked -- -D warnings`: passed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: exit 0,
+  77 result lines, 0 with a failure. The brokkr-runtime lib had 553 passed,
+  `capability_launch` 33 and brokkr-cli's `bootstrap_bench` 1. The unit's
+  new tests are among them:
+  `unit5c_fix2_a_composition_carries_its_adapters_declared_template`,
+  `an_agent_backed_sites_composition_records_its_adapters_template_expanded_as_its_segment`,
+  `an_agent_backed_claude_seat_seals_its_declared_template_and_refuses_a_contradiction`
+  and `an_agent_backed_seat_records_the_permission_template_its_adapter_declares`.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+- M4 re-run as a spot check that the binding holds on this head. In
+  `engine.rs` `expected_state`, the agent arm was changed to record
+  `TemplateExpectation::None`. It compiled, and `capability_launch` had 28
+  passed and 5 failed. The five failures were the same five tests as the M4
+  record above: `an_agent_backed_claude_seat_seals_…`,
+  `a_compiled_direct_allow_list…`, `a_compiled_links_origins…`,
+  `every_template_contribution…` and
+  `an_agent_backed_seat_records_the_permission_template…`. In the "row as
+  compiled" failure, left was the whole 5c-fix contradiction `Err` with a
+  null record, and right was `Ok(()) {"argv":["--permission-mode","acceptEdits"],"kind":"declared"}`.
+  After restoring, `capability_launch` had 33 passed and `git diff` was
+  empty. M1–M3, M5, M6 and M2′ were not re-run, because their lines are
+  unchanged since they were recorded.
+
+5c-fix2.1 and 5c.1 are ticked in tasks.md. **Pending:** exact coverage green
+on the final head (not re-run here; the eight baseline `bundle.rs` records
+above predate this unit), macOS and remote CI. Nothing is pushed.
