@@ -1234,6 +1234,36 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    the template in place, a seat whose adapter declares none, and an
    authored mode still refused, each bound by a compiling mutation, recorded
    then restored. Migrate no recipe: that is unit 6.
+   Unit 5c's review returned R1 (high): the expected state did not record the
+   template, and `Expected` lives outside 5c's three files. The operator
+   split 5c in two (run `triage-directive-operator-ruling-0bdb3908`). Ruling
+   2 settles the arm 5c left open: wherever the engine emits a permission
+   template, the agent-backed arm included, the expected state records it,
+   and a seal whose template-origin segments contradict it is refused.
+   **5c-fix. Record the template in the expected state, inline arm.** Close
+   5c-fix.1 (and, with 5c's emission, 5c.1). Production:
+   `crates/brokkr-protocol/src/native_controls.rs` (a mandatory, kind-tagged
+   `Expected.template`, `none` | `declared {argv}`, in its closed JSON value
+   and `decode_record`, with closed, value-free refusals for missing,
+   unknown-kind, malformed and extra members),
+   `crates/brokkr-runtime/src/bundle.rs` (the adapter's declared template as
+   a typed `SiteFacts` fact, separate from the emitted segment) and
+   `crates/brokkr-runtime/src/engine.rs` (fill `expected_state.template`
+   from that fact at inline sites, and refuse a seal whose template-origin
+   segments contradict it). Until 5c-fix2 lands, an agent-backed seat
+   records `none` only if its composition emitted none; otherwise it is
+   refused, so nothing is ever recorded untruthfully. Tests:
+   native_controls/tests.rs, bundle/agent_tests.rs,
+   crates/brokkr-runtime/tests/capability_launch.rs and the `Expected`
+   constructors in agents/tests.rs. The omission, alteration and
+   contradiction cases are each bound by a compiling mutation. R2 stays
+   fixed.
+   **5c-fix2. Record the template in the expected state, agent-backed arm.**
+   Close 5c-fix2.1. The agent's composition carries the adapter's declared
+   template as a typed fact (`agents.rs`), and `expected_state` fills the
+   agent arm from it rather than refusing, so an agent-backed seat whose
+   adapter declares a template launches again with it recorded. Its files
+   and tests are the operator's to commission.
 6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,

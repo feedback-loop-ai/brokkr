@@ -19,7 +19,7 @@ use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
     flatten, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
-    LocalExpectation, Origin, SandboxIntent, Segment,
+    LocalExpectation, Origin, SandboxIntent, Segment, TemplateExpectation,
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
@@ -1389,9 +1389,8 @@ impl Engine {
         let Some(outcome) = outcome else {
             return;
         };
-        match expected_state(outcome, link, facts) {
-            Ok(expected) => {
-                spawn.seal(expected);
+        match expected_state(outcome, link, facts).and_then(|expected| spawn.seal(expected)) {
+            Ok(()) => {
                 input[LAUNCH_RECORD] = spawn.launch_record();
             }
             Err(reason) => {
@@ -4442,11 +4441,60 @@ impl SiteSpawn {
 
     /// Seal this spawn's private launch record: its extras' segments
     /// beside the expected state the serving outcome was resolved to.
-    pub fn seal(&mut self, expected: Expected) {
+    ///
+    /// Rebuild unit 5c-fix (operator ruling of 2026-09-24, item 2): the
+    /// permission template the spawn emits must be exactly the one the
+    /// expected state records, or nothing is sealed. A template omitted,
+    /// altered, added or relabelled on its way into the command is refused
+    /// here, not copied into the record as if it were the engine's.
+    pub fn seal(&mut self, expected: Expected) -> Result<(), String> {
+        let recorded: &[String] = match &expected.template {
+            TemplateExpectation::None => &[],
+            TemplateExpectation::Declared(argv) => argv,
+        };
+        if self.emitted_template() != recorded {
+            self.record = None;
+            return Err(
+                "dispatch refused: the permission template this spawn emits is not the one its \
+                 expected state records from the adapter's declaration; a template omitted, \
+                 altered or added on its way into the command is never sealed as the engine's \
+                 (operator ruling of 2026-09-24, the permission template at inline sites; \
+                 rebuild unit 5c-fix)"
+                    .to_string(),
+            );
+        }
         self.record = Some(LaunchRecord {
             segments: self.extras(),
             expected,
         });
+        Ok(())
+    }
+
+    /// The permission template this spawn emits behind its driver verb, by
+    /// carried origin and never by its bytes. Where an agent's driver
+    /// template supplies the verb — the first segment behind the engine's
+    /// boundary prefix — it is that segment's tail behind the verb; the
+    /// model and effort pins that follow are template-origin too, but are
+    /// not the permission template. Where the author supplies the verb — an
+    /// inline site — every `template` segment of the extras is the engine's
+    /// permission template, in order.
+    fn emitted_template(&self) -> Vec<String> {
+        let verb = self
+            .segments
+            .iter()
+            .find(|segment| segment.origin != Origin::Hands);
+        match verb {
+            Some(driver) if driver.origin == Origin::Template => {
+                permission_template(&driver.argv).to_vec()
+            }
+            _ => flatten(
+                &self
+                    .extras()
+                    .into_iter()
+                    .filter(|segment| segment.origin == Origin::Template)
+                    .collect::<Vec<_>>(),
+            ),
+        }
     }
 
     /// The sealed record as the driver input carries it, `null` where none.
@@ -4508,9 +4556,13 @@ pub fn expected_state(
              0065 slice one, design D5.7)"
         )
     };
-    let (local, hands) = match link {
+    let (local, hands, template) = match link {
         Some(link) => match &link.lowering {
-            Lowering::Composed(composition) => (composition.local(), composition.intent.hands),
+            Lowering::Composed(composition) => (
+                composition.local(),
+                composition.intent.hands,
+                agent_template(composition).map_err(|problem| refused(&problem))?,
+            ),
             Lowering::Unavailable | Lowering::Refused(_) => {
                 return Err(refused("the selected candidate carries no composition"))
             }
@@ -4536,6 +4588,7 @@ pub fn expected_state(
                     ))
                 }
             };
+            let template = inline_template(lowered.is_some(), facts).map_err(refused)?;
             let hands = match facts.map(|facts| &facts.hands) {
                 Some(HandsState::Hands(_)) => HandsIntent::Required,
                 _ => HandsIntent::None,
@@ -4545,7 +4598,7 @@ pub fn expected_state(
                 sandbox: SandboxIntent::Unspecified,
                 application,
             };
-            (local, hands)
+            (local, hands, template)
         }
     };
     Ok(Expected {
@@ -4553,7 +4606,72 @@ pub fn expected_state(
         native: outcome.native.expected(),
         local,
         hands,
+        template,
     })
+}
+
+/// The template an inline site is expected to emit (rebuild unit 5c-fix):
+/// where its allow lowers, the adapter's declaration the compiler recorded
+/// beside the lowering — never the segment emitted, which the seal checks
+/// against it; where nothing lowers, none, as nothing is emitted.
+fn inline_template(
+    lowered: bool,
+    facts: Option<&SiteFacts>,
+) -> Result<TemplateExpectation, &'static str> {
+    match (
+        lowered,
+        facts.and_then(|facts| facts.declared_template.as_ref()),
+    ) {
+        (false, _) => Ok(TemplateExpectation::None),
+        (true, Some(declared)) => Ok(declared.clone()),
+        (true, None) => Err(
+            "the inline site's lowered allow carries no recorded declaration of \
+             its adapter's permission template",
+        ),
+    }
+}
+
+/// The template an agent's composition is expected to emit, until rebuild
+/// unit 5c-fix2 carries the adapter's declaration as a typed fact of the
+/// composition (operator ruling 2 of 2026-09-23; unit 5c-fix). Nothing is
+/// recorded untruthfully meanwhile: a composition that opens with its
+/// driver template and emits no permission template from it is expected
+/// as `none`; one that emits a permission template, or does not open with
+/// its driver template, is refused, because the only expectation this arm
+/// could write would be read back from the segment it is meant to check.
+fn agent_template(composition: &crate::agents::Composition) -> Result<TemplateExpectation, String> {
+    match composition.segments.first() {
+        Some(driver)
+            if driver.origin == Origin::Template
+                && permission_template(&driver.argv).is_empty() =>
+        {
+            Ok(TemplateExpectation::None)
+        }
+        _ => Err(
+            "the selected candidate's composition emits a permission template behind its driver \
+             verb, or does not open with its driver template, and until rebuild unit 5c-fix2 an \
+             agent-backed seat records its template only as none, never as the segment it \
+             emitted (operator ruling 2 of 2026-09-23; rebuild unit 5c-fix)"
+                .to_string(),
+        ),
+    }
+}
+
+/// The permission template a driver template emits (rebuild unit 5c): what
+/// it hands its harness behind the `<engine> driver <kind>` dispatch verb,
+/// less an escape `--` directly behind it. A driver that does not dispatch
+/// through that verb is opaque: the engine composes it whole as the
+/// adapter's own program, places nothing behind a verb and has no grammar
+/// for it, so it emits no permission template — the same reading that
+/// refuses to place an opaque driver's tail behind an inline command.
+fn permission_template(argv: &[String]) -> &[String] {
+    match argv {
+        [_, marker, _, rest @ ..] if marker == "driver" => match rest {
+            [escape, tail @ ..] if escape == "--" => tail,
+            _ => rest,
+        },
+        _ => &[],
+    }
 }
 
 /// What the engine prepares for an unboxed exec dispatch and hands the

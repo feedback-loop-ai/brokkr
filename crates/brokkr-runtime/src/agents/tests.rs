@@ -3642,7 +3642,7 @@ fn hands_keep_their_replacement_and_still_refuse_a_mapped_native_alias() {
 
 use brokkr_protocol::native_controls::{
     reassemble, AllowIntent, Application, Expected, HandsIntent, HeldPower, LaunchRecord,
-    NativeExpectation, Origin, SandboxIntent, Segment,
+    NativeExpectation, Origin, SandboxIntent, Segment, TemplateExpectation,
 };
 
 fn seg(origin: Origin, parts: &[&str]) -> Segment {
@@ -4383,6 +4383,9 @@ fn unit3_a_record_from_the_real_producers_round_trips_and_reassembles() {
     let native = contribution
         .segment(&outcome.provider, &outcome.harness)
         .unwrap();
+    // The fixture's driver ends at its verb, so it emits no permission
+    // template and `none` is the truthful expectation (rebuild unit 5c-fix).
+    assert_eq!(composition.segments[0].argv[3..], strings(&["--"]));
     let record = LaunchRecord {
         segments: [composition.segments.clone(), vec![native]].concat(),
         expected: Expected {
@@ -4390,10 +4393,12 @@ fn unit3_a_record_from_the_real_producers_round_trips_and_reassembles() {
             native: outcome.native.expected(),
             local: composition.local(),
             hands: composition.intent.hands,
+            template: TemplateExpectation::None,
         },
     };
     let decoded = LaunchRecord::decode(Some(&record.value())).unwrap();
     assert_eq!(decoded, record);
+    assert_eq!(decoded.expected.template, TemplateExpectation::None);
     let flat = [entry.argv.clone(), strings(&["--search-off"])].concat();
     assert_eq!(reassemble(&decoded.segments, &flat), Ok(()));
     assert_eq!(
@@ -4605,10 +4610,12 @@ fn unit3_a_pending_selection_keeps_its_own_mappings_through_materialization() {
             native: outcome.native.expected(),
             local: composition.local(),
             hands: composition.intent.hands,
+            template: TemplateExpectation::None,
         },
     };
     let decoded = LaunchRecord::decode(Some(&record.value())).unwrap();
     assert_eq!(decoded, record);
+    assert_eq!(decoded.expected.template, TemplateExpectation::None);
     assert_eq!(
         reassemble(
             &decoded.segments,

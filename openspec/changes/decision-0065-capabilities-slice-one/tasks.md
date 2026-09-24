@@ -798,6 +798,35 @@ is fixed: the no-template launch test builds on a canonicalised adapter root.
 Emission, order, the no-template omission and the authored-mode refusal stay
 as observed above.
 
+The operator split 5c in two (run `triage-directive-operator-ruling-0bdb3908`;
+design.md "Rebuild units", 5c-fix and 5c-fix2). 5c.1 closes when both have
+landed.
+
+- [x] 5c-fix.1 Unit 5c-fix records the template in the expected state, inline arm. `Expected` gains a mandatory, kind-tagged `template` (`none` | `declared {argv}`) in its closed JSON value and `decode_record`, refusing missing, null, unknown-kind, malformed and extra members with fixed, value-free paths. The compiler records the adapter's declared template as a typed `SiteFacts` fact beside, and separate from, the emitted segment. `expected_state` fills the inline arm from that fact, and a seal whose template-origin segments contradict it is refused. Until 5c-fix2, an agent-backed seat records `none` only if its composition emitted none, and is otherwise refused. The omission, alteration and contradiction cases are each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2, [Refusal proofs assert the full reason][SC8]. (run `triage-directive-operator-ruling-0bdb3908`)
+
+Observed 2026-09-24 (evidence.md, "Unit 5c-fix"). Production:
+`native_controls.rs` (`TemplateExpectation`, `Expected.template`, its
+encoding and strict decoding, and `declared []` refused as `none` spelled
+twice), `bundle.rs` (`SiteFacts.declared_template`, recorded exactly where
+`inline_local` is and expanded as the segment is) and `engine.rs`
+(`inline_template`, `agent_template` and `permission_template`, and `seal`
+now returns `Result` and refuses a contradicting emission with nothing
+sealed). The agent-backed arm records `none` for a composition whose driver
+template emits nothing behind its `<engine> driver <kind>` verb (codex, dsh,
+the fixtures' opaque drivers) and refuses one that emits a template (every
+shipped Claude and LaneTally agent seat). The new tests did not compile at
+`33f95a61`. N1–N4, B1–B3 and E1–E7 each bound and were restored. fmt, clippy,
+the brokkr-protocol and brokkr-runtime suites, both bundle compiles,
+`openspec validate --all --strict` (18 passed) and `git diff --check`
+passed. **Red, the ruled interim's consequence:** in `cargo test
+--workspace`, brokkr-cli's `bootstrap_bench` (a pristine scaffold's
+agent-backed Claude intake seat) parks on the agent-backed refusal. Every
+other target passed. It stays red until 5c-fix2 or an operator ruling.
+**Not fully green:** external exact coverage, macOS and remote CI are
+pending.
+
+- [ ] 5c-fix2.1 Unit 5c-fix2 records the template in the expected state, agent-backed arm: the composition carries the adapter's declared template as a typed fact, and `expected_state` fills the agent arm from it instead of refusing, so agent-backed Claude and LaneTally seats seal again with the template recorded and the contradiction check in force. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2. (split from 5c by the operator; run `triage-directive-operator-ruling-0bdb3908`)
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

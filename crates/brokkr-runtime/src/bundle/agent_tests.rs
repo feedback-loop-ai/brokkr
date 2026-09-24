@@ -2011,7 +2011,10 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
 /// declares none gives none; a site whose allow does not lower records none;
 /// an adapter whose own driver does not dispatch the site's driver refuses;
 /// and an authored permission mode — the template's own bytes included —
-/// and hands keep their refusals.
+/// and hands keep their refusals. Rebuild unit 5c-fix: beside the emitted
+/// segment, the adapter's declaration is recorded as its own typed fact —
+/// `Declared`, or `None` for an adapter declaring nothing — exactly where
+/// the allow lowers, expanded as the segment is.
 #[test]
 fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_lowers() {
     let fixture = AgentFixture::new();
@@ -2027,23 +2030,32 @@ fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_
         }
         fixture.compile(config)
     };
-    // The template, the lowered list and the command the author wrote.
+    // The template, its declaration as a typed fact (rebuild unit 5c-fix),
+    // the lowered list and the command the author wrote.
     let recorded = |result: Result<Bundle, CompileError>| match result {
         Ok(bundle) => format!(
-            "{:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?}",
             bundle.sites["review"].inline_template,
+            bundle.sites["review"].declared_template,
             bundle.sites["review"].inline_local,
             command_of(&bundle, "review")[1..].to_vec()
         ),
         Err(error) => error.to_string(),
     };
-    let expected = |template: Option<&[&str]>, lowering, driver: &str| {
+    use brokkr_protocol::native_controls::TemplateExpectation;
+    let owned = |argv: &[&str]| argv.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+    let declared = |argv: &[&str]| Some(TemplateExpectation::Declared(owned(argv)));
+    let expected = |template: Option<&[&str]>,
+                    declared: Option<TemplateExpectation>,
+                    lowering,
+                    driver: &str| {
         format!(
-            "{:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?}",
             template.map(|argv| Segment::new(
                 brokkr_protocol::native_controls::Origin::Template,
-                &argv.iter().map(|part| part.to_string()).collect::<Vec<_>>()
+                &owned(argv)
             )),
+            declared,
             lowering,
             [
                 "driver",
@@ -2083,13 +2095,13 @@ fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_
         rows.push((
             format!("{driver} with a template"),
             recorded(compiled(claude_inline(driver, &[]), allow(), false)),
-            expected(Some(accept), cargo_lowering(), driver),
+            expected(Some(accept), declared(accept), cargo_lowering(), driver),
         ));
     }
     rows.push((
         "no typed allow".to_string(),
         recorded(compiled(claude_inline("claude", &[]), None, false)),
-        expected(None, None, "claude"),
+        expected(None, None, None, "claude"),
     ));
     rows.push((
         "an unspecified declaration".to_string(),
@@ -2098,7 +2110,32 @@ fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_
             Some(json!({})),
             false,
         )),
-        expected(None, None, "claude"),
+        expected(None, None, None, "claude"),
+    ));
+    // Rebuild unit 5c-fix: a declaration naming a bundle-relative path is
+    // expanded as the emitted segment is, so the two agree on this machine.
+    with_driver(
+        "claude",
+        json!([
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--permission-mode",
+            "./modes/accept"
+        ]),
+    );
+    let relative = fixture.bundle().join("modes/accept");
+    let relative = ["--permission-mode", relative.to_str().unwrap()];
+    rows.push((
+        "a template naming a bundle-relative path".to_string(),
+        recorded(compiled(claude_inline("claude", &[]), allow(), false)),
+        expected(
+            Some(&relative),
+            declared(&relative),
+            cargo_lowering(),
+            "claude",
+        ),
     ));
     for written in [
         &["--permission-mode", "acceptEdits"][..],
@@ -2166,10 +2203,15 @@ fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_
         rows.push((
             label.to_string(),
             recorded(compiled(claude_inline("claude", &[]), allow(), false)),
-            expected(None, cargo_lowering(), "claude"),
+            expected(
+                None,
+                Some(TemplateExpectation::None),
+                cargo_lowering(),
+                "claude",
+            ),
         ));
     }
-    assert_eq!(rows.len(), 11);
+    assert_eq!(rows.len(), 12);
     each_row(rows);
 }
 

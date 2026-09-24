@@ -633,6 +633,18 @@ pub struct Identity {
     pub model: Option<String>,
 }
 
+/// The permission template the plan expects the engine to emit behind the
+/// driver verb (rebuild unit 5c-fix; operator ruling of 2026-09-24, the
+/// permission template at inline sites): `None` where it emits none, or the
+/// adapter's declared argv, recorded from the declaration and never from
+/// the segment that was emitted, so an omitted or altered template has an
+/// expectation to contradict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TemplateExpectation {
+    None,
+    Declared(Vec<String>),
+}
+
 /// The expected capability state, sealed from typed inputs before any argv
 /// is serialized, so the command being checked is never its own oracle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -641,6 +653,7 @@ pub struct Expected {
     pub native: NativeExpectation,
     pub local: LocalExpectation,
     pub hands: HandsIntent,
+    pub template: TemplateExpectation,
 }
 
 /// The engine-private launch record (design D5.7): ordered supplying
@@ -691,6 +704,12 @@ impl LaunchRecord {
             Application::Direct(limits) => serde_json::json!({"kind": "direct", "limits": limits}),
             Application::Dormant => kind("dormant"),
         };
+        let template = match &expected.template {
+            TemplateExpectation::None => kind("none"),
+            TemplateExpectation::Declared(argv) => {
+                serde_json::json!({"kind": "declared", "argv": argv})
+            }
+        };
         serde_json::json!({
             "segments": self.segments.iter().map(|segment| serde_json::json!({
                 "origin": segment.origin.word(),
@@ -712,6 +731,7 @@ impl LaunchRecord {
                     HandsIntent::None => "none",
                     HandsIntent::Required => "required",
                 }),
+                "template": template,
             },
         })
     }
@@ -829,7 +849,7 @@ fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
     closed(
         expected,
         "record.expected",
-        &["identity", "native", "local", "hands"],
+        &["identity", "native", "local", "hands", "template"],
     )?;
     let identity = &expected["identity"];
     closed(
@@ -960,6 +980,33 @@ fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
         &["none", "required"],
         |_| &[],
     )?;
+    let hands = match kind {
+        "required" => HandsIntent::Required,
+        _ => HandsIntent::None,
+    };
+    // A declared template is never empty: `declared []` would be `none`
+    // spelled a second way, and a closed record has one spelling per state.
+    let template_path = "record.expected.template";
+    let (kind, template) = tagged(
+        &expected["template"],
+        template_path,
+        &["none", "declared"],
+        |kind| match kind {
+            "declared" => &["argv"],
+            _ => &[],
+        },
+    )?;
+    let template = match kind {
+        "declared" => {
+            let path = format!("{template_path}.argv");
+            let argv = string_list(&template["argv"], path.clone())?;
+            if argv.is_empty() {
+                return Err((path, "is empty"));
+            }
+            TemplateExpectation::Declared(argv)
+        }
+        _ => TemplateExpectation::None,
+    };
     Ok(LaunchRecord {
         segments,
         expected: Expected {
@@ -970,10 +1017,8 @@ fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
                 sandbox,
                 application,
             },
-            hands: match kind {
-                "required" => HandsIntent::Required,
-                _ => HandsIntent::None,
-            },
+            hands,
+            template,
         },
     })
 }

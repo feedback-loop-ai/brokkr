@@ -1622,9 +1622,9 @@ fn segment(origin: Origin, parts: &[&str]) -> Segment {
 /// A complete record whose every enum takes a non-default arm: a known
 /// native plan holding one power with a nested, Unicode-bearing
 /// restriction and denying another, an explicitly EMPTY local list lowered
-/// directly, a read-only class and required hands. The provider is not
-/// its harness's name, so the two identity members cannot be exchanged
-/// unseen.
+/// directly, a read-only class, required hands and a declared permission
+/// template (rebuild unit 5c-fix). The provider is not its harness's name,
+/// so the two identity members cannot be exchanged unseen.
 fn full_record(segments: Vec<Segment>) -> LaunchRecord {
     let restrictions = json!({"allow": {"hosts": ["yaml.org", "sourceware.org"]}, "note": "ü\n"});
     LaunchRecord {
@@ -1649,6 +1649,7 @@ fn full_record(segments: Vec<Segment>) -> LaunchRecord {
                 application: Application::Direct(Vec::new()),
             },
             hands: HandsIntent::Required,
+            template: TemplateExpectation::Declared(argv(&["--permission-mode", "acceptEdits"])),
         },
     }
 }
@@ -1785,11 +1786,21 @@ fn a_valid_record_round_trips_every_expected_state_literally() {
                           "sandbox": {"kind": "read-only"},
                           "application": {"kind": "direct", "limits": []}},
                 "hands": {"kind": "required"},
+                "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
             },
     });
     if encoded != literal {
         failures.push(format!(
             "the literal encoding:\n  left:  {encoded}\n  right: {literal}"
+        ));
+    }
+    // Rebuild unit 5c-fix: the other template kind, literally.
+    let mut untemplated = full_record(Vec::new());
+    untemplated.expected.template = TemplateExpectation::None;
+    let none = untemplated.value()["expected"]["template"].clone();
+    if none != json!({"kind": "none"}) {
+        failures.push(format!(
+            "the literal none template:\n  left:  {none}\n  right: {{\"kind\":\"none\"}}"
         ));
     }
     // Every arm, one record per row so each decodes on its own; every row
@@ -1819,6 +1830,7 @@ fn a_valid_record_round_trips_every_expected_state_literally() {
         record.expected.identity.model = None;
         record.expected.native = NativeExpectation::Unmeasured("nobody measured it".into());
         record.expected.hands = HandsIntent::None;
+        record.expected.template = TemplateExpectation::None;
         record.expected.local = LocalExpectation {
             allow,
             sandbox,
@@ -1832,6 +1844,14 @@ fn a_valid_record_round_trips_every_expected_state_literally() {
         denied: Vec::new(),
     };
     rows.push(("known and empty", known_empty));
+    // Rebuild unit 5c-fix: a declared template whose arguments carry an
+    // empty string and Unicode keeps every one of them, in order.
+    let mut declared = full_record(Vec::new());
+    declared.expected.template = TemplateExpectation::Declared(argv(&["--mode", "", "ü\n"]));
+    rows.push((
+        "a declared template with an empty and a Unicode argument",
+        declared,
+    ));
     failures.extend(rows.into_iter().filter_map(|(label, record)| {
         let observed = LaunchRecord::decode(Some(&record.value()));
         (observed.as_ref() != Ok(&record))
@@ -2146,8 +2166,78 @@ fn the_private_reader_refuses_each_malformed_member_with_its_full_cause() {
             edit("/expected/hands/kind", Some(json!("optional"))),
             cause("record.expected.hands.kind", "names no known kind"),
         ),
+        // Rebuild unit 5c-fix: the template member is mandatory and closed,
+        // and is never recovered from an older record shape as `none`.
+        (
+            "template missing",
+            edit("/expected/template", None),
+            cause("record.expected.template", "is missing"),
+        ),
+        (
+            "template null",
+            edit("/expected/template", Some(Value::Null)),
+            cause("record.expected.template", "is null"),
+        ),
+        (
+            "template not an object",
+            edit("/expected/template", Some(json!(["--permission-mode"]))),
+            cause("record.expected.template", not_object),
+        ),
+        (
+            "template kind missing",
+            edit("/expected/template/kind", None),
+            cause("record.expected.template.kind", "is missing"),
+        ),
+        (
+            "template kind not a string",
+            edit("/expected/template/kind", Some(json!(false))),
+            cause("record.expected.template.kind", "is not a string"),
+        ),
+        (
+            "template kind unknown",
+            edit("/expected/template/kind", Some(json!(sentinel))),
+            cause("record.expected.template.kind", "names no known kind"),
+        ),
+        (
+            "declared template without argv",
+            edit("/expected/template/argv", None),
+            cause("record.expected.template.argv", "is missing"),
+        ),
+        (
+            "declared template argv null",
+            edit("/expected/template/argv", Some(Value::Null)),
+            cause("record.expected.template.argv", "is null"),
+        ),
+        (
+            "declared template argv not an array",
+            edit("/expected/template/argv", Some(json!(sentinel))),
+            cause("record.expected.template.argv", "is not an array"),
+        ),
+        (
+            "declared template argument not a string",
+            edit("/expected/template/argv/1", Some(json!({"x": sentinel}))),
+            cause("record.expected.template.argv[1]", "is not a string"),
+        ),
+        (
+            "declared template argv empty",
+            edit("/expected/template/argv", Some(json!([]))),
+            cause("record.expected.template.argv", "is empty"),
+        ),
+        (
+            "none template carrying argv",
+            edit(
+                "/expected/template",
+                Some(json!({"kind": "none", "argv": ["--permission-mode", "acceptEdits"]})),
+            ),
+            cause("record.expected.template", unknown_member),
+        ),
+        (
+            "template unknown member",
+            unknown("/expected/template"),
+            cause("record.expected.template", unknown_member),
+        ),
     ];
-    assert_eq!(rows.len(), 50);
+    assert_eq!(rows.len(), 63);
     // Every row reaches its own exact assertion; the bound is D6's 512
     // scalars, and no cause carries the sentinel it was handed.
     let failures: Vec<String> =

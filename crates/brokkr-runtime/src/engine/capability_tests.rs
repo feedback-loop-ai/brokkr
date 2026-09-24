@@ -352,6 +352,7 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
                           "sandbox": {"kind": "unspecified"},
                           "application": {"kind": "unrestricted"}},
                 "hands": {"kind": "none"},
+                "template": {"kind": "none"},
             },
         })
     };
@@ -500,6 +501,7 @@ fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
                           "sandbox": {"kind": "read-only"},
                           "application": {"kind": "dormant"}},
                 "hands": {"kind": "required"},
+                "template": {"kind": "none"},
             },
         })
     );
@@ -531,6 +533,7 @@ fn a_spawn_is_sealed_with_the_selected_links_own_segments_and_expected_state() {
                           "sandbox": {"kind": "unspecified"},
                           "application": {"kind": "direct", "limits": ["Bash(cargo:*)"]}},
                 "hands": {"kind": "none"},
+                "template": {"kind": "none"},
             },
         })
     );
@@ -804,6 +807,7 @@ fn a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone() {
                           "sandbox": {"kind": "unspecified"},
                           "application": {"kind": "unrestricted"}},
                 "hands": {"kind": "required"},
+                "template": {"kind": "none"},
             },
         })
     );
@@ -838,6 +842,10 @@ fn lowered_inline(engine: &mut Engine, label: &str, name: &str) {
         segment: Segment::new(Origin::Local, &strings(&["--allowedTools", &limit])),
         limits: vec![limit],
     });
+    // Rebuild unit 5c-fix: the compiler records the adapter's template
+    // declaration wherever it records a lowering; this fixture's declares
+    // none, and emits none.
+    site.declared_template = Some(TemplateExpectation::None);
 }
 
 /// A capturing driver that also records the argv it was spawned with: every

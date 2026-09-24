@@ -4763,3 +4763,199 @@ capability_launch` passed with 27 tests.
 `tasks.md` 5c.1 is unticked. Emission, order, the no-template omission and
 the authored-mode refusal stand as observed above. **Pending:** unit 5c-fix,
 external exact coverage, macOS and remote CI. Nothing is pushed.
+
+## Unit 5c-fix — the template in the expected state, inline arm, 2026-09-24
+
+Run `triage-directive-operator-ruling-0bdb3908`, based on `33f95a61`. This is
+part 1 of the operator's split of unit 5c, and it answers the 5c review's R1.
+Ruling 2 settles the arm 5c left open: wherever the engine emits a permission
+template, the agent-backed arm included, the expected state records it, and a
+seal whose template-origin segments contradict it is refused. Production
+files: `crates/brokkr-protocol/src/native_controls.rs`, and `bundle.rs` and
+`engine.rs` under `crates/brokkr-runtime/src`. No recipe, adapter, pin,
+contract, fixture, policy or reference byte moved. The template is private
+record data, not a manifest field, so no witness digest moved.
+
+### What changed
+
+- `native_controls.rs`: `TemplateExpectation { None, Declared(Vec<String>) }`
+  and a mandatory `Expected.template`. `LaunchRecord::value` writes it as
+  `{"kind": "none"}` or `{"kind": "declared", "argv": [...]}`. `decode_record`
+  lists `template` among `record.expected`'s closed members and decodes it
+  through the same `tagged`/`closed`/`string_list` readers as every other
+  member. A missing member, null, a non-object, a missing or non-string kind,
+  an unknown kind, a missing, null or non-array `argv`, a non-string argument,
+  and an extra member each refuse with a fixed path and never echo the
+  supplied value. A `declared` template with an empty `argv` also refuses
+  (`'record.expected.template.argv' is empty`), because it would be `none`
+  spelled a second way. Nothing is defaulted to `none`, and an older record
+  without the member does not decode.
+- `bundle.rs`: `SiteFacts.declared_template: Option<TemplateExpectation>`.
+  `record_inline_tools` records it exactly where it records `inline_local`:
+  `Declared` with the adapter's template expanded as the emitted segment is
+  (`expand_command` over the same bundle directory), or `None` for an adapter
+  that declares none. Every other site leaves it unrecorded. It sits beside
+  `inline_template`, the segment that will be emitted, and is never derived
+  from it.
+- `engine.rs`:
+  - `expected_state`, inline arm: `inline_template(lowered, facts)` returns
+    `None` where nothing lowers, and the recorded declaration where the allow
+    lowers. A lowered allow with no recorded declaration refuses: "the inline
+    site's lowered allow carries no recorded declaration of its adapter's
+    permission template".
+  - `expected_state`, agent arm (interim, until 5c-fix2):
+    `agent_template(composition)` records `None` only when the composition
+    opens with its `template`-origin driver segment and that driver emits no
+    permission template. Otherwise it refuses with the whole cause pinned in
+    `capability_launch` (`AGENT_TEMPLATE_REFUSED`).
+  - `permission_template(argv)` is what a driver template hands its harness
+    behind the `<engine> driver <kind>` verb, less an escape `--`. It is the
+    reading unit 5c's `agents::inline_template` uses. A driver without that
+    verb is opaque. The engine composes an opaque driver whole as the
+    adapter's own program and has no grammar for it
+    (`parse_origin` → `None`), so it places nothing behind a verb and emits
+    no permission template. **Which seats record what, until 5c-fix2:**
+    codex and dsh agent seats, whose drivers end at `--`, and opaque-driver
+    agents (the `sh -c` and `fake-driver` fixtures) record `none`. Every
+    shipped Claude and LaneTally agent seat is refused, because its driver
+    emits `--permission-mode acceptEdits`. The opaque reading is named here
+    for the council.
+  - `SiteSpawn::seal` now returns `Result<(), String>`. It compares the
+    permission template the spawn emits with `expected.template`, and on a
+    contradiction it clears any record and refuses with a fixed cause
+    (`TEMPLATE_CONTRADICTED`). What is emitted is read by carried origin,
+    never by bytes. Where an agent's `template` driver segment supplies the
+    verb, it is `permission_template` of that segment. Model and effort pins
+    are template-origin too, but they are not the permission template. Where
+    the author supplies the verb, at an inline site, it is every
+    `template`-origin extras segment, in order.
+    `mark_capabilities` chains `expected_state` and `seal`, so either refusal
+    becomes the spawn's refusal before any provider work.
+
+### Tests
+
+- `native_controls/tests.rs`: `full_record` carries
+  `Declared(["--permission-mode","acceptEdits"])`. The round-trip test pins
+  the literal `declared` encoding and the literal `{"kind":"none"}`, and adds a
+  row whose declared argv carries an empty string and Unicode. The malformed
+  table grows from 50 to 63 rows (13 template rows): missing, null, not an
+  object, kind missing, kind not a string, kind unknown (the sentinel),
+  declared without argv, argv null, argv not an array, argument not a string,
+  argv empty, `none` carrying argv, and an unknown member (the sentinel). Each
+  asserts the whole cause, bounded, with no sentinel.
+- `bundle/agent_tests.rs`: the 5c table records `declared_template` beside
+  the segment and grows from 11 to 12 rows. claude and lanetally with the
+  template record `Declared([...acceptEdits])`, and the drivers ending at `--`
+  and at the verb record `Some(None)`. Sites that do not lower record
+  `None`. A new row, "a template naming a bundle-relative path", declares
+  `./modes/accept`, and both the segment and the fact carry
+  `<bundle>/modes/accept`.
+- `agents/tests.rs`: both `Expected` constructors take
+  `template: TemplateExpectation::None`. Their fixture drivers end at `--`,
+  and the first asserts that. Both assert the decoded template.
+- `tests/capability_launch.rs` (29 tests; `sealed` now goes through
+  `sealing`/`sealing_moved`, which return the seal's result):
+  - The inline claude and LaneTally tests pin `"template": {"kind":
+    "declared", "argv": ["--permission-mode", "acceptEdits"]}`. The
+    no-template test (R2's canonicalised root kept) pins `{"kind": "none"}`,
+    as do the inline codex copy and the Codex fallback.
+  - `an_inline_seal_whose_emitted_template_contradicts_the_declared_one_refuses`
+    (new, 9 rows, count asserted, production fixture compile). Rows: as
+    compiled → `Ok`, record `declared`. The emitted template omitted,
+    altered to `bypassPermissions` or relabelled `authored` in the facts; a
+    second template segment inserted into the spawn; the local segment
+    relabelled `template` in the spawn; the declaration `none` beside an
+    emitted template; and the declaration altered to `plan` beside an
+    unchanged emission each give `Err(TEMPLATE_CONTRADICTED)` and a null
+    record. The declaration never recorded gives the whole `expected_state`
+    refusal and a null record. A final assertion re-seals a sealed spawn
+    with a contradicting expectation and pins `Ok`, then the contradiction,
+    then a null record.
+  - `an_agent_backed_seat_records_no_template_only_where_its_composition_emits_none`
+    (new, 4 rows, copied adapters on a canonicalised root). The shipped
+    Claude driver gives `Err(AGENT_TEMPLATE_REFUSED)` and a null record.
+    Drivers ending at `--` or at the verb, and an opaque
+    `["claude-wrapper","--permission-mode","acceptEdits"]`, each give `Ok`
+    and `{"kind":"none"}`.
+  - `a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits`
+    (changed). The Claude agent seat's seal is `Err(AGENT_TEMPLATE_REFUSED)`
+    with no record. Its extras still carry the four origins, and the
+    composition's own local expectation keeps the ordered names and limits.
+  - `a_compiled_links_origins_…` (changed). The Codex agent's expected state
+    pins `template: none`. The boxed Claude primary now refuses whole, and
+    its extras keep the template/model/effort/hands origins.
+- `engine/capability_tests.rs`: **outside the unit's named test files.** Four
+  whole-record JSON pins (the nested dispatch, the sealed primary and
+  fallback, the prefixed exec dispatch) gained `"template": {"kind":
+  "none"}`, because the member is mandatory. The `lowered_inline` fixture
+  records `declared_template = Some(None)` beside its lowering, as the
+  compiler does. No assertion was weakened. The preamble's ceiling is on
+  production files ("tests … accompany its own change"). This is named here
+  because the framing listed four test files.
+
+### Baseline (the new tests against `33f95a61`'s three production files)
+
+The new and changed tests did not compile at baseline, because the member,
+the fact and the fallible seal did not exist. brokkr-protocol lib test:
+`E0433 cannot find type TemplateExpectation` ×4, `E0560 Expected has no field
+named template`, `E0609 no field template` ×3. brokkr-runtime lib test and
+capability_launch: `E0432 unresolved import TemplateExpectation` ×3,
+`E0609 no field declared_template` ×5, `E0560`/`E0609` on `template`, and
+`E0308` on the seal's result. No behavioural baseline red exists apart from
+compilation.
+
+### Mutations (each alone, compiling, run, restored)
+
+| # | Mutation | Failing test: rows / assertion |
+| --- | --- | --- |
+| N1 | `native_controls.rs`: `value` writes `template_` for `template` | round-trip: the literal encoding, the literal none, all 6 rows (decode says missing); also the malformed table and the equal-bytes test |
+| N2 | `native_controls.rs`: a record without `template` is closed without it and decodes as `none` | malformed: row "template missing" (left `Ok(… template: None)`) |
+| N3 | `native_controls.rs`: the empty-`argv` refusal disabled | malformed: row "declared template argv empty" |
+| N4 | `native_controls.rs`: the `declared` arm unreachable (read as `none`) | round-trip: "the full record", "known and empty", the declared-Unicode row; malformed: the three argv-content rows |
+| B1 | `bundle.rs`: `declared_template` never recorded | agent_tests: 5 of 12 rows; capability_launch: the inline claude/LaneTally/wrapper/no-template tests and 6 contradiction rows, each on the never-recorded refusal |
+| B2 | `bundle.rs`: `declared_template` always `none` | agent_tests: the claude, lanetally and relative-path rows; capability_launch: the 3 inline template tests (seal contradicted), and contradiction rows "as compiled" (refused), "omitted", "relabelled" (sealed) |
+| B3 | `bundle.rs`: the declaration left unexpanded | agent_tests: row "a template naming a bundle-relative path" |
+| E1 | `engine.rs`: the seal's comparison made unreachable | contradiction test: the 7 contradicted rows (sealed instead) |
+| E2 | `engine.rs`: the inline expectation read from the emitted segment (`inline_template`), not the fact | contradiction test: "omitted", "altered" (sealed as if expected), "declaration none", "declaration altered" |
+| E3 | `engine.rs`: a lowered allow with no recorded declaration expected as `none` | contradiction test: row "the declaration never recorded" (left the seal's contradiction, not the expected-state refusal) |
+| E4 | `engine.rs`: the agent arm always records `none` | capability_launch: the direct-allow test, the agent table's "shipped template" row and the chain primary: each still refuses, but under `TEMPLATE_CONTRADICTED`, not the agent-arm cause. The seal backstops the arm |
+| E5 | `engine.rs`: the agent arm always refuses | capability_launch: the agent table's 3 `none` rows and `a_compiled_links_origins_…`; engine::capability_tests: 4 sealed-record tests |
+| E6 | `engine.rs`: an opaque driver's whole argv read as its permission template | agent table: row "an opaque driver" |
+| E7 | `engine.rs`: a refused seal keeps an earlier record (`self.record.take()` put back) | contradiction test: the re-seal assertion (record not null) |
+
+E2 and E3 were rerun after `inline_template` was extracted, the only
+restructuring after the campaign, and bound the same rows. After each
+restoration the production files were copied back from the saved finals.
+`cargo fmt --check` and the suites below were rerun on the restored tree.
+
+### Gates (on the restored tree)
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: passed.
+- `cargo test -p brokkr-protocol --all-features --locked`: passed.
+- `cargo test -p brokkr-runtime --all-features --locked`: passed, with 551 lib
+  tests and every integration suite (capability_launch 29, witness_digests 4).
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `bundles/verify`: passed.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+- `cargo test --workspace --no-fail-fast`: **one target red, the rest
+  passed.** brokkr-cli's
+  `bootstrap_bench::a_pristine_scaffold_reaches_a_first_completed_effect_with_no_agent`
+  parks at `intake`. The pristine scaffold's intake seat is an agent-backed
+  Claude seat, its driver emits `--permission-mode acceptEdits`, and the
+  interim arm refuses it with the whole agent-arm cause ("driver did not
+  spawn: dispatch refused: the selected candidate's composition emits a
+  permission template …"). This is the ruled interim ("otherwise refuse"),
+  not a defect of the arm. The same refusal reaches every shipped Claude and
+  LaneTally agent seat until 5c-fix2. brokkr-cli is outside this unit's
+  files, and weakening the bench would record a regression as correct, so it
+  was left red. **Open, for the operator:** land 5c-fix2 before this branch
+  merges, or rule on the bench in the meantime.
+
+### Owed
+
+- 5c.1 stays unticked until 5c-fix2 lands. 5c-fix2.1 is added unticked.
+- **Pending:** external exact coverage (`scripts/coverage-exact.sh`, outside
+  the box), macOS and remote CI on the committed head. Nothing is pushed.

@@ -24,7 +24,7 @@ use crate::agents::{
     EgressClass, Library, Lowering, Sandbox, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
-use brokkr_protocol::native_controls::Segment;
+use brokkr_protocol::native_controls::{Segment, TemplateExpectation};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const EVENT_SCHEMA: u32 = 1;
@@ -430,6 +430,15 @@ pub struct SiteFacts {
     /// lowered list. `None` where the allow does not lower or the adapter
     /// declares no template.
     pub inline_template: Option<Segment>,
+    /// Rebuild unit 5c-fix (operator ruling of 2026-09-24, item 2): the
+    /// adapter's declaration of that template as a typed fact, separate
+    /// from the segment above, which is what is emitted. The engine fills
+    /// the expected state from this fact alone, so a template omitted or
+    /// altered on its way into the command has something to contradict.
+    /// Recorded exactly where `inline_local` is — `Declared` with the
+    /// expanded argv, or `None` for an adapter that declares no template —
+    /// and `None` (unrecorded) at every other site.
+    pub declared_template: Option<TemplateExpectation>,
 }
 
 /// Every agent charter one compile bound, keyed by the path the seat will
@@ -2672,6 +2681,12 @@ fn record_inline_tools(
         Some((lowered, template)) => (Some(lowered), template),
         None => (None, None),
     };
+    // Rebuild unit 5c-fix: the declaration is recorded as its own typed
+    // fact, beside and never read back from the segment to be emitted.
+    facts.declared_template = lowered.as_ref().map(|_| match &template {
+        Some(declared) => TemplateExpectation::Declared(expand_command(dir, &declared.argv)),
+        None => TemplateExpectation::None,
+    });
     facts.inline_local = lowered.map(|lowered| crate::agents::LocalLowering {
         segment: expanded(lowered.segment),
         limits: lowered.limits,
