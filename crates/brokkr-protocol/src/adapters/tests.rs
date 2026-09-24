@@ -5316,6 +5316,7 @@ fn run_dsh_stream(launch: DshLaunch, workdir: &std::path::Path) -> (Invocation, 
         launch,
         "the prompt",
         workdir.to_str().unwrap(),
+        &[],
         &mut |value| emitted.push(value.clone()),
         |_| panic!("the qualified arm does not poll the child"),
     )
@@ -6031,6 +6032,7 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
                 launch,
                 prompt,
                 input["workdir"].as_str().unwrap(),
+                &[],
                 &mut emit,
                 |_| panic!("the qualified arm does not poll the child"),
                 &mut |observation: &DshObservation| {
@@ -7187,6 +7189,7 @@ fn a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms() {
         launch,
         "the prompt",
         dir.path().to_str().unwrap(),
+        &[],
         &mut |value| emitted.push(value.clone()),
         |_| panic!("the qualified arm does not poll the child"),
     )
@@ -7249,6 +7252,7 @@ fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation()
         launch,
         "the prompt",
         dir.path().to_str().unwrap(),
+        &[],
         &mut |value| emitted.push(value.clone()),
         |_| panic!("the qualified arm does not poll the child"),
     )
@@ -9062,6 +9066,7 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
         dir.path().to_str().unwrap(),
         &json!({}),
         None,
+        &[],
         &mut |event: &Value| emitted.push(event.clone()),
         |child| {
             passes += 1;
@@ -14325,6 +14330,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                     launch,
                     prompt,
                     &workdir,
+                    &[],
                     &mut |row: &Value| emit(row),
                     |child| {
                         child
@@ -14485,4 +14491,221 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
     if let Some(value) = prior_node_path {
         std::env::set_var("NODE_PATH", value);
     }
+}
+
+/// Issue #370, decisions 0012, 0021 ruling 4 and 0036 ruling 4: a seat
+/// that declares a binding receives it in its environment on every model
+/// harness, not only on exec. Each shim refuses (exit 7) unless the value
+/// arrived, and echoes it to stderr so the same run proves that surface
+/// is masked before it is text.
+#[cfg(unix)]
+#[test]
+fn every_model_harness_receives_its_bindings_and_masks_its_stderr() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let bindings = [binding("API_TOKEN", "tok-3xample-value")];
+    let body = "#!/bin/sh\n\
+                cat >/dev/null\n\
+                printf 'leaked %s\\n' \"$API_TOKEN\" >&2\n\
+                [ \"$API_TOKEN\" = \"tok-3xample-value\" ] || exit 7\n";
+    for (kind, variable) in [
+        (AdapterKind::Claude, "BROKKR_CLAUDE_BIN"),
+        (AdapterKind::Lanetally, "BROKKR_LANETALLY_BIN"),
+        (AdapterKind::Codex, "BROKKR_CODEX_BIN"),
+    ] {
+        let shim = executable(dir.path(), &format!("{variable}-shim"), body);
+        let prior = std::env::var_os(variable);
+        std::env::set_var(variable, &shim);
+        let outcome = invoke(
+            kind,
+            &[],
+            "the prompt",
+            &json!({"workdir": dir.path()}),
+            None,
+            &bindings,
+            &mut |_| {},
+        );
+        match prior {
+            Some(value) => std::env::set_var(variable, value),
+            None => std::env::remove_var(variable),
+        }
+        let invocation = outcome.unwrap_or_else(|error| panic!("{kind:?}: {error}"));
+        assert_eq!(
+            invocation.exit_code, 0,
+            "{kind:?}: the binding never reached the child: {}",
+            invocation.stderr
+        );
+        assert!(
+            invocation.stderr.contains("leaked [secret:API_TOKEN]"),
+            "{kind:?}: {}",
+            invocation.stderr
+        );
+        assert!(!invocation.stderr.contains("tok-3xample-value"), "{kind:?}");
+    }
+}
+
+/// The dsh arm of #370, through `invoke_dsh_launch` — production's path
+/// once a launch is settled — so the binding crosses `spawn_dsh` and the
+/// stderr crosses `finish_dsh`.
+#[cfg(unix)]
+#[test]
+fn a_dsh_seat_receives_its_bindings_and_masks_its_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    std::fs::create_dir_all(&root).unwrap();
+    let shim = executable(
+        dir.path(),
+        "dsh-bound",
+        "#!/bin/sh\n\
+         printf 'leaked %s\\n' \"$API_TOKEN\" >&2\n\
+         [ \"$API_TOKEN\" = \"tok-3xample-value\" ] || exit 7\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
+    );
+    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
+    let launch = DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
+        rejoining: None,
+        refusal: None,
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: None,
+        stream_json: true,
+        effortless: true,
+        facts: crate::hands::GitFacts::default(),
+        staged: None,
+        first_seq: None,
+        locator: "seat".to_string(),
+        root: root.clone(),
+        overlay,
+    };
+    let invocation = invoke_dsh_launch(
+        launch,
+        "the prompt",
+        dir.path().to_str().unwrap(),
+        &[binding("API_TOKEN", "tok-3xample-value")],
+        &mut |_| {},
+        |_| panic!("the qualified arm does not poll the child"),
+    )
+    .unwrap();
+    assert_eq!(invocation.exit_code, 0, "{}", invocation.stderr);
+    assert!(
+        invocation.stderr.contains("leaked [secret:API_TOKEN]"),
+        "{}",
+        invocation.stderr
+    );
+    assert!(!invocation.stderr.contains("tok-3xample-value"));
+}
+
+/// End to end through `run_seat` for a claude seat declaring a binding:
+/// the seat runs (the shim refuses without the value), and every
+/// journal-bound surface the child reached — a checkpoint's tool target,
+/// the result file's notes — carries the name, never the value.
+#[cfg(unix)]
+#[test]
+fn a_bound_claude_seat_runs_and_journals_only_the_secret_name() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("secrets.env");
+    secret::store_set(&store, "API_TOKEN", "tok-3xample-value").unwrap();
+    let result = dir.path().join("result.json");
+    let shim = executable(
+        dir.path(),
+        "claude-bound",
+        &format!(
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             [ \"$API_TOKEN\" = \"tok-3xample-value\" ] || exit 7\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sealed-1\"}}\\n'\n\
+             printf '{{\"type\":\"assistant\",\"message\":{{\"model\":\"claude-test\",\"content\":[{{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"/work/%s\"}}}}],\"usage\":{{\"input_tokens\":3,\"output_tokens\":4}}}}}}\\n' \"$API_TOKEN\"\n\
+             printf '{{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"done\"}}\\n'\n\
+             printf '{{\"result\":\"complete\",\"notes\":\"used %s\"}}' \"$API_TOKEN\" > '{}'\n",
+            result.display()
+        ),
+    );
+    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
+    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "secrets": ["API_TOKEN"], "secrets_file": store}
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
+        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
+    }
+    let journaled = format!("{messages:?}");
+    assert!(!journaled.contains("tok-3xample-value"), "{journaled}");
+    assert!(
+        messages.iter().any(|body| matches!(
+            body,
+            Body::Checkpoint { data, .. } if data["target"] == "/work/[secret:API_TOKEN]"
+        )),
+        "the checkpoint target is masked: {journaled}"
+    );
+    let Some(Body::Result {
+        status: ResultStatus::Succeeded,
+        result: Some(seat_result),
+        ..
+    }) = messages.last()
+    else {
+        panic!("the bound seat ran to a result: {journaled}");
+    };
+    assert_eq!(seat_result["notes"], "used [secret:API_TOKEN]");
+}
+
+/// A provider refusal is prose the harness wrote, and it becomes the
+/// attempt's journaled error: a refusal that quotes a bound value reaches
+/// the result masked.
+#[cfg(unix)]
+#[test]
+fn a_refusal_that_quotes_a_bound_value_is_journaled_masked() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().join("secrets.env");
+    secret::store_set(&store, "API_TOKEN", "tok-3xample-value").unwrap();
+    let shim = executable(
+        dir.path(),
+        "claude-refusal-bound",
+        "#!/bin/sh\n\
+         cat >/dev/null\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"refused-2\"}\\n'\n\
+         printf '{\"type\":\"result\",\"is_error\":true,\"error\":\"authentication_failed\",\"result\":\"key %s rejected\"}\\n' \"$API_TOKEN\"\n",
+    );
+    let result = dir.path().join("result.json");
+    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
+    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "secrets": ["API_TOKEN"], "secrets_file": store}
+        }),
+        None,
+        &mut |body| messages.push(body),
+    );
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
+        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
+    }
+    let Some(Body::Result {
+        status: ResultStatus::Failed,
+        error: Some(error),
+        ..
+    }) = messages.last()
+    else {
+        panic!("the refusal is a failed result: {messages:?}");
+    };
+    assert!(error.contains("key [secret:API_TOKEN] rejected"), "{error}");
+    assert!(!format!("{messages:?}").contains("tok-3xample-value"));
 }

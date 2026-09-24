@@ -610,5 +610,32 @@ pub fn mask_bytes(bytes: &[u8], bindings: &[BoundSecret]) -> Vec<u8> {
     out
 }
 
+/// [`mask_bytes`] over every string inside a JSON value, in place.
+///
+/// For the surfaces that reach the driver already parsed: a harness's
+/// stream-json folds into checkpoint values, and a secret the model
+/// echoed arrives there as a DECODED string. On the wire the same value
+/// may be JSON-escaped, so masking the decoded strings is what catches
+/// it whatever escaping the stream used. Object keys are the driver's
+/// own vocabulary and are left as they are.
+pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
+    match value {
+        serde_json::Value::String(text) => {
+            *text = String::from_utf8_lossy(&mask_bytes(text.as_bytes(), bindings)).into_owned();
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                mask_json(item, bindings);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                mask_json(item, bindings);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests;
