@@ -1061,6 +1061,9 @@ fn doctor_in(
     };
     report_ambient_credentials(&mut report, adapters_root, secrets_store, &seats, ambient);
 
+    // Deliberately read-write, unlike every reading verb (#375): the
+    // probe asks whether a run could write here, so it opens the way
+    // `brokkr run` opens — creating, enabling WAL and migrating.
     match Store::open(db) {
         Ok(_) => report.ok(
             "database",

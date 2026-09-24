@@ -540,6 +540,32 @@ fn write_frame(
 /// exits nonzero.
 pub(crate) const WATCH_TRANSIENT_FRAMES: usize = 5;
 
+/// What a verb does to the journal it names, declared at the verb rather
+/// than remembered by it (#375).
+pub(crate) enum Access {
+    /// A look: the journal must already exist and is opened
+    /// `SQLITE_OPEN_READ_ONLY` — no file, WAL, migration or guard repair.
+    Read,
+    /// A writer: the journal is created if absent and brought to the
+    /// current schema, as [`Store::open`] does.
+    Append,
+}
+
+/// Open the journal a verb names, the way its [`Access`] declares.
+pub(crate) fn open_journal(db: &std::path::Path, access: Access) -> Result<Store> {
+    match access {
+        Access::Read => {
+            anyhow::ensure!(
+                db.is_file(),
+                "journal does not exist: {}; a read never creates one",
+                db.display()
+            );
+            Ok(Store::open_read_only(db)?)
+        }
+        Access::Append => Ok(Store::open(db)?),
+    }
+}
+
 /// Poll the journal head and redraw when it moves, comparing **both**
 /// seq and hash: a rewritten journal at equal seq is the tamper case
 /// `anchor` exists for, and `watch` should redraw rather than sit blind.
@@ -561,7 +587,10 @@ fn watch_loop(
         if iteration > 0 {
             sleep(interval_ms.max(100));
         }
-        let head = Store::open(db).and_then(|store| store.head_hash(run).map(|h| (h, store)));
+        // Every poll is a look at a journal a live `brokkr run` may be
+        // writing: it never takes the write path (#375).
+        let head =
+            open_journal(db, Access::Read).and_then(|store| Ok((store.head_hash(run)?, store)));
         match head {
             Ok((head, store)) => {
                 failures = 0;
@@ -1245,36 +1274,17 @@ fn newest_answer(answered: Vec<(usize, String, String)>) -> Option<(usize, Strin
 /// hearths hold runs the recorded stamp decides between them, and the
 /// earliest hearth in map order wins a tie.
 ///
-/// A hearth whose journal is not on disk yet is not consulted, because
-/// resolving would open it and `Store::open` creates a file, a WAL and a
-/// meta row. When NO hearth has one, the selector passes through
+/// A hearth whose journal is not on disk yet is not consulted: there is
+/// nothing to read, and a read never creates one. When NO hearth has one, the selector passes through
 /// unresolved and `tui::start` does the refusing — a read must not create
 /// the database it came to read.
 ///
-/// A MANY-hearth world is walked READ-ONLY, the same way [`tui_views`]
-/// reads it and for the same reason: the peer realms are journals the
-/// operator did not name, and a lookup passing through one must not
-/// migrate it (ruling 5). A world of ONE hearth is the journal the
-/// operator DID name, opened exactly as `inspect` and `watch` open it —
-/// the single-run path is untouched, down to the sidecars it leaves
-/// behind.
+/// Every hearth is walked READ-ONLY, the same way [`tui_views`] reads
+/// it: a peer realm is a journal the operator did not name, and a lookup
+/// passing through one must not migrate it (ruling 5); a SOLE hearth is
+/// the journal the operator did name, and a look is a look there too
+/// (#375) — no WAL, migration or guard repair.
 fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
-    resolve_in_hearths_with(hearths, run, false)
-}
-
-/// Resolve one run across the hearths without ever opening a journal
-/// read-write: the read-only resolution `brokkr transcript` uses so a
-/// look must not create a WAL sidecar, migrate or repair a journal.
-fn resolve_in_hearths_read_only(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
-    resolve_in_hearths_with(hearths, run, true)
-}
-
-fn resolve_in_hearths_with(
-    hearths: &[Hearth],
-    run: String,
-    read_only: bool,
-) -> Result<(usize, String)> {
-    let sole = hearths.len() < 2;
     let mut refusal: Option<anyhow::Error> = None;
     // An ambiguous prefix in any hearth is preserved even when another
     // hearth answers the same selector uniquely: a guess there would
@@ -1287,11 +1297,7 @@ fn resolve_in_hearths_with(
         if !hearth.journal.is_file() {
             continue;
         }
-        let opened = match sole && !read_only {
-            true => Store::open(&hearth.journal),
-            false => Store::open_read_only(&hearth.journal),
-        };
-        let listed = opened
+        let listed = Store::open_read_only(&hearth.journal)
             .map_err(anyhow::Error::from)
             .and_then(|store| Ok(store.list_runs()?));
         let runs = match listed {
@@ -1534,7 +1540,7 @@ fn transcript_command(
     // Consult every distinct existing hearth read-only and apply the one
     // established exact/prefix/`latest` rule; a read never opens a journal
     // read-write, even when `--db` names a sole hearth.
-    let (hearth, run) = resolve_in_hearths_read_only(&hearths, run)?;
+    let (hearth, run) = resolve_in_hearths(&hearths, run)?;
     let store = Store::open_read_only(&hearths[hearth].journal)?;
     let events = store.load(&run)?;
     let state = fold(&events)?;
@@ -2056,7 +2062,7 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Costs(CostsArgs { run, db }) => {
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Read)?;
             let events = store.load(&run)?;
             let (report, total) = compare::seat_costs(&events);
             println!(
@@ -2190,7 +2196,7 @@ fn run_with(
                 operated_repo,
             )?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Append)?;
             let mut engine = if let Some(path) = dispatch {
                 // A map merely lying in the workspace is a different
                 // matter: it still names the journal this world's fleet
@@ -2227,7 +2233,7 @@ fn run_with(
             repo,
             secrets_file,
         }) => {
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Append)?;
             let manifest = store.manifest(&run)?;
             let bundle = compile_from_manifest(
                 workspace,
@@ -2267,7 +2273,7 @@ fn run_with(
             repo,
             secrets_file,
         }) => {
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Append)?;
             let events = store
                 .load(&run)
                 .with_context(|| format!("loading source run '{run}'"))?;
@@ -2307,7 +2313,7 @@ fn run_with(
             Ok(finish(&end.state))
         }
         Cmd::Conclude(ConcludeArgs { run, reason, db }) => {
-            let mut store = Store::open(&db)?;
+            let mut store = open_journal(&db, Access::Append)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
             let state = conclude(&mut store, &run, &operator, &reason)?;
             Ok(finish(&state))
@@ -2359,7 +2365,7 @@ fn run_with(
             // pair takes no map, so `--db` or the default and nothing
             // else decides it.
             let db = db.unwrap_or(PathBuf::from(DEFAULT_DB));
-            let mut store = Store::open(&db)?;
+            let mut store = open_journal(&db, Access::Append)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
             // The command is fenced against a concurrently-driving
             // engine, so it can come back refused. Saying "recorded"
@@ -2398,7 +2404,7 @@ fn run_with(
             seat,
         }) => {
             let db = journal_of(workspace, realms, db)?;
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Read)?;
             let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
             let state = fold(&events)?;
@@ -2440,7 +2446,7 @@ fn run_with(
             // own bytes. Nothing is derived here and no wire object is
             // versioned for the verb.
             let db = journal_of(workspace, realms, db)?;
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Read)?;
             let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
             let state = fold(&events)?;
@@ -2463,7 +2469,7 @@ fn run_with(
             // Selectors resolve once, before the loop: a prefix that is
             // unique now stays this frame's run even if another run is
             // started while we watch.
-            let run = selector::resolve_run(&Store::open(&db)?, &run)?;
+            let run = selector::resolve_run(&open_journal(&db, Access::Read)?, &run)?;
             let style = render::Style::detect();
             let is_tty = std::io::stdout().is_terminal();
             let iterations = if once {
@@ -2484,7 +2490,7 @@ fn run_with(
             )
         }
         Cmd::Replay(ReplayArgs { run, db }) => {
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Read)?;
             let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
             let first = format!("{:?}", fold(&events)?);
@@ -2510,7 +2516,7 @@ fn run_with(
             redact,
         }) => {
             let db = journal_of(workspace, realms, db)?;
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Read)?;
             let run = selector::resolve_run(&store, &run)?;
             std::fs::create_dir_all(&out)?;
             let ndjson = store.export_ndjson(&run)?;
@@ -2584,7 +2590,7 @@ fn run_with(
                 .context(format!("reading {}", manifest_path.display()))?;
             let manifest: Value = serde_json::from_str(&raw)
                 .context(format!("parsing {}", manifest_path.display()))?;
-            let mut store = Store::open(&db)?;
+            let mut store = open_journal(&db, Access::Append)?;
             let adoption = store.import_run(&ndjson, &manifest, &from)?;
             println!(
                 "{}",
@@ -2641,7 +2647,7 @@ fn run_with(
             let mut command_cursor = 0;
             let mut iteration = 0usize;
             loop {
-                let mut store = Store::open(&db)?;
+                let mut store = open_journal(&db, Access::Append)?;
                 let report = bridge.sync_once(
                     &mut store,
                     &run,
@@ -2756,7 +2762,7 @@ fn run_with(
                 .next()
                 .expect("a world resolves to at least one hearth")
                 .journal;
-            let store = Store::open(&db)?;
+            let store = open_journal(&db, Access::Read)?;
             let mut folded = Vec::new();
             for (run_id, feature, created_at) in store.list_runs()? {
                 // A fleet listing survives one unfoldable journal: that
