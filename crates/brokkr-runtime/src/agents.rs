@@ -1133,7 +1133,7 @@ fn compose(
         effort,
         intent,
         application,
-        template: declared_template(adapter),
+        template: declared_template(&adapter.driver),
     })
 }
 
@@ -1145,12 +1145,12 @@ fn driver_template(adapter: &Adapter) -> Segment {
     Segment::new(Origin::Template, &adapter.driver)
 }
 
-/// The permission template the adapter declares for the seats it composes
-/// (rebuild unit 5c-fix2): what its driver hands the harness behind the
-/// dispatch verb, read from the declaration and never from a composed
-/// segment, or `none` where it declares nothing there.
-fn declared_template(adapter: &Adapter) -> TemplateExpectation {
-    match permission_template(&adapter.driver) {
+/// The permission template an adapter's `driver` declaration declares for
+/// the seats it composes (rebuild unit 5c-fix2): what the driver hands the
+/// harness behind the dispatch verb, read from the declaration and never
+/// from a composed segment, or `none` where it declares nothing there.
+pub fn declared_template(driver: &[String]) -> TemplateExpectation {
+    match permission_template(driver) {
         [] => TemplateExpectation::None,
         declared => TemplateExpectation::Declared(declared.to_vec()),
     }

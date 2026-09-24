@@ -765,7 +765,7 @@ and remote CI are pending.
 
 ## 5c. Unit 5c — Emit the adapter's permission template at inline typed sites
 
-- [x] 5c.1 Unit 5c emits the adapter's declared permission template (for claude, `--permission-mode acceptEdits`) at an inline Claude or LaneTally site whose typed declaration lowers, as the engine's own `template` segment read from the adapter data, the way agent composition emits it. The sealed record carries it, and the launch parses it back with the rest of the final command. An authored permission mode stays refused, every inline shape that does not lower keeps its refusal, and a seat whose adapter declares no template gets none. Verify the whole ordered final command for an inline claude site and a LaneTally site, the no-template seat and the authored-mode refusal, each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 ("the permission template at inline sites"), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the operator's ruling (a); run `triage-directive-operator-ruling-9d597b08`)
+- [ ] 5c.1 Unit 5c emits the adapter's declared permission template (for claude, `--permission-mode acceptEdits`) at an inline Claude or LaneTally site whose typed declaration lowers, as the engine's own `template` segment read from the adapter data, the way agent composition emits it. The sealed record carries it, and the launch parses it back with the rest of the final command. An authored permission mode stays refused, every inline shape that does not lower keeps its refusal, and a seat whose adapter declares no template gets none. Verify the whole ordered final command for an inline claude site and a LaneTally site, the no-template seat and the authored-mode refusal, each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 ("the permission template at inline sites"), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the operator's ruling (a); run `triage-directive-operator-ruling-9d597b08`)
 
 Observed 2026-09-24 (evidence.md, "Unit 5c"). Production: `agents.rs`
 (`driver_template`, which `compose` now calls, and `inline_template`, the
@@ -800,9 +800,12 @@ as observed above.
 
 The operator split 5c in two (run `triage-directive-operator-ruling-0bdb3908`;
 design.md "Rebuild units", 5c-fix and 5c-fix2). 5c.1 closes when both have
-landed. Both have landed (5c-fix on 5c-fix-b's second return, and 5c-fix2 on
-2026-09-25), so the box above is ticked. External exact coverage, macOS and
-remote CI stay pending.
+landed. 5c-fix landed on 5c-fix-b's second return. 5c-fix2's code landed on
+2026-09-25, but its review returned R1: four compile-required `Composition`
+field lines sit outside its named test files and have no admission. So the
+box above stays unticked until the operator admits them or rules a split
+(5c-fix2.1 below). External exact coverage, macOS and remote CI stay
+pending.
 
 - [x] 5c-fix.1 Unit 5c-fix records the template in the expected state, inline arm. `Expected` gains a mandatory, kind-tagged `template` (`none` | `declared {argv}`) in its closed JSON value and `decode_record`, refusing missing, null, unknown-kind, malformed and extra members with fixed, value-free paths. The compiler records the adapter's declared template as a typed `SiteFacts` fact beside, and separate from, the emitted segment. `expected_state` fills the inline arm from that fact, and a seal whose template-origin segments contradict it is refused. Until 5c-fix2, an agent-backed seat records `none` only if its composition emitted none, and is otherwise refused. The omission, alteration and contradiction cases are each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2, [Refusal proofs assert the full reason][SC8]. (run `triage-directive-operator-ruling-0bdb3908`)
 
@@ -881,7 +884,7 @@ and emitted Codex declaration rows beside the legitimate model and effort
 pins; N1 to N4 each bound and were restored. 5c-fix-b.1 and 5c-fix.1 close
 on that return's evidence.
 
-- [x] 5c-fix2.1 Unit 5c-fix2 records the template in the expected state, agent-backed arm: the composition carries the adapter's declared template as a typed fact, and `expected_state` fills the agent arm from it instead of refusing, so agent-backed Claude and LaneTally seats seal again with the template recorded and the contradiction check in force. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2. (split from 5c by the operator; run `triage-directive-operator-ruling-0bdb3908`; commissioned in run `0065-rebuild-unit-5c-fix2-see-th-626be6dc`)
+- [ ] 5c-fix2.1 Unit 5c-fix2 records the template in the expected state, agent-backed arm: the composition carries the adapter's declared template as a typed fact, and `expected_state` fills the agent arm from it instead of refusing, so agent-backed Claude and LaneTally seats seal again with the template recorded and the contradiction check in force. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2. (split from 5c by the operator; run `triage-directive-operator-ruling-0bdb3908`; commissioned in run `0065-rebuild-unit-5c-fix2-see-th-626be6dc`)
 
 Observed 2026-09-25 (evidence.md, "Unit 5c-fix2"). Production:
 - `agents.rs`: `Composition.template`, filled by `compose` from the
@@ -906,6 +909,17 @@ lines and 3 branches in `bundle.rs` are uncovered, none of them in this
 unit's diff (evidence.md records the baseline comparison). **Not fully
 green:** exact coverage, macOS and remote CI are pending. 5c.1 closes with
 this unit, and its emission and order stay as observed at 5c.
+
+Review return, 2026-09-25 (evidence.md, "Review return, 2026-09-25: the
+constructor migrations have no admission"). R1 (medium, scope): the three
+engine test fixtures outside this unit's named test files were edited, and
+the earlier inventories cited as cover do not apply to this unit. The field
+lines are required to compile. The footprint is now as small as it can be:
+`agents.rs` exposes `declared_template(driver)`, the fixture helper is
+deleted, and the fixtures differ from `b91ec0f7` by exactly four `template:`
+lines. M2′ was re-run on the reshaped function; it bound and was restored.
+All gates passed again. **This box and 5c.1 stay unticked until the operator
+admits those four lines into this unit's inventory, or rules a split.**
 
 ## 6. Unit 6 — Migrate Claude recipes
 

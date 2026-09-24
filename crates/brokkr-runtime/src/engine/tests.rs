@@ -35,18 +35,9 @@ pub(super) fn templated(mut candidate: Candidate) -> Candidate {
             hands: HandsIntent::None,
         },
         application: Application::Unrestricted,
-        template: declared_by(&candidate.argv),
+        template: crate::agents::declared_template(&candidate.argv),
     });
     candidate
-}
-
-/// The permission template a fixture's driver declares behind its verb, as
-/// the resolver records it from the declaration (rebuild unit 5c-fix2).
-pub(super) fn declared_by(driver: &[String]) -> TemplateExpectation {
-    match crate::agents::permission_template(driver) {
-        [] => TemplateExpectation::None,
-        declared => TemplateExpectation::Declared(declared.to_vec()),
-    }
 }
 
 pub(super) fn single_body(command: Vec<String>) -> SeatBody {

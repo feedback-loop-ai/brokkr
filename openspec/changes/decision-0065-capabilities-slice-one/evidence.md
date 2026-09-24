@@ -5449,7 +5449,8 @@ which reads the fixture's own driver declaration), `engine/capability_tests.rs`
 (`composed_link`) and `engine/boundary_tests.rs` (`candidate`, and the
 `expand_lowering` fixture, `none`). Those are the unit 4 and 5c-fix-b
 constructor inventories, with one field each. No test there changed its
-assertions.
+assertions. **Retracted by the review return below:** those inventories were
+admitted for their own units and admit nothing in this one.
 
 ### Tests
 
@@ -5567,3 +5568,79 @@ ran on the restored tree.
   work, so they are recorded and not repaired here.
 - **Pending:** exact coverage green on the final head, macOS and remote CI.
   Nothing is pushed.
+
+### Review return, 2026-09-25: the constructor migrations have no admission
+
+The council on `207cab5e` (run `0065-rebuild-unit-5c-fix2-see-th-626be6dc`)
+ruled residual. There is no specification defect, no behavioural defect and
+no security defect.
+
+- **R1 (medium, scope).** The unit names three test files:
+  `agents/tests.rs`, `bundle/agent_tests.rs` and `capability_launch.rs`.
+  `207cab5e` also edited `engine/tests.rs`, `engine/boundary_tests.rs` and
+  `engine/capability_tests.rs`. It added a `declared_by` helper, and it
+  cited the unit 4 and 5c-fix-b inventories as cover. Those inventories
+  admit nothing in this unit, and the claim is retracted above. 5c-fix-b's
+  R2 already set the rule: a migration outside the named files needs an
+  explicit admission.
+- **R2 (low, run integrity).** The panel's notes included routing
+  directives. This visit took none of them as authority and gives none.
+
+**Disposition.** The migrations cannot be removed. The unit text requires
+`Composition` to carry the template, and every Rust struct literal of
+`Composition` must name every field. Leaving the three engine fixtures
+untouched means the crate does not compile. So this visit made the footprint
+as small as it can be and records it for the operator to rule on:
+
+- `agents.rs` (a named production file): `declared_template` now reads a
+  driver argv (`pub fn declared_template(driver: &[String])`) instead of an
+  `&Adapter`. `compose` calls it with `&adapter.driver`. The body is
+  unchanged.
+- The `declared_by` helper is deleted from `engine/tests.rs`. The fixtures
+  call `crate::agents::declared_template` directly. Against `b91ec0f7`, the
+  three files outside the inventory now differ by exactly four added lines,
+  one `template:` field in each `Composition` literal. No helper, import,
+  assertion or other line changes:
+  - `engine/tests.rs` `templated`:
+    `template: crate::agents::declared_template(&candidate.argv),`
+  - `engine/capability_tests.rs` `composed_link`:
+    `template: crate::agents::declared_template(&segments[0].argv),`
+  - `engine/boundary_tests.rs` `candidate`:
+    `template: crate::agents::declared_template(&template),`
+  - `engine/boundary_tests.rs`, the `expand_lowering` fixture:
+    `template: TemplateExpectation::None,`
+- **Open, for the operator:** admit these four compile-required field lines
+  into 5c-fix2's test inventory, or name the split that should carry them.
+  Until then 5c-fix2.1 and 5c.1 are unticked in tasks.md. The code stays as
+  it is, so the constructors keep compiling.
+
+**Mutation, re-run on the reshaped function.** M2′ is in `agents.rs`
+`declared_template`: `match driver` instead of
+`match permission_template(driver)`, so any non-empty driver records itself
+whole. It compiled and ran. The lib had 11 failures out of 553, including
+`unit5c_fix2_a_composition_carries_its_adapters_declared_template`, where
+all 6 rows failed. In "the shipped claude shape", left was
+`Declared(["{brokkr}", "driver", "claude", "--", "--permission-mode",
+"acceptEdits"])`. The bundle test
+`an_agent_backed_sites_composition_records_…` also failed. So did four
+`engine::capability_tests` and three `engine::tests` sequence tests, because
+their fixtures now record the whole driver against the emitted template.
+`capability_launch` had 7 failures out of 33, including
+`an_agent_backed_claude_seat_seals_…`. In its "as compiled" row, left was
+the whole 5c-fix contradiction `Err` with a null record, and right was
+`Ok(()) {"argv":["--permission-mode","acceptEdits"],"kind":"declared"}`.
+The mutation was then restored. M1 and M3 to M6 touch no changed line, and
+their records stand.
+
+**Gates on the restored tree.** `cargo fmt --all -- --check` passed.
+`cargo clippy --workspace --all-targets --all-features --locked -- -D
+warnings` passed. `cargo test --workspace --all-features --locked
+--no-fail-fast` passed, with 77 result lines and 0 failed: the
+brokkr-runtime lib had 553 and `capability_launch` had 33. `compile
+--bundle bundles/self` and `bundles/verify` both compiled. `openspec
+validate --all --strict` gave 18 passed. `git diff --check` was clean.
+Witness and compose pins did not move.
+
+**Pending:** operator admission (above), exact coverage green on the final
+head (the eight baseline records above are unchanged by this return), macOS
+and remote CI. Nothing is pushed.

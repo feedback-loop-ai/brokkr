@@ -38,7 +38,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
         harness,
         resume: Default::default(),
         lowering: Lowering::Composed(crate::agents::Composition {
-            template: super::tests::declared_by(&template),
+            template: crate::agents::declared_template(&template),
             segments,
             effort: Some("high".into()),
             intent: crate::agents::Intent {
