@@ -5795,3 +5795,28 @@ gates.
 **Not done in this visit, and owed by the re-run:** the independent
 mutations, the full pin measurement, fmt/clippy/bundle compiles on the
 migrated tree, exact coverage, macOS and remote CI.
+
+### Re-check after the bounded return to triage, 2026-09-25
+
+This is the same run's second implement visit, on `e0b26369` (clean). Triage
+re-framed the unit as a `chore` (`.forge/tasks/0065-unit-6-4c9e00b7.md`) and
+said plainly that the two fixture files have no admission. This commission's
+only re-run note is dated 2026-09-24, which is before the oversized report.
+The result is again **oversized**.
+
+- `git apply --check .forge/unit-6-d4429c6f-migration.patch` accepted the
+  saved patch on `e0b26369`.
+- Only the three recipe hunks were applied (`git apply --include='recipes/*'`).
+- `cargo test --locked -p brokkr-runtime --test node_recipe_gates`: 0 passed
+  and 3 failed. Each failure is the D5.3 refusal quoted above, for the
+  `steward` or `apprentice` driver.
+- `cargo test --locked -p brokkr-cli --lib --
+  run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope
+  resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three`:
+  0 passed and 2 failed, at `tests.rs:909` and `tests.rs:2656`. Both hit the
+  same refusal, for "no built-in driver".
+- The recipes were restored with `git checkout`. No production, test or pin
+  byte is committed.
+
+The admission this needs has not changed. It is the two one-line
+`remove("tools")` edits in those fixtures.

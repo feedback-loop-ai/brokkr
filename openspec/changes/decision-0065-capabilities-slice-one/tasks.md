@@ -971,7 +971,8 @@ refusal. A one-line `remove("tools")` in each fixture was the whole extra
 footprint (scratch check). The operator's admission of those two lines is
 needed. The patch is saved uncommitted at
 `.forge/unit-6-d4429c6f-migration.patch`, and no production, test or pin byte
-is committed.
+is committed. Re-checked on `e0b26369` after triage's re-framing: the same
+3 + 2 fixture failures reproduce, and no admission exists yet. Still oversized.
 
 ## 7. Unit 7 — Migrate verify and Codex restrictions
 
