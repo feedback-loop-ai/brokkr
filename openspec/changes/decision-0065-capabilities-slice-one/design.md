@@ -1262,8 +1262,17 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    Close 5c-fix2.1. The agent's composition carries the adapter's declared
    template as a typed fact (`agents.rs`), and `expected_state` fills the
    agent arm from it rather than refusing, so an agent-backed seat whose
-   adapter declares a template launches again with it recorded. Its files
-   and tests are the operator's to commission.
+   adapter declares a template launches again with it recorded. The
+   operator commissioned it (run `0065-rebuild-unit-5c-fix2-see-th-626be6dc`):
+   production `crates/brokkr-runtime/src/agents.rs` (`Composition.template`,
+   filled from the adapter's declaration independently of the emitted
+   argv), `bundle.rs` (expanded as the segment is) and `engine.rs` (the agent
+   arm of `expected_state` records it, and 5c-fix's interim agent-backed
+   refusal is removed), at most three. Tests: agents/tests.rs,
+   bundle/agent_tests.rs and crates/brokkr-runtime/tests/capability_launch.rs:
+   an agent-backed Claude seat records `acceptEdits` exactly, a provider that
+   declares no template records `none`, and a contradicting seal is refused,
+   each bound by a compiling mutation.
 6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,

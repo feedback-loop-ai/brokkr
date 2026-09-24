@@ -343,18 +343,6 @@ fn sealing_moved(
     (spawn, sealing)
 }
 
-/// Rebuild unit 5c-fix: the whole refusal of an agent-backed seat whose
-/// composition emits a permission template, until unit 5c-fix2 — from any
-/// of its template contributions (rebuild unit 5c-fix-b).
-const AGENT_TEMPLATE_REFUSED: &str =
-    "dispatch refused: the selected candidate's composition emits a permission template behind \
-     its driver verb, carries a template contribution that is not a model or effort pin free of \
-     any permission control, or does not open with its driver template, and until rebuild unit \
-     5c-fix2 an agent-backed seat records its template only as none, never as the segment it \
-     emitted (operator ruling 2 of 2026-09-23; rebuild units 5c-fix and 5c-fix-b), so no launch \
-     record can be sealed for this site; a record is sealed from typed facts and never repaired \
-     into a default one (decision 0065 slice one, design D5.7)";
-
 /// Rebuild unit 5c-fix: the whole refusal of a seal whose emitted template
 /// contradicts the expected state's.
 const TEMPLATE_CONTRADICTED: &str =
@@ -687,17 +675,17 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
         input["launch_record"]["expected"]["hands"],
         json!({"kind": "required"})
     );
-    // Rebuild unit 5c-fix: the Claude primary's composition emits the
-    // adapter's permission template behind its verb, which an agent-backed
-    // seat cannot yet record (unit 5c-fix2), so nothing is sealed for it.
-    // Its spawn's extras still carry every origin.
-    let (spawn, refused) = sealing(&boxed, "chain", 0, &boxed.sites["chain"]);
-    assert_eq!(refused, Err(AGENT_TEMPLATE_REFUSED.to_string()));
-    assert_eq!(spawn.launch_record(), Value::Null);
-    let primary = json!({"segments": spawn.extras().iter().map(|segment| json!({
-        "origin": segment.origin.word(), "argv": segment.argv})).collect::<Vec<_>>()});
+    // Rebuild unit 5c-fix2: the Claude primary's composition emits the
+    // adapter's permission template behind its verb, and its expected state
+    // records the adapter's declaration of it exactly, so it is sealed.
+    let (_, input) = sealed(&boxed, "chain", 0);
+    let primary = &input["launch_record"];
     assert_eq!(
-        origins(&primary),
+        primary["expected"]["template"],
+        json!({"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]})
+    );
+    assert_eq!(
+        origins(primary),
         [
             json!("template"),
             json!("template"),
@@ -744,8 +732,8 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
 /// limits under the `local` origin — beside the template it was composed
 /// after — with the ordered names and limits in its composition's local
 /// expectation, independently of the joined flag value. Rebuild unit
-/// 5c-fix: until unit 5c-fix2, the seat's emitted permission template
-/// refuses the seal with the whole agent-backed cause.
+/// 5c-fix2: the seat's emitted permission template is sealed as the
+/// adapter's declaration its expected state records.
 #[test]
 fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
     let operator = Operator::new();
@@ -775,12 +763,12 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
         &CapabilityContext::no_grants("private", operator.root()),
     )
     .unwrap();
-    // Rebuild unit 5c-fix: the shipped Claude adapter's composition emits
-    // its permission template, which an agent-backed seat cannot yet record
-    // from a typed fact (unit 5c-fix2), so the seal refuses whole and the
-    // spawn carries no record. The local limits it was composed with are
-    // still the composition's own, and its extras still carry every origin.
-    let (spawn, refused) = sealing(&bundle, "work", 0, &bundle.sites["work"]);
+    // Rebuild unit 5c-fix2: the shipped Claude adapter's composition emits
+    // its permission template, and the expected state records the adapter's
+    // declaration of it from the composition's typed fact, so the seat is
+    // sealed beside its local limits.
+    let (_, input) = sealed(&bundle, "work", 0);
+    let record = &input["launch_record"];
     let brokkr_runtime::agents::Lowering::Composed(composition) =
         &bundle.sites["work"].chain[0].lowering
     else {
@@ -788,23 +776,25 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
     };
     assert_eq!(
         json!({
-            "sealing": format!("{refused:?}"),
-            "record": spawn.launch_record(),
-            "extras": spawn.extras().iter().map(|segment| json!({
-                "origin": segment.origin.word(), "argv": segment.argv})).collect::<Vec<_>>(),
-            "local": format!("{:?}", composition.local()),
+            "template": record["expected"]["template"],
+            "local": record["expected"]["local"],
+            "segments": record["segments"],
+            "composed": format!("{:?}", composition.local()),
         }),
         json!({
-            "sealing": format!("{:?}", Err::<(), _>(AGENT_TEMPLATE_REFUSED.to_string())),
-            "record": null,
-            "extras": [
+            "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
+            "local": {"allow": {"kind": "listed", "names": ["pytest", "cargo"]},
+                      "sandbox": {"kind": "unspecified"},
+                      "application": {"kind": "direct",
+                                      "limits": ["Bash(.venv/bin/pytest:*)", "Bash(cargo:*)"]}},
+            "segments": [
                 {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
                 {"origin": "template", "argv": ["--model", "claude-opus-5-5"]},
                 {"origin": "template", "argv": ["--effort", "high"]},
                 {"origin": "local",
                  "argv": ["--allowedTools", "Bash(.venv/bin/pytest:*),Bash(cargo:*)"]},
             ],
-            "local": format!("{:?}", brokkr_protocol::native_controls::LocalExpectation {
+            "composed": format!("{:?}", brokkr_protocol::native_controls::LocalExpectation {
                 allow: brokkr_protocol::native_controls::AllowIntent::Listed(vec![
                     "pytest".into(), "cargo".into()]),
                 sandbox: brokkr_protocol::native_controls::SandboxIntent::Unspecified,
@@ -815,28 +805,21 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
     );
 }
 
-/// Rebuild unit 5c-fix, the agent-backed arm until unit 5c-fix2: an agent's
-/// seat records the template `none` only where its composition emits no
-/// permission template, and is otherwise refused whole with nothing
-/// sealed. Over copies of the shipped adapters, canonicalised once, the
-/// same office on the Claude adapter whose driver declares the template
-/// refuses; one whose driver ends at the terminator, or at the verb, seals
-/// `none`; and an opaque driver, which dispatches through no verb and whose
-/// argv the engine composes whole and never parses, emits no permission
-/// template behind one and seals `none`.
+/// Rebuild unit 5c-fix2 (operator ruling 2 of 2026-09-23; the ruling of
+/// 2026-09-24, item 2): an agent's seat records the permission template its
+/// adapter DECLARES, carried by its composition as a typed fact, and the
+/// seal admits the template it emits against that record. Over copies of
+/// the shipped adapters, canonicalised once, the same office on the shipped
+/// Claude and LaneTally adapters records `acceptEdits` exactly; on the
+/// shipped Codex adapter, which declares no template, `none`. A Claude
+/// driver that declares its template directly behind the verb records it
+/// too; one that ends at the terminator, or at the verb, records `none`;
+/// and an opaque driver, which dispatches through no verb and whose argv
+/// the engine composes whole and never parses, declares no template behind
+/// one and records `none`.
 #[test]
-fn an_agent_backed_seat_records_no_template_only_where_its_composition_emits_none() {
+fn an_agent_backed_seat_records_the_permission_template_its_adapter_declares() {
     let operator = Operator::new();
-    write(
-        operator.root(),
-        "agents/plain.json",
-        &json!({
-            "description": "an office that declares no local tools",
-            "charter": "charters/searcher.md",
-            "models": ["opus"],
-            "efforts": {"opus": "high"},
-        }),
-    );
     one_inline_seat(&operator, &["driver"]);
     write(
         operator.root(),
@@ -849,42 +832,86 @@ fn an_agent_backed_seat_records_no_template_only_where_its_composition_emits_non
     let context = CapabilityContext::no_grants("private", operator.root());
     let adapters = copied_adapters();
     let root = std::fs::canonicalize(adapters.path()).unwrap();
+    let sealed_with = |template: Value| format!("{:?} {template}", Ok::<(), String>(()));
+    let acceptance = json!({"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]});
+    let none = json!({"kind": "none"});
     let rows = [
         (
-            "the shipped template",
-            json!([
+            "the shipped claude template",
+            "claude",
+            "opus",
+            None,
+            sealed_with(acceptance.clone()),
+        ),
+        (
+            "the shipped lanetally template",
+            "lanetally",
+            "opus-tallied",
+            None,
+            sealed_with(acceptance.clone()),
+        ),
+        (
+            "the shipped codex adapter, no template",
+            "codex",
+            "astra",
+            None,
+            sealed_with(none.clone()),
+        ),
+        (
+            "a template directly behind the verb",
+            "claude",
+            "opus",
+            Some(json!([
                 "{brokkr}",
                 "driver",
                 "claude",
-                "--",
                 "--permission-mode",
-                "acceptEdits"
-            ]),
-            format!(
-                "{:?} null",
-                Err::<(), _>(AGENT_TEMPLATE_REFUSED.to_string())
-            ),
+                "plan"
+            ])),
+            sealed_with(json!({"kind": "declared", "argv": ["--permission-mode", "plan"]})),
         ),
         (
             "nothing behind the terminator",
-            json!(["{brokkr}", "driver", "claude", "--"]),
-            format!("{:?} {}", Ok::<(), String>(()), json!({"kind": "none"})),
+            "claude",
+            "opus",
+            Some(json!(["{brokkr}", "driver", "claude", "--"])),
+            sealed_with(none.clone()),
         ),
         (
             "nothing behind the verb",
-            json!(["{brokkr}", "driver", "claude"]),
-            format!("{:?} {}", Ok::<(), String>(()), json!({"kind": "none"})),
+            "claude",
+            "opus",
+            Some(json!(["{brokkr}", "driver", "claude"])),
+            sealed_with(none.clone()),
         ),
         (
             "an opaque driver",
-            json!(["claude-wrapper", "--permission-mode", "acceptEdits"]),
-            format!("{:?} {}", Ok::<(), String>(()), json!({"kind": "none"})),
+            "claude",
+            "opus",
+            Some(json!([
+                "claude-wrapper",
+                "--permission-mode",
+                "acceptEdits"
+            ])),
+            sealed_with(none.clone()),
         ),
     ];
     let failures: Vec<String> = rows
         .into_iter()
-        .filter_map(|(label, driver, expected)| {
-            edit_adapter(&root, "claude", |adapter| adapter["driver"] = driver);
+        .filter_map(|(label, provider, model, driver, expected)| {
+            if let Some(driver) = driver {
+                edit_adapter(&root, provider, |adapter| adapter["driver"] = driver);
+            }
+            write(
+                operator.root(),
+                "agents/plain.json",
+                &json!({
+                    "description": "an office that declares no local tools",
+                    "charter": "charters/searcher.md",
+                    "models": [model],
+                    "efforts": {model: "high"},
+                }),
+            );
             let observed = match solo_bundle(&operator, &root, &context) {
                 Ok(bundle) => {
                     let (spawn, sealing) = sealing(&bundle, "work", 0, &bundle.sites["work"]);
@@ -1286,10 +1313,13 @@ fn a_codex_adapter_whose_effort_flag_assigns_a_permission_table_refuses_the_comp
 /// fact moved per row: a permission mode ADDED behind the pins, a pin
 /// ALTERED into a permission control, or the driver made to CONTRADICT
 /// the `none` expectation — in the composed spawn after the expectation,
-/// which the seal refuses, or in the candidate's composition before it,
-/// which the interim agent arm refuses. A legitimate pin moved is not a
-/// template. Last, the OMISSION: an expectation that records a template the
-/// spawn does not emit refuses, and every refusal seals nothing.
+/// or in the candidate's composition before it — is refused at the seal,
+/// against the template the composition records from its adapter's
+/// declaration (rebuild unit 5c-fix2, which removed the interim agent-arm
+/// refusal); so is that declaration moved while the emission is not. A
+/// legitimate pin moved is not a template. Last, the OMISSION: an
+/// expectation that records a template the spawn does not emit refuses,
+/// and every refusal seals nothing.
 #[test]
 fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal() {
     use brokkr_protocol::native_controls::{flatten, Origin, Segment, TemplateExpectation};
@@ -1363,7 +1393,16 @@ fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal
         Result<(), String>,
     );
     let contradicted = || Err(TEMPLATE_CONTRADICTED.to_string());
-    let refused = || Err(AGENT_TEMPLATE_REFUSED.to_string());
+    // The site's facts with the first candidate's recorded declaration
+    // moved and its composed segments untouched.
+    let declaring = |template: TemplateExpectation| {
+        let mut facts: SiteFacts = site.clone();
+        let Lowering::Composed(composition) = &mut facts.chain[0].lowering else {
+            panic!("the plain office composes");
+        };
+        composition.template = template;
+        facts
+    };
     let rows: Vec<Row> = vec![
         ("as compiled", site.clone(), Box::new(|_| {}), Ok(())),
         (
@@ -1382,7 +1421,7 @@ fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal
             "addition: a permission mode appended to the composition",
             composed(&|segments| segments.push(Segment::new(Origin::Template, &bypass))),
             Box::new(|_| {}),
-            refused(),
+            contradicted(),
         ),
         (
             "alteration: the model pin's flag made a permission mode in the spawn",
@@ -1402,7 +1441,7 @@ fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal
                 )
             }),
             Box::new(|_| {}),
-            refused(),
+            contradicted(),
         ),
         (
             "alteration: a legitimate pin's model moved in the spawn is not a template",
@@ -1423,10 +1462,16 @@ fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal
             "contradiction: the driver emits the shipped template in the composition",
             composed(&|segments| segments[0] = driver_with(&acceptance)),
             Box::new(|_| {}),
-            refused(),
+            contradicted(),
+        ),
+        (
+            "contradiction: the composition's recorded declaration made the shipped template",
+            declaring(TemplateExpectation::Declared(acceptance.clone())),
+            Box::new(|_| {}),
+            contradicted(),
         ),
     ];
-    assert_eq!(rows.len(), 8);
+    assert_eq!(rows.len(), 9);
     let failures: Vec<String> = rows
         .into_iter()
         .filter_map(|(label, facts, moved, expected)| {
@@ -1468,6 +1513,167 @@ fn every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal
             Value::Null
         ])
     );
+}
+
+/// Rebuild unit 5c-fix2 (operator ruling 2 of 2026-09-23; the ruling of
+/// 2026-09-24, item 2): an agent-backed seat on the SHIPPED Claude adapter,
+/// whose composition emits `--permission-mode acceptEdits` behind its verb,
+/// seals with exactly that declaration recorded, and the whole final Claude
+/// command carries it. Then, one fact moved per row, the seal refuses whole
+/// and seals nothing: the template OMITTED from the spawn's driver segment
+/// or RELABELLED out of the engine's origin, ALTERED to another mode, a
+/// second mode ADDED behind the pins, or the composition's recorded
+/// declaration moved to `none` or to another mode while the emission is not.
+#[test]
+fn an_agent_backed_claude_seat_seals_its_declared_template_and_refuses_a_contradiction() {
+    use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
+    use brokkr_runtime::agents::Lowering;
+    use brokkr_runtime::bundle::SiteFacts;
+    use brokkr_runtime::engine::SiteSpawn;
+    let operator = Operator::new();
+    agent_backed_solo(&operator, "high");
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let adapters = copied_adapters();
+    let root = std::fs::canonicalize(adapters.path()).unwrap();
+    let bundle = solo_bundle(&operator, &root, &context).unwrap();
+    let site = &bundle.sites["work"];
+    let strings = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let acceptance = strings(&["--permission-mode", "acceptEdits"]);
+    let bypass = strings(&["--permission-mode", "bypassPermissions"]);
+    assert_eq!(
+        launch(&bundle, "work", 0),
+        [
+            "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "acceptEdits",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+            "--disallowedTools",
+            "WebFetch,WebSearch"
+        ]
+    );
+    // The compiled spawn's driver segment: the verb, then the template.
+    let (compiled, _) = sealing(&bundle, "work", 0, site);
+    let driver = compiled.segments[0].argv.clone();
+    let (verb, template) = driver.split_at(driver.len() - 2);
+    assert_eq!(
+        (compiled.segments[0].origin, &verb[1..], template),
+        (
+            Origin::Template,
+            &strings(&["driver", "claude", "--"])[..],
+            &acceptance[..]
+        )
+    );
+    // Replace segment `at` of the spawn, its argv with it.
+    let replaced = |at: usize, segment: Segment| {
+        move |spawn: &mut SiteSpawn| {
+            let start: usize = spawn.segments[..at]
+                .iter()
+                .map(|segment| segment.argv.len())
+                .sum();
+            let end = start + spawn.segments[at].argv.len();
+            spawn.argv.splice(start..end, segment.argv.iter().cloned());
+            spawn.segments[at] = segment;
+        }
+    };
+    // The site's facts with the candidate's recorded declaration moved.
+    let declaring = |template: TemplateExpectation| {
+        let mut facts: SiteFacts = site.clone();
+        let Lowering::Composed(composition) = &mut facts.chain[0].lowering else {
+            panic!("the plain office composes");
+        };
+        composition.template = template;
+        facts
+    };
+    let contradicted = || Err(TEMPLATE_CONTRADICTED.to_string());
+    type Row = (
+        &'static str,
+        SiteFacts,
+        Box<dyn FnOnce(&mut SiteSpawn)>,
+        Result<(), String>,
+    );
+    let rows: Vec<Row> = vec![
+        ("as compiled", site.clone(), Box::new(|_| {}), Ok(())),
+        (
+            "omission: the template dropped from the spawn's driver segment",
+            site.clone(),
+            Box::new(replaced(0, Segment::new(Origin::Template, verb))),
+            contradicted(),
+        ),
+        (
+            "omission: the driver segment relabelled out of the engine's origin",
+            site.clone(),
+            Box::new(replaced(0, Segment::new(Origin::Authored, &driver))),
+            contradicted(),
+        ),
+        (
+            "alteration: the template's mode changed in the spawn",
+            site.clone(),
+            Box::new(replaced(
+                0,
+                Segment::new(Origin::Template, &[verb, &bypass[..]].concat()),
+            )),
+            contradicted(),
+        ),
+        (
+            "addition: a second permission mode appended to the spawn",
+            site.clone(),
+            Box::new({
+                let bypass = bypass.clone();
+                move |spawn: &mut SiteSpawn| {
+                    spawn.argv.extend(bypass.iter().cloned());
+                    spawn.segments.push(Segment::new(Origin::Template, &bypass));
+                }
+            }),
+            contradicted(),
+        ),
+        (
+            "contradiction: the recorded declaration made none",
+            declaring(TemplateExpectation::None),
+            Box::new(|_| {}),
+            contradicted(),
+        ),
+        (
+            "contradiction: the recorded declaration made another mode",
+            declaring(TemplateExpectation::Declared(bypass.clone())),
+            Box::new(|_| {}),
+            contradicted(),
+        ),
+    ];
+    assert_eq!(rows.len(), 7);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, facts, moved, expected)| {
+            let (spawn, observed) = sealing_moved(&bundle, "work", 0, &facts, moved);
+            let recorded = match &expected {
+                Ok(()) => json!({"kind": "declared", "argv": acceptance}),
+                Err(_) => Value::Null,
+            };
+            let record = spawn.launch_record();
+            let observed_record = match record.is_null() {
+                true => Value::Null,
+                false => record["expected"]["template"].clone(),
+            };
+            (observed != expected || observed_record != recorded).then(|| {
+                format!(
+                    "row {label}:\n  left:  {observed:?} {observed_record}\n  right: \
+                     {expected:?} {recorded}"
+                )
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// Rebuild unit 5b (design D5.3, D5.7): an inline Claude seat that declares

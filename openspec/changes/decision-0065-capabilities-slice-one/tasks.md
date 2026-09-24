@@ -765,7 +765,7 @@ and remote CI are pending.
 
 ## 5c. Unit 5c — Emit the adapter's permission template at inline typed sites
 
-- [ ] 5c.1 Unit 5c emits the adapter's declared permission template (for claude, `--permission-mode acceptEdits`) at an inline Claude or LaneTally site whose typed declaration lowers, as the engine's own `template` segment read from the adapter data, the way agent composition emits it. The sealed record carries it, and the launch parses it back with the rest of the final command. An authored permission mode stays refused, every inline shape that does not lower keeps its refusal, and a seat whose adapter declares no template gets none. Verify the whole ordered final command for an inline claude site and a LaneTally site, the no-template seat and the authored-mode refusal, each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 ("the permission template at inline sites"), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the operator's ruling (a); run `triage-directive-operator-ruling-9d597b08`)
+- [x] 5c.1 Unit 5c emits the adapter's declared permission template (for claude, `--permission-mode acceptEdits`) at an inline Claude or LaneTally site whose typed declaration lowers, as the engine's own `template` segment read from the adapter data, the way agent composition emits it. The sealed record carries it, and the launch parses it back with the rest of the final command. An authored permission mode stays refused, every inline shape that does not lower keeps its refusal, and a seat whose adapter declares no template gets none. Verify the whole ordered final command for an inline claude site and a LaneTally site, the no-template seat and the authored-mode refusal, each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 ("the permission template at inline sites"), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (inserted before 6.1 by the operator's ruling (a); run `triage-directive-operator-ruling-9d597b08`)
 
 Observed 2026-09-24 (evidence.md, "Unit 5c"). Production: `agents.rs`
 (`driver_template`, which `compose` now calls, and `inline_template`, the
@@ -800,7 +800,9 @@ as observed above.
 
 The operator split 5c in two (run `triage-directive-operator-ruling-0bdb3908`;
 design.md "Rebuild units", 5c-fix and 5c-fix2). 5c.1 closes when both have
-landed.
+landed. Both have landed (5c-fix on 5c-fix-b's second return, and 5c-fix2 on
+2026-09-25), so the box above is ticked. External exact coverage, macOS and
+remote CI stay pending.
 
 - [x] 5c-fix.1 Unit 5c-fix records the template in the expected state, inline arm. `Expected` gains a mandatory, kind-tagged `template` (`none` | `declared {argv}`) in its closed JSON value and `decode_record`, refusing missing, null, unknown-kind, malformed and extra members with fixed, value-free paths. The compiler records the adapter's declared template as a typed `SiteFacts` fact beside, and separate from, the emitted segment. `expected_state` fills the inline arm from that fact, and a seal whose template-origin segments contradict it is refused. Until 5c-fix2, an agent-backed seat records `none` only if its composition emitted none, and is otherwise refused. The omission, alteration and contradiction cases are each bound by a compiling mutation. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2, [Refusal proofs assert the full reason][SC8]. (run `triage-directive-operator-ruling-0bdb3908`)
 
@@ -879,7 +881,31 @@ and emitted Codex declaration rows beside the legitimate model and effort
 pins; N1 to N4 each bound and were restored. 5c-fix-b.1 and 5c-fix.1 close
 on that return's evidence.
 
-- [ ] 5c-fix2.1 Unit 5c-fix2 records the template in the expected state, agent-backed arm: the composition carries the adapter's declared template as a typed fact, and `expected_state` fills the agent arm from it instead of refusing, so agent-backed Claude and LaneTally seats seal again with the template recorded and the contradiction check in force. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2. (split from 5c by the operator; run `triage-directive-operator-ruling-0bdb3908`)
+- [x] 5c-fix2.1 Unit 5c-fix2 records the template in the expected state, agent-backed arm: the composition carries the adapter's declared template as a typed fact, and `expected_state` fills the agent arm from it instead of refusing, so agent-backed Claude and LaneTally seats seal again with the template recorded and the contradiction check in force. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2. (split from 5c by the operator; run `triage-directive-operator-ruling-0bdb3908`; commissioned in run `0065-rebuild-unit-5c-fix2-see-th-626be6dc`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5c-fix2"). Production:
+- `agents.rs`: `Composition.template`, filled by `compose` from the
+  adapter's `driver` declaration (`declared_template`) and never from the
+  segments. `permission_template` moved here from `engine.rs`, unchanged.
+- `bundle.rs`: `expand_lowering` expands the declared template as it
+  expands the segment.
+- `engine.rs`: the agent arm of `expected_state` records
+  `composition.template`, and 5c-fix's interim agent-backed refusal
+  (`agent_template`) is removed. The seal's contradiction check is
+  unchanged and now judges agent-backed Claude and LaneTally seats against
+  the recorded declaration.
+
+The new tests did not compile at `b91ec0f7`, because the field was absent.
+Four launch tests that pinned the interim refusal were red once it was
+removed, and were rewritten to the recorded template. M1–M6 each bound and
+were restored. fmt, clippy, `cargo test --workspace --all-features
+--locked` (every target, brokkr-cli's `bootstrap_bench` green again), both
+bundle compiles, `openspec validate --all --strict` (18 passed) and `git
+diff --check` passed. **Exact coverage ran locally and is not green:** 5
+lines and 3 branches in `bundle.rs` are uncovered, none of them in this
+unit's diff (evidence.md records the baseline comparison). **Not fully
+green:** exact coverage, macOS and remote CI are pending. 5c.1 closes with
+this unit, and its emission and order stay as observed at 5c.
 
 ## 6. Unit 6 — Migrate Claude recipes
 

@@ -38,6 +38,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
         harness,
         resume: Default::default(),
         lowering: Lowering::Composed(crate::agents::Composition {
+            template: super::tests::declared_by(&template),
             segments,
             effort: Some("high".into()),
             intent: crate::agents::Intent {
@@ -645,6 +646,7 @@ fn the_compiles_expansion_keeps_every_segments_origin() {
             effort: Some("high".into()),
             intent: intent.clone(),
             application: Application::Dormant,
+            template: TemplateExpectation::None,
         })
     };
     let written = composed(vec![

@@ -391,6 +391,7 @@ fn composed_link(
     Candidate {
         argv: flatten(&segments),
         lowering: Lowering::Composed(crate::agents::Composition {
+            template: super::tests::declared_by(&segments[0].argv),
             segments,
             effort: None,
             intent,

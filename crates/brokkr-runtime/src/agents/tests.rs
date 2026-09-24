@@ -3778,6 +3778,97 @@ fn unit3_lowering_preserves_exact_mapped_limits_as_separate_origins() {
     each_row(rows);
 }
 
+/// Rebuild unit 5c-fix2 (operator ruling 2 of 2026-09-23; the ruling of
+/// 2026-09-24, item 2): a composition carries its adapter's declared
+/// permission template as a typed fact beside its segments — what the
+/// driver declares behind its `<engine> driver <kind>` verb, less a
+/// terminator directly behind it — while its driver segment stays the
+/// declaration whole. The shipped Claude and LaneTally shapes declare
+/// `acceptEdits`; a driver ending at the terminator or at the verb, and an
+/// opaque driver the engine never parses, declare `none`.
+#[test]
+fn unit5c_fix2_a_composition_carries_its_adapters_declared_template() {
+    let shipped = |kind: &str| {
+        json!([
+            "{brokkr}",
+            "driver",
+            kind,
+            "--",
+            "--permission-mode",
+            "acceptEdits"
+        ])
+    };
+    let acceptance = TemplateExpectation::Declared(strings(&["--permission-mode", "acceptEdits"]));
+    let rows: Vec<Row<Result<(TemplateExpectation, Segment), String>>> = [
+        (
+            "the shipped claude shape",
+            "claude",
+            shipped("claude"),
+            acceptance.clone(),
+        ),
+        (
+            "the shipped lanetally shape",
+            "lanetally",
+            shipped("lanetally"),
+            acceptance.clone(),
+        ),
+        (
+            "a template directly behind the verb",
+            "claude",
+            json!(["{brokkr}", "driver", "claude", "--permission-mode", "plan"]),
+            TemplateExpectation::Declared(strings(&["--permission-mode", "plan"])),
+        ),
+        (
+            "nothing behind the terminator",
+            "claude",
+            json!(["{brokkr}", "driver", "claude", "--"]),
+            TemplateExpectation::None,
+        ),
+        (
+            "nothing behind the verb",
+            "claude",
+            json!(["{brokkr}", "driver", "claude"]),
+            TemplateExpectation::None,
+        ),
+        (
+            "an opaque driver",
+            "claude",
+            json!(["claude-wrapper", "--permission-mode", "acceptEdits"]),
+            TemplateExpectation::None,
+        ),
+    ]
+    .into_iter()
+    .map(|(label, provider, driver, template)| {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        body.as_object_mut().unwrap().remove("tools");
+        tree.write("agents/tester.json", &body);
+        let mut adapter = claude_body();
+        adapter["provider"] = json!(provider);
+        adapter["binary"] = json!(provider);
+        adapter["driver"] = driver.clone();
+        tree.write(&format!("adapters/{provider}.json"), &adapter);
+        let observed = report(
+            &tree.library(),
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+        )
+        .map_err(|error| error.to_string())
+        .and_then(|chain| composition_of(&chain.entries[0]))
+        .map(|composition| (composition.template, composition.segments[0].clone()));
+        let declared: Vec<String> = serde_json::from_value(driver).unwrap();
+        (
+            label.to_string(),
+            observed,
+            Ok((template, Segment::new(Origin::Template, &declared))),
+        )
+    })
+    .collect();
+    assert_eq!(rows.len(), 6);
+    each_row(rows);
+}
+
 /// SCM "Unit 3 lowering retains absence empty and sandbox intent": every
 /// allow state and every sandbox class stays distinct in the retained
 /// intent. Omitted allow lowers nothing and is unrestricted; a nonempty
@@ -3842,6 +3933,7 @@ fn unit3_lowering_retains_absence_empty_and_sandbox_intent() {
                 effort: Some("high".into()),
                 intent: intent(allow, sandbox),
                 application,
+                template: TemplateExpectation::None,
             }),
             None,
         )
@@ -3959,6 +4051,7 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
                     hands: HandsIntent::Required,
                 },
                 application: Application::Dormant,
+                template: TemplateExpectation::None,
             }),
             None,
         )

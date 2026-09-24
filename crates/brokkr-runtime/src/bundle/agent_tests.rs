@@ -2215,6 +2215,96 @@ fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_
     each_row(rows);
 }
 
+/// Rebuild unit 5c-fix2 (operator ruling 2 of 2026-09-23; the ruling of
+/// 2026-09-24, item 2): an agent-backed site's compiled composition carries
+/// its adapter's declared permission template as a typed fact, expanded as
+/// its driver segment is, so the two agree on this machine: `acceptEdits`
+/// for the shipped Claude and LaneTally shapes, a bundle-relative path
+/// expanded exactly as the segment's, and `none` for a driver that declares
+/// nothing behind its verb.
+#[test]
+fn an_agent_backed_sites_composition_records_its_adapters_template_expanded_as_its_segment() {
+    use brokkr_protocol::native_controls::TemplateExpectation;
+    let fixture = AgentFixture::new();
+    let owned = |argv: &[&str]| argv.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+    // The declared template beside the driver segment behind the engine's
+    // own path, for the compiled `work` site's first candidate.
+    let recorded = |provider: &str, driver: Value| {
+        let mut adapter = claude();
+        adapter["provider"] = json!(provider);
+        adapter["driver"] = driver;
+        fixture.write(&format!("adapters/{provider}.json"), adapter);
+        match fixture.compile(fixture.config()) {
+            Ok(bundle) => match &bundle.sites["work"].chain[0].lowering {
+                crate::agents::Lowering::Composed(composition) => format!(
+                    "{:?} {:?}",
+                    composition.template,
+                    composition.segments[0].argv[1..].to_vec()
+                ),
+                other => format!("{other:?}"),
+            },
+            Err(error) => error.to_string(),
+        }
+    };
+    let expected = |template: TemplateExpectation, driver: &[&str]| {
+        format!("{template:?} {:?}", owned(driver))
+    };
+    let accept = ["--permission-mode", "acceptEdits"];
+    let relative = fixture.bundle().join("modes/accept");
+    let relative = ["--permission-mode", relative.to_str().unwrap()];
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for provider in ["claude", "lanetally"] {
+        if provider == "lanetally" {
+            // Only one adapter serves the office's model at a time.
+            std::fs::remove_file(fixture.adapters().join("claude.json")).unwrap();
+        }
+        rows.push((
+            format!("the shipped {provider} shape"),
+            recorded(
+                provider,
+                json!([
+                    "{brokkr}",
+                    "driver",
+                    provider,
+                    "--",
+                    "--permission-mode",
+                    "acceptEdits"
+                ]),
+            ),
+            expected(
+                TemplateExpectation::Declared(owned(&accept)),
+                &["driver", provider, "--", accept[0], accept[1]],
+            ),
+        ));
+    }
+    std::fs::remove_file(fixture.adapters().join("lanetally.json")).unwrap();
+    rows.push((
+        "a template naming a bundle-relative path".to_string(),
+        recorded(
+            "claude",
+            json!([
+                "{brokkr}",
+                "driver",
+                "claude",
+                "--",
+                "--permission-mode",
+                "./modes/accept"
+            ]),
+        ),
+        expected(
+            TemplateExpectation::Declared(owned(&relative)),
+            &["driver", "claude", "--", relative[0], relative[1]],
+        ),
+    ));
+    rows.push((
+        "nothing behind the terminator".to_string(),
+        recorded("claude", json!(["{brokkr}", "driver", "claude", "--"])),
+        expected(TemplateExpectation::None, &["driver", "claude", "--"]),
+    ));
+    assert_eq!(rows.len(), 4);
+    each_row(rows);
+}
+
 /// A typed declaration opens the adapters through the existing fallible
 /// context (design D5.2): a bundle that declares one and has no adapter
 /// data refuses with the loader's own words, while the same bundle without

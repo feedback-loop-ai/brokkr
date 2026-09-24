@@ -4487,7 +4487,7 @@ impl SiteSpawn {
             .position(|segment| segment.origin != Origin::Hands);
         match verb.map(|at| (&self.segments[at], &self.segments[at + 1..])) {
             Some((driver, later)) if driver.origin == Origin::Template => {
-                permission_template(&driver.argv)
+                crate::agents::permission_template(&driver.argv)
                     .iter()
                     .chain(
                         later
@@ -4572,10 +4572,13 @@ pub fn expected_state(
     };
     let (local, hands, template) = match link {
         Some(link) => match &link.lowering {
+            // Rebuild unit 5c-fix2: the adapter's declared template, the
+            // composition's typed fact, and never the segment it emitted,
+            // which the seal checks against it.
             Lowering::Composed(composition) => (
                 composition.local(),
                 composition.intent.hands,
-                agent_template(composition).map_err(|problem| refused(&problem))?,
+                composition.template.clone(),
             ),
             Lowering::Unavailable | Lowering::Refused(_) => {
                 return Err(refused("the selected candidate carries no composition"))
@@ -4642,58 +4645,6 @@ fn inline_template(
             "the inline site's lowered allow carries no recorded declaration of \
              its adapter's permission template",
         ),
-    }
-}
-
-/// The template an agent's composition is expected to emit, until rebuild
-/// unit 5c-fix2 carries the adapter's declaration as a typed fact of the
-/// composition (operator ruling 2 of 2026-09-23; unit 5c-fix). Nothing is
-/// recorded untruthfully meanwhile: a composition that opens with its
-/// driver template and emits no permission template from it is expected
-/// as `none`; one that emits a permission template, or does not open with
-/// its driver template, is refused, because the only expectation this arm
-/// could write would be read back from the segment it is meant to check.
-/// Every template contribution is judged, not only the first (rebuild unit
-/// 5c-fix-b, chief R1): each later `template` segment must be a model or
-/// effort pin free of any permission control ([`pin_fault`]).
-fn agent_template(composition: &crate::agents::Composition) -> Result<TemplateExpectation, String> {
-    match composition.segments.split_first() {
-        Some((driver, later))
-            if driver.origin == Origin::Template
-                && permission_template(&driver.argv).is_empty()
-                && later
-                    .iter()
-                    .filter(|segment| segment.origin == Origin::Template)
-                    .all(|pin| pin_fault(&driver.argv, &pin.argv).is_none()) =>
-        {
-            Ok(TemplateExpectation::None)
-        }
-        _ => Err(
-            "the selected candidate's composition emits a permission template behind its driver \
-             verb, carries a template contribution that is not a model or effort pin free of any \
-             permission control, or does not open with its driver template, and until rebuild \
-             unit 5c-fix2 an agent-backed seat records its template only as none, never as the \
-             segment it emitted (operator ruling 2 of 2026-09-23; rebuild units 5c-fix and \
-             5c-fix-b)"
-                .to_string(),
-        ),
-    }
-}
-
-/// The permission template a driver template emits (rebuild unit 5c): what
-/// it hands its harness behind the `<engine> driver <kind>` dispatch verb,
-/// less an escape `--` directly behind it. A driver that does not dispatch
-/// through that verb is opaque: the engine composes it whole as the
-/// adapter's own program, places nothing behind a verb and has no grammar
-/// for it, so it emits no permission template — the same reading that
-/// refuses to place an opaque driver's tail behind an inline command.
-fn permission_template(argv: &[String]) -> &[String] {
-    match argv {
-        [_, marker, _, rest @ ..] if marker == "driver" => match rest {
-            [escape, tail @ ..] if escape == "--" => tail,
-            _ => rest,
-        },
-        _ => &[],
     }
 }
 

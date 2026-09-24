@@ -5417,3 +5417,153 @@ ran on the restored tree.
 - **Pending:** external exact coverage, macOS and remote CI on the committed
   head, as before; brokkr-cli's `bootstrap_bench` stays red until 5c-fix2.
   Nothing is pushed.
+
+## Unit 5c-fix2 — the template in the expected state, agent-backed arm, 2026-09-25
+
+Run `0065-rebuild-unit-5c-fix2-see-th-626be6dc`, on `b91ec0f7`. Operator
+ruling 2 settles the arm that 5c-fix left open. Wherever the engine emits a
+permission template, including the agent-backed arm, the expected state
+records it, and a seal whose template-origin segments contradict it is
+refused. Production is three files, all in `crates/brokkr-runtime/src`:
+
+- `agents.rs`: `Composition` gains `template: TemplateExpectation`. `compose`
+  fills it from the adapter's `driver` declaration (`declared_template`,
+  which reads what the declaration puts behind the `<engine> driver <kind>`
+  verb, less a terminator directly behind it). It is never read back from
+  the composed segments. `permission_template`, the reading the seal
+  applies to the emitted driver segment, moved here from `engine.rs`
+  byte-for-byte, so both sides use one reading on independent inputs.
+- `bundle.rs`: `expand_lowering` expands the declared template with
+  `expand_command`, as it expands the segments, so a bundle-relative or
+  `{brokkr}` token agrees with its emission on this machine.
+- `engine.rs`: the agent arm of `expected_state` records
+  `composition.template`. 5c-fix's interim `agent_template` refusal ("until
+  rebuild unit 5c-fix2 an agent-backed seat records its template only as
+  none …") is deleted. The seal (`emitted_template` against the record,
+  5c-fix and 5c-fix-b) is unchanged. It now refuses an agent-backed
+  contradiction that the interim arm used to refuse before sealing.
+
+The `Composition` constructors in the engine test fixtures gained the
+field: `engine/tests.rs` (`templated`, and the new `declared_by` helper,
+which reads the fixture's own driver declaration), `engine/capability_tests.rs`
+(`composed_link`) and `engine/boundary_tests.rs` (`candidate`, and the
+`expand_lowering` fixture, `none`). Those are the unit 4 and 5c-fix-b
+constructor inventories, with one field each. No test there changed its
+assertions.
+
+### Tests
+
+- `agents/tests.rs`, new
+  `unit5c_fix2_a_composition_carries_its_adapters_declared_template`, 6 rows,
+  asserting `(composition.template, segments[0])` exactly. The shipped
+  Claude and LaneTally shapes give `Declared(["--permission-mode",
+  "acceptEdits"])`. A template directly behind the verb gives
+  `Declared(["--permission-mode", "plan"])`. Nothing behind the terminator,
+  nothing behind the verb, and an opaque `claude-wrapper` driver each give
+  `None`. In every row the driver segment stays the declaration whole.
+- `bundle/agent_tests.rs`, new
+  `an_agent_backed_sites_composition_records_its_adapters_template_expanded_as_its_segment`,
+  4 rows over a compiled `work` site. The shipped Claude and LaneTally
+  shapes record `acceptEdits`. `./modes/accept` records
+  `<bundle>/modes/accept`, exactly as its segment is expanded. A driver
+  ending at the terminator records `None`.
+- `capability_launch.rs`:
+  - New
+    `an_agent_backed_claude_seat_seals_its_declared_template_and_refuses_a_contradiction`,
+    on a canonicalised copy of the shipped adapters. The whole final Claude
+    command is `["claude","-p","--output-format","stream-json","--verbose","--permission-mode","acceptEdits","--model","claude-opus-5-5","--effort","high","--disallowedTools","WebFetch,WebSearch"]`.
+    The spawn's driver segment is `template`, with the verb and then the
+    template. There are 7 rows. "as compiled" gives `Ok(())` with the
+    record's template `{"kind":"declared","argv":["--permission-mode","acceptEdits"]}`.
+    Six rows are refused with the whole 5c-fix contradiction reason and a
+    null record: omission (the template dropped from the driver segment),
+    relabelling (the driver segment made `authored`), alteration
+    (`bypassPermissions`), addition (a second mode appended), and the
+    recorded declaration moved to `none` or to `bypassPermissions` while the
+    emission is not.
+  - `an_agent_backed_seat_records_no_template_only_where_its_composition_emits_none`
+    is replaced by
+    `an_agent_backed_seat_records_the_permission_template_its_adapter_declares`,
+    7 rows on the shipped adapters. Claude and LaneTally (`opus-tallied`)
+    record `acceptEdits`. Codex, which declares no template, records `none`.
+    A template directly behind the verb records `plan`. The terminator, the
+    verb and the opaque driver each record `none`. Every row seals `Ok(())`.
+  - `every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal`:
+    the three composition-side rows (addition, alteration and contradiction)
+    were refused by the interim arm and are now refused by the seal with the
+    whole contradiction reason. One new row moves the composition's recorded
+    declaration to `acceptEdits` beside an emission of none, and is refused
+    the same way. That makes 9 rows, up from 8.
+  - `a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_authored`:
+    the boxed chain's Claude primary is now sealed. Its record's template is
+    `acceptEdits`, and its origins and segment heads are unchanged.
+  - `a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits`:
+    now sealed. The record carries the `acceptEdits` template, the listed
+    names, the direct limits and the four segments.
+  - The `AGENT_TEMPLATE_REFUSED` constant is deleted, because no path
+    produces that reason any more.
+
+### Baseline
+
+At `b91ec0f7` the two new unit tests and the new launch test did not
+compile: `Composition` has no `template` field. With the production change
+applied, and before the launch tests were rewritten, exactly the four launch
+tests that pinned the interim refusal were red:
+`a_compiled_links_origins…`, `a_compiled_direct_allow_list…`,
+`an_agent_backed_seat_records_no_template_only…` and
+`every_template_contribution…`. Each was left with a sealed `Ok(())`, or
+with the contradiction reason, where it expected the interim reason. Every
+other test in the brokkr-runtime lib (551) and in `capability_launch` (28)
+passed.
+
+### Mutations (each alone, compiling, run, restored)
+
+| # | Mutation | Failing tests: rows (assertion) |
+| --- | --- | --- |
+| M1 | `agents.rs` `compose`: `template: TemplateExpectation::None` | agents `unit5c_fix2_…` (rows: the shipped claude shape, the shipped lanetally shape, a template directly behind the verb; left `None`); bundle `an_agent_backed_sites_composition_…` (the shipped claude and lanetally shapes and the bundle-relative path; left `None`); launch `a_compiled_direct_allow_list…` and `a_compiled_links_origins…` (`sealed`: left the contradiction `Err`), `an_agent_backed_seat_records_the_permission_template…` (the shipped claude and lanetally templates and the template behind the verb: left `Err … null`), `an_agent_backed_claude_seat_seals…` ("as compiled": left `Err … null`; "omission: the template dropped": left `Ok(()) {"kind":"none"}`) |
+| M2 | `agents.rs` `declared_template`: the whole `adapter.driver` recorded as the template | the same six tests and rows as M1, the recorded value now the whole driver |
+| M3 | `agents.rs` `permission_template`: the opaque arm returns the whole argv (`_ => argv`) | agents `unit5c_fix2_…` (exactly "an opaque driver": left `Declared(["claude-wrapper", …])`); launch `an_agent_backed_seat_records_the_permission_template…` (exactly "an opaque driver": left `Ok(()) {"argv":["claude-wrapper",…],"kind":"declared"}`); and the existing `engine::capability_tests::every_nested_dispatch_hands_its_driver_the_selected_links_own_controls` |
+| M4 | `engine.rs` `expected_state`: the agent arm records `TemplateExpectation::None` | launch `an_agent_backed_claude_seat_seals…` ("as compiled"), `a_compiled_direct_allow_list…`, `a_compiled_links_origins…`, `an_agent_backed_seat_records_the_permission_template…` (the shipped claude and lanetally templates, the template behind the verb) and `every_template_contribution…` (exactly the new "the composition's recorded declaration made the shipped template" row); the agents and bundle tests passed, since they read the composition itself |
+| M5 | `bundle.rs` `expand_lowering`: the declared template not expanded (`Declared(argv.clone())`) | bundle `an_agent_backed_sites_composition_…` (exactly "a template naming a bundle-relative path": left `Declared(["--permission-mode", "./modes/accept"])` beside the expanded segment); every launch test passed, because `acceptEdits` carries no expandable token |
+| M6 | `engine.rs` `seal`: the contradiction check disabled (`if false && …`) | launch `an_agent_backed_claude_seat_seals…` (all six refusal rows: left `Ok(())` with a record), `every_template_contribution…` (every refusal row, the new one included) and 5c-fix's `an_inline_seal_whose_emitted_template_contradicts_the_declared_one_refuses` (every refusal row) |
+
+After M1 to M6, each tree was restored by the inverse edit. The gates below
+ran on the restored tree.
+
+### Gates (on the restored tree)
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: passed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: every
+  target passed with 0 failed. The brokkr-runtime lib has 553 tests and
+  `capability_launch` has 33. brokkr-cli's `bootstrap_bench`, red since
+  5c-fix from the interim agent-arm refusal, passes again.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+- Witness and compose pins did not move. `Composition` is not part of any
+  manifest or digest, and `witness_digests` passed.
+- **Exact coverage, run locally, not green.** `bash scripts/coverage-exact.sh`
+  ran on this host outside any box, using the pinned `nightly-2026-09-05`,
+  and refused: lines 37225/37230, branches 5967/5970, functions 3683/3683.
+  All eight gaps are in `bundle.rs`, and none is in this unit's diff (its
+  only `bundle.rs` hunk is in `expand_lowering`, near line 5275):
+  - uncovered lines 1856 (`relocate_verify_facts`), 2538, 2540 and 2543
+    (`refuse_permission_pins`: a candidate with no adapter, a lowering that
+    is not composed, and an empty composition), and 2677 (the non-object arm
+    of `decode_site_tools`);
+  - uncovered branches 2523, 2539 and 2542 (the same three arms of
+    `refuse_permission_pins`).
+
+  Baseline: `cargo +nightly-2026-09-05 llvm-cov --branch --ignore-run-fail`
+  on a scratch worktree at `b91ec0f7`, with its own target directory,
+  reports the same eight records on the same lines. It also reports two more
+  uncovered branches in `engine.rs`, at 4662 and 4693, in the interim
+  `agent_template` and the old `permission_template`, which this unit
+  removed or moved. `--ignore-run-fail` was needed because the baseline's
+  `bootstrap_bench` is red. This unit adds no gap and closes two. The
+  remaining eight belong to 5c-fix-b and earlier units, outside this unit's
+  work, so they are recorded and not repaired here.
+- **Pending:** exact coverage green on the final head, macOS and remote CI.
+  Nothing is pushed.

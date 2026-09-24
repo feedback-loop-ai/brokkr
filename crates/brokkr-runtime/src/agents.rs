@@ -40,7 +40,7 @@ use std::path::PathBuf;
 use brokkr_core::canonical::sha256_hex;
 use brokkr_protocol::native_controls::{
     flatten, AllowIntent, Application, HandsIntent, LocalExpectation, Origin, SandboxIntent,
-    Segment,
+    Segment, TemplateExpectation,
 };
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -896,6 +896,12 @@ pub struct Composition {
     /// How the local declaration applies: its exact ordered limits where
     /// lowered directly, dormant beside hands, or unrestricted.
     pub application: Application,
+    /// The adapter's declared permission template (rebuild unit 5c-fix2;
+    /// operator ruling 2 of 2026-09-23): a typed fact read from the
+    /// adapter's declaration when the composition is made, carried beside
+    /// the segments and never read back from them, so the seal has an
+    /// expectation an emitted template can contradict.
+    pub template: TemplateExpectation,
 }
 
 impl Composition {
@@ -1127,6 +1133,7 @@ fn compose(
         effort,
         intent,
         application,
+        template: declared_template(adapter),
     })
 }
 
@@ -1136,6 +1143,34 @@ fn compose(
 /// — is the adapter's permission template.
 fn driver_template(adapter: &Adapter) -> Segment {
     Segment::new(Origin::Template, &adapter.driver)
+}
+
+/// The permission template the adapter declares for the seats it composes
+/// (rebuild unit 5c-fix2): what its driver hands the harness behind the
+/// dispatch verb, read from the declaration and never from a composed
+/// segment, or `none` where it declares nothing there.
+fn declared_template(adapter: &Adapter) -> TemplateExpectation {
+    match permission_template(&adapter.driver) {
+        [] => TemplateExpectation::None,
+        declared => TemplateExpectation::Declared(declared.to_vec()),
+    }
+}
+
+/// The permission template a driver emits (rebuild unit 5c): what it hands
+/// its harness behind the `<engine> driver <kind>` dispatch verb, less an
+/// escape `--` directly behind it. A driver that does not dispatch through
+/// that verb is opaque: the engine composes it whole as the adapter's own
+/// program, places nothing behind a verb and has no grammar for it, so it
+/// emits no permission template — the same reading that refuses to place
+/// an opaque driver's tail behind an inline command.
+pub fn permission_template(argv: &[String]) -> &[String] {
+    match argv {
+        [_, marker, _, rest @ ..] if marker == "driver" => match rest {
+            [escape, tail @ ..] if escape == "--" => tail,
+            _ => rest,
+        },
+        _ => &[],
+    }
 }
 
 /// Rebuild unit 5c (operator ruling of 2026-09-24, "the permission

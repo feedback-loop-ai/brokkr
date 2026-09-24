@@ -5272,6 +5272,14 @@ pub(crate) fn expand_lowering(dir: &Path, lowering: &Lowering) -> Lowering {
                     argv: expand_command(dir, &segment.argv),
                 })
                 .collect(),
+            // Rebuild unit 5c-fix2: the declared template is expanded as
+            // its segment is, so the seal compares like with like.
+            template: match &composition.template {
+                TemplateExpectation::None => TemplateExpectation::None,
+                TemplateExpectation::Declared(argv) => {
+                    TemplateExpectation::Declared(expand_command(dir, argv))
+                }
+            },
             ..composition.clone()
         }),
         other => other.clone(),
