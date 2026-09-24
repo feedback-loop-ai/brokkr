@@ -1122,6 +1122,71 @@ pub fn harness_arguments(argv: &[String]) -> &[String] {
     }
 }
 
+/// The permission controls of the harnesses brokkr drives, by canonical
+/// spelling, beside the short options that attach their value (rebuild
+/// unit 5c-fix-b, chief R1): Claude's and LaneTally's permission mode and
+/// its two bypass switches, and Codex's approval policy, sandbox class and
+/// the two switches that replace them.
+const PERMISSION_CONTROLS: [(&str, Option<&str>); 7] = [
+    ("--permission-mode", None),
+    ("--dangerously-skip-permissions", None),
+    ("--allow-dangerously-skip-permissions", None),
+    ("--ask-for-approval", Some("-a")),
+    ("--sandbox", Some("-s")),
+    ("--full-auto", None),
+    ("--dangerously-bypass-approvals-and-sandbox", None),
+];
+
+/// The permission control `token` spells, by its canonical name, or `None`
+/// (rebuild unit 5c-fix-b). The name is read before any `=`, and a short
+/// option is matched with its value attached, so every spelling of one
+/// control is the same control. Only the canonical name is returned, so a
+/// refusal built on it never echoes the token.
+pub fn permission_control(token: &str) -> Option<&'static str> {
+    let name = token.split_once('=').map_or(token, |(name, _)| name);
+    PERMISSION_CONTROLS
+        .iter()
+        .find(|(canonical, short)| {
+            name == *canonical || short.is_some_and(|short| token.starts_with(short))
+        })
+        .map(|(canonical, _)| *canonical)
+}
+
+/// Why a `template`-origin contribution behind a driver template is not a
+/// model or effort pin, or `None` where it is one (rebuild unit 5c-fix-b,
+/// chief R1). An agent's composition opens with its adapter's driver
+/// template, and every later `template` contribution must be exactly one
+/// option and its value: neither token may spell a permission control, the
+/// value may not read as an option, and where the driver dispatches a
+/// harness brokkr models, the pair must parse under that harness's grammar
+/// as its model or effort option and nothing else. A model or effort value
+/// never smuggles a permission mode past the template's expectation. The
+/// cause is fixed text and never echoes a token.
+pub fn pin_fault(driver: &[String], pin: &[String]) -> Option<&'static str> {
+    /// The two options a pin may be, under a modelled harness's grammar.
+    const PIN_OPTIONS: [&str; 2] = ["--model", "--effort"];
+    let [flag, value] = pin else {
+        return Some("is not one option and its value");
+    };
+    if permission_control(flag).is_some() || permission_control(value).is_some() {
+        return Some("spells a permission control");
+    }
+    if value.starts_with('-') {
+        return Some("carries a value that reads as an option");
+    }
+    let harness = match driver {
+        [_, marker, kind, ..] if marker == "driver" => grammar::grammar(kind),
+        _ => None,
+    };
+    match harness.map(|grammar| grammar.parse(pin)) {
+        None => None,
+        Some(Ok(command)) if matches!(command.nodes.as_slice(), [node] if PIN_OPTIONS.contains(&node.name())) => {
+            None
+        }
+        Some(_) => Some("is not its harness's model or effort option"),
+    }
+}
+
 /// Parse one origin of a harness's argv, or refuse it. `Ok(None)` is a
 /// harness brokkr has no grammar for — `exec` and an opaque custom driver
 /// — whose final command the engine never composes and never claims to

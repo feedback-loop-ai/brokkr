@@ -825,6 +825,29 @@ other target passed. It stays red until 5c-fix2 or an operator ruling.
 **Not fully green:** external exact coverage, macOS and remote CI are
 pending.
 
+Held 2026-09-24 by its council (SECURITY-HOLD, chief R1 high, R2 medium). The
+seal and the agent arm judged only the first driver-template segment, so a
+permission control carried by a later template contribution escaped both. The
+operator commissioned the repair as 5c-fix-b. 5c-fix.1 closes on 5c-fix-b's
+evidence, not on the evidence above alone.
+
+- [x] 5c-fix-b.1 Unit 5c-fix-b judges every template contribution before expectation and sealing. Every `template`-origin segment behind an agent's driver template must be a model or effort pin free of any permission control (`native_controls::pin_fault`). The seal counts every other one as emitted, and the interim agent arm refuses it. An adapter whose `model_flag` or `effort_flag` spells a permission control is refused at compile with a bounded, value-free reason, and legitimate `--model`/`--effort` pins are preserved. The agent-backed omission, addition, alteration and contradiction proofs are each bound by a compiling mutation. The authorized test inventory is native_controls/tests.rs, bundle/agent_tests.rs, capability_launch.rs, the `Expected` constructors in agents/tests.rs and engine/capability_tests.rs, and 5c-fix's migrations there are admitted (R2). Requirements: operator ruling of 2026-09-24 (item 2), operator rulings 1 and 2, [Refusal proofs assert the full reason][SC8]. (run `triage-directive-operator-ruling-ce9cceae`)
+
+Observed 2026-09-24 (evidence.md, "Unit 5c-fix-b"). Production:
+- `native_controls.rs`: `permission_control` and `pin_fault`.
+- `engine.rs`: `emitted_template` counts every later non-pin `template`
+  segment, and `agent_template` requires every later one to be a pin.
+- `bundle.rs`: `refuse_permission_pins`, covering the adapter declaration and
+  the composition's pins.
+
+The baseline reproduced all three of the chief's scenarios. The protocol
+tables did not compile at `cc8cbd52`. P1–P6, E1–E3 and B1–B3 each bound and
+were restored. fmt, clippy, the brokkr-protocol and brokkr-runtime suites,
+both bundle compiles, `openspec validate --all --strict` (18 passed) and `git
+diff --check` passed. **Red, unchanged:** brokkr-cli's `bootstrap_bench`,
+from the interim agent-arm refusal, until 5c-fix2. **Not fully green:**
+external exact coverage, macOS and remote CI are pending.
+
 - [ ] 5c-fix2.1 Unit 5c-fix2 records the template in the expected state, agent-backed arm: the composition carries the adapter's declared template as a typed fact, and `expected_state` fills the agent arm from it instead of refusing, so agent-backed Claude and LaneTally seats seal again with the template recorded and the contradiction check in force. Requirements: operator ruling of 2026-09-24 (item 2), operator ruling 2. (split from 5c by the operator; run `triage-directive-operator-ruling-0bdb3908`)
 
 ## 6. Unit 6 — Migrate Claude recipes

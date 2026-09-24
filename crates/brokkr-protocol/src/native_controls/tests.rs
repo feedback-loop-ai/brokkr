@@ -2468,3 +2468,138 @@ fn a_native_contribution_materializes_once_through_the_launch_lowering() {
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Rebuild unit 5c-fix-b (chief R1): every spelling of a permission control
+/// is found by its canonical name — split, `=`-joined and, for Codex's
+/// short options, attached — and a model or effort option is none.
+#[test]
+fn every_spelling_of_a_permission_control_is_named_canonically() {
+    let rows: [(&str, Option<&str>); 17] = [
+        ("--permission-mode", Some("--permission-mode")),
+        (
+            "--permission-mode=bypassPermissions",
+            Some("--permission-mode"),
+        ),
+        (
+            "--dangerously-skip-permissions",
+            Some("--dangerously-skip-permissions"),
+        ),
+        (
+            "--allow-dangerously-skip-permissions",
+            Some("--allow-dangerously-skip-permissions"),
+        ),
+        ("--ask-for-approval", Some("--ask-for-approval")),
+        ("--ask-for-approval=never", Some("--ask-for-approval")),
+        ("-a", Some("--ask-for-approval")),
+        ("-anever", Some("--ask-for-approval")),
+        ("--sandbox", Some("--sandbox")),
+        ("-sdanger-full-access", Some("--sandbox")),
+        ("--full-auto", Some("--full-auto")),
+        (
+            "--dangerously-bypass-approvals-and-sandbox",
+            Some("--dangerously-bypass-approvals-and-sandbox"),
+        ),
+        ("--model", None),
+        ("-m", None),
+        ("--effort", None),
+        ("bypassPermissions", None),
+        ("--permission-modes", None),
+    ];
+    let failures: Vec<String> = rows
+        .iter()
+        .filter_map(|(token, expected)| {
+            let observed = permission_control(token);
+            (observed != *expected)
+                .then(|| format!("row {token}:\n  left:  {observed:?}\n  right: {expected:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 5c-fix-b (chief R1): a template contribution behind a
+/// driver template is a pin only when it is one option and its value, no
+/// token of it spells a permission control, its value does not read as an
+/// option and, behind a modelled harness, it parses as that harness's
+/// model or effort option. A legitimate `--model`/`--effort` pin — and an
+/// opaque driver's own model flag — stays a pin.
+#[test]
+fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
+    let claude = argv(&["{brokkr}", "driver", "claude", "--"]);
+    let codex = argv(&["{brokkr}", "driver", "codex", "--"]);
+    let opaque = argv(&["invented-cli", "run"]);
+    const SHAPE: &str = "is not one option and its value";
+    const CONTROL: &str = "spells a permission control";
+    const OPTION: &str = "carries a value that reads as an option";
+    const NOT_PIN: &str = "is not its harness's model or effort option";
+    type Row<'a> = (&'a str, &'a [String], &'a [&'a str], Option<&'a str>);
+    let rows: [Row; 14] = [
+        (
+            "claude model",
+            &claude,
+            &["--model", "claude-opus-5-5"],
+            None,
+        ),
+        ("claude effort", &claude, &["--effort", "high"], None),
+        ("codex model alias", &codex, &["-m", "gpt-6-astra"], None),
+        ("opaque model flag", &opaque, &["-m", "some-model"], None),
+        (
+            "permission mode as the flag",
+            &claude,
+            &["--permission-mode", "bypassPermissions"],
+            Some(CONTROL),
+        ),
+        (
+            "permission mode joined into the value",
+            &claude,
+            &["--model", "--permission-mode=plan"],
+            Some(CONTROL),
+        ),
+        (
+            "an attached approval as the flag",
+            &codex,
+            &["-anever", "x"],
+            Some(CONTROL),
+        ),
+        (
+            "a bypass switch behind an opaque driver",
+            &opaque,
+            &["--dangerously-skip-permissions", "x"],
+            Some(CONTROL),
+        ),
+        (
+            "a value that reads as an option",
+            &opaque,
+            &["-m", "--yolo"],
+            Some(OPTION),
+        ),
+        (
+            "a loading option behind claude",
+            &claude,
+            &["--settings", "x.json"],
+            Some(NOT_PIN),
+        ),
+        (
+            "a configuration assignment behind codex",
+            &codex,
+            &["-c", "approval_policy=never"],
+            Some(NOT_PIN),
+        ),
+        (
+            "an option claude does not model",
+            &claude,
+            &["-m", "opus"],
+            Some(NOT_PIN),
+        ),
+        ("three tokens", &claude, &["--model", "a", "b"], Some(SHAPE)),
+        ("one token", &claude, &["--model"], Some(SHAPE)),
+    ];
+    let failures: Vec<String> = rows
+        .iter()
+        .filter_map(|(label, driver, pin, expected)| {
+            let observed = pin_fault(driver, &argv(pin));
+            (observed != *expected)
+                .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

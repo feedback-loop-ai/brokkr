@@ -18,7 +18,7 @@ use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
-    flatten, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
+    flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
     LocalExpectation, Origin, SandboxIntent, Segment, TemplateExpectation,
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
@@ -4473,19 +4473,33 @@ impl SiteSpawn {
     /// The permission template this spawn emits behind its driver verb, by
     /// carried origin and never by its bytes. Where an agent's driver
     /// template supplies the verb — the first segment behind the engine's
-    /// boundary prefix — it is that segment's tail behind the verb; the
-    /// model and effort pins that follow are template-origin too, but are
-    /// not the permission template. Where the author supplies the verb — an
-    /// inline site — every `template` segment of the extras is the engine's
-    /// permission template, in order.
+    /// boundary prefix — it is that segment's tail behind the verb, followed
+    /// by every later `template` segment that is not a model or effort pin
+    /// ([`pin_fault`]; rebuild unit 5c-fix-b): a pin is template-origin but
+    /// is not the permission template, and anything else of that origin is
+    /// emitted as one. Where the author supplies the verb — an inline site —
+    /// every `template` segment of the extras is the engine's permission
+    /// template, in order.
     fn emitted_template(&self) -> Vec<String> {
         let verb = self
             .segments
             .iter()
-            .find(|segment| segment.origin != Origin::Hands);
-        match verb {
-            Some(driver) if driver.origin == Origin::Template => {
-                permission_template(&driver.argv).to_vec()
+            .position(|segment| segment.origin != Origin::Hands);
+        match verb.map(|at| (&self.segments[at], &self.segments[at + 1..])) {
+            Some((driver, later)) if driver.origin == Origin::Template => {
+                permission_template(&driver.argv)
+                    .iter()
+                    .chain(
+                        later
+                            .iter()
+                            .filter(|segment| {
+                                segment.origin == Origin::Template
+                                    && pin_fault(&driver.argv, &segment.argv).is_some()
+                            })
+                            .flat_map(|segment| segment.argv.iter()),
+                    )
+                    .cloned()
+                    .collect()
             }
             _ => flatten(
                 &self
@@ -4639,19 +4653,28 @@ fn inline_template(
 /// as `none`; one that emits a permission template, or does not open with
 /// its driver template, is refused, because the only expectation this arm
 /// could write would be read back from the segment it is meant to check.
+/// Every template contribution is judged, not only the first (rebuild unit
+/// 5c-fix-b, chief R1): each later `template` segment must be a model or
+/// effort pin free of any permission control ([`pin_fault`]).
 fn agent_template(composition: &crate::agents::Composition) -> Result<TemplateExpectation, String> {
-    match composition.segments.first() {
-        Some(driver)
+    match composition.segments.split_first() {
+        Some((driver, later))
             if driver.origin == Origin::Template
-                && permission_template(&driver.argv).is_empty() =>
+                && permission_template(&driver.argv).is_empty()
+                && later
+                    .iter()
+                    .filter(|segment| segment.origin == Origin::Template)
+                    .all(|pin| pin_fault(&driver.argv, &pin.argv).is_none()) =>
         {
             Ok(TemplateExpectation::None)
         }
         _ => Err(
             "the selected candidate's composition emits a permission template behind its driver \
-             verb, or does not open with its driver template, and until rebuild unit 5c-fix2 an \
-             agent-backed seat records its template only as none, never as the segment it \
-             emitted (operator ruling 2 of 2026-09-23; rebuild unit 5c-fix)"
+             verb, carries a template contribution that is not a model or effort pin free of any \
+             permission control, or does not open with its driver template, and until rebuild \
+             unit 5c-fix2 an agent-backed seat records its template only as none, never as the \
+             segment it emitted (operator ruling 2 of 2026-09-23; rebuild units 5c-fix and \
+             5c-fix-b)"
                 .to_string(),
         ),
     }

@@ -4959,3 +4959,222 @@ restoration the production files were copied back from the saved finals.
 - 5c.1 stays unticked until 5c-fix2 lands. 5c-fix2.1 is added unticked.
 - **Pending:** external exact coverage (`scripts/coverage-exact.sh`, outside
   the box), macOS and remote CI on the committed head. Nothing is pushed.
+
+## Unit 5c-fix-b — every template contribution judged, 2026-09-24
+
+Run `triage-directive-operator-ruling-ce9cceae`, based on `cc8cbd52`. The
+council of 5c-fix (run `triage-directive-operator-ruling-0bdb3908`) ruled
+SECURITY-HOLD. This unit repairs 5c-fix and is recorded under it. There is no
+specification defect. Production files: `native_controls.rs` in
+`crates/brokkr-protocol/src`, and `bundle.rs` and `engine.rs` in
+`crates/brokkr-runtime/src`. No recipe, adapter, pin, contract, fixture,
+policy or reference byte moved, so no witness digest moved.
+
+### The chief's findings and their disposition
+
+- **R1 (high).** `engine.rs` judged only the first driver-template segment of
+  an agent composition, in both `emitted_template` (the seal) and
+  `agent_template` (the expectation). A template-origin permission control in
+  any later contribution escaped both. The baseline below reproduces all
+  three of the chief's scenarios. Repaired as described under "What changed".
+- **R2 (medium, scope).** 5c-fix edited `engine/capability_tests.rs`, which
+  was outside its four named test files, and did not stop to split. This
+  commission gives the unit's **authorized test inventory**:
+  `native_controls/tests.rs`, `bundle/agent_tests.rs`,
+  `crates/brokkr-runtime/tests/capability_launch.rs`, the `Expected`
+  constructors in `agents/tests.rs`, and
+  `crates/brokkr-runtime/src/engine/capability_tests.rs`. It also admits
+  the record-pin and fixture migrations 5c-fix made in `capability_tests.rs`.
+  So those edits stand on this inventory, not on an inferred waiver. This
+  unit touched two test files, `native_controls/tests.rs` and
+  `capability_launch.rs`, both on the list, and three production files. No
+  split was needed.
+
+### What changed
+
+- `native_controls.rs`:
+  - `permission_control(token)` returns the canonical name of a permission
+    control, or `None`. It reads the name before any `=` and matches Codex's
+    short options with an attached value. There are seven fixed controls:
+    `--permission-mode`, `--dangerously-skip-permissions`,
+    `--allow-dangerously-skip-permissions`, `--ask-for-approval`/`-a`,
+    `--sandbox`/`-s`, `--full-auto`, and
+    `--dangerously-bypass-approvals-and-sandbox`. Only the canonical name is
+    returned, so a refusal built on it never echoes the token.
+  - `pin_fault(driver, pin)` judges a `template` contribution that follows a
+    driver template. It is a pin only if all of these hold:
+    - it has exactly two tokens, or else the cause is "is not one option and
+      its value";
+    - neither token is a permission control, or else "spells a permission
+      control";
+    - the value does not start with `-`, or else "carries a value that reads
+      as an option";
+    - where the driver dispatches a modelled harness (`<engine> driver
+      <kind>` with a grammar), the pair parses under that grammar as exactly
+      one `--model` or `--effort` node, aliases included (Codex's `-m`), or
+      else "is not its harness's model or effort option".
+
+    An opaque driver has no grammar, so only the first three checks apply to
+    it, and its own model flag (the fixtures' `-m`) stays a pin. The allow-list
+    step also closes neighbours that the permission list does not name, such
+    as Claude's `--settings` and Codex's `-c approval_policy=…`.
+- `engine.rs`:
+  - `emitted_template`, driver-verb case: the emission is the driver's tail
+    behind the verb, followed by every later `template` segment that is not
+    a pin, in order. Pins are template-origin but are not the permission
+    template. Any other segment of that origin now counts as emitted, so the
+    seal refuses it under `TEMPLATE_CONTRADICTED` against a `none`
+    expectation. The inline case is unchanged.
+  - `agent_template` (the interim agent arm): records `none` only when the
+    driver emits nothing behind its verb **and** every later `template`
+    segment is a pin. Otherwise it refuses. The cause now names that case,
+    and `AGENT_TEMPLATE_REFUSED` in `capability_launch` pins the whole new
+    text. The interim rule itself is kept until 5c-fix2.
+- `bundle.rs`: after `resolve_report`, `refuse_permission_pins` runs on each
+  candidate before its secret lint.
+  1. **The adapter declaration.** If the candidate's adapter declares its
+     `model_flag` or `effort_flag` as a permission control, the compile is
+     refused, whichever model or effort it would pin: "seat 'work': the
+     'claude' adapter declares its model_flag as the permission control
+     '--permission-mode'; a model or effort pin names a model or an effort
+     and never carries a permission mode, so the declaration is refused
+     rather than composed (operator ruling 1 of 2026-09-23; rebuild unit
+     5c-fix-b)".
+  2. **The composition.** If any later `template` segment of the candidate's
+     composition has a `pin_fault`, the compile is refused. The refusal names
+     the segment's position and the fixed cause, never a token.
+
+  The shipped adapters' `--model`/`--effort` pins and the fixtures'
+  opaque `-m` all still compile.
+
+### Tests
+
+- `native_controls/tests.rs`:
+  - `every_spelling_of_a_permission_control_is_named_canonically` (17 rows):
+    split, `=`-joined and attached spellings are named canonically;
+    `--model`, `-m`, `--effort`, `bypassPermissions` and
+    `--permission-modes` are not controls.
+  - `only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin`
+    (14 rows): Claude's `--model` and `--effort`, Codex's `-m` and an opaque
+    driver's `-m` are pins. Each of the four causes is exact: a permission
+    mode as the flag, one joined into the value, an attached `-anever`, a
+    bypass switch behind an opaque driver, `-m --yolo`, `--settings`,
+    `-c approval_policy=never`, a `-m` that Claude does not model, and three
+    tokens and one token.
+- `capability_launch.rs` (31 tests; `agent_backed_solo` and
+  `untemplated_claude` are new helpers; all fixtures are on canonicalised
+  temporary roots):
+  - `an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the_compile`
+    (8 rows, count asserted), on a Claude adapter whose driver ends at `--`.
+    - The legitimate pins give `Ok`, `{"kind":"none"}`, and the whole final
+      Claude command with `--model claude-opus-5-5 --effort high` and no
+      permission mode.
+    - The chief's scenario 2 (`model_flag` `--permission-mode`, model
+      `bypassPermissions`), a joined `--permission-mode=plan` flag, the
+      chief's scenario 3 (`effort_flag` `--permission-mode`, efforts
+      `[plan]`, agent at `plan`) and an `effort_flag` bypass switch each
+      refuse with the whole declaration cause.
+    - A model value `--permission-mode=bypassPermissions` refuses at segment
+      2 ("spells a permission control"). A `model_flag` or `effort_flag` of
+      `--settings` refuses at segment 2 or 3 ("is not its harness's model or
+      effort option").
+    - An effort *value* cannot carry a control. The adapter loader already
+      refuses an effort name that does not match `^[a-z][a-z0-9-]*$`. That
+      row was tried, and the loader refused it with a temporary path in the
+      message, so it was replaced by the `effort_flag` `--settings` row.
+  - `every_template_contribution_of_an_agent_backed_seat_is_judged_before_the_seal`
+    (8 rows, count asserted, plus an omission assertion). It first pins the
+    compiled segments behind the driver: `[template --model claude-opus-5-5]`
+    and `[template --effort high]`. Then one fact moves per row:
+    - **addition:** a permission mode appended to the spawn (the chief's
+      scenario 1) gives `TEMPLATE_CONTRADICTED`; appended to the composition,
+      it gives `AGENT_TEMPLATE_REFUSED`.
+    - **alteration:** the model pin's flag made `--permission-mode` in the
+      spawn gives contradicted; the effort pin's value made
+      `--permission-mode=plan` in the composition gives refused. A legitimate
+      pin's model moved to `claude-sonnet-5` in the spawn stays `Ok` and
+      `none`, which is the precision proof.
+    - **contradiction:** the driver made to emit `--permission-mode
+      acceptEdits` gives contradicted in the spawn and refused in the
+      composition.
+
+    Every refusal leaves a null record. The **omission** assertion reseals a
+    sealed spawn with an expectation that records
+    `declared [--permission-mode acceptEdits]`, which the spawn omits. It
+    pins `Ok`, then `TEMPLATE_CONTRADICTED`, then a null record.
+
+### Baseline (the new tests against `cc8cbd52`'s three production files)
+
+- brokkr-protocol lib test did not compile: `E0425 cannot find function
+  permission_control` and `E0425 cannot find function pin_fault`.
+- `capability_launch` compiled, and both new tests failed. These results
+  reproduce R1:
+  - Scenario 1: "addition: a permission mode appended to the spawn" gave
+    `Ok(()) {"kind":"none"}`, and so did the composition addition, the
+    spawn and composition alterations.
+  - Scenario 2: "model_flag a permission mode" gave `Ok(()) {"kind":"none"}
+    launched ["claude", "-p", …, "--permission-mode", "bypassPermissions",
+    "--effort", "high", …]`.
+  - Scenario 3: "effort_flag a permission mode" gave `Ok(()) {"kind":"none"}
+    launched [… "--model", "claude-opus-5-5", "--permission-mode", "plan",
+    …]`.
+  - The joined flag, the bypass switch, the model value and `--settings`
+    rows were refused at baseline by later, unrelated checks (the composed
+    grammar parse and the authored-server check), not by the template
+    judgment.
+  - The composition-contradiction row refused under the old cause.
+
+### Mutations (each alone, compiling, run, restored)
+
+| # | Mutation | Failing test: rows |
+| --- | --- | --- |
+| P1 | `native_controls.rs`: `--permission-mode` renamed out of the control list | spellings: `--permission-mode`, `…=bypassPermissions`; pin: "permission mode as the flag", "…joined into the value"; compile table: both model_flag rows, the effort_flag permission-mode row, the model-value row |
+| P2 | `native_controls.rs`: a short option matched only bare, never attached | spellings: `-anever`, `-sdanger-full-access`; pin: "an attached approval as the flag" |
+| P3 | `native_controls.rs`: the value-reads-as-option check unreachable | pin: "a value that reads as an option" |
+| P4 | `native_controls.rs`: any single modelled option admitted as a pin | pin: "a loading option behind claude", "a configuration assignment behind codex"; compile table: both `--settings` rows |
+| P5 | `native_controls.rs`: a pin of any length admitted | pin: "three tokens", "one token" |
+| P6 | `native_controls.rs`: the value never judged as a permission control | pin: "permission mode joined into the value" (left: reads as an option); compile table: "a model value that spells a permission mode" |
+| E1 | `engine.rs`: the seal ignores later template segments (the baseline reading) | seal table: "addition … to the spawn", "alteration: the model pin's flag … in the spawn" (left `Ok(()) {"kind":"none"}`) |
+| E2 | `engine.rs`: the seal counts every later template segment, pins included | seal table: "as compiled", "a legitimate pin's model moved"; compile table: "the legitimate pins" (each contradicted) |
+| E3 | `engine.rs`: the agent arm ignores later pins (the baseline expectation) | seal table: "addition … to the composition", "alteration: the effort pin's value … in the composition" (left the seal's contradiction, not the agent-arm refusal; the seal backstops) |
+| B1 | `bundle.rs`: the adapter-declaration judgment unreachable | compile table: the four declaration rows (left: the pin refusal at segment 2 or 3, which backstops) |
+| B2 | `bundle.rs`: the composition's pin judgment unreachable | compile table: the model-value row and both `--settings` rows (left: later unrelated refusals) |
+| B3 | `bundle.rs`: the refusal's segment position off by one | compile table: the three contribution rows |
+
+After each restoration the production files were copied back from the saved
+finals, and `cmp` confirmed all three were byte-identical to them.
+
+### Observed, outside this unit
+
+With B2 applied, the later composed-grammar refusal (`parse_origin`, "do not
+parse: {problem}") quoted the pin's token, `'--permission-mode=bypassPermissions'`,
+in the compile error. This unit's pin judgment now runs first for template
+pins, so that value is no longer echoed for them. `parse_origin`'s quoting of
+a problem token for other composed argv is pre-existing and was not changed
+here. It is recorded for the council.
+
+### Gates (on the restored tree)
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: passed.
+- `cargo test -p brokkr-protocol -p brokkr-runtime --all-features --locked
+  --no-fail-fast`: passed. That covers the protocol lib (474) and runtime
+  lib (551) tests and every integration suite, including capability_launch
+  (31).
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `bundles/verify`: passed.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+- The rest of the workspace (`--exclude` the two crates above,
+  `--no-fail-fast`): one target is red, the same one as at 5c-fix, and every
+  other target passed. brokkr-cli's `bootstrap_bench` parks at `intake` on
+  the interim agent-arm refusal, whose cause now carries 5c-fix-b's wording.
+  It stays red until 5c-fix2 lands or the operator rules on it.
+
+### Owed
+
+- 5c-fix-b.1 is ticked. 5c-fix.1 stays ticked, and it closes on this unit's
+  evidence. 5c.1 and 5c-fix2.1 stay unticked.
+- **Pending:** external exact coverage (`scripts/coverage-exact.sh`, outside
+  the box), macOS and remote CI on the committed head. Nothing is pushed.

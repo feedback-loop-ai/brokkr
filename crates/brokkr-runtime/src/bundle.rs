@@ -2462,6 +2462,7 @@ fn resolve_reference(
     // function, so a resolved seat is an inline seat by construction.
     let mut candidates = Vec::with_capacity(resolution.candidates.len());
     for candidate in &resolution.candidates {
+        refuse_permission_pins(what, candidate, &context.adapters)?;
         lint_secret_refs(what, &candidate.argv, secrets)?;
         candidates.push(Candidate {
             agent: candidate.agent.clone(),
@@ -2501,6 +2502,62 @@ fn resolve_reference(
         inputs: resolution.inputs.clone(),
         hands: resolution.hands.clone(),
     })
+}
+
+/// Rebuild unit 5c-fix-b (chief R1; operator ruling 1 of 2026-09-23): a
+/// model or effort pin never carries a permission control. An adapter
+/// whose `model_flag` or `effort_flag` spells one is refused as a
+/// declaration, whichever model or effort it would pin, and every later
+/// `template` contribution of the candidate's composition must be a model
+/// or effort pin ([`brokkr_protocol::native_controls::pin_fault`]), so a
+/// model or effort value cannot smuggle one either. The refusal names the
+/// field and the control's canonical spelling, or the contribution's
+/// position and a fixed cause, and never a token.
+fn refuse_permission_pins(
+    what: &str,
+    candidate: &crate::agents::Candidate,
+    adapters: &crate::agents::Adapters,
+) -> Result<(), CompileError> {
+    use brokkr_protocol::native_controls::{permission_control, pin_fault};
+    let provider = &candidate.provider;
+    if let Some(adapter) = adapters.adapter(provider) {
+        for (field, flag) in [
+            ("model_flag", &adapter.model_flag),
+            ("effort_flag", &adapter.effort_flag),
+        ] {
+            if let Some(control) = flag.as_deref().and_then(permission_control) {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}': the '{provider}' adapter declares its {field} as the \
+                     permission control '{control}'; a model or effort pin names a model or an \
+                     effort and never carries a permission mode, so the declaration is refused \
+                     rather than composed (operator ruling 1 of 2026-09-23; rebuild unit \
+                     5c-fix-b)"
+                )));
+            }
+        }
+    }
+    let crate::agents::Lowering::Composed(composition) = &candidate.lowering else {
+        return Ok(());
+    };
+    let Some((driver, later)) = composition.segments.split_first() else {
+        return Ok(());
+    };
+    for (at, pin) in later.iter().enumerate() {
+        if pin.origin != brokkr_protocol::native_controls::Origin::Template {
+            continue;
+        }
+        if let Some(fault) = pin_fault(&driver.argv, &pin.argv) {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}': the '{provider}' adapter's composition carries a template \
+                 contribution (segment {}) behind its driver template that {fault}; only a model \
+                 or effort pin may follow the driver template, and its tokens are not echoed \
+                 because they can carry a value (operator ruling 1 of 2026-09-23; rebuild unit \
+                 5c-fix-b)",
+                at + 2
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// A site's decision-0021 class, as written. ABSENT is `Work`: the
