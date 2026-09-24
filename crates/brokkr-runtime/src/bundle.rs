@@ -21,7 +21,7 @@ use compose::{Ancestor, COMPOSE_PREFIX};
 
 use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass,
-    Library, TrustTier,
+    HandsNotice, Library, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
 
@@ -385,6 +385,12 @@ pub struct SiteFacts {
     pub hands: HandsState,
     pub record: Option<Value>,
     pub driver: Option<DriverDigests>,
+    /// The discovery notice the adapter an INLINE built-in model driver
+    /// names declares (proposed decision 0069). An agent-resolved site
+    /// carries its notice on each `Candidate` instead, and the engine
+    /// reads this only when no candidate serves the site. The adapter it
+    /// was read from is witnessed through `pin_drivers`.
+    pub inline_hands_notice: Option<HandsNotice>,
 }
 
 impl SiteFacts {
@@ -760,14 +766,26 @@ struct Unpinned {
     /// bundle identity `pinned_bundle_holds` compares, or a changed
     /// assessment would reuse a root the old one opened.
     resume_witness: BTreeMap<String, DriverDigests>,
+    /// Proposed decision 0069: per inline driver-bearing site, the
+    /// discovery notice its adapter declares. The declaration is already
+    /// witnessed in `resume_witness`, which pins every adapter an inline
+    /// built-in consults, assessment or not.
+    hands_notice: BTreeMap<String, HandsNotice>,
 }
 
 /// Adapter data for the effortless-route exemption (decision 0035
-/// addendum 2026-09-11). Loaded only where an inline model seat could
-/// claim it; a missing or malformed adapters root reads as no
-/// exemptions rather than an error — the strict rule stands, exactly
-/// as a bundle with no adapters/ directory in sight compiles today.
-fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Adapters> {
+/// addendum 2026-09-11), the inline resume assessment and the inline
+/// discovery notice. Loaded only where an inline model seat could claim
+/// it. An ABSENT adapters root reads as no exemptions, no assessment and
+/// no notice — the strict rule stands, exactly as a bundle with no
+/// adapters/ directory in sight compiles today. A PRESENT root that does
+/// not load is refused with the loader's own words (proposed decision
+/// 0069): a malformed discovery notice must not pass itself off as an
+/// adapter that declares none.
+fn load_pin_adapters(
+    root: &Path,
+    seats: &Map<String, Value>,
+) -> Result<Option<Adapters>, CompileError> {
     fn has_inline_model_driver(value: &Value) -> bool {
         match value {
             Value::Object(map) => {
@@ -778,9 +796,14 @@ fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Adapters
         }
     }
     if !seats.values().any(has_inline_model_driver) {
-        return None;
+        return Ok(None);
     }
-    Adapters::load(root).ok()
+    if !root.exists() {
+        return Ok(None);
+    }
+    Adapters::load(root)
+        .map(Some)
+        .map_err(|e| CompileError::Invalid(e.to_string()))
 }
 
 /// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
@@ -860,6 +883,12 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
             let mut authorised = Map::new();
             authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
             out.resume_witness.insert(what.to_string(), authorised);
+            // Its discovery notice (proposed decision 0069) is read from
+            // that same witnessed declaration, and kept apart from the
+            // assessment: reading a notice qualifies no resume.
+            if let Some(notice) = &adapter.hands_notice {
+                out.hands_notice.insert(what.to_string(), notice.clone());
+            }
         }
         return;
     }
@@ -900,15 +929,18 @@ fn labels(sites: &[String]) -> String {
 
 /// What `enforce_model_pins` returns: the adapter digests whose effortless
 /// listings exempted inline seats, the resume assessment each inline
-/// built-in model driver's adapter declares for the engine, and the
-/// declaration each of those assessments was read from. Three maps rather
-/// than one because they answer different questions from the same walk —
-/// the third rides the manifest's `drivers` pin beside the first, while
-/// the second travels to the driver's private start context.
+/// built-in model driver's adapter declares for the engine, the
+/// declaration each of those assessments was read from, and the discovery
+/// notice each declares. Four maps rather than one because they answer
+/// different questions from the same walk — the third rides the
+/// manifest's `drivers` pin beside the first, while the second travels to
+/// the driver's private start context and the fourth to the engine's
+/// per-attempt notice.
 type PinWitness = (
     BTreeMap<String, DriverDigests>,
     Map<String, Value>,
     BTreeMap<String, DriverDigests>,
+    BTreeMap<String, HandsNotice>,
 );
 
 /// One refusal names the complete repair set, on BOTH axes. A model pin
@@ -944,7 +976,12 @@ fn enforce_model_pins(
         ));
     }
     if refusals.is_empty() {
-        return Ok((unpinned.witnessed, unpinned.resume, unpinned.resume_witness));
+        return Ok((
+            unpinned.witnessed,
+            unpinned.resume,
+            unpinned.resume_witness,
+            unpinned.hands_notice,
+        ));
     }
     Err(CompileError::Invalid(refusals.join("; ")))
 }
@@ -1080,9 +1117,9 @@ impl Bundle {
         // `drivers` pin the exemptions do: a site that already has an
         // exemption names the same provider and digest, so extending
         // the map leaves that fact unchanged rather than duplicating it.
-        let (pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
+        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) = enforce_model_pins(
             &resolved.seats,
-            load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
+            load_pin_adapters(adapters_root, &resolved.seats)?.as_ref(),
         )?;
         // The one canonical family table (design D10 F1). Seeded with the
         // inline pins and assessments before any parse writes beside
@@ -1094,6 +1131,9 @@ impl Bundle {
         }
         for (label, value) in inline_resume {
             site_facts(&mut sites, &label).inline_resume = Some(value);
+        }
+        for (label, notice) in inline_hands_notice {
+            site_facts(&mut sites, &label).inline_hands_notice = Some(notice);
         }
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
@@ -2100,9 +2140,11 @@ fn resolve_reference(
                 hands_fragment: entry.hands_fragment.clone(),
                 harness: entry.harness.clone(),
                 // The hands law reads argv, class and boundary; the
-                // resume assessment is not one of its terms, and this
-                // projection is discarded after that judgment.
+                // resume assessment and the discovery notice are not its
+                // terms, and this projection is discarded after that
+                // judgment.
                 resume: Default::default(),
+                hands_notice: None,
             })
             .collect();
         enforce_model_policy(
@@ -2152,6 +2194,7 @@ fn resolve_reference(
             hands_fragment: candidate.hands_fragment.clone(),
             harness: candidate.harness.clone(),
             resume: candidate.resume.clone(),
+            hands_notice: candidate.hands_notice.clone(),
         });
     }
     site_facts(sites, site_key).record = Some(resolution.record.clone());

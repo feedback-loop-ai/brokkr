@@ -893,26 +893,30 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     // with decision 0043, and an adapter written before it — including
     // every `brokkr init` scaffold in the field — must keep compiling.
     // Absent reads as unsupported with no reason, fail-closed.
-    let (hands, hands_gap, harness) =
+    let (hands, hands_gap, harness, hands_notice) =
         match map.get("hands").map(|_| capability(map, "hands", &what)) {
-            None | Some(Ok(None)) => (None, None, HarnessHands::default()),
+            None | Some(Ok(None)) => (None, None, HarnessHands::default(), None),
             Some(Err(error)) => return Err(error),
             Some(Ok(Some(value))) => {
                 let raw = object(value, &format!("{what} 'hands'"))?;
                 if raw.contains_key("unsupported") {
+                    no_notice_without_workspace(raw, &what)?;
                     only_keys(raw, &["unsupported"], &format!("{what} 'hands'"))?;
                     (
                         None,
                         Some(string(raw, "unsupported", &format!("{what} 'hands'"))?),
                         HarnessHands::default(),
+                        None,
                     )
                 } else {
-                    only_keys(raw, &["workspace", "harness"], &format!("{what} 'hands'"))?;
-                    (
-                        Some(string_array(raw, "workspace", &format!("{what} 'hands'"))?),
-                        None,
-                        harness_hands(raw, &what)?,
-                    )
+                    only_keys(
+                        raw,
+                        &["workspace", "harness", "notice"],
+                        &format!("{what} 'hands'"),
+                    )?;
+                    let workspace = string_array(raw, "workspace", &format!("{what} 'hands'"))?;
+                    let notice = hands_notice(raw, &workspace, &what)?;
+                    (Some(workspace), None, harness_hands(raw, &what)?, notice)
                 }
             }
         };
@@ -936,6 +940,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         hands,
         hands_gap,
         harness,
+        hands_notice,
         mcp,
         resume: resume_assessment(map, &what)?,
         digest: sha256_bytes(&std::fs::read(path)?),
@@ -1173,6 +1178,42 @@ fn resume_evidence(raw: &Map<String, Value>, what: &str) -> Result<ResumeEvidenc
         root: read("root")?,
         accounting: read("accounting")?,
     })
+}
+
+/// Why a discovery notice cannot stand without a workspace to discover.
+const NOTICE_NEEDS_WORKSPACE: &str = "needs a supported, non-empty 'hands.workspace' \
+     fragment; a discovery notice names the workspace tool that fragment serves \
+     (proposed decision 0069)";
+
+/// A `hands.notice` beside `hands.unsupported` names a tool nothing
+/// serves. Refused by name before the closed-key check, so the author
+/// reads why rather than only that the key is unknown there.
+fn no_notice_without_workspace(hands: &Map<String, Value>, what: &str) -> Result<(), LibraryError> {
+    if hands.contains_key("notice") {
+        return invalid(format!("{what} 'hands.notice' {NOTICE_NEEDS_WORKSPACE}"));
+    }
+    Ok(())
+}
+
+/// An adapter's optional `hands.notice` (proposed decision 0069): the two
+/// tool identifiers a boxed seat needs to find its workspace when the
+/// harness may defer MCP tools. Presence is inspected before decoding, so
+/// an explicit `null` or `false` is a malformed declaration and never
+/// reads as absence; only an absent key is no notice.
+fn hands_notice(
+    hands: &Map<String, Value>,
+    workspace: &[String],
+    what: &str,
+) -> Result<Option<brokkr_protocol::adapters::HandsNotice>, LibraryError> {
+    let Some(declared) = hands.get("notice") else {
+        return Ok(None);
+    };
+    if workspace.is_empty() {
+        return invalid(format!("{what} 'hands.notice' {NOTICE_NEEDS_WORKSPACE}"));
+    }
+    brokkr_protocol::adapters::HandsNotice::parse(declared)
+        .map(Some)
+        .map_err(|problem| LibraryError::Invalid(format!("{what} 'hands.notice' {problem}")))
 }
 
 /// The two workspace tokens the engine expands only where it serves the

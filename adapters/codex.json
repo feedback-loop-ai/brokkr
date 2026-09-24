@@ -45,6 +45,10 @@
       "-c",
       "mcp_servers.brokkr.default_tools_approval_mode=\"approve\""
     ],
+    "notice": {
+      "workspace_tool": "mcp__brokkr__workspace",
+      "discovery_tool": "tool_search"
+    },
     "harness": {
       "gate": [
         "--sandbox",
@@ -88,7 +92,12 @@
         "2026-09-15 operator ruling preserves the shipping harness work seat (boundary=harness, no boxed-hands marker, --sandbox workspace-write). Boxed hands.workspace adds MCP -c arguments main already refuses as incompatible-argv; this declaration declines that coordinate as restrictions-unavailable. Decision 0030's read-only measurement stays dated evidence; installed-version remeasurement is owed.",
         "2026-09-15 ruling also preserves main's INLINE Codex work seats: their author-written argv carries its own --sandbox class and no Brokkr boundary, reported as boundary=not applicable with hands=none, and named in boundaries beside harness. The resume re-imposes that class through -c sandbox_mode (decision 0030 ruling 2); a missing or unsupported class still refuses cold.",
         "2026-09-16 codex-cli 0.154.0 reconciliation under the 2026-09-15 preservation ruling: .forge/tasks/controller-codex-proof-2026-09-16-live.json supersedes the refuted September 16 partial and confirms restriction, same-root, current-only accounting and pre-work rejection; records 0.153.4->0.154.0 and historical codex-proof-2026-09-10.json; 11.1's effort, passthrough and stdin '-' evidence owed.",
-        "2026-09-17 interface closure: .forge/tasks/controller-codex-interface-2026-09-17.json measures effort configuration on 0.154.0 (model_reasoning_effort accepted under --strict-config, a misspelling refused), the resume option surface and the stdin '-' positional. Parser acceptance is not confinement: --ephemeral and --output-schema are parsed by resume and stay unqualified."
+        "2026-09-17 interface closure: .forge/tasks/controller-codex-interface-2026-09-17.json measures effort configuration on 0.154.0 (model_reasoning_effort accepted under --strict-config, a misspelling refused), the resume option surface and the stdin '-' positional. Parser acceptance is not confinement: --ephemeral and --output-schema are parsed by resume and stay unqualified.",
+        "2026-09-24 operator-supplied host hands-discovery measurement, not a resume axis: installed codex-cli 0.156.0, hands server attached as hands.workspace attaches it. A no-tool-call probe listing every callable tool showed no mcp__brokkr__workspace for gpt-5.6-sol or gpt-6-sol: 0.156.0 defers MCP tools behind tool_search.",
+        "2026-09-24 same measurement: codex features list reports tool_search_always_defer_mcp_tools as 'removed, true'; features.tool_search_always_defer_mcp_tools=false and features.tool_search=false each changed nothing; no per-server loading switch was found. Observed 0.156.0 behaviour, not a prediction for later releases.",
+        "2026-09-24 supplied six-arm wager on 0065 rebuild unit 3, every arm boxed with decision 0043 hands: gpt-5.6-sol called tool_search 4 times, used mcp__brokkr__workspace 225 times and delivered; gpt-5.6-luna briefly found it, then fell back to apply_patch.",
+        "Same wager: gpt-6-sol and gpt-6-luna never called tool_search, met native-write refusals and stopped without result files. No other arm's outcome is claimed.",
+        "These 2026-09-24 hands-discovery observations motivate hands.notice (proposed decision 0069) and qualify nothing: 0.156.0 resume stays unqualified, identity stays 0.154.0, and task 11.1 still awaits its operator ruling."
       ]
     }
   }

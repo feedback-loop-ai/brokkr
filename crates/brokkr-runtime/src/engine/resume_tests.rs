@@ -401,6 +401,7 @@ fn a_chain_fallback_is_handed_no_session_at_all() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
+        hands_notice: None,
     };
     // The first link fails to START on its first invocation and behaves
     // on every one after it: that is what lets the second link open a
@@ -1465,6 +1466,7 @@ fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
+        hands_notice: None,
     };
     let manifest = json!({"engine":"0.10.0", "files":{}, "hands":{"work":{}}});
     let owner = |candidate: &Candidate,
@@ -2285,6 +2287,7 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
+        hands_notice: None,
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -2569,6 +2572,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         // optional member, so the private start context can be read for
         // it on the real single-site path beside the owned target.
         resume: dsh_assessment_declaring(Some(&"c".repeat(64))),
+        hands_notice: None,
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -2683,6 +2687,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: dsh_assessment_declaring(Some(&"d".repeat(64))),
+        hands_notice: None,
     }];
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -2900,6 +2905,7 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: shipped,
+        hands_notice: None,
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -3327,6 +3333,7 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: dsh_assessment_measuring(&measured),
+        hands_notice: None,
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -3786,6 +3793,7 @@ fn a_declared_wrapper_digest_reaches_the_private_start_context() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume,
+            hands_notice: None,
         };
         let mut seats = BTreeMap::new();
         seats.insert(

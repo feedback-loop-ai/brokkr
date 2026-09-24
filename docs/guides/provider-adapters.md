@@ -273,6 +273,52 @@ builds nothing and the harness's own sandbox is the only wall, so the
 adapter's second answer is `hands.harness`: how that sandbox is addressed
 from argv.
 
+### `hands.notice`
+
+A harness that **defers** MCP tools does not show a boxed seat its only
+writer until the seat searches for it. Codex 0.156.0 does this behind
+`tool_search`, with no switch to turn it off. Such an adapter declares,
+beside its `workspace` fragment, the two tool names a seat needs to find
+its hands (proposed decision
+[0069](../decisions/0069-a-boxed-seat-is-told-how-to-find-its-hands.md)):
+
+```json
+"hands": {
+  "workspace": ["--sandbox", "read-only", "-c", "mcp_servers.brokkr.args={hands_args_toml}"],
+  "notice": {
+    "workspace_tool": "mcp__brokkr__workspace",
+    "discovery_tool": "tool_search"
+  }
+}
+```
+
+The object has exactly those two members, each 1–128 ASCII bytes matching
+`^[A-Za-z_][A-Za-z0-9_]*$`. It carries no prose, template, path or switch,
+and it needs a supported, non-empty `workspace` fragment. Absent is no
+notice, which is every adapter written before the decision, including
+claude's. Anything else present is refused by name (`null`, `false`, a
+string, an array, a missing or extra member, a bad identifier, or a notice
+beside `unsupported` or empty workspace hands). It is never read as
+absence. The shipped codex adapter's `notice` is exactly the one above,
+next to its full workspace fragment, and the adapter suite loads it.
+
+The adapter supplies the names and nothing else. The **engine** decides who
+hears them: a model seat whose own site facts resolve workspace hands, under
+a boundary Brokkr boxes, served *in this attempt* by a provider that
+declares a notice. A fallback from Codex to Claude drops it, a fallback the
+other way gains it, and each panel member and sequence step is judged on
+its own facts. `harness`, `open`, handless sites and exec scripts hear
+nothing new. The **result contract** carries the words, one fixed paragraph
+after decision 0043's, naming the two identifiers. No recipe, agent,
+charter or input can author, replace or suppress it.
+
+The declaration is adapter bytes, so it moves every bundle identity that
+pins the adapter, fallback-only consumers included. Measure the witness
+and compose pins rather than guessing them. A loader older than decision
+0069 refuses the `notice` key, so ship and roll back the engine, the
+adapter and its measured pins together. Declaring a notice qualifies no
+resume: codex's `work-site` identity stays at the measured 0.154.0.
+
 ### `hands.harness`
 
 ```json

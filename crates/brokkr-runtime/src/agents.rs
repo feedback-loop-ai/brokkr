@@ -47,6 +47,7 @@ use crate::bundle::Limits;
 
 mod load;
 
+pub use brokkr_protocol::adapters::HandsNotice;
 pub use load::{resolve_route, Adapters, Library, LibraryError};
 
 /// The grammar every agent, model, provider and MCP server name obeys.
@@ -291,6 +292,11 @@ pub struct Adapter {
     /// Every member undeclared for an adapter written before the ruling,
     /// which the loader reads as unsupported, fail-closed.
     pub harness: HarnessHands,
+    /// Proposed decision 0069: the two tool identifiers a boxed seat
+    /// this provider serves needs to find its workspace when the harness
+    /// may defer MCP tools. `None` where the adapter declares none, which
+    /// every adapter written before the decision does.
+    pub hands_notice: Option<HandsNotice>,
     /// Why `tool_permissions` is absent, when the operator MEASURED the
     /// provider's CLI and found no per-tool allow-list to map onto.
     /// Never a capability: a declared gap refuses exactly as a bare
@@ -572,6 +578,10 @@ pub struct Candidate {
     /// context is built there. Empty for an inline site, which no
     /// adapter answers for.
     pub resume: ResumeAssessment,
+    /// The resolved provider's hands-discovery declaration (proposed
+    /// decision 0069), carried for the same reason: the engine decides
+    /// at spawn, per selected link, whether a boxed seat hears it.
+    pub hands_notice: Option<HandsNotice>,
 }
 
 /// An optional-capability gap: a WARNING that lands in the run manifest.
@@ -1027,26 +1037,32 @@ pub(crate) fn resolve_report(
     let candidates: Vec<Candidate> = report.entries[chosen..]
         .iter()
         .filter(|entry| entry.presence != Presence::Unavailable)
-        .map(|entry| Candidate {
-            agent: agent.name.clone(),
-            model: entry.model.clone(),
-            effort: entry.effort.clone(),
-            provider: entry.provider.clone().expect("mapped above"),
-            argv: entry.argv.clone(),
-            hands_fragment: entry.hands_fragment.clone(),
-            harness: entry.harness.clone(),
-            // The resolved provider's own assessment, carried beside
-            // its harness declaration for the same reason: the engine
-            // holds no adapter at spawn. An unmapped provider cannot
-            // reach here — `resolve_report` refuses one above — so an
-            // empty assessment here is an adapter that declares none,
-            // which enables nothing.
-            resume: entry
+        .map(|entry| {
+            let adapter = entry
                 .provider
                 .as_deref()
-                .and_then(|provider| adapters.adapter(provider))
-                .map(|adapter| adapter.resume.clone())
-                .unwrap_or_default(),
+                .and_then(|provider| adapters.adapter(provider));
+            Candidate {
+                agent: agent.name.clone(),
+                model: entry.model.clone(),
+                effort: entry.effort.clone(),
+                provider: entry.provider.clone().expect("mapped above"),
+                argv: entry.argv.clone(),
+                hands_fragment: entry.hands_fragment.clone(),
+                harness: entry.harness.clone(),
+                // The resolved provider's own assessment, carried beside
+                // its harness declaration for the same reason: the engine
+                // holds no adapter at spawn. An unmapped provider cannot
+                // reach here — `resolve_report` refuses one above — so an
+                // empty assessment here is an adapter that declares none,
+                // which enables nothing.
+                resume: adapter
+                    .map(|adapter| adapter.resume.clone())
+                    .unwrap_or_default(),
+                // The same provider's discovery declaration, read from
+                // the same adapter the consulted digest below pins.
+                hands_notice: adapter.and_then(|adapter| adapter.hands_notice.clone()),
+            }
         })
         .collect();
     let skipped: Vec<Value> = report.entries[..chosen]

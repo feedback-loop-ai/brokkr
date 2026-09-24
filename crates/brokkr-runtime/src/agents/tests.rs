@@ -2602,3 +2602,292 @@ fn an_edited_resume_assessment_moves_the_adapter_digest() {
             .is_none()
     );
 }
+
+// ------------------------------- proposed decision 0069: hands.notice
+
+/// A Claude-shaped adapter whose `hands` is the given object.
+fn hands_adapter(hands: Value) -> Tree {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &agent_body());
+    let mut adapter = claude_body();
+    adapter["hands"] = hands;
+    tree.write("adapters/claude.json", &adapter);
+    tree
+}
+
+/// The loader's refusal, whole: provider, file, field and rule.
+fn notice_refusal(tree: &Tree, rule: &str) -> String {
+    let path = tree
+        .adapters_root()
+        .canonicalize()
+        .unwrap()
+        .join("claude.json");
+    format!(
+        "adapter 'claude' ({}) 'hands.notice' {rule}",
+        path.display()
+    )
+}
+
+#[test]
+fn a_hands_notice_is_two_identifiers_retained_beside_the_workspace() {
+    let tree = hands_adapter(json!({
+        "workspace": ["--tools", ""],
+        "notice": {"workspace_tool": "fixture_workspace", "discovery_tool": "fixture_search"},
+    }));
+    let adapters = tree.adapters();
+    let adapter = adapters.adapter("claude").unwrap();
+    let notice = adapter.hands_notice.as_ref().expect("declared");
+    assert_eq!(notice.workspace_tool(), "fixture_workspace");
+    assert_eq!(notice.discovery_tool(), "fixture_search");
+    assert_eq!(
+        adapter.hands,
+        Some(vec!["--tools".to_string(), String::new()])
+    );
+    // The resolved candidate carries it to the engine, which holds no
+    // adapter at spawn.
+    assert_eq!(
+        resolved(&tree, &Availability::unspecified()).candidates[0].hands_notice,
+        Some(notice.clone())
+    );
+
+    // Absent is no notice, and a legacy empty workspace fragment keeps
+    // loading when it declares none.
+    for hands in [
+        json!({"workspace": ["--tools", ""]}),
+        json!({"workspace": []}),
+        json!({"unsupported": "no box was measured"}),
+    ] {
+        let tree = hands_adapter(hands.clone());
+        assert_eq!(
+            tree.adapters().adapter("claude").unwrap().hands_notice,
+            None,
+            "{hands}"
+        );
+        assert_eq!(
+            resolved(&tree, &Availability::unspecified()).candidates[0].hands_notice,
+            None
+        );
+    }
+    let bare = ready();
+    assert_eq!(
+        bare.adapters().adapter("claude").unwrap().hands_notice,
+        None
+    );
+}
+
+#[test]
+fn a_malformed_hands_notice_is_refused_by_provider_field_and_rule() {
+    let workspace = json!(["--tools", ""]);
+    let shape = "must be an object with exactly 'workspace_tool' and 'discovery_tool'";
+    let cases: Vec<(Value, String)> = vec![
+        (Value::Null, shape.into()),
+        (json!(false), shape.into()),
+        (json!("mcp__brokkr__workspace"), shape.into()),
+        (json!([]), shape.into()),
+        (
+            json!({"workspace_tool": "w", "discovery_tool": "d", "enabled": true}),
+            "has unknown member 'enabled'; only 'workspace_tool' and 'discovery_tool' are allowed"
+                .into(),
+        ),
+        (
+            json!({"workspace_tool": "w"}),
+            "is missing 'discovery_tool'".into(),
+        ),
+        (
+            json!({"workspace_tool": ["w"], "discovery_tool": "d"}),
+            "'workspace_tool' must be a string".into(),
+        ),
+        (
+            json!({"workspace_tool": "w", "discovery_tool": "a".repeat(129)}),
+            "'discovery_tool' must be 1 to 128 ASCII bytes; it is 129 bytes".into(),
+        ),
+        (
+            json!({"workspace_tool": "load it now", "discovery_tool": "d"}),
+            "'workspace_tool' must match ^[A-Za-z_][A-Za-z0-9_]*$".into(),
+        ),
+    ];
+    for (notice, rule) in cases {
+        let tree = hands_adapter(json!({"workspace": workspace, "notice": notice}));
+        assert_eq!(
+            tree.adapters_error(),
+            notice_refusal(&tree, &rule),
+            "{notice}"
+        );
+    }
+
+    // A notice names the tool a workspace fragment serves: beside an
+    // unsupported or empty fragment there is nothing to discover.
+    let needs = "needs a supported, non-empty 'hands.workspace' fragment; a discovery notice \
+                 names the workspace tool that fragment serves (proposed decision 0069)";
+    let valid = json!({"workspace_tool": "w", "discovery_tool": "d"});
+    for hands in [
+        json!({"unsupported": "no box was measured", "notice": valid}),
+        json!({"workspace": [], "notice": valid}),
+    ] {
+        let tree = hands_adapter(hands.clone());
+        assert_eq!(
+            tree.adapters_error(),
+            notice_refusal(&tree, needs),
+            "{hands}"
+        );
+    }
+}
+
+/// The shipped declarations: Codex names its two tools, Claude names
+/// none, and Codex's launch fragments and resume qualification are the
+/// ones main shipped before the notice existed.
+#[test]
+fn the_shipped_codex_declares_the_notice_and_keeps_its_launch_and_qualification() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../adapters");
+    let adapters = Adapters::load(&root).expect("the shipped adapters load");
+    let codex = adapters.adapter("codex").unwrap();
+    let notice = codex
+        .hands_notice
+        .as_ref()
+        .expect("codex declares a notice");
+    assert_eq!(notice.workspace_tool(), "mcp__brokkr__workspace");
+    assert_eq!(notice.discovery_tool(), "tool_search");
+    assert_eq!(adapters.adapter("claude").unwrap().hands_notice, None);
+    for provider in ["dsh", "lanetally", "exec"] {
+        if let Some(adapter) = adapters.adapter(provider) {
+            assert_eq!(adapter.hands_notice, None, "{provider}");
+        }
+    }
+
+    // The launch fragments, as they stood at aa58d07a.
+    assert_eq!(
+        codex.hands,
+        Some(
+            [
+                "--sandbox",
+                "read-only",
+                "-c",
+                "mcp_servers.brokkr.command=\"{brokkr}\"",
+                "-c",
+                "mcp_servers.brokkr.args={hands_args_toml}",
+                "-c",
+                "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+            ]
+            .map(String::from)
+            .to_vec()
+        )
+    );
+    assert_eq!(
+        codex.harness.gate,
+        Some(
+            [
+                "--sandbox",
+                "read-only",
+                "--output-last-message",
+                "{result_path}"
+            ]
+            .map(String::from)
+            .to_vec()
+        )
+    );
+    assert_eq!(
+        codex.harness.work,
+        Some(["--sandbox", "workspace-write"].map(String::from).to_vec())
+    );
+    assert_eq!(codex.harness.result, ResultDoor::LastMessage);
+
+    // The qualification, as it stood at aa58d07a: 0.154.0, harness and
+    // inline work sites, no boxed hands. The 0.156.0 observation moves
+    // none of it; task 11.1's ruling is still owed.
+    let raw: Value =
+        serde_json::from_slice(&std::fs::read(root.join("codex.json")).unwrap()).unwrap();
+    let site = &raw["resume"]["work-site"];
+    assert_eq!(
+        site["identity"],
+        json!({"version": "0.154.0", "applies_to": "0.154.0"})
+    );
+    assert_eq!(site["status"], "supported");
+    assert_eq!(site["classes"], json!(["work"]));
+    assert_eq!(site["boundaries"], json!(["harness", "not applicable"]));
+    assert_eq!(site["hands"], "none");
+    let shape = codex.resume.shape("work-site").unwrap();
+    assert_eq!(shape.status, ResumeStatus::Supported);
+    assert_eq!(shape.hands, "none");
+    assert_eq!(
+        shape.boundaries,
+        vec!["harness".to_string(), "not applicable".to_string()]
+    );
+    assert_eq!(
+        codex.resume.value()["work-site"]["identity"],
+        json!({"version": "0.154.0", "applies_to": "0.154.0"})
+    );
+
+    // The dated observations: appended after the seven historical lines,
+    // which stay verbatim in place.
+    let limitations: Vec<&str> = site["limitations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line.as_str().unwrap())
+        .collect();
+    assert_eq!(limitations.len(), 12);
+    assert!(limitations[0].starts_with("a September 10 bounded cold/warm probe"));
+    assert!(limitations[6].starts_with("2026-09-17 interface closure"));
+    assert_eq!(
+        limitations[7..],
+        [
+            "2026-09-24 operator-supplied host hands-discovery measurement, not a resume axis: \
+             installed codex-cli 0.156.0, hands server attached as hands.workspace attaches it. \
+             A no-tool-call probe listing every callable tool showed no mcp__brokkr__workspace \
+             for gpt-5.6-sol or gpt-6-sol: 0.156.0 defers MCP tools behind tool_search.",
+            "2026-09-24 same measurement: codex features list reports \
+             tool_search_always_defer_mcp_tools as 'removed, true'; \
+             features.tool_search_always_defer_mcp_tools=false and features.tool_search=false \
+             each changed nothing; no per-server loading switch was found. Observed 0.156.0 \
+             behaviour, not a prediction for later releases.",
+            "2026-09-24 supplied six-arm wager on 0065 rebuild unit 3, every arm boxed with \
+             decision 0043 hands: gpt-5.6-sol called tool_search 4 times, used \
+             mcp__brokkr__workspace 225 times and delivered; gpt-5.6-luna briefly found it, then \
+             fell back to apply_patch.",
+            "Same wager: gpt-6-sol and gpt-6-luna never called tool_search, met native-write \
+             refusals and stopped without result files. No other arm's outcome is claimed.",
+            "These 2026-09-24 hands-discovery observations motivate hands.notice (proposed \
+             decision 0069) and qualify nothing: 0.156.0 resume stays unqualified, identity \
+             stays 0.154.0, and task 11.1 still awaits its operator ruling.",
+        ]
+    );
+}
+
+/// The notice is adapter DATA: a change to its bytes, or to the dated
+/// evidence beside it, moves the adapter digest every consulting bundle
+/// pins — while the qualification those bytes carry stays whatever the
+/// resume block says.
+#[test]
+fn notice_and_evidence_bytes_each_move_the_adapter_digest() {
+    let notice = |workspace: &str| {
+        hands_adapter(json!({
+            "workspace": ["--tools", ""],
+            "notice": {"workspace_tool": workspace, "discovery_tool": "tool_search"},
+        }))
+    };
+    let base = notice("mcp__brokkr__workspace");
+    let renamed = notice("mcp__brokkr__other");
+    let plain = hands_adapter(json!({"workspace": ["--tools", ""]}));
+    let digest = |tree: &Tree| tree.adapters().digest("claude").unwrap().to_string();
+    assert_ne!(digest(&base), digest(&renamed));
+    assert_ne!(digest(&base), digest(&plain));
+
+    let evidence = |line: &str| {
+        let mut resume = supported_resume();
+        resume["work-site"]["limitations"] = json!([line]);
+        let tree = with_resume(resume);
+        let digest = tree.adapters().digest("claude").unwrap().to_string();
+        let qualified = tree.adapters().adapter("claude").unwrap().resume.value()["work-site"]
+            ["identity"]
+            .clone();
+        (digest, qualified)
+    };
+    let (before, before_identity) = evidence("2026-09-24 one observation");
+    let (after, after_identity) = evidence("2026-09-24 another observation");
+    assert_ne!(before, after);
+    assert_eq!(before_identity, after_identity);
+    assert_eq!(
+        before_identity,
+        json!({"version": "1.2.3", "applies_to": "1.2.3"})
+    );
+}
