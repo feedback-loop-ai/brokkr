@@ -31,6 +31,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
         hands_fragment: hands_fragment.iter().map(|part| part.to_string()).collect(),
         harness,
         resume: Default::default(),
+        hands_notice: None,
     }
 }
 

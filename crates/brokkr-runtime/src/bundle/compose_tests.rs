@@ -1066,6 +1066,12 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// pins the codex adapter declaration its seats resolve, so the measured
 /// declaration edit moves their composed identity. `recipes/fast` and
 /// `bundles/verify` keep their digests.
+/// Proposed decision 0069 moves the same two, and for the same reason:
+/// `adapters/codex.json` gained its `hands.notice` declaration and its
+/// dated 2026-09-24 hands-discovery limitations, and both seats pin that
+/// declaration. The values are this tree's actual compiles, measured
+/// before and after the edit; `recipes/fast` and `bundles/verify` again
+/// reported no movement.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
@@ -1073,11 +1079,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "be90c7cfe7dc1ca2984b6ffd78c4ee7ed9dda73bdc6d8820ac5267a6c135c138",
+        "83387b1d435155904a8357e3f0ff9ed2114c754faddda206ca0610c293cb4528",
     ),
     (
         "bundles/self",
-        "7718d5a5ee2d2a5ded5a7db73c41d8ddb80d1036363df754b1640e9f1e9c7b56",
+        "82a06fd746b40fee7e4b2efbbf957dee2756bac295d08fbbd058d9f358cdbdc2",
     ),
     (
         "bundles/verify",
@@ -1222,8 +1228,11 @@ fn a_composed_bundles_manifest_is_pinned() {
         // digest, the adapters its chain consults and the `engine` case's
         // `hands` and `boundary` entries all changed. The value agrees with
         // the `recipes/triage` pin in `tests/witness_digests.rs`; both are
-        // this tree's actual compile.
-        "53f0bfb28bc1a815430c1f59daaaad164b915f48bf659de673136ff1731155e1",
+        // this tree's actual compile. Proposed decision 0069 moves it
+        // again: the Codex declaration its lanes consult gained
+        // `hands.notice` and dated hands-discovery limitations, and the
+        // measured value again agrees with the witness pin.
+        "34307a137bde86adb3128118cb058e01f2d15d675b2949520c522212787695b6",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

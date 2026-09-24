@@ -219,6 +219,12 @@ fn workspace() -> PathBuf {
 /// `gpt-6-luna`, each probed live that day. An adapter's model map is
 /// bundle data, so every witness that resolves a seat through the claude
 /// or codex adapter moves; each digest below is the actual compile.
+/// Proposed decision 0069 moves the four witnesses that pin
+/// `adapters/codex.json` — `recipes/night-shift`, `recipes/wager-harness`
+/// (its inline Codex implementer), `recipes/triage` and
+/// `recipes/gpt-flash` — because the declaration gained `hands.notice`
+/// and dated 2026-09-24 hands-discovery limitations. The six others
+/// reported no movement; each value is measured before and after the edit.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -234,15 +240,15 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "12270381a037b59bf146ecd544882ff7498cae0075fa96d7c807aa73dadbf75a",
+        "343007a14232c5d7937541299e4e188831889fb2e246fac38a7a3505894c844a",
     ),
     (
         "recipes/wager-harness",
-        "198f49dbf455b3af1150470ff7d0c4885fa2d98276a3702865fb866f68c09ec8",
+        "59fa5ca833316dc7c501869672d1232a840dd61e5e7bc4114fd86313fc2b3ac1",
     ),
     (
         "recipes/triage",
-        "53f0bfb28bc1a815430c1f59daaaad164b915f48bf659de673136ff1731155e1",
+        "34307a137bde86adb3128118cb058e01f2d15d675b2949520c522212787695b6",
     ),
     (
         "recipes/research",
@@ -254,7 +260,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "e7f9cc846063353d5db55b59f1991634a22e04ec3761b857c44f3bd85f52df5d",
+        "ca14eb549869a21c46edf6cfdfdfa2563d87e323056ace1d953f6ff0ca07d785",
     ),
     (
         "bundles/verify",

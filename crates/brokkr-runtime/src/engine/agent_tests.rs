@@ -35,6 +35,7 @@ fn candidate(agent: &str, model: &str) -> Candidate {
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
         resume: Default::default(),
+        hands_notice: None,
     }
 }
 
@@ -384,6 +385,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: vec!["driver".into(), "--model".into(), "fable".into()],
         },
     );

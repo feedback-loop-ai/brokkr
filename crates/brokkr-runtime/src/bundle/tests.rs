@@ -1512,6 +1512,53 @@ fn a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite() {
     }
 }
 
+/// Proposed decision 0069: an inline built-in Codex verify seat's
+/// discovery notice is a site fact, so the dialect wrapper carries it to
+/// the executing coordinate with the adapter witness it was read from —
+/// and neither is left behind at, nor invented for, the wrapper's label.
+#[test]
+fn a_wrapped_inline_codex_verify_carries_its_notice_and_witness_to_the_checks_step() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let verify = json!({
+        "results": ["pass", "fail"], "role": "roles/role.md", "class": "work",
+        "driver": {"command": ["{brokkr}", "driver", "codex", "--",
+            "--model", "gpt-6-sol", "--effort", "high"]},
+        "hands": {"kind": "workspace", "network": false, "binds": []}
+    });
+    let (config, policy) = dialect_config(verify);
+    let bundle = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+    let adapters = crate::agents::Adapters::load(&root.join("adapters")).unwrap();
+    let codex = adapters.adapter("codex").unwrap();
+    let checks = &bundle.sites["verify:checks"];
+    assert_eq!(checks.inline_hands_notice, codex.hands_notice);
+    assert_eq!(
+        checks
+            .inline_hands_notice
+            .as_ref()
+            .map(|notice| notice.to_value()),
+        Some(json!({"workspace_tool": "mcp__brokkr__workspace", "discovery_tool": "tool_search"}))
+    );
+    assert_eq!(
+        checks.pin_drivers,
+        Some(json!({"codex": codex.digest}).as_object().unwrap().clone())
+    );
+    assert_eq!(
+        bundle
+            .sites
+            .get("verify")
+            .and_then(|facts| facts.inline_hands_notice.clone()),
+        None
+    );
+    assert_eq!(
+        bundle.sites["verify:dialect-verify"].inline_hands_notice,
+        None
+    );
+}
+
 /// And every bundle this tree ships walks clean, which is the other half
 /// of the same check: a rule that refused a shipped recipe would be a
 /// rule nobody could adopt.

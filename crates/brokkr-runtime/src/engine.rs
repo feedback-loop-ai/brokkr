@@ -1110,6 +1110,7 @@ impl Engine {
         // as a different effect.
         self.mark_hands(&site_name, &mut input);
         self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
+        self.mark_hands_notice(&site_name, selection.get(&None), &mut input);
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -1263,6 +1264,39 @@ impl Engine {
             && door == Some(ResultDoor::LastMessage)
         {
             input["result_delivery"] = json!("last-message");
+        }
+    }
+
+    /// The discovery notice (proposed decision 0069): a boxed seat whose
+    /// provider may defer MCP tools is told which tool is its workspace
+    /// and how to load it. The engine alone writes the private
+    /// `hands_notice` carrier, and clears it first, so a reused input, a
+    /// fallback to a provider that declares none, or a site that is not
+    /// boxed never keeps a carrier it does not own. It is written only
+    /// when this label's canonical facts resolve hands, the boundary is
+    /// one Brokkr boxes, and the provider serving THIS attempt declares a
+    /// notice: the selected link's, or — only for an inline site no link
+    /// serves — the notice its adapter declared at compile time. A spawn
+    /// time fact of the selected link, like `mark_delivery`'s door, so it
+    /// stays outside the requested digest.
+    fn mark_hands_notice(&self, label: &str, link: Option<&Candidate>, input: &mut Value) {
+        // Every driver input the engine composes is an object.
+        let _ = input
+            .as_object_mut()
+            .map(|object| object.remove("hands_notice"));
+        if !(self.has_hands(label) && self.boundary.is_boxed()) {
+            return;
+        }
+        let notice = match link {
+            Some(link) => link.hands_notice.as_ref(),
+            None => self
+                .bundle
+                .sites
+                .get(label)
+                .and_then(|facts| facts.inline_hands_notice.as_ref()),
+        };
+        if let Some(notice) = notice {
+            input["hands_notice"] = notice.to_value();
         }
     }
 
@@ -1896,6 +1930,7 @@ impl Engine {
                 copy_secret_binding_facts(&mut input, seat_input);
                 self.mark_hands(&label, &mut input);
                 self.mark_delivery(&label, gate, selection.get(&site), &mut input);
+                self.mark_hands_notice(&label, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
                 let spawn = self.compose(
                     attempt_id,
@@ -2204,6 +2239,7 @@ impl Engine {
                     self.mark_hands(&step_label, &mut input);
                     let step_gate = step.class == SeatClass::Gate;
                     self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
+                    self.mark_hands_notice(&step_label, selection.get(&site), &mut input);
                     let hands = self.hands_for(&step_label);
                     let spawn = self.compose(
                         attempt_id,
@@ -4843,6 +4879,9 @@ mod artifact_gate_tests;
 
 #[cfg(test)]
 mod conclude_tests;
+
+#[cfg(test)]
+mod notice_tests;
 
 #[cfg(test)]
 mod boundary_tests;

@@ -127,12 +127,132 @@ impl AdapterKind {
     }
 }
 
+/// The workspace tool the generic boxed paragraph names when no provider
+/// declaration applies — the tool `brokkr hands serve` has always served.
+pub const DEFAULT_WORKSPACE_TOOL: &str = "mcp__brokkr__workspace";
+
+/// The longest tool identifier a hands notice may carry, in ASCII bytes.
+pub const TOOL_IDENTIFIER_LIMIT: usize = 128;
+
+/// A provider's hands-discovery declaration (proposed decision 0069): the
+/// two tool identifiers a boxed seat needs when its harness may defer MCP
+/// tools behind a search tool — the workspace tool, and the tool that
+/// loads it. Exactly two names and nothing else: no prose, no template,
+/// no switch, so no other adapter value can reach a prompt through it.
+/// The adapter owns the names, the engine decides which seat hears them,
+/// and [`render_prompt`] owns the words around them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandsNotice {
+    workspace_tool: String,
+    discovery_tool: String,
+}
+
+impl HandsNotice {
+    /// The only two members, in the order a refusal names them.
+    pub const MEMBERS: [&'static str; 2] = ["workspace_tool", "discovery_tool"];
+
+    /// Read a declaration, refusing every other shape with the rule it
+    /// broke. The caller supplies the provider and field context.
+    pub fn parse(value: &Value) -> Result<HandsNotice, String> {
+        let Some(object) = value.as_object() else {
+            return Err(
+                "must be an object with exactly 'workspace_tool' and 'discovery_tool'".into(),
+            );
+        };
+        if let Some(key) = object
+            .keys()
+            .find(|key| !HandsNotice::MEMBERS.contains(&key.as_str()))
+        {
+            return Err(format!(
+                "has unknown member '{key}'; only 'workspace_tool' and 'discovery_tool' are allowed"
+            ));
+        }
+        let member = |name: &str| -> Result<String, String> {
+            match object.get(name) {
+                None => Err(format!("is missing '{name}'")),
+                Some(Value::String(text)) => {
+                    tool_identifier(text).map_err(|rule| format!("'{name}' {rule}"))?;
+                    Ok(text.clone())
+                }
+                Some(_) => Err(format!("'{name}' must be a string")),
+            }
+        };
+        Ok(HandsNotice {
+            workspace_tool: member("workspace_tool")?,
+            discovery_tool: member("discovery_tool")?,
+        })
+    }
+
+    pub fn workspace_tool(&self) -> &str {
+        &self.workspace_tool
+    }
+
+    pub fn discovery_tool(&self) -> &str {
+        &self.discovery_tool
+    }
+
+    /// The private carrier the engine writes into a driver's input.
+    pub fn to_value(&self) -> Value {
+        json!({
+            "workspace_tool": self.workspace_tool,
+            "discovery_tool": self.discovery_tool,
+        })
+    }
+}
+
+/// A tool identifier: 1 to [`TOOL_IDENTIFIER_LIMIT`] ASCII bytes matching
+/// `^[A-Za-z_][A-Za-z0-9_]*$`. A byte check, not a pattern engine.
+fn tool_identifier(text: &str) -> Result<(), String> {
+    if text.is_empty() || text.len() > TOOL_IDENTIFIER_LIMIT {
+        return Err(format!(
+            "must be 1 to {TOOL_IDENTIFIER_LIMIT} ASCII bytes; it is {} bytes",
+            text.len()
+        ));
+    }
+    let bytes = text.as_bytes();
+    let head = bytes[0].is_ascii_alphabetic() || bytes[0] == b'_';
+    let tail = bytes[1..]
+        .iter()
+        .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_');
+    if !(head && tail) {
+        return Err("must match ^[A-Za-z_][A-Za-z0-9_]*$".into());
+    }
+    Ok(())
+}
+
+/// The engine-supplied notice for this invocation, when the input carries
+/// a valid one. Read only inside the boxed arm of [`hands_paragraph`], so
+/// an unboxed seat never consults it. The carrier is written by the engine
+/// alone; an absent or malformed one supplies nothing.
+fn applicable_notice(input: &Value) -> Option<HandsNotice> {
+    input
+        .get("hands_notice")
+        .and_then(|value| HandsNotice::parse(value).ok())
+}
+
+/// The discovery paragraph (proposed decision 0069): which tool is the
+/// workspace, how to load it when the harness has deferred it, and that
+/// the native writes the box refuses are refused by design.
+fn discovery_paragraph(notice: &HandsNotice) -> String {
+    format!(
+        "\n\nYour workspace tool is `{workspace}`. If it is not listed, use `{discovery}` to \
+         load it before doing workspace work. Native shell and apply_patch writes are refused \
+         by design; this is not a blocker. Use the workspace tool for all workspace writes, \
+         including the result file.",
+        workspace = notice.workspace_tool(),
+        discovery = notice.discovery_tool(),
+    )
+}
+
 /// The hands paragraph a model-backed seat reads inside its result
 /// contract (decision 0043; decision 0046 rulings 3 and 4). Keyed off
 /// the input's `hands` marker and `boundary` word:
 ///
 /// - `hands: boxed` — today's words: the workspace tool is the only
-///   writer, whatever the boxed word is;
+///   writer, whatever the boxed word is. The tool is the one the
+///   provider's notice declares, when one applies, and otherwise the one
+///   `brokkr hands serve` has always served; the discovery paragraph
+///   follows it when a notice applies;
 /// - `boundary: harness` — the harness's own sandbox stands, no
 ///   workspace tool is served, and the result reaches the engine through
 ///   the door the input names: the one file the sandbox lets the seat
@@ -143,12 +263,18 @@ impl AdapterKind {
 fn hands_paragraph(input: &Value) -> String {
     let word = input.get("boundary").and_then(Value::as_str);
     if input.get("hands").and_then(Value::as_str) == Some("boxed") {
-        return "\n\nYour hands are boxed: the worktree, and this result file, are \
-         reachable ONLY through the `mcp__brokkr__workspace` tool. Your \
+        let notice = applicable_notice(input);
+        let workspace = notice
+            .as_ref()
+            .map_or(DEFAULT_WORKSPACE_TOOL, HandsNotice::workspace_tool);
+        let discovery = notice.as_ref().map(discovery_paragraph).unwrap_or_default();
+        return format!(
+            "\n\nYour hands are boxed: the worktree, and this result file, are \
+         reachable ONLY through the `{workspace}` tool. Your \
          harness's own shell runs outside the box and cannot write here — a \
          file written through it never reaches the engine. Write the result \
-         file with the workspace tool."
-            .to_string();
+         file with the workspace tool.{discovery}"
+        );
     }
     match word {
         Some("harness") if last_message_door(input) => "\n\nYour hands stand under the \
@@ -6087,3 +6213,6 @@ pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod notice_tests;

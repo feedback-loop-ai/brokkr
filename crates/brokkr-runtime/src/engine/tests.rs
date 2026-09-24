@@ -576,6 +576,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -662,6 +663,7 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -4979,6 +4981,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "check-effect",
                 "check-attempt",
@@ -5048,6 +5051,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "clean-effect",
                 "clean-attempt",
@@ -5113,6 +5117,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
             resume: Default::default(),
+            hands_notice: None,
             argv: driver_command(
                 "analyze-effect",
                 "analyze-attempt",
