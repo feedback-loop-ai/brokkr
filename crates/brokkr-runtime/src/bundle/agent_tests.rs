@@ -1101,6 +1101,32 @@ fn claude_inline(driver: &str, extra: &[&str]) -> Value {
     json!(command)
 }
 
+/// The complete refusal of a typed allow at an inline site whose authored
+/// command carries the capability-bearing option `canonical` at argument
+/// `at` (operator ruling 1; rebuild units 5b-fix and 5b-fix2).
+fn carries(canonical: &str, at: usize, kind: &str) -> String {
+    format!(
+        "bundle: seat 'review' declares 'tools.allow' while its authored command carries \
+         '{canonical}' (argument {at}), {kind}; the engine composes the typed list as its own \
+         contribution and a recipe authors no capability-bearing option beside it, so the site \
+         is refused rather than reconciled (operator ruling 1 of 2026-09-23; decision 0065 slice \
+         one, design D5.3)"
+    )
+}
+
+/// The complete refusal of a typed allow at an inline site whose authored
+/// command the `driver` grammar cannot place, which names the argument, a
+/// bounded label and the cause, and never the token (rebuild unit 5b-fix2).
+fn unreadable_inline(driver: &str, at: usize, label: &str, cause: &str) -> String {
+    format!(
+        "bundle: seat 'review' declares 'tools.allow' while its authored command cannot be read: \
+         the '{driver}' command grammar cannot place argument {at} ({label}), whose token is not \
+         echoed because it can carry a value: it {cause}. A control nobody can read is a control \
+         nobody can rule on, so it is refused rather than passed through (decision 0066 ruling 6; \
+         operator ruling 1 of 2026-09-23)"
+    )
+}
+
 /// The fixture's one Claude mapping, lowered as the engine's own segment.
 fn cargo_lowering() -> Option<crate::agents::LocalLowering> {
     Some(crate::agents::LocalLowering {
@@ -1486,13 +1512,11 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
             claude_inline("claude", &["stray"]),
             allow.clone(),
             false,
-            site(
-                "its arguments do not parse: the 'claude' command grammar cannot place argument \
-                 5 ('stray'): it is a bare word, and no positional argument is part of the \
-                 supported shape. A harness brokkr launches is parsed against a model of its \
-                 options, and a token that grammar cannot place is refused rather than passed \
-                 through, because a control nobody can read is a control nobody can rule on \
-                 (decision 0066 ruling 6)",
+            unreadable_inline(
+                "claude",
+                5,
+                "a bare word",
+                "is a bare word, and no positional argument is part of the supported shape",
             ),
         ),
     ];
@@ -1602,32 +1626,248 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
                 allow.clone(),
                 false,
             )),
-            format!(
-                "bundle: seat 'review' declares 'tools.allow' while its authored command carries \
-                 '{canonical}' (argument {at}), {kind}; the engine composes the typed list as its \
-                 own contribution and a recipe authors no capability-bearing option beside it, so \
-                 the site is refused rather than reconciled (operator ruling 1 of 2026-09-23; \
-                 decision 0065 slice one, design D5.3)"
-            ),
+            carries(canonical, at, kind),
         ));
     }
+    // Rebuild unit 5b-fix2 (chief S1 and the sweep): an additional
+    // directory grants file access, a session selector rejoins a saved
+    // working directory, a background session runs under a supervisor the
+    // engine does not launch, and a streamed input format carries control
+    // messages — each refused in both drivers, in every spelling the
+    // grammar places, split, `=`-joined, variadic and repeated, and named
+    // by its first occurrence without its value.
+    let added = "an additional directory, which grants file access";
+    let session = "a session selector, and a rejoined session restores its saved working directory";
+    for driver in ["claude", "lanetally"] {
+        for (written, canonical, at, kind) in [
+            (vec!["--add-dir", "SENTINEL-dir"], "--add-dir", 5, added),
+            (vec!["--add-dir=SENTINEL-dir"], "--add-dir", 5, added),
+            (
+                vec!["--verbose", "--add-dir", "SENTINEL-a", "SENTINEL-b"],
+                "--add-dir",
+                6,
+                added,
+            ),
+            (
+                vec![
+                    "--add-dir=SENTINEL-a",
+                    "--verbose",
+                    "--add-dir",
+                    "SENTINEL-b",
+                ],
+                "--add-dir",
+                5,
+                added,
+            ),
+            (vec!["--resume", "SENTINEL-id"], "--resume", 5, session),
+            (vec!["-r", "SENTINEL-id"], "--resume", 5, session),
+            (vec!["--resume=SENTINEL-id"], "--resume", 5, session),
+            (vec!["--continue"], "--continue", 5, session),
+            (vec!["-c"], "--continue", 5, session),
+            (vec!["--session-id=SENTINEL-id"], "--session-id", 5, session),
+            (
+                vec!["--bg"],
+                "--bg",
+                5,
+                "a background session, which runs under a supervisor the engine does not launch",
+            ),
+            (
+                vec!["--input-format", "stream-json"],
+                "--input-format",
+                5,
+                "an input format, whose streamed input can carry control messages the engine \
+                 does not compose",
+            ),
+            (
+                vec!["--input-format=text"],
+                "--input-format",
+                5,
+                "an input format, whose streamed input can carry control messages the engine \
+                 does not compose",
+            ),
+        ] {
+            rows.push((
+                format!("{driver} {}", written.join(" ")),
+                outcome(compiled(
+                    claude_inline(driver, &written),
+                    allow.clone(),
+                    false,
+                )),
+                carries(canonical, at, kind),
+            ));
+        }
+    }
+    // Every option the sweep judged inert is admitted beside the list, in
+    // one command, and lowered exactly as the bare pins are.
+    let inert = [
+        "--print",
+        "--verbose",
+        "--no-session-persistence",
+        "--fork-session",
+        "--output-format=stream-json",
+        "--fallback-model",
+        "claude-sonnet-5",
+        "--system-prompt",
+        "SENTINEL-prompt",
+        "--append-system-prompt=SENTINEL-append",
+        "--system-prompt-snapshot",
+        "SENTINEL-snapshot",
+        "--max-turns",
+        "3",
+    ];
+    rows.push((
+        "every inert option".to_string(),
+        match compiled(claude_inline("claude", &inert), allow.clone(), false) {
+            Ok(bundle) => format!(
+                "{:?} {:?}",
+                bundle.sites["review"].inline_local,
+                command_of(&bundle, "review")[8..].to_vec()
+            ),
+            Err(error) => error.to_string(),
+        },
+        format!("{:?} {:?}", cargo_lowering(), inert),
+    ));
     // A switch that bypasses permissions is no option the grammar models,
     // so it never parses; a web option reaches Claude only as a tool name.
-    rows.push((
-        "--dangerously-skip-permissions".to_string(),
-        outcome(compiled(
-            claude_inline("claude", &["--dangerously-skip-permissions"]),
-            allow.clone(),
-            false,
-        )),
-        site(
-            "its arguments do not parse: the 'claude' command grammar cannot place argument 5 \
-             ('--dangerously-skip-permissions'): it names no option. A harness brokkr launches is \
-             parsed against a model of its options, and a token that grammar cannot place is \
-             refused rather than passed through, because a control nobody can read is a control \
-             nobody can rule on (decision 0066 ruling 6)",
+    // No grammar failure echoes its token (rebuild unit 5b-fix2, S2): a
+    // duplicate, a malformed or an unknown option carrying a value, and a
+    // value that reads as an option, are named by a bounded label.
+    let repeats = |name: &str| {
+        format!(
+            "repeats option '{name}', which the grammar admits once; a CLI that resolves a \
+             duplicate last-wins would resolve it against the control the engine composed"
+        )
+    };
+    for (driver, written, at, label, cause) in [
+        (
+            "claude",
+            vec!["--dangerously-skip-permissions"],
+            5,
+            "an option the 'claude' grammar does not model".to_string(),
+            "names no option".to_string(),
         ),
-    ));
+        (
+            "claude",
+            vec!["--settings=SENTINEL-a", "--settings=SENTINEL-b"],
+            6,
+            "'--settings'".to_string(),
+            repeats("--settings"),
+        ),
+        (
+            "lanetally",
+            vec![
+                "--permission-mode=SENTINEL-a",
+                "--permission-mode=SENTINEL-b",
+            ],
+            6,
+            "'--permission-mode'".to_string(),
+            repeats("--permission-mode"),
+        ),
+        (
+            "claude",
+            vec!["--web-search=SENTINEL"],
+            5,
+            "an option the 'claude' grammar does not model".to_string(),
+            "names no option, or names one that has no equals-joined spelling".to_string(),
+        ),
+        (
+            "lanetally",
+            vec!["--strict-mcp-config=SENTINEL"],
+            5,
+            "'--strict-mcp-config'".to_string(),
+            "names no option, or names one that has no equals-joined spelling".to_string(),
+        ),
+        (
+            "claude",
+            vec!["--system-prompt", "--SENTINEL=x"],
+            6,
+            "an option the 'claude' grammar does not model".to_string(),
+            "stands where the value of '--system-prompt' belongs but reads as an option, so \
+             which of the two it is cannot be told"
+                .to_string(),
+        ),
+        (
+            "claude",
+            vec!["-"],
+            5,
+            "a bare word".to_string(),
+            "is a bare word, and no positional argument is part of the supported shape".to_string(),
+        ),
+    ] {
+        rows.push((
+            format!("{driver} {}", written.join(" ")),
+            outcome(compiled(
+                claude_inline(driver, &written),
+                allow.clone(),
+                false,
+            )),
+            unreadable_inline(driver, at, &label, &cause),
+        ));
+    }
+    // The rest of the accepted Claude catalogue (realm-capability-grants,
+    // "Authored provider configuration cannot supply capability authority")
+    // is no option the grammar models, so each refuses bare and joined,
+    // under the fixed unknown-option label, for both drivers.
+    for name in [
+        "--allow-dangerously-skip-permissions",
+        "--permission-prompt-tool",
+        "--setting-sources",
+        "--agent",
+        "--web",
+        "--web-fetch",
+        "--search",
+    ] {
+        for driver in ["claude", "lanetally"] {
+            for (token, cause) in [
+                (name.to_string(), "names no option"),
+                (
+                    format!("{name}=SENTINEL"),
+                    "names no option, or names one that has no equals-joined spelling",
+                ),
+            ] {
+                rows.push((
+                    format!("{driver} {token}"),
+                    outcome(compiled(
+                        claude_inline(driver, &[&token]),
+                        allow.clone(),
+                        false,
+                    )),
+                    unreadable_inline(
+                        driver,
+                        5,
+                        &format!("an option the '{driver}' grammar does not model"),
+                        cause,
+                    ),
+                ));
+            }
+        }
+    }
+    // An undeclared effort value can turn on more than effort (the CLI
+    // reference's `ultracode`), in either spelling; it is read, not echoed.
+    for written in [
+        ["--effort", "ultracode"].as_slice(),
+        &["--effort=ultracode"],
+    ] {
+        let mut command = vec![
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+        ];
+        command.extend(written);
+        rows.push((
+            written.join(" "),
+            outcome(compiled(json!(command), allow.clone(), false)),
+            "bundle: seat 'review' declares 'tools.allow' while its authored command carries \
+             '--effort' (argument 3) with a value outside the adapter's declared efforts (low, \
+             medium, high); an undeclared effort can turn on more than effort, so only a declared \
+             one stands beside the typed list (operator ruling 1 of 2026-09-23; decision 0065 \
+             slice one, design D5.3)"
+                .to_string(),
+        ));
+    }
     // The adapter's own gaps: a mapped native alias, and no mapping at all.
     let mut aliased = claude();
     aliased["tool_permissions"]["names"]["webfetch"] = json!("WebFetch");
@@ -1691,7 +1931,7 @@ fn an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_ref
              declares",
         ),
     ));
-    assert_eq!(rows.len(), 28);
+    assert_eq!(rows.len(), 91);
     each_row(rows);
 }
 

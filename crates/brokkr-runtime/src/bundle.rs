@@ -2712,15 +2712,30 @@ fn lower_inline_allow(
     // as its own contribution, and nothing it composes is merged with or
     // ordered against a capability control of the author's, read under the
     // harness's own grammar.
-    let authored = brokkr_protocol::native_controls::parse_origin(
-        &driver,
-        brokkr_protocol::native_controls::harness_arguments(command),
-        true,
-    )
-    .map_err(|refusal| CompileError::Invalid(refusal.at_compile(&format!("seat '{what}'"))))?;
+    let grammar = brokkr_protocol::native_controls::grammar::grammar(&driver)
+        .expect("the claude and lanetally grammars are modelled");
+    let authored = grammar
+        .parse(brokkr_protocol::native_controls::harness_arguments(command))
+        .map_err(|problem| {
+            // The problem's rendering quotes its token, and a joined or
+            // misplaced token carries its value (rebuild unit 5b-fix2, S2):
+            // only the position, a bounded label and the grammar's cause,
+            // built from fixed text and canonical option names, are named.
+            refuse(format!(
+                "while its authored command cannot be read: the '{}' command grammar cannot \
+                 place argument {} ({}), whose token is not echoed because it can carry a value: \
+                 it {}. A control nobody can read is a control nobody can rule on, so it is \
+                 refused rather than passed through (decision 0066 ruling 6; operator ruling 1 \
+                 of 2026-09-23)",
+                grammar.harness,
+                problem.at + 1,
+                unplaced_label(grammar, &problem.token),
+                problem.cause
+            ))
+        })?;
     if let Some((node, kind)) = authored
+        .nodes
         .iter()
-        .flat_map(|parsed| &parsed.nodes)
         .find_map(|node| authored_capability_control(node).map(|kind| (node, kind)))
     {
         return Err(refuse(format!(
@@ -2741,18 +2756,40 @@ fn lower_inline_allow(
                  unrestricted (decision 0065 slice one, design D5.3)"
             ))
         })?;
+    // An effort value can turn on more than effort: the CLI reference's
+    // `ultracode` turns on workflows. Only an effort the adapter declares
+    // stands beside the typed list, and the value is read, never echoed
+    // (rebuild unit 5b-fix2 sweep).
+    if let Some(node) = authored.nodes.iter().find(|node| {
+        node.name() == "--effort"
+            && !node
+                .values
+                .iter()
+                .all(|value| adapter.efforts.contains(value))
+    }) {
+        return Err(refuse(format!(
+            "while its authored command carries '--effort' (argument {}) with a value outside \
+             the adapter's declared efforts ({}); an undeclared effort can turn on more than \
+             effort, so only a declared one stands beside the typed list (operator ruling 1 of \
+             2026-09-23; decision 0065 slice one, design D5.3)",
+            node.at + 1,
+            adapter.efforts.join(", ")
+        )));
+    }
     crate::agents::lower_allow(adapter, allow, "site")
         .map_err(|cause| CompileError::Invalid(format!("seat '{what}': {cause}")))
 }
 
 /// What a capability-bearing option an author wrote at an inline typed
-/// site is (operator ruling 1 of 2026-09-23; rebuild unit 5b-fix), or
-/// `None` for an option that bears no capability. Judged on the parsed
-/// node, so every spelling of one option — split, `=`-joined, an alias —
-/// is judged at once, and its value is never read: a permission mode is
-/// refused whichever mode it names. Web and search reach Claude only as
-/// tool names, which ride a list; an option the grammar does not model
-/// never parses.
+/// site is (operator ruling 1 of 2026-09-23; rebuild units 5b-fix and
+/// 5b-fix2), or `None` for an option that bears no capability. Judged on
+/// the parsed node, so every spelling of one option — split, `=`-joined,
+/// an alias, repeated or variadic — is judged at once, and its value is
+/// never read: a permission mode is refused whichever mode it names. Web
+/// and search reach Claude only as tool names, which ride a list; an
+/// option the grammar does not model never parses. The whole sweep of the
+/// Claude/LaneTally grammar, with the options judged inert and why, is
+/// recorded in evidence.md ("Unit 5b-fix2").
 fn authored_capability_control(
     node: &brokkr_protocol::native_controls::grammar::Node,
 ) -> Option<&'static str> {
@@ -2762,10 +2799,44 @@ fn authored_capability_control(
         (Effect::Load | Effect::Config, _) => {
             "which loads or configures a server, a plugin or a settings document"
         }
+        (Effect::Session, _) => {
+            "a session selector, and a rejoined session restores its saved working directory"
+        }
         (_, "--permission-mode") => "a permission mode",
         (_, "--strict-mcp-config") => "an MCP configuration control",
+        (_, "--add-dir") => "an additional directory, which grants file access",
+        (_, "--bg") => {
+            "a background session, which runs under a supervisor the engine does not launch"
+        }
+        (_, "--input-format") => {
+            "an input format, whose streamed input can carry control messages the engine does not \
+             compose"
+        }
         _ => return None,
     })
+}
+
+/// A bounded, value-free label for the token a grammar could not place
+/// (rebuild unit 5b-fix2, S2): the modelled option it names, read before
+/// any `=`, or what kind of token it is. An unmodelled name is authored
+/// text of any length, so it is never echoed either.
+fn unplaced_label(
+    grammar: &brokkr_protocol::native_controls::grammar::Grammar,
+    token: &str,
+) -> String {
+    if !token.starts_with('-') || token == "-" {
+        return "a bare word".to_string();
+    }
+    let name = token.split_once('=').map_or(token, |(name, _)| name);
+    grammar
+        .options
+        .iter()
+        .flat_map(|spec| std::iter::once(spec.canonical).chain(spec.aliases.iter().copied()))
+        .find(|known| *known == name)
+        .map_or_else(
+            || format!("an option the '{}' grammar does not model", grammar.harness),
+            |known| format!("'{known}'"),
+        )
 }
 
 /// Which contribution [`expressed_sandbox`] judges (design D5.6): bytes an

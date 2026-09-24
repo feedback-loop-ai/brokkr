@@ -4227,3 +4227,217 @@ and which a runtime-only run can leave unreached. The workspace gate decides.
   allow.
 - **Pending:** external exact coverage, macOS and remote CI on the committed
   head. Nothing is pushed.
+
+**Correction (5b-fix2):** "every authored capability-bearing option refuses"
+above was not true. Its council (SECURITY-HOLD again) found `--add-dir`
+admitted (S1) and the grammar's raw token echoed ahead of the bounded
+refusal (S2). See "Unit 5b-fix2" below.
+
+## Unit 5b-fix2 — second repair of unit 5b, and the whole-grammar sweep, 2026-09-24
+
+Run `triage-directive-operator-ruling-ffd42ea5`, triage `chore`, phase
+implement, sole seat. The base was `fb201c93` on `slice-0065-capabilities`,
+clean. It answers the 5b-fix council's chief (S1, S2, E1) and adds the sweep
+the commission ordered. It does not accept the residual. No specification
+defect was found. Production: `bundle.rs` only (of unit 5b's inventory).
+`native_controls/grammar.rs` was **not** changed: S2's sanitisation lives on
+the inline typed path in `bundle.rs`, and grammar classification belongs to
+unit 10 (see below). Tests: `bundle/agent_tests.rs`, `tests/capability_launch.rs`.
+No recipe, adapter, pin, contract, fixture or policy byte moved. `grammar.rs`
+was mutated for M8 only and restored to HEAD byte for byte. This unit emits no
+permission mode; the acceptEdits template stays the operator's.
+
+### S1: `--add-dir` refuses on the inline typed path
+
+At `fb201c93` the Claude/LaneTally grammar types `--add-dir` as `Inert`, so
+`authored_capability_control` returned `None` and `tools.allow: [cargo]`
+beside `--add-dir DIR` compiled for both drivers, split and `=`. The accepted
+delta names it: realm-capability-grants, "Authored provider configuration
+cannot supply capability authority", catalogue row Claude (`--add-dir`
+"(additional filesystem permission)") and the scenario "Additional permissions
+and tool switches are authored authority" ("without … accepting the current
+grammar's inert/switch classification as authority"). The CLI reference
+(https://code.claude.com/docs/en/cli-reference, `--add-dir`): "Grants file
+access". It now refuses as "an additional directory, which grants file
+access", named by the first occurrence's canonical option and position, in
+the split, `=`, variadic (`--add-dir A B`) and repeated (`--add-dir=A …
+--add-dir B`) forms, for claude and lanetally, on the fixture and on the
+shipped adapters.
+
+### S2: grammar failures on the inline typed path echo nothing
+
+At `fb201c93`, `lower_inline_allow` returned `parse_origin`'s refusal, whose
+`Problem` rendering quotes the raw token. A duplicate `--settings=V` or
+`--permission-mode=V`, an unknown `--web-search=V`, a malformed
+`--strict-mcp-config=V`, a value that reads as an option, and a bare word all
+echoed their value; the 2048-character web value reached the refusal whole.
+
+The inline path now calls the public `grammar::grammar(driver).parse` and
+builds its own refusal from the argument position, a bounded label and the
+grammar's cause. The cause is built from fixed text and canonical option names
+only. The label (`unplaced_label`) is the modelled option name read before any
+`=`, `a bare word`, or the fixed `an option the '<harness>' grammar does not
+model`. An unmodelled name is authored text of any length, so it is never
+echoed either. This meets the delta's "The option label SHALL come from the
+grammar or a bounded sanitized key-free label for unknown syntax, not the raw
+token". The option/cause portion (label plus cause) stays under 300 scalar
+values (limit 512). The refusal for a 2048-character value has the same length as for a
+one-character value, and the shipped-adapter test asserts that.
+
+`Problem`'s own `Display` still quotes the token for every other caller: the
+launch path and the other compile sites. Redaction there is unit 10's
+("Bound the grammar and redact diagnostics").
+
+### The sweep: every option the Claude/LaneTally grammar admits
+
+`grammar.rs` `CLAUDE` (LaneTally is parsed by the same table) models the 27
+options below; every other token refuses as unparseable. Judged against
+operator ruling 1, the accepted catalogue (realm-capability-grants spec, "Authored
+provider configuration cannot supply capability authority", Claude and
+LaneTally rows) and the official CLI reference (cited "ref."). "Refused" is
+beside an inline typed allow, by `authored_capability_control`, value never
+read. "New" marks what this unit adds.
+
+| # | Option (spellings placed) | Grammar effect | Judgment | Basis |
+| --- | --- | --- | --- | --- |
+| 1 | `--tools` (split variadic, `=`) | List(Include) | refused: a tool list | ruling 1 "tool lists"; catalogue |
+| 2 | `--allowedTools`, `--allowed-tools` | List(Allow) | refused: a tool list | ruling 1; catalogue |
+| 3 | `--disallowedTools`, `--disallowed-tools` | List(Deny) | refused: a tool list | ruling 1 "allow or deny"; catalogue |
+| 4 | `--mcp-config` (variadic, repeat, `=`) | Load | refused: loads a server… | ruling 1 "MCP configuration"; catalogue |
+| 5 | `--plugin-dir` (variadic, repeat, `=`) | Load | refused: loads a plugin… | ruling 1 "plugin directories"; catalogue |
+| 6 | `--settings` | Load | refused: loads a settings document | catalogue "opaque settings/agent loading"; ref. "Load user settings from a JSON file or string" |
+| 7 | `--agents` | Load | refused | catalogue; ref. "Define custom subagents dynamically via JSON" |
+| 8 | `--strict-mcp-config` | Switch | refused: an MCP configuration control | catalogue "MCP `--mcp-config`, `--strict-mcp-config`" |
+| 9 | `--permission-mode` | Inert (misclassified) | refused: a permission mode | ruling 1 "permission modes"; catalogue |
+| 10 | `--add-dir` (variadic, repeat, `=`) | Inert (misclassified) | **new:** refused, an additional directory | catalogue "(additional filesystem permission)"; ref. "Grants file access" |
+| 11 | `--resume`, `-r` | Session | **new:** refused, a session selector | ref. "Sessions are resumed with their saved conversation history and working directory": a working directory the engine did not compose |
+| 12 | `--continue`, `-c` | Session | **new:** refused, a session selector | ref. "Load the most recent conversation in the current directory … Includes sessions that added this directory with /add-dir" |
+| 13 | `--session-id` | Session | **new:** refused with its class | ref. "Override the session ID for a new … session". No capability of its own, but a session selector only the engine places. The launch already refuses it (`adapters.rs` `CLAUDE_SELECTORS_WITH_VALUE`), so it is refused with its effect class, not split out of it |
+| 14 | `--bg` | Switch | **new:** refused, fail closed, **listed for the operator** | ref. "Start the session as a background agent and return immediately"; ref. (`--dangerously-skip-permissions`): "For sessions started with `--bg`, the mode persists when the supervisor restarts the session". A supervisor the engine does not launch restarts it, so the launch cannot prove its own restriction (ruling 2). The reference does not settle what else the supervisor restores |
+| 15 | `--input-format` | Inert | **new:** refused, fail closed, **listed for the operator** | ref. "Specify input format for print mode (options: `text`, `stream-json`)". Streamed JSON input is the channel the Agent SDK uses for control messages (permission-mode changes, in-process MCP servers). The CLI reference does not say which control messages the CLI accepts there, so it cannot be classified from the delta and the reference. `text` is refused with it because the value is never read |
+| 16 | `--effort` | Inert | **new:** admitted only with a value the adapter declares | ref. "`ultracode` requests `xhigh` effort with ultracode turned on": an effort value can turn on more than effort. Every inline built-in must pin an effort (decision 0040), so the option cannot be refused. The value is checked against the adapter's `efforts` and never echoed |
+| 17 | `--print`, `-p` | Switch | inert | ref. "Print response without interactive mode"; the adapter composes it anyway |
+| 18 | `--verbose` | Switch | inert | ref. "Print detailed output to stderr" |
+| 19 | `--no-session-persistence` | Switch | inert | ref. "sessions are not saved to disk and cannot be resumed": narrows |
+| 20 | `--fork-session` | Switch | inert | ref. "When resuming, create a new session ID … (use with `--resume` or `--continue`)". It acts only on a selector, and each selector is refused (11–13); the launch refuses it too |
+| 21 | `--output-format` | Inert | inert | ref. output format for print mode |
+| 22 | `--model` | Inert | inert | model selection, pinned and linted (decisions 0031, 0036, 0040) |
+| 23 | `--fallback-model` | Inert | inert | ref. fallback "when the primary model is overloaded or not available": model choice only |
+| 24 | `--system-prompt` | Inert | inert | ref. "Replace the default system prompt": text, which grants nothing |
+| 25 | `--append-system-prompt` | Inert | inert | ref. "Append custom text": text |
+| 26 | `--system-prompt-snapshot` | Inert | inert | ref. "Load the system prompt from a previous session by ID or name": prompt text only, not authority |
+| 27 | `--max-turns` | Inert | inert | ref. "Limit the number of agentic turns": narrows |
+
+These catalogue names are **not modelled** and refuse as unparseable in bare
+and `=` forms, under the fixed unknown-option label, for both drivers:
+`--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`,
+`--permission-prompt-tool`, `--setting-sources`, `--agent`, `--web`,
+`--web-search`, `--web-fetch` and `--search`.
+
+**For the operator (fail closed):** `--bg` (14) and `--input-format` (15) are
+refused because neither the delta nor the reference classifies their effect
+on permissions. Neither is used by any shipped recipe, bundle, adapter or
+agent: a grep of `recipes/`, `bundles/`, `adapters/` and `agents/` for the
+options finds them only in adapter prose. `--effort`'s declared-value check (16) is a
+judgment of this sweep, not a catalogue entry.
+
+**For unit 10 (grammar classification, not changed here):** `grammar.rs`
+types `--add-dir` (Claude and Codex) and `--permission-mode` as `Inert`,
+`--strict-mcp-config` and `--bg` as `Switch`, and `--input-format` as `Inert`.
+The inline typed path refuses them by name, because correcting their effect in
+`grammar.rs` would pre-empt unit 10's "Classify catalogue effects" and change
+every other caller's admission ahead of unit 12's authored refusal.
+
+### E1: the `--dangerously-skip-permissions` row's own mutation
+
+M8 below models `--dangerously-skip-permissions` in the `CLAUDE` table as a
+switch (`grammar.rs`, one line). The row failed at its exact assertion
+(`agent_tests.rs`, the inline-lowers test's `each_row`): the left was
+`compiled: [("review", Some(LocalTools { allow: Some(["cargo"]), … }))…]` and
+the right was the full unreadable-grammar refusal. After `git checkout --
+crates/brokkr-protocol/src/native_controls/grammar.rs` it passed again. The
+row's expected text changed in this unit (S2), so this is the fresh failure
+and restored pass the finding asked for.
+
+### New and changed tests
+
+- `bundle/agent_tests.rs::an_inline_claude_or_lanetally_site_lowers_…` grows
+  from 28 to 91 rows, with the count asserted. It adds the helpers `carries`
+  and `unreadable_inline`, which build the whole expected reasons.
+  - For both drivers, 13 rows each: `--add-dir` split, `=`, variadic
+    (argument 6) and repeated; `--resume`, `-r`, `--resume=`, `--continue`,
+    `-c`, `--session-id=`, `--bg`, `--input-format stream-json` and
+    `--input-format=text`.
+  - One row admits every inert option in one command and asserts the exact
+    lowering and authored tail.
+  - Seven S2 rows: the chief's duplicate `--settings=` and
+    `--permission-mode=`, unknown `--web-search=`, malformed
+    `--strict-mcp-config=`, a value that reads as an unmodelled option,
+    `--dangerously-skip-permissions`, and a lone `-`.
+  - 28 catalogue rows: 7 unmodelled names, bare and `=`, for both drivers.
+  - Two `--effort ultracode` rows, split and `=`.
+  - The earlier bare-word row now expects the sanitised reason.
+  Every sentinel is absent from every expected string, and each row asserts
+  the whole string.
+- `tests/capability_launch.rs::an_inline_typed_allow_beside_an_authored_capability_option_refuses_the_compile`
+  replaces the permission-mode test. It uses the shipped adapters, both
+  drivers, and six forms each: permission-mode split and `=`, and `--add-dir`
+  split, `=`, variadic and repeated.
+- `tests/capability_launch.rs::an_inline_typed_allow_beside_an_unreadable_long_value_refuses_without_echoing_it`:
+  the chief's 2048-character `--web-search=` value, on the shipped adapters,
+  for both drivers. It asserts the whole refusal, and that its length equals
+  the length for a one-character value.
+
+### Baseline reds (at `fb201c93`'s `bundle.rs`, the tests above in place)
+
+- inline-lowers: 64 of 91 rows red. Those are the 26 new capability rows
+  (left `compiled`), 36 unreadable-grammar rows (left: the old
+  echoed-token reason, e.g. `… argument 5 ('--web-search=SENTINEL') …`) and
+  the two `ultracode` rows (left `compiled`). The 27 green rows are the 26
+  earlier rows whose text did not change, plus the inert-admission row, which
+  is correctly green at baseline.
+- capability-option launch test: left `"compiled"` at `claude ["--add-dir",
+  "/SENTINEL"]`.
+- long-value launch test: left `bundle: seat 'work': its arguments do not
+  parse: … argument 5 ('--web-search=SSSS…` (the whole 2048-character value).
+
+### Mutations (each alone, compiling, restored, then rerun green)
+
+| # | Mutation (`bundle.rs` unless named) | Failing test: rows / assertion |
+| --- | --- | --- |
+| M1 | `--add-dir` arm removed | inline-lowers: 8 `--add-dir` rows; capability-option launch test (left `compiled`) |
+| M2 | `Effect::Session` arm narrowed to a name no node has | inline-lowers: 12 session rows |
+| M3 | `--bg` arm renamed | inline-lowers: 2 `--bg` rows |
+| M4 | `--input-format` arm renamed | inline-lowers: 4 `--input-format` rows |
+| M5a | `unplaced_label` echoes an unmodelled token | inline-lowers: 31 rows (the 28 catalogue rows, `--dangerously-skip-permissions`, `--web-search=`, the misplaced value); long-value launch test |
+| M5b | label lookup matches the whole token, not the name before `=` | inline-lowers: 3 rows (`--settings=`, `--permission-mode=` duplicates, `--strict-mcp-config=`) |
+| M5c | bare-word label echoes the token | inline-lowers: the bare-word row |
+| M5d | the lone `-` case dropped | inline-lowers: the `-` row (left: the unknown-option label) |
+| M6 | effort check matches no node | inline-lowers: 2 `ultracode` rows |
+| M7 | `--max-turns` refused | inline-lowers: the inert-admission row (left: `… carries '--max-turns' (argument 17), a turn limit …`) |
+| M8 | `grammar.rs`: `--dangerously-skip-permissions` modelled as a switch | inline-lowers: that row (E1 above) |
+
+### Gates
+
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings`, `cargo test -p brokkr-runtime
+--all-features --locked` (25 suites, all green), `cargo test -p brokkr-cli
+--test init_stacks --test init_doctor`, both `compile --bundle bundles/self`
+and `bundles/verify`, `openspec validate --all --strict` (18 passed) and
+`git diff --check` passed after restoration.
+
+The seat-side diagnostic `cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime
+--all-features --locked --branch --lcov` is not the gate. It reported one
+untaken branch in `bundle.rs` 2670–2849: the lone `-` case of
+`unplaced_label`. The `-` row was added for it and M5d binds it. It was not
+re-run after that row was added. The workspace gate decides.
+
+### Owed and open
+
+- **Open, for the operator:** `--bg` and `--input-format` are refused fail
+  closed (sweep rows 14 and 15). The acceptEdits template for inline commands
+  is unchanged and still open before unit 6.
+- **Unit 10:** the grammar classifications listed above, and `Problem`
+  redaction for every caller outside the inline typed path.
+- **Pending:** external exact coverage, macOS and remote CI on the committed
+  head. Nothing is pushed.

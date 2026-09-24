@@ -714,6 +714,30 @@ compiles, `openspec validate` and `git diff --check` passed. **Open,
 operator's:** the acceptEdits template for inline commands (unchanged). **Not
 fully green:** external exact coverage, macOS and remote CI are pending.
 
+**Correction (5b-fix2):** the tick above says every authored
+capability-bearing option refuses. That claim was false, and 5b-fix completes
+only with 5b-fix2 below. Its council held it (SECURITY-HOLD) for three
+reasons: `--add-dir`, which the grammar types `Inert`, still compiled (S1);
+grammar failures on the path echoed their raw token (S2); and the
+`--dangerously-skip-permissions` row had no mutation of its own (E1).
+
+- [x] 5b-fix2 Unit 5b-fix2 repairs unit 5b a second time, under the 5b-fix council's SECURITY-HOLD (chief S1, S2, E1), and sweeps the whole Claude/LaneTally grammar rather than one flag. On the inline typed path, `--add-dir` refuses in its split, `=`, variadic and repeated forms. So does each session selector, `--bg` and `--input-format`. `--effort` stands only with a value the adapter declares. Every grammar failure refuses by position, a bounded label and the grammar's cause, and never echoes its token. The sweep table, covering all 27 modelled options and the unmodelled catalogue names, is recorded with a citation for each. Requirements: operator ruling 1; realm-capability-grants "Authored provider configuration cannot supply capability authority"; [Refusal proofs assert the full reason][SC8]. (run `triage-directive-operator-ruling-ffd42ea5`)
+
+Observed 2026-09-24 (evidence.md, "Unit 5b-fix2"). The only production file
+changed is `bundle.rs`: `authored_capability_control` gains four arms, and
+`unplaced_label` and the declared-effort check are new. `grammar.rs` is
+unchanged; its misclassifications are noted for unit 10. The inline-lowers
+test grows from 28 to 91 rows. capability_launch gains the shipped-adapter
+`--add-dir` and permission-mode table for both drivers, and the
+2048-character value test. At `fb201c93`, 64 of 91 rows and both launch tests
+were red. M1–M8 (with M5a–d) each bound and were restored. M8 is the E1 row's
+own mutation. fmt, clippy, the brokkr-runtime suite, the brokkr-cli init
+suites, both bundle compiles, `openspec validate` and `git diff --check`
+passed. **Open, operator's:** `--bg` and `--input-format` are refused fail
+closed, because neither the delta nor the reference classifies them. The
+acceptEdits template is unchanged. **Not fully green:** external exact
+coverage, macOS and remote CI are pending.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

@@ -831,41 +831,120 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
     );
 }
 
-/// Rebuild unit 5b-fix (finding S1): the typed allow is never lowered beside
-/// a permission mode its author wrote, which could approve tools the
-/// engine's list does not name. On the shipped adapters, the seat unit 5b
-/// admitted — `tools.allow` with an authored `bypassPermissions` beside it
-/// — refuses at compile in both spellings, naming the option and its
-/// position and never the mode.
+/// What compiling a solo bundle whose inline `driver` seat pins the shipped
+/// model and effort, authors `written` behind them and declares
+/// `tools.allow: ["cargo"]` said, on the shipped adapters, in a realm that
+/// grants nothing.
+fn inline_typed_allow_beside(driver: &str, written: &[&str]) -> String {
+    let operator = Operator::new();
+    let mut authored = vec![
+        "{brokkr}",
+        "driver",
+        driver,
+        "--",
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "high",
+    ];
+    authored.extend(written);
+    one_inline_seat(&operator, &authored);
+    typed_allow(&operator, json!(["cargo"]));
+    let context = CapabilityContext::no_grants("private", operator.root());
+    match solo_bundle(&operator, &workspace().join("adapters"), &context) {
+        Ok(_) => "compiled".to_string(),
+        Err(refusal) => refusal,
+    }
+}
+
+/// Rebuild units 5b-fix and 5b-fix2 (chief S1): the typed allow is never
+/// lowered beside a permission mode or an additional directory its author
+/// wrote, which could approve tools or reach files the engine's list does
+/// not name. On the shipped adapters, the seats earlier units admitted —
+/// `tools.allow` with an authored `bypassPermissions` or `--add-dir` beside
+/// it — refuse at compile for both drivers in every spelling the chief
+/// probed and the repeated and variadic ones, naming the option and its
+/// position and never the mode or the directory.
 #[test]
-fn an_inline_typed_allow_beside_an_authored_permission_mode_refuses_the_compile() {
-    for written in [
-        &["--permission-mode", "bypassPermissions"][..],
-        &["--permission-mode=bypassPermissions"][..],
-    ] {
-        let operator = Operator::new();
-        let mut authored = vec![
-            "{brokkr}",
-            "driver",
-            "claude",
-            "--",
-            "--model",
-            "claude-opus-5-5",
-            "--effort",
-            "high",
-        ];
-        authored.extend(written);
-        one_inline_seat(&operator, &authored);
-        typed_allow(&operator, json!(["cargo"]));
-        let context = CapabilityContext::no_grants("private", operator.root());
-        assert_eq!(
-            solo(&operator, &workspace().join("adapters"), &context),
+fn an_inline_typed_allow_beside_an_authored_capability_option_refuses_the_compile() {
+    let carries = |canonical: &str, at: usize, kind: &str| {
+        format!(
             "bundle: seat 'work' declares 'tools.allow' while its authored command carries \
-             '--permission-mode' (argument 5), a permission mode; the engine composes the typed \
-             list as its own contribution and a recipe authors no capability-bearing option \
-             beside it, so the site is refused rather than reconciled (operator ruling 1 of \
-             2026-09-23; decision 0065 slice one, design D5.3)",
-            "{written:?}"
+             '{canonical}' (argument {at}), {kind}; the engine composes the typed list as its \
+             own contribution and a recipe authors no capability-bearing option beside it, so the \
+             site is refused rather than reconciled (operator ruling 1 of 2026-09-23; decision \
+             0065 slice one, design D5.3)"
+        )
+    };
+    let added = "an additional directory, which grants file access";
+    for driver in ["claude", "lanetally"] {
+        for (written, canonical, at, kind) in [
+            (
+                &["--permission-mode", "bypassPermissions"][..],
+                "--permission-mode",
+                5,
+                "a permission mode",
+            ),
+            (
+                &["--permission-mode=bypassPermissions"][..],
+                "--permission-mode",
+                5,
+                "a permission mode",
+            ),
+            (&["--add-dir", "/SENTINEL"][..], "--add-dir", 5, added),
+            (&["--add-dir=/SENTINEL"][..], "--add-dir", 5, added),
+            (
+                &["--add-dir", "/SENTINEL-a", "/SENTINEL-b"][..],
+                "--add-dir",
+                5,
+                added,
+            ),
+            (
+                &[
+                    "--verbose",
+                    "--add-dir=/SENTINEL-a",
+                    "--add-dir",
+                    "/SENTINEL-b",
+                ][..],
+                "--add-dir",
+                6,
+                added,
+            ),
+        ] {
+            assert_eq!(
+                inline_typed_allow_beside(driver, written),
+                carries(canonical, at, kind),
+                "{driver} {written:?}"
+            );
+        }
+    }
+}
+
+/// Rebuild unit 5b-fix2 (chief S2): a grammar failure on the inline typed
+/// path never echoes the authored token. The chief's 2048-character web
+/// value, an unknown option in its `=` spelling, is refused on the shipped
+/// adapters by position, a bounded label and the grammar's cause, and the
+/// whole refusal is the same length whatever the value's length.
+#[test]
+fn an_inline_typed_allow_beside_an_unreadable_long_value_refuses_without_echoing_it() {
+    let long = format!("--web-search={}", "S".repeat(2048));
+    for driver in ["claude", "lanetally"] {
+        let refusal = inline_typed_allow_beside(driver, &[&long]);
+        assert_eq!(
+            refusal,
+            format!(
+                "bundle: seat 'work' declares 'tools.allow' while its authored command cannot be \
+                 read: the '{driver}' command grammar cannot place argument 5 (an option the \
+                 '{driver}' grammar does not model), whose token is not echoed because it can \
+                 carry a value: it names no option, or names one that has no equals-joined \
+                 spelling. A control nobody can read is a control nobody can rule on, so it is \
+                 refused rather than passed through (decision 0066 ruling 6; operator ruling 1 \
+                 of 2026-09-23)"
+            )
+        );
+        assert_eq!(
+            refusal.len(),
+            inline_typed_allow_beside(driver, &["--web-search=S"]).len()
         );
     }
 }
