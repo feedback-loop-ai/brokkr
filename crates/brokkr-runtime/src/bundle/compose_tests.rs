@@ -1072,18 +1072,24 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// declaration. The values are this tree's actual compiles, measured
 /// before and after the edit; `recipes/fast` and `bundles/verify` again
 /// reported no movement.
+/// The Opus 5.5 / Fable 5.1 prompt audit (acffed37) moves three of the
+/// four: `recipes/fast`'s implementer role, and the implementer charter
+/// `recipes/panel-review` and `bundles/self` seat, gained a scope
+/// paragraph, an evidence paragraph and a targeted-edit sentence.
+/// `bundles/verify` seats no implementer and reported no movement; each
+/// value is the test's own reported digest.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "d0906fed3119985a38c8883a26b27cce299dbc0aa36352cb088f05d401d847d4",
+        "57d76d0308f251652925f8a3acb40c1b55e664e4880875f9207aea37eb5c3e54",
     ),
     (
         "recipes/panel-review",
-        "83387b1d435155904a8357e3f0ff9ed2114c754faddda206ca0610c293cb4528",
+        "6a1b5cfc2e853bd48e45adc4b31e48546696ebc5857858bf297d750729c0599e",
     ),
     (
         "bundles/self",
-        "82a06fd746b40fee7e4b2efbbf957dee2756bac295d08fbbd058d9f358cdbdc2",
+        "697b7a2e7e34d1ff6a741ca3e7e0fa6c7f6b26af54d4a602b7b146618caca757",
     ),
     (
         "bundles/verify",
@@ -1231,8 +1237,12 @@ fn a_composed_bundles_manifest_is_pinned() {
         // this tree's actual compile. Proposed decision 0069 moves it
         // again: the Codex declaration its lanes consult gained
         // `hands.notice` and dated hands-discovery limitations, and the
-        // measured value again agrees with the witness pin.
-        "34307a137bde86adb3128118cb058e01f2d15d675b2949520c522212787695b6",
+        // measured value again agrees with the witness pin. The Opus 5.5 /
+        // Fable 5.1 prompt audit (acffed37) moves it once more: the SDD
+        // smith's charter and its composed `fast` base's implementer role
+        // gained the scope and evidence text; the measured value agrees with
+        // the witness pin.
+        "dc83420d3b8369ae7e5ed441cef178f700ea32b930044979eb285945a810a344",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
