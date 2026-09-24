@@ -1009,6 +1009,13 @@ inline-Codex-sandbox lowering unit (`bundle.rs`, `engine.rs`, possibly
 `native_controls.rs`) and an operator ruling on the inline class authority.
 No production, test or pin byte moved.
 
+Observed 2026-09-25, second visit of the same run after triage re-ruled
+`chore` (evidence.md, "Unit 7 — blocked on the second visit"), on `de16b442`.
+**Blocked, not started.** No code or design byte moved since the first
+visit. Review-first migrated as the Migration Plan says was refused again with
+the same exact reason. D5.3 and unit 7 contradict each other, and only the
+operator can resolve that. No production, test or pin byte moved.
+
 ## 8. Unit 8 — Migrate wager and finish the inventory
 
 - [ ] 8.1 Unit 8 migrates wager-harness/advice and reruns all-directory inventory. Verify no shipped authored catalogue flag remains before refusal and no local limit broadens. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.19)

@@ -6035,3 +6035,58 @@ restored with `git checkout`. `git status --short` was empty afterwards.
 **Gates:** none run. No production, test or pin byte moved. `openspec validate
 --all --strict` and `git diff --check` were run on this record (see the 7.1
 note).
+
+## Unit 7 — blocked on the second visit, 2026-09-25
+
+The first visit's `oversized` went back to triage. Triage ruled `chore` again
+(framing `.forge/tasks/0065-u7-754c7689.md`), and the run came back to
+implement at `de16b442` with a clean tree. The result is **blocked**. No
+production, test or pin byte moved.
+
+### Nothing moved since the first visit
+
+`git diff d9a20de4 de16b442 --stat` touches only this `evidence.md` and
+`tasks.md`. `design.md` and `operator-ruling-2026-09-23.md` are unchanged.
+D5.3's row "Open work with hands; any no-hands sandbox; inline sandbox" still
+reads "Refuse, including danger-full-access". `record_inline_tools` in
+`bundle.rs` still refuses any inline `tools.sandbox`.
+
+### Re-probe
+
+`recipes/review-first/bundle.json` was edited as the Migration Plan says. The
+review's `--sandbox workspace-write` pair was dropped and seat-level
+`"tools": {"sandbox": "workspace-write"}` added. The result of
+`cargo run --locked -q -p brokkr-cli -- compile --bundle recipes/review-first`
+was:
+
+> error: bundle: seat 'review' declares 'tools.sandbox' on a site whose command
+> no office composes; the engine does not yet lower a typed local sandbox into
+> an authored command, so the restriction would be recorded and not delivered —
+> it is kept exactly and refused rather than run unrestricted, until decision
+> 0065 slice one's lowering and origin transport prove its delivery (design
+> D5.3); an authored flag cannot stand in for it
+
+The file was restored with `git checkout` and `git status --short` was empty.
+
+A side observation, not fixed here. On a first, misplaced attempt the same
+`tools` object sat under `driver` instead of the seat, with `--sandbox`
+removed. The recipe compiled (digest `c262f24e…`), with no sandbox recorded
+and none in the command. A misplaced `tools` key is therefore silently
+ignored, and the seat runs at the harness default. That is a fail-open
+authoring trap, named as a follow-up.
+
+### Why blocked, not oversized
+
+The settled design contradicts itself for these three seats. Unit 7 moves each
+inline Codex `--sandbox` to `tools.sandbox`. D5.3, as accepted, refuses inline
+sandbox and admits neither `danger-full-access` nor gate `workspace-write`.
+The commission says a design that cannot be implemented as written is
+reported as blocked, and that triage does not reopen the design. A second
+return to triage would repeat this loop. The split recorded in the first-visit
+section still stands, and it needs the operator's ruling: a lowering unit
+before 7, the inline class authority, and optionally 7a for `bundles/verify`
+alone.
+
+**Gates:** `openspec validate --all --strict` and `git diff --check` on this
+record (see the 7.1 note). No other gate was run, because nothing it covers
+moved.
