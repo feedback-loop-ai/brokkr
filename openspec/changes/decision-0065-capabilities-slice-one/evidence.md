@@ -5928,3 +5928,110 @@ before the next one.
 
 **Pending:** exact coverage (`scripts/coverage-exact.sh`, outside the box),
 macOS and remote CI. This unit moves no production Rust.
+
+## Unit 7 — oversized: inline Codex sites have no typed sandbox lowering, 2026-09-25
+
+Run `0065-rebuild-unit-7-see-the-unit-d8cb2dcd`, triage `chore`, phase
+implement, sole seat. The head was `d9a20de4` on `slice-0065-capabilities`,
+clean. There is no `returned_from`. The result is **oversized**. No
+production, test or pin byte moved. This record and the 7.1 note are the only
+edits.
+
+### What the unit needs
+
+The Migration Plan migrates four seats in three files:
+
+- `bundles/verify` review, an inline Claude site: drop `--permission-mode
+  acceptEdits` and `--allowedTools <list>`, declare `tools.allow` with the two
+  narrow gh names.
+- `recipes/standby` implement and review, inline Codex sites: move `--sandbox`
+  to `tools.sandbox`, implement `danger-full-access`, review `workspace-write`.
+- `recipes/review-first` review, an inline Codex site: move `--sandbox
+  workspace-write` to `tools.sandbox`.
+
+None of the three Codex seats names an `agent` or has `hands`.
+
+### What the code and design do at `d9a20de4`
+
+`crates/brokkr-runtime/src/bundle.rs::record_inline_tools` (2719–2728) refuses
+any `tools.sandbox` at an inline site. Units 5b and 5c lifted the inline guard
+for `tools.allow` only. `bundle/agent_tests.rs::inline_sandbox_refusal` (1063)
+and `an_inline_site_records_a_checked_empty_declaration_and_refuses_each_nonempty_field`
+(1299) bind the sandbox refusal. The design says the same thing. D5.3's row
+"Open work with hands; any no-hands sandbox; inline sandbox" reads "Refuse,
+including danger-full-access". Unit 5b's text keeps "inline sandbox" among
+the shapes that refuse exactly. No unit before 7 in the Rebuild order lowers a
+typed sandbox into an inline command.
+
+The classes are a second gap. D5.3's only admitted sandbox rows are agent-backed
+Codex sites with hands: read-only at a gate or box, workspace-write at harness
+work (`admitted_sandbox`, 3115–3124). No row admits `danger-full-access`, and
+no row admits `workspace-write` at a gate. The standby implement seat
+(`danger-full-access`, work) and both reviewers (`workspace-write`, gate) need
+exactly those classes.
+
+### Probes
+
+Each file was edited in place as the Migration Plan directs, compiled with
+`cargo run --locked -q -p brokkr-cli -- compile --bundle <dir>`, and then
+restored with `git checkout`. `git status --short` was empty afterwards.
+
+- Baseline: `recipes/standby` compiled as shipped (digest
+  `78a632c7…`), with authored `--sandbox` in both Codex commands.
+- `recipes/standby`, both `--sandbox` pairs replaced by `tools.sandbox`: exit
+  1 with
+  > error: bundle: bundle: seat 'implement' declares 'tools.sandbox' on a site
+  > whose command no office composes; the engine does not yet lower a typed
+  > local sandbox into an authored command, so the restriction would be
+  > recorded and not delivered — it is kept exactly and refused rather than
+  > run unrestricted, until decision 0065 slice one's lowering and origin
+  > transport prove its delivery (design D5.3); an authored flag cannot stand
+  > in for it (composed: standby -> fast)
+- `recipes/review-first`, the review's `--sandbox workspace-write` replaced by
+  `"tools": {"sandbox": "workspace-write"}`: exit 1 with the same refusal for
+  seat 'review' (no composed suffix).
+- `bundles/verify`, both flags removed and `"tools": {"allow": ["cargo", "git",
+  "python3", "pytest", "ls", "rg", "gh-pr-view", "gh-run-view"]}` added:
+  compiled (digest `3ee34685…`). The diff is saved uncommitted at
+  `.forge/unit-7-d8cb2dcd-verify-probe.patch`. No test, pin or gate was run on
+  it, so its final command and moved pins are unobserved.
+
+### Why the unit's three files cannot close it
+
+- Keeping the authored `--sandbox` beside a typed class is the reconciliation
+  the operator ruling forbids. D5.3 says an authored flag cannot stand in.
+- Removing `--sandbox` without a typed class drops the restriction to the
+  harness default. The Migration Plan says that is not migration.
+- Moving the seats to agents with hands is outside the three files. The design
+  rejects new agent files made to avoid inline typed support. Even there, the
+  D5.3 table refuses both classes the seats need, so it would narrow or refuse
+  them, which is not preservation.
+- Migrating only `bundles/verify` would close part of 7.1. The unit is one
+  visit and 7.1 names all three recipes.
+
+### The split this needs
+
+1. **Inline Codex sandbox lowering (before unit 7).** Lift the
+   `record_inline_tools` sandbox refusal only for a command that dispatches the
+   codex driver, with no hands and no authored sandbox or config control. The
+   engine emits the codex adapter's `--sandbox <class>` as its own `local`
+   segment, and `Expected.local.sandbox` records it. The launch parses it back
+   (ruling 2). Likely production files: `crates/brokkr-runtime/src/bundle.rs`,
+   `engine.rs`, and possibly `crates/brokkr-protocol/src/native_controls.rs` if
+   the expected-state value or parse-back must change. Tests:
+   `bundle/agent_tests.rs` (the inline sandbox refusal rows move) and
+   `tests/capability_launch.rs`. Unit 8's wager-harness Codex implement
+   (`danger-full-access`) has the same dependency.
+2. **An authority ruling for that unit.** The design must say which classes an
+   inline Codex site may request, and under which boundary. The D5.3 table
+   admits no `danger-full-access` and no gate `workspace-write`. D5 says a
+   request is "checked against 0046's realm/boundary authority", but no row
+   states that check for inline sites. This is the operator's to rule. The
+   implement seat does not choose it.
+3. **Unit 7 as written**, after 1 and 2, or with verify split out as a unit 7a
+   now. The saved patch shows 7a is feasible within `bundles/verify/bundle.json`
+   and its pins.
+
+**Gates:** none run. No production, test or pin byte moved. `openspec validate
+--all --strict` and `git diff --check` were run on this record (see the 7.1
+note).

@@ -995,6 +995,20 @@ and remote CI are pending.
 
 - [ ] 7.1 Unit 7 migrates verify/standby/review-first to typed permissions/sandbox. Verify exact commands, unchanged boundary authority and measured pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.18)
 
+Observed 2026-09-25 (evidence.md, "Unit 7 — oversized: inline Codex sites
+have no typed sandbox lowering"), run `0065-rebuild-unit-7-see-the-unit-d8cb2dcd`,
+on `d9a20de4`. **Oversized, not started.** Standby's two Codex seats and
+review-first's Codex reviewer are inline sites. `bundle.rs::record_inline_tools`
+still refuses any inline `tools.sandbox`, as D5.3 and unit 5b's text require.
+Both recipes, migrated as the Migration Plan says, were refused at compile with
+that exact reason. The D5.3 table also admits no `danger-full-access` and no
+gate `workspace-write`, which are the classes these seats carry. The verify
+reviewer's typed allow compiled (patch saved at
+`.forge/unit-7-d8cb2dcd-verify-probe.patch`, untested). The unit needs a prior
+inline-Codex-sandbox lowering unit (`bundle.rs`, `engine.rs`, possibly
+`native_controls.rs`) and an operator ruling on the inline class authority.
+No production, test or pin byte moved.
+
 ## 8. Unit 8 — Migrate wager and finish the inventory
 
 - [ ] 8.1 Unit 8 migrates wager-harness/advice and reruns all-directory inventory. Verify no shipped authored catalogue flag remains before refusal and no local limit broadens. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.19)
