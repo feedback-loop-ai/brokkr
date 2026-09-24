@@ -139,3 +139,18 @@ already emits it when composing an agent-backed seat:
    An authored permission mode remains refused (ruling 1; unit 5b-fix).
 4. It applies only where the seat's typed declaration lowers at an inline
    site. Every other inline shape keeps its existing refusal.
+
+## Addendum, 2026-09-25: a standing admission for forced test lines
+
+Rebuild units 5c-fix-b, 5c-fix2 and 6 each stopped, correctly under the
+scope rule of the implementer charter, to ask for one to four lines in test
+files outside their named inventory. The operator ruled a **standing
+admission** for units 7 through 27: a few test-file lines outside a unit's
+named files are admitted without stopping when the compiler forces them (for
+example, a new struct field every literal must name) or when a test fixture
+needs them because it swaps the shipped driver for a fixture driver and the
+unit's change reaches it. Each such line adds no assertion, removes no
+assertion and changes no tested behaviour, and each is recorded in
+`evidence.md` and in the unit's `tasks.md` note. Anything else outside a
+unit's files, including any production file, any new assertion or any changed
+behaviour, still stops as `oversized`.
