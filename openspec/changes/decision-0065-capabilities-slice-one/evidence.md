@@ -5694,3 +5694,104 @@ code.
 5c-fix2.1 and 5c.1 are ticked in tasks.md. **Pending:** exact coverage green
 on the final head (not re-run here; the eight baseline `bundle.rs` records
 above predate this unit), macOS and remote CI. Nothing is pushed.
+
+## Unit 6 — oversized: two fixtures outside the inventory, 2026-09-25
+
+Run `0065-rebuild-unit-6-see-the-unit-d4429c6f`, triage `chore`, phase
+implement, sole seat. The head was `c1db06b6`, clean. The result is
+**oversized**. The migration works inside the unit's three data files, but it
+breaks two test fixtures that are not in the unit's inventory. Following the
+commission's rule, this visit stopped instead of widening. No production,
+test or pin byte moved. This record and the 6.1 note are the only committed
+edits.
+
+### What was built and observed (then reverted)
+
+- **New test**, in `crates/brokkr-runtime/tests/capability_launch.rs`:
+  `the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_limits`.
+  It compiles each shipped recipe directory with
+  `compile_with_capabilities`, using the workspace `agents/` and `adapters/`,
+  realm `private`, `Boundary::Harness` and `CapabilityContext::no_grants`
+  rooted at the canonicalised `Operator` temp root. It seals each of the five
+  seats with the suite's `sealed` and composes each one with `try_launch`.
+  One `assert_eq!` covers all five seats. For each seat it checks the
+  authored command, the outcomes' `held` counts, the spawn, the sealed
+  segments, the expected `local`, `native` and `template`, and the whole
+  final Claude command. The expected values are the recipes' former authored
+  literals: the ordered names, the joined `--allowedTools` value (including
+  `Bash(.venv/bin/pytest:*)`), `--permission-mode acceptEdits` as the
+  `template` segment, the list as the `local` segment, and a final command
+  that ends `--disallowedTools WebFetch,WebSearch`.
+- **Baseline red on the unmigrated recipes** (`cargo test --locked -p
+  brokkr-runtime --test capability_launch the_shipped_claude_recipes`). The
+  test failed at its `assert_eq!` (line 3254 in the patched file), and all
+  five seats differed. Each seat's authored command still carried both flag
+  pairs. It sealed as one `authored` segment holding them, with `local`
+  `{"allow": {"kind": "unspecified"}, "application": {"kind":
+  "unrestricted"}}` and `template` `{"kind": "none"}`. Its `held` was `[0]`,
+  its native state was the expected known/denied, and its **final command
+  bytes already matched the migrated literal**. So the migration changes who
+  owns each token, and not what launches.
+- **Migrated.** Each of the five seats lost both authored pairs and gained
+  `"tools": {"allow": [...]}` in the ordered names from the triage table. The
+  same test then passed (1 passed).
+- **Workspace suite after the migration** (`cargo test --workspace
+  --all-features --locked --no-fail-fast`):
+  - In inventory, the measured pins moved. The recorded pin is first, then
+    the value measured on the migrated tree.
+    - `witness_digests.rs` `pinned_bundles_keep_their_recorded_digest`,
+      `recipes/fast`: from
+      `97f759f63ba98a1ca3fee21486a1ca840d1abf2c216f96adb8ef9b45f10a97ff` to
+      `cdaf49404807ed930201e101eb2bab9a9e363b71ff71342b82f3dc31a3d40e1c`.
+    - `compose_tests.rs` `recipes_that_opted_into_nothing_keep_their_digests`:
+      the same `recipes/fast` movement.
+    - `compose_tests.rs` `a_composed_bundles_manifest_is_pinned`: from
+      `d9935b947e6ac434b2c68e0003dc1f7754ca02feb08a8d593daeba906bb34126` to
+      `30396159d3dad83f45bc49ee989a21e382ade1d89240c6c5c53f9f6e7553efc1`.
+    - Each loop stops at its first moved recipe, so later pins (node,
+      preflight, fast's descendants) were not yet measured.
+  - Out of inventory:
+    - `crates/brokkr-runtime/tests/node_recipe_gates.rs` failed 3 of 3. Its
+      `Fixture::new` copies `recipes/node` and re-points each claude seat at
+      the invented `steward` or `apprentice` provider. The kept `tools.allow`
+      then hits unit 5b's retained D5.3 refusal: "bundle: seat 'implement'
+      declares 'tools.allow' on an inline site whose command dispatches the
+      'steward' driver; the engine lowers a typed local allow into an inline
+      command only for the claude and lanetally drivers, …".
+    - `crates/brokkr-cli/src/tests.rs` failed 2 tests:
+      `run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope` and
+      `resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three`.
+      Its `stage_hands_free_fast` copies `recipes/fast` and replaces each
+      driver with `{brokkr} fake-driver`. The same refusal follows, for "no
+      built-in driver".
+- **Scratch check of the minimum admission.** One line was added to each
+  fixture. In `node_recipe_gates.rs`, beside the provider re-point, the line
+  is `body.as_object_mut().unwrap().remove("tools");`. In `brokkr-cli`
+  `tests.rs`, beside the fake-driver replacement, it is
+  `seat.as_object_mut().unwrap().remove("tools");`. The workspace suite was
+  rerun. The only failures left were the three in-inventory pin tests above.
+  Neither line changes an assertion. Each drops a typed declaration that
+  cannot lower once its fixture swaps the driver, which is what a Claude
+  flag list became when those fixtures swapped the driver before.
+- **Saved and reverted.** The whole working diff (the three recipes, the new
+  test and the two fixture lines) is saved uncommitted at
+  `.forge/unit-6-d4429c6f-migration.patch`. `git apply --check` accepted it on
+  `c1db06b6`. All six files were then restored with `git checkout`.
+
+### The admission this needs
+
+Admit exactly those two fixture lines into unit 6's test inventory:
+`crates/brokkr-runtime/tests/node_recipe_gates.rs` and
+`crates/brokkr-cli/src/tests.rs`. Each is one `remove("tools")` line at the
+point where the fixture replaces the shipped Claude driver. This is the same
+kind of compile-forced fixture admission that 5c-fix-b and 5c-fix2 received.
+With it, the re-run applies the patch, measures every moved witness and
+compose pin, records the mutations that bind the new test, and runs the
+gates.
+
+**Gates on this record, the only committed change:** `openspec validate
+--all --strict` gave 18 passed and 0 failed. `git diff --check` was clean.
+
+**Not done in this visit, and owed by the re-run:** the independent
+mutations, the full pin measurement, fmt/clippy/bundle compiles on the
+migrated tree, exact coverage, macOS and remote CI.

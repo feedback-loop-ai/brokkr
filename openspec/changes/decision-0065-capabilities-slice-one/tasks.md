@@ -957,6 +957,22 @@ rejects. The unit's three data files cannot close 6.1. It needs a prior
 inventoried unit that lowers typed local tools at inline Claude/LaneTally
 sites. No production, test or pin byte moved.
 
+Observed 2026-09-25 (evidence.md, "Unit 6 — oversized: two fixtures outside
+the inventory"), run `0065-rebuild-unit-6-see-the-unit-d4429c6f`, on
+`c1db06b6`. **Oversized, not closed.** With 5b and 5c landed, the five seats
+migrate within the three recipes. A new `capability_launch.rs` test was red at
+the baseline (at its assertion) and green on the migrated tree. The final
+command bytes are unchanged, and the ownership moves to the `template` and
+`local` origins. The migration also breaks two fixtures outside the
+inventory: `crates/brokkr-runtime/tests/node_recipe_gates.rs` (3 tests) and
+`crates/brokkr-cli/src/tests.rs` (2 tests). Each swaps the shipped Claude
+driver for a fixture driver, which then meets the retained D5.3 inline
+refusal. A one-line `remove("tools")` in each fixture was the whole extra
+footprint (scratch check). The operator's admission of those two lines is
+needed. The patch is saved uncommitted at
+`.forge/unit-6-d4429c6f-migration.patch`, and no production, test or pin byte
+is committed.
+
 ## 7. Unit 7 — Migrate verify and Codex restrictions
 
 - [ ] 7.1 Unit 7 migrates verify/standby/review-first to typed permissions/sandbox. Verify exact commands, unchanged boundary authority and measured pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.18)
