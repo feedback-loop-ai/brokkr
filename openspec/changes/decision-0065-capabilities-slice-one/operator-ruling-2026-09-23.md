@@ -118,3 +118,24 @@ preamble's three-file limit, and its test files include `engine/tests.rs`,
 constructor migration. The edits already on the branch (07d88b44 and the
 review return e361a36e) are admitted under this ruling. No separate unit is
 split out.
+
+## Addendum, 2026-09-24: the permission template at inline sites
+
+Rebuild unit 5b lowered typed tools at inline Claude and LaneTally sites and
+emitted no permission mode, because the design did not settle how the
+adapter's `acceptEdits` permission template reaches an inline command once
+ruling 1 removes the authored `--permission-mode`. Unit 6 cannot migrate
+`fast`, `node` or `preflight` without it.
+
+The operator ruled **(a): the engine emits the adapter's declared permission
+template at inline sites** as its own engine-owned segment, the same way it
+already emits it when composing an agent-backed seat:
+
+1. The template comes from the adapter's declaration (for Claude,
+   `--permission-mode acceptEdits`), never from the recipe.
+2. It is appended in its own engine-owned origin, not the authored one, and
+   the expected state records it.
+3. The launch parses it back with the rest of the final command (ruling 2).
+   An authored permission mode remains refused (ruling 1; unit 5b-fix).
+4. It applies only where the seat's typed declaration lowers at an inline
+   site. Every other inline shape keeps its existing refusal.
