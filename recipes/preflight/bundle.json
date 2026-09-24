@@ -51,6 +51,14 @@
         "max_attempts": 2,
         "timeout_seconds": 3600
       },
+      "tools": {
+        "allow": [
+          "cargo",
+          "git",
+          "ls",
+          "rg"
+        ]
+      },
       "driver": {
         "command": [
           "{brokkr}",
@@ -60,11 +68,7 @@
           "--model",
           "claude-fable-5-1",
           "--effort",
-          "high",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*)"
+          "high"
         ]
       }
     }

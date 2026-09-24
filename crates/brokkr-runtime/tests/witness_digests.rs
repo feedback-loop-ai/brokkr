@@ -259,32 +259,37 @@ fn workspace() -> PathBuf {
 /// which is adapter data those pins witness. `recipes/research-dsh` and
 /// `recipes/gpt-flash` pin neither adapter and keep their digests. No
 /// charter, table, recipe or grant moved.
+/// Rebuild unit 6 moves seven: `recipes/fast`, `recipes/node` and
+/// `recipes/preflight` replace their seats' authored permission flags with
+/// a typed `tools.allow`, and `night-shift`, `wager-harness`, `triage` and
+/// `gpt-flash` carry the `fast` layer. `research`, `research-dsh` and
+/// `bundles/verify` keep their digests.
 /// The values below are the final tree's actual compiles, never
 /// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "97f759f63ba98a1ca3fee21486a1ca840d1abf2c216f96adb8ef9b45f10a97ff",
+        "cdaf49404807ed930201e101eb2bab9a9e363b71ff71342b82f3dc31a3d40e1c",
     ),
     (
         "recipes/node",
-        "d838fe13094160c7663b1e659d2fc62edd3abc933cde4aef6d65af34a8a9ad9e",
+        "693df3ab89b8878daf0fa38696954f76d756785030aae4f030d865747ef70b26",
     ),
     (
         "recipes/preflight",
-        "1c5ad6bc1028f74c3e90631a1d2f425e83d8f769a8c81ac1dd33dcda889f1516",
+        "8d9d1f5f74c238f309fe6a38b1f0f338afe45b8556167e9b6ea7f8adc9953faf",
     ),
     (
         "recipes/night-shift",
-        "212479ba2f241f881711ee044284815f590698071ffb035712167d2ae9c4d8c0",
+        "259c17223aaa486a70c6aeeae2f3149a62cac2d7242c0cea291d675913968af3",
     ),
     (
         "recipes/wager-harness",
-        "012fa21202d1172e584dd7e5d2e4587607553019d3ea7301b7f170f4a3be1849",
+        "fff2fa526c0533462a9033040c85e4b0a61c3c9e49c3a12203d2695582ff8e47",
     ),
     (
         "recipes/triage",
-        "d9935b947e6ac434b2c68e0003dc1f7754ca02feb08a8d593daeba906bb34126",
+        "30396159d3dad83f45bc49ee989a21e382ade1d89240c6c5c53f9f6e7553efc1",
     ),
     (
         "recipes/research",
@@ -296,7 +301,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "2533f3b9a0b94c0c46a2821d355969cfc98c4e2b1e561dfc1cc423c8646ebf65",
+        "fe3de5b50e889d38e42e3f4d386bdbcebcbc62c4525942c419c1e4afb26a3d8d",
     ),
     (
         "bundles/verify",

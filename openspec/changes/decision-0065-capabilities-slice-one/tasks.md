@@ -943,7 +943,7 @@ remote CI stay pending.
 
 ## 6. Unit 6 — Migrate Claude recipes
 
-- [ ] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)
+- [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)
 
 Observed 2026-09-24 (evidence.md, "Unit 6 — blocked: inline sites have no
 typed lowering"), run `triage-directive-operator-ruling-b5e42a33`. **Blocked,
@@ -973,6 +973,23 @@ needed. The patch is saved uncommitted at
 `.forge/unit-6-d4429c6f-migration.patch`, and no production, test or pin byte
 is committed. Re-checked on `e0b26369` after triage's re-framing: the same
 3 + 2 fixture failures reproduce, and no admission exists yet. Still oversized.
+
+Admitted 2026-09-25 by the commissioner (the unit's second re-run note of
+2026-09-25, run `0065-rebuild-unit-6-second-run-s-d42be1db`): exactly one
+`remove("tools")` line in `crates/brokkr-runtime/tests/node_recipe_gates.rs`
+(`Fixture::new`, beside the provider re-point) and exactly one in
+`crates/brokkr-cli/src/tests.rs` (`stage_hands_free_fast`, beside the
+fake-driver swap) join unit 6's test inventory, and nothing else does
+(evidence.md, "Unit 6 — second re-run: admitted, migrated and closed"). The
+run adopted `e0b26369` and `6a6e18ea`, applied the saved patch on `6a6e18ea`
+(the patch already carries both admitted lines), and measured seven moved
+witness pins and two moved compose pins from the tests' own values. The new
+launch test was red on the unmigrated recipes and was bound by three more
+compiling mutations, each restored. fmt, clippy, `cargo test --workspace
+--all-features --locked` (every target green), both bundle compiles,
+`openspec validate --all --strict` (18 passed) and `git diff --check`
+passed. This box and 6.1 close. **Not fully green:** exact coverage, macOS
+and remote CI are pending.
 
 ## 7. Unit 7 — Migrate verify and Codex restrictions
 

@@ -3151,6 +3151,109 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
     );
 }
 
+/// Rebuild unit 6 (task 6.1): the five inline Claude seats of the shipped
+/// `fast`, `node` and `preflight` recipes author no capability flag and
+/// declare a typed allow instead. Each one, compiled from the shipped
+/// directory in a realm that grants nothing and composed and sealed by the
+/// engine's own functions, holds nothing; the engine emits the adapter's
+/// `acceptEdits` template and the list it lowers, every concrete prefix the
+/// recipe used to write — `.venv/bin/pytest` included — in the order it
+/// wrote them; and the whole ordered final command ends in Claude's native
+/// denial and nothing wider. The literals are the recipes' former authored
+/// values, written out here, not derived from the adapter.
+#[test]
+fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_limits() {
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let fast = (
+        ["cargo", "git", "python3", "pytest", "ls", "rg", "mkdir"],
+        "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),\
+         Bash(rg:*),Bash(mkdir:*)",
+    );
+    let node = (
+        ["npm", "npx", "node", "git", "ls", "rg", "mkdir"],
+        "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+    );
+    let preflight = (
+        &["cargo", "git", "ls", "rg"][..],
+        "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*)",
+    );
+    let seats = [
+        ("fast", "implement", &fast.0[..], fast.1),
+        ("fast", "review", &fast.0[..], fast.1),
+        ("node", "implement", &node.0[..], node.1),
+        ("node", "review", &node.0[..], node.1),
+        ("preflight", "review", preflight.0, preflight.1),
+    ];
+    let (mut observed, mut expected) = (serde_json::Map::new(), serde_json::Map::new());
+    for (recipe, seat, names, list) in seats {
+        let bundle = Bundle::compile_with_capabilities(
+            &workspace().join("recipes").join(recipe),
+            &workspace().join("agents"),
+            &workspace().join("adapters"),
+            Some("private"),
+            None,
+            Boundary::Harness,
+            &context,
+        )
+        .unwrap_or_else(|refusal| panic!("{recipe} must compile: {refusal}"));
+        let SeatBody::Single { command, .. } = &bundle.seats[seat].body else {
+            panic!("{recipe}/{seat} is a single seat");
+        };
+        let held: Vec<usize> = bundle.sites[seat]
+            .capabilities
+            .as_ref()
+            .unwrap()
+            .outcomes
+            .iter()
+            .map(|outcome| outcome.held.len())
+            .collect();
+        let (spawn, input) = sealed(&bundle, seat, 0);
+        let record = &input["launch_record"];
+        observed.insert(
+            format!("{recipe}/{seat}"),
+            json!({
+                "authored command": command[1..],
+                "held": held,
+                "spawn": spawn.argv[1..],
+                "segments": record["segments"],
+                "local": record["expected"]["local"],
+                "native": record["expected"]["native"],
+                "template": record["expected"]["template"],
+                "final": try_launch(&bundle, seat, 0),
+            }),
+        );
+        let limits: Vec<&str> = list.split(',').collect();
+        let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
+        expected.insert(
+            format!("{recipe}/{seat}"),
+            json!({
+                "authored command": ["driver", "claude", "--",
+                                     "--model", "claude-fable-5-1", "--effort", "high"],
+                "held": [0],
+                "spawn": ["driver", "claude", "--", "--model", "claude-fable-5-1",
+                          "--effort", "high", "--permission-mode", "acceptEdits",
+                          "--allowedTools", list],
+                "segments": [
+                    {"origin": "authored", "argv": pins},
+                    {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
+                    {"origin": "local", "argv": ["--allowedTools", list]},
+                ],
+                "local": {"allow": {"kind": "listed", "names": names},
+                          "sandbox": {"kind": "unspecified"},
+                          "application": {"kind": "direct", "limits": limits}},
+                "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
+                "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
+                "final": {"Ok": ["claude", "-p", "--output-format", "stream-json", "--verbose",
+                                 "--model", "claude-fable-5-1", "--effort", "high",
+                                 "--permission-mode", "acceptEdits", "--allowedTools", list,
+                                 "--disallowedTools", "WebFetch,WebSearch"]},
+            }),
+        );
+    }
+    assert_eq!(Value::Object(observed), Value::Object(expected));
+}
+
 /// A panel member and a sequence step are sites exactly as a seat is: each
 /// resolves its own asks under its own label, and a request written on the
 /// CONTAINER — which executes nothing — is refused rather than dropped.

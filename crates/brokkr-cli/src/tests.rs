@@ -239,6 +239,7 @@ fn stage_hands_free_fast(
                 seat["role"] = json!("shipper.md");
             }
             seat["driver"] = json!({"command": ["{brokkr}", "fake-driver"]});
+            seat.as_object_mut().unwrap().remove("tools");
         }
     }
     std::fs::write(

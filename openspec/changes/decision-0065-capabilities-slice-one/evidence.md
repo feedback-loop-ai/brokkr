@@ -5820,3 +5820,111 @@ The result is again **oversized**.
 
 The admission this needs has not changed. It is the two one-line
 `remove("tools")` edits in those fixtures.
+
+## Unit 6 — second re-run: admitted, migrated and closed, 2026-09-25
+
+Run `0065-rebuild-unit-6-second-run-s-d42be1db`, triage `chore`, phase
+implement, sole seat. The head was `6a6e18ea`, clean. `e0b26369` and
+`6a6e18ea` are adopted unchanged. The result is **complete**. 6.1 closes.
+
+### The admission
+
+The commissioner admitted two lines on 2026-09-25, in this commission's
+second re-run note. Exactly one `remove("tools")` line in
+`crates/brokkr-runtime/tests/node_recipe_gates.rs` (`Fixture::new`, beside
+the provider re-point) and exactly one in `crates/brokkr-cli/src/tests.rs`
+(`stage_hands_free_fast`, beside the fake-driver swap) join unit 6's test
+inventory. Nothing else does. Neither line changes an assertion.
+
+### What landed
+
+- `git apply --check` accepted `.forge/unit-6-d4429c6f-migration.patch` on
+  `6a6e18ea`, and `git apply` applied it. The saved patch already carries
+  both admitted lines, so no further fixture byte was added. The applied
+  diff is the three recipes, the new `capability_launch.rs` test and those
+  two lines.
+- **Recipes.** In `recipes/fast` (implement, review), `recipes/node`
+  (implement, review) and `recipes/preflight` (review), each seat drops
+  `--permission-mode acceptEdits --allowedTools …` from its authored command
+  and declares `"tools": {"allow": [...]}`. The names are in the order the
+  former list wrote them. `pytest` lowers to `Bash(.venv/bin/pytest:*)`
+  through the claude adapter's `tool_permissions.names`.
+- **Pins, measured from the tests' own values.** Each value below is the
+  `left:` a failing `cargo test --locked -p brokkr-runtime --test
+  witness_digests` printed. The test was re-run after each re-pin, because
+  its loop stops at the first moved recipe. The recorded pin is first, then
+  the migrated tree's value.
+  - `witness_digests.rs` `WITNESSES`:
+    - `recipes/fast`: `97f759f6…10a97ff` to
+      `cdaf49404807ed930201e101eb2bab9a9e363b71ff71342b82f3dc31a3d40e1c`
+    - `recipes/node`: `d838fe13…8a9ad9e` to
+      `693df3ab89b8878daf0fa38696954f76d756785030aae4f030d865747ef70b26`
+    - `recipes/preflight`: `1c5ad6bc…f1516` to
+      `8d9d1f5f74c238f309fe6a38b1f0f338afe45b8556167e9b6ea7f8adc9953faf`
+    - `recipes/night-shift`: `212479ba…c4d8c0` to
+      `259c17223aaa486a70c6aeeae2f3149a62cac2d7242c0cea291d675913968af3`
+    - `recipes/wager-harness`: `012fa212…3be1849` to
+      `fff2fa526c0533462a9033040c85e4b0a61c3c9e49c3a12203d2695582ff8e47`
+    - `recipes/triage`: `d9935b94…bb34126` to
+      `30396159d3dad83f45bc49ee989a21e382ade1d89240c6c5c53f9f6e7553efc1`
+    - `recipes/gpt-flash`: `2533f3b9…6ebf65` to
+      `fe3de5b50e889d38e42e3f4d386bdbcebcbc62c4525942c419c1e4afb26a3d8d`
+    - `recipes/research`, `recipes/research-dsh` and `bundles/verify` did not
+      move. The four moved descendants all extend `fast`, directly or
+      through `triage`.
+  - `compose_tests.rs`: `UNCOMPOSED` `recipes/fast` moved to the same
+    `cdaf4940…` value, and `a_composed_bundles_manifest_is_pinned`
+    (`recipes/triage`) moved to the same `30396159…` value. `panel-review`,
+    `bundles/self` and `bundles/verify` did not move. After the re-pins,
+    `cargo test --locked -p brokkr-runtime --lib compose_tests` gave 23
+    passed and `--test witness_digests` gave 4 passed.
+  - Each pin block's comment gained one sentence naming unit 6's movement.
+  - A repository-wide search for the seven old values outside `target/`,
+    `.forge/` and `.git/` finds them only in this file's historical records.
+
+### The new test binds
+
+`the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_limits`
+(`cargo test --locked -p brokkr-runtime --test capability_launch
+the_shipped_claude_recipes`) passes on the final tree. Each red run below is
+logged under `.forge/unit6-rerun-m*.log`, and each mutation was restored
+before the next one.
+
+- **M1, baseline.** The recipes were restored to `HEAD` (`git checkout --
+  recipes`). The test failed at its `assert_eq!`
+  (`capability_launch.rs:3254:5`). The migration was then re-applied from a
+  saved diff.
+- **M2, adapter data.** In `adapters/claude.json`, `pytest` was mapped to
+  `Bash(pytest:*)` instead of `Bash(.venv/bin/pytest:*)`. The test failed at
+  `capability_launch.rs:3254:5`, and the log shows the lowered
+  `Bash(pytest:*)`. This binds the preserved `.venv/bin/pytest` prefix.
+- **M3, engine code.** In `bundle.rs::record_inline_tools`,
+  `facts.inline_template = template.map(expanded).filter(|_| false);` drops
+  the emitted template. The test failed inside its `sealed` helper
+  (`capability_launch.rs:282:5`, `implement[0]`), with left `Err("dispatch
+  refused: the permission template this spawn emits is not the one its
+  expected state records from the adapter's declaration; …")` and right
+  `Ok(())`.
+- **M4, order.** `recipes/preflight`'s allow was reordered to `git, cargo,
+  ls, rg`. The test failed at `capability_launch.rs:3254:5`, and the log
+  shows `Bash(git:*),Bash(cargo:*)`. This binds the preserved order.
+- After the restores, `git diff -- recipes` matched the saved recipe diff
+  byte for byte, and `adapters/` and `bundle.rs` showed no diff.
+
+### Gates on the final tree
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: every
+  target passed (77 `test result: ok` lines, 0 FAILED). That includes
+  brokkr-cli lib (481), brokkr-runtime lib (553), `capability_launch` (34),
+  `node_recipe_gates` (3) and `witness_digests` (4). Before the re-pins, the
+  same run failed only the three pin tests (`.forge/unit6-rerun-ws1.log`).
+- `brokkr-cli compile --bundle bundles/self` and `--bundle bundles/verify`,
+  both run from the repository root: both compiled.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending:** exact coverage (`scripts/coverage-exact.sh`, outside the box),
+macOS and remote CI. This unit moves no production Rust.

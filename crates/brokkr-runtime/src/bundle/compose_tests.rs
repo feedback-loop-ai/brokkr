@@ -1090,12 +1090,14 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// codex adapters they pin carry the 2026-09-22 roster's model maps.
 /// Rebuild unit 5 moves all four again: the claude adapter each pins
 /// gained the typed-migration command names in `tool_permissions.names`.
+/// Rebuild unit 6 moves `recipes/fast` alone: its two Claude seats replace
+/// their authored permission flags with a typed `tools.allow`.
 /// The values below are the actual compiles of the final tree, never
 /// recomputed guesses.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "97f759f63ba98a1ca3fee21486a1ca840d1abf2c216f96adb8ef9b45f10a97ff",
+        "cdaf49404807ed930201e101eb2bab9a9e363b71ff71342b82f3dc31a3d40e1c",
     ),
     (
         "recipes/panel-review",
@@ -1263,10 +1265,13 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Rebuild unit 1's replay onto main at `072cdd9b` moves it with the
         // v0.11.0 engine version and the 2026-09-22 roster's model maps.
         // Rebuild unit 5 moves it with the typed-migration command names
-        // the claude and LaneTally adapters gained. This value agrees with the `recipes/triage` pin in
+        // the claude and LaneTally adapters gained. Rebuild unit 6 moves it
+        // through its `fast` layer, whose Claude seats now declare a typed
+        // `tools.allow` instead of authored permission flags.
+        // This value agrees with the `recipes/triage` pin in
         // `tests/witness_digests.rs`; both are the final tree's actual
         // compile.
-        "d9935b947e6ac434b2c68e0003dc1f7754ca02feb08a8d593daeba906bb34126",
+        "30396159d3dad83f45bc49ee989a21e382ade1d89240c6c5c53f9f6e7553efc1",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
