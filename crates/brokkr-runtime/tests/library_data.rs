@@ -39,13 +39,17 @@ const CHARTERS: [(&str, &str); 13] = [
     (
         // Moved by proposed decision 0056 ruling 10: the SDD smith
         // persists task progress before the next group and reconciles it
-        // against the worktree on recovery, warm or cold.
+        // against the worktree on recovery, warm or cold. Moved again by
+        // the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the condensed
+        // scope, evidence and targeted-edit paragraph.
         "implementer-sdd.md",
-        "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
+        "b9a4aa1634f1c36b65c1927f82b6236ce31685ff33c3871b1af3a35f6d153ecf",
     ),
     (
+        // Moved by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
+        // scope and evidence paragraphs and the targeted-edit sentence.
         "implementer.md",
-        "b750b0a401fa7fc1aad5dd929bf136cf961b12d2e11ac9fc67995927ea686ad7",
+        "e4d77e5c90e6601c5ab82dfdc72dacc7da9948d07094e9813c80268047cae4b8",
     ),
     (
         "intake-sdd.md",

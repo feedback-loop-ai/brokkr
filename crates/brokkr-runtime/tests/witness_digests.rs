@@ -225,14 +225,23 @@ fn workspace() -> PathBuf {
 /// `recipes/gpt-flash` — because the declaration gained `hands.notice`
 /// and dated 2026-09-24 hands-discovery limitations. The six others
 /// reported no movement; each value is measured before and after the edit.
+/// The Opus 5.5 / Fable 5.1 prompt audit (acffed37) moves six witnesses:
+/// the implementer charters and the recipe implementer roles gained a
+/// scope paragraph, an evidence paragraph and a targeted-edit sentence.
+/// `recipes/fast`, `recipes/node`, `recipes/night-shift` and
+/// `recipes/wager-harness` carry an edited role; `recipes/triage` composes
+/// `fast` and seats the SDD smith, and `recipes/gpt-flash` derives from
+/// triage. `recipes/preflight`, both research recipes and `bundles/verify`
+/// seat no implementer and reported no movement; each value is the
+/// test's own reported digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "d0906fed3119985a38c8883a26b27cce299dbc0aa36352cb088f05d401d847d4",
+        "57d76d0308f251652925f8a3acb40c1b55e664e4880875f9207aea37eb5c3e54",
     ),
     (
         "recipes/node",
-        "84741c8452aec3e04f4fd7bfd7d5569bc36e884915d291103a2979c47fad725c",
+        "d1fa6d617f6b877d8c8bc2f41afbca5c3e42e5db879bf96fb463bc6c3e9b8602",
     ),
     (
         "recipes/preflight",
@@ -240,15 +249,15 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "343007a14232c5d7937541299e4e188831889fb2e246fac38a7a3505894c844a",
+        "0fd2fa06c2cdaa4d25fd3335ff881015ea47dc2e4628e6b84d9b98ad3dcade5a",
     ),
     (
         "recipes/wager-harness",
-        "59fa5ca833316dc7c501869672d1232a840dd61e5e7bc4114fd86313fc2b3ac1",
+        "390d1a592cc30a79a7602e6431220ec8c5c093cc015830ca6d13d46eed7208b1",
     ),
     (
         "recipes/triage",
-        "34307a137bde86adb3128118cb058e01f2d15d675b2949520c522212787695b6",
+        "dc83420d3b8369ae7e5ed441cef178f700ea32b930044979eb285945a810a344",
     ),
     (
         "recipes/research",
@@ -260,7 +269,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "ca14eb549869a21c46edf6cfdfdfa2563d87e323056ace1d953f6ff0ca07d785",
+        "8de7d925c932505cdfe54c1ea2f5695207929dd58aa7dd806eca6be1945a1b09",
     ),
     (
         "bundles/verify",
