@@ -2030,16 +2030,8 @@ fn run_with(
         }
         Cmd::Costs(CostsArgs { run, journal }) => {
             let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-            let events = store.load(&run)?;
-            let (report, total) = compare::seat_costs(&events);
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
-                    "run_id": run,
-                    "seats": report,
-                    "total_cost_usd": total,
-                }))?
-            );
+            let report = compare::costs(&store, &run)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Ledger(LedgerArgs { run, journal, repo }) => {

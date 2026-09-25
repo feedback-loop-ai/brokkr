@@ -825,6 +825,7 @@ fn a_sigma_whose_members_disagree_in_kind_stays_in_dollars() {
     // mixed the units would be a number nothing in the world matches.
     assert_eq!(parent.cost_cell.text, "Σ $0.2500");
     assert!(parent.cost_aggregated);
+    assert_eq!(parent.last_attempt_cost, Some(0.25));
     assert!(!parent.cost_cell.text.contains("tok"));
     // The unpriced member's tokens are not lost — they are on its own
     // row, in their own unit, one line below the Σ.
@@ -2786,6 +2787,52 @@ fn a_working_seat_carries_its_transcript_from_the_shared_checkpoint() {
         Some("sess-2-live"),
         "the retry's live session replaces the dead attempt's"
     );
+}
+
+/// The two-attempt fixture of #376: attempt one finished at $0.25 and
+/// was retried, and attempt two finished at $0.50. The seat spent both,
+/// and the view says so — the figure `brokkr costs` reports — with the
+/// last attempt's own cost beside it rather than in its place.
+fn two_attempt_journal() -> Vec<EventEnvelope> {
+    let mut events = seat_journal();
+    events.truncate(6); // through attempt one's session-finished
+    events[5].payload["checkpoint"]["total_cost_usd"] = json!(0.25);
+    events.push(ev(
+        7,
+        EventType::EffectStarted,
+        json!({"effect_id": "eff1", "attempt_id": "att2"}),
+        T2,
+    ));
+    events.push(ev(
+        8,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "eff1", "attempt_id": "att2",
+               "checkpoint": {"step": "claude-session-finished",
+                              "total_cost_usd": 0.5}}),
+        T2,
+    ));
+    events.push(ev(
+        9,
+        EventType::EffectSucceeded,
+        json!({"effect_id": "eff1", "attempt_id": "att2",
+               "result": {"result": "intook"}}),
+        T2,
+    ));
+    events
+}
+
+#[test]
+fn a_retried_seat_spent_every_attempt_and_the_cell_says_so() {
+    let view = run_view(
+        &two_attempt_journal(),
+        Some(&state(Some("intake"), Status::Completed, None)),
+    );
+    let part = &view.participants[0];
+    assert_eq!(part.attempts, 2);
+    assert_eq!(part.cost, Some(0.75));
+    assert_eq!(part.last_attempt_cost, Some(0.5));
+    assert!(!part.cost_aggregated);
+    assert_eq!(part.cost_cell.text, "$0.7500 over 2 attempts");
 }
 
 #[test]

@@ -150,10 +150,9 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                         .get("num_turns")
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    accounting.cost += checkpoint
-                        .get("total_cost_usd")
-                        .and_then(Value::as_f64)
-                        .unwrap_or(0.0);
+                    // Every attempt's report is summed: the rule the
+                    // view states once, and reads as its `cost` (#376).
+                    accounting.cost += brokkr_view::reported_cost(checkpoint).unwrap_or(0.0);
                     if let Some(model) = checkpoint.get("model").and_then(Value::as_str) {
                         accounting.models.insert(model.to_string());
                     }
@@ -208,10 +207,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
                             result.get("num_turns").and_then(Value::as_u64).unwrap_or(0);
                     }
                     if accounting.cost == 0.0 {
-                        accounting.cost = result
-                            .get("total_cost_usd")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(0.0);
+                        accounting.cost = brokkr_view::reported_cost(result).unwrap_or(0.0);
                     }
                 }
             }
@@ -301,6 +297,19 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
         })
         .collect();
     (report, total)
+}
+
+/// `brokkr costs`: the run's per-seat report under the id `--run`
+/// resolved to — a full id, a unique prefix or `latest` (decision 0015).
+/// These bytes are LaneTally's join surface.
+pub fn costs(store: &Store, requested: &str) -> Result<Value> {
+    let run = crate::selector::resolve_run(store, requested)?;
+    let (report, total) = seat_costs(&store.load(&run)?);
+    Ok(json!({
+        "run_id": run,
+        "seats": report,
+        "total_cost_usd": total,
+    }))
 }
 
 /// One run's section of the report plus the facts the comparison needs.
