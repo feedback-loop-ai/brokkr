@@ -1,0 +1,12 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+start  level Runs · pane 0 · cursor [None, None, None] · turn None · reading None
+    status  runs
+    footer  ↑↓/jk move · Enter open run · g/G top/bottom · / filter · r refresh · ? help · q quit
+Down -> Continue  level Runs · pane 0 · cursor [Some("run-7"), None, None] · turn None · reading None
+    status  runs
+    footer  ↑↓/jk move · Enter open run · g/G top/bottom · / filter · r refresh · ? help · q quit
+Enter -> Continue  level Run · pane 0 · cursor [None, None, None] · turn None · reading None
+    status  runs · run run-7
+    footer  ←→ rail · ↑↓ lanes · Enter scope phase · Tab pane · Esc back · / filter · r refresh · ? help · q quit

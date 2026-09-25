@@ -1,0 +1,23 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+"┌help──────────────────────────────────────────────────────────────────────────┐"
+"│brokkr tui — a read-only console over the same models as                      │"
+"│brokkr inspect, brokkr watch and brokkr ui. It issues no                      │"
+"│operator commands and writes nothing to the journal.                          │"
+"│                                                                              │"
+"│↑ ↓ j k     move          Enter   descend / scope                             │"
+"│← →         the graph rail        ↑ ↓ its lanes                               │"
+"│Esc         back          ⌫       back (keeps the scope)                      │"
+"│Tab         next pane     g G     top / bottom                                │"
+"│PgUp PgDn   page          /       filter this list                            │"
+"│r           refresh       ?       this help                                   │"
+"│q Ctrl+C    quit                                                              │"
+"│                                                                              │"
+"│Selecting a phase or a seat scopes the run level; Esc clears it.              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"

@@ -1,0 +1,23 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+"┌graph─────────────────────────────────────────────────────────[ ∙ ∙ ∙ BROKKR ]┐"
+"│                                                                              │"
+"│              ┌─⏺ simplicity─┐                                                │"
+"│   ⏺ intake──ᐳ┤  positions   ├──ᐳ⏺ review──ᐳ∙ chief                           │"
+"│              └─⏺ robustness─┘                                                │"
+"│   intake                    design                                           │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"┌seats─────────────────────────────────────────────────────────────────────────┐"
+"│participant   status    attempts turns cost   tokens model boundary activity  │"
+"│intake        succeeded 1        3     $0.031 —      —     —        intook · 2│"
+"│design        working   1        Σ 2   —      —      —     —        4 members │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"┌trail─────────────────────────────────────────────────────────────────────────┐"
+"│1  run/started  one derivation, three surfaces…                               │"
+"│2  phase/entered  intake                                                      │"
+"│7  effect/succeeded  intake · intook                                          │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"runs · run run-7                                                                "
+"↑↓/jk move · Enter scope seat · Tab pane · Esc back · / filter · r refresh · ? h"

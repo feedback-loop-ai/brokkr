@@ -14,10 +14,10 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-const T0: &str = "2026-01-01T00:00:00Z";
+pub(super) const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
 const T2: &str = "2026-01-01T00:02:03Z";
-const NOW: &str = "2026-01-01T00:07:03Z";
+pub(super) const NOW: &str = "2026-01-01T00:07:03Z";
 
 // -------------------------------------------------------------- fixtures
 
@@ -42,7 +42,7 @@ fn state() -> RunState {
     state_of(Status::Running)
 }
 
-fn state_of(status: Status) -> RunState {
+pub(super) fn state_of(status: Status) -> RunState {
     RunState {
         run_id: "run-7".to_string(),
         seq: 18,
@@ -226,14 +226,14 @@ fn views_with(seat: &str) -> Views {
     }
 }
 
-fn views() -> Views {
+pub(super) fn views() -> Views {
     views_with("intake")
 }
 
 /// A readable shared result over the given turns, under a Claude
 /// reference. The reader owns every other fact; a test overrides the ones
 /// it is asking about.
-fn read_of(turns: Vec<Turn>, truncated: bool) -> TranscriptRead {
+pub(super) fn read_of(turns: Vec<Turn>, truncated: bool) -> TranscriptRead {
     TranscriptRead::readable(
         Some(brokkr_view::Transcript {
             kind: "claude-session".to_string(),
@@ -252,7 +252,7 @@ fn read_of(turns: Vec<Turn>, truncated: bool) -> TranscriptRead {
 
 /// A transcript of `count` prose turns, each naming its own index — so
 /// "the SAME turn" is askable by text, not just by position.
-fn turns_of(count: usize) -> Vec<Turn> {
+pub(super) fn turns_of(count: usize) -> Vec<Turn> {
     (0..count)
         .map(|index| Turn {
             role: format!("turn {index}"),
@@ -266,7 +266,7 @@ fn turns_of(count: usize) -> Vec<Turn> {
 }
 
 /// The RUN level for `run-7`, as `Enter` on the fleet leaves it.
-fn at_run() -> Tui {
+pub(super) fn at_run() -> Tui {
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some("run-7".to_string());
     let views = views();
@@ -276,7 +276,7 @@ fn at_run() -> Tui {
 
 /// The RUN level with the seats pane focused and a seat under the
 /// cursor.
-fn at_seats(key: &str) -> Tui {
+pub(super) fn at_seats(key: &str) -> Tui {
     let mut tui = at_run();
     tui.pane = 1;
     tui.cursor[1] = Some(key.to_string());
@@ -1523,7 +1523,7 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
 
 /// A panel with no sequence steps: one fork, no step label. The other
 /// shape the tree draws.
-fn panel_views() -> Views {
+pub(super) fn panel_views() -> Views {
     let mut events = vec![
         ev(1, EventType::RunStarted, json!({"feature": "a panel"}), T0),
         ev(2, EventType::PhaseEntered, json!({"phase": "review"}), T0),
@@ -3054,7 +3054,7 @@ fn enter_on_a_trail_row_opens_it_for_reading_and_esc_closes() {
 
 /// The PARTICIPANT level with the transcript pane focused, over the
 /// given transcript.
-fn at_transcript(views: &Views) -> Tui {
+pub(super) fn at_transcript(views: &Views) -> Tui {
     let mut tui = at_seats("eff-i");
     apply(&mut tui, views, Key::Enter);
     apply(&mut tui, views, Key::Enter);
@@ -3395,7 +3395,7 @@ fn a_hostile_transcript_turn_renders_inert_in_the_reader() {
 /// The same journal, with the intake seat agent-resolved and fallen back
 /// to its second model — plus the compile-time notice the manifest
 /// already carries.
-fn adopting_views() -> Views {
+pub(super) fn adopting_views() -> Views {
     let mut events = journal("intake");
     events[0].payload = json!({
         "feature": "one derivation, three surfaces",
@@ -5104,7 +5104,7 @@ fn a_hearth_with_no_journal_yet_is_empty_and_does_not_end_the_console() {
 /// The intake seat under one boundary: the run declares hands for it,
 /// the attempt's entry names `word` with `gate`, and the finishing
 /// checkpoint and result carry the model with the word beside it.
-fn boxed_views(word: &str, gate: bool) -> Views {
+pub(super) fn boxed_views(word: &str, gate: bool) -> Views {
     let mut events = journal("intake");
     events[0].payload["manifest"] = json!({"hands": {"intake": {"binds": []}}});
     events[3].payload["boundary"] = json!([{"member": null, "boundary": word, "gate": gate}]);
@@ -5249,7 +5249,7 @@ fn text_turn(role: &str, text: &str) -> Turn {
     }
 }
 
-fn claude_reference(locator: &str, home: &str) -> brokkr_view::Transcript {
+pub(super) fn claude_reference(locator: &str, home: &str) -> brokkr_view::Transcript {
     brokkr_view::Transcript {
         kind: "claude-session".to_string(),
         locator: locator.to_string(),
@@ -5257,7 +5257,7 @@ fn claude_reference(locator: &str, home: &str) -> brokkr_view::Transcript {
     }
 }
 
-fn refused_read(
+pub(super) fn refused_read(
     reference: brokkr_view::Transcript,
     reason: brokkr_view::transcript::Unavailable,
     explanation: impl Into<String>,
