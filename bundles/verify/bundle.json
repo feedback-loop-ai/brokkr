@@ -45,6 +45,18 @@
         "max_attempts": 2,
         "timeout_seconds": 3600
       },
+      "tools": {
+        "allow": [
+          "cargo",
+          "git",
+          "python3",
+          "pytest",
+          "ls",
+          "rg",
+          "gh-pr-view",
+          "gh-run-view"
+        ]
+      },
       "driver": {
         "command": [
           "{brokkr}",
@@ -54,11 +66,7 @@
           "--model",
           "claude-fable-5-1",
           "--effort",
-          "high",
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)"
+          "high"
         ]
       }
     }

@@ -4652,6 +4652,174 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
     assert_eq!(Value::Object(observed), Value::Object(expected));
 }
 
+/// Rebuild unit 7 (task 7.1; operator ruling of 2026-09-25, "narrow"):
+/// `bundles/verify`'s inline Claude reviewer and the three inline Codex
+/// seats of `recipes/standby` and `recipes/review-first` author no
+/// capability flag. Each is compiled from the shipped directory in a realm
+/// that grants nothing, then composed, sealed and launched by the engine's
+/// own functions, and none holds anything. The reviewer's typed allow
+/// lowers to its former list, both narrow gh prefixes included, never
+/// unrestricted gh. Each Codex seat's typed class is the engine's own
+/// `local` segment at its narrowed class: the standby implementer runs
+/// `workspace-write` (it was `danger-full-access`) and delivers by file,
+/// and both reviewers run `read-only` (they were `workspace-write`) and
+/// deliver through the last-message door. Every final command ends in its
+/// provider's native denial and nothing wider. The literals are written
+/// out here, not derived from the adapters.
+#[test]
+fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_engines_own() {
+    use brokkr_runtime::SeatClass;
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let compiled = |relative: &str| {
+        Bundle::compile_with_capabilities(
+            &workspace().join(relative),
+            &workspace().join("agents"),
+            &workspace().join("adapters"),
+            Some("private"),
+            None,
+            Boundary::Harness,
+            &context,
+        )
+        .unwrap_or_else(|refusal| panic!("{relative} must compile: {refusal}"))
+    };
+    let authored = |bundle: &Bundle, seat: &str| {
+        let SeatBody::Single { command, .. } = &bundle.seats[seat].body else {
+            panic!("{seat} is a single seat");
+        };
+        command[1..].to_vec()
+    };
+    let held = |bundle: &Bundle, seat: &str| -> Vec<usize> {
+        bundle.sites[seat]
+            .capabilities
+            .as_ref()
+            .unwrap()
+            .outcomes
+            .iter()
+            .map(|outcome| outcome.held.len())
+            .collect()
+    };
+    let mut observed = serde_json::Map::new();
+
+    let verify = compiled("bundles/verify");
+    let (spawn, input) = sealed(&verify, "review", 0);
+    let record = &input["launch_record"];
+    observed.insert(
+        "verify/review".into(),
+        json!({
+            "authored command": authored(&verify, "review"),
+            "held": held(&verify, "review"),
+            "spawn": spawn.argv[1..],
+            "segments": record["segments"],
+            "local": record["expected"]["local"],
+            "native": record["expected"]["native"],
+            "template": record["expected"]["template"],
+            "final": try_launch(&verify, "review", 0),
+        }),
+    );
+
+    let standby = compiled("recipes/standby");
+    let review_first = compiled("recipes/review-first");
+    for (name, bundle, seat, class) in [
+        ("standby/implement", &standby, "implement", SeatClass::Work),
+        ("standby/review", &standby, "review", SeatClass::Gate),
+        (
+            "review-first/review",
+            &review_first,
+            "review",
+            SeatClass::Gate,
+        ),
+    ] {
+        let (sealing, record, launched, door) =
+            inline_codex_sealing(bundle, seat, class, &bundle.sites[seat], |_| {});
+        observed.insert(
+            name.into(),
+            json!({
+                "authored command": authored(bundle, seat),
+                "held": held(bundle, seat),
+                "sealed": format!("{sealing:?}"),
+                "segments": record["segments"],
+                "local": record["expected"]["local"],
+                "native": record["expected"]["native"],
+                "template": record["expected"]["template"],
+                "final": launched.map_err(|refusal| format!("refused: {refusal}")),
+                "door": door,
+            }),
+        );
+    }
+
+    let list = "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),\
+                Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)";
+    let claude_pins = ["--model", "claude-fable-5-1", "--effort", "high"];
+    let codex_pins = ["--model", "gpt-6-astra", "--effort", "xhigh"];
+    let codex = |segment: &[&str], class: &str, door: &str| {
+        let mut last = vec![
+            "codex",
+            "exec",
+            "--json",
+            "-C",
+            "/w",
+            "-c",
+            "model_reasoning_effort=\"xhigh\"",
+            "--model",
+            "gpt-6-astra",
+        ];
+        last.extend(segment);
+        last.extend(OFF);
+        json!({
+            "authored command": ["driver", "codex", "--",
+                                 "--model", "gpt-6-astra", "--effort", "xhigh"],
+            "held": [0],
+            "sealed": "Ok(())",
+            "segments": [{"origin": "authored", "argv": codex_pins},
+                         {"origin": "local", "argv": segment}],
+            "local": {"allow": {"kind": "unspecified"}, "sandbox": {"kind": class},
+                      "application": {"kind": "unrestricted"}},
+            "native": {"kind": "known", "held": [], "denied": ["web-search"]},
+            "template": {"kind": "none"},
+            "final": {"Ok": last},
+            "door": door,
+        })
+    };
+    let gate = [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "/w/result.json",
+    ];
+    let expected = json!({
+        "verify/review": {
+            "authored command": ["driver", "claude", "--",
+                                 "--model", "claude-fable-5-1", "--effort", "high"],
+            "held": [0],
+            "spawn": ["driver", "claude", "--", "--model", "claude-fable-5-1",
+                      "--effort", "high", "--permission-mode", "acceptEdits",
+                      "--allowedTools", list],
+            "segments": [
+                {"origin": "authored", "argv": claude_pins},
+                {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
+                {"origin": "local", "argv": ["--allowedTools", list]},
+            ],
+            "local": {"allow": {"kind": "listed",
+                                "names": ["cargo", "git", "python3", "pytest", "ls", "rg",
+                                          "gh-pr-view", "gh-run-view"]},
+                      "sandbox": {"kind": "unspecified"},
+                      "application": {"kind": "direct",
+                                      "limits": list.split(',').collect::<Vec<_>>()}},
+            "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
+            "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
+            "final": {"Ok": ["claude", "-p", "--output-format", "stream-json", "--verbose",
+                             "--model", "claude-fable-5-1", "--effort", "high",
+                             "--permission-mode", "acceptEdits", "--allowedTools", list,
+                             "--disallowedTools", "WebFetch,WebSearch"]},
+        },
+        "standby/implement": codex(&["--sandbox", "workspace-write"], "workspace-write", "file"),
+        "standby/review": codex(&gate, "read-only", "last-message"),
+        "review-first/review": codex(&gate, "read-only", "last-message"),
+    });
+    assert_eq!(Value::Object(observed), expected);
+}
+
 /// A panel member and a sequence step are sites exactly as a seat is: each
 /// resolves its own asks under its own label, and a request written on the
 /// CONTAINER — which executes nothing — is refused rather than dropped.

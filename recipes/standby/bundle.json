@@ -27,6 +27,9 @@
         "max_attempts": 2,
         "timeout_seconds": 5400
       },
+      "tools": {
+        "sandbox": "workspace-write"
+      },
       "driver": {
         "command": [
           "{brokkr}",
@@ -36,9 +39,7 @@
           "--model",
           "gpt-6-astra",
           "--effort",
-          "xhigh",
-          "--sandbox",
-          "danger-full-access"
+          "xhigh"
         ]
       }
     },
@@ -58,6 +59,9 @@
         "max_attempts": 2,
         "timeout_seconds": 3600
       },
+      "tools": {
+        "sandbox": "read-only"
+      },
       "driver": {
         "command": [
           "{brokkr}",
@@ -67,9 +71,7 @@
           "--model",
           "gpt-6-astra",
           "--effort",
-          "xhigh",
-          "--sandbox",
-          "workspace-write"
+          "xhigh"
         ]
       }
     }

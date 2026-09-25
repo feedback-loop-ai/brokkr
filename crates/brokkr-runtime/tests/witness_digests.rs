@@ -264,6 +264,9 @@ fn workspace() -> PathBuf {
 /// a typed `tools.allow`, and `night-shift`, `wager-harness`, `triage` and
 /// `gpt-flash` carry the `fast` layer. `research`, `research-dsh` and
 /// `bundles/verify` keep their digests.
+/// Rebuild unit 7 moves `bundles/verify` alone: its review seat replaces
+/// the same authored flags with a typed `tools.allow`. `recipes/standby`
+/// and `recipes/review-first` also migrate, and neither is witnessed here.
 /// The values below are the final tree's actual compiles, never
 /// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
@@ -305,7 +308,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "bundles/verify",
-        "634d129e52da2029340a98a4be54ae37ceea4230c987924804c829295958ff80",
+        "7263ad3612bcde086918d48f236147eef288c250b2ee5e9fefe95f262bcf4f3c",
     ),
 ];
 

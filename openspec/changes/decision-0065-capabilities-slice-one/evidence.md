@@ -8098,3 +8098,122 @@ On the final bytes:
 - The driver judges only where the input carries the sealed record. The
   dispatch door (`verify_record`) requires that record in the input it
   hands over. An input stripped of it after the door is outside this unit.
+
+## Unit 7 — verify and the inline Codex seats migrated, narrowed, 2026-09-25
+
+Run `0065-rebuild-unit-7-see-the-unit-c9f23334`, triage `chore`, phase
+implement, sole seat, on `82e2dc61` (clean). Step 0 was committed alone as
+`5b9ed910`: the addendum "2026-09-25: the standing admission extends to unit
+5d" and the three F4 phrases re-worded to cite it. Production:
+`bundles/verify/bundle.json`, `recipes/standby/bundle.json`,
+`recipes/review-first/bundle.json`. Tests: `tests/capability_launch.rs` (one
+new test) and the measured pins in `tests/witness_digests.rs` and
+`src/bundle/compose_tests.rs` (both under `crates/brokkr-runtime`).
+`model_policy_tests.rs` did not need to move. No adapter, engine code, frozen
+contract, fixture or policy byte moved. No out-of-inventory line was needed,
+so nothing is recorded under the standing admission.
+
+### Adopted from the first run
+
+The saved `.forge/unit-7-d8cb2dcd-verify-probe.patch` applied cleanly. It was
+then re-laid out to match unit 6's recipes (`tools` before `driver`, one name
+per line). The names and their order did not change. The blocks recorded in
+"Unit 7 — oversized" and "Unit 7 — blocked on the second visit" no longer
+hold. Unit 5d and its fixes lower a typed inline Codex sandbox, and the
+2026-09-25 "narrow" ruling settles the classes.
+
+### Migration, under the narrow ruling
+
+| Seat | Before (authored) | After (typed) | Door |
+| --- | --- | --- | --- |
+| `bundles/verify` review (Claude) | `--permission-mode acceptEdits --allowedTools Bash(cargo:*),…,Bash(gh pr view:*),Bash(gh run view:*)` | `tools.allow: cargo, git, python3, pytest, ls, rg, gh-pr-view, gh-run-view` | unchanged |
+| `recipes/standby` implement (Codex, work) | `--sandbox danger-full-access` | `tools.sandbox: workspace-write` (**narrowed**) | file |
+| `recipes/standby` review (Codex, gate) | `--sandbox workspace-write` | `tools.sandbox: read-only` (**narrowed**) | last-message |
+| `recipes/review-first` review (Codex, gate) | `--sandbox workspace-write` | `tools.sandbox: read-only` (**narrowed**) | last-message |
+
+No seat on these three files declares `danger-full-access`.
+
+All three compile with `cargo run --locked -q -p brokkr-cli -- compile
+--bundle <dir>`. Each pre-migration file was compiled too, from `git
+checkout`, and restored with `git apply .forge/u7-recipes.patch`. For each
+bundle, a `jq` comparison of the manifest's `boundary`, `hands`,
+`capabilities` and `realms` returned `[true,true,true]`, identical before
+and after. The only manifest key that moved in any of the three is `files`,
+the `bundle.json` bytes. Boundary authority is unchanged.
+
+### The test
+
+`the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_engines_own`
+compiles each shipped directory in a realm that grants nothing, under
+`harness`. It composes, seals and launches each seat through the engine's
+own functions: `sealed`/`try_launch` for Claude and `inline_codex_sealing`
+for Codex. The result is one exact map over the four seats: the authored
+command, held counts, sealed result, segments, expected
+`local`/`native`/`template`, the final command and the result door. The
+expected literals are written out:
+
+- verify/review ends `… --permission-mode acceptEdits --allowedTools
+  Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)
+  --disallowedTools WebFetch,WebSearch`. That is the former authored list
+  byte for byte, now in `template` and `local` origins.
+- standby/implement ends `… --model gpt-6-astra --sandbox workspace-write -c
+  web_search="disabled"`, `local.sandbox` `workspace-write`, door `file`.
+- standby/review and review-first/review end `… --sandbox read-only
+  --output-last-message /w/result.json -c web_search="disabled"`,
+  `local.sandbox` `read-only`, door `last-message`.
+
+Line numbers below were taken before `cargo fmt`, which re-wrapped one tuple.
+The final assertion was at `capability_launch.rs:4815` and is at 4820 after
+formatting. The logs are in `.forge/u7-*.log`.
+
+- **Baseline red** (the three recipes at HEAD, test present): FAILED at
+  4815, the final `assert_eq!`. The left side shows the authored
+  `--sandbox danger-full-access` and `--sandbox workspace-write` in the
+  authored segment, `sandbox: unspecified`, and door `file` at both gates.
+- **M1** (drop `gh-run-view` from verify's allow): FAILED at 4815.
+- **M2** (`adapters/claude.json` `gh-pr-view` → `Bash(gh:*)`, unrestricted
+  gh): FAILED at 4815, with `Bash(gh:*)` in the observed list.
+- **M3** (review-first review `tools.sandbox` back to `workspace-write`):
+  FAILED at 4684, the compile `unwrap_or_else`, with `seat 'review' declares
+  'tools.sandbox' 'workspace-write' at an inline Codex gate, where only
+  'read-only' is admitted: …`.
+- Each was restored. `git diff` of the three recipes was byte-identical to
+  `.forge/u7-recipes.patch`, and `git diff --quiet -- adapters` passed.
+
+### Pins
+
+Measured from the failing tests' own values:
+`recipes_that_opted_into_nothing_keep_their_digests` and
+`pinned_bundles_keep_their_recorded_digest` each reported `bundles/verify`
+moved from `634d129e…` to `7263ad36…`. `recipes/standby` and
+`recipes/review-first` are pinned by neither table. No other pin failed.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean after `cargo fmt --all`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warnings.
+- `cargo test --locked -q -p brokkr-runtime --no-fail-fast`: 25 result
+  lines, all `ok`, no `FAILED` or `panicked`.
+- `cargo test --locked -q -p brokkr-cli --all-features --no-fail-fast`: 33
+  result lines, all `ok`, none failed.
+- `compile --bundle bundles/self` and `compile --bundle bundles/verify`:
+  both exit 0.
+- `cargo test --workspace --all-features --locked -q --no-fail-fast`: 77
+  result lines, all `ok`, no `FAILED` or `panicked`
+  (`.forge/u7-workspace.log`).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+- **Pending:** exact coverage (`scripts/coverage-exact.sh`), macOS and
+  remote CI.
+
+### Follow-ups, not fixed here
+
+- `crates/brokkr-cli/tests/driver_conformance.rs`
+  (`the_shipped_inline_codex_work_seat_rejoins_its_retry` and the
+  `assert_resume_argv` doc) still describe standby as shipping `--sandbox
+  danger-full-access` inline. The test hard-codes that argv and does not
+  read the recipe, so it stays green. After unit 8 migrates wager-harness,
+  no shipped recipe carries that argv.
+- The compiled manifest records no seat's typed `tools.sandbox` class. It
+  is witnessed only through the `bundle.json` file digest.

@@ -1092,6 +1092,8 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// gained the typed-migration command names in `tool_permissions.names`.
 /// Rebuild unit 6 moves `recipes/fast` alone: its two Claude seats replace
 /// their authored permission flags with a typed `tools.allow`.
+/// Rebuild unit 7 moves `bundles/verify` alone, for the same reason at its
+/// review seat.
 /// The values below are the actual compiles of the final tree, never
 /// recomputed guesses.
 const UNCOMPOSED: [(&str, &str); 4] = [
@@ -1109,7 +1111,7 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "bundles/verify",
-        "634d129e52da2029340a98a4be54ae37ceea4230c987924804c829295958ff80",
+        "7263ad3612bcde086918d48f236147eef288c250b2ee5e9fefe95f262bcf4f3c",
     ),
 ];
 

@@ -1272,7 +1272,7 @@ and remote CI are pending.
 
 ## 7. Unit 7 — Migrate verify and Codex restrictions
 
-- [ ] 7.1 Unit 7 migrates verify/standby/review-first to typed permissions/sandbox. Verify exact commands, unchanged boundary authority and measured pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.18)
+- [x] 7.1 Unit 7 migrates verify/standby/review-first to typed permissions/sandbox. Verify exact commands, unchanged boundary authority and measured pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.18)
 
 Observed 2026-09-25 (evidence.md, "Unit 7 — oversized: inline Codex sites
 have no typed sandbox lowering"), run `0065-rebuild-unit-7-see-the-unit-d8cb2dcd`,
@@ -1294,6 +1294,27 @@ Observed 2026-09-25, second visit of the same run after triage re-ruled
 visit. Review-first migrated as the Migration Plan says was refused again with
 the same exact reason. D5.3 and unit 7 contradict each other, and only the
 operator can resolve that. No production, test or pin byte moved.
+
+Observed 2026-09-25 (evidence.md, "Unit 7 — verify and the inline Codex
+seats migrated, narrowed"), run `0065-rebuild-unit-7-see-the-unit-c9f23334`
+on `82e2dc61`. Unit 5d and the "narrow" ruling answered both blocks. Step 0
+(the 5d extension addendum) was committed alone as `5b9ed910`. The verify
+reviewer declares a typed allow that keeps both narrow gh prefixes.
+Standby's implementer moves to typed `workspace-write` (it was
+danger-full-access). Standby's reviewer and review-first's reviewer move to
+typed `read-only` (they were workspace-write) and deliver through the
+last-message door. No authored capability flag is left in the three files.
+The new `capability_launch` test pins the four final commands, origins,
+expected states and doors exactly. It was red on the unmigrated recipes
+and was bound by three compiling mutations, each restored: a dropped gh
+name, an unrestricted `Bash(gh:*)` mapping, and a gate put back at
+workspace-write. The manifest's boundary, hands, capabilities and realms
+are identical before and after. The `bundles/verify` witness pin and
+compose pin were re-measured (`7263ad36…`). No line was needed under the
+standing admission. fmt, clippy, `cargo test --workspace` (77 result lines,
+all ok), both bundle compiles, `openspec validate --all --strict` (18
+passed) and `git diff --check` passed. **Not fully green:** exact coverage,
+macOS and remote CI are pending.
 
 ## 8. Unit 8 — Migrate wager and finish the inventory
 
