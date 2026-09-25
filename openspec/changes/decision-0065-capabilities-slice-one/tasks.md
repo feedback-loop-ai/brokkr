@@ -1146,8 +1146,11 @@ standing-admission line was used.
 
 - **Diagnostics.** A grammar refusal names a bounded label, never the
   token. The label is a canonical name, a plain long name, the
-  terminator, or a fixed positional or unmodelled label, and the whole
-  rendering stays within 512 scalar values.
+  terminator, or a fixed positional or unmodelled label. As D6 requires,
+  the option/cause portion (label plus cause) stays within 512 scalar
+  values. The fixed prose around it is outside that bound: two
+  `--dangerously-bypass-approvals-and-sandbox` render 530 scalars with a
+  234-scalar portion (second return visit, review R1; M27 and M28 bind).
 - **Catalogue effects.** `Effect::Control(Power)` classifies the catalogue
   options the tables had called inert, and DSH's `--patch` is
   `Effect::Route`. The inventory test fixes every table literally.

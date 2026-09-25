@@ -7013,3 +7013,46 @@ After the restores, a grep for the mutation marker in `grammar.rs` counted
 - `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
 - **Pending:** workspace exact coverage (`scripts/coverage-exact.sh` outside
   the box), macOS and remote CI.
+
+### Second return visit — the bound is the option/cause portion, 2026-09-25
+
+The review of `2f6ff9a1` returned R1 (medium). The task note and the
+comment on `a_grammar_refusal_names_a_bounded_label_and_never_a_payload`
+said the whole rendering stays within 512 scalar values. D6 and the realm
+delta bound only the option/cause portion. No production byte moved: the
+answer is in `native_controls/tests.rs` and this change's tasks.md. No line
+was admitted under the standing admission.
+
+- **The counterexample, reproduced.** A codex row repeating
+  `--dangerously-bypass-approvals-and-sandbox` was added to the redaction
+  test. Temporarily restoring the old whole-rendering assertion made it fail
+  at `tests.rs:2873` on that row. A scratch message then measured the
+  counts: `Problem`'s rendering is 530 scalars, `parse_origin`'s is 544, and
+  the label plus cause is 234. This matches the review. The scratch
+  assertion was removed.
+- **The test now asserts D6's bound.** For every row, `tests.rs:2860`
+  asserts that `problem.label` plus `problem.cause` is at most 512 scalars,
+  before the exact diagnostic at `:2864`. The new row's exact diagnostic
+  names `'--dangerously-bypass-approvals-and-sandbox'` and the complete
+  repeat cause. The whole-rendering assertion is gone, and the comment
+  now says the fixed prose is outside the bound.
+- **Mutations**, each in `grammar.rs`'s repeat cause, compiled, run and
+  restored:
+
+| # | Mutation | Failing assertion (actual) |
+|---|---|---|
+| M27 | the canonical name spelled 8 times when it is longer than 40 bytes | `tests.rs:2860`: `codex: 528 scalars in the 'codex' command grammar cannot place argument 2 ('--dangerously-bypass-approvals-and-sandbox'): …` |
+| M28 | the same, spelled twice (portion inside the bound) | `tests.rs:2864`: `assertion left == right failed: ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-approvals-and-sandbox"]` |
+
+  After the restore, `git diff --stat` showed only `tests.rs` moved, and the
+  test passed.
+
+**Gates, on the final bytes:**
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --locked -q -p brokkr-protocol --all-features`: lib 482
+  passed, then 99 passed (2 ignored) and 1 passed.
+- `compile --bundle bundles/self` gave `45dc1c7e…`, unchanged.
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- **Pending:** workspace exact coverage, macOS and remote CI.

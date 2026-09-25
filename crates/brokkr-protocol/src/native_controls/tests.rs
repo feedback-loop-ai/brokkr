@@ -2718,7 +2718,10 @@ fn unplaced(harness: &str, at: usize, label: &str, cause: &str) -> String {
 /// long name by that name alone, and anything else — a bare word, an
 /// unmodelled short or attached form, a name with a newline, a path or an
 /// over-long spelling — by a fixed label. No sentinel, newline or secret
-/// path survives, and the whole rendering stays within 512 scalar values.
+/// path survives. D6 bounds the option/cause portion, the label and the
+/// cause, to 512 scalar values; the fixed prose around them is outside
+/// that bound, so a repeated longest canonical name renders a refusal
+/// longer than 512 while its option/cause portion stays inside it.
 #[test]
 fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
     const SENTINEL: &str = "REVIEW_SENTINEL";
@@ -2838,16 +2841,28 @@ fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
             "'--patch'",
             repeats("--patch"),
         ),
+        (
+            "codex",
+            argv(&[
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--dangerously-bypass-approvals-and-sandbox",
+            ]),
+            2,
+            "'--dangerously-bypass-approvals-and-sandbox'",
+            repeats("--dangerously-bypass-approvals-and-sandbox"),
+        ),
     ];
     for (harness, written, at, label, cause) in rows {
+        let problem = grammar::parse(harness, &written)
+            .expect("a modelled harness")
+            .expect_err("the argv does not parse");
+        let portion = problem.label.chars().count() + problem.cause.chars().count();
+        assert!(portion <= 512, "{harness}: {portion} scalars in {problem}");
         let refused = parse_origin(harness, &written, true)
             .expect_err("the argv does not parse")
             .cause;
         assert_eq!(refused, unplaced(harness, at, label, &cause), "{written:?}");
-        let rendered = grammar::parse(harness, &written)
-            .expect("a modelled harness")
-            .expect_err("the argv does not parse")
-            .to_string();
+        let rendered = problem.to_string();
         assert!(
             !rendered.contains(SENTINEL)
                 && !rendered.contains("secret")
@@ -2855,7 +2870,6 @@ fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
                 && !rendered.contains("kkkk"),
             "{harness}: {rendered}"
         );
-        assert!(rendered.chars().count() <= 512, "{harness}: {rendered}");
     }
 }
 
