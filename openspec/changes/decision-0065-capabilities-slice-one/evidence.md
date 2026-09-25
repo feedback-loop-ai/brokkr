@@ -9408,3 +9408,36 @@ is a second production file outside the unit.
 - Exact coverage is still pending. The dead-arm deletion is in the saved
   patch and has not landed, so the `bundle.rs` DA:3376 and DA:3403–3408
   record stays open.
+
+## Unit 12 — re-commissioned without a ruling, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-245a74ff`, re-entered at implement on
+`db3438bd` after triage re-ruled the unit a chore. No addendum to the
+operator ruling widens unit 12's test inventory or reassigns the two
+fixture migrations, so this visit re-verified the finding and did not
+rebuild the patch. Logs are `.forge/u12-v2-*.log`.
+
+- `sha256sum .forge/unit-12-oversized-2026-09-26.patch` is still
+  `f12b3e528af9c906ac172d18b327bf3a528e94398602de722a738786daa209e6`,
+  and `git apply --check` is clean on a clean tree.
+- With the patch applied:
+  - `cargo test -p brokkr-runtime --all-features --locked --lib --
+    bundle::agent_tests::a_resolved_seat_equals_the_equivalent_inline_seat`
+    fails at `bundle/agent_tests.rs:308:42` with `its arguments carry
+    '--allowedTools' (argument 5), a capability-bearing option of harness
+    'claude'. …`.
+  - `cargo test -p brokkr-cli --all-features --locked --test
+    driver_conformance --
+    the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement`
+    fails at `driver_conformance.rs:3063:6` with `its arguments carry
+    '--sandbox' (argument 5), a capability-bearing option of harness
+    'codex'. …`.
+- Neither is covered by the standing admission. Neither fixture swaps the
+  shipped driver for a fixture driver, and both need a changed fixture, not
+  a compiler-forced line.
+- `git checkout -- crates` restored the tree, and `git status --short` was
+  empty.
+- The split named in "Unit 12 — oversized" still stands.
+- **Standing-admission lines:** none.
+- **Pending:** exact coverage (the dead-arm deletion is still only in the
+  patch), macOS and remote CI.

@@ -1572,6 +1572,17 @@ The patch's three standing-admission lines (`written: &[]` in
 `agents/tests.rs`) are recorded in evidence.md, "Unit 12 — oversized".
 12.1 and 12.2 stay open.
 
+Re-commissioned 2026-09-26, same run, without a ruling on the two test
+files (evidence.md, "Unit 12 — re-commissioned without a ruling"):
+
+- The saved patch still hashes `f12b3e52…09e6` and still applies cleanly.
+- With it applied, both out-of-inventory tests still fail on the ruling 1
+  refusal (`agent_tests.rs:308:42`, `--allowedTools`;
+  `driver_conformance.rs:3063:6`, `--sandbox`).
+- The tree was restored, and the unit is **oversized** again with the
+  same split.
+- **Standing-admission lines:** none.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
