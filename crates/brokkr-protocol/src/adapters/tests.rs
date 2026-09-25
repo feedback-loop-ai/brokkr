@@ -126,7 +126,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             "allowed_results": ["clean", 2, "residual"],
         }),
         AdapterKind::Claude,
-    );
+    )
+    .unwrap();
     assert!(prompt.contains("trusted role"));
     assert!(prompt.contains("clean, residual"));
     // Decision 0034 rulings 6 and 7 seal the record with no extra
@@ -149,7 +150,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             "allowed_results": ["clean"],
         }),
         AdapterKind::Claude,
-    );
+    )
+    .unwrap();
     assert_eq!(housed.matches("## House rules").count(), 1);
     assert_eq!(housed.matches("## Spec dialect").count(), 1);
     assert!(housed.find("trusted role").unwrap() < housed.find("## House rules").unwrap());
@@ -173,7 +175,8 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
             "allowed_results": ["clean"],
         }),
         AdapterKind::Claude,
-    );
+    )
+    .unwrap();
     assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
     assert!(
         boxed.find("## Result contract").unwrap() < boxed.find("mcp__brokkr__workspace").unwrap()
@@ -480,6 +483,94 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
     ));
 }
 
+/// #372: the charter is the office, so a seat whose charter cannot be read
+/// — or a start that names no correlation — launches nothing. The one
+/// body sent is `result: failed` with no `accepted` and no checkpoint,
+/// decision 0053's failure to start, and the error names the path.
+#[test]
+fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing-role.md");
+    let input = json!({"role_path": missing, "workdir": dir.path(),
+        "result_path": dir.path().join("result.json"), "allowed_results": ["complete"]});
+    assert_eq!(
+        render_prompt(&input, AdapterKind::Claude),
+        Err(StartRefusal::UnreadableCharter {
+            path: missing.display().to_string(),
+            error: "No such file or directory (os error 2)".into(),
+        })
+    );
+    // A model seat handed no path at all is refused on the same terms;
+    // an exec site, which has no model to instruct, reads no charter.
+    let mut bare = input.clone();
+    bare.as_object_mut().unwrap().remove("role_path");
+    assert_eq!(
+        render_prompt(&bare, AdapterKind::Codex),
+        Err(StartRefusal::UnreadableCharter {
+            path: String::new(),
+            error: "No such file or directory (os error 2)".into(),
+        })
+    );
+    for exec_input in [&bare, &input] {
+        assert!(render_prompt(exec_input, AdapterKind::Exec)
+            .unwrap()
+            .starts_with("\n\n---\n## Task"));
+    }
+
+    let refused = |start: Value| {
+        let mut bodies = Vec::new();
+        run_seat_with(
+            AdapterKind::Claude,
+            &start,
+            &mut |body| bodies.push(serde_json::to_value(body).unwrap()),
+            |_, _, _, _| panic!("a refused seat never invokes its driver"),
+        );
+        bodies
+    };
+    let full = json!({"effect_id": "fx", "attempt_id": "a1", "input": input});
+    let failed = |effect_id: &str, attempt_id: &str, error: String| {
+        serde_json::to_value(Body::Result {
+            effect_id: effect_id.into(),
+            attempt_id: attempt_id.into(),
+            status: ResultStatus::Failed,
+            result: None,
+            error: Some(error),
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        refused(full.clone()),
+        vec![failed(
+            "fx",
+            "a1",
+            format!(
+                "seat refused to start: charter '{}' is unreadable: \
+                 No such file or directory (os error 2)",
+                missing.display()
+            )
+        )]
+    );
+    // A readable charter, so the missing correlation is the only reason.
+    let mut chartered = full.clone();
+    chartered["input"]["role_path"] = json!("/dev/null");
+    for (field, effect_id, attempt_id) in [("effect_id", "", "a1"), ("attempt_id", "fx", "")] {
+        let mut start = chartered.clone();
+        start.as_object_mut().unwrap().remove(field);
+        assert_eq!(
+            refused(start),
+            vec![failed(
+                effect_id,
+                attempt_id,
+                format!("seat refused to start: the start names no {field}")
+            )]
+        );
+    }
+    assert!(
+        !dir.path().join("result.json").exists(),
+        "a refused seat writes nothing"
+    );
+}
+
 /// The staging sibling's own name: short, unique within this run, and
 /// derived from NOTHING about the destination.
 ///
@@ -658,7 +749,7 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
     let start = json!({
         "effect_id":"fx", "attempt_id":"a1",
         "input": {"workdir": dir.path(), "result_path": result,
-                  "allowed_results": ["complete"]}
+                  "allowed_results": ["complete"], "role_path": "/dev/null"}
     });
     let prior_lanetally = std::env::var_os("BROKKR_LANETALLY_BIN");
     let prior_claude = std::env::var_os("BROKKR_CLAUDE_BIN");
@@ -2233,6 +2324,7 @@ fn codex_shim(dir: &std::path::Path, name: &str, argv: &std::path::Path) -> std:
 fn enabled_input(shape: &str, version: &str, workdir: &std::path::Path) -> Value {
     let mut input = enabled_assessment(shape, version, "namespace", "boxed");
     input["workdir"] = json!(workdir);
+    input["role_path"] = json!("/dev/null");
     input
 }
 
@@ -6020,7 +6112,8 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
     let start = json!({
         "effect_id": "effect", "attempt_id": "attempt",
         "input": {"workdir": here, "result_path": here.join("result.json"),
-                  "allowed_results": ["complete"], "feature": "f", "phase": "work"}
+                  "allowed_results": ["complete"], "feature": "f", "phase": "work",
+                  "role_path": "/dev/null"}
     });
     let mut bodies = Vec::new();
     let mut observations = Vec::new();
@@ -7339,7 +7432,8 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         Some("session-019c4b7e"),
         &mut |body| messages.push(body),
@@ -7427,7 +7521,8 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         Some("session-019c4b7e"),
         &mut |body| messages.push(body),
@@ -9201,15 +9296,16 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     let boxed = render_prompt(
         &input(json!({"hands": "boxed", "boundary": "namespace"})),
         AdapterKind::Claude,
-    );
-    let legacy = render_prompt(&input(json!({"hands": "boxed"})), AdapterKind::Codex);
+    )
+    .unwrap();
+    let legacy = render_prompt(&input(json!({"hands": "boxed"})), AdapterKind::Codex).unwrap();
     assert_eq!(boxed, legacy);
     assert!(boxed.contains("reachable ONLY through the `mcp__brokkr__workspace` tool"));
     assert!(boxed.contains("write a JSON object to exactly this file"));
 
     // `harness` on a `file` door: the word, no workspace tool, the one
     // file the sandbox lets the seat write.
-    let filed = render_prompt(&input(json!({"boundary": "harness"})), AdapterKind::Claude);
+    let filed = render_prompt(&input(json!({"boundary": "harness"})), AdapterKind::Claude).unwrap();
     assert!(
         filed.contains("stand under the `harness` boundary"),
         "{filed}"
@@ -9233,7 +9329,8 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     let captured = render_prompt(
         &input(json!({"boundary": "harness", "result_delivery": "last-message"})),
         AdapterKind::Codex,
-    );
+    )
+    .unwrap();
     assert!(
         captured.contains("Your FINAL message must be exactly the result object"),
         "{captured}"
@@ -9257,13 +9354,13 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
     assert!(!captured.contains("mcp__brokkr__workspace"), "{captured}");
 
     // `open`: the word and no delivery change.
-    let open = render_prompt(&input(json!({"boundary": "open"})), AdapterKind::Dsh);
+    let open = render_prompt(&input(json!({"boundary": "open"})), AdapterKind::Dsh).unwrap();
     assert!(open.contains("stand under the `open` boundary"), "{open}");
     assert!(open.contains("Write the result file yourself"), "{open}");
     assert!(!open.contains("mcp__brokkr__workspace"), "{open}");
 
     // A site without hands: no paragraph, today's contract.
-    let plain = render_prompt(&input(json!({})), AdapterKind::Lanetally);
+    let plain = render_prompt(&input(json!({})), AdapterKind::Lanetally).unwrap();
     assert!(!plain.contains("Your hands"), "{plain}");
     assert!(plain.contains("write a JSON object to exactly this file"));
 
@@ -9276,7 +9373,7 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
         json!({"boundary": "harness", "result_delivery": "last-message"}),
         json!({"boundary": "open"}),
     ] {
-        let exec = render_prompt(&input(extra), AdapterKind::Exec);
+        let exec = render_prompt(&input(extra), AdapterKind::Exec).unwrap();
         assert!(!exec.contains("Your hands"), "{exec}");
         assert!(!exec.contains("mcp__brokkr__workspace"), "{exec}");
         assert!(!exec.contains("harness"), "{exec}");
@@ -9316,9 +9413,10 @@ printf '%s' '{message}' > "$capture"
 "#
             ),
         );
-        let input = json!({"feature":"judge", "phase":"verify", "workdir":dir.path(), "result_path":path,
-            "boundary":"harness", "result_delivery":"last-message", "allowed_results":["pass","fail"]});
-        let prompt = render_prompt(&input, AdapterKind::Codex);
+        let input = json!({"role_path":"/dev/null", "feature":"judge", "phase":"verify",
+            "workdir":dir.path(), "result_path":path, "boundary":"harness",
+            "result_delivery":"last-message", "allowed_results":["pass","fail"]});
+        let prompt = render_prompt(&input, AdapterKind::Codex).unwrap();
         assert!(prompt.contains(path.to_str().unwrap()));
         assert!(prompt.contains("final message"));
         let mut messages = Vec::new();
@@ -9553,7 +9651,8 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         None,
         &mut |body| messages.push(body),
@@ -9617,7 +9716,8 @@ printf '{"type":"error","message":"stream error: still refused"}\n'
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -9723,7 +9823,8 @@ fn an_exec_that_cannot_spawn_accepts_once_and_fails_after_its_launch_row() {
         &json!({
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
-                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
         }),
         None,
         &mut |body| messages.push(body),
@@ -9781,7 +9882,8 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -9834,7 +9936,8 @@ fn a_codex_that_cannot_spawn_reports_no_launch_and_keeps_its_accepted() {
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -9981,7 +10084,8 @@ fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -10050,7 +10154,8 @@ fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order(
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -10122,7 +10227,8 @@ fn a_refusal_never_discards_a_session_that_delivered_its_result() {
             &json!({
                 "effect_id":"effect", "attempt_id":"attempt",
                 "input": {"workdir": dir.path(), "result_path": result,
-                          "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+                          "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null"}
             }),
             None,
             &mut |body| messages.push(body),
@@ -14296,6 +14402,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
         input["allowed_results"] = json!(["complete"]);
         input["feature"] = json!("f");
         input["phase"] = json!("work");
+        input["role_path"] = json!("/dev/null");
         if session.is_some() {
             // The declined offer was opened under a different composite.
             let originating = if case == "declined" {

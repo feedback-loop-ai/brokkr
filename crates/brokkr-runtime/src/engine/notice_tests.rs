@@ -385,6 +385,7 @@ fn rendered(start: &Value, provider: &str) -> String {
         &start["input"],
         AdapterKind::parse(provider).expect("a built-in model kind"),
     )
+    .expect("the composed charter is readable")
 }
 
 fn assert_contract(start: &Value, provider: &str, allowed: &str, tail: &str) {

@@ -302,8 +302,40 @@ fn last_message_door(input: &Value) -> bool {
     input.get("result_delivery").and_then(Value::as_str) == Some("last-message")
 }
 
+/// Why a seat refused to start before any provider was invoked (#372).
+/// The charter is the office — its result vocabulary, its read-only
+/// rules, its floor rules — and the correlation is how the engine
+/// attributes the attempt, so neither is ever defaulted to empty.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum StartRefusal {
+    /// The start message named no `effect_id` or `attempt_id`.
+    #[error("seat refused to start: the start names no {0}")]
+    MissingCorrelation(&'static str),
+    /// The charter at `path` could not be read.
+    #[error("seat refused to start: charter '{path}' is unreadable: {error}")]
+    UnreadableCharter { path: String, error: String },
+}
+
+/// The seat's charter text. A model kind must be able to read it. An exec
+/// site is the script it names and has no model to instruct, so its
+/// charter is optional: it compiles to an empty `role_path`, and a boxed
+/// gate's driver runs inside the namespace, where the bundle that holds a
+/// declared charter is not mounted.
+fn read_charter(input: &Value, kind: AdapterKind) -> Result<String, StartRefusal> {
+    let path = input.get("role_path").and_then(Value::as_str).unwrap_or("");
+    match std::fs::read_to_string(path) {
+        Ok(charter) => Ok(charter),
+        Err(_) if kind == AdapterKind::Exec => Ok(String::new()),
+        Err(error) => Err(StartRefusal::UnreadableCharter {
+            path: path.to_string(),
+            error: error.to_string(),
+        }),
+    }
+}
+
 /// Render the model-facing prompt from the three independently owned texts in
 /// one engine input: charter, optional realm house, and site result contract.
+/// A model seat's charter that cannot be read refuses the render (#372).
 ///
 /// `kind` is the driver about to read it (decision 0046; design DD21): the
 /// hands paragraph is prose for a model, so it is rendered for the four
@@ -311,13 +343,9 @@ fn last_message_door(input: &Value) -> bool {
 /// environment and not a sentence. The rest of the prompt is the same
 /// for every kind, which is what lets the shipped verify and ship
 /// scripts keep reading the result path off it by line.
-pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
+pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRefusal> {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
-    let role = input
-        .get("role_path")
-        .and_then(Value::as_str)
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .unwrap_or_default();
+    let role = read_charter(input, kind)?;
     let context = serde_json::to_string_pretty(input.get("context").unwrap_or(&json!({})))
         .unwrap_or_default();
     let allowed = input
@@ -369,7 +397,7 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
              writing the file counts as producing no result.",
         )
     };
-    format!(
+    Ok(format!(
         "{role}{house}{dialect}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
          phase's only seat)\nWorking directory: {workdir}\n\nRun context \
          (journal-derived, read-only):\n```json\n{context}\n```\n\n## Result contract \
@@ -393,7 +421,7 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
         result_path = get("result_path"),
         allowed = allowed,
         hands = hands,
-    )
+    ))
 }
 
 struct Invocation {
@@ -5714,6 +5742,31 @@ fn run_seat_with(
     let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
+    // #372: a start with no correlation, or a model seat whose charter
+    // cannot be read, launches nothing. The refusal is `result: failed` with NO
+    // `accepted` and NO checkpoint — decision 0053's failure to start —
+    // and it comes before the secret store is opened, so no other
+    // refusal can put an `accepted` ahead of it.
+    let prompt = if effect_id.is_empty() {
+        Err(StartRefusal::MissingCorrelation("effect_id"))
+    } else if attempt_id.is_empty() {
+        Err(StartRefusal::MissingCorrelation("attempt_id"))
+    } else {
+        render_prompt(&input, kind)
+    };
+    let prompt = match prompt {
+        Ok(prompt) => prompt,
+        Err(refusal) => {
+            send(Body::Result {
+                effect_id,
+                attempt_id,
+                status: ResultStatus::Failed,
+                result: None,
+                error: Some(refusal.to_string()),
+            });
+            return;
+        }
+    };
     // Decision 0053: `accepted` is withheld until a checkpoint proves a
     // turn began. A provider that refuses before its first turn sends
     // `result: failed` with NO `accepted` and NO checkpoint — exactly the
@@ -5786,7 +5839,6 @@ fn run_seat_with(
         }
     };
 
-    let prompt = render_prompt(&input, kind);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {

@@ -265,6 +265,16 @@ fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
     }
 }
 
+/// `single` over a readable, empty charter, for a seat the REAL adapter
+/// drives: it refuses to start on a charter it cannot read (#372).
+fn chartered(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
+    SeatBody::Single {
+        role_path: PathBuf::from("/dev/null"),
+        command,
+        candidates,
+    }
+}
+
 fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
     Bundle {
         dialect_prompts: Default::default(),
@@ -2910,7 +2920,7 @@ fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
-        seat(single(argv, vec![candidate]), &["complete"], 2),
+        seat(chartered(argv, vec![candidate]), &["complete"], 2),
     );
     seats.insert(
         "review".into(),
@@ -3338,7 +3348,7 @@ fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
-        seat(single(argv, vec![candidate]), &["complete"], 4),
+        seat(chartered(argv, vec![candidate]), &["complete"], 4),
     );
     seats.insert(
         "review".into(),
