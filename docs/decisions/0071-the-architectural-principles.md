@@ -250,7 +250,7 @@ that began. Rulings 3 and 4 pay that price.
     pattern introduced for its name.
 
     *Violating it looks like:* a 908-line `run_with` in place of a
-    command handler per `Cmd` variant (#288); 31
+    command handler per `Cmd` variant (#288); 32
     `#[allow(clippy::too_many_arguments)]` where a parameter object
     belongs (#349); bubblewrap argv assembled by statement order in two
     modules instead of one builder (#348).
