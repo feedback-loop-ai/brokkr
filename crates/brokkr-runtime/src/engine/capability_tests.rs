@@ -834,7 +834,12 @@ fn a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone() {
 fn lowered_inline(engine: &mut Engine, label: &str, name: &str) {
     let limit = format!("Bash({name}:*)");
     let site = engine.bundle.sites.entry(label.into()).or_default();
-    site.capabilities = Some(two_candidates());
+    // Rebuild unit 5d: served by the DSH outcome, whose grammar models no
+    // sandbox option; the seal now reads `local` segments back under the
+    // serving harness, and codex's cannot read this Claude-shaped list.
+    let mut capabilities = two_candidates();
+    capabilities.outcomes.reverse();
+    site.capabilities = Some(capabilities);
     site.local = Some(crate::agents::LocalTools {
         allow: Some(vec![name.to_string()]),
         sandbox: None,

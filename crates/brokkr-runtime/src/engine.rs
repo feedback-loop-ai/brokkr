@@ -1408,12 +1408,8 @@ impl Engine {
     /// a digest that moved with it would refuse the retry as a different
     /// effect.
     fn mark_delivery(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
-        let door = link.map(|link| link.harness.result);
-        if self.boundary == Boundary::Harness
-            && gate
-            && self.has_hands(label)
-            && door == Some(ResultDoor::LastMessage)
-        {
+        let facts = self.bundle.sites.get(label);
+        if result_door(self.boundary, gate, facts, link) == ResultDoor::LastMessage {
             input["result_delivery"] = json!("last-message");
         }
     }
@@ -4463,11 +4459,87 @@ impl SiteSpawn {
                     .to_string(),
             );
         }
+        if let Err(reason) = self.local_sandbox_agrees(&expected) {
+            self.record = None;
+            return Err(reason);
+        }
         self.record = Some(LaunchRecord {
             segments: self.extras(),
             expected,
         });
         Ok(())
+    }
+
+    /// Rebuild unit 5d (operator ruling 2 of 2026-09-23; ruling of
+    /// 2026-09-25): the engine's own `local` segments are parsed back under
+    /// the harness's grammar, and the sandbox class they express must be
+    /// exactly the one the expected state records for a local emission —
+    /// the site's typed class where no hands carry it, and none where hands
+    /// do, because an agent's class rides its hands fragment (design D5.3)
+    /// and a site with hands and an inline class is refused at compile. A
+    /// harness whose grammar models no `--sandbox` option — or that has no
+    /// modelled grammar — has no option to express a class, so it expresses
+    /// none, and a recorded class there is refused.
+    fn local_sandbox_agrees(&self, expected: &Expected) -> Result<(), String> {
+        let recorded = match expected.hands {
+            HandsIntent::Required => SandboxIntent::Unspecified,
+            HandsIntent::None => expected.local.sandbox,
+        };
+        let local = flatten(
+            &self
+                .extras()
+                .into_iter()
+                .filter(|segment| segment.origin == Origin::Local)
+                .collect::<Vec<_>>(),
+        );
+        let grammar = brokkr_protocol::native_controls::grammar::grammar(
+            &expected.identity.harness,
+        )
+        .filter(|grammar| {
+            grammar
+                .options
+                .iter()
+                .any(|spec| spec.canonical == "--sandbox")
+        });
+        let emitted = match grammar.map(|grammar| (grammar, grammar.parse(&local))) {
+            None => Some(SandboxIntent::Unspecified),
+            // The grammar admits `--sandbox` once, with one value: a second
+            // is a parse problem, refused below, never a class to pick from.
+            Some((_, Ok(command))) => match command
+                .nodes
+                .iter()
+                .find(|node| node.name() == "--sandbox")
+                .and_then(|node| node.values.first())
+            {
+                None => Some(SandboxIntent::Unspecified),
+                Some(class) => {
+                    crate::agents::Sandbox::parse(class).map(crate::agents::Sandbox::intent)
+                }
+            },
+            Some((grammar, Err(problem))) => {
+                return Err(format!(
+                    "dispatch refused: the engine's own `local` segments of this spawn cannot be \
+                     read under the '{}' grammar (argument {}: it {}), so the sandbox class they \
+                     express cannot be checked against its expected state; an unreadable \
+                     contribution is never sealed as the engine's (operator ruling 2 of \
+                     2026-09-23; rebuild unit 5d)",
+                    grammar.harness,
+                    problem.at + 1,
+                    problem.cause
+                ))
+            }
+        };
+        match emitted == Some(recorded) {
+            true => Ok(()),
+            false => Err(
+                "dispatch refused: the sandbox class this spawn's own `local` segments express \
+                 is not the one its expected state records from the site's typed declaration; a \
+                 class omitted, altered or added on its way into the command is never sealed as \
+                 the engine's (operator ruling 2 of 2026-09-23; ruling of 2026-09-25, inline \
+                 Codex sandbox classes; rebuild unit 5d)"
+                    .to_string(),
+            ),
+        }
     }
 
     /// The permission template this spawn emits behind its driver verb, by
@@ -4592,12 +4664,30 @@ pub fn expected_state(
             // as its declared names and the limits kept before they were
             // joined — never read back from the segment it produced.
             let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
-            let (allow, application) = match (&local.allow, lowered, local.sandbox) {
-                (None, None, None) => (AllowIntent::Unspecified, Application::Unrestricted),
-                (Some(names), Some(lowered), None) => (
+            // Rebuild unit 5d: a sandbox class the compiler lowered is
+            // expected as the class the site declared — and only where the
+            // lowering recorded that same class.
+            let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
+            let (allow, application, sandbox) = match (&local.allow, lowered, local.sandbox) {
+                (None, None, None) if sandboxed.is_none() => (
+                    AllowIntent::Unspecified,
+                    Application::Unrestricted,
+                    SandboxIntent::Unspecified,
+                ),
+                (Some(names), Some(lowered), None) if sandboxed.is_none() => (
                     AllowIntent::Listed(names.clone()),
                     Application::Direct(lowered.limits.clone()),
+                    SandboxIntent::Unspecified,
                 ),
+                (None, None, Some(class))
+                    if sandboxed.is_some_and(|sandboxed| sandboxed.class == class) =>
+                {
+                    (
+                        AllowIntent::Unspecified,
+                        Application::Unrestricted,
+                        class.intent(),
+                    )
+                }
                 _ => {
                     return Err(refused(
                         "the inline site declares a typed local restriction no inline command \
@@ -4605,14 +4695,15 @@ pub fn expected_state(
                     ))
                 }
             };
-            let template = inline_template(lowered.is_some(), facts).map_err(refused)?;
+            let lowers = lowered.is_some() || sandboxed.is_some();
+            let template = inline_template(lowers, facts).map_err(refused)?;
             let hands = match facts.map(|facts| &facts.hands) {
                 Some(HandsState::Hands(_)) => HandsIntent::Required,
                 _ => HandsIntent::None,
             };
             let local = LocalExpectation {
                 allow,
-                sandbox: SandboxIntent::Unspecified,
+                sandbox,
                 application,
             };
             (local, hands, template)
@@ -4628,9 +4719,10 @@ pub fn expected_state(
 }
 
 /// The template an inline site is expected to emit (rebuild unit 5c-fix):
-/// where its allow lowers, the adapter's declaration the compiler recorded
-/// beside the lowering — never the segment emitted, which the seal checks
-/// against it; where nothing lowers, none, as nothing is emitted.
+/// where its allow or (rebuild unit 5d) its sandbox lowers, the adapter's
+/// declaration the compiler recorded beside the lowering — never the
+/// segment emitted, which the seal checks against it; where nothing lowers,
+/// none, as nothing is emitted.
 fn inline_template(
     lowered: bool,
     facts: Option<&SiteFacts>,
@@ -4642,9 +4734,38 @@ fn inline_template(
         (false, _) => Ok(TemplateExpectation::None),
         (true, Some(declared)) => Ok(declared.clone()),
         (true, None) => Err(
-            "the inline site's lowered allow carries no recorded declaration of \
-             its adapter's permission template",
+            "the inline site's lowered restriction carries no recorded declaration \
+             of its adapter's permission template",
         ),
+    }
+}
+
+/// The judge's door at one site (decision 0046 ruling 4; design D23): the
+/// harness's capture of the final message, `last-message`, or the file the
+/// seat writes. A gate takes the capture where the selected link declares
+/// `hands.harness.result` as `last-message` under `harness` with hands, or
+/// — rebuild unit 5d, operator ruling of 2026-09-25 — where it is an inline
+/// Codex gate whose read-only class the engine lowered onto the adapter's
+/// gate fragment, which opens the door that fragment's adapter declares.
+/// Every other site writes its file.
+pub fn result_door(
+    boundary: Boundary,
+    gate: bool,
+    facts: Option<&SiteFacts>,
+    link: Option<&Candidate>,
+) -> ResultDoor {
+    let hands = matches!(facts.map(|facts| &facts.hands), Some(HandsState::Hands(_)));
+    let harness = boundary == Boundary::Harness
+        && hands
+        && link.map(|link| link.harness.result) == Some(ResultDoor::LastMessage);
+    let inline = link.is_none()
+        && facts
+            .and_then(|facts| facts.inline_sandbox.as_ref())
+            .map(|sandboxed| sandboxed.door)
+            == Some(ResultDoor::LastMessage);
+    match gate && (harness || inline) {
+        true => ResultDoor::LastMessage,
+        false => ResultDoor::File,
     }
 }
 
@@ -4899,7 +5020,10 @@ pub fn compose_site(
 /// segment where the adapter declares one (rebuild unit 5c), then the
 /// engine's own `local` segment — the order an agent's composition gives
 /// them — each carried as the compiler recorded it and never recognised in
-/// the argv. Every other site is [`compose_site`] exactly.
+/// the argv. Rebuild unit 5d: an inline Codex seat's lowered sandbox class
+/// is the engine's own `local` segment in the same place, the result path
+/// filled into it as it is into a harness fragment. Every other site is
+/// [`compose_site`] exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn compose_site_at(
     facts: Option<&SiteFacts>,
@@ -4913,16 +5037,26 @@ pub fn compose_site_at(
     result_path: &str,
     unboxed: Option<&Unboxed>,
 ) -> SiteSpawn {
-    match (
-        candidate,
-        facts.and_then(|facts| facts.inline_local.as_ref()),
-    ) {
-        (None, Some(lowered)) => compose_segments(
+    let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
+    let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
+    match candidate {
+        None if lowered.is_some() || sandboxed.is_some() => compose_segments(
             boundary,
             class,
             std::iter::once(Segment::new(Origin::Authored, &command))
                 .chain(facts.and_then(|facts| facts.inline_template.clone()))
-                .chain([lowered.segment.clone()])
+                .chain(lowered.map(|lowered| lowered.segment.clone()))
+                .chain(sandboxed.map(|sandboxed| {
+                    Segment {
+                        origin: sandboxed.segment.origin,
+                        argv: sandboxed
+                            .segment
+                            .argv
+                            .iter()
+                            .map(|token| token.replace("{result_path}", result_path))
+                            .collect(),
+                    }
+                }))
                 .collect(),
             hands,
             None,

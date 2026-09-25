@@ -1048,7 +1048,34 @@ are pending.
 
 ## 5d. Unit 5d — Lower a typed sandbox at inline Codex sites
 
-- [ ] 5d.1 Unit 5d lowers a typed `tools.sandbox` at an inline Codex site through unit 5b's inline lowering and unit 5c's template recording: the engine appends the adapter's sandbox control as its own engine-owned segment, the expected state records the class as `Expected.local.sandbox`, and the seal parses it back. Exactly `workspace-write` is admitted at a work site and `read-only` at a gate; every other class, and any sandbox at a gate that is not read-only, refuses with a bounded, value-free reason. An inline Codex gate at read-only delivers through the last-message door, and the door is shown to be selected. Verify the whole final command for an inline Codex work site and gate, each refused class and a contradiction refused at the seal, each bound by a compiling mutation. Migrate no recipe. Requirements: operator ruling of 2026-09-25 ("narrow"), operator rulings 1 and 2, decision 0046 ruling 4, [Refusal proofs assert the full reason][SC8]. (inserted before 7.1 by the operator's ruling of 2026-09-25; run `0065-rebuild-unit-5d-see-the-uni-5b7d59c1`)
+- [x] 5d.1 Unit 5d lowers a typed `tools.sandbox` at an inline Codex site through unit 5b's inline lowering and unit 5c's template recording: the engine appends the adapter's sandbox control as its own engine-owned segment, the expected state records the class as `Expected.local.sandbox`, and the seal parses it back. Exactly `workspace-write` is admitted at a work site and `read-only` at a gate; every other class, and any sandbox at a gate that is not read-only, refuses with a bounded, value-free reason. An inline Codex gate at read-only delivers through the last-message door, and the door is shown to be selected. Verify the whole final command for an inline Codex work site and gate, each refused class and a contradiction refused at the seal, each bound by a compiling mutation. Migrate no recipe. Requirements: operator ruling of 2026-09-25 ("narrow"), operator rulings 1 and 2, decision 0046 ruling 4, [Refusal proofs assert the full reason][SC8]. (inserted before 7.1 by the operator's ruling of 2026-09-25; run `0065-rebuild-unit-5d-see-the-uni-5b7d59c1`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5d"). Step 0 is `c7c9ba09`.
+Production is `bundle.rs` and `engine.rs`; `native_controls.rs` did not
+move, because `Expected.local.sandbox` already carries the class.
+
+- `bundle.rs`: `lower_inline_sandbox` and `authored_sandbox_control`;
+  `SiteFacts.inline_sandbox` (`InlineSandbox`); `record_inline_tools`
+  lowers only at a seat, so nested bodies keep the refusal; the inline
+  native plan is judged by `admit_native_sandbox`.
+- `engine.rs`: `compose_site_at` appends the class as the engine's `local`
+  segment, with the result path filled in. The inline arm of
+  `expected_state` records the class. `seal` parses the `local` segments
+  back (`local_sandbox_agrees`). `result_door`, which `mark_delivery` now
+  calls, selects `last-message` at an inline Codex gate.
+
+Tests: one new 19-row test in `bundle/agent_tests.rs`, four codex rows in
+the nested-forms test, and two in `tests/capability_launch.rs`. Those two
+cover the whole final command and door for the work seat and the gate, and
+a 9-row seal-contradiction table. The new tests do not compile at the
+baseline. M1–M16 each bound and were restored. A standing-admission
+fixture line in `engine/capability_tests.rs` is recorded in the evidence.
+
+fmt, clippy, brokkr-runtime (25 of 25 binaries, lib 561), both bundle
+compiles (digests unchanged), `openspec validate --all --strict` and
+`git diff --check` passed. No recipe was migrated. **Not fully green:**
+exact coverage, macOS and remote CI are pending. The local llvm-cov
+diagnostic could not run from this session.
 
 ## 6. Unit 6 — Migrate Claude recipes
 

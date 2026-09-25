@@ -1895,10 +1895,10 @@ fn an_inline_seal_whose_emitted_template_contradicts_the_declared_one_refuses() 
             spawn.segments.insert(at, segment);
         }
     };
-    let never_declared = "dispatch refused: the inline site's lowered allow carries no recorded \
-                          declaration of its adapter's permission template, so no launch record \
-                          can be sealed for this site; a record is sealed from typed facts and \
-                          never repaired into a default one (decision 0065 slice one, design \
+    let never_declared = "dispatch refused: the inline site's lowered restriction carries no \
+                          recorded declaration of its adapter's permission template, so no launch \
+                          record can be sealed for this site; a record is sealed from typed facts \
+                          and never repaired into a default one (decision 0065 slice one, design \
                           D5.7)";
     type Row = (
         &'static str,
@@ -2436,6 +2436,302 @@ fn lanetally_serving_child() {
     brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind::Lanetally, extra)
         .unwrap();
     std::process::exit(0);
+}
+
+/// Rebuild unit 5d: a solo bundle whose work seat and gate are both inline
+/// Codex commands pinned to the shipped model and effort, with no authored
+/// sandbox, declaring `work` and `gate` as their typed sandbox classes.
+fn inline_codex_seats(operator: &Operator, work: &str, gate: &str) {
+    one_inline_seat(operator, &CODEX_SEAT[..8]);
+    let path = operator.root().join("solo/bundle.json");
+    let mut bundle: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    bundle["seats"]["work"]["tools"] = json!({"sandbox": work});
+    bundle["seats"]["review"] = json!({"results": ["clean"], "role": "roles/role.md",
+        "class": "gate", "driver": {"command": &CODEX_SEAT[..8]},
+        "tools": {"sandbox": gate}});
+    write(operator.root(), "solo/bundle.json", &bundle);
+}
+
+/// One compiled inline site of `class`, composed from `facts` as dispatch
+/// composes it, with `moved` applied to the spawn before it is sealed as
+/// dispatch seals it; beside the seal, the record the driver is handed, the
+/// final Codex command the shipped driver composes from that spawn, and the
+/// result door the engine selects for the site.
+fn inline_codex_sealing(
+    bundle: &Bundle,
+    label: &str,
+    class: brokkr_runtime::SeatClass,
+    facts: &brokkr_runtime::bundle::SiteFacts,
+    moved: impl FnOnce(&mut brokkr_runtime::engine::SiteSpawn),
+) -> (
+    Result<(), String>,
+    Value,
+    Result<Vec<String>, String>,
+    String,
+) {
+    use brokkr_runtime::engine::{expected_state, result_door, verify_record, LAUNCH_RECORD};
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[0];
+    let SeatBody::Single { command, .. } = &bundle.seats[label].body else {
+        panic!("{label} is a single seat");
+    };
+    let mut spawn = brokkr_runtime::engine::compose_site_at(
+        Some(facts),
+        brokkr_runtime::engine::BuiltBoundary::Harness,
+        class,
+        command.clone(),
+        None,
+        None,
+        Path::new("/w"),
+        &[],
+        "/w/result.json",
+        None,
+    );
+    assert_eq!(spawn.refusal, None, "{label}");
+    moved(&mut spawn);
+    let sealing =
+        expected_state(outcome, None, Some(facts)).and_then(|expected| spawn.seal(expected));
+    let record = spawn.launch_record();
+    let handed = json!({LAUNCH_RECORD: record});
+    let launched = verify_record(&spawn, &handed).and_then(|()| {
+        let argv = &spawn.argv;
+        let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
+        let input = json!({"workdir": "/w", "seat": label, "native_controls": outcome.controls(),
+                           "launch_arguments": spawn.launch_arguments()});
+        brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input)
+    });
+    let gate = class == brokkr_runtime::SeatClass::Gate;
+    let door = result_door(Boundary::Harness, gate, Some(facts), None).word();
+    (sealing, record, launched, door.to_string())
+}
+
+/// Rebuild unit 5d (operator ruling of 2026-09-25, "narrow"; rulings 1 and 2
+/// of 2026-09-23): an inline Codex work seat declaring `workspace-write` and
+/// an inline Codex gate declaring `read-only`, neither with an authored
+/// sandbox, compile on the shipped adapters. The engine appends the
+/// adapter's fragment for each seat's class behind the authored command as
+/// its own `local` segment, the gate's with the result path filled in; the
+/// sealed record carries both origins and the typed class; and the whole
+/// final Codex command carries the engine's class beside the native OFF.
+/// The gate's result reaches the engine through the last-message door —
+/// the harness's capture of the final message into the result path — and
+/// the work seat's through the file it writes.
+#[test]
+fn an_inline_codex_work_seat_and_gate_reach_their_final_commands_with_the_engines_class() {
+    use brokkr_runtime::SeatClass;
+    let operator = Operator::new();
+    inline_codex_seats(&operator, "workspace-write", "read-only");
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    let observed = |label: &str, class: SeatClass| {
+        let (sealing, record, launched, door) =
+            inline_codex_sealing(&bundle, label, class, &bundle.sites[label], |_| {});
+        json!({
+            "sealed": format!("{sealing:?}"),
+            "segments": record["segments"],
+            "local": record["expected"]["local"],
+            "template": record["expected"]["template"],
+            "final": launched.map_err(|refusal| format!("refused: {refusal}")),
+            "door": door,
+        })
+    };
+    let pins = ["--model", "gpt-6-astra", "--effort", "high"];
+    let expected = |segment: &[&str], class: &str, last: &[&str], door: &str| {
+        let mut last_argv = vec![
+            "codex",
+            "exec",
+            "--json",
+            "-C",
+            "/w",
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "--model",
+            "gpt-6-astra",
+        ];
+        last_argv.extend(last);
+        last_argv.extend(OFF);
+        json!({
+            "sealed": "Ok(())",
+            "segments": [{"origin": "authored", "argv": pins},
+                         {"origin": "local", "argv": segment}],
+            "local": {"allow": {"kind": "unspecified"}, "sandbox": {"kind": class},
+                      "application": {"kind": "unrestricted"}},
+            "template": {"kind": "none"},
+            "final": {"Ok": last_argv},
+            "door": door,
+        })
+    };
+    let gate_fragment = [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "/w/result.json",
+    ];
+    assert_eq!(
+        json!({"work": observed("work", SeatClass::Work),
+               "review": observed("review", SeatClass::Gate)}),
+        json!({
+            "work": expected(
+                &["--sandbox", "workspace-write"],
+                "workspace-write",
+                &["--sandbox", "workspace-write"],
+                "file",
+            ),
+            "review": expected(&gate_fragment, "read-only", &gate_fragment, "last-message"),
+        })
+    );
+}
+
+/// Rebuild unit 5d (operator ruling 2 of 2026-09-23): at the
+/// production-compiled inline Codex work seat, the expected state records
+/// the class the site declared from the compiler's typed facts, and the
+/// seal reads the engine's own `local` segments back under the codex
+/// grammar: a class altered, omitted, added or relabelled on its way into
+/// the command refuses whole and seals nothing, as does a contradiction
+/// between the declared and the lowered class.
+#[test]
+fn an_inline_codex_seal_whose_emitted_class_contradicts_the_declared_one_refuses() {
+    use brokkr_protocol::native_controls::{Origin, Segment};
+    use brokkr_runtime::agents::Sandbox;
+    use brokkr_runtime::bundle::SiteFacts;
+    use brokkr_runtime::engine::SiteSpawn;
+    let operator = Operator::new();
+    inline_codex_seats(&operator, "workspace-write", "read-only");
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    let site = &bundle.sites["work"];
+    let facts = |edit: &dyn Fn(&mut SiteFacts)| {
+        let mut facts = site.clone();
+        edit(&mut facts);
+        facts
+    };
+    let lowering = |edit: &dyn Fn(&mut brokkr_runtime::bundle::InlineSandbox)| {
+        facts(&|facts| edit(facts.inline_sandbox.as_mut().unwrap()))
+    };
+    let argv = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let contradicted = || {
+        Err(
+            "dispatch refused: the sandbox class this spawn's own `local` segments express is not \
+             the one its expected state records from the site's typed declaration; a class \
+             omitted, altered or added on its way into the command is never sealed as the \
+             engine's (operator ruling 2 of 2026-09-23; ruling of 2026-09-25, inline Codex \
+             sandbox classes; rebuild unit 5d)"
+                .to_string(),
+        )
+    };
+    let unlowered = || {
+        Err(
+            "dispatch refused: the inline site declares a typed local restriction no inline \
+             command lowers, so no launch record can be sealed for this site; a record is sealed \
+             from typed facts and never repaired into a default one (decision 0065 slice one, \
+             design D5.7)"
+                .to_string(),
+        )
+    };
+    type Row = (
+        &'static str,
+        SiteFacts,
+        Box<dyn FnOnce(&mut SiteSpawn)>,
+        Result<(), String>,
+    );
+    let rows: Vec<Row> = vec![
+        ("as compiled", site.clone(), Box::new(|_| {}), Ok(())),
+        (
+            "the emitted class altered",
+            lowering(&|lowered| lowered.segment.argv = argv(&["--sandbox", "read-only"])),
+            Box::new(|_| {}),
+            contradicted(),
+        ),
+        (
+            "the emitted class widened",
+            lowering(&|lowered| lowered.segment.argv = argv(&["--sandbox", "danger-full-access"])),
+            Box::new(|_| {}),
+            contradicted(),
+        ),
+        (
+            "the emitted segment emptied",
+            lowering(&|lowered| lowered.segment.argv = Vec::new()),
+            Box::new(|_| {}),
+            contradicted(),
+        ),
+        (
+            "the emitted segment relabelled as authored",
+            lowering(&|lowered| lowered.segment.origin = Origin::Authored),
+            Box::new(|_| {}),
+            contradicted(),
+        ),
+        (
+            "the local segment relabelled as authored in the spawn",
+            site.clone(),
+            Box::new(|spawn: &mut SiteSpawn| spawn.segments[1].origin = Origin::Authored),
+            contradicted(),
+        ),
+        (
+            "a second local class added to the spawn",
+            site.clone(),
+            Box::new(move |spawn: &mut SiteSpawn| {
+                let added = Segment::new(Origin::Local, &argv(&["-s", "read-only"]));
+                spawn.argv.extend(added.argv.iter().cloned());
+                spawn.segments.push(added);
+            }),
+            Err(
+                "dispatch refused: the engine's own `local` segments of this spawn cannot be \
+                 read under the 'codex' grammar (argument 3: it repeats option '--sandbox', \
+                 which the grammar admits once; a CLI that resolves a duplicate last-wins would \
+                 resolve it against the control the engine composed), so the sandbox class they \
+                 express cannot be checked against its expected state; an unreadable contribution \
+                 is never sealed as the engine's (operator ruling 2 of 2026-09-23; rebuild unit \
+                 5d)"
+                .to_string(),
+            ),
+        ),
+        (
+            "the lowering recording another class",
+            lowering(&|lowered| lowered.class = Sandbox::ReadOnly),
+            Box::new(|_| {}),
+            unlowered(),
+        ),
+        (
+            "the lowering never recorded",
+            facts(&|facts| facts.inline_sandbox = None),
+            Box::new(|_| {}),
+            unlowered(),
+        ),
+    ];
+    assert_eq!(rows.len(), 9);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, facts, moved, expected)| {
+            let (observed, record, _, _) = inline_codex_sealing(
+                &bundle,
+                "work",
+                brokkr_runtime::SeatClass::Work,
+                &facts,
+                moved,
+            );
+            // A refused seal leaves no record behind; an admitted one
+            // records the declared class.
+            let recorded = match &expected {
+                Ok(()) => json!({"kind": "workspace-write"}),
+                Err(_) => Value::Null,
+            };
+            let observed_record = match record.is_null() {
+                true => Value::Null,
+                false => record["expected"]["local"]["sandbox"].clone(),
+            };
+            (observed != expected || observed_record != recorded).then(|| {
+                format!(
+                    "row {label}:\n  left:  {observed:?} {observed_record}\n  right: \
+                     {expected:?} {recorded}"
+                )
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// Declare `allow` as the solo work seat's typed local list.

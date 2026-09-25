@@ -7056,3 +7056,198 @@ was admitted under the standing admission.
 - `compile --bundle bundles/self` gave `45dc1c7e…`, unchanged.
 - `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
 - **Pending:** workspace exact coverage, macOS and remote CI.
+
+## Unit 5d — a typed sandbox at inline Codex sites, 2026-09-25
+
+Run `0065-rebuild-unit-5d-see-the-uni-5b7d59c1`, on `1c7c9884`. Step 0 was
+committed alone as `c7c9ba09`. It appends the operator's ruling of
+2026-09-25 verbatim to `operator-ruling-2026-09-23.md`, amends D5.3's table
+and the Migration Plan (an inline Codex work seat holds workspace-write, an
+inline Codex gate holds read-only through the last-message door, and
+danger-full-access is admitted nowhere, wager-harness included), and adds
+5d to "Rebuild units" and to tasks.md. `openspec validate --all --strict`
+passed with 18 of 18 before that commit.
+
+### What changed
+
+Production is `bundle.rs` and `engine.rs` only. `native_controls.rs` did not
+move, because `Expected.local.sandbox` (`SandboxIntent`) already carries the
+class in its closed JSON value and `decode_record`.
+
+- `bundle.rs`. `record_inline_tools` gains `seat`, which is true only at the
+  top-level seat loop, where a site's own `class` rules it. A typed sandbox
+  at a seat whose command dispatches the codex driver goes to the new
+  `lower_inline_sandbox`. Every other inline sandbox keeps the old refusal,
+  byte for byte: panel members, sequence steps, select cases, the dialect
+  validator, and other drivers. `lower_inline_sandbox` refuses in this
+  order:
+  1. hands;
+  2. any class other than `workspace-write` at a work seat, or `read-only`
+     at a gate;
+  3. an authored command the codex grammar cannot read;
+  4. an authored capability-bearing option (`authored_sandbox_control`):
+     the grammar's `bears_capability`, plus `--sandbox`, `--cd` and
+     `--output-last-message`, whose values the engine's control owns;
+  5. no loaded codex adapter;
+  6. an adapter fragment for the seat's class (`hands.harness.work` or
+     `hands.harness.gate`) that does not express exactly the class,
+     judged by the same `expressed_sandbox` an agent's fragment is;
+  7. an adapter whose driver does not dispatch codex (unit 5c's
+     `inline_template`).
+
+  The admitted fragment is recorded as `SiteFacts.inline_sandbox`
+  (`InlineSandbox { class, segment, door }`) in the `local` origin. It is
+  expanded as unit 5b's segment is. The door is the adapter's declared
+  `hands.harness.result` at a gate and `file` at a work seat. Unit 5c's
+  `declared_template` is recorded wherever an allow or a sandbox lowers.
+  `expressed_sandbox` now takes a `whom` label, and the agent path's texts
+  are byte-identical. `admit_native_sandbox` also judges an inline seat's
+  resolved native plan (D5.6), naming "the engine's inline sandbox
+  control". `admit_local_sandbox` lets an inline lowering stand.
+- `engine.rs`. `compose_site_at` appends the sandbox segment where unit 5b
+  appends its `local` segment, with `{result_path}` filled in as it is in a
+  harness fragment. The inline arm of `expected_state` records the class
+  only where the lowering recorded that same class, and refuses otherwise.
+  `SiteSpawn::seal` now calls `local_sandbox_agrees` after the template
+  check. It parses the spawn's `local`-origin segments back under the
+  serving harness's grammar, where that grammar models `--sandbox`. The
+  class they express must equal the recorded one: the site's typed class
+  where no hands carry it, and none where hands do, because an agent's
+  class rides its hands fragment. An unreadable contribution is refused
+  with a bounded cause. The new `result_door` is the function
+  `mark_delivery` now calls. An inline Codex gate whose lowering opened the
+  last-message door gets `last-message`; the agent-path conditions are
+  unchanged.
+
+### Assumptions
+
+- "The provider's sandbox control (from adapter data)" is the adapter's
+  `hands.harness` fragment for the seat's class. It is the only Codex
+  adapter data that expresses a class. The shipped gate fragment carries
+  `--output-last-message {result_path}`, which is the last-message door.
+- A panel member, sequence step or select case does not lower, because its
+  class is not its own. The unit names seats. The nested rows below bind
+  this reading.
+- The door is selected whatever the run's boundary is, because the fragment
+  opens it and not the boundary.
+- One refusal was reworded from "lowered allow" to "lowered restriction",
+  because it now covers a sandbox too. Its one existing assertion in
+  `capability_launch.rs` moved with it.
+
+### Standing admission (operator addendum of 2026-09-25)
+
+`engine/capability_tests.rs::lowered_inline` is outside 5d's named files.
+The fixture swaps drivers for a capturing one and paired a Claude-shaped
+`--allowedTools` local segment with the fixture's Codex outcome, which
+production never compiles. The seal now reads `local` segments under the
+serving harness, and the codex grammar cannot read that list, so
+`every_dispatch_composes_the_lowered_allow_of_its_own_site` refused. The
+fixture now reverses `two_candidates()`, so the DSH outcome serves it.
+Three code lines and a three-line comment replace one line. They add no
+assertion, remove none and change no tested value.
+
+### Tests
+
+- `bundle/agent_tests.rs::an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses`
+  has 19 rows, compared at `:2495`. It covers:
+  - the work and gate positives, with their exact `InlineSandbox`, the
+    `none` template and no `inline_local`;
+  - the four refused classes;
+  - authored `--sandbox`, `-C`, `-o` at a gate and `--full-auto`;
+  - a long non-ASCII unassigned `-c`, whose refusal names `--config` and
+    no value;
+  - a bare word;
+  - a work fragment of another class, and a missing gate fragment;
+  - a non-codex adapter driver;
+  - a native OFF carrying `--sandbox`;
+  - hands, a claude command, and no codex adapter.
+- `every_inline_executable_form_records_or_refuses_its_own_declaration`
+  gained a codex-sandbox row for each nested form: the panel member, the
+  step, the case and the default. That is 36 rows, compared at `:3114`.
+- `tests/capability_launch.rs::an_inline_codex_work_seat_and_gate_reach_their_final_commands_with_the_engines_class`
+  compiles the shipped adapters, composes and seals through the engine's
+  functions, and checks the dispatch door and the shipped codex driver. It
+  asserts the whole record and the final command for each seat. The work
+  seat's command is `codex exec --json -C /w -c
+  model_reasoning_effort="high" --model gpt-6-astra --sandbox
+  workspace-write -c web_search="disabled"`, and its door is `file`. The
+  gate's command is `… --sandbox read-only --output-last-message
+  /w/result.json -c web_search="disabled"`, and its door is `last-message`.
+  Both carry the segments `authored` then `local`, the expected `local`
+  (unspecified allow, the class, unrestricted), and the `none` template.
+- `…::an_inline_codex_seal_whose_emitted_class_contradicts_the_declared_one_refuses`
+  has 9 rows. The compiled seal is admitted and records `workspace-write`.
+  These rows are refused whole, with nothing sealed:
+  - the emitted class altered, widened or emptied;
+  - the segment relabelled `authored`, in the facts or in the spawn;
+  - a second `-s` added (the unreadable cause);
+  - the lowering recording another class, or never recorded (the
+    expected-state cause).
+
+### Baseline on c7c9ba09
+
+With `bundle.rs` and `engine.rs` restored from `c7c9ba09` and the new tests
+in place, `cargo test -p brokkr-runtime --no-run` failed to compile. The
+errors were `InlineSandbox` not found, no field `inline_sandbox` on
+`SiteFacts`, and no `result_door` in `engine`. Unit 7 had already recorded
+the behavioural red on that code: every inline typed sandbox was refused
+with the old D5.3 reason. Also observed before the fix, in this session:
+the first run of the agent test failed 3 of 19 rows (both positives and the
+native row). `admit_local_sandbox`'s "without hands" refusal fired for the
+inline lowering, and its early return fixed that.
+
+### Mutations
+
+Each compiled and was run with `cargo test -p brokkr-runtime --lib --
+an_inline_codex_seat_lowers every_inline_executable_form` and/or `--test
+capability_launch -- inline_codex`, then restored. Line numbers are
+pre-`cargo fmt` except for M16. After M15, `cmp` against the saved copies in
+`.forge/5d-save/` showed both production files restored byte for byte.
+
+| # | Mutation | Failing test (rows or assertion) |
+|---|---|---|
+| M1 | class check only refuses read-only | agent test: work danger-full-access, gate workspace-write, gate danger-full-access |
+| M2 | gate door recorded as `file` | agent test: gate positive; launch final `:2563` (door `file` vs `last-message`) |
+| M3 | `result_door` ignores the inline door | launch final `:2563`, review door `file` |
+| M4 | `{result_path}` not filled | launch final `:2563`, `--output-last-message {result_path}` |
+| M5 | sandbox segment omitted from the spawn | launch final `:2563` (seal refused) and contradiction test |
+| M6 | seal skips `local_sandbox_agrees` | contradiction `:2719`: altered, widened, emptied, relabelled ×2, second class |
+| M7 | expected state records `unspecified` for the lowered class | contradiction `:2719` (as compiled, emptied, relabelled ×2); launch final `:2563` |
+| M8 | parse-back ignores hands | `engine::capability_tests` `a_spawn_is_sealed_…` and `the_dispatch_door_admits_only_…` |
+| M9 | inline native judgment skipped | agent test: native OFF row |
+| M10 | authored-control classification disabled | agent test: `--sandbox`, `-C`, `-o`, `--full-auto`, long `-c` rows |
+| M11 | `seat` guard dropped | nested test: all four codex rows |
+| M12 | hands refusal skipped | agent test: hands row compiled `sandbox: Some(WorkspaceWrite)` |
+| M13 | fragment class not checked | agent test: work fragment of another class compiled `--sandbox read-only` |
+| M14 | seal finds no grammar with `--sandbox` | contradiction `:2719` (as compiled, second class); launch final `:2563` |
+| M15 | declared-versus-lowered class guard loosened | contradiction `:2719`: the lowering recording another class |
+| M16 | parse-back trusts the record's class (post-`fmt`) | contradiction `:2734`: altered, widened |
+
+### Gates
+
+On the final bytes:
+
+- `cargo fmt --all -- --check`: clean after `cargo fmt --all`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 of 25
+  binaries ok, lib 561 passed.
+- `compile --bundle bundles/self` gave `45dc1c7e…` and `bundles/verify`
+  gave `65baad08…`, unchanged. `recipes/standby`, `recipes/review-first`
+  and `recipes/wager-harness` still compile as shipped. No recipe was
+  migrated.
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- **Not run:** the local `cargo +nightly llvm-cov` diagnostic. From this
+  session, the command needs an approval that was not available. The
+  branches were reviewed by hand instead, and one unreachable arm in the
+  seal (a second `--sandbox`, which the grammar already refuses) was
+  removed.
+- **Pending:** workspace exact coverage, macOS and remote CI.
+
+### Follow-ups, not fixed here
+
+- Units 7 and 8 migrate standby, review-first and wager-harness to the
+  narrowed typed classes. This unit migrates none.
+- The agent path's `Contribution::Written` still admits an authored
+  `-c mcp_servers.brokkr…` assignment beside a matching fragment. This is
+  pre-existing, and it belongs to unit 12's authored refusal.

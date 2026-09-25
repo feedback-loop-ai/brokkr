@@ -439,6 +439,24 @@ pub struct SiteFacts {
     /// expanded argv, or `None` for an adapter that declares no template —
     /// and `None` (unrecorded) at every other site.
     pub declared_template: Option<TemplateExpectation>,
+    /// Rebuild unit 5d (operator ruling of 2026-09-25, "narrow"): an inline
+    /// Codex seat's typed sandbox class, lowered onto the fragment its
+    /// adapter declares for the seat's class. The engine appends it behind
+    /// the authored command as its own `local` segment at dispatch, as it
+    /// appends `inline_local`. `None` at every other site.
+    pub inline_sandbox: Option<InlineSandbox>,
+}
+
+/// One inline Codex seat's lowered sandbox (rebuild unit 5d): the class
+/// its typed declaration names, the engine's `local` segment expressing
+/// it — the adapter's `hands.harness` fragment for the seat's class, whose
+/// `{result_path}` the engine fills at dispatch — and the result door that
+/// fragment opens: `last-message` at a gate, `file` at a work seat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineSandbox {
+    pub class: Sandbox,
+    pub segment: Segment,
+    pub door: crate::agents::ResultDoor,
 }
 
 /// Every agent charter one compile bound, keyed by the path the seat will
@@ -1553,6 +1571,7 @@ impl Bundle {
                     dir,
                     phase,
                     raw,
+                    true,
                     &command_parts(raw),
                     agents.as_ref().map(|context| &context.adapters),
                     &mut sites,
@@ -1851,6 +1870,7 @@ impl Bundle {
                 law.dir,
                 dialect_site,
                 &synthetic,
+                false,
                 &command_parts(&synthetic),
                 agents.as_ref().map(|context| &context.adapters),
                 &mut sites,
@@ -2789,10 +2809,17 @@ fn refuse_tools_on_container(what: &str, raw: &Value) -> Result<(), CompileError
 /// every other nonempty field is kept exactly and refused rather than
 /// recorded beside an unchanged command. An unspecified declaration is
 /// recorded as a checked value, distinct from a site never visited.
+///
+/// Rebuild unit 5d (operator ruling of 2026-09-25): a typed sandbox at a
+/// seat — `seat`, a site whose own `class` rules it, never a panel member,
+/// sequence step or select case — whose command dispatches the codex
+/// driver is lowered by [`lower_inline_sandbox`]; everywhere else it keeps
+/// its refusal.
 fn record_inline_tools(
     dir: &Path,
     what: &str,
     raw: &Value,
+    seat: bool,
     command: &[String],
     adapters: Option<&crate::agents::Adapters>,
     sites: &mut BTreeMap<String, SiteFacts>,
@@ -2802,16 +2829,22 @@ fn record_inline_tools(
         Some(allow) => Some(lower_inline_allow(what, raw, command, allow, adapters)?),
         None => None,
     };
-    if local.sandbox.is_some() {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' declares 'tools.sandbox' on a site whose command no office \
-             composes; the engine does not yet lower a typed local sandbox into an authored \
-             command, so the restriction would be recorded and not delivered — it is kept \
-             exactly and refused rather than run unrestricted, until decision 0065 slice \
-             one's lowering and origin transport prove its delivery (design D5.3); an \
-             authored flag cannot stand in for it"
-        )));
-    }
+    let sandboxed = match local.sandbox {
+        Some(class) if seat && dispatch_driver(command).as_deref() == Some("codex") => {
+            Some(lower_inline_sandbox(what, raw, command, class, adapters)?)
+        }
+        Some(_) => {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' declares 'tools.sandbox' on a site whose command no office \
+                 composes; the engine does not yet lower a typed local sandbox into an authored \
+                 command, so the restriction would be recorded and not delivered — it is kept \
+                 exactly and refused rather than run unrestricted, until decision 0065 slice \
+                 one's lowering and origin transport prove its delivery (design D5.3); an \
+                 authored flag cannot stand in for it"
+            )))
+        }
+        None => None,
+    };
     let facts = site_facts(sites, what);
     facts.local = Some(local);
     // Expanded as an agent's composition is, segment by segment, so the
@@ -2820,13 +2853,20 @@ fn record_inline_tools(
         origin: segment.origin,
         argv: expand_command(dir, &segment.argv),
     };
-    let (lowered, template) = match lowered {
-        Some((lowered, template)) => (Some(lowered), template),
-        None => (None, None),
-    };
+    // A seat's allow and its sandbox never both lower: the one lowers only
+    // for claude and lanetally, the other only for codex. Whichever did
+    // brings its adapter's template (rebuild unit 5d reuses 5c's).
+    let (lowered, allow_template) = lowered.map_or((None, None), |(lowered, template)| {
+        (Some(lowered), template)
+    });
+    let (sandboxed, sandbox_template) = sandboxed.map_or((None, None), |(sandboxed, template)| {
+        (Some(sandboxed), template)
+    });
+    let template = allow_template.or(sandbox_template);
     // Rebuild unit 5c-fix: the declaration is recorded as its own typed
     // fact, beside and never read back from the segment to be emitted.
-    facts.declared_template = lowered.as_ref().map(|_| match &template {
+    let lowers = lowered.is_some() || sandboxed.is_some();
+    facts.declared_template = lowers.then(|| match &template {
         Some(declared) => TemplateExpectation::Declared(expand_command(dir, &declared.argv)),
         None => TemplateExpectation::None,
     });
@@ -2834,8 +2874,162 @@ fn record_inline_tools(
         segment: expanded(lowered.segment),
         limits: lowered.limits,
     });
+    facts.inline_sandbox = sandboxed.map(|sandboxed| InlineSandbox {
+        segment: expanded(sandboxed.segment),
+        ..sandboxed
+    });
     facts.inline_template = template.map(expanded);
     Ok(())
+}
+
+/// Rebuild unit 5d (operator ruling of 2026-09-25, "narrow"; design D5.3):
+/// the one inline shape whose typed sandbox the engine delivers — a seat
+/// whose command dispatches the codex driver, with no hands and no
+/// capability-bearing option of its author's. A work seat is admitted
+/// exactly `workspace-write` and a gate exactly `read-only`; the class is
+/// then expressed by the fragment the adapter declares for that class of
+/// seat (`hands.harness.work` or `hands.harness.gate`), which must express
+/// exactly it, judged by the same reading [`admit_local_sandbox`] judges an
+/// agent's fragment with. The gate fragment opens the adapter's declared
+/// result door. Beside it comes the adapter's permission template, as unit
+/// 5c places it, or `None` where the adapter declares none.
+fn lower_inline_sandbox(
+    what: &str,
+    raw: &Value,
+    command: &[String],
+    class: Sandbox,
+    adapters: Option<&crate::agents::Adapters>,
+) -> Result<(InlineSandbox, Option<Segment>), CompileError> {
+    let requested = class.name();
+    let refuse = |cause: String| {
+        CompileError::Invalid(format!(
+            "seat '{what}' declares 'tools.sandbox' '{requested}' {cause}"
+        ))
+    };
+    if raw.get("hands").is_some() {
+        return Err(refuse(
+            "beside the site's own hands; hands replace the harness's tools, so an inline \
+             sandbox would stand beside the box's restriction rather than express it — it is \
+             kept exactly and refused (decision 0065 slice one, design D5.3)"
+                .to_string(),
+        ));
+    }
+    let seat_class = parse_class(what, raw)?;
+    let (admitted, site_kind) = match seat_class {
+        SeatClass::Gate => (Sandbox::ReadOnly, "an inline Codex gate"),
+        SeatClass::Work => (Sandbox::WorkspaceWrite, "an inline Codex work seat"),
+    };
+    if class != admitted {
+        let admitted = admitted.name();
+        return Err(refuse(format!(
+            "at {site_kind}, where only '{admitted}' is admitted: a gate changes no files, so it \
+             runs read-only and delivers its result through the last-message door, a work seat \
+             runs workspace-write, and danger-full-access is admitted nowhere (operator ruling of \
+             2026-09-25, inline Codex sandbox classes are narrowed; design D5.3)"
+        )));
+    }
+    // Operator ruling 1 of 2026-09-23: the engine composes the class as its
+    // own contribution, and nothing it composes is merged with or ordered
+    // against a control of the author's, read under the harness's grammar.
+    let grammar = brokkr_protocol::native_controls::grammar::grammar("codex")
+        .expect("the codex grammar is modelled");
+    let authored = grammar
+        .parse(brokkr_protocol::native_controls::harness_arguments(command))
+        .map_err(|problem| {
+            refuse(format!(
+                "while its authored command cannot be read: the 'codex' command grammar cannot \
+                 place argument {} ({}), whose token is not echoed because it can carry a value: \
+                 it {}. A control nobody can read is a control nobody can rule on, so it is \
+                 refused rather than passed through (decision 0066 ruling 6; operator ruling 1 \
+                 of 2026-09-23)",
+                problem.at + 1,
+                unplaced_label(grammar, &problem.token),
+                problem.cause
+            ))
+        })?;
+    if let Some((node, kind)) = authored
+        .nodes
+        .iter()
+        .find_map(|node| authored_sandbox_control(node).map(|kind| (node, kind)))
+    {
+        return Err(refuse(format!(
+            "while its authored command carries '{}' (argument {}), {kind}; the engine composes \
+             the typed class as its own contribution and a recipe authors no capability-bearing \
+             option beside it, so the site is refused rather than reconciled (operator ruling 1 \
+             of 2026-09-23; decision 0065 slice one, design D5.3)",
+            node.name(),
+            node.at + 1
+        )));
+    }
+    let adapter = adapters
+        .and_then(|adapters| adapters.adapter("codex"))
+        .ok_or_else(|| {
+            refuse(
+                "for driver 'codex', which no loaded adapter declares; with no sandbox control \
+                 the class cannot be expressed, so it is refused rather than run unrestricted \
+                 (decision 0065 slice one, design D5.3)"
+                    .to_string(),
+            )
+        })?;
+    let (part, fragment, door) = match seat_class {
+        SeatClass::Gate => (
+            "`hands.harness.gate` fragment",
+            adapter.harness.gate.as_deref(),
+            adapter.harness.result,
+        ),
+        SeatClass::Work => (
+            "`hands.harness.work` fragment",
+            adapter.harness.work.as_deref(),
+            crate::agents::ResultDoor::File,
+        ),
+    };
+    let fragment = fragment.unwrap_or(&[]);
+    let whom = format!("seat '{what}'");
+    match expressed_sandbox(&whom, part, fragment, Contribution::Written)? {
+        Some(found) if found == requested => {}
+        _ => {
+            return Err(refuse(format!(
+                "at {site_kind}, but the codex adapter's {part} does not express exactly that \
+                 class; a missing or different fragment is not a representation, and a fragment \
+                 is neither called narrower nor clamped — refused (design D5.3)"
+            )))
+        }
+    }
+    let refused = |cause: String| CompileError::Invalid(format!("seat '{what}': {cause}"));
+    let template = crate::agents::inline_template(adapter, "codex").map_err(refused)?;
+    let sandboxed = InlineSandbox {
+        class,
+        segment: Segment::new(brokkr_protocol::native_controls::Origin::Local, fragment),
+        door,
+    };
+    Ok((sandboxed, template))
+}
+
+/// What an option an author wrote beside a typed inline Codex sandbox is
+/// (rebuild unit 5d; operator ruling 1 of 2026-09-23), or `None` for one
+/// that bears no capability. Judged on the parsed node under the codex
+/// grammar, so every spelling of an option is judged at once, and its value
+/// is never echoed: the grammar's own capability classification (a list,
+/// a load, a catalogue control — `--sandbox` itself among them — or a
+/// configuration assignment into a capability table or with no bounded
+/// meaning), and beside it the two inert-typed options whose value the
+/// engine's control owns: the root the class is measured from and the
+/// file the gate's result door writes.
+fn authored_sandbox_control(
+    node: &brokkr_protocol::native_controls::grammar::Node,
+) -> Option<&'static str> {
+    Some(match node.name() {
+        "--sandbox" => "a sandbox class, which the typed declaration alone supplies",
+        "--cd" => "a root selector, which moves the root the sandbox class is measured from",
+        "--output-last-message" => {
+            "a result capture, which the engine's gate control owns as the last-message door"
+        }
+        _ => match node.bears_capability() {
+            Ok(false) => return None,
+            Ok(true) => "which bears a capability the realm grants and the engine composes",
+            Err(_) => "a configuration assignment with no bounded meaning",
+        },
+    })
 }
 
 /// Rebuild unit 5b (design D5.3, D5.7): the one inline shape whose typed
@@ -3051,10 +3245,11 @@ enum Contribution {
 /// PATH`, `--cd=PATH`, `-C PATH`, `-CPATH`; unit 2-fix A1): whatever its
 /// value — the current workspace included — it moves what the class is
 /// measured from, and which of two selectors a harness honours is not
-/// established, so it is refused rather than ordered.
+/// established, so it is refused rather than ordered. `whom` names the
+/// requester: an agent's link (`seat 'x' link 1`), or an inline seat
+/// (`seat 'x'`, rebuild unit 5d).
 fn expressed_sandbox(
-    what: &str,
-    link: usize,
+    whom: &str,
     part: &str,
     argv: &[String],
     contribution: Contribution,
@@ -3089,7 +3284,7 @@ fn expressed_sandbox(
         Err(problem) => {
             let (argument, cause) = (problem.at + 1, problem.cause);
             return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} it \
+                "{whom} requests a typed 'tools.sandbox', but the {part} it \
                  would be judged against cannot be read: the 'codex' command grammar cannot place \
                  argument {argument}, whose token is not echoed because it can carry a value: it \
                  {cause} — refused (design D5.3)"
@@ -3103,7 +3298,7 @@ fn expressed_sandbox(
         }
         if let Some(switch) = SANDBOX_SWITCHES.iter().find(|name| node.name() == **name) {
             return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
                  carries `{switch}`, a switch that lifts or replaces the sandbox a `--sandbox` \
                  class would express, so no typed class can be checked against it — refused \
                  (design D5.3)"
@@ -3111,7 +3306,7 @@ fn expressed_sandbox(
         }
         if node.name() == ADDED_ROOT {
             return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
                  carries `{ADDED_ROOT}`, which adds a filesystem root the `--sandbox` class \
                  would not reach, a competing control on the same reach that no typed class can \
                  be checked against — refused (design D5.3)"
@@ -3119,7 +3314,7 @@ fn expressed_sandbox(
         }
         if node.name() == ROOT_SELECTOR {
             return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
                  carries `{ROOT_SELECTOR}`, which selects the root the `--sandbox` class is \
                  measured from, a competing root control that no typed class can be checked \
                  against whatever its value or position — refused (design D5.3)"
@@ -3128,7 +3323,7 @@ fn expressed_sandbox(
         if node.spec.effect == grammar::Effect::Load {
             let option = node.name();
             return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                "{whom} requests a typed 'tools.sandbox', but the {part} \
                  carries `{option}`, which loads an opaque configuration document the engine \
                  cannot see into and that can set the same control, so no typed class can be \
                  checked against it — refused (design D5.3)"
@@ -3147,7 +3342,7 @@ fn expressed_sandbox(
                     Contribution::Native => "`--config`, the harness's configuration,",
                 };
                 return Err(CompileError::Invalid(format!(
-                    "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                    "{whom} requests a typed 'tools.sandbox', but the {part} \
                      assigns '{table}' through {door} a second door to the same control that no \
                      typed class can be checked against — refused (design D5.3)"
                 )));
@@ -3179,7 +3374,7 @@ fn expressed_sandbox(
                     ),
                 };
                 return Err(CompileError::Invalid(format!(
-                    "seat '{what}' link {link} requests a typed 'tools.sandbox', but the {part} \
+                    "{whom} requests a typed 'tools.sandbox', but the {part} \
                      assigns configuration{door} at argument {at} outside the keys {writer} is \
                      established to write ({keys}); an unqualified assignment could reach the \
                      same control, so no typed class can be checked against it — refused \
@@ -3233,6 +3428,16 @@ fn admit_local_sandbox(
     else {
         return Ok(());
     };
+    // Rebuild unit 5d: an inline Codex seat's class was judged and lowered
+    // where it was recorded (`lower_inline_sandbox`), onto the engine's own
+    // control; the standing refusals above have had their say.
+    if candidates.is_empty()
+        && sites
+            .get(what)
+            .is_some_and(|facts| facts.inline_sandbox.is_some())
+    {
+        return Ok(());
+    }
     let class = requested.name();
     let boundary = law.boundary;
     if law.agent_hands.is_none() {
@@ -3292,7 +3497,8 @@ fn admit_local_sandbox(
                  it; a missing fragment is not a representation — refused (design D5.3)"
             )));
         }
-        match expressed_sandbox(what, link, part, fragment, Contribution::Written)? {
+        let whom = format!("seat '{what}' link {link}");
+        match expressed_sandbox(&whom, part, fragment, Contribution::Written)? {
             Some(found) if found == class => {
                 // The fragment represents the class; the TABLE decides
                 // whether this path may hold it at all (review return F1).
@@ -3332,13 +3538,9 @@ fn admit_local_sandbox(
         // tokens, under the same grammar.
         let (authored, _) = candidate.parts();
         let authored = brokkr_protocol::native_controls::harness_arguments(authored);
-        if let Some(found) = expressed_sandbox(
-            what,
-            link,
-            "authored command",
-            authored,
-            Contribution::Written,
-        )? {
+        if let Some(found) =
+            expressed_sandbox(&whom, "authored command", authored, Contribution::Written)?
+        {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the authored \
                  command of provider '{provider}' already carries `--sandbox` '{found}', a \
@@ -3362,15 +3564,26 @@ fn admit_local_sandbox(
 /// or engine provenance exempts it, and a valid denial beside a competing
 /// control does not end the scan. Only the selected hands fragment
 /// represents the class, so any native `--sandbox`, matching or not,
-/// competes.
+/// competes. At an `inline` Codex seat (rebuild unit 5d) the class is
+/// represented by the engine's inline sandbox control instead, and the
+/// same judgment holds beside it.
 fn admit_native_sandbox(
     what: &str,
     requested: Sandbox,
     site: &crate::capabilities::SiteCapabilities,
+    inline: bool,
 ) -> Result<(), CompileError> {
     let class = requested.name();
+    let (beside, that) = match inline {
+        true => ("the engine's inline sandbox control", "that control"),
+        false => ("the selected hands fragment", "that fragment"),
+    };
     for (index, outcome) in site.outcomes.iter().enumerate() {
         let link = index + 1;
+        let whom = match inline {
+            true => format!("seat '{what}'"),
+            false => format!("seat '{what}' link {link}"),
+        };
         let provider = &outcome.provider;
         let plan = brokkr_protocol::native_controls::managed(
             &json!({"native_controls": outcome.controls()}),
@@ -3378,12 +3591,12 @@ fn admit_native_sandbox(
         .map_err(CompileError::Invalid)?
         .expect("the plan is read from under its own key");
         let part = "resolved native control argv";
-        if expressed_sandbox(what, link, part, &plan.argv, Contribution::Native)?.is_some() {
+        if expressed_sandbox(&whom, part, &plan.argv, Contribution::Native)?.is_some() {
             return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} of \
-                 provider '{provider}' carries `--sandbox`, a second sandbox control beside the \
-                 selected hands fragment; only that fragment represents a typed class, so even a \
-                 matching native class competes — refused (design D5.3)"
+                "{whom} requests 'tools.sandbox' '{class}', but the {part} of provider \
+                 '{provider}' carries `--sandbox`, a second sandbox control beside {beside}; only \
+                 {that} represents a typed class, so even a matching native class competes — \
+                 refused (design D5.3)"
             )));
         }
     }
@@ -4385,7 +4598,7 @@ fn record_capabilities(
         // The EFFECTIVE class, an inherited office class included, as the
         // local admission recorded it (design D5.6).
         if let Some(requested) = facts.local.as_ref().and_then(|local| local.sandbox) {
-            admit_native_sandbox(what, requested, &site)?;
+            admit_native_sandbox(what, requested, &site, false)?;
         }
         let notices = facts
             .record
@@ -4418,7 +4631,13 @@ fn record_capabilities(
         let parts = command_parts(raw);
         let driver = dispatch_driver(&parts);
         let site = site_capabilities(authority, adapters, asks, &[], driver.as_deref(), &parts)?;
-        site_facts(sites, what).capabilities = Some(site);
+        let facts = site_facts(sites, what);
+        // Rebuild unit 5d: an inline class the engine lowered is judged
+        // beside the resolved native plan exactly as an agent's is.
+        if let Some(lowered) = &facts.inline_sandbox {
+            admit_native_sandbox(what, lowered.class, &site, true)?;
+        }
+        facts.capabilities = Some(site);
         return Ok(());
     }
     if written.is_some() {
@@ -4659,6 +4878,7 @@ fn parse_selected_body(
             dir,
             what,
             raw,
+            false,
             &command_parts(raw),
             agents.as_ref().map(|context| &context.adapters),
             sites,
@@ -4861,6 +5081,7 @@ fn parse_panel(
                     dir,
                     &site,
                     member_raw,
+                    false,
                     &command_parts(member_raw),
                     agents.as_ref().map(|context| &context.adapters),
                     sites,
@@ -5077,6 +5298,7 @@ fn parse_sequence(
                 dir,
                 &what,
                 step_raw,
+                false,
                 &command_parts(&synthetic),
                 agents.as_ref().map(|context| &context.adapters),
                 sites,
@@ -5129,6 +5351,7 @@ fn parse_sequence(
                 dir,
                 &what,
                 step_raw,
+                false,
                 &command_parts(step_raw),
                 agents.as_ref().map(|context| &context.adapters),
                 sites,

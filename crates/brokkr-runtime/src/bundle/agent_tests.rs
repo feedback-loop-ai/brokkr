@@ -2215,6 +2215,286 @@ fn an_inline_site_records_its_adapters_permission_template_only_where_its_allow_
     each_row(rows);
 }
 
+/// An inline Codex command pinned as every inline built-in must be, with
+/// `extra` authored behind the pins (rebuild unit 5d).
+fn codex_inline(extra: &[&str]) -> Value {
+    let mut command = vec![
+        "{brokkr}",
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "high",
+    ];
+    command.extend(extra);
+    json!(command)
+}
+
+/// The complete refusal of a typed sandbox `class` at an inline Codex seat
+/// of `site_kind`, where only `admitted` is (rebuild unit 5d).
+fn narrowed(class: &str, site_kind: &str, admitted: &str) -> String {
+    format!(
+        "bundle: seat 'review' declares 'tools.sandbox' '{class}' at {site_kind}, where only \
+         '{admitted}' is admitted: a gate changes no files, so it runs read-only and delivers its \
+         result through the last-message door, a work seat runs workspace-write, and \
+         danger-full-access is admitted nowhere (operator ruling of 2026-09-25, inline Codex \
+         sandbox classes are narrowed; design D5.3)"
+    )
+}
+
+/// The complete refusal of a typed sandbox at an inline Codex seat whose
+/// authored command carries `canonical` at argument `at` (rebuild unit 5d).
+fn codex_carries(class: &str, canonical: &str, at: usize, kind: &str) -> String {
+    format!(
+        "bundle: seat 'review' declares 'tools.sandbox' '{class}' while its authored command \
+         carries '{canonical}' (argument {at}), {kind}; the engine composes the typed class as \
+         its own contribution and a recipe authors no capability-bearing option beside it, so \
+         the site is refused rather than reconciled (operator ruling 1 of 2026-09-23; decision \
+         0065 slice one, design D5.3)"
+    )
+}
+
+/// Rebuild unit 5d (operator ruling of 2026-09-25, "narrow"; design D5.3):
+/// an inline seat whose command dispatches the codex driver has its typed
+/// sandbox lowered onto the fragment its adapter declares for the seat's
+/// class — `workspace-write` at a work seat through `hands.harness.work`,
+/// `read-only` at a gate through `hands.harness.gate`, which opens the
+/// last-message door — recorded as the engine's own `local` segment beside
+/// the adapter's (absent) template, the authored command untouched. Every
+/// other class at either kind of seat, and every other shape, refuses with
+/// its own complete, value-free cause.
+#[test]
+fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses() {
+    use crate::agents::ResultDoor;
+    use brokkr_protocol::native_controls::Origin;
+    let fixture = AgentFixture::new();
+    let compiled = |class: Option<&str>, extra: &[&str], sandbox: &str, adapter: Value| {
+        fixture.write("adapters/codex.json", adapter);
+        let mut config = fixture.config();
+        config["seats"]["review"]["driver"]["command"] = codex_inline(extra);
+        config["seats"]["review"]["tools"] = json!({"sandbox": sandbox});
+        if let Some(class) = class {
+            config["seats"]["review"]["class"] = json!(class);
+        }
+        let result = fixture.compile(config);
+        match result {
+            Ok(bundle) => {
+                let facts = &bundle.sites["review"];
+                format!(
+                    "{:?} {:?} {:?} {:?}",
+                    facts.inline_sandbox,
+                    facts.declared_template,
+                    facts.inline_template,
+                    facts.inline_local
+                )
+            }
+            Err(error) => error.to_string(),
+        }
+    };
+    let lowered = |class: Sandbox, argv: &[&str], door: ResultDoor| {
+        let argv: Vec<String> = argv.iter().map(|part| part.to_string()).collect();
+        format!(
+            "{:?} {:?} {:?} {:?}",
+            Some(InlineSandbox {
+                class,
+                segment: Segment::new(Origin::Local, &argv),
+                door,
+            }),
+            Some(TemplateExpectation::None),
+            None::<Segment>,
+            None::<crate::agents::LocalLowering>
+        )
+    };
+    let (work_seat, gate) = ("an inline Codex work seat", "an inline Codex gate");
+    let unmatched = |class: &str, site_kind: &str, part: &str| {
+        format!(
+            "bundle: seat 'review' declares 'tools.sandbox' '{class}' at {site_kind}, but the \
+             codex adapter's `hands.harness.{part}` fragment does not express exactly that class; \
+             a missing or different fragment is not a representation, and a fragment is neither \
+             called narrower nor clamped — refused (design D5.3)"
+        )
+    };
+    let mut work_reads = codex();
+    work_reads["hands"]["harness"]["work"] = json!(["--sandbox", "read-only"]);
+    let mut no_gate = codex();
+    no_gate["hands"]["harness"]
+        .as_object_mut()
+        .unwrap()
+        .remove("gate");
+    let mut elsewhere = codex();
+    elsewhere["driver"] = json!(["{brokkr}", "driver", "claude", "--"]);
+    let long = long_payload();
+    let mut rows: Vec<Row<String>> = vec![
+        (
+            "work, workspace-write".into(),
+            compiled(None, &[], "workspace-write", codex()),
+            lowered(Sandbox::WorkspaceWrite, &CODEX_WORK, ResultDoor::File),
+        ),
+        (
+            "gate, read-only".into(),
+            compiled(Some("gate"), &[], "read-only", codex()),
+            lowered(Sandbox::ReadOnly, &CODEX_GATE, ResultDoor::LastMessage),
+        ),
+        (
+            "work, read-only".into(),
+            compiled(None, &[], "read-only", codex()),
+            narrowed("read-only", work_seat, "workspace-write"),
+        ),
+        (
+            "work, danger-full-access".into(),
+            compiled(None, &[], "danger-full-access", codex()),
+            narrowed("danger-full-access", work_seat, "workspace-write"),
+        ),
+        (
+            "gate, workspace-write".into(),
+            compiled(Some("gate"), &[], "workspace-write", codex()),
+            narrowed("workspace-write", gate, "read-only"),
+        ),
+        (
+            "gate, danger-full-access".into(),
+            compiled(Some("gate"), &[], "danger-full-access", codex()),
+            narrowed("danger-full-access", gate, "read-only"),
+        ),
+        (
+            "authored --sandbox".into(),
+            compiled(None, &["--sandbox", "workspace-write"], "workspace-write", codex()),
+            codex_carries(
+                "workspace-write",
+                "--sandbox",
+                5,
+                "a sandbox class, which the typed declaration alone supplies",
+            ),
+        ),
+        (
+            "authored -C".into(),
+            compiled(None, &["-C", "/elsewhere"], "workspace-write", codex()),
+            codex_carries(
+                "workspace-write",
+                "--cd",
+                5,
+                "a root selector, which moves the root the sandbox class is measured from",
+            ),
+        ),
+        (
+            "authored -o at a gate".into(),
+            compiled(Some("gate"), &["-o", "/elsewhere"], "read-only", codex()),
+            codex_carries(
+                "read-only",
+                "--output-last-message",
+                5,
+                "a result capture, which the engine's gate control owns as the last-message door",
+            ),
+        ),
+        (
+            "authored --full-auto".into(),
+            compiled(None, &["--full-auto"], "workspace-write", codex()),
+            codex_carries(
+                "workspace-write",
+                "--full-auto",
+                5,
+                "which bears a capability the realm grants and the engine composes",
+            ),
+        ),
+        (
+            "authored long unassigned -c".into(),
+            compiled(None, &["-c", &long], "workspace-write", codex()),
+            codex_carries(
+                "workspace-write",
+                "--config",
+                5,
+                "a configuration assignment with no bounded meaning",
+            ),
+        ),
+        (
+            "authored bare word".into(),
+            compiled(None, &["stray"], "workspace-write", codex()),
+            "bundle: seat 'review' declares 'tools.sandbox' 'workspace-write' while its authored \
+             command cannot be read: the 'codex' command grammar cannot place argument 5 (a bare \
+             word), whose token is not echoed because it can carry a value: it is a bare word, \
+             and no positional argument is part of the supported shape. A control nobody can read \
+             is a control nobody can rule on, so it is refused rather than passed through \
+             (decision 0066 ruling 6; operator ruling 1 of 2026-09-23)"
+                .to_string(),
+        ),
+        (
+            "a work fragment of another class".into(),
+            compiled(None, &[], "workspace-write", work_reads),
+            unmatched("workspace-write", work_seat, "work"),
+        ),
+        (
+            "no gate fragment".into(),
+            compiled(Some("gate"), &[], "read-only", no_gate),
+            unmatched("read-only", gate, "gate"),
+        ),
+        (
+            "an adapter whose driver is not codex's".into(),
+            compiled(None, &[], "workspace-write", elsewhere),
+            "bundle: seat 'review': the 'codex' adapter's own driver does not dispatch the 'codex' \
+             driver, so the permission template it declares cannot be placed behind an inline \
+             'codex' command; the engine emits an adapter's template only as that adapter's \
+             agents receive it, and the site is refused rather than launched without it \
+             (operator ruling of 2026-09-24, the permission template at inline sites)"
+                .to_string(),
+        ),
+        (
+            "a native OFF carrying --sandbox".into(),
+            compiled(
+                None,
+                &[],
+                "workspace-write",
+                codex_off(&["--sandbox", "workspace-write"]),
+            ),
+            "bundle: seat 'review' requests 'tools.sandbox' 'workspace-write', but the resolved \
+             native control argv of provider 'codex' carries `--sandbox`, a second sandbox \
+             control beside the engine's inline sandbox control; only that control represents a \
+             typed class, so even a matching native class competes — refused (design D5.3)"
+                .to_string(),
+        ),
+    ];
+    // Beside hands, and on a claude command, the class keeps its refusal.
+    let mut config = fixture.config();
+    fixture.write("adapters/codex.json", codex());
+    config["seats"]["review"]["driver"]["command"] = codex_inline(&[]);
+    config["seats"]["review"]["tools"] = json!({"sandbox": "workspace-write"});
+    config["seats"]["review"]["hands"] =
+        json!({"kind": "workspace", "network": false, "binds": []});
+    rows.push((
+        "hands".into(),
+        outcome(fixture.compile(config)),
+        "bundle: seat 'review' declares 'tools.sandbox' 'workspace-write' beside the site's own \
+         hands; hands replace the harness's tools, so an inline sandbox would stand beside the \
+         box's restriction rather than express it — it is kept exactly and refused (decision \
+         0065 slice one, design D5.3)"
+            .to_string(),
+    ));
+    let mut config = fixture.config();
+    config["seats"]["review"]["driver"]["command"] = claude_inline("claude", &[]);
+    config["seats"]["review"]["tools"] = json!({"sandbox": "workspace-write"});
+    rows.push((
+        "claude".into(),
+        outcome(fixture.compile(config)),
+        inline_sandbox_refusal("review"),
+    ));
+    // With no codex adapter loaded, nothing declares the control.
+    std::fs::remove_file(fixture.adapters().join("codex.json")).unwrap();
+    let mut config = fixture.config();
+    config["seats"]["review"]["driver"]["command"] = codex_inline(&[]);
+    config["seats"]["review"]["tools"] = json!({"sandbox": "workspace-write"});
+    rows.push((
+        "no codex adapter".into(),
+        outcome(fixture.compile(config)),
+        "bundle: seat 'review' declares 'tools.sandbox' 'workspace-write' for driver 'codex', \
+         which no loaded adapter declares; with no sandbox control the class cannot be \
+         expressed, so it is refused rather than run unrestricted (decision 0065 slice one, \
+         design D5.3)"
+            .to_string(),
+    ));
+    assert_eq!(rows.len(), 19);
+    each_row(rows);
+}
+
 /// Rebuild unit 5c-fix2 (operator ruling 2 of 2026-09-23; the ruling of
 /// 2026-09-24, item 2): an agent-backed site's compiled composition carries
 /// its adapter's declared permission template as a typed fact, expanded as
@@ -2699,6 +2979,7 @@ fn with_tools(mut site: Value, value: Option<Value>) -> Value {
 #[test]
 fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
     let fixture = AgentFixture::new();
+    fixture.write("adapters/codex.json", codex());
     // The command of the body under test; its siblings keep the opaque one.
     let command = std::cell::RefCell::new(json!(["driver"]));
     let inline = |tools: Option<Value>| {
@@ -2787,6 +3068,14 @@ fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
             outcome(compiled(Some(json!({"sandbox": "workspace-write"})))),
             inline_sandbox_refusal(label),
         ));
+        // Rebuild unit 5d lowers a class only at a seat, whose own class
+        // rules it: a nested codex body keeps the refusal.
+        *command.borrow_mut() = codex_inline(&[]);
+        rows.push((
+            format!("{label} codex sandbox"),
+            outcome(compiled(Some(json!({"sandbox": "workspace-write"})))),
+            inline_sandbox_refusal(label),
+        ));
         // Rebuild unit 5b: the same body dispatching the claude driver has
         // its allow lowered, recorded at its own label and nowhere else.
         let claude = |result: Result<Bundle, CompileError>| match result {
@@ -2821,7 +3110,7 @@ fn every_inline_executable_form_records_or_refuses_its_own_declaration() {
             ),
         ));
     }
-    assert_eq!(rows.len(), 32);
+    assert_eq!(rows.len(), 36);
     each_row(rows);
 }
 
