@@ -7147,8 +7147,9 @@ Three code lines and a three-line comment replace one line. They add no
 assertion, remove none and change no tested value.
 
 **Correction (unit 5d-fix, chief F4):** the standing admission covers units
-7 through 27, not 5d. These four fixture lines are **admitted pending
-operator ruling (F4)**. They stay as they are, and nothing is ticked on the
+7 through 27, not 5d. These four fixture lines are **admitted under the
+2026-09-25 extension of the standing admission** (operator-ruling-2026-09-23.md,
+addendum "2026-09-25: the standing admission extends to unit 5d"). They stay as they are, and nothing is ticked on the
 strength of that admission.
 
 ### Tests
@@ -7319,7 +7320,9 @@ enough, so no accessor was needed.
   so they declare read-only and deliver through the last-message door.
   Danger-full-access is declared by no seat and admitted on no path.
 - **F4.** The four fixture lines in `engine/capability_tests.rs` stay as
-  they are, **admitted pending operator ruling (F4)** (see the correction
+  they are, **admitted under the 2026-09-25 extension of the standing
+  admission** (operator-ruling-2026-09-23.md, addendum "2026-09-25: the
+  standing admission extends to unit 5d") (see the correction
   under unit 5d's standing admission). This unit adds no out-of-inventory
   line.
 

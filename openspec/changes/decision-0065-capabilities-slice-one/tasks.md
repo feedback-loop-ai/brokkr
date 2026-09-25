@@ -1089,7 +1089,9 @@ held the unit (SECURITY-HOLD, spec_defect=true). The problems it found:
 - the work/read-only row had no independent mutation (F6).
 
 5d.1 completes only with 5d-fix below. Its four `engine/capability_tests.rs`
-fixture lines are **admitted pending operator ruling (F4)**: the standing
+fixture lines are **admitted under the 2026-09-25 extension of the standing
+admission** (operator-ruling-2026-09-23.md, addendum "2026-09-25: the
+standing admission extends to unit 5d"): the standing
 admission names units 7–27, not 5d. Nothing is ticked on the strength of
 that admission.
 
