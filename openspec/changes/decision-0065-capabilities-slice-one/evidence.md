@@ -6723,3 +6723,228 @@ questions.
 No Rust file moved, so no crate suite applies. `cargo fmt --all -- --check`
 was clean. `openspec validate --all --strict` gave 18 passed, 0 failed. `git
 diff --check` was clean. Exact coverage, macOS and remote CI are pending.
+
+## Unit 10 — a bounded grammar and redacted diagnostics, 2026-09-25
+
+Run `0065-rebuild-unit-10-see-the-uni-7614ce83`, implement, based on
+`8338881a`. Production: `crates/brokkr-protocol/src/native_controls/grammar.rs`
+only. Tests: `native_controls/tests.rs` in the same src root. No other
+production or test file moved, and no line was admitted under the standing
+admission. No recipe, adapter, pin, frozen contract, fixture or doc moved.
+Unit 12 activates authored refusal. This unit adds the primitives it will
+judge with, and admits no syntax the grammar refused before.
+
+### What changed in `grammar.rs`
+
+- **Redacted diagnostics (10.1, 10.2).** `Problem` gains a `label`, and its
+  rendering names `argument N (<label>)`, never the token. The label is:
+  - the canonical name of a modelled option, read before any `=` or as a
+    short option carrying an attached value, whichever alias was written
+    (`-c` renders `'--config'`);
+  - a plain unmodelled long name, alone: ASCII letters, digits and dashes,
+    at most 64 bytes, with its joined value dropped (`--nope=X` renders
+    `'--nope'`);
+  - `the terminator '--'`;
+  - otherwise a fixed label. A bare word is `a positional argument, whose
+    text is not echoed`. Anything else, such as an unmodelled short or
+    attached form, a name with a newline or `/`, or an over-long name, is
+    `an option the grammar does not model, whose spelling is not echoed`.
+    Nothing is truncated.
+
+  Causes were already fixed text plus canonical names. The raw `token`
+  field stays, because `bundle.rs::unplaced_label` builds its own bounded
+  label from it. It is never rendered.
+- **Catalogue effects (10.1, 10.3, 10.4).** `Effect::Control(Power)` covers
+  the realm delta's catalogue options the tables had called inert or a
+  switch. The `Power` classes are Permission, Filesystem, Mcp, Tools and
+  Web:
+  - Claude and LaneTally: `--permission-mode` (Permission), `--add-dir`
+    (Filesystem), `--strict-mcp-config` (Mcp).
+  - Codex: `--sandbox`/`-s`, `--ask-for-approval`/`-a`, `--full-auto` and
+    `--dangerously-bypass-approvals-and-sandbox` (Permission); `--add-dir`
+    (Filesystem); `--include-plan-tool` (Tools); `--search` (Web).
+
+  DSH's `--patch` is now `Effect::Route`, the bound route-only overlay.
+  `Node::bears_capability` judges one node: lists, loads and controls always
+  bear a capability; a configuration node does when any assignment does;
+  sessions, the route overlay, switches and inert data do not.
+- **Five Codex config forms, bounded (10.2).** `setting(KEY=VALUE)` reads
+  the key into dotted parts. Each part is a bare
+  `[A-Za-z0-9_-]` name or a quoted one with no escape or control character,
+  within 16 parts and 256 bytes, splitting at the first `=` outside a
+  quoted part. The key has one of a closed set of meanings:
+  - `Setting::Capability(table)` for `CAPABILITY_TABLES`: `mcp_servers`,
+    `web_search`, `web_search_mode`, `tools`, `features`, `approval_policy`,
+    `sandbox_mode`, `sandbox_workspace_write`, `profile` and `profiles`.
+    This covers the table, a whole-table value and any descendant, whatever
+    the value.
+  - `Setting::Inert("model_reasoning_effort")`, the one inert key the
+    engine needs, for the adapter's seven levels, bare or quoted.
+
+  Everything else refuses with a fixed cause: an unclassified key, a
+  malformed or unbounded key, a missing `=`, an empty value or an effort
+  outside the levels. No arbitrary TOML is evaluated.
+- **Managed lists and separators (10.3).** `managed_separator` admits only
+  `,`. `managed_patterns` reads a managed value in three cases:
+  - `""` is the explicit empty list.
+  - Otherwise the value is single-comma-joined patterns. Each is a plain
+    tool name (a letter first, then letters, digits or `_`, at most 128
+    bytes) with at most one parenthesized specifier (at most 256 bytes,
+    with no parenthesis, comma, quote, backslash or control character;
+    spaces, `:`, `*`, `/` and `.` are allowed). There are at most 64
+    patterns.
+  - Empty patterns, a space outside parentheses and wildcard names refuse.
+- **Final positions (10.1).** `parse_final` parses a serving command after
+  its binary:
+  - Codex opens with `exec`. A rejoin, `exec resume`, ends with exactly a
+    plain session id (ASCII letters, digits and `-`, not leading with `-`,
+    at most 128 bytes) and the stdin `-`. These are the shapes
+    `adapters.rs::codex_cold` and the resume plan build. The options
+    between them parse under the grammar, with no value taken from the
+    trailing positionals, so `--image resume` stays a value.
+  - Claude, LaneTally and DSH carry no positional.
+
+  `parse` is now `parse_span` over the whole argv. Positions stay absolute.
+
+### Consumer inventory (10.1)
+
+`grep` over `crates/` for `grammar::`, `Effect::`, `config_key`,
+`config_under`, `node_patterns`, `list_of` and `TABLES`, outside the grammar
+and its test suite:
+
+| Consumer | Reads | Effect of this unit |
+|---|---|---|
+| `native_controls.rs::typed_conflict` | `Effect::Config`/`List`, `config_key`, `node_patterns`, other effects by `_` | unchanged: guards match by name first; new variants fall to `_` |
+| `native_controls.rs::authored_server_conflict` | `Config`, `Load`, `List` | unchanged; `Control`/`Route` fall to `_` |
+| `native_controls.rs::parse_origin` | `Problem`'s rendering | now redacted (the one intended behaviour change outside the grammar) |
+| `native_controls.rs::pin_fault`, `permission_control`, `compose_for_provider` | `grammar()`, `parse`, `config_key`, `list_of` | unchanged |
+| `bundle.rs::authored_capability_control` | `(effect, name)` match | unchanged: `--permission-mode`, `--add-dir`, `--strict-mcp-config` are matched by name after the effect arms |
+| `bundle.rs::expressed_sandbox` | `Load`/`Config` by `==`, names, `config_key` | unchanged |
+| `bundle.rs::unplaced_label` | `problem.token`, `problem.cause` | unchanged |
+| `adapters/tests.rs` session sweep | `Effect::Session` | unchanged |
+
+Assertions outside the owning suite that name a grammar token in quotes
+(`adapters/tests.rs` `'--search'`, `'--effort'`, `'--disallowedTools'`,
+`'{flag}'` for `--enable`/`--disable`; `capability_launch.rs` `'--enable'`)
+render identically under the new labels, and their suites passed
+unchanged (Gates). The raw consumers of `config_key` and the old
+unbounded list splitting (`tool_patterns`, `node_patterns`) remain for
+units 12 and 13 to replace; this unit does not rewire them.
+
+### Assumptions
+
+- The spec catalogue's names that the supported grammar did not model
+  (Claude `--dangerously-skip-permissions`,
+  `--allow-dangerously-skip-permissions`, `--permission-prompt-tool`,
+  `--setting-sources`, `--agent`, `--web`, `--web-search`, `--web-fetch`,
+  `--search`; Codex `--enable`, `--disable`, `--approve-for-me`,
+  `--ignore-rules`, `--yolo`) stay unmodelled. Design D6 says unknown syntax
+  refuses "without inventing provider aliases", and modelling them would
+  make them parse where they refuse today, before unit 12 refuses authored
+  controls. They refuse in every spelling, named by their plain long name.
+- `--bg`, `--input-format` and Codex `--cd` are not in the realm delta's
+  catalogue. They keep their effects, and `bundle.rs` keeps refusing them
+  by name at typed sites.
+
+### Baseline on 8338881a
+
+The redaction test was written first and run against unchanged
+`8338881a` with `cargo test --locked -q -p brokkr-protocol --lib --
+a_grammar_refusal_names_a_bounded_label`. It failed on its first row
+(`tests.rs:2832`): the left side rendered `argument 1
+('--nope=REVIEW_SENTINEL')` and the right `argument 1 ('--nope')`. The
+inventory, catalogue, DSH, prompt, config, managed-list and final-position
+tests use `Effect::Control`, `Effect::Route`, `setting`, `managed_*`,
+`parse_final` or `bears_capability`, none of which existed. Each is
+recorded as unavailable as a compiling baseline red, and is bound by the
+mutations below. The existing
+`every_token_the_grammar_cannot_place_is_refused_at_its_own_cause` changed
+its expectation from echoed tokens to labels (`'resume'` became the
+positional label, `'--nope=1'` became `'--nope'`, `'--verbose=1'` became
+`'--verbose'`), and failed on that row before the edit.
+
+### Mutations
+
+Each compiled, was run with `cargo test --locked -q -p brokkr-protocol
+--lib -- native_controls::tests`, and was restored. Line numbers are
+pre-`cargo fmt`.
+
+| # | Mutation | Failing tests (assertion) |
+|---|---|---|
+| M1 | `Problem` renders `'{token}'` | redaction `:2833`, catalogue `:3183`, final `:3742`, `every_token…` `:1551` |
+| M2 | label length bound → `usize::MAX` | redaction `:2833` (the 5000-byte row) |
+| M3 | label charset loosened (`c != '-'`) | redaction `:2833` (`'--REVIEW_SENTINEL'` echoed), catalogue `:3281`, `an_authored_capability_server…` `:948` |
+| M4 | label spells the written name, not the canonical | redaction `:2833` (`'-mother'`), catalogue `:3183` (`'--disallowed-tools'`) |
+| M5 | `--permission-mode` back to `inert` | inventory `:3021`, catalogue `:3156` |
+| M6 | DSH `--patch` back to `Effect::Inert` | DSH `:3348`, inventory `:3021` |
+| M7 | config bears when an assignment is inert | config `:3524` (the order rows) |
+| M8 | `profiles` dropped from `CAPABILITY_TABLES` | config `:3514`, left `Err(unclassified)`, right `Ok(Capability("profiles"))` |
+| M9 | effort level unchecked | config `:3514`, the `ultracode`, `{a=1}` and newline rows `Ok(Inert)` |
+| M10 | escapes admitted in a quoted key part | config `:3514`, `"web_search"` left unclassified, right malformed |
+| M11 | split at the first `=` ignoring quotes | config `:3514`, `mcp_servers."a=b".command` and `"web_search=1` rows |
+| M12 | empty-pattern check disabled | managed `:3609`, `Read,,Edit` left the name cause, right the empty cause |
+| M13 | parentheses admitted inside a specifier | managed `:3609`, `Bash(a(b))` left `Ok` |
+| M14 | a space admitted as a separator | managed `:3613`, left `Ok(' ')` |
+| M15 | the rejoin's option span reaches the positionals | final `:3677` (the rejoin no longer parses) |
+| M16 | session id charset dropped | final `:3745` (`a/REVIEW_SENTINEL` admitted) |
+| M17 | cold span starts at 0 | final `:3648` (`exec` a bare word) |
+| M18 | Codex `--search` back to a plain switch | inventory `:3021`, catalogue `:3224` left `("--search", Switch, [], false)` |
+| M19 | label admits a name led by a third dash | redaction row `---REVIEW-SENTINEL`, left `('---REVIEW-SENTINEL')` |
+| M20 | empty session id admitted | final `:3908` (post-`fmt`), the `""` row parsed |
+| M21 | session length unbounded (`usize::MAX`) | final `:3908`, the 129-byte row parsed |
+
+M19–M21 bind rows added after a local coverage diagnostic, below, found
+those branches untested.
+
+`Node::bears_capability`'s loop over a configuration node's values is
+equivalent to reading its one value, because `--config` has arity one, so
+`|=` versus `=` is not a distinguishing mutation. M7 binds the judgment
+instead. After the restores, a grep for every mutation marker in
+`grammar.rs` was empty and the suite passed, 33 of 33.
+
+### Gates
+
+All on the final bytes:
+
+- `cargo fmt --all -- --check`: clean after `cargo fmt --all`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --locked -p brokkr-protocol --all-features`: lib 482 passed;
+  the other two binaries 99 passed (2 ignored) and 1 passed.
+- `cargo test --locked -p brokkr-runtime --all-features`: 25 of 25
+  binaries ok, lib 560 passed.
+- `cargo test --locked -p brokkr-cli --all-features`, run crate-scoped
+  because of the known in-binary hang: `--test '*'` 30 of 30 targets ok,
+  `--lib` 481 passed.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` gave
+  `45dc1c7e…` and `bundles/verify` gave `65baad08…`, the digests recorded
+  at 5e-fix-b, so the grammar moved no bundle identity.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+- **Local coverage diagnostic, not the gate.** `cargo +nightly llvm-cov
+  --locked -p brokkr-protocol --all-features --lib --branch --lcov`. Its
+  first run's `grammar.rs` record carried the pre-change line map. After
+  `cargo llvm-cov clean --workspace` and a rerun, it found these untested:
+  - the `control` shorthand, which ran only at compile time;
+  - the label's dash-led-name branch;
+  - an empty and an over-long session id;
+  - a dead branch in `key_parts`: a control character in a quoted part,
+    which `setting` has already refused for the whole key.
+
+  The shorthand test now builds a `control` row. The redaction and final
+  tests gained the rows M19–M21 bind, and the dead branch was removed.
+  The final run reports `grammar.rs` lines 447/447 and branches 116/118
+  from the protocol lib alone. The zero branch it lists is
+  `tool_patterns`'s pre-existing separator at `:1142`, which runtime tests
+  exercise outside this scope.
+- **Not fully green:** workspace exact coverage
+  (`scripts/coverage-exact.sh` outside the box), macOS and remote CI are
+  pending.
+
+### Follow-ups, not fixed here
+
+- Units 12 and 13 still have to move `native_controls.rs` and `bundle.rs`
+  off `config_key` and `tool_patterns`/`node_patterns` and onto `setting`,
+  `managed_patterns` and `parse_final`.
+- `Problem::token` remains a public raw field for `bundle.rs::unplaced_label`.
+  Once that consumer uses `Problem::label`, the field can go.

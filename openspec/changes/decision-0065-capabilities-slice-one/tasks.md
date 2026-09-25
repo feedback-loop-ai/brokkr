@@ -1131,13 +1131,41 @@ operator can resolve that. No production, test or pin byte moved.
 
 ## 10. Unit 10 — Bound the grammar and redact diagnostics
 
-- [ ] 10.1 Unit 10 inventories every option/form/effect/consumer, including engine/wrapper/session positions and origins. Verify complete all-harness catalogue tests. Requirements: [Known provider commands have a closed argument grammar][RGP], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.9)
+- [x] 10.1 Unit 10 inventories every option/form/effect/consumer, including engine/wrapper/session positions and origins. Verify complete all-harness catalogue tests. Requirements: [Known provider commands have a closed argument grammar][RGP], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.9)
 
-- [ ] 10.2 Unit 10 models five Codex forms, quoted/table/descendant/repeated keys and bounded inert configs. Verify malformed/unbounded refusal and value-redacted complete diagnostics. Requirements: [Known provider commands have a closed argument grammar][RGP], [Authored provider configuration cannot supply capability authority][RGR]. Reopened/remaining: operator ruling 1–2. (previous 3.10)
+- [x] 10.2 Unit 10 models five Codex forms, quoted/table/descendant/repeated keys and bounded inert configs. Verify malformed/unbounded refusal and value-redacted complete diagnostics. Requirements: [Known provider commands have a closed argument grammar][RGP], [Authored provider configuration cannot supply capability authority][RGR]. Reopened/remaining: operator ruling 1–2. (previous 3.10)
 
-- [ ] 10.3 Unit 10 models Claude/LaneTally grammar without authored-list contributions. Verify managed patterns/separators, aliases, empties, inert prompts and wrapper boundaries. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Explicit restrictive tool lists retain their meaning][NCT]. Reopened/remaining: operator ruling 1–2. (previous 3.11)
+- [x] 10.3 Unit 10 models Claude/LaneTally grammar without authored-list contributions. Verify managed patterns/separators, aliases, empties, inert prompts and wrapper boundaries. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Explicit restrictive tool lists retain their meaning][NCT]. Reopened/remaining: operator ruling 1–2. (previous 3.11)
 
-- [ ] 10.4 Unit 10 retains DSH closed grammar and bound route patch. Verify profile/web/plugin/capability/unknown/changed-patch refusals and route positive after #313/#326. Requirements: [Known provider commands have a closed argument grammar][RGP], [Authored provider configuration cannot supply capability authority][RGR], [Other provider declarations preserve the commissioned uncertainty][NC5]. Reopened/remaining: operator ruling 1–2. (previous 3.12)
+- [x] 10.4 Unit 10 retains DSH closed grammar and bound route patch. Verify profile/web/plugin/capability/unknown/changed-patch refusals and route positive after #313/#326. Requirements: [Known provider commands have a closed argument grammar][RGP], [Authored provider configuration cannot supply capability authority][RGR], [Other provider declarations preserve the commissioned uncertainty][NC5]. Reopened/remaining: operator ruling 1–2. (previous 3.12)
+
+Observed 2026-09-25 (evidence.md, "Unit 10"), run
+`0065-rebuild-unit-10-see-the-uni-7614ce83`, on `8338881a`. Production:
+`native_controls/grammar.rs` only. Tests: `native_controls/tests.rs`. No
+standing-admission line was used.
+
+- **Diagnostics.** A grammar refusal names a bounded label, never the
+  token. The label is a canonical name, a plain long name, the
+  terminator, or a fixed positional or unmodelled label, and the whole
+  rendering stays within 512 scalar values.
+- **Catalogue effects.** `Effect::Control(Power)` classifies the catalogue
+  options the tables had called inert, and DSH's `--patch` is
+  `Effect::Route`. The inventory test fixes every table literally.
+  Unmodelled catalogue names still refuse, named, with no alias invented.
+- **Codex configuration.** `setting` gives each assignment, in all five
+  forms, a capability table or the one bounded inert effort, or refuses
+  it with a fixed cause.
+- **Managed lists and final positions.** `managed_separator` and
+  `managed_patterns` bound managed lists. `parse_final` places codex
+  `exec`/`exec resume … SESSION -` and admits no positional for the
+  others.
+
+The baseline red was observed on the redaction test. M1–M21 each bound
+and were restored. fmt, clippy and the protocol, runtime and CLI suites
+passed, as did both bundle compiles (digests unchanged), strict openspec
+and `git diff --check`. Existing consumers are not rewired: units 12 and
+13 move them onto these primitives. Workspace exact coverage, macOS and
+remote CI are pending.
 
 ## 11. Unit 11 — Validate both declared halves at load
 

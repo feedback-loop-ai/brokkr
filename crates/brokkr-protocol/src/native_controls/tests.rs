@@ -1502,31 +1502,32 @@ fn only_what_follows_the_dispatch_terminator_reaches_the_harness() {
 /// where the grammar admits it once (decision 0066 ruling 6).
 #[test]
 fn every_token_the_grammar_cannot_place_is_refused_at_its_own_cause() {
-    let refusal = |harness: &str, at: usize, token: &str, cause: &str| {
+    // The token is named by its bounded label, never spelled (unit 10).
+    let refusal = |harness: &str, at: usize, label: &str, cause: &str| {
         Err(Refusal {
             authored: true,
             cause: format!(
                 "do not parse: the '{harness}' command grammar cannot place argument {at} \
-                 ('{token}'): it {cause}. A harness brokkr launches is parsed against a model \
+                 ({label}): it {cause}. A harness brokkr launches is parsed against a model \
                  of its options, and a token that grammar cannot place is refused rather than \
                  passed through, because a control nobody can read is a control nobody can \
                  rule on (decision 0066 ruling 6)"
             ),
         })
     };
-    for (harness, extra, at, token, cause) in [
+    for (harness, extra, at, label, cause) in [
         (
             "codex",
             argv(&["--sandbox", "read-only", "resume"]),
             3,
-            "resume",
+            grammar::POSITIONAL_LABEL,
             "is a bare word, and no positional argument is part of the supported shape",
         ),
         (
             "claude",
             argv(&["--nope=1"]),
             1,
-            "--nope=1",
+            "'--nope'",
             "names no option, or names one that has no equals-joined spelling",
         ),
         // A switch declares no joined spelling, so a value stuck to one
@@ -1535,21 +1536,21 @@ fn every_token_the_grammar_cannot_place_is_refused_at_its_own_cause() {
             "claude",
             argv(&["--verbose=1"]),
             1,
-            "--verbose=1",
+            "'--verbose'",
             "names no option, or names one that has no equals-joined spelling",
         ),
         (
             "codex",
             argv(&["--model", "one", "--model", "two"]),
             3,
-            "--model",
+            "'--model'",
             "repeats option '--model', which the grammar admits once; a CLI that resolves a \
              duplicate last-wins would resolve it against the control the engine composed",
         ),
     ] {
         assert_eq!(
             parse_origin(harness, &extra, true),
-            refusal(harness, at, token, cause),
+            refusal(harness, at, label, cause),
             "{extra:?}"
         );
     }
@@ -1575,7 +1576,7 @@ fn a_selection_mapping_is_read_against_the_harnesss_own_lists() {
 /// its own.
 #[test]
 fn the_table_shorthands_build_the_shapes_they_name() {
-    use grammar::{inert, switch, Arity};
+    use grammar::{control, inert, switch, Arity, Power};
     let inert = inert("--x", &["-x"]);
     assert_eq!(inert.canonical, "--x");
     assert_eq!(inert.aliases, ["-x"]);
@@ -1588,6 +1589,13 @@ fn the_table_shorthands_build_the_shapes_they_name() {
     assert_eq!(switch.arity, Arity::Bare);
     assert!(!switch.equals && !switch.attached && !switch.repeat);
     assert_eq!(switch.effect, Effect::Switch);
+    // A catalogue switch is a switch in shape and a control in effect.
+    let control = control("--z", Power::Web);
+    assert_eq!(control.canonical, "--z");
+    assert!(control.aliases.is_empty());
+    assert_eq!(control.arity, Arity::Bare);
+    assert!(!control.equals && !control.attached && !control.repeat);
+    assert_eq!(control.effect, Effect::Control(Power::Web));
     // The invariant the parse relies on: a switch declares no joined
     // spelling, so a joined value can only have come from an option that
     // takes one. An attached spelling belongs to a SHORT name.
@@ -2689,4 +2697,1258 @@ fn only_a_model_or_effort_pin_free_of_permission_controls_is_a_pin() {
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+// ------------------ decision 0065 slice one, unit 10: a bounded grammar
+
+/// The complete refusal `parse_origin` renders for an authored argv the
+/// grammar cannot place, with the bounded label that names the token.
+fn unplaced(harness: &str, at: usize, label: &str, cause: &str) -> String {
+    format!(
+        "do not parse: the '{harness}' command grammar cannot place argument {at} ({label}): it \
+         {cause}. A harness brokkr launches is parsed against a model of its options, and a \
+         token that grammar cannot place is refused rather than passed through, because a \
+         control nobody can read is a control nobody can rule on (decision 0066 ruling 6)"
+    )
+}
+
+/// A payload never reaches a grammar diagnostic (unit 10; design D6). The
+/// token is named by a bounded label: a modelled option by its canonical
+/// name whichever alias or joined spelling carried it, a plain unmodelled
+/// long name by that name alone, and anything else — a bare word, an
+/// unmodelled short or attached form, a name with a newline, a path or an
+/// over-long spelling — by a fixed label. No sentinel, newline or secret
+/// path survives, and the whole rendering stays within 512 scalar values.
+#[test]
+fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
+    const SENTINEL: &str = "REVIEW_SENTINEL";
+    const UNMODELLED: &str = "an option the grammar does not model, whose spelling is not echoed";
+    const POSITIONAL: &str = "a positional argument, whose text is not echoed";
+    const NO_NAME: &str = "names no option";
+    const NO_JOINED: &str = "names no option, or names one that has no equals-joined spelling";
+    let long = format!("--{}", "k".repeat(5000));
+    let repeats = |name: &str| {
+        format!(
+            "repeats option '{name}', which the grammar admits once; a CLI that resolves a \
+             duplicate last-wins would resolve it against the control the engine composed"
+        )
+    };
+    let rows: Vec<(&str, Vec<String>, usize, &str, String)> = vec![
+        (
+            "codex",
+            argv(&["--nope=REVIEW_SENTINEL"]),
+            1,
+            "'--nope'",
+            NO_JOINED.to_string(),
+        ),
+        (
+            "codex",
+            argv(&["-zREVIEW_SENTINEL"]),
+            1,
+            UNMODELLED,
+            NO_NAME.to_string(),
+        ),
+        (
+            "codex",
+            argv(&["-mREVIEW_SENTINEL", "-mother"]),
+            2,
+            "'--model'",
+            repeats("--model"),
+        ),
+        (
+            "codex",
+            argv(&["-a", "never", "-aREVIEW_SENTINEL"]),
+            3,
+            "'--ask-for-approval'",
+            repeats("--ask-for-approval"),
+        ),
+        (
+            "codex",
+            argv(&["-c"]),
+            1,
+            "'--config'",
+            "takes a value and is the last argument, so it has none".to_string(),
+        ),
+        (
+            "codex",
+            argv(&["--json", "REVIEW_SENTINEL"]),
+            2,
+            POSITIONAL,
+            "is a bare word, and no positional argument is part of the supported shape".to_string(),
+        ),
+        (
+            "claude",
+            argv(&["--append-system-prompt", "--REVIEW_SENTINEL"]),
+            2,
+            UNMODELLED,
+            "stands where the value of '--append-system-prompt' belongs but reads as an option, \
+             so which of the two it is cannot be told"
+                .to_string(),
+        ),
+        (
+            "claude",
+            vec![
+                "--allowedTools".to_string(),
+                "Read".to_string(),
+                format!("--x\n{SENTINEL}=/home/secret/.ssh/id_ed25519"),
+            ],
+            3,
+            UNMODELLED,
+            NO_JOINED.to_string(),
+        ),
+        (
+            "claude",
+            argv(&["--home/secret/.ssh/id_ed25519"]),
+            1,
+            UNMODELLED,
+            NO_NAME.to_string(),
+        ),
+        (
+            "claude",
+            argv(&["---REVIEW-SENTINEL"]),
+            1,
+            UNMODELLED,
+            NO_NAME.to_string(),
+        ),
+        (
+            "claude",
+            vec![long.clone()],
+            1,
+            UNMODELLED,
+            NO_NAME.to_string(),
+        ),
+        (
+            "claude",
+            argv(&["--"]),
+            1,
+            "the terminator '--'",
+            NO_NAME.to_string(),
+        ),
+        (
+            "lanetally",
+            argv(&["--verbose=REVIEW_SENTINEL"]),
+            1,
+            "'--verbose'",
+            NO_JOINED.to_string(),
+        ),
+        (
+            "dsh",
+            argv(&["--patch", "/tmp/route.json", "--patch=REVIEW_SENTINEL"]),
+            3,
+            "'--patch'",
+            repeats("--patch"),
+        ),
+    ];
+    for (harness, written, at, label, cause) in rows {
+        let refused = parse_origin(harness, &written, true)
+            .expect_err("the argv does not parse")
+            .cause;
+        assert_eq!(refused, unplaced(harness, at, label, &cause), "{written:?}");
+        let rendered = grammar::parse(harness, &written)
+            .expect("a modelled harness")
+            .expect_err("the argv does not parse")
+            .to_string();
+        assert!(
+            !rendered.contains(SENTINEL)
+                && !rendered.contains("secret")
+                && !rendered.contains('\n')
+                && !rendered.contains("kkkk"),
+            "{harness}: {rendered}"
+        );
+        assert!(rendered.chars().count() <= 512, "{harness}: {rendered}");
+    }
+}
+
+/// One modelled option as a comparable row: its canonical name, aliases,
+/// arity, whether it has a joined and an attached spelling, whether it
+/// repeats, and its effect.
+type Row = (
+    &'static str,
+    Vec<&'static str>,
+    grammar::Arity,
+    bool,
+    bool,
+    bool,
+    Effect,
+);
+
+/// The complete inventory of every table, literally (unit 10, task 10.1):
+/// every option, form, arity, repeatability and effect. The realm delta's
+/// catalogue options are classified as a list, a load, a configuration or
+/// a `Control` of their class; every option left `Inert` or `Switch` is
+/// outside that catalogue. DSH's `--patch` is its route overlay.
+#[test]
+fn every_table_is_inventoried_with_its_forms_and_effects() {
+    use grammar::{Arity::*, Power};
+    let rows = |table: &grammar::Grammar| -> Vec<Row> {
+        table
+            .options
+            .iter()
+            .map(|spec| {
+                (
+                    spec.canonical,
+                    spec.aliases.to_vec(),
+                    spec.arity,
+                    spec.equals,
+                    spec.attached,
+                    spec.repeat,
+                    spec.effect,
+                )
+            })
+            .collect()
+    };
+    let permission = Effect::Control(Power::Permission);
+    let filesystem = Effect::Control(Power::Filesystem);
+    let codex: Vec<Row> = vec![
+        (
+            "--config",
+            vec!["-c"],
+            One,
+            true,
+            true,
+            true,
+            Effect::Config,
+        ),
+        ("--model", vec!["-m"], One, true, true, false, Effect::Inert),
+        ("--effort", vec![], One, true, false, false, Effect::Inert),
+        ("--sandbox", vec!["-s"], One, true, true, false, permission),
+        ("--cd", vec!["-C"], One, true, true, false, Effect::Inert),
+        ("--image", vec!["-i"], One, true, true, true, Effect::Inert),
+        (
+            "--output-last-message",
+            vec!["-o"],
+            One,
+            true,
+            true,
+            false,
+            Effect::Inert,
+        ),
+        (
+            "--output-schema",
+            vec![],
+            One,
+            true,
+            false,
+            false,
+            Effect::Inert,
+        ),
+        ("--color", vec![], One, true, false, false, Effect::Inert),
+        ("--add-dir", vec![], One, true, false, true, filesystem),
+        (
+            "--ask-for-approval",
+            vec!["-a"],
+            One,
+            true,
+            true,
+            false,
+            permission,
+        ),
+        (
+            "--profile",
+            vec!["-p"],
+            One,
+            true,
+            true,
+            false,
+            Effect::Load,
+        ),
+        ("--json", vec![], Bare, false, false, false, Effect::Switch),
+        (
+            "--include-plan-tool",
+            vec![],
+            Bare,
+            false,
+            false,
+            false,
+            Effect::Control(Power::Tools),
+        ),
+        ("--full-auto", vec![], Bare, false, false, false, permission),
+        (
+            "--dangerously-bypass-approvals-and-sandbox",
+            vec![],
+            Bare,
+            false,
+            false,
+            false,
+            permission,
+        ),
+        (
+            "--skip-git-repo-check",
+            vec![],
+            Bare,
+            false,
+            false,
+            false,
+            Effect::Switch,
+        ),
+        (
+            "--search",
+            vec![],
+            Bare,
+            false,
+            false,
+            false,
+            Effect::Control(Power::Web),
+        ),
+    ];
+    let inert = |name| (name, vec![], One, true, false, false, Effect::Inert);
+    let switch = |name| (name, vec![], Bare, false, false, false, Effect::Switch);
+    let claude: Vec<Row> = vec![
+        (
+            "--tools",
+            vec![],
+            Variadic,
+            true,
+            false,
+            false,
+            Effect::List(ListKind::Include),
+        ),
+        (
+            "--allowedTools",
+            vec!["--allowed-tools"],
+            Variadic,
+            true,
+            false,
+            false,
+            Effect::List(ListKind::Allow),
+        ),
+        (
+            "--disallowedTools",
+            vec!["--disallowed-tools"],
+            Variadic,
+            true,
+            false,
+            false,
+            Effect::List(ListKind::Deny),
+        ),
+        (
+            "--mcp-config",
+            vec![],
+            Variadic,
+            true,
+            false,
+            true,
+            Effect::Load,
+        ),
+        (
+            "--plugin-dir",
+            vec![],
+            Variadic,
+            true,
+            false,
+            true,
+            Effect::Load,
+        ),
+        ("--settings", vec![], One, true, false, false, Effect::Load),
+        ("--agents", vec![], One, true, false, false, Effect::Load),
+        (
+            "--strict-mcp-config",
+            vec![],
+            Bare,
+            false,
+            false,
+            false,
+            Effect::Control(Power::Mcp),
+        ),
+        (
+            "--print",
+            vec!["-p"],
+            Bare,
+            false,
+            false,
+            false,
+            Effect::Switch,
+        ),
+        switch("--verbose"),
+        switch("--no-session-persistence"),
+        switch("--fork-session"),
+        switch("--bg"),
+        inert("--output-format"),
+        inert("--input-format"),
+        inert("--model"),
+        inert("--fallback-model"),
+        inert("--effort"),
+        (
+            "--permission-mode",
+            vec![],
+            One,
+            true,
+            false,
+            false,
+            permission,
+        ),
+        inert("--system-prompt"),
+        inert("--append-system-prompt"),
+        inert("--system-prompt-snapshot"),
+        inert("--max-turns"),
+        ("--add-dir", vec![], Variadic, true, false, true, filesystem),
+        (
+            "--session-id",
+            vec![],
+            One,
+            true,
+            false,
+            false,
+            Effect::Session,
+        ),
+        (
+            "--resume",
+            vec!["-r"],
+            One,
+            true,
+            false,
+            false,
+            Effect::Session,
+        ),
+        (
+            "--continue",
+            vec!["-c"],
+            Bare,
+            false,
+            false,
+            false,
+            Effect::Session,
+        ),
+    ];
+    let dsh: Vec<Row> = vec![
+        inert("--model"),
+        inert("--effort"),
+        ("--patch", vec![], One, true, false, false, Effect::Route),
+    ];
+    let tables: Vec<(&str, Vec<Row>)> = grammar::TABLES
+        .iter()
+        .map(|table| (table.harness, rows(table)))
+        .collect();
+    assert_eq!(
+        tables,
+        vec![
+            ("codex", codex),
+            ("claude", claude.clone()),
+            ("lanetally", claude),
+            ("dsh", dsh),
+        ]
+    );
+}
+
+/// The single node one argv parses to under a harness, as its canonical
+/// name, effect, values and capability judgment.
+fn one_node(harness: &str, written: &[String]) -> (&'static str, Effect, Vec<String>, bool) {
+    let command = grammar::parse(harness, written)
+        .expect("a modelled harness")
+        .unwrap_or_else(|problem| panic!("{written:?} parses: {problem}"));
+    let [node] = command.nodes.as_slice() else {
+        panic!("{written:?} is one node: {:?}", command.nodes);
+    };
+    (
+        node.name(),
+        node.spec.effect,
+        node.values.clone(),
+        node.bears_capability().expect("a bounded node"),
+    )
+}
+
+/// The exact rendered problem one argv refuses with.
+fn problem_of(harness: &str, written: &[String]) -> String {
+    grammar::parse(harness, written)
+        .expect("a modelled harness")
+        .expect_err("the argv does not parse")
+        .to_string()
+}
+
+fn grammar_problem(harness: &str, at: usize, label: &str, cause: &str) -> String {
+    unplaced(harness, at, label, cause)
+        .strip_prefix("do not parse: ")
+        .expect("the authored prefix")
+        .to_string()
+}
+
+/// Every spelling of every catalogue option (the realm delta's table) is
+/// either one node that bears a capability, whatever its value, or a
+/// grammar refusal that names the option boundedly (unit 10, tasks 10.1,
+/// 10.3 and 10.4). A modelled value-taking option is read in its split,
+/// equals-joined and, for a short alias, `-x=VALUE` and attached `-xVALUE`
+/// spellings; a switch is one node bare and refused joined. An option the
+/// supported grammar does not model — no alias is invented for it —
+/// refuses in every spelling, named by its plain long name.
+#[test]
+fn every_catalogue_spelling_bears_a_capability_or_refuses_by_name() {
+    use grammar::Power;
+    const NO_NAME: &str = "names no option";
+    const NO_JOINED: &str = "names no option, or names one that has no equals-joined spelling";
+    let permission = Effect::Control(Power::Permission);
+    let filesystem = Effect::Control(Power::Filesystem);
+    // Value-taking options: (harnesses, every spelling, canonical, effect).
+    let valued: Vec<(&[&str], &[&str], &str, Effect)> = vec![
+        (
+            &["claude", "lanetally"],
+            &["--tools"],
+            "--tools",
+            Effect::List(ListKind::Include),
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--allowedTools", "--allowed-tools"],
+            "--allowedTools",
+            Effect::List(ListKind::Allow),
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--disallowedTools", "--disallowed-tools"],
+            "--disallowedTools",
+            Effect::List(ListKind::Deny),
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--mcp-config"],
+            "--mcp-config",
+            Effect::Load,
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--plugin-dir"],
+            "--plugin-dir",
+            Effect::Load,
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--permission-mode"],
+            "--permission-mode",
+            permission,
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--add-dir"],
+            "--add-dir",
+            filesystem,
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--settings"],
+            "--settings",
+            Effect::Load,
+        ),
+        (
+            &["claude", "lanetally"],
+            &["--agents"],
+            "--agents",
+            Effect::Load,
+        ),
+        (&["codex"], &["--add-dir"], "--add-dir", filesystem),
+        (&["codex"], &["--sandbox", "-s"], "--sandbox", permission),
+        (
+            &["codex"],
+            &["--ask-for-approval", "-a"],
+            "--ask-for-approval",
+            permission,
+        ),
+        (&["codex"], &["--profile", "-p"], "--profile", Effect::Load),
+    ];
+    for (harnesses, spellings, canonical, effect) in &valued {
+        for harness in *harnesses {
+            for spelling in *spellings {
+                let mut forms = vec![
+                    argv(&[spelling, "VALUE"]),
+                    vec![format!("{spelling}=VALUE")],
+                ];
+                if !spelling.starts_with("--") {
+                    forms.push(vec![format!("{spelling}VALUE")]);
+                }
+                for form in forms {
+                    assert_eq!(
+                        one_node(harness, &form),
+                        (*canonical, *effect, argv(&["VALUE"]), true),
+                        "{harness} {form:?}"
+                    );
+                }
+            }
+        }
+    }
+    // Every value of a variadic list is the list's, an empty value is a
+    // value, and a list the grammar admits once refuses a second time.
+    for harness in ["claude", "lanetally"] {
+        assert_eq!(
+            one_node(
+                harness,
+                &argv(&["--allowed-tools", "Read", "mcp__x__fetch"])
+            ),
+            (
+                "--allowedTools",
+                Effect::List(ListKind::Allow),
+                argv(&["Read", "mcp__x__fetch"]),
+                true
+            ),
+        );
+        for empty in [argv(&["--tools", ""]), argv(&["--tools="])] {
+            assert_eq!(
+                one_node(harness, &empty),
+                (
+                    "--tools",
+                    Effect::List(ListKind::Include),
+                    argv(&[""]),
+                    true
+                ),
+            );
+        }
+        assert_eq!(
+            problem_of(
+                harness,
+                &argv(&["--disallowedTools", "Read", "--disallowed-tools=Edit"])
+            ),
+            grammar_problem(
+                harness,
+                3,
+                "'--disallowedTools'",
+                "repeats option '--disallowedTools', which the grammar admits once; a CLI that \
+                 resolves a duplicate last-wins would resolve it against the control the engine \
+                 composed"
+            ),
+        );
+        let added = grammar::parse(harness, &argv(&["--add-dir", "a", "b", "--add-dir=c"]))
+            .expect("a modelled harness")
+            .expect("--add-dir repeats");
+        assert_eq!(added.nodes.len(), 2);
+    }
+    // Catalogue switches: one node bare, refused joined.
+    let switches: Vec<(&[&str], &str, Effect)> = vec![
+        (
+            &["claude", "lanetally"],
+            "--strict-mcp-config",
+            Effect::Control(Power::Mcp),
+        ),
+        (&["codex"], "--search", Effect::Control(Power::Web)),
+        (
+            &["codex"],
+            "--include-plan-tool",
+            Effect::Control(Power::Tools),
+        ),
+        (&["codex"], "--full-auto", permission),
+        (
+            &["codex"],
+            "--dangerously-bypass-approvals-and-sandbox",
+            permission,
+        ),
+    ];
+    for (harnesses, name, effect) in &switches {
+        for harness in *harnesses {
+            assert_eq!(
+                one_node(harness, &argv(&[name])),
+                (*name, *effect, Vec::new(), true)
+            );
+            assert_eq!(
+                problem_of(harness, &[format!("{name}=VALUE")]),
+                grammar_problem(harness, 1, &format!("'{name}'"), NO_JOINED),
+            );
+        }
+    }
+    // Catalogue names the supported grammar does not model: refused in
+    // every spelling, named by the plain long name, never forwarded.
+    let unmodelled: Vec<(&[&str], &[&str])> = vec![
+        (
+            &["claude", "lanetally"],
+            &[
+                "--dangerously-skip-permissions",
+                "--allow-dangerously-skip-permissions",
+                "--permission-prompt-tool",
+                "--setting-sources",
+                "--agent",
+                "--web",
+                "--web-search",
+                "--web-fetch",
+                "--search",
+            ],
+        ),
+        (
+            &["codex"],
+            &[
+                "--enable",
+                "--disable",
+                "--approve-for-me",
+                "--ignore-rules",
+                "--yolo",
+            ],
+        ),
+        (
+            &["dsh"],
+            &[
+                "--profile",
+                "--tools",
+                "--allowedTools",
+                "--disallowedTools",
+                "--mcp-config",
+                "--plugin-dir",
+                "--permission-mode",
+                "--settings",
+                "--search",
+                "--config",
+            ],
+        ),
+    ];
+    for (harnesses, names) in &unmodelled {
+        for harness in *harnesses {
+            for name in *names {
+                let label = format!("'{name}'");
+                assert_eq!(
+                    problem_of(harness, &argv(&[name, "VALUE"])),
+                    grammar_problem(harness, 1, &label, NO_NAME),
+                );
+                assert_eq!(
+                    problem_of(harness, &[format!("{name}=VALUE")]),
+                    grammar_problem(harness, 1, &label, NO_JOINED),
+                );
+            }
+        }
+    }
+    // DSH admits no short alias, attached form or launch subcommand.
+    for (written, label, cause) in [
+        (argv(&["-p", "x"]), grammar::UNMODELLED_LABEL, NO_NAME),
+        (argv(&["-mmodel"]), grammar::UNMODELLED_LABEL, NO_NAME),
+        (
+            argv(&["-c=web_search=\"live\""]),
+            grammar::UNMODELLED_LABEL,
+            NO_JOINED,
+        ),
+        (
+            argv(&["web"]),
+            grammar::POSITIONAL_LABEL,
+            "is a bare word, and no positional argument is part of the supported shape",
+        ),
+        (
+            argv(&["plugin"]),
+            grammar::POSITIONAL_LABEL,
+            "is a bare word, and no positional argument is part of the supported shape",
+        ),
+    ] {
+        assert_eq!(
+            problem_of("dsh", &written),
+            grammar_problem("dsh", 1, label, cause),
+            "{written:?}"
+        );
+    }
+}
+
+/// DSH's one bound route overlay is the only non-capability `--patch` the
+/// grammar places, and it places it once (unit 10, task 10.4, after
+/// #313/#326): the model, the effort and the overlay path parse, none of
+/// them bears a capability, and a second or dangling patch refuses. The
+/// overlay's containment, digest and drift check stay the adapter's
+/// pre-staging route check.
+#[test]
+fn dsh_places_its_route_overlay_once_and_nothing_beside_it() {
+    let command = grammar::parse(
+        "dsh",
+        &argv(&[
+            "--model",
+            "deepseek-v4.1-flash",
+            "--effort=high",
+            "--patch",
+            "/work/.brokkr/route.json",
+        ]),
+    )
+    .expect("a modelled harness")
+    .expect("the route-only invocation parses");
+    let placed: Vec<(&str, Effect, Vec<String>, bool)> = command
+        .nodes
+        .iter()
+        .map(|node| {
+            (
+                node.name(),
+                node.spec.effect,
+                node.values.clone(),
+                node.bears_capability().expect("a bounded node"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        placed,
+        vec![
+            (
+                "--model",
+                Effect::Inert,
+                argv(&["deepseek-v4.1-flash"]),
+                false
+            ),
+            ("--effort", Effect::Inert, argv(&["high"]), false),
+            (
+                "--patch",
+                Effect::Route,
+                argv(&["/work/.brokkr/route.json"]),
+                false
+            ),
+        ]
+    );
+    assert_eq!(
+        problem_of("dsh", &argv(&["--patch=/a.json", "--patch", "/b.json"])),
+        grammar_problem(
+            "dsh",
+            2,
+            "'--patch'",
+            "repeats option '--patch', which the grammar admits once; a CLI that resolves a \
+             duplicate last-wins would resolve it against the control the engine composed"
+        ),
+    );
+    assert_eq!(
+        problem_of("dsh", &argv(&["--patch"])),
+        grammar_problem(
+            "dsh",
+            1,
+            "'--patch'",
+            "takes a value and is the last argument, so it has none"
+        ),
+    );
+}
+
+/// A prompt's value is data and a composed control is never absorbed into
+/// one (unit 10, task 10.3): unambiguous text holding a tool-list name is
+/// one value, a joined option-looking value is one value, and a split
+/// value that reads as an option refuses at the ambiguous token — under
+/// Claude and under LaneTally's wrapper alike.
+#[test]
+fn a_prompt_value_is_data_and_never_absorbs_a_control() {
+    for harness in ["claude", "lanetally"] {
+        for (written, value) in [
+            (
+                argv(&["--append-system-prompt", "never pass --disallowedTools"]),
+                "never pass --disallowedTools",
+            ),
+            (
+                argv(&["--append-system-prompt=--disallowedTools hello"]),
+                "--disallowedTools hello",
+            ),
+        ] {
+            assert_eq!(
+                one_node(harness, &written),
+                (
+                    "--append-system-prompt",
+                    Effect::Inert,
+                    argv(&[value]),
+                    false
+                ),
+            );
+        }
+        assert_eq!(
+            problem_of(
+                harness,
+                &argv(&["--append-system-prompt", "--disallowedTools", "hello"])
+            ),
+            grammar_problem(
+                harness,
+                2,
+                "'--disallowedTools'",
+                "stands where the value of '--append-system-prompt' belongs but reads as an \
+                 option, so which of the two it is cannot be told"
+            ),
+        );
+    }
+}
+
+/// Every Codex configuration assignment is read under a bounded key
+/// grammar and given one of a closed set of meanings, or refused with its
+/// fixed cause (unit 10, task 10.2). The capability tables are named
+/// whatever the value — quoted, dotted, whole-table or descendant — the
+/// one inert key admits only its levels, and nothing else passes as
+/// opaque configuration. No cause echoes the key or the value.
+#[test]
+fn a_codex_assignment_has_a_bounded_meaning_or_refuses() {
+    use grammar::{setting, Setting};
+    const NOT_ASSIGNMENT: &str = "is not a KEY=VALUE configuration assignment";
+    const MALFORMED: &str = "assigns through a key the grammar cannot read: each dotted part is a \
+                             bare name or a quoted one without escapes, within 16 parts and 256 \
+                             bytes";
+    const NO_VALUE: &str = "assigns no value";
+    const UNCLASSIFIED: &str =
+        "assigns a key no bounded meaning is modelled for, so it is refused \
+                                rather than passed through as opaque configuration";
+    const EFFORT: &str = "assigns 'model_reasoning_effort' a value outside its bounded levels \
+                          (none, minimal, low, medium, high, xhigh, max)";
+    let capability = |table| Ok(Setting::Capability(table));
+    let long_key = format!("{}=1", "k".repeat(257));
+    let deep_key = format!("{}=1", ["a"; 17].join("."));
+    let rows: Vec<(&str, Result<Setting, &str>)> = vec![
+        // The engine's own compositions.
+        (
+            "model_reasoning_effort=\"high\"",
+            Ok(Setting::Inert("model_reasoning_effort")),
+        ),
+        ("web_search=\"disabled\"", capability("web_search")),
+        ("sandbox_mode=\"read-only\"", capability("sandbox_mode")),
+        (
+            "mcp_servers.brokkr.command=\"{brokkr}\"",
+            capability("mcp_servers"),
+        ),
+        (
+            "mcp_servers.brokkr.args={hands_args_toml}",
+            capability("mcp_servers"),
+        ),
+        // Quoted, spaced, whole-table and descendant spellings.
+        (
+            "\"mcp_servers\".x.command=\"sh\"",
+            capability("mcp_servers"),
+        ),
+        ("'mcp_servers' . x = 1", capability("mcp_servers")),
+        (
+            "mcp_servers={x={command=\"sh\"}}",
+            capability("mcp_servers"),
+        ),
+        ("mcp_servers.\"a=b\".command=1", capability("mcp_servers")),
+        ("web_search_mode=live", capability("web_search_mode")),
+        ("tools.web_search=true", capability("tools")),
+        ("tools={web_search=true}", capability("tools")),
+        ("features.web_search_request=true", capability("features")),
+        ("features.web_search_cached=true", capability("features")),
+        ("approval_policy=never", capability("approval_policy")),
+        (
+            "sandbox_workspace_write.network_access=true",
+            capability("sandbox_workspace_write"),
+        ),
+        ("profile=wide", capability("profile")),
+        ("profiles.wide.model=\"x\"", capability("profiles")),
+        // The one inert key, bare, single-quoted and spaced.
+        (
+            "model_reasoning_effort=low",
+            Ok(Setting::Inert("model_reasoning_effort")),
+        ),
+        (
+            "model_reasoning_effort = 'xhigh'",
+            Ok(Setting::Inert("model_reasoning_effort")),
+        ),
+        ("model_reasoning_effort=\"ultracode\"", Err(EFFORT)),
+        ("model_reasoning_effort={a=1}", Err(EFFORT)),
+        ("model_reasoning_effort=\"high\nx\"", Err(EFFORT)),
+        // Unclassified keys, a dotted inert key and a key quoted whole.
+        ("model=\"gpt\"", Err(UNCLASSIFIED)),
+        ("model_reasoning_effort.x=1", Err(UNCLASSIFIED)),
+        ("\"mcp_servers.x\".command=1", Err(UNCLASSIFIED)),
+        ("mcp_serversx=1", Err(UNCLASSIFIED)),
+        // Malformed and unbounded.
+        ("REVIEW_SENTINEL", Err(NOT_ASSIGNMENT)),
+        ("\"web_search=1", Err(NOT_ASSIGNMENT)),
+        ("=1", Err(MALFORMED)),
+        ("a..b=1", Err(MALFORMED)),
+        (".a=1", Err(MALFORMED)),
+        ("a.=1", Err(MALFORMED)),
+        ("\"\"=1", Err(MALFORMED)),
+        ("\"web\\u005fsearch\"=1", Err(MALFORMED)),
+        ("a b=1", Err(MALFORMED)),
+        ("web_search\n=1", Err(MALFORMED)),
+        (&long_key, Err(MALFORMED)),
+        (&deep_key, Err(MALFORMED)),
+        ("web_search=", Err(NO_VALUE)),
+        ("web_search= \t", Err(NO_VALUE)),
+    ];
+    let failures: Vec<String> = rows
+        .iter()
+        .filter_map(|(assignment, expected)| {
+            let observed = setting(assignment);
+            (observed != *expected)
+                .then(|| format!("{assignment:?}:\n  left:  {observed:?}\n  right: {expected:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // All five spellings are one node carrying the same assignment.
+    let assignment = "mcp_servers.x.command=\"sh\"";
+    for form in [
+        argv(&["-c", assignment]),
+        vec![format!("-c={assignment}")],
+        vec![format!("-c{assignment}")],
+        argv(&["--config", assignment]),
+        vec![format!("--config={assignment}")],
+    ] {
+        assert_eq!(
+            one_node("codex", &form),
+            ("--config", Effect::Config, argv(&[assignment]), true),
+            "{form:?}"
+        );
+    }
+    // Each occurrence is classified on its own: a harmless assignment on
+    // either side of a forbidden one cannot erase it, and an unclassified
+    // one refuses rather than reading as inert.
+    let judged = |written: &[&str]| -> Vec<Result<bool, &'static str>> {
+        grammar::parse("codex", &argv(written))
+            .expect("a modelled harness")
+            .expect("the assignments parse")
+            .nodes
+            .iter()
+            .map(grammar::Node::bears_capability)
+            .collect()
+    };
+    assert_eq!(
+        judged(&[
+            "-c",
+            "web_search=\"live\"",
+            "-c",
+            "model_reasoning_effort=high"
+        ]),
+        vec![Ok(true), Ok(false)]
+    );
+    assert_eq!(
+        judged(&[
+            "-cmodel_reasoning_effort=high",
+            "--config=tools.web_search=true"
+        ]),
+        vec![Ok(false), Ok(true)]
+    );
+    assert_eq!(judged(&["-c", "model=\"gpt\""]), vec![Err(UNCLASSIFIED)]);
+}
+
+/// A managed tool list is bounded in its patterns and its separator (unit
+/// 10, task 10.3): every shipped mapping and hands pattern reads, the
+/// empty value is an explicit empty list, and each place where this
+/// reading and the harness's own splitter could disagree refuses with its
+/// fixed cause.
+#[test]
+fn a_managed_list_is_bounded_in_its_patterns_and_separator() {
+    use grammar::{managed_patterns, managed_separator};
+    const EMPTY: &str = "joins an empty pattern: a doubled, leading or trailing separator";
+    const NAME: &str = "names a tool that is not a plain name of ASCII letters, digits and '_' \
+                        leading with a letter, within 128 bytes";
+    const SPECIFIER: &str = "carries a specifier that is not one parenthesized, nonempty run \
+                             within 256 bytes without a parenthesis, comma, quote, backslash or \
+                             control character";
+    const COUNT: &str = "joins more than 64 patterns";
+    const SEPARATOR: &str = "is not the one separator a managed tool list is joined with, ','";
+    let shipped = "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),\
+                   Bash(rg:*),Bash(mkdir:*),Bash(npm:*),Bash(npx:*),Bash(node:*),\
+                   Bash(gh pr view:*),Bash(gh run view:*),Bash(specify:*),Bash(codex:*),\
+                   Bash(dsh:*),WebFetch,WebSearch,mcp__brokkr__workspace";
+    assert_eq!(
+        managed_patterns(shipped).map(|patterns| patterns.len()),
+        Ok(18)
+    );
+    assert_eq!(managed_patterns(""), Ok(Vec::new()));
+    assert_eq!(
+        managed_patterns("Bash(gh pr view:*),WebSearch"),
+        Ok(vec!["Bash(gh pr view:*)", "WebSearch"])
+    );
+    let sixty_five = vec!["Read"; 65].join(",");
+    let long_name = "R".repeat(129);
+    let long_specifier = format!("Bash({})", "x".repeat(257));
+    for (value, cause) in [
+        ("Read,,Edit", EMPTY),
+        (",Read", EMPTY),
+        ("Read,", EMPTY),
+        (" ", NAME),
+        ("Read Edit", NAME),
+        ("Read, Edit", NAME),
+        ("mcp__*", NAME),
+        ("*", NAME),
+        ("1Read", NAME),
+        ("(x)", NAME),
+        (&long_name, NAME),
+        ("Bash(a(b))", SPECIFIER),
+        ("Bash(a,b)", SPECIFIER),
+        ("Bash(x", SPECIFIER),
+        ("Bash(x)y", SPECIFIER),
+        ("Bash()", SPECIFIER),
+        ("Bash(a\"b)", SPECIFIER),
+        ("Bash(a'b)", SPECIFIER),
+        ("Bash(a\\b)", SPECIFIER),
+        ("Bash(a\nb)", SPECIFIER),
+        (&long_specifier, SPECIFIER),
+        (&sixty_five, COUNT),
+    ] {
+        assert_eq!(managed_patterns(value), Err(cause), "{value:?}");
+    }
+    assert_eq!(managed_separator(","), Ok(','));
+    for separator in [" ", ";", "", ",,", ", "] {
+        assert_eq!(
+            managed_separator(separator),
+            Err(SEPARATOR),
+            "{separator:?}"
+        );
+    }
+}
+
+/// A complete serving command places its subcommands and trailing
+/// positionals at fixed positions and parses the options between them
+/// (unit 10, task 10.1): a codex rejoin ends in exactly its plain session
+/// and the stdin `-`, which no option's value can reach, `--image resume`
+/// stays an image's value, and Claude, LaneTally and DSH carry no
+/// positional at all.
+#[test]
+fn a_final_command_places_its_positions_and_nothing_else() {
+    let names = |command: &grammar::Command| -> Vec<(&str, Vec<String>)> {
+        command
+            .nodes
+            .iter()
+            .map(|node| (node.name(), node.values.clone()))
+            .collect()
+    };
+    let cold = grammar::parse_final(
+        "codex",
+        &argv(&[
+            "exec",
+            "--json",
+            "-C",
+            "/work",
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "--image",
+            "resume",
+            "-c",
+            "web_search=\"disabled\"",
+        ]),
+    )
+    .expect("a modelled harness")
+    .expect("the cold command parses");
+    assert_eq!(cold.subcommands, vec!["exec"]);
+    assert_eq!(cold.session, None);
+    assert_eq!(
+        names(&cold.command),
+        vec![
+            ("--json", Vec::new()),
+            ("--cd", argv(&["/work"])),
+            ("--config", argv(&["model_reasoning_effort=\"high\""])),
+            ("--image", argv(&["resume"])),
+            ("--config", argv(&["web_search=\"disabled\""])),
+        ]
+    );
+    assert_eq!(cold.command.nodes[1].at, 2);
+    let resumed = grammar::parse_final(
+        "codex",
+        &argv(&[
+            "exec",
+            "resume",
+            "--json",
+            "-c",
+            "sandbox_mode=\"read-only\"",
+            "--image",
+            "resume",
+            "019a0aaa-8667-7753",
+            "-",
+        ]),
+    )
+    .expect("a modelled harness")
+    .expect("the rejoin parses");
+    assert_eq!(resumed.subcommands, vec!["exec", "resume"]);
+    assert_eq!(resumed.session.as_deref(), Some("019a0aaa-8667-7753"));
+    assert_eq!(
+        names(&resumed.command),
+        vec![
+            ("--json", Vec::new()),
+            ("--config", argv(&["sandbox_mode=\"read-only\""])),
+            ("--image", argv(&["resume"])),
+        ]
+    );
+    let positional = grammar::POSITIONAL_LABEL;
+    for (written, at, label, cause) in [
+        (
+            Vec::new(),
+            1,
+            positional,
+            "stands where the 'exec' subcommand a codex serving command opens with belongs",
+        ),
+        (
+            argv(&["--json", "exec"]),
+            1,
+            "'--json'",
+            "stands where the 'exec' subcommand a codex serving command opens with belongs",
+        ),
+        (
+            argv(&["exec", "resume", "S"]),
+            2,
+            positional,
+            "opens a rejoin that does not end with its session identifier and the stdin \
+             positional '-'",
+        ),
+        (
+            argv(&["exec", "resume", "--json", "S", "REVIEW_SENTINEL"]),
+            5,
+            positional,
+            "stands where the stdin positional '-' that ends a rejoin belongs",
+        ),
+        (
+            argv(&["exec", "resume", "--json", "-REVIEW_SENTINEL", "-"]),
+            4,
+            grammar::UNMODELLED_LABEL,
+            "stands where a rejoin's session identifier belongs but is not a plain one: ASCII \
+             letters, digits and dashes, not leading with a dash, at most 128 bytes",
+        ),
+        (
+            argv(&["exec", "resume", "--json", "a/REVIEW_SENTINEL", "-"]),
+            4,
+            positional,
+            "stands where a rejoin's session identifier belongs but is not a plain one: ASCII \
+             letters, digits and dashes, not leading with a dash, at most 128 bytes",
+        ),
+        (
+            argv(&["exec", "resume", "--json", "", "-"]),
+            4,
+            positional,
+            "stands where a rejoin's session identifier belongs but is not a plain one: ASCII \
+             letters, digits and dashes, not leading with a dash, at most 128 bytes",
+        ),
+        (
+            vec![
+                "exec".to_string(),
+                "resume".to_string(),
+                "a".repeat(129),
+                "-".to_string(),
+            ],
+            3,
+            positional,
+            "stands where a rejoin's session identifier belongs but is not a plain one: ASCII \
+             letters, digits and dashes, not leading with a dash, at most 128 bytes",
+        ),
+        (
+            argv(&["exec", "resume", "--model", "S", "-"]),
+            3,
+            "'--model'",
+            "takes a value and is the last argument, so it has none",
+        ),
+        (
+            argv(&["exec", "--json", "S"]),
+            3,
+            positional,
+            "is a bare word, and no positional argument is part of the supported shape",
+        ),
+    ] {
+        assert_eq!(
+            grammar::parse_final("codex", &written)
+                .expect("a modelled harness")
+                .expect_err("the command does not place")
+                .to_string(),
+            grammar_problem("codex", at, label, cause),
+            "{written:?}"
+        );
+    }
+    for harness in ["claude", "lanetally"] {
+        let serving = grammar::parse_final(
+            harness,
+            &argv(&[
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--resume",
+                "abc-123",
+            ]),
+        )
+        .expect("a modelled harness")
+        .expect("the serving command parses");
+        assert!(serving.subcommands.is_empty());
+        assert_eq!(serving.session, None);
+        assert_eq!(serving.command.nodes.len(), 4);
+        assert_eq!(
+            grammar::parse_final(harness, &argv(&["-p", "exec"]))
+                .expect("a modelled harness")
+                .expect_err("no positional")
+                .to_string(),
+            grammar_problem(
+                harness,
+                2,
+                positional,
+                "is a bare word, and no positional argument is part of the supported shape"
+            ),
+        );
+    }
+    assert_eq!(
+        grammar::parse_final("dsh", &argv(&["--model", "m", "--patch", "/r.json"]))
+            .expect("a modelled harness")
+            .expect("the dsh input parses")
+            .command
+            .nodes
+            .len(),
+        2
+    );
+    assert!(grammar::parse_final("exec", &argv(&["bash"])).is_none());
 }
