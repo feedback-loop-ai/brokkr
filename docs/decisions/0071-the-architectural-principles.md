@@ -146,10 +146,15 @@ that began. Rulings 3 and 4 pay that price.
 
 5. **Don't repeat yourself, in code and in data.** A fact has one home.
    In code, a rule written twice (a vocabulary, a fence skeleton, a stderr
-   drain) becomes one function or one table. In data, a recipe or agent
-   that differs from another by a model, a seat or a table entry is an
-   overlay (`extends`), never a copy. A copy that must exist, such as a
-   script whose bytes a bundle pins, is held to its source by a test.
+   drain) becomes one function or one table. In data, an agent is
+   defined once and seats reference it (decision 0016). A recipe that
+   differs from another by a model, a seat or a table entry is an overlay
+   (`extends`, decision 0017), never a copy. An agent has no `extends`:
+   the library refuses the key, so a variation of an agent lives at the
+   seat that hires it, overridden in such a recipe overlay, never in a
+   second agent file that restates the first. A copy that must exist,
+   such as a script whose bytes a bundle pins, is held to its source by a
+   test.
 
    *Violating it looks like:* fast's 21-rule constitution in five copies,
    two of them byte-identical; fifteen `gpt-flash-*` agents restating
@@ -236,12 +241,22 @@ that began. Rulings 3 and 4 pay that price.
     **Enforcement binding:** judged by the chief-architect and reviewer
     charters (#333).
 
-11. **Which principle is gated and which is judged.** Rulings 1, 4, 5
-    and 6 are held by deterministic gates, with the tools pinned and each
-    ratchet a committed baseline that may only shrink (track B of #330).
-    Rulings 2, 3, 7, 8 and 10 are judged by charters. A judgment is
-    advisory where the gate is authoritative: a finding a gate would have
-    caught is the gate's verdict, not the reviewer's.
+11. **Which principle is gated and which is judged.** Every ruling
+    above is one of three kinds:
+    - **Gated:** ruling 1 (#336).
+    - **Gated in part, judged in the rest:** ruling 2 (the compiler holds
+      exhaustive matches once wildcards are gone); 3 (#338's `Value`
+      ratchet); 4 (the ceilings, #337 and #338; one level of abstraction
+      is judged); 5 (#338's `jscpd` ratchet and #359's parity test); 6
+      (#337, #338, #355 and #356; a deprecation keeping its named release
+      is judged); 7 (#351's test); 9 (#289's `cargo-mutants` and #357's
+      environment guard; the recorded removal control is judged).
+    - **Judged:** rulings 8 and 10.
+
+    Each gate's tool is pinned and each ratchet is a committed baseline
+    that may only shrink (track B of #330 builds most of them). A
+    judgment is advisory where a gate is authoritative: a finding a gate
+    would have caught is the gate's verdict, not the reviewer's.
 
     **Enforcement binding:** the house rules carry the Rust-specific form
     of every ruling (#332). The office charters carry the portable form
@@ -253,8 +268,11 @@ that began. Rulings 3 and 4 pay that price.
 - It moves no code. Each violation it cites is already a story in epic
   #330, and each is judged against these rulings when it lands.
 - It relaxes nothing. Decisions 0001 (no model repair of the control
-  plane), 0003 (native Rust runtime), 0009 (Rust only) and 0063 (Linux
-  and macOS) stand as the floor these principles are built on.
+  plane), 0003 (native Rust runtime), 0009 (Rust only), 0013 (one
+  derivation, two surfaces), 0016 (the agent library), 0017 (composable
+  recipes), 0029 (the fenced append), 0043 (the hands are one tool) and
+  0063 (Linux and macOS) stand as the floor these principles are built
+  on.
 - It does not fix the numbers. Ruling 4's ceilings are provisional until
   the operator rules them from #335's measured baseline.
 
@@ -265,8 +283,11 @@ that began. Rulings 3 and 4 pay that price.
   same change against the same text.
 - #288's acceptance 6 ("the enum-over-traits bet is stated once,
   deliberately") is met by ruling 2 and the section before the rulings.
-- The epic's enforcement stories (#335–#343) become the bindings of
-  rulings 1, 4, 5 and 6, and its refactor stories (#344–#356) are judged
-  against rulings 2, 3, 7, 8 and 10.
+- The stories named in ruling 11's gated parts become the bindings of
+  rulings 1, 3 to 7 and 9 (ruling 2's gated part is the compiler): the
+  epic's enforcement stories (#335–#343), with
+  #289, #351, #355, #356, #357 and #359. Every refactor story in the
+  epic, including those, is judged against the rulings it touches when
+  it lands.
 - A future change that wants to break a ruling does so by a new decision
   that says so, not by a seat's taste.
