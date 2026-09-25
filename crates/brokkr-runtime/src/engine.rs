@@ -3376,7 +3376,9 @@ fn conclude_racing(
         } = operator_command(store, run_id, "stop", operator, reason)?
         {
             return Err(EngineError::Other(format!(
-                "conclude: run '{run_id}' refused the stop ({refusal}); the                  journal moved beneath the conclusion, so something may still                  be driving this run — look with `brokkr runs` before closing"
+                "conclude: run '{run_id}' refused the stop ({refusal}); the \
+                 journal moved beneath the conclusion, so something may still \
+                 be driving this run — look with `brokkr runs` before closing"
             )));
         }
     }
@@ -3445,7 +3447,9 @@ fn concluded_or_alive(
 ) -> Result<EventEnvelope, EngineError> {
     match written {
         Err(brokkr_store::StoreError::HeadMoved { .. }) => Err(EngineError::Other(format!(
-            "conclude: the journal moved beneath the conclusion of run '{run_id}',              so something may still be driving it — a conclusion is for a run              believed dead; look with `brokkr runs` before closing"
+            "conclude: the journal moved beneath the conclusion of run '{run_id}', \
+             so something may still be driving it — a conclusion is for a run \
+             believed dead; look with `brokkr runs` before closing"
         ))),
         other => Ok(other?),
     }
