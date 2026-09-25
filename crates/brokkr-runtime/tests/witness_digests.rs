@@ -246,30 +246,36 @@ fn workspace() -> PathBuf {
 /// offices whose charters gained its principles, and `recipes/night-shift`
 /// and `recipes/gpt-flash` derive from triage. The seven others reported no
 /// movement; each value is the test's own reported digest.
+/// #334 moves eight: each recipe role now points at the house rules and
+/// carries its charter's design paragraph. `recipes/fast`, `recipes/node`,
+/// `recipes/night-shift`, `recipes/wager-harness`, `recipes/preflight` and
+/// `bundles/verify` carry an edited role; `recipes/triage` composes `fast`,
+/// and `recipes/gpt-flash` derives from triage. Both research recipes
+/// reported no movement; each value is the test's own reported digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "57d76d0308f251652925f8a3acb40c1b55e664e4880875f9207aea37eb5c3e54",
+        "bc8a4010cec93a49fc8b6ce88f10c9e4a8282903bb9c54b7434a6c4a2e46ffd4",
     ),
     (
         "recipes/node",
-        "d1fa6d617f6b877d8c8bc2f41afbca5c3e42e5db879bf96fb463bc6c3e9b8602",
+        "22d1b7d392ceddc78a8720e5486616f58ed87a161c7d68050177a8b546324b8c",
     ),
     (
         "recipes/preflight",
-        "a99bb568b244c74efa99d9a01a7efb2de57fb2c3ed14607821b2ed6645da08f9",
+        "79b50aa2b1aba66ab9a3e2ccb54816588316b88a00587906fe9949177f963622",
     ),
     (
         "recipes/night-shift",
-        "b3d3254f6a52193b68373b6cc1ac91f458b6428399b6a2d62744dc553e8a4f18",
+        "d01deaa67f0e4a4d77d68c3d8c6866213b34559cbdc8abdb5883801cf0d2d7d9",
     ),
     (
         "recipes/wager-harness",
-        "390d1a592cc30a79a7602e6431220ec8c5c093cc015830ca6d13d46eed7208b1",
+        "d7f5af7a4693df71844731a36e17eec94b42faba3c1a1a65c3038a91b51bb0a0",
     ),
     (
         "recipes/triage",
-        "b47cf99547b9cd4688575a2df6dc0f866766be9ef3c7b4e3db9a2dad74128cfe",
+        "e738f6caddea11dbfdaa94b25a82f0f74e0a9a5d560cabe6b65c2bb295b6e9c7",
     ),
     (
         "recipes/research",
@@ -281,11 +287,11 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "e6c3252d09ccae4c0d87d408b8e68fc0e362037c732b4d9e670804eef72b4364",
+        "53e43da17eb41a924ac7f4e00e353238aefabeac2b858049b80a2fafab007560",
     ),
     (
         "bundles/verify",
-        "b10e1f471a874ff1a0e278e8f303bda9e3965345b509bde0de1287f4eeee9f03",
+        "4ed42b14eb8d7baceb1fc1afd0b2fba26a3c8efc8e29bc806645a1ff48f98d5d",
     ),
 ];
 

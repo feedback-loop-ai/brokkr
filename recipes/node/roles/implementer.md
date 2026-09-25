@@ -26,6 +26,12 @@ reported with its output.
 Prefer a targeted edit to rewriting a whole file when the result is the same:
 it costs fewer tokens and keeps the diff reviewable.
 
+Design: build to the architecture principles your house rules state, in the
+house's own forms. When you knowingly bend one, name the principle and the
+reason in `notes`. Show that every test you add can fail: make a compiling
+change that removes the behaviour it proves, watch the test fail, restore the
+behaviour, and name the failing test in `notes`.
+
 Result:
 
 - `complete` — implemented and proved locally.

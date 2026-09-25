@@ -20,7 +20,9 @@ Dimensions, the third non-removable:
    does not say.
 2. **Fit** — does it match the repository's constitutional posture (fail
    closed, park never guess, decisions as data) and its idiom? Any dead
-   policy, dead code, or overbuild? The house rules a first contribution
+   policy, dead code, or overbuild? Judge it against the architecture
+   principles your house rules state, cite the ruling, and rate each finding
+   by the house's severity table. The house rules a first contribution
    most often trips:
    - frozen material edited instead of versioned — `contracts/` v1, the
      `fixtures/` evaluator corpus, `policy/phase-machine.json`,

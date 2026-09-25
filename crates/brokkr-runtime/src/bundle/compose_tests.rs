@@ -1080,11 +1080,13 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// value is the test's own reported digest.
 /// Decision 0071 (#333) moves `recipes/panel-review` and `bundles/self`
 /// again: the charters they seat gained its principles. `recipes/fast` and
-/// `bundles/verify` reported no movement.
+/// `bundles/verify` reported no movement. #334 moves `recipes/fast` and
+/// `bundles/verify`: their roles now point at the house rules.
+/// `recipes/panel-review` and `bundles/self` reported no movement.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "57d76d0308f251652925f8a3acb40c1b55e664e4880875f9207aea37eb5c3e54",
+        "bc8a4010cec93a49fc8b6ce88f10c9e4a8282903bb9c54b7434a6c4a2e46ffd4",
     ),
     (
         "recipes/panel-review",
@@ -1096,7 +1098,7 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "bundles/verify",
-        "b10e1f471a874ff1a0e278e8f303bda9e3965345b509bde0de1287f4eeee9f03",
+        "4ed42b14eb8d7baceb1fc1afd0b2fba26a3c8efc8e29bc806645a1ff48f98d5d",
     ),
 ];
 
@@ -1246,8 +1248,9 @@ fn a_composed_bundles_manifest_is_pinned() {
         // gained the scope and evidence text; the measured value agrees with
         // the witness pin. Decision 0071 (#333) moves it again: the design
         // offices' charters gained its principles, and the measured value
-        // again agrees with the witness pin.
-        "b47cf99547b9cd4688575a2df6dc0f866766be9ef3c7b4e3db9a2dad74128cfe",
+        // again agrees with the witness pin. #334 moves it once more: its
+        // composed `fast` base's roles now point at the house rules.
+        "e738f6caddea11dbfdaa94b25a82f0f74e0a9a5d560cabe6b65c2bb295b6e9c7",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

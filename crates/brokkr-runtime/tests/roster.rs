@@ -781,3 +781,60 @@ fn every_shipped_adapter_declares_the_shape_its_gate_and_doctor_read() {
         );
     }
 }
+
+/// Recipe-local roles stand outside the portability walk above, but they
+/// are what an inline seat reads in place of a charter (issue #334). They
+/// defer to the house rules instead of restating them, and they carry the
+/// same principle text their charter does, so a recipe's seats and the
+/// library's offices cannot drift apart.
+#[test]
+fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
+    let root = workspace();
+    let implementer = std::fs::read_to_string(root.join("agents/charters/implementer.md")).unwrap();
+    let design = implementer
+        .split("\n\n")
+        .find(|paragraph| paragraph.starts_with("Design: "))
+        .expect("the implementer charter states its design paragraph");
+    let restated = [
+        "Rules of the house",
+        "policy/schemas",
+        "Never push",
+        "cargo test --workspace",
+    ];
+    let (mut implementers, mut reviewers) = (0, 0);
+    for library in ["recipes", "bundles"] {
+        for recipe in std::fs::read_dir(root.join(library)).unwrap().flatten() {
+            for name in ["implementer.md", "reviewer.md"] {
+                let path = recipe.path().join("roles").join(name);
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                for phrase in restated {
+                    assert!(
+                        !text.contains(phrase),
+                        "{} restates the house: {phrase:?}",
+                        path.display()
+                    );
+                }
+                let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                if name == "implementer.md" {
+                    implementers += 1;
+                    assert!(
+                        text.contains(design),
+                        "{} lost the implementer charter's design paragraph",
+                        path.display()
+                    );
+                } else {
+                    reviewers += 1;
+                    assert!(
+                        flat.contains("architecture principles your house rules state")
+                            && flat.contains("severity table"),
+                        "{} does not judge against the house's principles",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    assert!(implementers > 0 && reviewers > 0, "the walk found no roles");
+}
