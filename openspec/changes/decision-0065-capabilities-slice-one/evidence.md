@@ -6621,3 +6621,105 @@ production file moved, so the recipes were not recompiled.
 `openspec validate --all --strict` (18 passed, 0 failed) and `git diff
 --check` were clean. **Not fully green:** exact coverage, macOS and remote CI are
 pending.
+
+## Unit 9 — no supported nonempty restriction; returned upstream, 2026-09-25
+
+Run `0065-rebuild-unit-9-see-the-unit-f241ed65`, head `96951778`. The unit
+qualifies one bounded provider transport for a nonempty restriction, or
+returns upstream with evidence before unit 11. No transport qualifies, so this
+visit returns the question upstream. 9.1 stays open. No production, test or
+pin byte moved. `crates/brokkr-runtime/tests/capability_launch.rs` is not
+edited: a synthetic fixture would be the fabricated plan the unit forbids.
+
+### What the branch can carry today
+
+- **Dialects.** All three shipped tool dialects (`claude-native-fetch`,
+  `claude-native-search`, `codex-native-search`) declare the restriction
+  schema `{"type": "object", "additionalProperties": false}`. Only the empty
+  object is valid, so no shipped grant can hold a nonempty restriction at all.
+- **Adapters.** `grep -n -A2 '"restrictions": {\|"unmeasured"'` over
+  `adapters/` returned Claude `web-search` and `web-fetch` as `unsupported`
+  (`claude.json:98-99`, `:149-150`), Codex `web-search` as `unsupported`
+  (`codex.json:78-79`), and DSH and LaneTally native inventories as
+  `unmeasured` (`dsh.json:57`, `lanetally.json:55`). No adapter declares a
+  restriction transport.
+- **Representation.** The only supported shape is `Transport::Argv` with
+  exactly one `{restrictions_json}` slot (`capabilities.rs:56`, load check
+  `:968-979`). It puts the whole canonical JSON object into one argument.
+  The only Claude options that take a JSON document are `--mcp-config`,
+  `--plugin-dir`, `--settings` and `--agents` (`grammar.rs:343`, `:352`,
+  `:361`, `:370`). Each is `Effect::Load`, is refused as authored input under
+  ruling 1, and is the "arbitrary --settings JSON" this unit excludes. For
+  Codex, the earlier synthetic `web_search={"allow":{"hosts":[…]}}` (2.7,
+  above) was byte transport only. The adapter's measurement covers only the
+  `"disabled"` value.
+
+### Provider semantics (Claude Code documentation, fetched 2026-09-25)
+
+Source: `https://code.claude.com/docs/en/permissions` and
+`/docs/en/tools-reference.md`. This is documentation, not a live measurement.
+
+- **WebSearch.** Tools reference, permission-rule table: "`WebSearch` … No
+  specifier; allow or deny the tool as a whole". No restriction meaning
+  exists for it.
+- **WebFetch.** "WebFetch rules use a `domain:` prefix and match against the
+  hostname of the requested URL. Matching is case-insensitive, supports `*`
+  wildcards …" and "Wildcards in `WebFetch` rules require Claude Code
+  v2.1.172 or later." This is a permission rule, not an include restriction.
+  Three documented facts stop it from confining the tool to the listed hosts:
+  1. The permission table says approval is required for WebFetch "except a
+     built-in set of preapproved documentation domains". Those hosts are
+     reached without any allow rule, so `--allowedTools
+     WebFetch(domain:h)` does not make other hosts unreachable.
+  2. Allow rules merge across settings scopes ("deny rules from any scope
+     are evaluated before allow rules"). In a `-p` session, user settings
+     and an untracked `.claude/settings.local.json` apply. Project
+     `permissions.allow` does not apply unless the folder is trusted. An allow
+     rule from another scope widens the host list. The engine grammar refuses
+     `--setting-sources` as unmodelled (evidence 4334), so it cannot isolate
+     the sources.
+  3. "An allow rule can't carve an exception out of a deny rule." Denying
+     `WebFetch(domain:*)` and then allowing listed hosts denies every fetch,
+     so no deny-plus-allow composition yields an allowlist.
+  The sandbox domain lists (`sandbox.network.*`) are settings-document keys,
+  which is the excluded transport. `allowManagedDomainsOnly` is managed-only.
+- **Version.** `claude --version` requires approval in this seat and was not
+  run. The adapter records 2.1.266 (`claude.json:194`), which is above the
+  documented 2.1.172 wildcard floor. The installed version was not observed.
+
+### Codex, DSH and LaneTally
+
+- **Codex.** Fetching `https://developers.openai.com/codex/config-reference`
+  was refused by this seat's permissions ("Claude requested permissions to use
+  WebFetch, but you haven't granted it yet"). Codex evidence stays as the
+  adapter records it: 0.154.0, OFF measured as `web_search="disabled"`,
+  restriction unsupported. Whether any Codex version accepts a host-filtered
+  web-search value is **pending**, owed to the controller.
+- **DSH and LaneTally.** Both native inventories are unmeasured, so neither
+  can hold a native capability, restricted or not.
+
+### Finding, returned upstream
+
+No shipped provider has a bounded, supported transport that meets the H3
+positive ("the native capability cannot launch unrestricted") without an
+arbitrary settings document. Claude WebFetch's `domain:` rule is the nearest
+candidate. It is an approval pre-grant that preapproved domains and other
+settings scopes widen, so carrying it as a restriction would record an
+enforcement the launch does not deliver. NCC forbids that ("Successful
+compilation SHALL NOT record … an enforced restriction that the launch
+drops").
+
+Depending on this finding: NCC "H3 a held restriction survives final
+composition", "Second M3 restriction removal fails at final launch", the
+H1–H3 matrix's restriction rows, 11.2 ("carries unit 9's qualified
+restriction"), 21.2, and the restriction portions of 21.3 and 23.1. RG4's
+reachable outcomes on shipped data stay CQ1's: refuse a requires, drop a
+wants with OFF, and leave an unused grant pinned but inactive. The operator
+must rule before unit 11. The options are listed in design.md, Open
+questions.
+
+### Gates
+
+No Rust file moved, so no crate suite applies. `cargo fmt --all -- --check`
+was clean. `openspec validate --all --strict` gave 18 passed, 0 failed. `git
+diff --check` was clean. Exact coverage, macOS and remote CI are pending.

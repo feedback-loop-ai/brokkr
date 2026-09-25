@@ -1076,6 +1076,26 @@ to revert the release, never a hidden reconciliation compatibility mode.
   final-proof work depends on it. If none exists, return upstream with evidence
   and amend the owning requirement/scenarios before proceeding; do not accept
   arbitrary settings or mark 21.2 complete from hand-built Controls.
+  **Unit 9 finding (2026-09-25; evidence.md, Unit 9): none qualifies.** Every
+  shipped dialect admits only an empty restriction. Every shipped adapter
+  declares restrictions unsupported, or leaves its inventory unmeasured. The
+  sole representation, one `{restrictions_json}` slot, reaches Claude only
+  through `Load` options. Claude WebSearch has no specifier. WebFetch
+  `domain:` rules are approval pre-grants: preapproved documentation domains
+  and allow rules from other settings scopes widen them. Codex host filtering
+  is unmeasured. The question returns to the operator before unit 11. The
+  options are:
+  (a) defer the nonempty positive (H3, second M3, the matrix's restriction
+  rows, 11.2, 21.2) to the slice that measures a provider transport, and keep
+  CQ1 refusal, drop and inactive outcomes as slice one's only restriction
+  behaviour;
+  (b) prove it against a test-only harness, which needs a grammar and a
+  production edit that no current unit names;
+  (c) qualify Claude WebFetch `domain:` after a controller measures
+  preapproved-domain and settings-source isolation, and makes
+  `--setting-sources` engine-owned.
+  Unit 9 recommends (a). It does not amend the deltas: that is a
+  re-specification, which only the operator rules.
 - **Unit 1 outstanding proof (1.1):** replay and the inventoried guard-order
   split are recorded in evidence.md; unit 1b has landed. Its pending external
   results remain pending. Unit 2 neither replays the branch nor substitutes
