@@ -173,7 +173,9 @@ pub struct Engine {
     pub bundle: Bundle,
     pub run_id: String,
     pub feature: String,
-    pub repo: Option<PathBuf>,
+    /// The operated repository, resolved once by `operated_repo`: the
+    /// tree seats work in and every git fact reads.
+    pub repo: PathBuf,
     /// The world this run was invoked into (decision 0023), when a map
     /// was in effect. It is pinned into the run manifest at start, so
     /// this field is the run's *live* copy of a fact the journal already
@@ -327,9 +329,7 @@ impl Engine {
         refuse_unbuilt(&bundle)?;
         // The operated repository is what `workdir()` will answer: the
         // named one, else the directory the engine stands in.
-        let operated = repo
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
+        let operated = operated_repo(repo);
         let resolved = match &world {
             Some(world) => world.boundary_for(&operated),
             None => Boundary::Namespace,
@@ -362,7 +362,7 @@ impl Engine {
             bundle,
             run_id,
             feature: feature.to_string(),
-            repo,
+            repo: operated,
             world,
             current_cause: None,
             secrets_file: None,
@@ -400,7 +400,7 @@ impl Engine {
             bundle,
             run_id,
             feature: feature.to_string(),
-            repo,
+            repo: operated_repo(repo),
             // A Looper-bound run pins a run-manifest/v2, whose bytes a
             // counterpart system reads; the map's pin belongs to the
             // v1→v5 local lineage. The CLI refuses the combination
@@ -445,7 +445,7 @@ impl Engine {
             bundle,
             run_id: run_id.to_string(),
             feature,
-            repo,
+            repo: operated_repo(repo),
             // Resume takes no map — and needs none. The world this run
             // believed in is pinned in the manifest just read, content
             // and all, so it is rehydrated from evidence rather than off
@@ -486,23 +486,21 @@ impl Engine {
                 // Best-effort tamper-evidence: anchor the journal head
                 // in refs/forge/<run>. Gaps are reported, never fatal
                 // (the referee-era anchor-gap lore).
-                if let Some(repo) = &self.repo {
-                    if let Err(e) = crate::anchor::anchor(&self.store, repo, &self.run_id) {
-                        eprintln!("anchor gap for {}: {e}", self.run_id);
-                    }
-                    // And the exhibits the journal cites, kept
-                    // reachable past the branch delete and the gc
-                    // that follow a landing (decision 0028). Same
-                    // shape of act as the anchor: derived entirely
-                    // from the journal, writing refs and never
-                    // branches, so it crosses into no authority the
-                    // operator keeps. Best-effort in the same way —
-                    // a ref-planting gap is reported, never fatal.
-                    if let Some(gap) =
-                        crate::keep_refs::plant_or_report(&self.store, repo, &self.run_id)
-                    {
-                        eprintln!("{gap}");
-                    }
+                if let Err(e) = crate::anchor::anchor(&self.store, &self.repo, &self.run_id) {
+                    eprintln!("anchor gap for {}: {e}", self.run_id);
+                }
+                // And the exhibits the journal cites, kept
+                // reachable past the branch delete and the gc
+                // that follow a landing (decision 0028). Same
+                // shape of act as the anchor: derived entirely
+                // from the journal, writing refs and never
+                // branches, so it crosses into no authority the
+                // operator keeps. Best-effort in the same way —
+                // a ref-planting gap is reported, never fatal.
+                if let Some(gap) =
+                    crate::keep_refs::plant_or_report(&self.store, &self.repo, &self.run_id)
+                {
+                    eprintln!("{gap}");
                 }
                 return Ok(Some(DriveEnd { state }));
             }
@@ -696,7 +694,7 @@ impl Engine {
         let Some(start) = self.active_gate_head.take() else {
             return Ok(None);
         };
-        let end = self.repo.as_deref().and_then(git_head);
+        let end = git_head(&self.repo);
         if start == end {
             return Ok(None);
         }
@@ -956,8 +954,8 @@ impl Engine {
             input["secrets"] = json!(seat.secrets);
             input["secrets_file"] = json!(self.secrets_store_path().to_string_lossy());
         }
-        if let (Some(world), Some(repo)) = (&self.world, self.repo.as_deref()) {
-            if let Some(house) = world.house_for(repo)? {
+        if let Some(world) = &self.world {
+            if let Some(house) = world.house_for(&self.repo)? {
                 input["house_rules"] = json!(house);
             }
         }
@@ -980,11 +978,7 @@ impl Engine {
     /// spells them; a path that cannot be resolved at all is threaded as
     /// written, which is what the driver would have received anyway.
     fn workdir(&self) -> PathBuf {
-        let repo = self
-            .repo
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
-        std::path::absolute(&repo).unwrap_or(repo)
+        std::path::absolute(&self.repo).unwrap_or_else(|_| self.repo.clone())
     }
 
     /// The operator-side store path threaded to drivers: the CLI
@@ -1155,7 +1149,7 @@ impl Engine {
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
-            self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
+            self.active_gate_head = Some(git_head(&self.repo));
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
 
@@ -2210,7 +2204,7 @@ impl Engine {
             // 0042 reads an author as a work step). Nothing outer arms
             // for a sequence, so this is the only observation taken.
             if step.class == SeatClass::Gate {
-                self.active_gate_head = Some(self.repo.as_deref().and_then(git_head));
+                self.active_gate_head = Some(git_head(&self.repo));
             }
             let outcome = match &step.body {
                 StepBody::Single { command, .. } => {
@@ -2690,83 +2684,82 @@ impl Engine {
             let count = state.visits.get(&visited).copied().unwrap_or(0);
             inputs.insert(format!("{VISIT_PREFIX}{visited}"), Value::from(count));
         }
-        if let Some(repo) = &self.repo {
-            // The realm this repository IS, when a map named it
-            // (decision 0023): repository facts are recorded under the
-            // realm's name — the shape the heritage protocol recorded and
-            // the shape multi-realm runs will need. Unmapped, they are
-            // recorded exactly as they always were.
-            let realm = self
-                .world
+        let repo = self.repo.as_path();
+        // The realm this repository IS, when a map named it
+        // (decision 0023): repository facts are recorded under the
+        // realm's name — the shape the heritage protocol recorded and
+        // the shape multi-realm runs will need. Unmapped, they are
+        // recorded exactly as they always were.
+        let realm = self
+            .world
+            .as_ref()
+            .and_then(|world| world.realm_for(repo))
+            .map(|realm| realm.name.clone());
+        let key = realm
+            .clone()
+            .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
+        if phase == self.bundle.protected_phase {
+            if let Some(head) = git_head(repo) {
+                inputs.insert("reviewed_heads".into(), json!({ key: &head }));
+                if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
+                    inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
+                }
+            }
+        }
+        // Decision 0041 ruling 5: the smith owns review findings. Expose
+        // the docs-only shortcut only when review sent this implement
+        // visit back; verify failures and implement self-loops must still
+        // pass through verify even when their delta happens to be prose.
+        let returned_from_review = phase == "implement"
+            && state
+                .last_decision
                 .as_ref()
-                .and_then(|world| world.realm_for(repo))
-                .map(|realm| realm.name.clone());
-            let key = realm
-                .clone()
-                .unwrap_or_else(|| LEGACY_REALM_KEY.to_string());
-            if phase == self.bundle.protected_phase {
-                if let Some(head) = git_head(repo) {
-                    inputs.insert("reviewed_heads".into(), json!({ key: &head }));
-                    if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
-                        inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
-                    }
+                .and_then(|decision| decision.get("from"))
+                .and_then(Value::as_str)
+                == Some(self.bundle.protected_phase.as_str());
+        if returned_from_review {
+            if let Some(head) = git_head(repo) {
+                if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
+                    inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
                 }
             }
-            // Decision 0041 ruling 5: the smith owns review findings. Expose
-            // the docs-only shortcut only when review sent this implement
-            // visit back; verify failures and implement self-loops must still
-            // pass through verify even when their delta happens to be prose.
-            let returned_from_review = phase == "implement"
-                && state
-                    .last_decision
-                    .as_ref()
-                    .and_then(|decision| decision.get("from"))
-                    .and_then(Value::as_str)
-                    == Some(self.bundle.protected_phase.as_str());
-            if returned_from_review {
-                if let Some(head) = git_head(repo) {
-                    if let Some(docs_only) = self.fixes_docs_only(repo, &phase, &head) {
-                        inputs.insert("fixes_docs_only".into(), Value::Bool(docs_only));
-                    }
+        }
+        if phase == "ship" {
+            let dirty = git_dirty(repo);
+            let head = git_head(repo);
+            inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
+            // Fail-closed: when the protected phase RECORDED heads,
+            // ship always answers the drift question. A repo that
+            // no longer resolves to a recorded realm, or a realm
+            // whose head was never recorded, is indistinct from
+            // drift — silence here shipped where the old code
+            // re-armed review (this run's own review caught it).
+            let drifted = state.reviewed_heads.as_ref().map(|recorded| {
+                match recorded_head(recorded, realm.as_deref()) {
+                    Some(reviewed) => head.as_deref() != Some(reviewed),
+                    None => true,
                 }
+            });
+            if let Some(drifted) = drifted {
+                inputs.insert("drift_detected".into(), Value::Bool(drifted));
             }
-            if phase == "ship" {
-                let dirty = git_dirty(repo);
-                let head = git_head(repo);
-                inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
-                // Fail-closed: when the protected phase RECORDED heads,
-                // ship always answers the drift question. A repo that
-                // no longer resolves to a recorded realm, or a realm
-                // whose head was never recorded, is indistinct from
-                // drift — silence here shipped where the old code
-                // re-armed review (this run's own review caught it).
-                let drifted = state.reviewed_heads.as_ref().map(|recorded| {
-                    match recorded_head(recorded, realm.as_deref()) {
-                        Some(reviewed) => head.as_deref() != Some(reviewed),
-                        None => true,
-                    }
-                });
+            // The same facts, keyed by realm — one realm today,
+            // several when multi-realm runs arrive. Recorded only in
+            // a mapped world, so an unmapped run's decision payload
+            // is byte-for-byte the one it always wrote.
+            if let Some(realm) = &realm {
+                let mut facts = Map::new();
+                if let Some(head) = &head {
+                    facts.insert("head".into(), Value::from(head.clone()));
+                }
+                facts.insert("dirty_worktrees".into(), Value::Bool(dirty));
                 if let Some(drifted) = drifted {
-                    inputs.insert("drift_detected".into(), Value::Bool(drifted));
+                    facts.insert("drift_detected".into(), Value::Bool(drifted));
                 }
-                // The same facts, keyed by realm — one realm today,
-                // several when multi-realm runs arrive. Recorded only in
-                // a mapped world, so an unmapped run's decision payload
-                // is byte-for-byte the one it always wrote.
-                if let Some(realm) = &realm {
-                    let mut facts = Map::new();
-                    if let Some(head) = &head {
-                        facts.insert("head".into(), Value::from(head.clone()));
-                    }
-                    facts.insert("dirty_worktrees".into(), Value::Bool(dirty));
-                    if let Some(drifted) = drifted {
-                        facts.insert("drift_detected".into(), Value::Bool(drifted));
-                    }
-                    inputs.insert(
-                        REALM_FACTS.into(),
-                        json!({ realm.clone(): Value::Object(facts) }),
-                    );
-                }
+                inputs.insert(
+                    REALM_FACTS.into(),
+                    json!({ realm.clone(): Value::Object(facts) }),
+                );
             }
         }
 
@@ -4707,9 +4700,9 @@ impl Engine {
     /// The payload of `phase/entered`: the phase, and for the protected
     /// phase the repository head it was entered at (decision 0039), so
     /// the phase's own commits can later be told from the ones it judged.
-    /// Optional and absent by default — no repository, no head — and
-    /// published as `contracts/phase-entered-head.v1.schema.json`; `fold`
-    /// never reads it.
+    /// Optional and absent when the operated repository's head cannot be
+    /// read, and published as `contracts/phase-entered-head.v1.schema.json`;
+    /// `fold` never reads it.
     fn phase_entered_payload(&self, phase: &str, state: &RunState) -> Value {
         let mut payload = json!({"phase": phase});
         if let Some((_, Some(case))) = self
@@ -4723,7 +4716,7 @@ impl Engine {
         let returning_implement =
             phase == "implement" && state.visits.get("implement").copied().unwrap_or(0) > 0;
         if phase == self.bundle.protected_phase || returning_implement {
-            if let Some(head) = self.repo.as_deref().and_then(git_head) {
+            if let Some(head) = git_head(&self.repo) {
                 payload["head"] = Value::String(head);
             }
         }
@@ -4813,6 +4806,14 @@ fn docs_class(repo: &std::path::Path, head: &str) -> Option<Vec<regex::Regex>> {
         .iter()
         .map(|pattern| pattern.as_str().and_then(|s| regex::Regex::new(s).ok()))
         .collect()
+}
+
+/// The operated repository (#368): the one `--repo` named, else the
+/// directory the engine is constructed in. Resolved once, so `workdir()`
+/// and every git fact — the ship guards above all — read the same tree
+/// instead of the guards switching off when the flag is omitted.
+fn operated_repo(repo: Option<PathBuf>) -> PathBuf {
+    repo.unwrap_or_else(|| std::env::current_dir().expect("cwd"))
 }
 
 /// The repository's observed HEAD, or nothing when there is no readable

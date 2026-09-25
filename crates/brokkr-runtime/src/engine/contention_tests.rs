@@ -31,7 +31,7 @@ fn started(dir: &Path) -> Engine {
         store,
         bundle(dir, single_body(vec!["missing-driver".into()])),
         "Feature: contention",
-        None,
+        Some(dir.join("work")),
     )
     .unwrap()
 }
