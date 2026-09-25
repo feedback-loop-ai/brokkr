@@ -3,15 +3,17 @@
 # LCOV the exact coverage gate writes. Run scripts/coverage-exact.sh first.
 # The tools and versions are in quality/README.md.
 set -euo pipefail
+# Byte order, not the host locale's collation, so every host sorts alike.
+export LC_ALL=C
 cd "$(git rev-parse --show-toplevel)"
 
 out=quality
 lcov=target/coverage/lcov.info
-# The exact gate's test-file convention: `tests/` directories, `tests.rs`
-# and `*_tests.rs`, plus `benches/`.
-test_re='(^|/)tests/|(^|/)tests\.rs$|_tests\.rs$|(^|/)benches/'
-test_glob='**/{tests/**/*.rs,tests.rs,*_tests.rs,benches/**/*.rs}'
-test_ignore='**/tests/**,**/tests.rs,**/*_tests.rs,**/benches/**'
+# The exact gate's test-file convention (scripts/coverage-exact.sh): a
+# `tests/` directory, `tests.rs` or `*_tests.rs`.
+test_re='(^|/)(tests\.rs|[^/]+_tests\.rs|tests/)'
+test_glob='**/{tests/**/*.rs,tests.rs,*_tests.rs}'
+test_ignore='**/tests/**,**/tests.rs,**/*_tests.rs'
 
 [ -f "$lcov" ] || {
   printf 'measure: %s is missing; run scripts/coverage-exact.sh first\n' "$lcov" >&2
@@ -23,7 +25,7 @@ test_ignore='**/tests/**,**/tests.rs,**/*_tests.rs,**/benches/**'
 # test path is excluded. `--path .` rather than `--workspace` records
 # repository-relative paths, which a ratchet on another checkout can match.
 cargo crap --path . --lcov "$lcov" \
-  --exclude 'target/**' --exclude '**/tests/**' --exclude '**/benches/**' \
+  --exclude 'target/**' --exclude '**/tests/**' \
   --exclude '**/tests.rs' --exclude '**/*_tests.rs' \
   --sort file --format json --output "$out/crap-baseline.json"
 
@@ -51,9 +53,12 @@ jscpd_run() {
 }
 jscpd_run prod --format rust --ignore "$test_ignore" crates
 jscpd_run tests --format rust --pattern "$test_glob" crates
-# Contracts, reference and fixtures are deliberately frozen copies.
+# Contracts, reference and fixtures are deliberately frozen copies, and so
+# are their in-crate twins that tests pin byte for byte to them: the
+# embedded seat-record schemas (seat_record.rs, against contracts/) and the
+# dialect library brokkr-cli scaffolds (tests/packaging.rs, against dialects/).
 jscpd_run data --format json,markdown \
-  --ignore 'contracts/**,reference/**,fixtures/**,quality/**' .
+  --ignore 'contracts/**,reference/**,fixtures/**,quality/**,crates/brokkr-store/src/seat-record.v*.schema.json,crates/brokkr-cli/dialects/**' .
 
 # 4. Functions over clippy's default 100 lines. `--force-warn` reaches the
 # ones an `#[allow]` silences, so the list is complete.
