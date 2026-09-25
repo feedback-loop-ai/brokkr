@@ -6,7 +6,7 @@ and deterministic verify and ship gates are inherited unchanged.
 
 | Phase | Seat | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
-| `implement` | inline deepseek-v4-flash via `dsh` | **1** | 7200 | work |
+| `implement` | inline deepseek-flash via `dsh` | **1** | 7200 | work |
 | `verify` | boxed `verify-seat.sh` | **1** | 3600 | gate |
 | `review` | triage-selected review crew | **1** | 3600 | gate |
 | `ship` | boxed `ship-seat.sh` | **1** | 1800 | gate |
@@ -38,7 +38,7 @@ The two behaviours, side by side:
 ## The deepseek lane
 
 `implement` is driven by the **dsh** adapter: `{brokkr} driver dsh --
---model deepseek/deepseek-v4-flash`. It is lawful under decision 0021 as it
+--model deepseek/deepseek-flash`. It is lawful under decision 0021 as it
 stands — `dsh` is `trust_tier: "untrusted"`, and ruling 7 admits an
 untrusted driver to a **work** seat freely; `implement` is `class:
 "work"` and carries no `secrets` key, so neither compile-time

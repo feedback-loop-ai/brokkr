@@ -706,7 +706,7 @@ const DSH_ADAPTER: &str = r#"{
   "binary": "dsh",
   "driver": ["{brokkr}", "driver", "dsh", "--"],
   "models": {
-    "flash": "deepseek-v4-flash",
+    "flash": "deepseek-flash",
     "pro": "deepseek-v4-pro"
   },
   "judges": [],

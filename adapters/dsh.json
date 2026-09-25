@@ -20,8 +20,7 @@
     "--"
   ],
   "models": {
-    "flash": "deepseek-v4-flash",
-    "flash-experiment": "deepseek-v4.1-flash-expires-on-0910",
+    "flash": "deepseek-flash",
     "glm": "dashscope/glm-5.2",
     "glm-flash": "spark-glm/GLM-5.3-Flash-EXL3",
     "glm53": "dashscope/glm-5.3",

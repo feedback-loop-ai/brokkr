@@ -20,7 +20,7 @@
       "results": ["complete", "broken", "blocked", "oversized"],
       "class": "work",
       "limits": {"max_attempts": 1, "timeout_seconds": 7200},
-      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "deepseek/deepseek-v4-flash", "--effort", "medium"]}
+      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "deepseek/deepseek-flash", "--effort", "medium"]}
     },
     "verify": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
     "review": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},

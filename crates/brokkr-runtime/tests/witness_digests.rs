@@ -234,6 +234,14 @@ fn workspace() -> PathBuf {
 /// triage. `recipes/preflight`, both research recipes and `bundles/verify`
 /// seat no implementer and reported no movement; each value is the
 /// test's own reported digest.
+/// The 2026-09-25 DeepSeek rename moves three witnesses. `adapters/dsh.json`
+/// pins `flash` to `deepseek-flash`, the name DeepSeek's pricing page gives
+/// DeepSeek-V4.1-Flash, and drops the expired `flash-experiment` beta alias.
+/// `recipes/night-shift` also moves because its inline implementer and its
+/// README leave the retired `deepseek-v4-flash`. `recipes/research-dsh`
+/// resolves its seats through the dsh adapter, and `recipes/gpt-flash`'s
+/// six Flash offices now hire `flash`. The seven others reported no
+/// movement; each value is the test's own reported digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -249,7 +257,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "0fd2fa06c2cdaa4d25fd3335ff881015ea47dc2e4628e6b84d9b98ad3dcade5a",
+        "57c8f6e0ac3bfad33b9943ad5445b44197ff8e5d3080c353322cf75e3f1bd74b",
     ),
     (
         "recipes/wager-harness",
@@ -265,11 +273,11 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/research-dsh",
-        "208a1c88c88fdc84a98bdcacf3b0f2fcf9c2a2348951d6db8a99baa8cdb5e0cc",
+        "76b686a59f3de486c320cea4c575be07e4a13334f549c5a5571dc81593aa2e6c",
     ),
     (
         "recipes/gpt-flash",
-        "8de7d925c932505cdfe54c1ea2f5695207929dd58aa7dd806eca6be1945a1b09",
+        "6649f1bfe3ca48da0208900ff4dbebc5c86b7a25b93347dc5b89d27bfae29417",
     ),
     (
         "bundles/verify",
