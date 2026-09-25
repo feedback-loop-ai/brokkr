@@ -1,56 +1,47 @@
 use std::sync::atomic::AtomicBool;
-use std::sync::Mutex;
 
 use super::{env, say};
-
-/// Names nothing else in the tree reads, so these tests never race the
-/// adapter suite over a real override.
-static LEGACY_ENV: Mutex<()> = Mutex::new(());
+use crate::env_guard::EnvGuard;
 
 #[test]
 fn the_new_spelling_wins_when_both_are_set() {
-    let _guard = LEGACY_ENV.lock().unwrap();
-    std::env::set_var("BROKKR_RENAME_BOTH", "new");
-    std::env::set_var("FORGE_RENAME_BOTH", "old");
+    let mut vars = EnvGuard::lock();
+    vars.set("BROKKR_RENAME_BOTH", "new");
+    vars.set("FORGE_RENAME_BOTH", "old");
     assert_eq!(
         env("BROKKR_RENAME_BOTH", Some("FORGE_RENAME_BOTH")).as_deref(),
         Some("new")
     );
-    std::env::remove_var("BROKKR_RENAME_BOTH");
-    std::env::remove_var("FORGE_RENAME_BOTH");
 }
 
 #[test]
 fn the_old_spelling_answers_when_the_new_one_is_absent() {
-    let _guard = LEGACY_ENV.lock().unwrap();
-    std::env::remove_var("BROKKR_RENAME_OLD");
-    std::env::set_var("FORGE_RENAME_OLD", "old");
+    let mut vars = EnvGuard::lock();
+    vars.remove("BROKKR_RENAME_OLD");
+    vars.set("FORGE_RENAME_OLD", "old");
     assert_eq!(
         env("BROKKR_RENAME_OLD", Some("FORGE_RENAME_OLD")).as_deref(),
         Some("old")
     );
-    std::env::remove_var("FORGE_RENAME_OLD");
 }
 
 /// A variable deliberately configured without a legacy spelling reads one
 /// name only, so there is nothing to fall back to and nothing to say.
 #[test]
 fn a_variable_with_no_old_spelling_reads_only_its_own_name() {
-    let _guard = LEGACY_ENV.lock().unwrap();
-    std::env::remove_var("BROKKR_RENAME_ONLY");
-    std::env::set_var("FORGE_RENAME_ONLY", "old");
+    let mut vars = EnvGuard::lock();
+    vars.remove("BROKKR_RENAME_ONLY");
+    vars.set("FORGE_RENAME_ONLY", "old");
     assert_eq!(env("BROKKR_RENAME_ONLY", None), None);
-    std::env::set_var("BROKKR_RENAME_ONLY", "new");
+    vars.set("BROKKR_RENAME_ONLY", "new");
     assert_eq!(env("BROKKR_RENAME_ONLY", None).as_deref(), Some("new"));
-    std::env::remove_var("BROKKR_RENAME_ONLY");
-    std::env::remove_var("FORGE_RENAME_ONLY");
 }
 
 #[test]
 fn neither_spelling_set_resolves_to_nothing() {
-    let _guard = LEGACY_ENV.lock().unwrap();
-    std::env::remove_var("BROKKR_RENAME_NEITHER");
-    std::env::remove_var("FORGE_RENAME_NEITHER");
+    let mut vars = EnvGuard::lock();
+    vars.remove("BROKKR_RENAME_NEITHER");
+    vars.remove("FORGE_RENAME_NEITHER");
     assert_eq!(
         env("BROKKR_RENAME_NEITHER", Some("FORGE_RENAME_NEITHER")),
         None

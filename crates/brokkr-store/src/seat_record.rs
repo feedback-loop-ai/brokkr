@@ -269,20 +269,12 @@ mod tests {
     use serde_json::json;
 
     fn event(seq: u64, event_type: EventType, payload: Value) -> EventEnvelope {
-        EventEnvelope {
-            event_schema_version: 1,
-            event_id: format!("event-{seq}"),
-            run_id: "run".to_string(),
-            seq,
-            recorded_at: "2026-09-03T00:00:00Z".to_string(),
-            event_type,
-            correlation_id: "run".to_string(),
-            causation_id: None,
-            attempt_id: None,
-            payload,
-            previous_hash: "0".repeat(64),
-            event_hash: "1".repeat(64),
-        }
+        crate::tests::envelope_builder::EnvelopeBuilder::new(event_type, payload)
+            .seq(seq)
+            .event_id(format!("event-{seq}"))
+            .at("2026-09-03T00:00:00Z")
+            .hash("1".repeat(64))
+            .build()
     }
 
     fn started(engine: &str) -> EventEnvelope {

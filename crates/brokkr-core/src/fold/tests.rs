@@ -1,21 +1,16 @@
 use super::*;
+use crate::envelope_builder::EnvelopeBuilder;
 use serde_json::json;
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "r1".into(),
-        seq: 2,
-        event_id: "e2".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "r1".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-23T00:00:00Z".into(),
-        previous_hash: String::new(),
-        event_hash: "hash".into(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("r1")
+        .seq(2)
+        .event_id("e2")
+        .at("2026-08-23T00:00:00Z")
+        .previous("")
+        .hash("hash")
+        .build()
 }
 
 fn state(cursor: Cursor) -> RunState {

@@ -1,22 +1,14 @@
 use super::*;
-use brokkr_core::canonical::ZERO_HASH;
+use crate::tests::envelope_builder::EnvelopeBuilder;
 use serde_json::json;
 
 fn event(seq: u64, event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "known-run".into(),
-        seq,
-        event_id: format!("e{seq}"),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "known-run".into(),
-        attempt_id: None,
-        recorded_at: "2026-09-04T00:00:00Z".into(),
-        previous_hash: ZERO_HASH.into(),
-        event_hash: String::new(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("known-run")
+        .seq(seq)
+        .event_id(format!("e{seq}"))
+        .at("2026-09-04T00:00:00Z")
+        .build()
 }
 
 #[test]

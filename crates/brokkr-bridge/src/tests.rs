@@ -10,6 +10,10 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread::JoinHandle;
 
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;
+use envelope_builder::EnvelopeBuilder;
+
 fn fixture() -> (Value, DispatchEnvelopeV2, OffsetDateTime) {
     let bundle = json!({
         "engine":"0.2.0", "event_schema":1, "database_schema":1,
@@ -183,21 +187,12 @@ impl ProducerTransport for MockTransport {
 /// out. The fence refuses this row today; the journals that already hold
 /// one are the reason the bridge's redaction stays tested.
 fn plant_unfenced(db: &std::path::Path, run_id: &str, payload: Value, now: OffsetDateTime) {
-    let envelope = brokkr_core::EventEnvelope {
-        run_id: run_id.to_string(),
-        seq: 1,
-        event_id: "planted-1".to_string(),
-        event_schema_version: 1,
-        event_type: EventType::EffectCheckpointed,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.to_string(),
-        attempt_id: Some("attempt-1".to_string()),
-        recorded_at: now.format(&Rfc3339).unwrap(),
-        previous_hash: ZERO_HASH.to_string(),
-        event_hash: String::new(),
-    }
-    .sealed();
+    let envelope = EnvelopeBuilder::new(EventType::EffectCheckpointed, payload)
+        .run(run_id)
+        .event_id("planted-1")
+        .attempt(Some("attempt-1"))
+        .at(now.format(&Rfc3339).unwrap())
+        .sealed();
     rusqlite::Connection::open(db)
         .unwrap()
         .execute(
@@ -457,24 +452,7 @@ fn http_transport_round_trips_every_protocol_operation() {
     let registration = transport.register(&dispatch, &manifest).unwrap();
     assert_eq!(registration.registration_id, "registration-1");
 
-    let event = normalize_event(
-        &dispatch,
-        &EventEnvelope {
-            run_id: "forge-run-1".into(),
-            seq: 1,
-            event_id: "event-1".into(),
-            event_schema_version: 1,
-            event_type: EventType::RunCompleted,
-            payload: json!({}),
-            causation_id: None,
-            correlation_id: "forge-run-1".into(),
-            attempt_id: None,
-            recorded_at: "2026-08-28T08:10:00Z".into(),
-            previous_hash: ZERO_HASH.into(),
-            event_hash: "a".repeat(64),
-        },
-    )
-    .unwrap();
+    let event = normalize_event(&dispatch, &raw_event(EventType::RunCompleted, json!({}))).unwrap();
     assert!(transport.submit(&event).unwrap());
     assert!(transport.commands("registration-1", 3).unwrap().is_empty());
     transport
@@ -578,20 +556,12 @@ fn every_http_operation_propagates_transport_refusal() {
 }
 
 fn raw_event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "forge-run-1".into(),
-        seq: 1,
-        event_id: "event-1".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "forge-run-1".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-28T08:10:00Z".into(),
-        previous_hash: ZERO_HASH.into(),
-        event_hash: "a".repeat(64),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("forge-run-1")
+        .event_id("event-1")
+        .at("2026-08-28T08:10:00Z")
+        .hash("a".repeat(64))
+        .build()
 }
 
 #[test]

@@ -15,3 +15,11 @@ pub use envelope::{EventEnvelope, EventType};
 pub use fold::{fold, Cursor, FoldError, RunState, Status};
 pub use keep_refs::cited_shas;
 pub use policy::{Machine, Outcome, PolicyError};
+
+// The workspace's shared test support names this crate as every other
+// crate's tests do (#357).
+#[cfg(test)]
+extern crate self as brokkr_core;
+#[cfg(test)]
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;

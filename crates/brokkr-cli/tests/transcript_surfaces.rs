@@ -15,13 +15,10 @@ use serde_json::{json, Value};
 
 /// `HOME` is process-global and `read_local` reads it (for legacy
 /// synthesis) even when the selected reference carries its own home, so
-/// every test in this file takes its turn. This is the integration-test
-/// twin of `crate::tests::HOME`.
-static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn home_lock() -> std::sync::MutexGuard<'static, ()> {
-    HOME.lock().unwrap_or_else(|error| error.into_inner())
-}
+/// every test in this file holds the binary's environment guard.
+#[path = "../../../tests/support/env_guard.rs"]
+mod env_guard;
+use env_guard::EnvGuard;
 
 struct World {
     dir: tempfile::TempDir,
@@ -428,7 +425,7 @@ fn compare_refusal(world: &World, read: &TranscriptRead, expected: &str) {
 /// each DSH refusal.
 #[test]
 fn one_derivation_reaches_every_surface() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     for (kind, locator, body) in [
         (
             "claude-session",
@@ -453,7 +450,7 @@ fn one_derivation_reaches_every_surface() {
         let world = make_world(kind, locator, body);
         // The in-process handler and the child process must agree on the
         // local projects root for the Claude drill.
-        std::env::set_var("HOME", &world.home);
+        env.set("HOME", &world.home);
         let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
         assert!(read.is_readable(), "{kind}: {read:?}");
         assert_eq!(read.path.as_deref(), Some(world.path.as_str()));
@@ -463,7 +460,7 @@ fn one_derivation_reaches_every_surface() {
 
     // A readable zero-turn source.
     let world = make_world("codex-thread", "0199zero", "{\"type\":\"turn_context\"}\n");
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.is_readable() && read.turns.is_empty());
     compare(&world, &read, None);
@@ -479,7 +476,7 @@ fn one_derivation_reaches_every_surface() {
          {{\"type\":\"future-record\"}}\n"
     );
     let world = make_world("claude-session", "abcd-1234", &body);
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.truncated && read.unrecognized_records == 1, "{read:?}");
     compare(&world, &read, Some(1));
@@ -491,7 +488,7 @@ fn one_derivation_reaches_every_surface() {
         "{\"type\":\"session\",\"version\":0}\n\
          {\"type\":\"future/event\",\"ignorable\":true}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(
         read.is_readable() && read.unrecognized_records == 1,
@@ -508,7 +505,7 @@ fn one_derivation_reaches_every_surface() {
         "{\"type\":\"session\",\"version\":1}\n\
          {\"type\":\"user/message\",\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"hidden\"}]}}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -529,7 +526,7 @@ fn one_derivation_reaches_every_surface() {
         "sessions/one",
         "{\"type\":\"session\",\"delegationDepth\":1,\"version\":0}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -554,12 +551,12 @@ fn one_derivation_reaches_every_surface() {
 /// ordinary indices deliberately differ (command delta).
 #[test]
 fn packed_dsh_coalescing_reaches_every_surface() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     let body = "{\"type\":\"session\",\"version\":0}\n\
         {\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1],\"texts\":[\"Prose-Alpha \",\"Prose-Bravo \",\"Prose-Charlie\"]}}\n\
         {\"type\":\"reasoning-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1],\"texts\":[\"Reason-Delta \",\"Reason-Echo\"]}}\n";
     let world = make_world("dsh-session", "sessions/one", body);
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.is_readable(), "{read:?}");
     assert_eq!(read.turns.len(), 2);
@@ -579,7 +576,7 @@ fn packed_dsh_coalescing_reaches_every_surface() {
 /// document all carry the same truncation notice.
 #[test]
 fn structural_cap_notices_reach_every_surface() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     let mut body = String::from("{\"type\":\"session\",\"version\":0}\n");
     for seq in 1..=10_000 {
         body.push_str(&format!(
@@ -587,7 +584,7 @@ fn structural_cap_notices_reach_every_surface() {
         ));
     }
     let world = make_world("dsh-session", "sessions/one", &body);
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.is_readable(), "{read:?}");
     assert_eq!(read.turns.len(), 7_797);
@@ -605,7 +602,7 @@ fn structural_cap_notices_reach_every_surface() {
 /// the same command document.
 #[test]
 fn dsh_semantic_refusals_reach_the_tui_seam() {
-    let _home = home_lock();
+    let mut env = EnvGuard::lock();
     // A DSH semantic refusal after a readable-looking prefix is the same
     // unavailability through every surface, with its counts and notices
     // intact and no refused prose anywhere.
@@ -616,7 +613,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
          not json\n\
          {\"type\":\"future/required\"}\n",
     );
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -640,7 +637,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
         "{\"type\":\"session\",\"version\":1}\n",
     )
     .unwrap();
-    std::env::set_var("HOME", &world.home);
+    env.set("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert_eq!(
         read.unavailable,
@@ -654,7 +651,7 @@ fn dsh_semantic_refusals_reach_the_tui_seam() {
 /// every readable kind.
 #[test]
 fn recorded_tool_identity_and_context_reach_every_surface() {
-    let _home = home_lock();
+    let _env = EnvGuard::lock();
     let cases: [(&str, &str, &str, Vec<&str>); 3] = [
         (
             "claude-session",
@@ -688,7 +685,7 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
     for (kind, locator, body, needles) in cases {
         let world = make_world(kind, locator, body);
         // The common reference needs no ambient HOME, but `read_local`
-        // still reads HOME, so this test holds the file's HOME lock.
+        // still reads HOME, so this test holds the environment guard.
         let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
         assert!(read.is_readable(), "{kind}: {read:?}");
         let texts: Vec<&str> = read
@@ -765,7 +762,7 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
 /// surface reconstructing a fragment.
 #[test]
 fn r25_portable_hint_is_identical_across_every_surface() {
-    let _home = home_lock();
+    let _env = EnvGuard::lock();
     let hostile = if cfg!(windows) {
         "home $(x) `t` ;a&b%c!d é😀"
     } else {
@@ -781,7 +778,7 @@ fn r25_portable_hint_is_identical_across_every_surface() {
     ] {
         let world = make_world_named(kind, locator, body, hostile);
         // The common reference needs no ambient HOME, but `read_local`
-        // still reads HOME, so this test holds the file's HOME lock.
+        // still reads HOME, so this test holds the environment guard.
         let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
         assert!(read.is_readable(), "{kind}: {read:?}");
         let hint = read

@@ -334,19 +334,14 @@ fn an_unknown_anchor_version_is_refused_not_guessed() {
 
 #[test]
 fn a_vouched_head_is_one_full_recorded_object_id_or_nothing() {
-    let event = |reviewed_heads: serde_json::Value| EventEnvelope {
-        run_id: "run".into(),
-        seq: 1,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type: EventType::TransitionDecided,
-        payload: json!({"inputs": {"reviewed_heads": reviewed_heads}}),
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-09-02T00:00:00Z".into(),
-        previous_hash: "0".repeat(64),
-        event_hash: "a".repeat(64),
+    let event = |reviewed_heads: serde_json::Value| {
+        crate::envelope_builder::EnvelopeBuilder::new(
+            EventType::TransitionDecided,
+            json!({"inputs": {"reviewed_heads": reviewed_heads}}),
+        )
+        .at("2026-09-02T00:00:00Z")
+        .hash("a".repeat(64))
+        .build()
     };
     let head = "A".repeat(40);
     assert_eq!(
