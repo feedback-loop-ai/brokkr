@@ -26,6 +26,9 @@
         "max_attempts": 2,
         "timeout_seconds": 5400
       },
+      "tools": {
+        "sandbox": "workspace-write"
+      },
       "driver": {
         "command": [
           "{brokkr}",
@@ -35,9 +38,7 @@
           "--model",
           "gpt-6-sol",
           "--effort",
-          "medium",
-          "--sandbox",
-          "danger-full-access"
+          "medium"
         ]
       }
     }

@@ -8217,3 +8217,152 @@ moved from `634d129e…` to `7263ad36…`. `recipes/standby` and
   no shipped recipe carries that argv.
 - The compiled manifest records no seat's typed `tools.sandbox` class. It
   is witnessed only through the `bundle.json` file digest.
+
+## Unit 8 — wager-harness narrowed, and the inventory re-run, 2026-09-25
+
+Run `0065-rebuild-unit-8-see-the-unit-6b5868ee`, triage `chore`, phase
+implement, sole seat, on `8adebd38` (clean). Production:
+`recipes/wager-harness/bundle.json`. Docs: `recipes/node/README.md`,
+`recipes/wager-harness/README.md`. Tests: `tests/capability_launch.rs`
+(two new tests) and the measured pins in `tests/witness_digests.rs` (both
+under `crates/brokkr-runtime`). No adapter, engine code, frozen contract,
+fixture, policy or `extensions/` byte moved. No out-of-inventory line was
+needed, so nothing is recorded under the standing admission.
+
+### Migration, under the narrow ruling
+
+| Seat | Before (authored) | After (typed) | Door |
+| --- | --- | --- | --- |
+| `recipes/wager-harness` implement (Codex, work) | `--sandbox danger-full-access` | `tools.sandbox: workspace-write` (**narrowed**) | file |
+
+`danger-full-access` is admitted on no path (operator ruling of
+2026-09-25, point 3), so the class is narrowed, not carried over. The seat
+now runs a different cage from the one every earlier wager run ran. The
+README's parity item 2 says so, and says that a comparison against a run
+from before this date compares two cages as well as two crews.
+
+`compile --bundle recipes/wager-harness` exits 0 before (at HEAD) and after.
+`jq -S '.manifest|del(.files)'` of the two outputs was byte-identical
+(`diff` empty), so boundary, hands, capabilities, drivers and every other
+manifest key except `files` are unchanged. Boundary authority is unchanged.
+
+### Docs
+
+- `recipes/wager-harness/README.md`: the "whole diff" example now matches
+  the file (typed `tools.sandbox`, the `--effort medium` pin, `oversized`,
+  `override.bundle`), and the line counts are the file's actual 46 and
+  `fast`'s 144 (`wc -l`). The historical-drift list gains the sandbox
+  change as a ruling, not drift. Parity item 2 now describes both arms as
+  typed data the engine lowers and states the narrowing.
+- `recipes/node/README.md`: the fork table's `--allowedTools` row becomes
+  each model seat's `tools.allow`, with a row for the Claude adapter's
+  `tool_permissions.names` mapping. The quoted refusal is observed: with
+  `"pnpm"` put in place of `"npm"` in node's implement `tools.allow` (then
+  restored, `git status` clean for that file), `compile --bundle
+  recipes/node` exited 1 with `error: bundle: seat 'implement': the
+  provider maps no tool permission named 'pnpm'`.
+
+### The inventory, re-run on this tree
+
+Every `bundle.json` under `recipes/` and `bundles/` was read, and every
+`agents/*.json`. `grep -rhoE '"-[-A-Za-z][^"]*"'` over the three
+directories found only `--`, `--model`, `--effort` and `--patch` in JSON,
+plus `--sandbox` in the wager README's example before it was rewritten.
+The new sweep test pins the same result.
+
+| File(s) | Disposition |
+| --- | --- |
+| `recipes/fast`, `recipes/node`, `recipes/preflight` | migrated in unit 6; authored commands carry only model/effort pins. |
+| `bundles/verify`, `recipes/standby`, `recipes/review-first` | migrated in unit 7; the same. |
+| `recipes/wager-harness` | migrated here. |
+| `bundles/self`, `recipes/landing`, `recipes/night-shift`, `recipes/panel-review`, `recipes/research`, `recipes/wager-harness-dsh`, `recipes/wager-harness-muse` | no capability-bearing option in any authored command; no migration. |
+| `recipes/gpt-flash`, `recipes/release`, `recipes/triage` | agent-backed; author no command at all (the sweep's first draft, which listed only files with a `command` array, did not list them). |
+| `recipes/research-dsh` (`bundle.json`, `drivers/research-web.yml`) | `--patch` names the route-only overlay: a Model Studio provider entry and reasoning levels, no tool, MCP, sandbox or web key. Retained, as the Migration Plan says. |
+| `agents/*.json` (35 files) | no `command` array (the sweep lists none) and no option string (the grep). No migration. |
+| `adapters/claude.json`, `adapters/lanetally.json` | permission-mode template and `tool_permissions` are engine-owned adapter data (units 5, 5c). No migration. |
+| `adapters/codex.json`, `adapters/dsh.json`, `adapters/exec.json` | native/hands/route declarations are engine data. No migration. |
+| `extensions/dsh/**` (`PROVENANCE.md`, `plugin-cli-session/{README.md,cordis.patch.yml,lib/index.js,lib/startup.js,package.json,LICENSE}`) | dsh profile and plugin code, not a recipe or agent launch declaration. A grep for tool, permission, MCP, plugin-dir, sandbox and web spellings found only prose, profile examples and dependency names. No migration, no edit. |
+| scaffolds, `crates/brokkr-cli/src/init.rs` | model seats are agent-backed with typed `tools.allow`; inline seats are boxed `exec` scripts; the adapter's `--permission-mode acceptEdits` is its engine-owned template. No migration. |
+
+No newly discovered shipped migration needs a bounded visit before unit
+12. One document outside the design's inventory still gives the old
+advice (see the follow-ups).
+
+### The tests
+
+- `the_shipped_wager_harness_seats_its_typed_sandbox_narrowed_as_the_engines_own`
+  compiles the shipped directory in a realm that grants nothing, under
+  `harness`, and seals and launches the implementer through
+  `inline_codex_sealing`. One exact map covers the authored command, held
+  counts, seal, segments, expected `local`/`native`/`template`, final
+  command and door. The final command is `codex exec --json -C /w -c
+  model_reasoning_effort="medium" --model gpt-6-sol --sandbox
+  workspace-write -c web_search="disabled"`, with the sandbox in the
+  `local` origin, `local.sandbox` `workspace-write`, and door `file`.
+- `no_shipped_driver_command_authors_a_capability_bearing_option` walks
+  every JSON file under `recipes/`, `bundles/` and `agents/`. It collects
+  every string in any `command` array and maps each `bundle.json` (and any
+  file with a command) to its options other than `--`, `--model` and
+  `--effort`. The exact expected map lists all 18 bundles, each empty
+  except research-dsh's `["--patch"]`.
+
+Both are asserted with `assert_eq!` on the whole value. Lines are the same
+before and after `cargo fmt`. Logs are in `.forge/u8-*.log`.
+
+- **Baseline red** (`recipes/wager-harness/bundle.json` at HEAD, tests
+  present): both FAILED. The launch test failed at `capability_launch.rs:4902`,
+  the final `assert_eq!`: the observed authored segment carried `--sandbox
+  danger-full-access`, `sandbox: unspecified`, and the final command
+  `… --sandbox danger-full-access -c web_search="disabled"` (sealed
+  `Ok(())`: nothing refuses it until unit 12). The sweep failed at 4989
+  with `"recipes/wager-harness/bundle.json": ["--sandbox"]`.
+- **M1** (typed class `danger-full-access`): the launch test FAILED at
+  4843, the compile `unwrap_or_else`, with `seat 'implement' declares
+  'tools.sandbox' 'danger-full-access' at an inline Codex work seat,
+  where only 'workspace-write' is admitted: … danger-full-access is
+  admitted nowhere (operator ruling of 2026-09-25, …; design D5.3)
+  (composed: wager-harness -> fast)`.
+- **M2** (the typed `tools` block removed, no authored sandbox): the
+  launch test FAILED at 4902. The final command had no `--sandbox` at
+  all, `sandbox: unspecified`, and only the authored segment.
+- **M3** (`"--mcp-config", "m.json"` appended to
+  `recipes/wager-harness-muse`'s command): the sweep FAILED at 4989 with
+  `"recipes/wager-harness-muse/bundle.json": ["--mcp-config"]`.
+- Each was restored. After M1/M2, `git diff recipes/wager-harness/bundle.json`
+  was byte-identical to `.forge/u8-wager.patch` (`cmp`). After M3, `git
+  checkout` restored the muse bundle, and `git status` showed only this
+  unit's files.
+
+### Pins
+
+Measured from `pinned_bundles_keep_their_recorded_digest`'s own failures,
+one per run: `recipes/node` moved `693df3ab…` → `460da337…` (its README
+is a bundle file), and `recipes/wager-harness` moved `fff2fa52…` →
+`b813dbb3…`. The third run passed 4/4, so the other eight witnesses did
+not move. No compose pin moved (the runtime unit suite passed 564/564).
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean after `cargo fmt --all`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warnings.
+- `cargo test --workspace --all-features --locked -q --no-fail-fast`: 77
+  result lines, all `ok`, no `FAILED`, `panicked` or `error`
+  (`.forge/u8-workspace.log`).
+- `compile --bundle bundles/self` and `compile --bundle bundles/verify`:
+  both exit 0.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+- **Pending:** exact coverage (`scripts/coverage-exact.sh`), macOS and
+  remote CI.
+
+### Follow-ups, not fixed here
+
+- `docs/guides/adopting-a-node-repo.md:226` still names "the
+  `--allowedTools` list in each seat's driver" as the pnpm/yarn swap
+  point. It is not in the Migration Plan's docs row, and unit 26 names
+  only three other guides. It needs a bounded docs visit, or to be added
+  to unit 26's list.
+- `crates/brokkr-cli/tests/driver_conformance.rs` still hard-codes an
+  inline `--sandbox danger-full-access` argv (unit 7's follow-up). The
+  sweep now shows that no shipped recipe carries it.

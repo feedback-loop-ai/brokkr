@@ -25,25 +25,26 @@ It is two things at once, and both matter:
 {
   "name": "wager-harness",
   "extends": "fast",
-  "override": { "seats": ["implement"] },
+  "override": { "bundle": ["description", "cost"], "seats": ["implement"] },
   "seats": {
     "implement": {
       "role": "roles/implementer.md",
-      "results": ["complete", "broken", "blocked"],
+      "results": ["complete", "broken", "blocked", "oversized"],
       "class": "work",
       "limits": { "max_attempts": 2, "timeout_seconds": 5400 },
+      "tools": { "sandbox": "workspace-write" },
       "driver": {
         "command": ["{brokkr}", "driver", "codex", "--",
-                    "--model", "gpt-6-sol",
-                    "--sandbox", "danger-full-access"]
+                    "--model", "gpt-6-sol", "--effort", "medium"]
       }
     }
   }
 }
 ```
 
-Thirty-four lines as the file is actually formatted, against `fast`'s
-109, and **one** of them is the experiment: the driver name in
+(The file also carries its `description` and `cost`.) Forty-six lines
+as the file is actually formatted, against `fast`'s 144, and **one** of
+them is the experiment: the driver name in
 `driver.command`. Everything else — the phase table, the reforging
 ladder, the protected review gate, the verifier, the reviewer, the
 shipper, the limits, the charter — is `fast`'s, inherited. That is the
@@ -51,9 +52,9 @@ property this whole repository exists to make possible, and most agent
 stacks cannot express it at all: the challenger and the incumbent differ
 by a name, under one digest each, both recorded.
 
-Two things changed against the historical `recipes/fast-codex`
-(`git show 3718061c5591:recipes/fast-codex/bundle.json`), and both are
-schema drift rather than design:
+Against the historical `recipes/fast-codex`
+(`git show 3718061c5591:recipes/fast-codex/bundle.json`), two changes are
+schema drift rather than design, and one is a ruling:
 
 - `"class": "work"` on the implement seat. The historical bundle
   predates decision 0021, which now requires every driver-bearing site
@@ -61,6 +62,13 @@ schema drift rather than design:
 - `{brokkr}` rather than `{forge}`. The old token still expands and
   warns once on stderr (decision 0019); a new recipe should not ship
   using a deprecated spelling.
+- `"tools": { "sandbox": "workspace-write" }` rather than an authored
+  `--sandbox danger-full-access`. Decision 0065 refuses a
+  capability-bearing flag written into a driver command, so the class
+  is typed seat data and the engine appends `--sandbox workspace-write`
+  as its own segment. The operator ruled on 2026-09-25 that
+  `danger-full-access` is admitted on no path, this recipe included, so
+  the class is narrowed, not carried over.
 
 ## Why the challenger may hold this seat at all
 
@@ -108,21 +116,30 @@ before you trust a comparison, not after.**
    `brokkr rerun --run <id> --recipe <challenger>` rather than launching
    a fresh run by hand: it carries the base forward for you, and the
    journal records that it did.
-2. **Same sandbox.** The challenger's `driver.command` must not grant
+2. **Same sandbox.** The challenger's typed `tools` must not grant
    *less* access than the incumbent's. Providers spell the grant
    differently and the mapping is never exact, so this is a judgement
    call you must make deliberately and record. Read this recipe's own
    arms as the worked example, and read them honestly: `fast`'s
-   implement seat runs `--permission-mode acceptEdits` with
-   `--allowedTools` naming seven `Bash` prefixes, so it may edit freely
-   but may run nothing outside that list — no network command, for
-   instance. This recipe's runs `--sandbox danger-full-access`, which
-   is **broader**, not equal: unrestricted execution. That asymmetry is
-   in the challenger's favour and it is deliberate, because the defect
-   that voided round one was the other direction — **a tighter cage on
-   the challenger.** It is also unavoidable here for the reason item 3
-   gives, and the comparison must say so rather than claim a parity it
-   does not have.
+   implement seat declares `tools.allow` with seven names, which the
+   engine lowers to `--permission-mode acceptEdits` and an
+   `--allowedTools` list of seven `Bash` prefixes, so it may edit
+   freely but may run nothing outside that list. This recipe's seat
+   declares `tools.sandbox: "workspace-write"`, which the engine lowers
+   to `--sandbox workspace-write`: Codex restricts by sandbox class, not
+   by command, so the challenger may write the workspace and run
+   commands outside `fast`'s seven prefixes, inside that sandbox. The
+   two cages are **different**, not equal, and whether one is wider
+   overall is not measured here. Until 2026-09-25 this seat ran
+   `--sandbox danger-full-access`, deliberately broader, because the
+   defect that voided round one was **a tighter cage on the
+   challenger.** The operator's ruling of that date admits
+   `danger-full-access` on no path, so the recipe now runs the
+   narrower class. A wager run under it must say so, and a comparison
+   against a run from before that date compares two cages as well as
+   two crews. The asymmetry is also unavoidable here for the reason
+   item 3 gives, and the comparison must say so rather than claim a
+   parity it does not have.
 3. **Same tools.** Every command one arm may run, the other may run.
    Where a provider's adapter declares `tool_permissions:
    "unsupported"` — as `codex` and `dsh` both do — the arms are not

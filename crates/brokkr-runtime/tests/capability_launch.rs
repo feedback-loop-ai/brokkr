@@ -4820,6 +4820,175 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
     assert_eq!(Value::Object(observed), expected);
 }
 
+/// Rebuild unit 8 (task 8.1; operator ruling of 2026-09-25, "narrow"):
+/// `recipes/wager-harness`'s inline Codex implementer authors no sandbox.
+/// Its typed class is the engine's own `local` segment at
+/// `workspace-write` (it was `danger-full-access`, which no path admits),
+/// it delivers by file, and its final command ends in the native denial.
+/// It is compiled from the shipped directory in a realm that grants
+/// nothing, and the literals are written out here.
+#[test]
+fn the_shipped_wager_harness_seats_its_typed_sandbox_narrowed_as_the_engines_own() {
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = Bundle::compile_with_capabilities(
+        &workspace().join("recipes/wager-harness"),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        Some("private"),
+        None,
+        Boundary::Harness,
+        &context,
+    )
+    .unwrap_or_else(|refusal| panic!("recipes/wager-harness must compile: {refusal}"));
+    let SeatBody::Single { command, .. } = &bundle.seats["implement"].body else {
+        panic!("implement is a single seat");
+    };
+    let held: Vec<usize> = bundle.sites["implement"]
+        .capabilities
+        .as_ref()
+        .unwrap()
+        .outcomes
+        .iter()
+        .map(|outcome| outcome.held.len())
+        .collect();
+    let (sealing, record, launched, door) = inline_codex_sealing(
+        &bundle,
+        "implement",
+        brokkr_runtime::SeatClass::Work,
+        &bundle.sites["implement"],
+        |_| {},
+    );
+    let observed = json!({
+        "authored command": command[1..],
+        "held": held,
+        "sealed": format!("{sealing:?}"),
+        "segments": record["segments"],
+        "local": record["expected"]["local"],
+        "native": record["expected"]["native"],
+        "template": record["expected"]["template"],
+        "final": launched.map_err(|refusal| format!("refused: {refusal}")),
+        "door": door,
+    });
+    let pins = ["--model", "gpt-6-sol", "--effort", "medium"];
+    let segment = ["--sandbox", "workspace-write"];
+    let mut last = vec![
+        "codex",
+        "exec",
+        "--json",
+        "-C",
+        "/w",
+        "-c",
+        "model_reasoning_effort=\"medium\"",
+        "--model",
+        "gpt-6-sol",
+    ];
+    last.extend(segment);
+    last.extend(OFF);
+    let expected = json!({
+        "authored command": ["driver", "codex", "--",
+                             "--model", "gpt-6-sol", "--effort", "medium"],
+        "held": [0],
+        "sealed": "Ok(())",
+        "segments": [{"origin": "authored", "argv": pins},
+                     {"origin": "local", "argv": segment}],
+        "local": {"allow": {"kind": "unspecified"}, "sandbox": {"kind": "workspace-write"},
+                  "application": {"kind": "unrestricted"}},
+        "native": {"kind": "known", "held": [], "denied": ["web-search"]},
+        "template": {"kind": "none"},
+        "final": {"Ok": last},
+        "door": "file",
+    });
+    assert_eq!(observed, expected);
+}
+
+/// Rebuild unit 8's inventory (task 8.1): after units 6, 7 and 8, no
+/// shipped recipe, bundle or agent authors a capability-bearing option in
+/// any driver command. Every option any authored command carries is a pin
+/// the engine does not compose (`--model`, `--effort`), the driver
+/// separator, or research-dsh's route-only `--patch` overlay. Every
+/// `bundle.json` and every file that authors a command is listed exactly,
+/// so the sweep is shown to have read them; the agent-backed `gpt-flash`,
+/// `release` and `triage` author none, and no agent file does.
+#[test]
+fn no_shipped_driver_command_authors_a_capability_bearing_option() {
+    fn commands<'a>(value: &'a Value, found: &mut Vec<&'a str>) {
+        match value {
+            Value::Object(map) => {
+                for (key, inner) in map {
+                    match (key.as_str(), inner) {
+                        ("command", Value::Array(argv)) => {
+                            found.extend(argv.iter().filter_map(Value::as_str))
+                        }
+                        _ => commands(inner, found),
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|inner| commands(inner, found)),
+            _ => {}
+        }
+    }
+    fn sweep(dir: &Path, out: &mut std::collections::BTreeMap<String, Vec<String>>) {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                sweep(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                let value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap())
+                    .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+                let mut argv = Vec::new();
+                commands(&value, &mut argv);
+                if !argv.is_empty() || path.ends_with("bundle.json") {
+                    let relative = path.strip_prefix(workspace()).unwrap();
+                    let options = argv
+                        .iter()
+                        .filter(|part| part.starts_with('-'))
+                        .filter(|part| !matches!(**part, "--" | "--model" | "--effort"))
+                        .map(|part| part.to_string())
+                        .collect();
+                    out.insert(relative.display().to_string(), options);
+                }
+            }
+        }
+    }
+    let mut observed = std::collections::BTreeMap::new();
+    for dir in ["recipes", "bundles", "agents"] {
+        sweep(&workspace().join(dir), &mut observed);
+    }
+    let mut expected: std::collections::BTreeMap<String, Vec<String>> = [
+        "bundles/self",
+        "bundles/verify",
+        "recipes/fast",
+        "recipes/gpt-flash",
+        "recipes/landing",
+        "recipes/night-shift",
+        "recipes/node",
+        "recipes/panel-review",
+        "recipes/preflight",
+        "recipes/release",
+        "recipes/research",
+        "recipes/research-dsh",
+        "recipes/review-first",
+        "recipes/standby",
+        "recipes/triage",
+        "recipes/wager-harness",
+        "recipes/wager-harness-dsh",
+        "recipes/wager-harness-muse",
+    ]
+    .iter()
+    .map(|dir| (format!("{dir}/bundle.json"), Vec::new()))
+    .collect();
+    expected.insert(
+        "recipes/research-dsh/bundle.json".into(),
+        vec!["--patch".into()],
+    );
+    assert_eq!(observed, expected);
+}
+
 /// A panel member and a sequence step are sites exactly as a seat is: each
 /// resolves its own asks under its own label, and a request written on the
 /// CONTAINER — which executes nothing — is refused rather than dropped.

@@ -267,6 +267,11 @@ fn workspace() -> PathBuf {
 /// Rebuild unit 7 moves `bundles/verify` alone: its review seat replaces
 /// the same authored flags with a typed `tools.allow`. `recipes/standby`
 /// and `recipes/review-first` also migrate, and neither is witnessed here.
+/// Rebuild unit 8 moves two: `recipes/wager-harness` replaces its
+/// implementer's authored `--sandbox danger-full-access` with a typed
+/// `tools.sandbox` of `workspace-write` and rewrites its README, and
+/// `recipes/node` rewrites its README's fork table; a README is a bundle
+/// file. The other eight keep their digests.
 /// The values below are the final tree's actual compiles, never
 /// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
@@ -276,7 +281,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/node",
-        "693df3ab89b8878daf0fa38696954f76d756785030aae4f030d865747ef70b26",
+        "460da337d8cca9f9eef91a15aaece88131c7f759405da18c23761b8cd35646a6",
     ),
     (
         "recipes/preflight",
@@ -288,7 +293,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/wager-harness",
-        "fff2fa526c0533462a9033040c85e4b0a61c3c9e49c3a12203d2695582ff8e47",
+        "b813dbb344f37476f61abf7ab3d23fefc2141e32e1f6875bff9472146afedd13",
     ),
     (
         "recipes/triage",

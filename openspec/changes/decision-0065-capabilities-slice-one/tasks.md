@@ -1318,7 +1318,32 @@ macOS and remote CI are pending.
 
 ## 8. Unit 8 — Migrate wager and finish the inventory
 
-- [ ] 8.1 Unit 8 migrates wager-harness/advice and reruns all-directory inventory. Verify no shipped authored catalogue flag remains before refusal and no local limit broadens. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.19)
+- [x] 8.1 Unit 8 migrates wager-harness/advice and reruns all-directory inventory. Verify no shipped authored catalogue flag remains before refusal and no local limit broadens. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.19)
+
+Observed 2026-09-25 (evidence.md, "Unit 8 — wager-harness narrowed, and
+the inventory re-run"), run `0065-rebuild-unit-8-see-the-unit-6b5868ee`
+on `8adebd38`. Wager-harness's Codex implementer moves its authored
+`--sandbox danger-full-access` to a typed `tools.sandbox` of
+`workspace-write`. It is **narrowed** under the 2026-09-25 ruling, which
+admits danger-full-access nowhere. The manifest, less `files`, is
+byte-identical before and after. Both READMEs now give typed examples.
+The node fork table's quoted refusal for an unmapped `pnpm` was observed.
+The re-run inventory records a disposition for adapters, recipes, agents,
+extensions, bundles and scaffolds. No newly discovered shipped migration
+remains. Two new `capability_launch` tests bind the result. One pins the
+seat's whole final command, origins, expected state and door. The other
+sweeps every authored command under `recipes/`, `bundles/` and `agents/`
+and finds no capability-bearing option. Both were red on the unmigrated
+bundle. Three compiling mutations, each restored, made them fail: typed
+`danger-full-access`, which is refused at compile with the narrowing
+reason; the typed block removed; and an `--mcp-config` put in another
+recipe. The `recipes/node` and `recipes/wager-harness` witness pins were
+re-measured. No line was needed under the standing admission. fmt,
+clippy, `cargo test --workspace` (77 result lines, all ok), both bundle
+compiles, `openspec validate --all --strict` (18 passed) and `git diff
+--check` passed. **Not fully green:** exact coverage, macOS and remote CI
+are pending. Follow-up: `docs/guides/adopting-a-node-repo.md:226` still
+gives the `--allowedTools` advice and is outside every unit's inventory.
 
 ## 9. Unit 9 — Qualify a supported nonempty restriction
 
