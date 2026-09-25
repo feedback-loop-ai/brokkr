@@ -1689,20 +1689,16 @@ pub fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) -> Result
     let realm_path = relative_realm_path(dir, repo);
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), bundle_json(detected))?;
-    std::fs::write(
-        dir.join("realms.json"),
-        realms_json(dialect, &realm_path, host.boundary),
-    )?;
+    let realms = realms_json(dialect, &realm_path, host.boundary);
+    std::fs::write(dir.join("realms.json"), realms)?;
     if let Some(choice) = dialect.choice() {
         write_dialect(dir, choice)?;
     }
     // The scaffold's notes live inside the library it wrote, never at the
     // target's own README.md: `brokkr init .` runs at a project's root, and
     // a project's README is the operator's file, not a scaffold's.
-    std::fs::write(
-        library.join("README.md"),
-        readme(detected, dialect, &host, &hired),
-    )?;
+    let notes = readme(detected, dialect, &host, &hired);
+    std::fs::write(library.join("README.md"), notes)?;
     // A run writes its journal beside the map and its results and ledger
     // under the repository's `.forge/`, and the ship gate closes out only
     // on a clean tree: each is ignored where it lands, from inside, so the

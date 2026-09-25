@@ -115,6 +115,11 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     git(repo, &["config", "user.name", "Bootstrap Bench"]);
     git(repo, &["config", "user.email", "bench@test"]);
     git(repo, &["config", "commit.gpgSign", "false"]);
+    // Instrumented drivers whose fixed box environment clears
+    // LLVM_PROFILE_FILE leave their default profile in the worktree under
+    // the exact-coverage gate, which the ship seat would read as dirty.
+    // Excluded locally, so the scaffold itself still carries no ignore file.
+    std::fs::write(repo.join(".git/info/exclude"), "*.profraw\n").unwrap();
     // A marker, so `init` writes a stack-aware charter rather than the
     // placeholder one — the scaffold an operator would actually get.
     // No `.gitignore`: the README asks for none, and `init` ignores the
