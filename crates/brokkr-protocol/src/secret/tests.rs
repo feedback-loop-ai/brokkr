@@ -453,6 +453,30 @@ fn mask_json_masks_every_decoded_string_and_leaves_keys_and_scalars() {
 }
 
 #[test]
+fn mask_projected_masks_a_value_a_projector_reserialised() {
+    // A transcript projector renders a tool call's arguments object as
+    // serialised JSON, so a value with a quote, a backslash and a tab
+    // reaches the projected text escaped: `mask_bytes` misses it there
+    // and `mask_projected` does not, while still masking the raw value.
+    let value = "p\"a\\ss\tw0rd";
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = store_dir.path().join("secrets.env");
+    store_set(&store, "API_TOKEN", value).unwrap();
+    let bindings = resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let arguments = serde_json::json!({"header": value}).to_string();
+    assert_eq!(arguments, "{\"header\":\"p\\\"a\\\\ss\\tw0rd\"}");
+    let projected = format!("Bash {arguments} then {value}");
+    assert_eq!(
+        String::from_utf8(mask_bytes(projected.as_bytes(), &bindings)).unwrap(),
+        format!("Bash {arguments} then [secret:API_TOKEN]")
+    );
+    assert_eq!(
+        mask_projected(&projected, &bindings),
+        "Bash {\"header\":\"[secret:API_TOKEN]\"} then [secret:API_TOKEN]"
+    );
+}
+
+#[test]
 fn mask_json_masks_object_keys_and_leaves_numbers_as_numbers() {
     // A result file's keys are the seat's to choose, so a key that echoes
     // a bound value is masked like any string. A count stays a count.

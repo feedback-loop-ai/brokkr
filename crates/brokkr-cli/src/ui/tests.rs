@@ -735,6 +735,101 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     }
 }
 
+/// #380: the browser's session drill masks a bound value the model echoed
+/// into its Claude session file against the store beside the journal, and
+/// carries the reader's notices, which the page paints. A store emptied of
+/// the name, an absent store and a store it cannot read mask nothing and
+/// say so rather than passing silently.
+#[test]
+fn the_session_drill_masks_a_bound_value_and_says_what_it_covered() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let store = dir.path().join("secrets.env");
+    brokkr_protocol::secret::store_set(&store, "GH_TOKEN", "ghp-bound-7f3a9c").unwrap();
+    let home = dir.path().join("home");
+    let project = home.join(".claude/projects/project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join("abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\
+         \"content\":\"echo says ghp-bound-7f3a9c\"}}\n",
+    )
+    .unwrap();
+    let previous_home = std::env::var_os("HOME");
+    std::env::set_var("HOME", &home);
+
+    let response = handle(&db, "/api/session/abcd-1234");
+    assert_eq!(response.status, "200 OK");
+    assert!(
+        !response.body.contains("ghp-bound-7f3a9c"),
+        "{}",
+        response.body
+    );
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(
+        parsed["turns"][0]["blocks"][0]["text"],
+        "echo says [secret:GH_TOKEN]"
+    );
+    assert_eq!(
+        parsed["notices"],
+        json!([
+            "secrets masked against the store's current values for GH_TOKEN; a value \
+                rotated or removed since the run is not masked"
+        ])
+    );
+    assert!(PAGE.contains("for (const notice of (view.body && view.body.notices) ?? [])"));
+
+    // A store emptied of the name since the run, and a store that is not
+    // there at all, mask nothing and say so, naming where they looked.
+    let nothing_found = json!([format!(
+        "secrets not masked: no values found in {}; a value bound from another store, or \
+         removed since the run, is shown as written",
+        store.display()
+    )]);
+    assert!(brokkr_protocol::secret::store_remove(&store, "GH_TOKEN").unwrap());
+    let emptied: Value = serde_json::from_str(&handle(&db, "/api/session/abcd-1234").body).unwrap();
+    assert_eq!(
+        emptied["turns"][0]["blocks"][0]["text"],
+        "echo says ghp-bound-7f3a9c"
+    );
+    assert_eq!(emptied["notices"], nothing_found);
+    std::fs::remove_file(&store).unwrap();
+    let absent: Value = serde_json::from_str(&handle(&db, "/api/session/abcd-1234").body).unwrap();
+    assert_eq!(
+        absent["turns"][0]["blocks"][0]["text"],
+        "echo says ghp-bound-7f3a9c"
+    );
+    assert_eq!(absent["notices"], nothing_found);
+
+    #[cfg(unix)]
+    {
+        brokkr_protocol::secret::store_set(&store, "GH_TOKEN", "ghp-bound-7f3a9c").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let parsed: Value =
+            serde_json::from_str(&handle(&db, "/api/session/abcd-1234").body).unwrap();
+        assert_eq!(
+            parsed["turns"][0]["blocks"][0]["text"],
+            "echo says ghp-bound-7f3a9c"
+        );
+        assert_eq!(
+            parsed["notices"],
+            json!([format!(
+                "secrets not masked: refusing secrets store {}: permissions 644 are broader \
+                 than 0600",
+                store.display()
+            )])
+        );
+    }
+    match previous_home {
+        Some(previous_home) => std::env::set_var("HOME", previous_home),
+        None => std::env::remove_var("HOME"),
+    }
+}
+
 /// The liveness rule the watch keeps, now measured through the retained
 /// handle rather than a reopened pathname: the first look is never
 /// growth, an append is, and a shrunk or vanished source is not.

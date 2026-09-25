@@ -40,3 +40,25 @@ carries as a bare JSON number is not rewritten there — a count stays a
 number — so do not bind a secret that is only digits. The `{{secret:NAME}}` spelling
 itself is not secret-bearing, which is why it is journalable and the
 resolved command line is not.
+
+A harness's own session file is not one of those surfaces. A claude,
+codex or dsh harness writes its own transcript, and a value the model
+echoed is plaintext there; Brokkr does not rewrite that file, because it
+is the harness's resume record. The surfaces that read it instead —
+`brokkr transcript`, the TUI's transcript pane and the browser's session
+view — mask each block to `[secret:NAME]` before printing it, against
+every value held by the store beside the journal they read
+(`.forge/secrets.env` next to `.forge/forge.db`), and add a notice
+naming what was masked. A tool call's arguments or a shell action reach
+the page as serialised JSON, so each value is also masked as it reads
+inside a JSON string, with its quotes, backslashes and control
+characters escaped. That covers only the store's current values: a
+value rotated or removed since the run is no longer there and is shown
+as written, which the notice says. A store that cannot be read masks
+nothing, and the notice says why. A store that is absent or holds no
+values masks nothing either, and the notice says so and names the path
+it looked at. The surfaces look only beside the journal, so a run whose
+store lives elsewhere — `--secrets-file`, or a `--db` or `--repo` that
+puts the journal in a different directory from the workdir's
+`.forge/secrets.env` — is masked only against whatever the store beside
+its journal holds.

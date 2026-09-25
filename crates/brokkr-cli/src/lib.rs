@@ -991,15 +991,19 @@ fn resolve_subject(
     subject: &tui::Subject,
     force: bool,
     seen: &mut Option<SourceStamp>,
+    secrets: &std::path::Path,
 ) -> (Option<TranscriptRead>, bool) {
     let identity_changed = seen
         .as_ref()
         .is_none_or(|stamp| !stamp.same_subject(subject));
     let fresh = if force || subject.working || identity_changed {
-        Some(ui::read_local(
-            subject.reference.as_ref(),
-            subject.provenance,
-            subject.legacy_id.as_deref(),
+        Some(ui::mask_secrets(
+            ui::read_local(
+                subject.reference.as_ref(),
+                subject.provenance,
+                subject.legacy_id.as_deref(),
+            ),
+            secrets,
         ))
     } else {
         None
@@ -1021,12 +1025,13 @@ fn resolve_subject(
 fn resolve_transcript(
     ask: &tui::Ask,
     seen: &mut Option<SourceStamp>,
+    secrets: &std::path::Path,
 ) -> (Option<TranscriptRead>, bool) {
     let Some(subject) = ask.subject.as_ref() else {
         *seen = None;
         return (None, false);
     };
-    resolve_subject(subject, ask.force, seen)
+    resolve_subject(subject, ask.force, seen, secrets)
 }
 
 /// Rebuild the selected subject from the freshly folded run, so authority
@@ -1138,7 +1143,10 @@ fn tui_views(
     // stamp it updates) is what the next tick compares against, whatever
     // the gate rules. A working seat's prose lands between checkpoints,
     // so the read is its own refresh reason.
-    let (transcript, transcript_changed) = resolve_transcript(&ask, seen);
+    // The prose is masked against the secrets store beside this journal
+    // before the stamp keeps it, so a refresh compares masked to masked.
+    let secrets = ui::store_beside(db);
+    let (transcript, transcript_changed) = resolve_transcript(&ask, seen, &secrets);
     let moved = current != *head;
     if !(ask.force || ask.fleet || moved || transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
@@ -1183,7 +1191,7 @@ fn tui_views(
     // previous reference's prose.
     let transcript = match (ask.subject.as_ref(), run.as_ref()) {
         (Some(prior), Some(view)) => match refreshed_subject(prior, view) {
-            Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen).0,
+            Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen, &secrets).0,
             // An unchanged participant: the resolved read still speaks for
             // it.
             Some(_) => transcript,
@@ -1551,6 +1559,7 @@ fn transcript_command(
         participant_legacy_provenance(participant),
         participant.session_id.as_deref(),
     );
+    let read = ui::mask_secrets(read, &ui::store_beside(&hearths[hearth].journal));
     let read = select_transcript_turn(read, turn);
     if json {
         println!(
