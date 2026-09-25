@@ -14742,6 +14742,7 @@ fn a_bound_claude_seat_runs_and_journals_only_the_secret_name() {
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
                       "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null",
                       "secrets": ["API_TOKEN"], "secrets_file": store}
         }),
         None,
@@ -14800,6 +14801,7 @@ fn a_refusal_that_quotes_a_bound_value_is_journaled_masked() {
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir.path(), "result_path": result,
                       "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null",
                       "secrets": ["API_TOKEN"], "secrets_file": store}
         }),
         None,
@@ -14876,6 +14878,7 @@ fn run_bound_claude(
             "effect_id":"effect", "attempt_id":"attempt",
             "input": {"workdir": dir, "result_path": result_path,
                       "allowed_results": ["complete"], "feature":"f", "phase":"work",
+                      "role_path": "/dev/null",
                       "secrets": ["API_TOKEN"], "secrets_file": store}
         }),
         None,
