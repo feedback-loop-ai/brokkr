@@ -294,7 +294,9 @@ fn the_release_workflow_puts_the_packages_through_the_attested_pipeline() {
 /// until a nightly release on 2026-09-07 reddened every pull request on
 /// bytes that had not changed (issue #235). One file names the compiler,
 /// both workflows and the script read it, and none may say a bare
-/// `nightly` again.
+/// `nightly` again. The measuring tool rides beside it: cargo-llvm-cov's
+/// default ignore regex decides which files are test harness, so its
+/// version is a second file both workflows read (issue #340).
 #[test]
 fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
     let pin = read("rust-nightly-version.txt");
@@ -324,6 +326,24 @@ fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
         assert!(
             workflow.contains("toolchain: ${{ steps.nightly.outputs.toolchain }}"),
             "{path} does not install the toolchain it read"
+        );
+        assert!(
+            workflow.contains(r#"echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT""#),
+            "{path} does not read the measuring tool's pin"
+        );
+        assert!(
+            workflow.contains("tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}"),
+            "{path} does not install the measuring tool it read"
+        );
+    }
+
+    let tool = read("cargo-llvm-cov-version.txt");
+    let parts: Vec<&str> = tool.trim().split('.').collect();
+    assert_eq!(parts.len(), 3, "{tool} is not MAJOR.MINOR.PATCH");
+    for part in parts {
+        assert!(
+            !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()),
+            "{tool} is not MAJOR.MINOR.PATCH"
         );
     }
 
@@ -424,8 +444,8 @@ fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
 
     let bump = at("bash packaging/bump-from-sums.sh");
     let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-tap\"");
-    let app_token = at("actions/create-github-app-token@v3");
-    let action = at("peter-evans/create-pull-request@v7");
+    let app_token = at("uses: actions/create-github-app-token@");
+    let action = at("uses: peter-evans/create-pull-request@");
 
     assert!(bump < tap, "{channels}");
     assert!(tap < app_token, "{channels}");

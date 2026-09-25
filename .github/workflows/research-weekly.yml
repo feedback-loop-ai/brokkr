@@ -33,23 +33,20 @@ jobs:
               exit 1
             fi
           done
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       # The registry gate is a boxed exec seat (decision 0043): the same
       # bubblewrap CI builds for the hands tests, for the same reasons.
       - name: bubblewrap for the boxed gate
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
-          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
-          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
-          bwrap --version
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+        uses: ./.github/actions/setup-bubblewrap
       - name: the harness is the one the adapter measured
         run: |
           npm install -g @deepseek-ai/dsh@0.1.5-rc.1
@@ -103,7 +100,7 @@ jobs:
             -f type="Research" >/dev/null
       - name: the evidence outlives the runner
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: research-sweep-evidence
           if-no-files-found: warn

@@ -1,0 +1,35 @@
+name: setup-bubblewrap
+description: >-
+  Build bubblewrap from its release tarball, verified by digest, and open
+  unprivileged user namespaces on the runner.
+# Decision 0043: the hands tests and the boxed seats build a real bubblewrap
+# namespace on Linux; the boundary is never simulated, so the tool is
+# installed. Ubuntu's package is 0.9, and overlay binds arrived in 0.10, so
+# the release is built from its tarball, and the tarball is checked against
+# the digest recorded here before anything is built from it (issue #340).
+# Bumping the version means bumping the digest.
+#
+# The runner image restricts unprivileged user namespaces through AppArmor,
+# which leaves a new network namespace unable to raise its own loopback
+# ("loopback: Failed RTM_NEWADDR"). That is a runner setting, not a product
+# requirement: an operator's Linux box needs bubblewrap and nothing else.
+runs:
+  using: composite
+  steps:
+    - name: bubblewrap 0.11.0, pinned by digest
+      shell: bash
+      env:
+        BWRAP_VERSION: 0.11.0
+        BWRAP_SHA256: 988fd6b232dafa04b8b8198723efeaccdb3c6aa9c1c7936219d5791a8b7a8646
+      run: |
+        set -euo pipefail
+        sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
+        tarball="${RUNNER_TEMP}/bubblewrap-${BWRAP_VERSION}.tar.xz"
+        curl -sSfL --retry 3 -o "$tarball" \
+          "https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz"
+        echo "${BWRAP_SHA256}  ${tarball}" | sha256sum -c -
+        tar xJf "$tarball" -C "$RUNNER_TEMP"
+        (cd "${RUNNER_TEMP}/bubblewrap-${BWRAP_VERSION}" && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
+        bwrap --version
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+        sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
