@@ -59,7 +59,11 @@ use serde_json::Value;
 /// 0047 ruling 3: a residual finding, the run rows that carry it and
 /// the ruling it was read from all state the operator's supersede
 /// annotation when one names it.
-pub const VIEW_VERSION: u32 = 10;
+/// Bumped to 11 by #376, pending the operator's ruling: a participant's
+/// `cost` became every attempt's reported cost summed (the rule
+/// [`reported_cost`] states), where it was the last attempt's alone, and
+/// participants gained `last_attempt_cost` beside it.
+pub const VIEW_VERSION: u32 = 11;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -350,7 +354,12 @@ pub struct Participant {
     pub turns: Option<u64>,
     pub turns_aggregated: bool,
     pub turns_cell: Cell,
+    /// What the seat spent: every attempt's reported cost, summed (the
+    /// rule [`reported_cost`] states), the rule `brokkr costs` sums by.
     pub cost: Option<f64>,
+    /// The last attempt's finishing cost alone, beside the sum and never
+    /// in its place.
+    pub last_attempt_cost: Option<f64>,
     pub cost_aggregated: bool,
     pub cost_cell: Cell,
     pub usage: Option<TokenUsage>,
@@ -1258,7 +1267,8 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     // and the live session is the one to stream — a
                     // kept guard here would pin the drill to the dead
                     // attempt's transcript. Each finished checkpoint
-                    // replaces in turn, bringing the cost.
+                    // replaces in turn, bringing that attempt's cost;
+                    // the seat's spend sums them all (`spent`).
                     scan.parts[part].session = Some(checkpoint);
                 } else if step == Some("panel-member-finished") && member.is_some() {
                     scan.parts[part].member_outcome = checkpoint.get("outcome").cloned();
@@ -1702,11 +1712,48 @@ fn terminal_line(events: &[EventEnvelope], scan: &Scan, part: &Build) -> Cell {
     }
 }
 
-fn session_cost(part: &Build) -> Option<f64> {
-    part.session
-        .as_ref()
-        .and_then(|session| session.get("total_cost_usd"))
-        .and_then(Value::as_f64)
+/// The spend one record reports: its `total_cost_usd`, nothing else.
+///
+/// The attempt rule is stated here, once (#376): a seat's spend is this
+/// figure summed over every record of every attempt — a retry's
+/// finishing checkpoint beside the concluded attempt's, never the last
+/// alone. Every view surface reads the sum as `Participant::cost`, and
+/// `brokkr costs` sums through this same function, so the ledger and
+/// the views report one number for one run.
+pub fn reported_cost(record: &Value) -> Option<f64> {
+    record.get("total_cost_usd").and_then(Value::as_f64)
+}
+
+/// Every attempt's reported cost, summed in journal order.
+fn spent(part: &Build) -> Option<f64> {
+    let mut total = None;
+    for (checkpoint, _, _) in &part.checkpoints {
+        if let Some(cost) = reported_cost(checkpoint) {
+            total = Some(total.unwrap_or(0.0) + cost);
+        }
+    }
+    total
+}
+
+/// The last attempt's finishing cost alone: what a retry's own session
+/// reported, labelled apart from the sum so neither is read as the other.
+fn last_attempt_cost(part: &Build) -> Option<f64> {
+    part.session.as_ref().and_then(reported_cost)
+}
+
+/// A seat's own figure, or — when it has none — the Σ of its members'
+/// in participant insertion order: `f64` addition is not associative
+/// and the console sums in map order. The flag says which it is.
+fn own_or_members(own: Option<f64>, members: &[Option<f64>]) -> (Option<f64>, bool) {
+    let reported: Vec<f64> = members.iter().flatten().copied().collect();
+    if own.is_some() || reported.is_empty() {
+        return (own, false);
+    }
+    let mut total = 0.0;
+    for value in &reported {
+        total += value;
+    }
+    (Some(total), true)
 }
 
 /// The tokens a seat actually spent, summed across its own turns.
@@ -1860,32 +1907,28 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 .filter(|other| other.effect_index == part.effect_index && other.member.is_some())
                 .collect()
         };
-        let mut cost = session_cost(part);
+        let (cost, cost_aggregated) = own_or_members(
+            spent(part),
+            &members.iter().map(|other| spent(other)).collect::<Vec<_>>(),
+        );
+        let (last_cost, _) = own_or_members(
+            last_attempt_cost(part),
+            &members
+                .iter()
+                .map(|other| last_attempt_cost(other))
+                .collect::<Vec<_>>(),
+        );
+        let attempts = scan.effects[part.effect_index].attempts;
         let mut usage = session_usage(part);
         let mut turns = part.turns;
-        let mut cost_aggregated = false;
         let mut usage_aggregated = false;
         let mut turns_aggregated = false;
         if !members.is_empty() {
-            let costs: Vec<f64> = members
-                .iter()
-                .filter_map(|other| session_cost(other))
-                .collect();
             let member_usage: Vec<TokenUsage> = members
                 .iter()
                 .filter_map(|other| session_usage(other))
                 .collect();
             let member_turns: Vec<u64> = members.iter().filter_map(|other| other.turns).collect();
-            if cost.is_none() && !costs.is_empty() {
-                // Summed in participant insertion order: `f64` addition
-                // is not associative and the console sums in map order.
-                let mut total = 0.0;
-                for value in &costs {
-                    total += value;
-                }
-                cost = Some(total);
-                cost_aggregated = true;
-            }
             if usage.is_none() && !member_usage.is_empty() {
                 let mut total = TokenUsage::default();
                 for member in &member_usage {
@@ -1926,8 +1969,15 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
         // right beneath it. Folding tokens into a dollar figure, or
         // printing both in one cell, would be the unit mixing this
         // whole cell exists to refuse.
+        //
+        // A retried seat's dollars are every attempt's, and the cell says
+        // so rather than leaving the sum to be read as one session's.
         let tokens = usage.as_ref().and_then(|usage| usage.total_tokens);
         let cost_text = match (cost, tokens) {
+            (Some(cost), _) if attempts > 1 => Some(format!(
+                "{cost_prefix}${} over {attempts} attempts",
+                js::to_fixed_4(cost)
+            )),
             (Some(cost), _) => Some(format!("{cost_prefix}${}", js::to_fixed_4(cost))),
             (None, Some(tokens)) => Some(format!("{usage_prefix}{}", fmt_tokens(tokens))),
             (None, None) => None,
@@ -1976,7 +2026,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             phase: scan.effects[part.effect_index].phase.clone(),
             status: part.status.to_string(),
             status_class: part.status_class.to_string(),
-            attempts: scan.effects[part.effect_index].attempts,
+            attempts,
             turns,
             turns_aggregated,
             turns_cell: cell_of(
@@ -1984,6 +2034,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 Some("no turn telemetry recorded"),
             ),
             cost,
+            last_attempt_cost: last_cost,
             cost_aggregated,
             cost_cell: cell_of(cost_text, Some("no session cost or token usage recorded")),
             usage_cell: cell_of(

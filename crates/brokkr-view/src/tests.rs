@@ -825,6 +825,7 @@ fn a_sigma_whose_members_disagree_in_kind_stays_in_dollars() {
     // mixed the units would be a number nothing in the world matches.
     assert_eq!(parent.cost_cell.text, "Σ $0.2500");
     assert!(parent.cost_aggregated);
+    assert_eq!(parent.last_attempt_cost, Some(0.25));
     assert!(!parent.cost_cell.text.contains("tok"));
     // The unpriced member's tokens are not lost — they are on its own
     // row, in their own unit, one line below the Σ.
@@ -2788,6 +2789,52 @@ fn a_working_seat_carries_its_transcript_from_the_shared_checkpoint() {
     );
 }
 
+/// The two-attempt fixture of #376: attempt one finished at $0.25 and
+/// was retried, and attempt two finished at $0.50. The seat spent both,
+/// and the view says so — the figure `brokkr costs` reports — with the
+/// last attempt's own cost beside it rather than in its place.
+fn two_attempt_journal() -> Vec<EventEnvelope> {
+    let mut events = seat_journal();
+    events.truncate(6); // through attempt one's session-finished
+    events[5].payload["checkpoint"]["total_cost_usd"] = json!(0.25);
+    events.push(ev(
+        7,
+        EventType::EffectStarted,
+        json!({"effect_id": "eff1", "attempt_id": "att2"}),
+        T2,
+    ));
+    events.push(ev(
+        8,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "eff1", "attempt_id": "att2",
+               "checkpoint": {"step": "claude-session-finished",
+                              "total_cost_usd": 0.5}}),
+        T2,
+    ));
+    events.push(ev(
+        9,
+        EventType::EffectSucceeded,
+        json!({"effect_id": "eff1", "attempt_id": "att2",
+               "result": {"result": "intook"}}),
+        T2,
+    ));
+    events
+}
+
+#[test]
+fn a_retried_seat_spent_every_attempt_and_the_cell_says_so() {
+    let view = run_view(
+        &two_attempt_journal(),
+        Some(&state(Some("intake"), Status::Completed, None)),
+    );
+    let part = &view.participants[0];
+    assert_eq!(part.attempts, 2);
+    assert_eq!(part.cost, Some(0.75));
+    assert_eq!(part.last_attempt_cost, Some(0.5));
+    assert!(!part.cost_aggregated);
+    assert_eq!(part.cost_cell.text, "$0.7500 over 2 attempts");
+}
+
 #[test]
 fn the_transcript_shape_is_closed_and_its_absences_are_explicit() {
     for kind in ["claude-session", "codex-thread", "dsh-session", "none"] {
@@ -3269,10 +3316,16 @@ fn an_entry_outside_the_vocabulary_is_not_recorded() {
 /// null-bearing cell rather than a skipped key.
 #[test]
 fn the_wire_version_moves() {
-    assert_eq!(VIEW_VERSION, 10);
+    assert_eq!(VIEW_VERSION, 11);
+    // 11 (#376): `cost` is every attempt's spend, and the last attempt's
+    // own figure stands beside it on the wire.
+    let retried = serde_json::to_value(run_view(&two_attempt_journal(), None)).unwrap();
+    assert_eq!(retried["view_version"], 11);
+    assert_eq!(retried["participants"][0]["cost"], json!(0.75));
+    assert_eq!(retried["participants"][0]["last_attempt_cost"], json!(0.5));
     let view = run_view(&boxed_journal(plain_manifest(), Value::Null, None), None);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 10);
+    assert_eq!(json["view_version"], 11);
     let seat = &json["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["absent"], json!(true));
