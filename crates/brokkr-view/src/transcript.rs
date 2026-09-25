@@ -9,11 +9,7 @@
 //! and touches no filesystem — decision 0013's separation is a compile
 //! property, not a convention.
 
-#[expect(
-    clippy::disallowed_types,
-    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
-)]
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -998,7 +994,7 @@ fn codex_quiet_event(kind: &str) -> bool {
 /// A mirrored Codex fact family. Identity alone is not evidence: a call
 /// and its output are two facts, and message, reasoning and tool facts
 /// never associate across families.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum CodexFact {
     Message,
     Reasoning,
@@ -1208,21 +1204,17 @@ enum CodexKeySite {
 /// `associate_codex` with a live observation of the actual `(source id,
 /// key)` pair at each key construction. The observer borrows both, so it
 /// changes no strong count; production passes a no-op.
-#[expect(
-    clippy::disallowed_types,
-    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
-)]
 fn associate_codex_observed<F>(records: &mut [CodexRecord], mut observe: F)
 where
     F: FnMut(CodexKeySite, &CodexId, &CodexId),
 {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::BTreeSet;
     // Keys share each record's id allocation: a key is a reference count,
     // never a copy of the recorded bytes.
-    let mut canonical: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
-    let mut fallback: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
+    let mut canonical: BTreeMap<(CodexFact, CodexId), usize> = BTreeMap::new();
+    let mut fallback: BTreeMap<(CodexFact, CodexId), usize> = BTreeMap::new();
     for record in records.iter() {
-        let mut seen: HashSet<(CodexFact, CodexId)> = HashSet::new();
+        let mut seen: BTreeSet<(CodexFact, CodexId)> = BTreeSet::new();
         for block in &record.blocks {
             let Some((fact, id)) = &block.fact else {
                 continue;
@@ -2274,21 +2266,13 @@ type CoverageEdge = (i128, i32, u32);
 /// (design D2): a sorted, disjoint interval union carrying the greatest
 /// citing row ordinal. A chunk is suppressed when its sequence is unique
 /// and this value is strictly greater than the chunk's own row ordinal.
-#[expect(
-    clippy::disallowed_types,
-    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
-)]
 struct CitationCoverage {
-    by_step: HashMap<StepKey, Vec<CoveredSpan>>,
+    by_step: BTreeMap<StepKey, Vec<CoveredSpan>>,
 }
 
 impl CitationCoverage {
-    #[expect(
-        clippy::disallowed_types,
-        reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
-    )]
     fn new(assemblies: &[AssemblyFact]) -> CitationCoverage {
-        let mut grouped: HashMap<StepKey, Vec<CoverageEdge>> = HashMap::new();
+        let mut grouped: BTreeMap<StepKey, Vec<CoverageEdge>> = BTreeMap::new();
         for assembly in assemblies {
             for &(start, end) in &assembly.cited {
                 let entries = grouped.entry((assembly.turn, assembly.step)).or_default();
@@ -2296,7 +2280,7 @@ impl CitationCoverage {
                 entries.push((end as i128 + 1, -1, assembly.ordinal));
             }
         }
-        let mut by_step = HashMap::new();
+        let mut by_step = BTreeMap::new();
         for (key, mut entries) in grouped {
             entries.sort_unstable();
             let mut segments: Vec<(i64, i64, u32)> = Vec::new();
@@ -2588,10 +2572,6 @@ fn block_text_bytes(blocks: &[DshBlock]) -> usize {
     blocks.iter().map(|block| block.block.text.len()).sum()
 }
 
-#[expect(
-    clippy::disallowed_types,
-    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
-)]
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // Format admission precedes every projection allocation: a refused
     // opening header returns before any later physical row is decoded,
@@ -2622,7 +2602,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // payload is ever appended to a complete-prefix event vector. ----
     let mut spans: Vec<(i64, i64)> = Vec::new();
     let mut assemblies: Vec<AssemblyFact> = Vec::new();
-    let mut dedicated: HashMap<(String, DshDirection, Position, Position), u32> = HashMap::new();
+    let mut dedicated: BTreeMap<(String, DshDirection, Position, Position), u32> = BTreeMap::new();
     let mut refused = false;
     let mut unrecognized = 0u64;
     let mut retained: Vec<DshEvent> = Vec::new();
@@ -2754,16 +2734,12 @@ fn packed_facts(value: &Value, raw: &str, spans: &mut Vec<(i64, i64)>) -> Result
 /// Extract the readable-assembly citation facts and the dedicated-tool key
 /// counts from one row's already observed block-bearing events (design D2).
 /// The events are drained and released; only compact facts survive.
-#[expect(
-    clippy::disallowed_types,
-    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
-)]
 fn collect_ordinary_facts(
     retained: &mut Vec<DshEvent>,
     ordinal: u32,
     associate: bool,
     assemblies: &mut Vec<AssemblyFact>,
-    dedicated: &mut HashMap<(String, DshDirection, Position, Position), u32>,
+    dedicated: &mut BTreeMap<(String, DshDirection, Position, Position), u32>,
 ) {
     #[cfg(test)]
     observe::fact_retained(
@@ -2798,8 +2774,8 @@ fn collect_ordinary_facts(
         let (Some(turn), Some(step)) = (row.turn, row.step) else {
             continue;
         };
-        let mut seen: std::collections::HashSet<(String, DshDirection, Position, Position)> =
-            std::collections::HashSet::new();
+        let mut seen: std::collections::BTreeSet<(String, DshDirection, Position, Position)> =
+            std::collections::BTreeSet::new();
         for block in &row.blocks {
             let Some(tool) = &block.tool else { continue };
             let key = (tool.id.clone(), tool.direction, turn, step);
@@ -2925,17 +2901,13 @@ fn flush_run(
 
 /// Emit one ordinary DSH event: suppression first, then dedicated-tool
 /// association, then the bounded collector (design D1, D4).
-#[expect(
-    clippy::disallowed_types,
-    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
-)]
 fn emit_ordinary(
     collector: &mut DshCollector,
     row: DshEvent,
     ordinal: u32,
     associate: bool,
     suppression: &Suppression,
-    dedicated: &HashMap<(String, DshDirection, Position, Position), u32>,
+    dedicated: &BTreeMap<(String, DshDirection, Position, Position), u32>,
 ) {
     if row.chunk {
         if let (Some(turn), Some(step), Some(seq)) = (row.turn, row.step, row.seq) {
@@ -2966,7 +2938,7 @@ fn emit_ordinary(
 }
 
 /// The recorded identifier and direction a DSH tool block carries.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum DshDirection {
     Call,
     Result,

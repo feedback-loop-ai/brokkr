@@ -49,6 +49,8 @@ unknown-git = "deny"
 # reports to this table and refuses a normal edge where only a dev one is
 # allowed. It refuses any line here it does not understand, so keep one
 # entry per line. `brokkr-cli` is the root and has no parent to name.
+# The same test closes core's and view's own dependency sets, and holds
+# them to the wrappers here, so a pure crate names no crate unlisted.
 [bans]
 deny = [
   { crate = "brokkr-core", wrappers = ["brokkr-view", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "core sits at the bottom of the one-way graph (decision 0071 ruling 1)" },

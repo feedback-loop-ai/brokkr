@@ -1,14 +1,18 @@
 //! Decision 0071 ruling 1's gates that `cargo-deny` and clippy cannot
-//! hold alone (#336).
+//! hold alone (#336). Each is closed: what it does not list, it refuses.
 //!
 //! `deny.toml` is the one home of the crate graph: each `[bans]` entry
 //! names the only crates allowed to depend on it directly. cargo-deny
 //! cannot tell a dev edge from a normal one, and Cargo accepts a dev edge
 //! that cycles, so the test here holds every edge `cargo metadata`
-//! reports, dev ones included, to the same table, read strictly. The
-//! purity half checks that core and view share one `clippy.toml` which
-//! repeats the root's thresholds, and backs clippy's item paths with a
-//! token scan that refuses whole modules in every import form.
+//! reports, dev ones included, to the same table, read strictly. A pure
+//! crate's own edges are held to a closed set, which the test keeps in
+//! agreement with the table, and every resolved package outside the
+//! workspace must come from crates.io. The purity half checks that core
+//! and view share one `clippy.toml` which repeats the root's thresholds,
+//! and lexes their production source, comments and literals stripped, so
+//! that every path under `std`, `core` or `alloc` and every macro they
+//! name falls under an allowlist.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -30,17 +34,21 @@ fn read(relative: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
-/// The part of `cargo metadata --format-version 1 --no-deps` this test
-/// reads. Cargo adds fields to the format over time, so unknown fields
-/// are ignored; an unknown dependency kind fails the parse.
+/// The part of `cargo metadata --format-version 1` this test reads. Cargo
+/// adds fields to the format over time, so unknown fields are ignored; an
+/// unknown dependency kind fails the parse.
 #[derive(Deserialize)]
 struct Metadata {
     packages: Vec<Package>,
+    workspace_members: Vec<String>,
 }
 
 #[derive(Deserialize)]
 struct Package {
+    id: String,
     name: String,
+    /// `None` for a path package, the registry or git URL otherwise.
+    source: Option<String>,
     dependencies: Vec<Dependency>,
 }
 
@@ -62,14 +70,16 @@ enum Kind {
     Build,
 }
 
-/// The workspace's packages and their edges, as Cargo reads the manifests.
+/// The workspace's packages, their edges and every package they resolve
+/// to, as Cargo reads the manifests and the lockfile.
 fn metadata() -> Metadata {
     let output = Command::new(env!("CARGO"))
         .args([
             "metadata",
             "--format-version",
             "1",
-            "--no-deps",
+            "--all-features",
+            "--locked",
             "--offline",
         ])
         .arg("--manifest-path")
@@ -86,6 +96,29 @@ fn metadata() -> Metadata {
     );
     serde_json::from_slice(&output.stdout).expect("cargo metadata's format 1")
 }
+
+/// The one registry every package outside the workspace comes from.
+const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
+
+/// Ruling 1's closed sets: every crate a pure crate may depend on
+/// directly, of any kind. An edge outside its set is refused whether or
+/// not `deny.toml` governs the crate, and the test holds the sets and the
+/// table's wrappers to one another.
+const PURE: [(&str, &[&str]); 2] = [
+    (
+        "brokkr-core",
+        &[
+            "hex",
+            "serde",
+            "serde_json",
+            "sha2",
+            "thiserror",
+            "time",
+            "url",
+        ],
+    ),
+    ("brokkr-view", &["brokkr-core", "serde", "serde_json"]),
+];
 
 /// The `deny.toml` wrappers the tests alone take: each is a dev edge that
 /// points down or sideways, never above its crate's layer. cargo-deny
@@ -220,15 +253,98 @@ fn the_bans_reader_refuses_what_it_does_not_understand() {
     }
 }
 
+/// Every edge of `members` the allowed graph refuses, as
+/// `parent -> child (kind): why`. No edge is skipped: a pure crate's edge
+/// must be in its closed set, a workspace crate must be governed, a
+/// governed crate's wrappers must name the parent, and a dev-only wrapper
+/// admits a dev edge alone. An external crate `deny.toml` does not govern
+/// is open to every crate but the pure ones.
+fn refused_edges(members: &[&Package], parents: &Graph) -> Vec<String> {
+    let workspace: BTreeSet<&str> = members.iter().map(|member| member.name.as_str()).collect();
+    let mut refused = Vec::new();
+    for package in members {
+        let closed = PURE
+            .iter()
+            .find(|(name, _)| *name == package.name)
+            .map(|(_, set)| *set);
+        for dependency in &package.dependencies {
+            let kind = dependency.kind.unwrap_or(Kind::Normal);
+            let pair = (package.name.as_str(), dependency.name.as_str());
+            let allowed = parents.get(&dependency.name);
+            let why = if closed.is_some_and(|set| !set.contains(&pair.1)) {
+                "outside the pure crate's closed set"
+            } else if allowed.is_none() && workspace.contains(pair.1) {
+                "a workspace crate deny.toml does not govern"
+            } else if allowed.is_some_and(|allowed| !allowed.contains(pair.0)) {
+                "its [bans] wrappers do not name the parent"
+            } else if DEV_ONLY.contains(&pair) && kind != Kind::Dev {
+                "a dev-only wrapper"
+            } else {
+                continue;
+            };
+            refused.push(format!("{} -> {} ({kind:?}): {why}", pair.0, pair.1));
+        }
+    }
+    refused
+}
+
+/// The refusal names each form of edge the graph does not allow, and
+/// passes an external crate no entry governs only above the pure crates.
+#[test]
+fn the_graph_refuses_every_edge_it_does_not_allow() {
+    let parents = allowed_parents(&read("deny.toml")).expect("deny.toml's [bans] reads");
+    let package = |name: &str, dependencies: &[(&str, Option<Kind>)]| Package {
+        id: name.to_string(),
+        name: name.to_string(),
+        source: None,
+        dependencies: dependencies
+            .iter()
+            .map(|(name, kind)| Dependency {
+                name: name.to_string(),
+                kind: *kind,
+            })
+            .collect(),
+    };
+    let packages = [
+        package(
+            "brokkr-core",
+            &[("time", None), ("tempfile", Some(Kind::Dev))],
+        ),
+        package("brokkr-view", &[("brokkr-core", None), ("uuid", None)]),
+        package(
+            "brokkr-store",
+            &[("tempfile", None), ("brokkr-runtime", Some(Kind::Dev))],
+        ),
+        package("brokkr-runtime", &[("rusqlite", Some(Kind::Build))]),
+        package("brokkr-bridge", &[("brokkr-cli", Some(Kind::Dev))]),
+        package("brokkr-cli", &[("rusqlite", Some(Kind::Dev))]),
+    ];
+    assert_eq!(
+        refused_edges(&packages.iter().collect::<Vec<_>>(), &parents),
+        [
+            "brokkr-core -> tempfile (Dev): outside the pure crate's closed set",
+            "brokkr-view -> uuid (Normal): outside the pure crate's closed set",
+            "brokkr-store -> brokkr-runtime (Dev): its [bans] wrappers do not name the parent",
+            "brokkr-runtime -> rusqlite (Build): a dev-only wrapper",
+            "brokkr-bridge -> brokkr-cli (Dev): a workspace crate deny.toml does not govern",
+        ]
+    );
+}
+
 /// Ruling 1, the one-way graph: every workspace crate but the binary is
-/// governed by `deny.toml`, and every edge Cargo reads to a governed crate
-/// comes from a parent its entry allows, dev edges included; a dev-only
-/// wrapper admits a dev edge alone.
+/// governed by `deny.toml`, the pure crates' closed sets agree with its
+/// wrappers, every edge Cargo reads is allowed, and every package the
+/// workspace resolves to outside it comes from crates.io.
 #[test]
 fn every_manifest_edge_is_in_the_allowed_graph() {
-    let mut parents = allowed_parents(&read("deny.toml")).expect("deny.toml's [bans] reads");
-    let packages = metadata().packages;
-    let ungoverned: Vec<&str> = packages
+    let parents = allowed_parents(&read("deny.toml")).expect("deny.toml's [bans] reads");
+    let metadata = metadata();
+    let members: Vec<&Package> = metadata
+        .packages
+        .iter()
+        .filter(|package| metadata.workspace_members.contains(&package.id))
+        .collect();
+    let ungoverned: Vec<&str> = members
         .iter()
         .map(|package| package.name.as_str())
         .filter(|name| !parents.contains_key(*name))
@@ -238,39 +354,57 @@ fn every_manifest_edge_is_in_the_allowed_graph() {
         ["brokkr-cli"],
         "deny.toml places every library crate in the graph"
     );
-    parents.insert("brokkr-cli".to_string(), BTreeSet::new());
-
-    let mut refused = Vec::new();
-    let mut dev_only_used = BTreeSet::new();
-    let mut checked = 0;
-    for package in &packages {
-        for dependency in &package.dependencies {
-            let Some(allowed) = parents.get(&dependency.name) else {
-                continue;
-            };
-            checked += 1;
-            let kind = dependency.kind.unwrap_or(Kind::Normal);
-            let pair = (package.name.as_str(), dependency.name.as_str());
-            let dev_only = DEV_ONLY.contains(&pair);
-            if dev_only && kind == Kind::Dev {
-                dev_only_used.insert(pair);
-            }
-            if !allowed.contains(&package.name) || (dev_only && kind != Kind::Dev) {
-                refused.push(format!("{} -> {} ({kind:?})", pair.0, pair.1));
-            }
-        }
-    }
+    let disagreements: Vec<String> = PURE
+        .iter()
+        .flat_map(|(pure, closed)| {
+            parents
+                .iter()
+                .filter(|(child, wrappers)| {
+                    wrappers.contains(*pure) != closed.contains(&child.as_str())
+                })
+                .map(move |(child, _)| format!("{pure} -> {child}"))
+        })
+        .collect();
     assert_eq!(
-        refused,
+        disagreements,
+        Vec::<String>::new(),
+        "a pure crate's closed set and deny.toml's wrappers name the same governed crates"
+    );
+    assert_eq!(
+        refused_edges(&members, &parents),
         Vec::<String>::new(),
         "edges outside the one-way graph (decision 0071 ruling 1)"
     );
+    let dev_only_used: BTreeSet<(&str, &str)> = members
+        .iter()
+        .flat_map(|package| {
+            package
+                .dependencies
+                .iter()
+                .filter(|dependency| dependency.kind == Some(Kind::Dev))
+                .map(|dependency| (package.name.as_str(), dependency.name.as_str()))
+        })
+        .filter(|pair| DEV_ONLY.contains(pair))
+        .collect();
     assert_eq!(
         dev_only_used,
         BTreeSet::from(DEV_ONLY),
         "every dev-only wrapper is a dev edge in use"
     );
-    assert_eq!(checked, 29, "the governed edges Cargo reports");
+    let unknown: Vec<String> = metadata
+        .packages
+        .iter()
+        .filter(|package| {
+            let member = metadata.workspace_members.contains(&package.id);
+            package.source.as_deref() != (!member).then_some(CRATES_IO)
+        })
+        .map(|package| format!("{} ({:?})", package.name, package.source))
+        .collect();
+    assert_eq!(
+        unknown,
+        Vec::<String>::new(),
+        "every package is a workspace member or comes from crates.io"
+    );
 }
 
 /// The threshold lines of a clippy config: every top-level key but the
@@ -311,11 +445,34 @@ fn the_pure_crates_share_one_clippy_config_that_repeats_the_root_thresholds() {
     );
 }
 
-/// Clippy's disallowed lists name items, never whole modules, so the
-/// backstop refuses std's effectful modules by name.
-const EFFECTFUL_MODULES: [&str; 7] = ["fs", "process", "env", "net", "thread", "io", "os"];
+/// The crates a path may be rooted at to reach the standard library.
+const ROOTS: [&str; 3] = ["std", "core", "alloc"];
 
-/// Clock and randomness sources, refused wherever they are named.
+/// Ruling 1's allowlist: the only paths under `std`, `core` or `alloc`
+/// the pure crates may name, each a whole module or a single item, and
+/// each one they use today. Every other path under a root is refused,
+/// the root itself included.
+const PURE_STD: [&str; 8] = [
+    "cell",
+    "collections::BTreeMap",
+    "collections::BTreeSet",
+    "fmt",
+    "iter",
+    "mem",
+    "rc",
+    "str",
+];
+
+/// The macros the pure crates may invoke besides those they define with
+/// `macro_rules!`. `thread_local` serves view's test-only counters, and
+/// clippy refuses the `LocalKey` it makes anywhere else.
+const PURE_MACROS: [&str; 5] = ["format", "json", "matches", "thread_local", "vec"];
+
+/// Keywords that may stand before `!(`, where the `!` is a negation.
+const NEGATING_KEYWORDS: [&str; 6] = ["break", "if", "in", "match", "return", "while"];
+
+/// Clock and randomness sources from the crates the pure crates may use,
+/// refused wherever they are named.
 const SOURCES: [&str; 12] = [
     "SystemTime",
     "Instant",
@@ -331,141 +488,548 @@ const SOURCES: [&str; 12] = [
     "RandomState",
 ];
 
-const TERMINAL_MACROS: [&str; 5] = ["print", "println", "eprint", "eprintln", "dbg"];
+/// What every string, byte string, raw string and char literal lexes to.
+const LITERAL: &str = "<literal>";
 
-/// Rust source as `(line, token)`: words (a raw identifier's `r#`
-/// dropped), `::` as one token, and every other non-space character
-/// alone. Whitespace, newlines included, separates tokens and nothing
-/// more, so an import split over lines reads as it would on one.
-fn tokens(source: &str) -> Vec<(usize, String)> {
+/// A token and the line it starts on.
+type Token = (usize, String);
+
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn is_ident(token: &str) -> bool {
+    token.starts_with(|c: char| c.is_alphabetic() || c == '_') && token.chars().all(is_word)
+}
+
+fn word_end(chars: &[char], at: usize) -> usize {
+    at + chars[at..].iter().take_while(|c| is_word(**c)).count()
+}
+
+/// Rust source as tokens, lexed before anything is matched: line, block
+/// (nested) and doc comments are dropped, and each literal reads as
+/// [`LITERAL`], so neither can hide code or pose as it. Words (a raw
+/// identifier's `r#` dropped), `::` and lifetimes are one token each,
+/// every other non-space character is its own.
+fn lex(source: &str) -> Vec<Token> {
+    let chars: Vec<char> = source.chars().collect();
     let mut tokens = Vec::new();
-    let mut line = 1;
-    let mut chars = source.chars().peekable();
-    let word = |c: &char| c.is_alphanumeric() || *c == '_';
-    while let Some(c) = chars.next() {
-        if c == '\n' {
-            line += 1;
-        } else if word(&c) {
-            let mut text = String::from(c);
-            while let Some(next) = chars.next_if(word) {
-                text.push(next);
-            }
-            if text != "r" || chars.next_if_eq(&'#').is_none() {
-                tokens.push((line, text));
-            }
-        } else if c == ':' && chars.next_if_eq(&':').is_some() {
-            tokens.push((line, "::".to_string()));
-        } else if !c.is_whitespace() {
-            tokens.push((line, c.to_string()));
-        }
+    let (mut at, mut line) = (0, 1);
+    while at < chars.len() {
+        let (end, token) = next_token(&chars, at);
+        tokens.extend(token.map(|token| (line, token)));
+        line += chars[at..end].iter().filter(|c| **c == '\n').count();
+        at = end;
     }
     tokens
 }
 
-/// The first root a `std::{ … }` group imports that reaches the world, at
-/// any nesting of the group: an effectful module, or `self` and `*`,
-/// which bring std itself in.
-fn group_impurity(group: &[(usize, String)]) -> Option<(usize, String)> {
-    let mut depth = 1;
-    let mut item_start = true;
-    for (line, token) in group {
-        let token = token.as_str();
-        if item_start && (EFFECTFUL_MODULES.contains(&token) || token == "self" || token == "*") {
-            return Some((*line, format!("std::{{ {token} }}")));
+/// The token at `at`, if it is not a comment or space, and where it ends.
+fn next_token(chars: &[char], at: usize) -> (usize, Option<String>) {
+    match (chars[at], chars.get(at + 1)) {
+        ('/', Some('/')) => {
+            let length = chars[at..].iter().take_while(|c| **c != '\n').count();
+            (at + length, None)
         }
-        match token {
-            "{" => depth += 1,
-            "}" if depth == 1 => return None,
-            "}" => depth -= 1,
-            _ => {}
-        }
-        item_start = depth == 1 && token == ",";
+        ('/', Some('*')) => (block_comment_end(chars, at), None),
+        ('"', _) => (quoted_end(chars, at + 1, '"'), Some(LITERAL.into())),
+        ('\'', _) => char_or_lifetime(chars, at),
+        (':', Some(':')) => (at + 2, Some("::".into())),
+        (c, _) if is_word(c) => word_or_literal(chars, at),
+        (c, _) if c.is_whitespace() => (at + 1, None),
+        (c, _) => (at + 1, Some(c.to_string())),
     }
-    None
 }
 
-/// Every place a source names an effectful std module in any path or
-/// import form, aliases std, or names a clock, randomness source or
-/// terminal macro, as `line: what`.
-fn impurities(source: &str) -> Vec<String> {
-    let tokens = tokens(source);
+/// The end of the block comment opening at `at`, which nests.
+fn block_comment_end(chars: &[char], at: usize) -> usize {
+    let (mut depth, mut index) = (0, at);
+    while index < chars.len() {
+        match (chars[index], chars.get(index + 1)) {
+            ('/', Some('*')) => depth += 1,
+            ('*', Some('/')) => depth -= 1,
+            _ => {
+                index += 1;
+                continue;
+            }
+        }
+        index += 2;
+        if depth == 0 {
+            return index;
+        }
+    }
+    chars.len()
+}
+
+/// The end of a literal whose body starts at `from` and closes at an
+/// unescaped `quote`.
+fn quoted_end(chars: &[char], from: usize, quote: char) -> usize {
+    let mut index = from;
+    while index < chars.len() {
+        match chars[index] {
+            '\\' => index += 2,
+            c if c == quote => return index + 1,
+            _ => index += 1,
+        }
+    }
+    chars.len()
+}
+
+/// A char literal (`'x'`, `'\n'`) or a lifetime or label (`'a`).
+fn char_or_lifetime(chars: &[char], at: usize) -> (usize, Option<String>) {
+    match (chars.get(at + 1), chars.get(at + 2)) {
+        (Some('\\'), _) => (quoted_end(chars, at + 1, '\''), Some(LITERAL.into())),
+        (Some(_), Some('\'')) => (at + 3, Some(LITERAL.into())),
+        _ => {
+            let end = word_end(chars, at + 1);
+            (end, Some(chars[at..end].iter().collect()))
+        }
+    }
+}
+
+/// A word, or the literal or raw identifier a word prefix opens: `r"…"`,
+/// `br#"…"#`, `cr"…"`, `b"…"`, `c"…"`, `b'…'` and `r#ident`.
+fn word_or_literal(chars: &[char], at: usize) -> (usize, Option<String>) {
+    let end = word_end(chars, at);
+    let word: String = chars[at..end].iter().collect();
+    let hashes = chars[end..].iter().take_while(|c| **c == '#').count();
+    match (word.as_str(), hashes, chars.get(end + hashes)) {
+        ("r" | "br" | "cr", _, Some('"')) => {
+            let body = end + hashes + 1;
+            let close = (body..chars.len()).find(|&index| {
+                chars[index] == '"'
+                    && chars[index + 1..]
+                        .iter()
+                        .take(hashes)
+                        .filter(|c| **c == '#')
+                        .count()
+                        == hashes
+            });
+            (
+                close.map_or(chars.len(), |index| index + 1 + hashes),
+                Some(LITERAL.into()),
+            )
+        }
+        ("r", 1, Some(c)) if is_word(*c) => {
+            let ident_end = word_end(chars, end + 1);
+            (ident_end, Some(chars[end + 1..ident_end].iter().collect()))
+        }
+        ("b" | "c", 0, Some('"')) => (quoted_end(chars, end + 1, '"'), Some(LITERAL.into())),
+        ("b", 0, Some('\'')) => (quoted_end(chars, end + 1, '\''), Some(LITERAL.into())),
+        _ => (end, Some(word)),
+    }
+}
+
+/// One path a `use` tree imports, the line of its last segment, and
+/// whether it is renamed.
+struct Import {
+    line: usize,
+    path: Vec<String>,
+    renamed: bool,
+}
+
+/// Resolves the `use` tree at `at` onto `path`, nested groups, `self`,
+/// globs and renames included, and leaves `at` past it. `Err` for a form
+/// this reader does not know.
+fn use_tree(
+    tokens: &[Token],
+    at: &mut usize,
+    mut path: Vec<String>,
+    imports: &mut Vec<Import>,
+) -> Result<(), ()> {
+    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
+    if text(*at) == "::" {
+        *at += 1;
+    }
+    loop {
+        let (line, token) = tokens.get(*at).ok_or(())?.clone();
+        *at += 1;
+        if token == "{" {
+            return use_group(tokens, at, &path, imports);
+        }
+        if token != "*" && !is_ident(&token) {
+            return Err(());
+        }
+        let glob = token == "*";
+        path.push(token);
+        match (glob, text(*at)) {
+            (false, "::") => *at += 1,
+            (false, "as") => {
+                *at += 2;
+                imports.push(Import {
+                    line,
+                    path,
+                    renamed: true,
+                });
+                return Ok(());
+            }
+            _ => {
+                imports.push(Import {
+                    line,
+                    path,
+                    renamed: false,
+                });
+                return Ok(());
+            }
+        }
+    }
+}
+
+/// The trees of a `{ … }` group, each resolved onto `path`.
+fn use_group(
+    tokens: &[Token],
+    at: &mut usize,
+    path: &[String],
+    imports: &mut Vec<Import>,
+) -> Result<(), ()> {
+    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
+    loop {
+        if text(*at) == "}" {
+            *at += 1;
+            return Ok(());
+        }
+        use_tree(tokens, at, path.to_vec(), imports)?;
+        match text(*at) {
+            "," => *at += 1,
+            "}" => {}
+            _ => return Err(()),
+        }
+    }
+}
+
+/// Whether a path rooted at `std`, `core` or `alloc` falls under the
+/// allowlist. The root alone never does.
+fn pure_std(path: &[String]) -> bool {
+    PURE_STD.iter().any(|entry| {
+        let entry: Vec<&str> = entry.split("::").collect();
+        path.len() > entry.len()
+            && path[1..=entry.len()]
+                .iter()
+                .zip(&entry)
+                .all(|(a, b)| a == b)
+    })
+}
+
+/// The refusal for one import, if it reaches a root: from the first root
+/// segment on (so `crate::std::fs` is `std::fs`), a rename of the root
+/// itself, or a path outside the allowlist.
+fn import_refusal(import: &Import) -> Option<(usize, String)> {
+    let root = import
+        .path
+        .iter()
+        .position(|segment| ROOTS.contains(&segment.as_str()))?;
+    let mut path = import.path[root..].to_vec();
+    if path.len() > 1 && path.last().is_some_and(|segment| segment == "self") {
+        path.pop();
+    }
+    if path.len() == 1 && import.renamed {
+        return Some((import.line, format!("a rename of {}", path[0])));
+    }
+    (!pure_std(&path)).then(|| {
+        (
+            import.line,
+            format!("{}: outside the pure std allowlist", path.join("::")),
+        )
+    })
+}
+
+/// The path rooted at `tokens[at]` outside an import, and where it ends.
+/// A segment that is not an identifier (a macro's `$`) ends the path and
+/// is kept, so the path falls outside the allowlist; a turbofish ends it.
+fn expression_path(tokens: &[Token], at: usize) -> (Vec<String>, usize) {
+    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
+    let mut path = vec![tokens[at].1.clone()];
+    let mut end = at + 1;
+    while text(end) == "::" && !["", "<"].contains(&text(end + 1)) {
+        path.push(text(end + 1).to_string());
+        end += 2;
+        if !is_ident(text(end - 1)) {
+            break;
+        }
+    }
+    (path, end)
+}
+
+/// Every import and every other path that reaches a root and falls
+/// outside the allowlist, and every rename of a root.
+fn std_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
     let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
     let mut found = Vec::new();
-    for (at, (line, token)) in tokens.iter().enumerate() {
-        let what = match (token.as_str(), text(at + 1), text(at + 2)) {
-            ("std", "as", _) => Some((*line, "an alias of std".to_string())),
-            ("std", "::", "*") => Some((*line, "a glob import of std".to_string())),
-            ("std", "::", "{") => group_impurity(&tokens[at + 3..]),
-            ("std", "::", module) if EFFECTFUL_MODULES.contains(&module) => {
-                Some((*line, format!("std::{module}")))
+    let mut at = 0;
+    while at < tokens.len() {
+        let line = tokens[at].0;
+        if text(at) == "use" && text(at + 1) != "<" {
+            let (mut end, mut imports) = (at + 1, Vec::new());
+            if use_tree(tokens, &mut end, Vec::new(), &mut imports).is_ok() && text(end) == ";" {
+                found.extend(imports.iter().filter_map(import_refusal));
+                at = end + 1;
+                continue;
             }
-            (name, _, _) if SOURCES.contains(&name) => Some((*line, name.to_string())),
-            (name, "!", _) if TERMINAL_MACROS.contains(&name) => Some((*line, format!("{name}!"))),
-            _ => None,
-        };
-        found.extend(what.map(|(line, what)| format!("{line}: {what}")));
+            found.push((line, "an import the scanner cannot read".to_string()));
+        } else if ROOTS.contains(&text(at)) {
+            let (path, end) = expression_path(tokens, at);
+            if !pure_std(&path) {
+                let path = path.join("::");
+                found.push((line, format!("{path}: outside the pure std allowlist")));
+            }
+            at = end;
+            continue;
+        }
+        at += 1;
     }
     found
 }
 
-/// The backstop reads the forms a line-scoped search misses: a group split
-/// over lines, nested groups, an alias or glob of std, spaced paths and
-/// raw identifiers.
+/// Whether the `mod` at `at` is declared directly under `#[cfg(test)]`.
+fn under_cfg_test(tokens: &[Token], at: usize) -> bool {
+    let attribute = ["#", "[", "cfg", "(", "test", ")", "]"];
+    at >= attribute.len()
+        && tokens[at - attribute.len()..at]
+            .iter()
+            .map(|(_, token)| token.as_str())
+            .eq(attribute)
+}
+
+/// Whether the attribute opening at `at` sets a `path`, which could make
+/// a module read a file this scan never lists.
+fn sets_a_path(tokens: &[Token], at: usize) -> bool {
+    let open = at + 1 + usize::from(tokens.get(at + 1).is_some_and(|(_, t)| t == "!"));
+    if tokens.get(open).is_none_or(|(_, token)| token != "[") {
+        return false;
+    }
+    let mut depth = 0;
+    for (index, (_, token)) in tokens.iter().enumerate().skip(open) {
+        match token.as_str() {
+            "[" => depth += 1,
+            "]" if depth == 1 => return false,
+            "]" => depth -= 1,
+            "path" if tokens.get(index + 1).is_some_and(|(_, t)| t == "=") => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Every item form the pure crates may not take: an `extern crate`, a
+/// `#[path]`, a `mod tests;` outside `#[cfg(test)]`, a macro outside the
+/// allowlist, and a clock or randomness source.
+fn form_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
+    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
+    let defined: BTreeSet<&str> = tokens
+        .windows(3)
+        .filter(|window| window[0].1 == "macro_rules" && window[1].1 == "!")
+        .map(|window| window[2].1.as_str())
+        .collect();
+    let mut found = Vec::new();
+    for (at, (line, token)) in tokens.iter().enumerate() {
+        let what = match (token.as_str(), text(at + 1), text(at + 2)) {
+            ("extern", "crate", _) => "an extern crate".to_string(),
+            ("mod", "tests", ";") if !under_cfg_test(tokens, at) => {
+                "a `mod tests;` outside #[cfg(test)]".to_string()
+            }
+            ("#", _, _) if sets_a_path(tokens, at) => "a #[path] attribute".to_string(),
+            (name, "!", "(" | "[" | "{")
+                if is_ident(name)
+                    && !NEGATING_KEYWORDS.contains(&name)
+                    && !PURE_MACROS.contains(&name)
+                    && !defined.contains(name) =>
+            {
+                format!("{name}!: outside the pure macro allowlist")
+            }
+            (name, _, _) if SOURCES.contains(&name) => {
+                format!("{name}: a clock or randomness source")
+            }
+            _ => continue,
+        };
+        found.push((*line, what));
+    }
+    found
+}
+
+/// Every place a pure crate's source leaves ruling 1, as `line: what`.
+fn impurities(source: &str) -> Vec<String> {
+    let tokens = lex(source);
+    let mut found = std_refusals(&tokens);
+    found.extend(form_refusals(&tokens));
+    found.sort_by_key(|(line, _)| *line);
+    found
+        .into_iter()
+        .map(|(line, what)| format!("{line}: {what}"))
+        .collect()
+}
+
+/// The scanner lexes before it matches, so no comment or literal hides a
+/// path or poses as one, and it refuses every form the allowlists do not
+/// name: an unlisted module or item, a rename or glob of a root, a nested
+/// group, a macro's metavariable, an unlisted macro, an `extern crate`, a
+/// `#[path]` and an ungated `mod tests;`.
 #[test]
-fn the_backstop_refuses_every_import_form() {
-    let cases: [(&str, &[&str]); 9] = [
+fn the_scanner_refuses_every_form_its_allowlists_do_not_name() {
+    let outside =
+        |line: usize, path: &str| format!("{line}: {path}: outside the pure std allowlist");
+    let raw = "let s = r#\"\\\"#; let t = br##\"\"#\"##; std::process::id()";
+    let cases: Vec<(&str, Vec<String>)> = vec![
         (
-            "use std::{\n    collections::BTreeMap,\n    fs,\n};\nfn f() { fs::hard_link(a, b); }",
-            &["3: std::{ fs }"],
+            "use std::{collections::BTreeMap, /* c */ os::unix::process::parent_id};",
+            vec![outside(1, "std::os::unix::process::parent_id")],
         ),
         (
-            "use std::{collections::{BTreeMap}, io::{self, Write}};",
-            &["1: std::{ io }"],
+            "use std::{\n    collections::BTreeMap,\n    // c\n    os::unix::process::parent_id,\n};",
+            vec![outside(4, "std::os::unix::process::parent_id")],
         ),
         (
-            "use std as s;\nfn f() { s::fs::hard_link(a, b); }",
-            &["1: an alias of std"],
-        ),
-        ("extern crate std as s;", &["1: an alias of std"]),
-        ("use ::std::*;", &["1: a glob import of std"]),
-        ("use std::{self as s};", &["1: std::{ self }"]),
-        ("let p = std :: r#fs :: read(p);", &["1: std::fs"]),
-        (
-            "let now = Instant::now();\nprintln ! (\"{now:?}\");",
-            &["1: Instant", "2: println!"],
+            "/* /* */ std::fs::read(p) */ std::process::id()",
+            vec![outside(1, "std::process::id")],
         ),
         (
-            "use std::{collections::BTreeMap, sync::{Arc, Mutex}, fmt};\nlet out = stdout_of(x);",
-            &[],
+            "/// a \"quote\n//! std::fs\n/** std::env */\nuse std::io::Read;",
+            vec![outside(4, "std::io::Read")],
         ),
+        (
+            "let s = \"/*\"; let t = \"std::fs\"; std::env::var(s)",
+            vec![outside(1, "std::env::var")],
+        ),
+        (raw, vec![outside(1, "std::process::id")]),
+        (
+            "let q = '\"'; let e = '\\''; let b = b'\"';\nfn f<'a>(x: &'a str) { std::fs::read(x) }",
+            vec![outside(2, "std::fs::read")],
+        ),
+        (
+            "use std as s;\nuse core::{self as c};\nuse std::collections as h;",
+            vec![
+                "1: a rename of std".to_string(),
+                "2: a rename of core".to_string(),
+                outside(3, "std::collections"),
+            ],
+        ),
+        (
+            "extern crate alloc as a;",
+            vec![outside(1, "alloc"), "1: an extern crate".to_string()],
+        ),
+        (
+            "use std::*;\nuse std::collections::*;\nuse std::fmt::*;",
+            vec![outside(1, "std::*"), outside(2, "std::collections::*")],
+        ),
+        (
+            "use ::std::{collections::{BTreeMap, hash_map::HashMap}, io::{self, Write}};",
+            vec![
+                outside(1, "std::collections::hash_map::HashMap"),
+                outside(1, "std::io"),
+                outside(1, "std::io::Write"),
+            ],
+        ),
+        (
+            "macro_rules! reach { ($m:ident) => { std::$m::id() }; }\nreach!(process);",
+            vec![outside(1, "std::$")],
+        ),
+        (
+            "macro_rules! at { ($r:ident) => { $r::fs::read(p) }; }\nat!(std);",
+            vec![outside(2, "std")],
+        ),
+        (
+            "use crate::std::fs;\nlet f = r#std::fs::read;",
+            vec![outside(1, "std::fs"), outside(2, "std::fs::read")],
+        ),
+        (
+            "use std::{$m};",
+            vec![
+                "1: an import the scanner cannot read".to_string(),
+                outside(1, "std::{"),
+            ],
+        ),
+        (
+            "println!(\"x\");\ninclude!(\"f.rs\");\nif !(a) { format!(\"{}\", vec![1]) }",
+            vec![
+                "1: println!: outside the pure macro allowlist".to_string(),
+                "2: include!: outside the pure macro allowlist".to_string(),
+            ],
+        ),
+        (
+            "let now = Instant::now();\nlet t = time::OffsetDateTime::now_utc();",
+            vec![
+                "1: Instant: a clock or randomness source".to_string(),
+                "2: now_utc: a clock or randomness source".to_string(),
+            ],
+        ),
+        (
+            "#[path = \"../x.rs\"]\nmod x;\n#[cfg_attr(test, path = \"y.rs\")]\nmod y;\n#![doc(hidden)]",
+            vec![
+                "1: a #[path] attribute".to_string(),
+                "3: a #[path] attribute".to_string(),
+            ],
+        ),
+        (
+            "mod tests;\n#[cfg(test)]\nmod tests;\n#[cfg(any(test))]\nmod tests;",
+            vec![
+                "1: a `mod tests;` outside #[cfg(test)]".to_string(),
+                "5: a `mod tests;` outside #[cfg(test)]".to_string(),
+            ],
+        ),
+        (
+            "use std::collections::{BTreeMap, BTreeSet};\nuse std::{fmt, rc::Rc, str::FromStr};\n\
+             let s = std::str::from_utf8(b).map(std::mem::take);\nstd::iter::once::<u8>(1);\n\
+             macro_rules! m { () => {} }\nm!();\nfn f<'a>() -> impl Sized + use<'a> {}\n#",
+            vec![],
+        ),
+        ("\"open", vec![]),
+        ("/* open", vec![]),
+        ("r#\"open", vec![]),
+        ("'", vec![]),
     ];
     for (source, expected) in cases {
         assert_eq!(impurities(source), expected, "{source}");
     }
 }
 
-/// Core's and view's production source: every `.rs` under `src/` but the
-/// `tests.rs` modules and `tests/` directories.
-fn production_sources(dir: &Path, files: &mut Vec<PathBuf>) {
+/// Whether `module` declares `mod tests;` under `#[cfg(test)]`, which
+/// makes its `tests.rs` or `tests/` test-only. A file that cannot be read
+/// declares nothing, so its tests are scanned.
+fn declares_test_only_tests(module: &Path) -> bool {
+    std::fs::read_to_string(module).is_ok_and(|source| {
+        let tokens = lex(&source);
+        tokens.windows(3).enumerate().any(|(at, window)| {
+            window[0].1 == "mod"
+                && window[1].1 == "tests"
+                && window[2].1 == ";"
+                && under_cfg_test(&tokens, at)
+        })
+    })
+}
+
+/// Core's and view's production source: every `.rs` under `dir` but a
+/// `tests.rs` or `tests/` that one of `parents`, the files that declare
+/// `dir`'s modules, declares under `#[cfg(test)]`.
+fn production_sources(dir: &Path, parents: &[PathBuf], files: &mut Vec<PathBuf>) {
+    let test_only = parents
+        .iter()
+        .any(|parent| declares_test_only_tests(parent));
     for entry in std::fs::read_dir(dir).expect("a source directory") {
         let path = entry.expect("a directory entry").path();
         let name = path.file_name().and_then(|name| name.to_str());
-        if path.is_dir() && name != Some("tests") {
-            production_sources(&path, files);
-        } else if path.extension().is_some_and(|ext| ext == "rs") && name != Some("tests.rs") {
+        if test_only && [Some("tests"), Some("tests.rs")].contains(&name) {
+            continue;
+        }
+        if path.is_dir() {
+            production_sources(
+                &path,
+                &[path.with_extension("rs"), path.join("mod.rs")],
+                files,
+            );
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
             files.push(path);
         }
     }
 }
 
-/// Ruling 1's backstop: core's and view's production source names no
-/// effectful module, clock, randomness source or terminal macro.
+/// Ruling 1: core's and view's production source names nothing outside
+/// the allowlists, and every `.rs` file in it is scanned.
 #[test]
-fn the_pure_crates_name_no_effectful_module() {
+fn the_pure_crates_name_nothing_outside_the_allowlists() {
     let root = workspace();
     let mut files = Vec::new();
     for krate in ["brokkr-core", "brokkr-view"] {
-        production_sources(&root.join("crates").join(krate).join("src"), &mut files);
+        let src = root.join("crates").join(krate).join("src");
+        production_sources(&src, &[src.join("lib.rs")], &mut files);
     }
     let found: Vec<String> = files
         .iter()
@@ -482,10 +1046,9 @@ fn the_pure_crates_name_no_effectful_module() {
         Vec::<String>::new(),
         "core and view are pure (decision 0071 ruling 1): effects live in store and runtime"
     );
-    for scanned in ["brokkr-core/src/lib.rs", "brokkr-view/src/transcript.rs"] {
-        assert!(
-            files.contains(&root.join("crates").join(scanned)),
-            "{scanned} is scanned"
-        );
-    }
+    let crates = root.join("crates");
+    assert!(files.contains(&crates.join("brokkr-core/src/lib.rs")));
+    assert!(files.contains(&crates.join("brokkr-view/src/transcript.rs")));
+    assert!(!files.contains(&crates.join("brokkr-view/src/transcript/tests.rs")));
+    assert!(!files.contains(&crates.join("brokkr-view/src/tests.rs")));
 }

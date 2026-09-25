@@ -3351,10 +3351,6 @@ fn unrecognized_and_omission_rows_without_a_sequence_are_counted() {
 }
 
 #[test]
-#[expect(
-    clippy::disallowed_types,
-    reason = "collect_ordinary_facts still takes a HashMap (#336)"
-)]
 fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
     fn tool(id: &str) -> DshBlock {
         DshBlock {
@@ -3378,7 +3374,7 @@ fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
         dedicated: true,
     }];
     let mut assemblies = Vec::new();
-    let mut dedicated = HashMap::new();
+    let mut dedicated = BTreeMap::new();
     collect_ordinary_facts(&mut retained, 3, true, &mut assemblies, &mut dedicated);
     assert_eq!(
         dedicated.get(&(

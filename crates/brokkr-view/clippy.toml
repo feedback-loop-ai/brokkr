@@ -5,7 +5,8 @@
 # clippy.toml replaces the root one rather than merging with it, so
 # crates/brokkr-cli/tests/layering.rs holds both to each other and to the
 # root's thresholds. Clippy names items, not modules, so the same test
-# refuses the effectful std modules by name in every import form.
+# lexes both crates' source and refuses every std path outside a closed
+# allowlist.
 #
 # The lists below are the whole effectful surface of std::fs,
 # std::process, std::env, std::net, std::thread and the clocks: every free
