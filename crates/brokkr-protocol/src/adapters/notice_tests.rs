@@ -37,6 +37,8 @@ fn codex_notice() -> Value {
 
 fn input(extra: Value) -> Value {
     let mut input = json!({
+        // A readable, empty charter: these tests author none (#372).
+        "role_path": "/dev/null",
         "feature": "feature",
         "phase": "work",
         "workdir": "/work",
@@ -180,7 +182,8 @@ fn a_boxed_seat_with_the_codex_carrier_reads_exactly_one_discovery_paragraph() {
                 json!({"hands": "boxed", "boundary": "namespace", "hands_notice": codex_notice()}),
             ),
             kind,
-        );
+        )
+        .unwrap();
         assert_eq!(
             contract(&prompt),
             format!("{CONTRACT}{BOXED}{DISCOVERY}\n"),
@@ -207,7 +210,7 @@ fn without_an_applicable_carrier_the_boxed_contract_is_todays() {
         if let Some(carrier) = carrier.clone() {
             extra["hands_notice"] = carrier;
         }
-        let prompt = render_prompt(&input(extra), AdapterKind::Codex);
+        let prompt = render_prompt(&input(extra), AdapterKind::Codex).unwrap();
         assert_eq!(
             contract(&prompt),
             format!("{CONTRACT}{BOXED}\n"),
@@ -231,7 +234,7 @@ between you and the machine, and no workspace tool is served. Write the result f
     ] {
         let mut with = extra.clone();
         with["hands_notice"] = codex_notice();
-        let prompt = render_prompt(&input(with), AdapterKind::Codex);
+        let prompt = render_prompt(&input(with), AdapterKind::Codex).unwrap();
         assert_eq!(contract(&prompt), format!("{CONTRACT}{tail}\n"), "{extra}");
     }
 
@@ -242,7 +245,8 @@ between you and the machine, and no workspace tool is served. Write the result f
             "hands_notice": codex_notice(),
         })),
         AdapterKind::Codex,
-    );
+    )
+    .unwrap();
     assert_eq!(
         contract(&door),
         "## Result contract — MANDATORY\n\nWhen your work is finished, your FINAL message \
@@ -267,7 +271,8 @@ fn an_exec_script_reads_no_discovery_paragraph_even_beside_a_carrier() {
     let prompt = render_prompt(
         &input(json!({"hands": "boxed", "boundary": "namespace", "hands_notice": codex_notice()})),
         AdapterKind::Exec,
-    );
+    )
+    .unwrap();
     assert_eq!(contract(&prompt), format!("{CONTRACT}\n"));
 }
 
@@ -279,7 +284,8 @@ fn a_declared_custom_workspace_is_the_one_name_the_contract_uses() {
             "hands_notice": {"workspace_tool": "fixture_workspace", "discovery_tool": "fixture_search"},
         })),
         AdapterKind::Codex,
-    );
+    )
+    .unwrap();
     assert_eq!(
         contract(&prompt),
         format!(

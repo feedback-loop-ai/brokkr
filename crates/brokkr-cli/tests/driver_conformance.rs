@@ -262,6 +262,42 @@ fn codex_refusal_before_the_first_turn_is_determinate() {
     assert_determinate_refusal(&out, "codex", "rate limit");
 }
 
+/// #372: the charter is the office. A seat whose charter path does not
+/// exist refuses to start through every built model driver — one failed
+/// result, never `accepted`, never a checkpoint — with the path in the
+/// error, and its provider is never spawned. (An exec site has no model to
+/// instruct, so its charter stays optional.)
+#[test]
+fn a_missing_charter_refuses_to_start_on_every_model_driver() {
+    for kind_args in [
+        vec!["claude"],
+        vec!["lanetally"],
+        vec!["codex"],
+        vec!["dsh"],
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let spawned = dir.path().join("spawned");
+        let shim = make_shim(
+            dir.path(),
+            &format!("#!/bin/sh\ntouch '{}'\n", spawned.display()),
+        );
+        let missing = dir.path().join("missing-role.md");
+        let out = drive_charter(&kind_args, &shim, dir.path(), &missing);
+        let label = kind_args[0];
+        assert_determinate_refusal(&out, label, "");
+        assert_eq!(
+            out[1]["error"],
+            format!(
+                "seat refused to start: charter '{}' is unreadable: \
+                 No such file or directory (os error 2)",
+                missing.display()
+            ),
+            "{label}"
+        );
+        assert!(!spawned.exists(), "{label}: no provider is spawned");
+    }
+}
+
 #[test]
 fn dsh_refusal_has_no_machine_readable_shape_and_stays_mid_session() {
     let dir = tempfile::tempdir().unwrap();
@@ -931,7 +967,7 @@ impl DshFixture {
         }
         let input = json!({
             "feature": "admission", "phase": "intake", "seat": "intake",
-            "role_path": self.workdir.join("missing-role.md"),
+            "role_path": charter(&self.workdir),
             "workdir": self.workdir,
             "result_path": self.workdir.join("results/fx.json"),
             "allowed_results": ["resolved"], "context": {},
@@ -1105,7 +1141,19 @@ fn make_named_shim(dir: &Path, name: &str, body: &str) -> PathBuf {
     path
 }
 
+/// A real charter in the workdir: a seat whose charter cannot be read
+/// refuses to start (#372), so every start that means to run carries one.
+fn charter(workdir: &Path) -> PathBuf {
+    let path = workdir.join("role.md");
+    std::fs::write(&path, "# conformance charter\n").unwrap();
+    path
+}
+
 fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
+    drive_charter(kind_args, shim, workdir, &charter(workdir))
+}
+
+fn drive_charter(kind_args: &[&str], shim: &Path, workdir: &Path, role: &Path) -> Vec<Value> {
     // Every harness home is test-owned. Conformance must never make a
     // driver name (or create under) the operator's real transcript home.
     let operator_home = tempfile::tempdir().unwrap();
@@ -1114,7 +1162,7 @@ fn drive(kind_args: &[&str], shim: &Path, workdir: &Path) -> Vec<Value> {
     let result_path = workdir.join("results/fx.json");
     let input = json!({
         "feature": "conformance", "phase": "intake", "seat": "intake",
-        "role_path": workdir.join("missing-role.md"),
+        "role_path": role,
         "workdir": workdir,
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
@@ -1941,7 +1989,7 @@ fn drive_with_secrets(
     let result_path = workdir.join("results/fx.json");
     let input = json!({
         "feature": "conformance", "phase": "intake", "seat": "intake",
-        "role_path": workdir.join("missing-role.md"),
+        "role_path": charter(workdir),
         "workdir": workdir,
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
@@ -2161,7 +2209,7 @@ fn a_resumed_mismatch_is_never_an_accepted_success() {
         );
         let input = json!({
             "feature": "conformance", "phase": "work", "seat": "work",
-            "role_path": workdir.join("missing-role.md"),
+            "role_path": charter(workdir),
             "workdir": workdir,
             "result_path": result,
             "allowed_results": ["complete"], "context": {},
@@ -2329,7 +2377,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         .value();
     let input = json!({
         "feature": "conformance", "phase": "work", "seat": "work",
-        "role_path": workdir.path().join("missing-role.md"),
+        "role_path": charter(workdir.path()),
         "workdir": workdir.path(),
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
@@ -2488,7 +2536,7 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     // gate requires (design D10 F1).
     let input = json!({
         "feature": "conformance", "phase": "work", "seat": "work",
-        "role_path": workdir.path().join("missing-role.md"),
+        "role_path": charter(workdir.path()),
         "workdir": workdir.path(),
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},

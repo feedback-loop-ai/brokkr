@@ -4746,14 +4746,19 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
         final_step["input"]["house_rules"], "One realm rule.\n",
         "a sequence panel passes the realm house through to every member"
     );
-    let first_prompt = brokkr_protocol::adapters::render_prompt(
-        &first["input"],
-        brokkr_protocol::adapters::AdapterKind::Claude,
-    );
-    let final_prompt = brokkr_protocol::adapters::render_prompt(
-        &final_step["input"],
-        brokkr_protocol::adapters::AdapterKind::Claude,
-    );
+    // The fixture charters are names, not files; the vocabulary is read
+    // over a readable empty charter, since an unreadable one refuses (#372).
+    let render = |input: &Value| {
+        let mut input = input.clone();
+        input["role_path"] = json!("/dev/null");
+        brokkr_protocol::adapters::render_prompt(
+            &input,
+            brokkr_protocol::adapters::AdapterKind::Claude,
+        )
+        .unwrap()
+    };
+    let first_prompt = render(&first["input"]);
+    let final_prompt = render(&final_step["input"]);
     assert!(first_prompt.contains("<one of: drafted, blocked>"));
     assert!(!first_prompt.contains("<one of: pass, fail>"));
     assert!(final_prompt.contains("<one of: pass, fail>"));

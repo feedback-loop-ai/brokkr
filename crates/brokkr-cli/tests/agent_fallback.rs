@@ -466,6 +466,78 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
     assert_eq!(provenance[0]["agent"], "thinker");
 }
 
+/// #372: a seat whose charter is gone by the time it runs refuses to
+/// start, and the journal records the refusal as a failure to start with
+/// the path in the error. The first seat deletes the second's charter
+/// after compile admitted it; the claude binary is pinned to one that does
+/// not exist, so no provider can run whatever the driver decides.
+#[test]
+fn a_seat_whose_charter_is_gone_is_journaled_as_a_failure_to_start() {
+    let ws = Workspace::new();
+    ws.script(json!({"seats": {}}));
+    let charter = ws.path().join("agents/charters/review.md");
+    std::fs::write(&charter, "# review\n").unwrap();
+    ws.write(
+        "adapters/claude.json",
+        json!({
+            "provider": "claude",
+            "binary": brokkr_bin(),
+            "driver": [
+                "env", "BROKKR_CLAUDE_BIN=brokkr-claude-that-is-not-installed",
+                brokkr_bin(), "driver", "claude", "--",
+            ],
+            "models": {"reviewer-model": "claude/reviewer"},
+            "model_flag": "--model",
+            "efforts": ["low", "medium", "high"],
+            "effort_flag": "--effort",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }),
+    );
+    ws.write(
+        "agents/reviewer.json",
+        json!({
+            "description": "a reviewer whose charter goes missing",
+            "charter": "charters/review.md",
+            "efforts": {"reviewer-model": "medium"},
+            "models": ["reviewer-model"],
+            "limits": {"max_attempts": 1, "timeout_seconds": 60},
+        }),
+    );
+    std::fs::write(
+        ws.path().join("bundle/unlink.sh"),
+        "#!/bin/sh\nrm \"$1\"\nout=$(sed -n 's|^    \\(/.*\\.json\\)$|\\1|p' \"$2\" | head -n 1)\n\
+         printf '%s' '{\"result\":\"complete\"}' > \"$out\"\n",
+    )
+    .unwrap();
+    ws.bundle(json!({
+        "implement": {"results": ["complete"], "driver": {"command": [
+            brokkr_bin(), "driver", "exec", "--",
+            "sh", "./unlink.sh", charter.to_string_lossy(), "{prompt_file}",
+        ]}},
+        "review": {"results": ["clean"], "agent": "reviewer"},
+    }));
+    let run_id = ws.run();
+    let events = ws.events(&run_id);
+    assert!(!charter.exists(), "the first seat removed the charter");
+    let failed = of_type(&events, "effect/failed");
+    assert_eq!(failed.len(), 1, "{events:#?}");
+    assert_eq!(
+        failed[0]["payload"]["start_failure"],
+        json!(true),
+        "{events:#?}"
+    );
+    assert_eq!(failed[0]["payload"]["start_failure_sites"], json!([null]));
+    assert_eq!(
+        failed[0]["payload"]["error"],
+        format!(
+            "seat refused to start: charter '{}' is unreadable: \
+             No such file or directory (os error 2); stderr tail: ",
+            charter.display()
+        )
+    );
+}
+
 /// A sequence STEP that ran and failed before accepting is a
 /// fail-to-start too, and it advances that step's own chain index — not
 /// the whole seat's. The scripted driver writes a non-protocol line, so

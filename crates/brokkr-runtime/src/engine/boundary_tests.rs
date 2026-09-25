@@ -2236,7 +2236,8 @@ fn the_shipped_verify_input_and_prompt_name_no_workspace_tool_under_any_built_bo
         let prompt = brokkr_protocol::adapters::render_prompt(
             &input,
             brokkr_protocol::adapters::AdapterKind::Exec,
-        );
+        )
+        .unwrap();
         assert!(!prompt.contains("mcp__brokkr__workspace"));
         assert!(!prompt.contains("Your hands"));
         assert!(prompt.contains(input["result_path"].as_str().unwrap()));
