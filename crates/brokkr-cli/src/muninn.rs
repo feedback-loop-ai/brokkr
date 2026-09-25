@@ -33,7 +33,6 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use brokkr_core::fold::fold;
 use brokkr_protocol::oneshot::{self, OneShot};
 use brokkr_runtime::bundle::expand_command;
 use brokkr_runtime::realms::{Hearth, World};
@@ -241,21 +240,28 @@ pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -
     for source in sources {
         let realm = source.realm.map(str::to_string);
         let store = source.store;
-        for (run_id, feature, created_at) in store.list_runs()? {
-            let events = store
-                .load(&run_id)
-                .with_context(|| format!("loading run '{run_id}'"))?;
-            let state = match fold(&events) {
+        let listed = crate::fleet::read_hearth(store)
+            .listed()
+            .map_err(anyhow::Error::msg)?;
+        for crate::fleet::ListedRun {
+            run_id,
+            feature,
+            created_at,
+            events,
+            state,
+            residuals,
+        } in listed
+        {
+            let state = match state {
                 Ok(state) => state,
-                Err(error) => {
-                    // One unfoldable journal must not blind the aide to the
+                Err(crate::fleet::Quarantine { detail, seq }) => {
+                    // One corrupt journal must not blind the aide to the
                     // fleet. The run is quarantined — listed as `?` with the
-                    // fold's own words — and raised as a finding, because an
-                    // unfoldable journal is exactly what the operator needs
-                    // surfaced, not hidden. Its citation is the sequence the
-                    // fold refused at, so a proposal naming it validates.
-                    let seq = error.seq();
-                    let detail = error.to_string();
+                    // refusal's own words — and raised as a finding, because
+                    // a journal that will not load or fold is exactly what
+                    // the operator needs surfaced, not hidden. Its citation
+                    // is the sequence the fold refused at, so a proposal
+                    // naming it validates.
                     let finding = brokkr_view::quarantine_finding(&run_id, seq, &detail);
                     facts.push((realm.clone(), run_id.clone(), seq));
                     findings.push(keyed(&realm, serde_json::to_value(&finding)?));
@@ -290,7 +296,7 @@ pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -
             // two journals hold one run id, one answer is stated for it
             // and it is the same one on both sides.
             commands.entry(run_id.clone()).or_insert(admits.clone());
-            for finding in brokkr_view::residual_findings(&run_id, &events) {
+            for finding in residuals {
                 facts.push((realm.clone(), run_id.clone(), finding.seq));
                 // The annotation is a citable fact in its own right
                 // (decision 0047 ruling 4), so a report may say "the

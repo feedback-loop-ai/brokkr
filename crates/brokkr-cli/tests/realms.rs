@@ -562,6 +562,97 @@ fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
         .ends_with("ghost.db"));
 }
 
+/// A running run written straight into a journal, and — when asked — a
+/// third event inserted verbatim behind it whose `previous_hash` names no
+/// event, so `Store::load` refuses the run at `verify_chain`.
+fn journal_run(db: &Path, run_id: &str, broken: bool) {
+    use brokkr_core::envelope::EventType;
+    let mut store = brokkr_store::Store::open(db).unwrap();
+    store
+        .create_run(run_id, "feature", "test", &json!({"files": {}}))
+        .unwrap();
+    for (kind, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature": "feature", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+    ] {
+        store
+            .append_next(run_id, kind, payload, None, None)
+            .unwrap();
+    }
+    if broken {
+        let events = store.load(run_id).unwrap();
+        let mut tampered = serde_json::to_value(&events[1]).unwrap();
+        tampered["seq"] = json!(3);
+        tampered["previous_hash"] = json!(brokkr_core::canonical::ZERO_HASH);
+        rusqlite::Connection::open(db)
+            .unwrap()
+            .execute(
+                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, 3, ?2, ?3)",
+                rusqlite::params![run_id, events[1].event_hash, tampered.to_string()],
+            )
+            .unwrap();
+    }
+}
+
+/// One broken chain (#377), through the shipped binary: `runs` lists
+/// every healthy run and one quarantined row naming the broken run, the
+/// same way whether its journal is the world's only hearth or one of
+/// several — where the one hearth used to exit 1 and the many-hearth
+/// listing collapsed the whole hearth to a detail line.
+#[test]
+fn one_broken_chain_is_one_quarantined_row_in_every_runs_listing() {
+    let ws = Workspace::new(Some(json!({
+        "schema": "forge.realms/v2",
+        "realms": [
+            {"name": "alpha", "path": ".", "default_branch": "main"},
+            {"name": "beta", "path": ".", "default_branch": "main",
+             "journal": "state/beta.db"},
+        ],
+        "journal": "state/world.db",
+    })));
+    let world = ws.path().join("state/world.db");
+    journal_run(&world, "healthy", false);
+    journal_run(&world, "broken", true);
+    journal_run(&ws.path().join("state/beta.db"), "beta-run", false);
+    const REFUSAL: &str = "chain: event 3: previous_hash does not match event 2";
+    let sorted = |runs: &Value| -> Vec<Value> {
+        let mut runs = runs.as_array().unwrap().clone();
+        runs.sort_by_key(|row| row["run_id"].as_str().unwrap().to_string());
+        runs
+    };
+
+    let (code, listed, stderr) = ws.run(&["runs", "--json"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let view: Value = serde_json::from_str(&listed).unwrap();
+    assert_eq!(view["count"], json!(3), "{listed}");
+    assert_eq!(view["realms"][0]["detail"], Value::Null, "{listed}");
+    let alpha = sorted(&view["realms"][0]["runs"]);
+    assert_eq!(alpha[0]["run_id"], "broken");
+    assert_eq!(alpha[0]["status"], Value::Null);
+    assert_eq!(alpha[0]["detail"], REFUSAL);
+    assert_eq!(alpha[1]["run_id"], "healthy");
+    assert_eq!(alpha[1]["status"], "running");
+    assert_eq!(view["realms"][1]["runs"][0]["run_id"], "beta-run");
+
+    let (code, listed, stderr) = ws.run(&["runs", "--json", "--db", "state/world.db"]);
+    assert_eq!(
+        code,
+        Some(0),
+        "the one-hearth listing survives it: {stderr}"
+    );
+    let view: Value = serde_json::from_str(&listed).unwrap();
+    let runs = sorted(&view["runs"]);
+    assert_eq!(runs.len(), 2, "{listed}");
+    assert_eq!(runs[0]["run_id"], "broken");
+    assert_eq!(runs[0]["status"], Value::Null);
+    assert_eq!(runs[0]["detail"], REFUSAL);
+    assert_eq!(runs[1]["run_id"], "healthy");
+    assert_eq!(runs[1]["status"], "running");
+}
+
 /// Pinned AND embedded: the exported manifest carries the map's content
 /// hash and the map itself, so the world a run believed in survives the
 /// file it was read from.
