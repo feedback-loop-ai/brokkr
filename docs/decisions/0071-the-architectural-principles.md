@@ -1,6 +1,6 @@
 # 0071 — The architectural principles: how Brokkr's code is shaped, which gate holds each rule, and which charter judges it
 
-Status: proposed (drafted in the operator's session, 2026-09-25; epic #330, issue #331)
+Status: accepted (operator ruled in chat, 2026-09-25; epic #330, issue #331)
 Date: 2026-09-25
 
 ## Context
@@ -89,10 +89,15 @@ that began. Rulings 3 and 4 pay that price.
    trait is the exception and names its seam.** A `match` over a closed
    enum has no wildcard arm that decides behaviour. Anything an operator
    extends is schema-validated data, digested into the manifest. A trait
-   is introduced only for a seam with more than one real implementation
-   (today: `ProducerTransport`), and its doc comment names that seam.
-   Dependency inversion otherwise uses the house's closure seams
-   (`*_with`, `*_in`), as it already does.
+   is introduced only for a seam whose contract spans several operations
+   that must stay consistent with one another, reached across a process
+   or service boundary, and its doc comment names that seam. A test double
+   alone does not make a seam: a single substitutable function is a
+   closure seam (`*_with`, `*_in`), which is how the house inverts
+   dependencies otherwise. The one production trait today,
+   `ProducerTransport`, qualifies on those terms: it is the producer
+   service's four calls plus the origin its audience check reads, over
+   HTTP in production. It owes the doc comment that names its seam.
 
    *Violating it looks like:* `AdapterKind::supports()` answering
    `_ => ["resume"]`, so a new kind advertises resume nobody decided; and
@@ -114,7 +119,8 @@ that began. Rulings 3 and 4 pay that price.
    *Violating it looks like:* `EventEnvelope.payload` read by
    `payload_str(event, "effect_id")`; seat input built with `json!` and
    re-read by key 56 times, with `format!("{aggregate:?}")` inside a
-   digest; `Option<Option<String>>` for the gate-head span (#345, #346).
+   digest (#345, #346); `Option<Option<String>>` for the engine's gate-head
+   span, which becomes a `GateSpan` enum in the engine split (#288).
 
    **Enforcement binding:** #338's `cargo-public-api` snapshot holds the
    count of `serde_json::Value` in `brokkr-core`'s public API as a
@@ -231,7 +237,8 @@ that began. Rulings 3 and 4 pay that price.
     pattern named in a commit is visible in the code. These are the forms
     the house uses:
     - **Strategy over a closed enum:** a harness is one module behind
-      `AdapterKind`.
+      `AdapterKind`. This is the target form; today all five kinds share
+      one module, and #347 and #348 build the split.
     - **Command:** an enum variant plus a handler function; no
       `Box<dyn Command>`.
     - **Parameter Object:** it replaces a long parameter list or an
@@ -241,6 +248,12 @@ that began. Rulings 3 and 4 pay that price.
 
     A trait-object registry for a closed set is rejected, as is a
     pattern introduced for its name.
+
+    *Violating it looks like:* a 908-line `run_with` in place of a
+    command handler per `Cmd` variant (#288); 31
+    `#[allow(clippy::too_many_arguments)]` where a parameter object
+    belongs (#349); bubblewrap argv assembled by statement order in two
+    modules instead of one builder (#348).
 
     **Enforcement binding:** judged by the chief-architect and reviewer
     charters (#333).
