@@ -1054,6 +1054,76 @@ fn a_bundle_never_names_a_crossing() {
     fixture.compile(&Fixture::config(), &policy).unwrap();
 }
 
+/// Rebuild unit 5e: the `driver` vocabulary is closed at every site a
+/// driver is written — a sequence step, a panel member and a selected case
+/// body, each named as its own site — not only at a seat. (A `tools` key
+/// anywhere already makes this adapter-less fixture's compile ask for
+/// adapter data, so the misplaced key here is `sandbox`.)
+#[test]
+fn a_misplaced_driver_key_is_refused_at_every_site_a_driver_is_written() {
+    let fixture = Fixture::new();
+    let inline = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let mut misplaced = inline.clone();
+    misplaced["driver"]["sandbox"] = json!("read-only");
+    let expected = |site: &str| {
+        super::agent_tests::misplaced_in_driver(
+            site,
+            "'sandbox'",
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.",
+        )
+    };
+
+    let mut step = misplaced.clone();
+    step["name"] = json!("first");
+    step["results"] = json!(["done"]);
+    let mut second = inline.clone();
+    second["name"] = json!("second");
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({"results": ["complete"], "sequence": [step, second]});
+    let mut rows = vec![(
+        "step",
+        error(fixture.compile(&config, &Fixture::policy())),
+        expected("work:first"),
+    )];
+
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["pass", "fail"],
+        "aggregate": "unanimous-pass",
+        "panel": {"one": misplaced.clone(), "two": inline.clone()},
+    });
+    let mut panel_policy = Fixture::policy();
+    panel_policy["rules"] = json!([
+        {"id":"WP", "from":"work", "result":"pass", "next":"review", "reason":"pass"},
+        {"id":"WF", "from":"work", "result":"fail", "next":"review", "reason":"fail"},
+        {"id":"REVIEW", "from":"review", "result":"clean", "next":"done", "reason":"review"},
+    ]);
+    rows.push((
+        "member",
+        error(fixture.compile(&config, &panel_policy)),
+        expected("work:one"),
+    ));
+
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["complete"],
+        "select": {"on": "strategy", "cases": {
+            "chore": misplaced,
+            "feature": inline.clone(),
+            "design": inline.clone(),
+            "engine": inline,
+        }},
+    });
+    rows.push((
+        "case",
+        error(fixture.compile(&config, &Fixture::policy())),
+        expected("work:chore"),
+    ));
+    for (site, observed, expected) in &rows {
+        assert_eq!(observed, expected, "{site}");
+    }
+}
+
 /// Decision 0046 ruling 1: a bundle never names the boundary. A `boundary`
 /// key at any site — a seat, a panel member, a sequence step, a selected
 /// case body — is refused naming the site, the realm map as the field's

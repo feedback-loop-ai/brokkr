@@ -1417,6 +1417,7 @@ impl Bundle {
             refuse_crossing_keys(phase, raw)?;
             refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
             refuse_confine(phase, raw)?;
+            refuse_driver_keys(phase, raw)?;
             let law = SiteLaw {
                 boundary,
                 dir,
@@ -2277,6 +2278,57 @@ fn refuse_confine(what: &str, raw: &Value) -> Result<(), CompileError> {
              ruling 5)"
         ))),
     }
+}
+
+/// The keys a site's `driver` object may write. Closed, like the site's
+/// own vocabulary ([`refuse_unknown_keys`]): the compiler reads only
+/// `command` there (and refuses `confine` by name first, in
+/// [`refuse_confine`]), so before rebuild unit 5e a `tools` object placed
+/// under `driver` compiled, delivered nothing and ran the seat at its
+/// harness default.
+const DRIVER_KEYS: &[&str] = &["command"];
+
+/// Decision 0004's closed input semantics, applied to the `driver`
+/// object (decision 0065 slice one, rebuild unit 5e): an unknown key is
+/// refused where it is written, never ignored. The reason names the key
+/// and the object, and never the value; a key that is not a short name is
+/// described rather than echoed, so the reason stays bounded. A
+/// capability key gets the place it belongs.
+fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
+    let Some(driver) = raw.get("driver").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    let Some(key) = driver
+        .keys()
+        .find(|key| !DRIVER_KEYS.contains(&key.as_str()))
+    else {
+        return Ok(());
+    };
+    let named = if key.len() <= 64
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
+    {
+        format!("'{key}'")
+    } else {
+        "one that is not a short name and is not echoed".to_string()
+    };
+    let place = match key.as_str() {
+        "tools" | "hands" | "capabilities" => {
+            format!(" '{key}' is a site declaration, written on the seat beside its driver.")
+        }
+        "sandbox" => {
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.".to_string()
+        }
+        _ => String::new(),
+    };
+    Err(CompileError::Invalid(format!(
+        "seat '{what}' driver has an unknown key, {named}; known: {}.{place} A key the compiler \
+         does not read is a declaration that was never made — a capability placed there would \
+         compile, deliver nothing and run the seat at its harness default — so it is refused \
+         rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e)",
+        DRIVER_KEYS.join(", ")
+    )))
 }
 
 /// Decision 0046 ruling 1: the boundary is the realm's fact, declared in
@@ -4513,6 +4565,7 @@ fn parse_selected_body(
     refuse_crossing_keys(what, raw)?;
     refuse_unknown_keys(what, raw, BODY_KEYS)?;
     refuse_confine(what, raw)?;
+    refuse_driver_keys(what, raw)?;
     let has_agent = raw.get("agent").is_some();
     if has_agent {
         refuse_amendments(what, raw)?;
@@ -4763,6 +4816,7 @@ fn parse_panel(
         refuse_boundary_key(&site, member_raw)?;
         refuse_crossing_keys(&site, member_raw)?;
         refuse_confine(&site, member_raw)?;
+        refuse_driver_keys(&site, member_raw)?;
         if member_raw.get("agent").is_some() {
             refuse_amendments(&site, member_raw)?;
         }
@@ -4871,6 +4925,7 @@ fn parse_sequence(
         refuse_boundary_key(&what, step_raw)?;
         refuse_crossing_keys(&what, step_raw)?;
         refuse_confine(&what, step_raw)?;
+        refuse_driver_keys(&what, step_raw)?;
         let has_agent = step_raw.get("agent").is_some();
         if has_agent {
             refuse_amendments(&what, step_raw)?;

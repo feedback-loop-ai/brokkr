@@ -4725,3 +4725,112 @@ fn a_dialect_wrapped_verify_relocates_its_declaration_and_the_validator_records_
         ["--allowedTools", "Bash(git:*)"]
     );
 }
+
+/// The complete refusal of an unknown key inside a site's `driver`
+/// object (rebuild unit 5e), naming the key as `named` and the place a
+/// capability key belongs as `place`.
+pub(super) fn misplaced_in_driver(site: &str, named: &str, place: &str) -> String {
+    format!(
+        "bundle: seat '{site}' driver has an unknown key, {named}; known: command.{place} A key the \
+         compiler does not read is a declaration that was never made — a capability placed \
+         there would compile, deliver nothing and run the seat at its harness default — so it \
+         is refused rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e)"
+    )
+}
+
+/// Rebuild unit 5e: unit 7's probe (evidence.md, "Unit 7 — blocked on the
+/// second visit") put a seat's `tools` under its `driver`, with the authored
+/// `--sandbox` pair removed, and the recipe compiled with no sandbox and no
+/// restriction at all. The same shape is now refused by name.
+#[test]
+fn a_tools_object_misplaced_under_the_driver_is_refused_by_name() {
+    let fixture = AgentFixture::new();
+    fixture.write("adapters/codex.json", codex());
+    let mut config = fixture.config();
+    config["seats"]["review"]["driver"] = json!({
+        "command": ["{brokkr}", "driver", "codex", "--", "--model", "gpt-6-astra", "--effort", "high"],
+        "tools": {"sandbox": "workspace-write"},
+    });
+    assert_eq!(
+        outcome(fixture.compile(config)),
+        misplaced_in_driver(
+            "review",
+            "'tools'",
+            " 'tools' is a site declaration, written on the seat beside its driver."
+        )
+    );
+}
+
+/// Rebuild unit 5e: every other key the driver object does not read is
+/// refused the same way — a second capability key, the site declarations
+/// `hands` and `capabilities`, a harness word — and a key that is not
+/// a short name is described, never echoed, so the reason stays bounded.
+#[test]
+fn every_other_unknown_driver_key_is_refused_and_named_boundedly() {
+    let fixture = AgentFixture::new();
+    let site = " 'KEY' is a site declaration, written on the seat beside its driver.";
+    let long = "k".repeat(65);
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (key, named, place) in [
+        (
+            "sandbox",
+            "'sandbox'".to_string(),
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.".to_string(),
+        ),
+        ("hands", "'hands'".to_string(), site.replace("KEY", "hands")),
+        (
+            "capabilities",
+            "'capabilities'".to_string(),
+            site.replace("KEY", "capabilities"),
+        ),
+        (
+            "allowed_tools",
+            "'allowed_tools'".to_string(),
+            String::new(),
+        ),
+        (
+            long.as_str(),
+            "one that is not a short name and is not echoed".to_string(),
+            String::new(),
+        ),
+        (
+            "tools allow",
+            "one that is not a short name and is not echoed".to_string(),
+            String::new(),
+        ),
+    ] {
+        let mut config = fixture.config();
+        config["seats"]["review"]["driver"] = json!({
+            "command": claude_inline("claude", &[]),
+            key: "workspace-write",
+        });
+        rows.push((
+            key.chars().take(16).collect(),
+            outcome(fixture.compile(config)),
+            misplaced_in_driver("review", &named, &place),
+        ));
+    }
+    each_row(rows);
+}
+
+/// Rebuild unit 5e: the refusal reads the driver object, not the seat, so
+/// a `tools` declaration where it belongs still compiles and lowers.
+#[test]
+fn a_seat_level_tools_declaration_beside_its_driver_still_compiles() {
+    let fixture = AgentFixture::new();
+    let mut config = fixture.config();
+    config["seats"]["review"]["driver"]["command"] = claude_inline("claude", &[]);
+    config["seats"]["review"]["tools"] = json!({"allow": ["cargo"]});
+    let bundle = fixture.compile(config).unwrap();
+    assert_eq!(
+        format!(
+            "{:?} {:?}",
+            bundle.sites["review"].local, bundle.sites["review"].inline_local
+        ),
+        format!(
+            "{:?} {:?}",
+            Some(local(Some(&["cargo"]), None)),
+            cargo_lowering()
+        )
+    );
+}

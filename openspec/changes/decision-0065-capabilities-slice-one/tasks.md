@@ -941,6 +941,27 @@ binds the same five launch tests, and every gate passed. This box and 5c.1
 close. **Not fully green:** exact coverage on the final head, macOS and
 remote CI stay pending.
 
+## 5e. Unit 5e — Refuse a capability declaration in the wrong place
+
+- [x] 5e.1 Unit 5e closes the site's `driver` object. An unknown key there (`tools`, `hands`, `capabilities`, `sandbox` or any other) refuses compilation with a bounded, value-free reason that names the site, the `driver` object and the key, and says where a capability key belongs. It is never ignored. First establish, citing code, whether this is a bug or an omission, and fix it at the narrowest point. The self and verify bundles and every recipe under `recipes/` still compile. Verify the exact refusal for `tools` under `driver` and for a second misplaced capability key, and the positive for a seat-level `tools`, each bound by a compiling mutation. Requirements: decision 0004 (closed input semantics), [Refusal proofs assert the full reason][SC8]. (inserted by operator commission after unit 7's probe; run `0065-rebuild-unit-5e-see-the-uni-90209c7a`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5e"). It was an omission. The site
+vocabularies (`SEAT_KEYS`, `BODY_KEYS`, `MEMBER_KEYS`, `STEP_KEYS`) were
+closed, but nothing checked the inside of an inline `driver`: only
+`command` was read, and `confine` was refused by name. Production:
+`bundle.rs` only. `DRIVER_KEYS` and `refuse_driver_keys` are called after
+`refuse_confine` at the seat, selected-body, member and step sites. Tests:
+three in `bundle/agent_tests.rs` (unit 7's `tools` shape, six other keys
+including a 65-byte one, and the seat-level positive) and one in
+`bundle/tests.rs` (step, member and select case). M1–M7 each bound and
+were restored. M1 reproduces unit 7's fail-open as `compiled … sandbox:
+None`. All 18 shipped bundles compile. fmt, clippy, the brokkr-runtime
+suite (557 lib tests, 25 binaries), `openspec validate --all --strict` and
+`git diff --check` passed. A local llvm-cov diagnostic covers every line
+and branch of `refuse_driver_keys`. **Not fully green:** exact coverage,
+macOS and remote CI are pending. A follow-up is named and not fixed here:
+the bundle root has no unknown-key check.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

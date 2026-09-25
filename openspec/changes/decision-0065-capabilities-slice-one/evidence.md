@@ -6090,3 +6090,129 @@ alone.
 **Gates:** `openspec validate --all --strict` and `git diff --check` on this
 record (see the 7.1 note). No other gate was run, because nothing it covers
 moved.
+
+## Unit 5e — the driver object's vocabulary is closed, 2026-09-25
+
+Run `0065-rebuild-unit-5e-see-the-uni-90209c7a`, based on `ccfa9b5d`. The
+unit answers the side observation in "Unit 7 — blocked on the second
+visit": a `tools` object under a seat's `driver` compiled and was ignored.
+Production: `crates/brokkr-runtime/src/bundle.rs` only. Tests:
+`bundle/agent_tests.rs` and `bundle/tests.rs`. No recipe, pin, adapter,
+frozen contract or fixture moved.
+
+### Bug or omission: an omission
+
+Line numbers are at `ccfa9b5d`, read with `git show HEAD:…`.
+
+- Each site object has a closed vocabulary. `SEAT_KEYS` (`bundle.rs:2608`),
+  `BODY_KEYS`, `MEMBER_KEYS` and `STEP_KEYS` are enforced by
+  `refuse_unknown_keys` (`bundle.rs:3316`). `driver` is one of those known
+  keys, and nothing then checked what was inside it.
+- The inline `driver` object had no vocabulary. The only readers are
+  `raw.pointer("/driver/command")` (`bundle.rs:609`, `684`, `5094`) and
+  `command_parts` (`bundle.rs:5175`), which read `command`, and
+  `refuse_confine` (`bundle.rs:2269`), which refuses `confine` by name.
+  Every other key was never read. The key did not slip past a closed list;
+  there was no list.
+- Beside `agent:`, the object was already closed: `refuse_amendments`
+  (`bundle.rs:2239`) refuses any key inside `driver`.
+- The other objects a recipe author could put `tools`, `hands` or
+  `sandbox` into are already closed. `limits` is closed by `parse_limits`
+  (`bundle.rs:4461`) and `select` by its unknown-key refusal
+  (`bundle.rs:4619`). `hands` is closed by `HandsSpec::parse`
+  (`brokkr-protocol/src/hands.rs:159`) and `tools` by `parse_tools`'
+  `only_keys` (`agents/load.rs`). `capabilities` is typed by
+  `parse_requests` (`capabilities.rs:198`), which refuses any value other
+  than `"requires"` or `"wants"`. `sandbox` written directly on a site is
+  not in `SEAT_KEYS`, so it was already refused.
+
+### The fix
+
+`bundle.rs` gains `DRIVER_KEYS = ["command"]` and `refuse_driver_keys`,
+called right after `refuse_confine` at all four sites that call it: the
+seat loop, `parse_selected_body`, panel members and sequence steps.
+`confine` keeps its own named refusal, because it runs first. The reason
+names the site, the `driver` object and the key, and gives the known list.
+A `tools`, `hands` or `capabilities` key is told it belongs on the seat
+beside its driver. A `sandbox` key is told it belongs in `tools.sandbox`.
+The value is never echoed. A key that is not a short name (at most 64
+bytes of ASCII letters, digits, `_`, `-` and `.`) is described as "one
+that is not a short name and is not echoed", so the reason stays bounded.
+The check adds no identity: no manifest or digest input changed.
+
+### Tests and mutations
+
+New tests:
+- `agent_tests.rs`
+  - `a_tools_object_misplaced_under_the_driver_is_refused_by_name`: unit
+    7's shape. It is an inline codex seat with `driver.tools.sandbox =
+    workspace-write` and no `--sandbox`.
+  - `every_other_unknown_driver_key_is_refused_and_named_boundedly`: rows
+    for `sandbox`, `hands`, `capabilities`, `allowed_tools`, a 65-byte key
+    and `tools allow`.
+  - `a_seat_level_tools_declaration_beside_its_driver_still_compiles`: the
+    positive. An inline claude seat's seat-level `tools.allow = [cargo]`
+    records `LocalTools` and lowers to `--allowedTools Bash(cargo:*)`.
+- `tests.rs`
+  - `a_misplaced_driver_key_is_refused_at_every_site_a_driver_is_written`:
+    the sequence step `work:first`, the panel member `work:one` and the
+    select case `work:chore`. Its key is `sandbox`, because a `tools` key
+    anywhere already makes the adapter-less `Fixture` ask for adapter data
+    (`needs_adapters`).
+
+Every test asserts the complete reason with `assert_eq!`. Each mutation
+below compiled and was then restored:
+
+| # | Mutation | Observed |
+|---|---|---|
+| M1 | Drop the seat-loop call | The `tools` test reads `compiled: [("review", Some(LocalTools { allow: None, sandbox: None })), …]`, which is unit 7's fail-open exactly. The every-other test fails 6 of 6 rows, each `compiled`. The positive stays green. |
+| M2 | `DRIVER_KEYS = ["command", "tools"]` | The `tools` test reads `compiled: …`. The every-other rows differ only in the known list. |
+| M3 | Skip only `sandbox` in the refusal | The every-other test fails 1 of 6 rows, `row sandbox`, `compiled: …`. The others stay green. |
+| M4 | Look for `tools` on the seat object instead of inside the driver | The positive panics at `unwrap()` on `Invalid("seat 'review' driver has an unknown key, 'tools'; …")`. |
+| M5 | Drop the step call | The every-site test panics in `error()`: "expected compilation to fail". |
+| M6 | Drop the member call | The same panic. |
+| M7 | Drop the body call | The same panic, at the select case, the only site left unguarded. |
+
+After each restore, `git diff` showed five `refuse_driver_keys(` lines: the
+definition and four call sites.
+
+### Shipped bundles
+
+`cargo run --locked -q -p brokkr-cli -- compile --bundle <dir>` compiled
+all 18: `bundles/self` (`45dc1c7e…`), `bundles/verify` (`65baad08…`) and
+every recipe under `recipes/`. Those are fast (`2ee700f8…`), gpt-flash,
+landing, night-shift, node (`84f74cc4…`), panel-review (`1d78f70b…`),
+preflight (`5a86020a…`), release, research (`a1da4388…`), research-dsh
+(`cbd910ee…`), review-first (`327e48ca…`), standby (`78a632c7…`), triage
+(`c9c9c347…`), wager-harness (`13fc4e2d…`), wager-harness-dsh
+(`a5c3d2cf…`) and wager-harness-muse (`f25c7bb5…`). The top-level digests
+of gpt-flash (`1f03218c…`), landing (`b348e919…`), night-shift
+(`c5c12801…`) and release (`4ed9a22b…`) were read on a second compile. No
+shipped driver object carries any key besides `command`.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean, re-checked after touching `bundle.rs`.
+- `cargo test --locked -p brokkr-runtime --all-features`: 25 of 25 test
+  binaries ok, and the lib has 557 passed, 0 failed.
+- `git diff --check`: clean.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- A local coverage diagnostic ran. `cargo +nightly-2026-09-05 llvm-cov -p
+  brokkr-runtime --all-features --locked --branch --lcov` covered
+  `refuse_driver_keys` completely: every `DA` for lines 2297–2332 and every
+  `BRDA` at 2298, 2301, 2307, 2308 and 2310 is hit. That was before the
+  every-site test was added, and production bytes are unchanged since.
+- **Not fully green:** workspace exact coverage (`scripts/coverage-exact.sh`
+  outside the box), macOS and remote CI are pending. The brokkr-cli suite
+  was not re-run, because no brokkr-cli byte moved.
+
+### Follow-up, not fixed here
+
+The bundle root has no unknown-key check (the comment at `bundle.rs:2304`).
+Read from the code, and not probed here: a `tools` or `hands` written at
+the root, as if for every seat, would be ignored, in the same way this unit
+fixed for `driver`. Closing the root needs its
+own vocabulary, one that covers composition's resolver keys (`extends`,
+`override`, `remove`, `policy`). It is a separate visit.

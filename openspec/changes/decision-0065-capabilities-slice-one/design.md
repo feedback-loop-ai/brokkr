@@ -1273,6 +1273,27 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    an agent-backed Claude seat records `acceptEdits` exactly, a provider that
    declares no template records `none`, and a contradicting seal is refused,
    each bound by a compiling mutation.
+   **5e. Refuse a capability declaration in the wrong place.** Inserted by
+   operator commission (run `0065-rebuild-unit-5e-see-the-uni-90209c7a`),
+   because rebuild unit 7's probe (evidence.md, "Unit 7 — blocked on the
+   second visit") found that a `tools` object placed under a seat's
+   `driver`, with the authored `--sandbox` pair removed, compiled (digest
+   `c262f24e…`) and delivered no sandbox and no restriction. Close 5e.1.
+   Decision 0004's closed input semantics refuse an unknown key; they never
+   ignore it. Find where the seat's `driver` object is parsed, along with any
+   other object a recipe author could plausibly put `tools`, `hands` or
+   `sandbox` into by mistake. Make an unexpected key refuse compilation with
+   a bounded, value-free reason that names the key and the object it was
+   found in. First establish, citing code, whether `driver` already has a
+   closed vocabulary that this key slipped past (a bug) or has none (an
+   omission). Fix whichever it is at the narrowest point. Shipped recipes
+   must still compile: the self and verify bundles and every recipe under
+   `recipes/`. Tests: an exact refusal regression for `tools` under
+   `driver`, plus one for a second misplaced capability key, each bound by a
+   compiling mutation, recorded then restored; and a positive showing that a
+   correctly placed seat-level `tools` still compiles. Production: at most
+   three files (likely `crates/brokkr-runtime/src/bundle.rs` and its
+   loader). Tests: bundle/tests.rs or bundle/agent_tests.rs.
 6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,
