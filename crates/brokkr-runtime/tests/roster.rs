@@ -790,11 +790,22 @@ fn every_shipped_adapter_declares_the_shape_its_gate_and_doctor_read() {
 #[test]
 fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
     let root = workspace();
+    let flatten = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
     let implementer = std::fs::read_to_string(root.join("agents/charters/implementer.md")).unwrap();
     let design = implementer
         .split("\n\n")
         .find(|paragraph| paragraph.starts_with("Design: "))
         .expect("the implementer charter states its design paragraph");
+    let reviewer =
+        flatten(&std::fs::read_to_string(root.join("agents/charters/reviewer.md")).unwrap());
+    let principles = reviewer
+        .split_once("against the architecture principles")
+        .and_then(|(_, tail)| tail.split_once("severity table."))
+        .map(|(middle, _)| format!("against the architecture principles{middle}severity table."))
+        .expect("the reviewer charter states its principles sentence");
+    let defer = "The house rules that follow this role, when the run carries them, state the \
+                 repository's conventions, frozen surfaces, gates and architecture. Follow \
+                 them; this role does not repeat them.";
     let restated = [
         "Rules of the house",
         "policy/schemas",
@@ -806,8 +817,10 @@ fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
         for recipe in std::fs::read_dir(root.join(library)).unwrap().flatten() {
             for name in ["implementer.md", "reviewer.md"] {
                 let path = recipe.path().join("roles").join(name);
-                let Ok(text) = std::fs::read_to_string(&path) else {
-                    continue;
+                let text = match std::fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => panic!("{}: {error}", path.display()),
                 };
                 for phrase in restated {
                     assert!(
@@ -816,7 +829,7 @@ fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
                         path.display()
                     );
                 }
-                let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                let flat = flatten(&text);
                 if name == "implementer.md" {
                     implementers += 1;
                     assert!(
@@ -824,11 +837,15 @@ fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
                         "{} lost the implementer charter's design paragraph",
                         path.display()
                     );
+                    assert!(
+                        flat.contains(defer),
+                        "{} does not defer to the house",
+                        path.display()
+                    );
                 } else {
                     reviewers += 1;
                     assert!(
-                        flat.contains("architecture principles your house rules state")
-                            && flat.contains("severity table"),
+                        flat.contains(&principles),
                         "{} does not judge against the house's principles",
                         path.display()
                     );

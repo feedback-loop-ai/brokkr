@@ -252,6 +252,8 @@ fn workspace() -> PathBuf {
 /// `bundles/verify` carry an edited role; `recipes/triage` composes `fast`,
 /// and `recipes/gpt-flash` derives from triage. Both research recipes
 /// reported no movement; each value is the test's own reported digest.
+/// `recipes/node` moves again when its implementer role gains the
+/// house-deferral paragraph the other seven carry.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -259,7 +261,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/node",
-        "22d1b7d392ceddc78a8720e5486616f58ed87a161c7d68050177a8b546324b8c",
+        "6a3e76a4ecd32430e104a7956dc49df28f8d445c94f2a2011ddd9ea2e44f80c9",
     ),
     (
         "recipes/preflight",
