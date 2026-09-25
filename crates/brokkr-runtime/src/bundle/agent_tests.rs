@@ -2325,6 +2325,10 @@ fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuse
         .remove("gate");
     let mut elsewhere = codex();
     elsewhere["driver"] = json!(["{brokkr}", "driver", "claude", "--"]);
+    // Its declared OFF loads under the grammar its driver dispatches
+    // (rebuild unit 11), so the template refusal below is still reached.
+    elsewhere["native_capabilities"]["known"]["web-search"]["off"] =
+        json!({"argv": ["--disallowedTools", "web_search"]});
     let long = long_payload();
     let mut rows: Vec<Row<String>> = vec![
         (
@@ -4282,10 +4286,14 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
         ("<custom>", "custom", vec!["codex"], "bare", json!([])),
     ];
     for (harness, provider, driver, model, fragment) in others {
-        fixture.write(
-            &format!("adapters/{provider}.json"),
-            harness_adapter(provider, driver, model, fragment),
-        );
+        let mut adapter = harness_adapter(provider, driver, model, fragment);
+        if harness == "dsh" {
+            // The dsh grammar reads no tool list, so a selection cannot
+            // load (rebuild unit 11); its inventory is unmeasured, as the
+            // shipped dsh adapter's is.
+            adapter["native_capabilities"] = json!({"unmeasured": "no inventory is measured"});
+        }
+        fixture.write(&format!("adapters/{provider}.json"), adapter);
         fixture.write(
             "agents/boxed.json",
             boxed_agent(&[model], json!({"sandbox": "read-only"})),
@@ -4887,7 +4895,9 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
 /// the authored command, the `hands.harness.work` fragment and the
 /// resolved native OFF argv alike. The unplaceable token is an attached
 /// `-C` carrying a long non-ASCII value with a newline, and it is never
-/// echoed: every refusal stays within 512 Unicode scalars.
+/// echoed: every compile refusal stays within 512 Unicode scalars. Since
+/// rebuild unit 11, a native OFF the grammar cannot place is refused where
+/// the adapter loads, by the same position and cause and a bounded label.
 #[test]
 fn an_unreadable_contribution_refuses_by_position_without_echoing_its_token() {
     let fixture = AgentFixture::new();
@@ -4911,6 +4921,23 @@ fn an_unreadable_contribution_refuses_by_position_without_echoing_its_token() {
         fixture.write("adapters/codex.json", adapter);
     };
     let native = |tokens: &[&str]| fixture.write("adapters/codex.json", codex_off(tokens));
+    // Rebuild unit 11 parses each declared half where the adapter loads, so
+    // a native OFF the grammar cannot place meets the load's refusal, by
+    // position and a bounded label.
+    let unloadable = |argument: usize, label: &str, cause: &str| {
+        format!(
+            "bundle: adapter 'codex' ({}) 'native_capabilities' key 'web-search' OFF argv cannot \
+             be composed: the 'codex' command grammar cannot place argument {argument} \
+             ({label}): it {cause}. A harness brokkr launches is parsed against a model of its \
+             options, and a token that grammar cannot place is refused rather than passed \
+             through, because a control nobody can read is a control nobody can rule on \
+             (decision 0066 ruling 6); the adapter data is where a driver's model mapping \
+             (decision 0016) and its trust tier and binding grant (decision 0021) are declared, \
+             and this bundle names an agent, seats a gate, declares a secret binding or declares \
+             typed tools",
+            fixture.adapters().join("codex.json").display()
+        )
+    };
     let mut rows: Vec<Row<String>> = Vec::new();
     authored(&duplicate);
     rows.push((
@@ -4945,22 +4972,21 @@ fn an_unreadable_contribution_refuses_by_position_without_echoing_its_token() {
     rows.push((
         "native OFF duplicate --cd".to_string(),
         work(),
-        unreadable(1, NATIVE, 4, REPEATED_ROOT),
+        unloadable(4, "'--cd'", REPEATED_ROOT),
     ));
     native(&malformed);
     rows.push((
         "native OFF malformed --cd".to_string(),
         work(),
-        unreadable(1, NATIVE, 4, ROOT_VALUE_READS_AS_OPTION),
+        unloadable(4, "'--cd'", ROOT_VALUE_READS_AS_OPTION),
     ));
     native(&["stray"]);
     rows.push((
         "native OFF bare word".to_string(),
         work(),
-        unreadable(
-            1,
-            NATIVE,
+        unloadable(
             3,
+            "a positional argument, whose text is not echoed",
             "is a bare word, and no positional argument is part of the supported shape",
         ),
     ));
@@ -4968,15 +4994,16 @@ fn an_unreadable_contribution_refuses_by_position_without_echoing_its_token() {
     rows.push((
         "native OFF trailing --profile".to_string(),
         work(),
-        unreadable(
-            1,
-            NATIVE,
+        unloadable(
             3,
+            "'--profile'",
             "takes a value and is the last argument, so it has none",
         ),
     ));
     assert_eq!(rows.len(), 8);
-    for (label, _, expected) in &rows {
+    // The bound is the engine's own refusal's; a load refusal also names
+    // the adapter's path, and its exact text above echoes no token.
+    for (label, _, expected) in &rows[..4] {
         assert!(
             expected.chars().count() <= 512,
             "row {label}: the expected refusal is {} scalars",
@@ -5149,12 +5176,14 @@ fn grant_web_search(
 }
 
 /// Unit 2-fix, the other two resolved contributions: a real realm grant
-/// holds web-search, so the ON argv is selected, and a validated nonempty
-/// restriction reaches its transport. Each root-selector spelling in the
-/// ON argv and in the substituted restriction argv refuses with the same
-/// bounded cause; the clean ON and restriction plans admit the matching
-/// class with the holding and the exact resolved argv. Synthetic transport
-/// here qualifies no provider's restriction support (unit 9).
+/// holds web-search, so the ON argv is selected. Each root-selector
+/// spelling in the ON argv refuses with the same bounded cause; the clean
+/// ON plan admits the matching class with the holding and the exact
+/// resolved argv. A validated nonempty restriction over a declared
+/// transport, clean or carrying a root selector, is refused with the
+/// deferral reason before any transport is composed (rebuild unit 11; the
+/// operator's ruling of 2026-09-25). Synthetic transport here qualifies no
+/// provider's restriction support (unit 9).
 #[test]
 fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     let fixture = AgentFixture::new();
@@ -5195,6 +5224,15 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     let hosts = grant_web_search(&fixture, Some(json!({"hosts": ["example.org"]})));
     let live = ["-c", "web_search=\"live\""];
     let transport = ["-c", "web_search={restrictions_json}"];
+    // Slice one carries only the empty restriction (operator ruling of
+    // 2026-09-25, "defer"; design D11): a held nonempty one is refused
+    // before any transport is composed, whatever the template carries.
+    let deferred = "bundle: seat 'work' (office 'boxed') in realm 'private': requires \
+                    capability 'web-search' through dialect 'codex-search', but provider \
+                    'codex' cannot express restriction 'allow.hosts' through its declared \
+                    transport, which carries only the empty restriction until a provider \
+                    restriction transport is measured (operator ruling of 2026-09-25); the \
+                    capability cannot be held under this grant";
     let mut rows: Vec<Row<String>> = Vec::new();
     for (label, tokens) in ROOT_SPELLINGS {
         let mut argv = live.to_vec();
@@ -5211,7 +5249,7 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
         rows.push((
             format!("native restriction {label}"),
             outcome(compile(&hosts)),
-            root_refusal(1, NATIVE),
+            deferred.to_string(),
         ));
     }
     // The ON argv faces the other competing controls as well.
@@ -5224,8 +5262,9 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
         outcome(compile(&plain)),
         competing(NATIVE, ADDED_ROOT_CAUSE),
     ));
-    // The clean plans admit: the exact key the ON and the transport write
-    // is the one a resolved native plan is established to write.
+    // The clean ON plan admits: the exact key the ON writes is the one a
+    // resolved native plan is established to write. The clean restriction
+    // plan is deferred with the transport.
     let admitted = format!(
         "compiled: {:?}",
         [
@@ -5240,13 +5279,13 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     rows.push((
         "clean native ON".to_string(),
         outcome(compile(&plain)),
-        admitted.clone(),
+        admitted,
     ));
     on(&live, Some(&transport));
     rows.push((
         "clean native restriction".to_string(),
         outcome(compile(&hosts)),
-        admitted,
+        deferred.to_string(),
     ));
     assert_eq!(rows.len(), 11);
     each_row(rows);
@@ -5263,18 +5302,6 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     assert_eq!(outcome.manifest()["native"]["on"], json!(["web-search"]));
     assert_eq!(outcome.manifest()["native"]["off"], json!([]));
     assert_eq!(native_argv(&held, 0), json!(["-c", "web_search=\"live\""]));
-    // The clean restriction plan: the validated value reached its slot.
-    on(&live, Some(&transport));
-    let restricted = compile(&hosts).unwrap();
-    assert_eq!(
-        native_argv(&restricted, 0),
-        json!([
-            "-c",
-            "web_search=\"live\"",
-            "-c",
-            "web_search={\"allow\":{\"hosts\":[\"example.org\"]}}"
-        ])
-    );
 }
 
 /// Unit 2-fix, every outcome and the effective class: a valid primary

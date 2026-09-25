@@ -980,6 +980,103 @@ impl NativeInventory {
         }
         Ok(NativeInventory::Known { known, selection })
     }
+
+    /// Parse every control this declaration states under the grammar of
+    /// the harness its adapter dispatches, where the adapter loads and
+    /// whichever half a realm will use (rebuild unit 11; operator ruling 2;
+    /// design D6 and D11): each ON and OFF argv, the selection lists'
+    /// flags, separators and entries, and a restriction transport with the
+    /// empty restriction, the only one slice one carries, in its slot. A
+    /// harness brokkr models no grammar for (`exec`, an opaque custom
+    /// driver) has no final command the engine reads, so nothing is asked
+    /// of it here. No refusal echoes a declared token.
+    pub fn check_declared(&self, what: &str, harness: &str) -> Result<(), String> {
+        use launch::grammar::{self, ListKind};
+        let NativeInventory::Known { known, selection } = self else {
+            return Ok(());
+        };
+        let Some(table) = grammar::grammar(harness) else {
+            return Ok(());
+        };
+        let what = format!("{what} 'native_capabilities'");
+        if let Some(flags) = selection {
+            for (slot, kind, list) in [
+                ("include", ListKind::Include, &flags.include),
+                ("allow", ListKind::Allow, &flags.allow),
+                ("deny", ListKind::Deny, &flags.deny),
+            ] {
+                if grammar::list_of(harness, &list.flag) != Some(kind) {
+                    return Err(format!(
+                        "{what} selection '{slot}' flag {} is not what the '{harness}' grammar \
+                         reads as the '{slot}' tool list",
+                        table.label(&list.flag)
+                    ));
+                }
+                grammar::managed_separator(&list.separator)
+                    .map_err(|cause| format!("{what} selection '{slot}' separator {cause}"))?;
+            }
+        }
+        let empty = String::from_utf8_lossy(&to_bytes(&json!({}))).into_owned();
+        for (key, native) in known {
+            for (half, disposition) in [("ON", &native.on), ("OFF", &native.off)] {
+                match disposition {
+                    Disposition::Argv(argv) => declared_argv(harness, argv)
+                        .map_err(|cause| format!("{what} key '{key}' {half} argv {cause}"))?,
+                    Disposition::Selection(lists) => {
+                        for (slot, entries) in [
+                            ("include", &lists.include),
+                            ("allow", &lists.allow),
+                            ("deny", &lists.deny),
+                        ] {
+                            for (index, entry) in entries.iter().enumerate() {
+                                let cause = match grammar::managed_patterns(entry) {
+                                    Ok(patterns) if patterns.len() == 1 => continue,
+                                    Ok(_) => {
+                                        "joins more than one pattern; a selection entry is one \
+                                         managed tool pattern"
+                                    }
+                                    Err(cause) => cause,
+                                };
+                                return Err(format!(
+                                    "{what} key '{key}' {half} selection '{slot}' entry {} {cause}",
+                                    index + 1
+                                ));
+                            }
+                        }
+                    }
+                    Disposition::Default(_)
+                    | Disposition::Unsupported(_)
+                    | Disposition::Unmeasured(_) => {}
+                }
+            }
+            if let Transport::Argv(template) = &native.restrictions {
+                let argv: Vec<String> = template
+                    .iter()
+                    .map(|part| part.replace(RESTRICTIONS_SLOT, &empty))
+                    .collect();
+                declared_argv(harness, &argv).map_err(|cause| {
+                    format!(
+                        "{what} key '{key}' restriction transport, with the empty restriction \
+                         in its slot, {cause}"
+                    )
+                })?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One declared argv under its modelled harness's grammar: every token is
+/// placed, and every option it carries has a classified effect.
+fn declared_argv(harness: &str, argv: &[String]) -> Result<(), String> {
+    let command = launch::parse_origin(harness, argv, false)
+        .map_err(|refusal| refusal.cause)?
+        .expect("a modelled harness has a grammar");
+    for node in &command.nodes {
+        node.bears_capability()
+            .map_err(|cause| format!("cannot be composed: '{}' {cause}", node.name()))?;
+    }
+    Ok(())
 }
 
 /// The harness of a command that dispatches no built-in driver: opaque to
@@ -1569,14 +1666,24 @@ impl Authority {
             }
             _ => {}
         }
+        // Slice one carries only the empty restriction (operator ruling of
+        // 2026-09-25; design D11): a nonempty one is inexpressible on every
+        // candidate, a declared transport included, so it reaches CQ1's
+        // outcomes alone and is never composed.
         if !grant.restrictions.is_empty() {
-            if let Transport::Unsupported(_) = native.restrictions {
-                let names = restriction_names("", &grant.restrictions);
-                return Err(through(format!(
-                    "provider '{provider}' cannot express restriction '{}'",
-                    names.join("', '")
-                )));
-            }
+            let names = restriction_names("", &grant.restrictions);
+            let deferred = match native.restrictions {
+                Transport::Unsupported(_) => "",
+                Transport::Argv(_) => {
+                    " through its declared transport, which carries only the empty restriction \
+                     until a provider restriction transport is measured (operator ruling of \
+                     2026-09-25)"
+                }
+            };
+            return Err(through(format!(
+                "provider '{provider}' cannot express restriction '{}'{deferred}",
+                names.join("', '")
+            )));
         }
         let definition = &self.definitions.0[capability];
         Ok((
@@ -1889,22 +1996,9 @@ impl Authority {
                 ) => {}
             }
             match holding {
-                Some(holding) => {
-                    if let Transport::Argv(template) = &native.restrictions {
-                        if !holding.restrictions.is_empty() {
-                            let encoded = String::from_utf8_lossy(&to_bytes(&Value::Object(
-                                holding.restrictions.clone(),
-                            )))
-                            .into_owned();
-                            argv.extend(
-                                template
-                                    .iter()
-                                    .map(|part| part.replace(RESTRICTIONS_SLOT, &encoded)),
-                            );
-                        }
-                    }
-                    on.push(key.clone());
-                }
+                // A holding's restriction is the empty one (design D11), so
+                // no transport argument is ever composed for it.
+                Some(_) => on.push(key.clone()),
                 None => {
                     off.push(key.clone());
                     not_held.entry(native.capability.clone()).or_insert(format!(

@@ -1352,7 +1352,8 @@ fn unconsumed(provider: &str, form: &str) -> Refusal {
 ///    the provider is known to carry ([`known_powers`]) is answered for, ON
 ///    or OFF. An unmeasured inventory answers for nothing.
 /// 3. Every representation the plan carries is one this provider's launch
-///    consumes. Codex takes argv, appended last. Claude and LaneTally take
+///    consumes. Codex takes argv, parsed under its grammar and appended
+///    last. Claude and LaneTally take
 ///    argv and selection as ONE set of lists: a managed list argument such
 ///    as `--disallowedTools WebSearch` is folded into the same include,
 ///    allow and deny lists a selection contributes to, each list flag is
@@ -1437,6 +1438,10 @@ pub fn compose_for_provider(
             if selects {
                 return Err(unconsumed(provider, "a tool selection"));
             }
+            // The plan's own argv is parsed under the codex grammar like
+            // every other origin, never appended unread (rebuild unit 11;
+            // design D6).
+            parse_origin(provider, &controls.argv, false)?;
             Ok(composed(extra, controls.argv.clone()))
         }
         "claude" | "lanetally" => {

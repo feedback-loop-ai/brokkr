@@ -389,49 +389,12 @@ fn a_matching_grant_never_promises_a_denial_the_launch_does_not_deliver() {
 /// The assessment is asked of the harness now, through the same composer
 /// the compiler uses, so the readout carries the compiler's own cause —
 /// under a scoped grant, an empty-office grant, an unused grant, and no
-/// grant at all.
+/// grant at all. Since rebuild unit 11 the chief's selection fails the
+/// adapter load itself, so the uncomposable OFF here is one that loads
+/// ([`uncomposable_codex`]).
 #[test]
 fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
-    // The exact cause the production composer answers with, taken from
-    // the composer itself rather than restated here.
-    let cause = {
-        let list = |flag: &str| brokkr_protocol::native_controls::ListFlag {
-            flag: flag.to_string(),
-            separator: ",".to_string(),
-        };
-        brokkr_protocol::native_controls::compose_for_provider(
-            "codex",
-            &[],
-            &[],
-            &brokkr_protocol::native_controls::Controls {
-                provider: "codex".into(),
-                harness: "codex".into(),
-                inventory: brokkr_protocol::native_controls::Inventory::Known,
-                denied: vec!["web-search".into()],
-                selection: brokkr_protocol::native_controls::Selection {
-                    deny: vec!["web_search".into()],
-                    flags: Some([
-                        list("--tools"),
-                        list("--allowedTools"),
-                        list("--disallowedTools"),
-                    ]),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        )
-        .expect_err("codex consumes no tool selection")
-        .cause
-    };
-    let selecting_codex = || {
-        let list = |flag: &str| json!({"flag": flag, "separator": ","});
-        let mut declared = native(json!({"selection": {
-            "include": [], "allow": [], "deny": ["web_search"]}}));
-        declared["selection"] = json!({
-            "include": list("--tools"), "allow": list("--allowedTools"),
-            "deny": list("--disallowedTools")});
-        declared
-    };
+    let cause = uncomposable_cause();
     for (grant, held) in [
         (
             Some(json!({"dialect": "codex-native-search", "offices": ["researcher"]})),
@@ -452,13 +415,7 @@ fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
             grant.map(|grant| json!({"web-search": grant}))
         )]);
         let dir = workspace_with(Some(realms));
-        // The codex adapter's own invocation dispatches the codex driver,
-        // and its OFF is declared as a tool selection.
-        write(dir.path(), "adapters/codex.json", &{
-            let mut adapter = adapter("codex", Some(selecting_codex()));
-            adapter["driver"] = json!(["{brokkr}", "driver", "codex", "--"]);
-            adapter
-        });
+        write(dir.path(), "adapters/codex.json", &uncomposable_codex());
         let (_, lines) = lines(dir.path(), &installed(&["codex"]));
         let expected = match held {
             Some(scope) => format!(
@@ -476,6 +433,40 @@ fn an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives() {
         };
         assert_eq!(lines.last(), Some(&expected), "{held:?}");
     }
+}
+
+/// A codex adapter whose own invocation dispatches the claude driver and
+/// whose OFF is a managed deny list with no selection mapping. It loads,
+/// because the claude grammar places every token (rebuild unit 11), and the
+/// composer cannot fold the list anywhere. A codex OFF declared as a tool
+/// selection no longer loads: the codex grammar reads no tool list.
+fn uncomposable_codex() -> Value {
+    let mut codex = adapter(
+        "codex",
+        Some(native(json!({"argv": ["--disallowedTools", "web_search"]}))),
+    );
+    codex["driver"] = json!(["{brokkr}", "driver", "claude", "--"]);
+    codex
+}
+
+/// The exact cause the production composer answers [`uncomposable_codex`]
+/// with, taken from the composer itself rather than restated here.
+fn uncomposable_cause() -> String {
+    brokkr_protocol::native_controls::compose_for_provider(
+        "claude",
+        &[],
+        &[],
+        &brokkr_protocol::native_controls::Controls {
+            provider: "claude".into(),
+            harness: "claude".into(),
+            inventory: brokkr_protocol::native_controls::Inventory::Known,
+            denied: vec!["web-search".into(), "web-fetch".into()],
+            argv: vec!["--disallowedTools".into(), "web_search".into()],
+            ..Default::default()
+        },
+    )
+    .expect_err("an unmapped managed list cannot be folded")
+    .cause
 }
 
 /// Finding M1, the restriction paragraph: a grant whose restriction the
@@ -534,15 +525,7 @@ fn a_dropped_restricted_want_is_promised_off_only_where_off_is_deliverable() {
         Some(json!({"web-search": {
             "dialect": "codex-native-search", "allow": {"hosts": ["yaml.org"]}}}))
     )])));
-    let list = |flag: &str| json!({"flag": flag, "separator": ","});
-    let mut declared = native(json!({"selection": {
-        "include": [], "allow": [], "deny": ["web_search"]}}));
-    declared["selection"] = json!({
-        "include": list("--tools"), "allow": list("--allowedTools"),
-        "deny": list("--disallowedTools")});
-    let mut codex = adapter("codex", Some(declared));
-    codex["driver"] = json!(["{brokkr}", "driver", "codex", "--"]);
-    write(dir.path(), "adapters/codex.json", &codex);
+    write(dir.path(), "adapters/codex.json", &uncomposable_codex());
     let (_, lines) = lines(dir.path(), &installed(&[]));
     assert_eq!(
         lines,
@@ -553,10 +536,10 @@ fn a_dropped_restricted_want_is_promised_off_only_where_off_is_deliverable() {
              express restriction 'allow.hosts': a seat that requires the capability is \
              refused, one that wants it drops it and is then refused, because the native \
              capability's declared OFF control cannot be composed for this provider (the \
-             capability plan carries a tool selection for provider 'codex', which its launch \
-             does not consume; a control that cannot reach the final command is refused rather \
-             than recorded and dropped (decision 0066 ruling 3)) and no denial is claimed, and \
-             it never runs unrestricted"
+             capability plan carries a managed '--disallowedTools' with no selection mapping to \
+             fold it into, for provider 'claude', which its launch does not consume; a control \
+             that cannot reach the final command is refused rather than recorded and dropped \
+             (decision 0066 ruling 3)) and no denial is claimed, and it never runs unrestricted"
                 .to_string()
         ]
     );

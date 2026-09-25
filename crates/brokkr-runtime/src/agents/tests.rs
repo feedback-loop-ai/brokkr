@@ -667,6 +667,267 @@ fn a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refu
     );
 }
 
+/// Rebuild unit 11 (NC1; operator ruling 2; design D6 and D11): every
+/// declared control parses under its harness's grammar where the adapter
+/// loads, the half no realm uses included. A dangling `-c`, a misplaced
+/// terminator, a bare word, an unmodelled option or an unclassified
+/// assignment refuses the load, as does a selection mapped onto a flag the
+/// grammar reads as another list, a separator other than `,` or an entry
+/// that is not one managed pattern. A declared restriction transport parses
+/// with the empty restriction in its slot. Each refusal names the adapter
+/// file, the key and the half, never the offending token.
+#[test]
+fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
+    let tree = Tree::new();
+    let codex = |on: Value, off: Value, restrictions: Value| {
+        json!({
+            "provider": "codex", "binary": "codex",
+            "driver": ["{brokkr}", "driver", "codex", "--"],
+            "models": {"sonnet": "gpt-x"}, "model_flag": "--model",
+            "efforts": ["low", "medium", "high"], "effort_flag": "--effort",
+            "tool_permissions": "unsupported", "mcp": "unsupported",
+            "native_capabilities": {"known": {"web-search": {
+                "capability": "web-search", "tools": ["web_search"],
+                "on": on, "off": off, "restrictions": restrictions,
+                "evidence": {"source": "a test", "scope": "a test", "limitations": []}}}}
+        })
+    };
+    let claude = |on: Value, off: Value, deny: Value, include: Value| {
+        let mut adapter = claude_body();
+        adapter["native_capabilities"] = json!({"known": {"web-search": {
+            "capability": "web-search", "tools": ["WebSearch"],
+            "on": on, "off": off,
+            "restrictions": {"unsupported": "none"},
+            "evidence": {"source": "a test", "scope": "a test", "limitations": []}}},
+            "selection": {"include": include,
+                          "allow": {"flag": "--allowedTools", "separator": ","},
+                          "deny": deny}});
+        adapter
+    };
+    let default = json!({"default": "measured on by default"});
+    let disabled = json!({"argv": ["-c", "web_search=\"disabled\""]});
+    let unsupported = json!({"unsupported": "none"});
+    let on = json!({"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}});
+    let off = json!({"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}});
+    let list = |flag: &str, separator: &str| json!({"flag": flag, "separator": separator});
+    let rows: Vec<(&str, &str, Value)> = vec![
+        (
+            "codex dangling -c",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex terminator",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "web_search=\"disabled\"", "--"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex bare word",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["hello"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unknown option",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["--unknown-off=synthetic"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unused ON",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "web_search=\"live\"", "hello"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unclassified",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "unmodelled=1"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex transport",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["--restrict", "{restrictions_json}"]}),
+            ),
+        ),
+        (
+            "codex sound",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["-c", "web_search={restrictions_json}"]}),
+            ),
+        ),
+        (
+            "claude separator",
+            "claude",
+            claude(
+                on.clone(),
+                off.clone(),
+                list("--disallowedTools", ":"),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude mapping",
+            "claude",
+            claude(
+                on.clone(),
+                off.clone(),
+                list("--disallowedTools", ","),
+                list("--allowedTools", ","),
+            ),
+        ),
+        (
+            "claude unused ON entry",
+            "claude",
+            claude(
+                json!({"selection": {"include": ["WebFetch,WebSearch"], "allow": [], "deny": []}}),
+                off.clone(),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude sound",
+            "claude",
+            claude(
+                on,
+                off,
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+    ];
+    let what = |provider: &str| {
+        format!(
+            "adapter '{provider}' ({}) 'native_capabilities'",
+            tree.adapters_root()
+                .join(format!("{provider}.json"))
+                .display()
+        )
+    };
+    let placed = |at: usize, label: &str, cause: &str| {
+        format!(
+            "cannot be composed: the 'codex' command grammar cannot place argument {at} \
+             ({label}): it {cause}. A harness brokkr launches is parsed against a model of its \
+             options, and a token that grammar cannot place is refused rather than passed \
+             through, because a control nobody can read is a control nobody can rule on \
+             (decision 0066 ruling 6)"
+        )
+    };
+    let codex_key = format!("{} key 'web-search'", what("codex"));
+    let claude_selection = format!("{} selection", what("claude"));
+    let expected = [
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(
+                1,
+                "'--config'",
+                "takes a value and is the last argument, so it has none"
+            )
+        ),
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(3, "the terminator '--'", "names no option")
+        ),
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(
+                1,
+                grammar_positional(),
+                "is a bare word, and no positional argument is part of the supported shape"
+            )
+        ),
+        format!(
+            "{codex_key} OFF argv {}",
+            placed(
+                1,
+                "'--unknown-off'",
+                "names no option, or names one that has no equals-joined spelling"
+            )
+        ),
+        format!(
+            "{codex_key} ON argv {}",
+            placed(
+                3,
+                grammar_positional(),
+                "is a bare word, and no positional argument is part of the supported shape"
+            )
+        ),
+        format!(
+            "{codex_key} OFF argv cannot be composed: '--config' assigns a key no bounded \
+             meaning is modelled for, so it is refused rather than passed through as opaque \
+             configuration"
+        ),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, {}",
+            placed(1, "'--restrict'", "names no option")
+        ),
+        "loaded".to_string(),
+        format!(
+            "{claude_selection} 'deny' separator is not the one separator a managed tool list \
+             is joined with, ','"
+        ),
+        format!(
+            "{claude_selection} 'include' flag '--allowedTools' is not what the 'claude' \
+             grammar reads as the 'include' tool list"
+        ),
+        format!(
+            "{} key 'web-search' ON selection 'include' entry 1 joins more than one pattern; \
+             a selection entry is one managed tool pattern",
+            what("claude")
+        ),
+        "loaded".to_string(),
+    ];
+    let mut observed = Vec::new();
+    for (label, provider, adapter) in rows {
+        for stale in ["codex", "claude"] {
+            let _ = std::fs::remove_file(tree.adapters_root().join(format!("{stale}.json")));
+        }
+        tree.write(&format!("adapters/{provider}.json"), &adapter);
+        let outcome = match Adapters::load(&tree.adapters_root()) {
+            Ok(_) => "loaded".to_string(),
+            Err(error) => error.to_string(),
+        };
+        observed.push((label, outcome));
+    }
+    let labels: Vec<&str> = observed.iter().map(|(label, _)| *label).collect();
+    assert_eq!(
+        observed,
+        labels.into_iter().zip(expected).collect::<Vec<_>>()
+    );
+}
+
+fn grammar_positional() -> &'static str {
+    brokkr_protocol::native_controls::grammar::POSITIONAL_LABEL
+}
+
 /// A provider that serves the model but cannot be told which model would
 /// run its own default and let the run claim the pinned one.
 #[test]
@@ -4011,7 +4272,8 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
     claude["tool_permissions"]["names"]["websearch"] = json!("WebSearch");
     claude["native_capabilities"] = json!({"known": {"web-search": {
         "capability": "web-search", "tools": ["WebSearch"],
-        "on": {"argv": ["--search-on"]}, "off": {"argv": ["--search-off"]},
+        "on": {"argv": ["--allowedTools", "WebSearch"]},
+        "off": {"argv": ["--disallowedTools", "WebSearch"]},
         "restrictions": {"unsupported": "none"},
         "evidence": {"source": "a test", "scope": "a test", "limitations": []}}}});
     tree.write("adapters/claude.json", &claude);
@@ -4220,6 +4482,18 @@ mod native {
         harness: &str,
         native: &NativeInventory,
     ) -> Outcome {
+        try_resolve_on(root, grants, asks, provider, harness, native).unwrap()
+    }
+
+    /// [`resolve_on`], its refusal returned rather than unwrapped.
+    pub(super) fn try_resolve_on(
+        root: &Path,
+        grants: Value,
+        asks: Value,
+        provider: &str,
+        harness: &str,
+        native: &NativeInventory,
+    ) -> Result<Outcome, String> {
         let grants: BTreeMap<String, CapabilityGrant> = grants
             .as_object()
             .unwrap()
@@ -4249,34 +4523,34 @@ mod native {
         .unwrap();
         let requests = parse_requests("agent 'tester'", &asks).unwrap();
         let site = SiteAsks::of("work", Some(("tester", &requests)), None).unwrap();
-        authority
-            .resolve(
-                &site,
-                &Serving {
-                    provider,
-                    harness,
-                    model: Some("tn-1"),
-                    native: Some((native, "d1ge57")),
-                    unloaded: None,
-                    authored: &[],
-                    fragment: &[],
-                },
-            )
-            .unwrap()
+        authority.resolve(
+            &site,
+            &Serving {
+                provider,
+                harness,
+                model: Some("tn-1"),
+                native: Some((native, "d1ge57")),
+                unloaded: None,
+                authored: &[],
+                fragment: &[],
+            },
+        )
     }
 }
 
 /// NCC "Unit 3 expected state is independent of emission", through the
 /// real Authority producer: the expectation is the literal the typed
-/// inputs imply — a held subset with its restriction object as written,
-/// a measured default ON held with no argument, every other known power
+/// inputs imply — a held subset with the empty restriction, the only one
+/// slice one carries (operator ruling of 2026-09-25; design D11), a
+/// measured default ON held with no argument, every other known power
 /// denied, a candidate that cannot carry the binding holding nothing, and
 /// an unmeasured inventory kept with its exact reason rather than read as
 /// known and empty. The contribution is asserted apart: what it switches
-/// ON and OFF, raw argv with the substituted restriction, the pending
-/// selection with the adapter's list flags, and its materialization — which
-/// an opaque custom driver cannot give a pending selection, so that row
-/// refuses instead of claiming complete argv.
+/// ON and OFF, raw argv with no transport argument, the pending selection
+/// with the adapter's list flags, and its materialization — which an
+/// opaque custom driver cannot give a pending selection, so that row
+/// refuses instead of claiming complete argv. A nonempty restriction over
+/// the declared transport refuses with the deferral reason.
 #[test]
 fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
     use crate::capabilities::{NativeContribution, NativeInventory, NativePlan};
@@ -4289,7 +4563,10 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
                        "allow": {"hosts": ["yaml.org", "sourceware.org"]}},
         "web-fetch": {"dialect": "web-fetch"},
     });
-    let restriction = json!({"allow": {"hosts": ["yaml.org", "sourceware.org"]}});
+    let unrestricted = json!({
+        "web-search": {"dialect": "web-search", "tools": ["lookup"]},
+        "web-fetch": {"dialect": "web-fetch"},
+    });
     let held = |capability: &str, tools: &[&str], restrictions: &Value| HeldPower {
         capability: capability.into(),
         tools: strings(tools),
@@ -4331,24 +4608,26 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
     let resolve = |asks: Value, provider: &str, inventory: &NativeInventory| {
         native::resolve(&root, grants.clone(), asks, provider, inventory)
     };
-    let subset = resolve(json!({"web-search": "requires"}), "test-native", &inventory);
+    let subset = native::resolve(
+        &root,
+        unrestricted,
+        json!({"web-search": "requires"}),
+        "test-native",
+        &inventory,
+    );
     let rows: Vec<Row<Sealed>> = vec![
         (
-            "a held subset under a restriction".into(),
+            "a held subset under the empty restriction".into(),
             sealed(&subset),
             (
                 NativeExpectation::Known {
-                    held: vec![held("web-search", &["lookup"], &restriction)],
+                    held: vec![held("web-search", &["lookup"], &json!({}))],
                     denied: strings(&["web-fetch"]),
                 },
                 Some(contribution(
                     &["web-search"],
                     &["web-fetch"],
-                    &[
-                        "--fetch-off",
-                        "--search-restrict",
-                        r#"{"allow":{"hosts":["yaml.org","sourceware.org"]}}"#,
-                    ],
+                    &["--fetch-off"],
                     lists(&["lookup"], &["lookup"], &["search"]),
                 )),
                 Some(Err(Refusal {
@@ -4442,6 +4721,23 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
             harness: "<custom>".into(),
             model: Some("tn-1".into()),
         }
+    );
+    // The nonempty restriction the row held before the deferral.
+    assert_eq!(
+        native::try_resolve_on(
+            &root,
+            grants,
+            json!({"web-search": "requires"}),
+            "test-native",
+            crate::capabilities::OPAQUE_HARNESS,
+            &inventory,
+        )
+        .unwrap_err(),
+        "seat 'work' (office 'tester') in realm 'private': requires capability 'web-search' \
+         through dialect 'web-search', but provider 'test-native' cannot express restriction \
+         'allow.hosts' through its declared transport, which carries only the empty \
+         restriction until a provider restriction transport is measured (operator ruling of \
+         2026-09-25); the capability cannot be held under this grant"
     );
 }
 

@@ -1509,8 +1509,14 @@ fn cq1_an_inexpressible_restriction_idles_an_unused_grant() {
     );
 }
 
+/// Rebuild unit 11 under the operator's DEFER ruling of 2026-09-25 (design
+/// D11): a declared restriction transport carries only the empty
+/// restriction in slice one. A nonempty one reaches CQ1's outcomes alone,
+/// with a reason that names the deferral: a requirement refuses, a want is
+/// dropped with OFF, and an unused grant idles with the restriction still
+/// pinned. No transport argument is composed and no holding records it.
 #[test]
-fn an_expressible_restriction_rides_one_typed_argument_unchanged() {
+fn a_declared_transport_carries_only_the_empty_restriction() {
     let root = cq1_root();
     let restricted = authority(
         root.path(),
@@ -1523,28 +1529,55 @@ fn an_expressible_restriction_rides_one_typed_argument_unchanged() {
         json!({"argv": ["--search-restrict", "{restrictions_json}"]}),
     );
     let site = asks(json!({"web-search": "requires"}));
-    let outcome = restricted.resolve(&site, &serving(&carrying)).unwrap();
+    let deferred = "provider 'test-native' cannot express restriction 'allow.hosts' through \
+                    its declared transport, which carries only the empty restriction until a \
+                    provider restriction transport is measured (operator ruling of 2026-09-25)";
     assert_eq!(
-        argv_of(&outcome),
-        [
-            "--search-on",
-            "--search-restrict",
-            r#"{"allow":{"hosts":["yaml.org","sourceware.org"]}}"#
-        ]
+        restricted.resolve(&site, &serving(&carrying)).unwrap_err(),
+        format!(
+            "seat 'research' (office 'researcher') in realm 'private': requires capability \
+             'web-search' through dialect 'search-native', but {deferred}; the capability \
+             cannot be held under this grant"
+        )
     );
-    // The structured value is kept beside its encoding, array order intact.
+    let dropped = restricted
+        .resolve(&asks(json!({"web-search": "wants"})), &serving(&carrying))
+        .unwrap();
     assert_eq!(
-        Value::Object(outcome.held["web-search"].restrictions.clone()),
-        json!({"allow": {"hosts": ["yaml.org", "sourceware.org"]}})
+        dropped.notices,
+        [(
+            "web-search".to_string(),
+            format!(
+                "seat 'research' (office 'researcher') in realm 'private': dropped wanted \
+                 capability 'web-search' through dialect 'search-native' because {deferred}; \
+                 native capability remains OFF"
+            )
+        )]
     );
-    // No restriction, no transport argument.
+    assert_eq!(argv_of(&dropped), ["--search-off"]);
+    assert!(dropped.held.is_empty());
+    let idle = restricted
+        .resolve(
+            &SiteAsks::of("implement", None, None).unwrap(),
+            &serving(&carrying),
+        )
+        .unwrap();
+    assert_eq!(idle.notices, Vec::<(String, String)>::new());
+    assert_eq!(argv_of(&idle), ["--search-off"]);
+    assert_eq!(
+        restricted.manifest(&[])["grants"]["web-search"]["allow"],
+        json!({"hosts": ["yaml.org", "sourceware.org"]})
+    );
+    // The empty restriction is held, and composes no transport argument.
     let plain = authority(
         root.path(),
         json!({"web-search": {"dialect": "search-native"}}),
     );
+    let held = plain.resolve(&site, &serving(&carrying)).unwrap();
+    assert_eq!(argv_of(&held), ["--search-on"]);
     assert_eq!(
-        argv_of(&plain.resolve(&site, &serving(&carrying)).unwrap()),
-        ["--search-on"]
+        Value::Object(held.held["web-search"].restrictions.clone()),
+        json!({})
     );
     assert_eq!(
         restriction_names(

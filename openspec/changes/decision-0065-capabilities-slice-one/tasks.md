@@ -1396,9 +1396,9 @@ remote CI are pending.
 
 ## 11. Unit 11 — Validate both declared halves at load
 
-- [ ] 11.1 Unit 11 parses both declared ON/OFF argv at load, even unused. Verify full Codex/mapping/separator/missing-authority refusals and valid positives. Requirements: [Native capability controls are adapter-owned evidence-bearing data][NC1], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.3)
+- [x] 11.1 Unit 11 parses both declared ON/OFF argv at load, even unused. Verify full Codex/mapping/separator/missing-authority refusals and valid positives. Requirements: [Native capability controls are adapter-owned evidence-bearing data][NC1], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.3)
 
-- [ ] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
+- [x] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
 
 Observed 2026-09-25 (evidence.md, "Unit 11 — oversized"), run
 `0065-rebuild-unit-11-see-the-uni-d48cbfd2`. Both tasks stay open. The unit
@@ -1420,6 +1420,38 @@ A second implement visit in the same run re-confirmed this on `789b812f`,
 after triage re-ruled `chore` with an unchanged inventory. With the patch
 applied, all seven tests failed; on the unpatched head, all seven passed.
 The result is oversized again (evidence.md, "Second implement visit").
+
+Built 2026-09-25 (evidence.md, "Unit 11 — built, under the inventory
+ruling of 2026-09-25"), run `0065-rebuild-unit-11-see-the-uni-1d1020cd`,
+on `e9d3ce8d`. The operator's option (a) widened this unit's test
+inventory to `bundle/agent_tests.rs`, `tests/capability_launch.rs` and
+`doctor/capability_tests.rs`, for assertion updates only
+(`operator-ruling-2026-09-23.md`, addendum "rebuild unit 11's test
+inventory"). The saved patch (`54de029c…05ac`) was applied unchanged.
+
+- **Production:** the unit's three files, as the first visit built them.
+  `check_declared` runs at load and parses both halves, the selection
+  maps and separators, and the transport with `{}` in its slot. The
+  deferral is refused with its exact reason. Codex's managed argv is
+  parsed, not appended unread.
+- **Baseline reds:** the three new tests were re-observed red.
+- **Changed assertions** in the widened files:
+  - five re-planted as well-formed, so their later refusal is still
+    reached: the claude `elsewhere` row, the dsh row, the capability
+    launch's codex selection, and both doctor tests;
+  - two moved: the four native-OFF rows to the load refusal, and the
+    restriction rows to the deferral refusal.
+
+  In the unit's own `agents/tests.rs`, one fixture was re-planted and one
+  positive became the deferral refusal.
+- **Proof:** each change was bound by its red, M1–M14 each failed and
+  was restored, and the restored suites passed.
+- **Standing-admission lines:** none were used.
+- **Gates:** fmt, clippy, the protocol, runtime and CLI suites
+  (`witness_digests` 4/4), both bundle compiles, strict openspec and
+  `git diff --check` all passed.
+- **Pending:** exact coverage, macOS and remote CI.
+- **Follow-up:** `doctor.rs:960-966` belongs to unit 22.
 
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
@@ -1539,6 +1571,12 @@ as it stood.
 - [ ] 21.2 **DEFERRED (addendum 2026-09-25).** Unit 21 separately compiles held nonempty restriction cold/resume fixtures via real realm/dialect/candidate resolution. Verify independent final literals, manifest and session, no fabricated Controls. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.6)
 
 - **11.2's restriction half, as it stood:** "Unit 11 carries unit 9's qualified restriction through real resolution. Verify JSON/encoding/identity and required/wants/unused outcomes; 21.2 owns final proof."
+- **Unit 11's retired nonempty-restriction positives** (rebuild unit 11, 2026-09-25; each is now the exact deferral refusal, evidence.md "Unit 11 — built"):
+  - `capabilities/tests.rs`, `an_expressible_restriction_rides_one_typed_argument_unchanged` (replaced by `a_declared_transport_carries_only_the_empty_restriction`). A `requires` over transport `["--search-restrict", "{restrictions_json}"]` held `{"allow":{"hosts":["yaml.org","sourceware.org"]}}` and composed `--search-on --search-restrict {"allow":{"hosts":["yaml.org","sourceware.org"]}}`, array order intact.
+  - `agents/tests.rs`, `unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission`, row "a held subset under a restriction". The expectation held `web-search` on `lookup` with that restriction, and the contribution argv was `--fetch-off --search-restrict {"allow":{"hosts":["yaml.org","sourceware.org"]}}`.
+  - `bundle/agent_tests.rs`, `resolved_native_on_and_restriction_contributions_obey_the_same_refusals`, has two retired pieces:
+    - the "clean native restriction" row compiled with the typed `workspace-write` class, and its resolved argv was `-c web_search="live" -c web_search={"allow":{"hosts":["example.org"]}}`;
+    - the four "native restriction <spelling>" rows refused a root selector carried in the substituted restriction argv (D5.3).
 - **21.3's restriction portion:** the held nonempty restriction rows of the launch matrix ("close only after unit 21 proves the restriction rows too").
 - **23.1's restriction portion:** the independent cold/resume removal of the held nonempty restriction's delivery.
 

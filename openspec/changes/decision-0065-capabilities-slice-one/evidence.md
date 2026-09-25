@@ -8555,3 +8555,238 @@ This visit re-checked the finding on head `789b812f`:
 The split named above still stands. Add the three test files to unit 11's
 inventory for assertion updates only, or have an earlier unit re-plant
 those fixtures first.
+
+## Unit 11 — built, under the inventory ruling of 2026-09-25
+
+Run `0065-rebuild-unit-11-see-the-uni-1d1020cd`, triage `chore`, phase
+implement, sole seat. The head was `e9d3ce8d`, clean. The result is
+**complete** locally. Exact coverage, macOS and remote CI are pending.
+
+The operator ruled option (a) on 2026-09-25. It is recorded as the
+addendum "rebuild unit 11's test inventory" in
+`operator-ruling-2026-09-23.md`. Unit 11's inventory gains
+`bundle/agent_tests.rs`, `tests/capability_launch.rs` and
+`doctor/capability_tests.rs`, for assertion updates only.
+
+### Starting point, re-verified
+
+- `sha256sum .forge/unit-11-oversized-2026-09-25.patch` gave
+  `54de029c…05ac`. `git apply --check` was clean on `e9d3ce8d`, and the
+  patch was applied unchanged. The production half is exactly what the
+  first visit recorded.
+- Baseline reds, with the patch's tests applied and its three production
+  files reverted (`.forge/u11b-base-protocol.log`,
+  `.forge/u11b-base-runtime.log`):
+  - `codex_managed_arguments_are_parsed_and_never_forwarded_unread`
+    FAILED at `native_controls/tests.rs:1421`. All four malformed tails
+    composed `Ok`.
+  - `every_declared_half_parses_under_its_harness_at_load_even_unused`
+    FAILED at `agents/tests.rs:921`. All 12 rows read `loaded`.
+  - `a_declared_transport_carries_only_the_empty_restriction` FAILED at
+    `capabilities/tests.rs:1536`, `unwrap_err()` on an `Ok` holding
+    `allow.hosts`.
+- With the whole patch applied, `cargo test --locked -p brokkr-runtime
+  --all-features --no-fail-fast --lib --test capability_launch` gave lib
+  559 passed / 6 failed and `capability_launch` 42 / 1
+  (`.forge/u11b-applied-runtime.log`). These are the same seven tests the
+  record names, plus the two in `agents/tests.rs`.
+
+### Changed assertions, with reasons
+
+Each assertion is either re-planted, so the later refusal it binds is
+still reached, or moved to the exact refusal it now meets. The
+**original red** is the pre-edit assertion failing with unit 11 applied
+(`.forge/u11b-applied-runtime.log`; for the doctor,
+`.forge/u11b-exp7.log`). The **baseline** column is the edited assertion
+with the three production files reverted
+(`.forge/u11b-baseline2-runtime.log`, `.forge/u11b-baseline2-cli.log`).
+
+- **`agents/tests.rs`, `unit3_primitives_cannot_bypass_the_delivery_handoff`**
+  (in inventory). Re-planted. The fixture's claude ON/OFF were the
+  synthetic `--search-on`/`--search-off`, which the claude grammar cannot
+  place. They are now `--allowedTools WebSearch` and
+  `--disallowedTools WebSearch`. The test exists for the mapped-alias
+  refusal and the dormant hands rows, and those assertions did not move.
+  Original red: `unwrap()` on the load refusal at `agents/tests.rs:61`.
+  Baseline: passes, because the re-plant does not depend on unit 11.
+  Mutation M10 fails it.
+- **`agents/tests.rs`, `unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission`**
+  (in inventory). Moved to the deferral. The row "a held subset under a
+  restriction" becomes "a held subset under the empty restriction": the
+  grant has no `allow`, the held restriction is `{}` and the contribution
+  argv is `["--fetch-off"]`, with no transport argument. A new closing
+  assertion pins the original nonempty grant's exact deferral refusal. To
+  make that possible, `native::resolve_on` delegates to a new
+  `native::try_resolve_on`, which returns the `Result`. The original
+  positive is recorded under "Deferred to the restriction-transport
+  slice" in `tasks.md`. Baseline: FAILED at `agents/tests.rs:4735`
+  (`unwrap_err()` on an `Ok`). Mutation M9 fails it.
+- **`bundle/agent_tests.rs`, `an_unreadable_contribution_refuses_by_position_without_echoing_its_token`**.
+  Moved to the load refusal. Four native-OFF rows are affected: a
+  duplicate `--cd`, a malformed `--cd`, a bare word and a trailing
+  `--profile`. Each now expects the adapter load's exact refusal, which
+  names the argument by position with a bounded label (`'--cd'`, `a
+  positional argument, whose text is not echoed`, `'--profile'`) and the
+  same grammar cause. The 512-scalar bound now covers the four compile
+  refusals only (`rows[..4]`). A load refusal also carries the adapter's
+  temporary path, and its exact text already shows it echoes no token.
+  - A re-plant was tried and failed (`.forge/u11b-exp3.log`, first run).
+    With two keys whose OFFs each carry one root selector, the plan is
+    refused earlier, by unit 11's own codex parse in
+    `compose_for_provider` ("seat 'work' … cannot be composed: … repeats
+    option '--cd'"), so it never reaches D5.3.
+  - Original red: 4 of 8 rows failed, at `bundle/agent_tests.rs:4986`.
+    Baseline: 4 of 8 rows FAILED (the D5.3 refusal where the load refusal
+    is expected). Mutation M2 fails it.
+- **`bundle/agent_tests.rs`, `resolved_native_on_and_restriction_contributions_obey_the_same_refusals`**.
+  Moved to the deferral. The four "native restriction <spelling>" rows
+  and "clean native restriction" now expect the exact deferral refusal.
+  A held nonempty restriction is refused before any transport is
+  composed, so a root selector in the template is never reached. The
+  trailing positive, `compile(&hosts).unwrap()` with argv `-c
+  web_search="live" -c web_search={"allow":{"hosts":["example.org"]}}`,
+  is removed. Its row now asserts the refusal, and the positive is
+  recorded as deferred in `tasks.md`. The doc comment says so.
+  Original red: 5 of 11 rows failed, at `:5252`. Baseline: 5 of 11 rows
+  FAILED at `:5291`. Mutation M9 fails it.
+- **`bundle/agent_tests.rs`, `an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses`**,
+  row "an adapter whose driver is not codex's". Re-planted. The
+  `elsewhere` adapter, a codex adapter that dispatches the claude driver,
+  now declares its OFF as `--disallowedTools web_search`, which the
+  claude grammar places. The row's template refusal is unchanged.
+  Original red: 1 of 19 rows failed, at `:2498`. Baseline: passes.
+  Mutation M10 fails it.
+- **`bundle/agent_tests.rs`, `a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly`**,
+  row "dsh with hands". Re-planted. The dsh grammar reads no tool list,
+  so the `claude_native()` selection cannot load. The dsh adapter now
+  declares `{"unmeasured": …}`, as the shipped `adapters/dsh.json` does.
+  The row's "only the codex harness's own `--sandbox` fragments express a
+  sandbox class" refusal is unchanged. Original red: 1 of 34 rows failed,
+  at `:4301`. Baseline: passes. Mutation M12 fails it.
+- **`tests/capability_launch.rs`, `a_native_control_declared_as_argv_reaches_the_final_claude_command`**.
+  Re-planted, and the assertion is unchanged. The `selecting` codex
+  adapter's own `driver` becomes the opaque `["codex"]`. No grammar is
+  modelled for it, so the selection loads, and the inline seat's codex
+  launch still refuses "a tool selection for provider 'codex'".
+  Original red: `:5872`. Baseline: passes. Mutation M11 fails it at
+  `:5875`.
+- **`doctor/capability_tests.rs`, `an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives`
+  and `a_dropped_restricted_want_is_promised_off_only_where_off_is_deliverable`**.
+  Re-planted, through two new helpers in the same file:
+  - `uncomposable_codex()` is a codex adapter that dispatches the claude
+    driver, with OFF argv `--disallowedTools web_search` and no
+    selection mapping. It loads, and the composer cannot fold it.
+  - `uncomposable_cause()` takes the cause from `compose_for_provider`
+    itself: "the capability plan carries a managed '--disallowedTools'
+    with no selection mapping to fold it into, for provider 'claude', …".
+
+  The first test's expectation still embeds the composer's cause. The
+  second's hard-coded cause text changes to that refusal.
+  - The re-plant was chosen over the load line on purpose. With a
+    codex-driven selection, the doctor reports "the adapter declarations
+    at … could not be read (… 'native_capabilities' selection 'include'
+    flag '--tools' is not what the 'codex' grammar reads …)" and names no
+    harness's native lines (`.forge/u11b-exp8.log`). That would leave the
+    doctor's `Denial::Refused` arms without a test.
+  - An opaque-driver re-plant was tried first and dropped
+    (`.forge/u11b-exp6.log`): an opaque driver composes the selection.
+  - Original red: `:477` and `:547` (`.forge/u11b-exp7.log`). Baseline:
+    both pass. Mutation M10 fails both (`:434` and `:530`).
+
+**Standing-admission lines:** none. Every edit outside the unit's three
+named suites is in a file the ruling adds.
+
+### Mutations (each compiled, failed as stated, then restored)
+
+Each mutation was restored with `git checkout -- <file>` and `git apply
+--include=<file> .forge/u11b-full.patch`. After every restore, `git diff |
+sha256sum` read `864a75b2…989e`, the snapshot's hash. Logs are
+`.forge/u11b-mut-M<n>.log`.
+
+- **M1**, `native_controls.rs`: drop the codex arm's
+  `parse_origin(provider, &controls.argv, false)?`. Fails
+  `codex_managed_arguments_are_parsed_and_never_forwarded_unread` at
+  `:1421`.
+- **M2**, `agents/load.rs`: drop the `check_declared` call. Fails
+  `every_declared_half…` at `:921`, and
+  `an_unreadable_contribution…` on its four native-OFF rows.
+- **M3**, `capabilities.rs`: the `list_of` check tests only `include` for
+  `is_none()`. Fails `every_declared_half…`; the "claude mapping" row
+  read `loaded`.
+- **M4**: the `managed_separator` result is ignored. The "claude
+  separator" row read `loaded`.
+- **M5**: `patterns.len() == 1` becomes `!patterns.is_empty()`. The
+  "claude unused ON entry" row read `loaded`.
+- **M6**: only the OFF half is checked. The "codex unused ON" row read
+  `loaded`.
+- **M7**: `declared_argv` skips `bears_capability`. The "codex
+  unclassified" row read `loaded`.
+- **M8**: the transport's `declared_argv` result is ignored. The "codex
+  transport" row read `loaded`.
+- **M9**: a nonempty restriction is refused only where the transport is
+  `Unsupported`, which was the rule before the ruling. This fails three
+  tests:
+  - `a_declared_transport_carries_only_the_empty_restriction`, at
+    `:1536`;
+  - `unit3_native_expectation…`, at `:4735`;
+  - `resolved_native_on_and_restriction…`, where 5 of 11 rows failed.
+- **M10**: `declared_argv` refuses every `claude` argv. This fails four
+  tests:
+  - `unit3_primitives…`, at `agents/tests.rs:61`;
+  - `an_inline_codex_seat_lowers…`, on its "driver is not codex's" row;
+  - both doctor tests (`.forge/u11b-mut-M10-cli.log`).
+- **M11**: `check_declared` refuses a harness with no grammar. This fails
+  `capability_launch`'s re-planted assertion at `:5875`.
+- **M12**: `check_declared` refuses an unmeasured `dsh` inventory. This
+  fails `a_typed_sandbox_admits…` on its "dsh with hands" row.
+- **M13**: a selection entry must hold two patterns. This fails
+  `every_declared_half…`, on the "claude sound" positive.
+- **M14**: the empty-restriction substitution gains a trailing `--`. This
+  fails `every_declared_half…`, on the "codex sound" positive.
+
+### Restored pass and gates (final tree)
+
+- `cargo fmt --all -- --check`: clean, after one `cargo fmt --all`
+  reflowed `try_resolve_on`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning and no error
+  (`.forge/u11b-clippy.log`).
+- `cargo test --locked -p brokkr-protocol --all-features --no-fail-fast`:
+  487, 99 (2 ignored) and 1 passed.
+- `cargo test --locked -p brokkr-runtime --all-features --no-fail-fast`:
+  the lib had 565 passed, `capability_launch` 43, and every other target
+  was ok. `witness_digests` passed 4/4, so no pin moved.
+- `cargo test --locked -p brokkr-cli --all-features --no-fail-fast`: the
+  lib had 481 passed, and every integration target was ok.
+- All three suites were re-run after the last mutation's restore
+  (`.forge/u11b-final-*.log`). No log has a `FAILED` or `panicked` line.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `… bundles/verify` both compiled, with empty stderr.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0 failed
+  (`.forge/u11b-openspec.log`). `git diff --check` was clean.
+- **Not run:** `cargo test --workspace`. The gates named for this unit are
+  the touched crates' suites.
+- **Pending:** exact coverage (`scripts/coverage-exact.sh` outside the
+  box), macOS and remote CI.
+
+### Follow-ups, not fixed here
+
+- `crates/brokkr-cli/src/doctor.rs:960-966` still treats a declared
+  transport as able to carry a nonempty restriction. That belongs to unit
+  22, by ruling.
+- The D5.3 "cannot be read" branch (`bundle.rs`, `expressed_sandbox`) can
+  no longer be reached from native argv:
+  - a single key's unplaceable OFF is refused at load;
+  - a cross-key duplicate is refused at resolution by the codex parse
+    that `compose_for_provider` now runs.
+
+  The branch is shared, so the authored and fragment rows still reach it.
+  Exact coverage will confirm this; it was not measured here.
+- `compose_for_provider` parses Codex's managed argv but does not run
+  `bears_capability` on it; the load does. The final exact-state check is
+  units 13–15.
+- A codex-driven adapter whose declaration fails the load makes the
+  doctor report every adapter unreadable, and it names no harness's
+  native lines (`.forge/u11b-exp8.log`). This is existing doctor
+  behaviour on a load failure, which unit 11 now reaches for more
+  declarations. It is not changed here.

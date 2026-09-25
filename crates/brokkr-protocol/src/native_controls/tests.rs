@@ -1385,6 +1385,66 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
     );
 }
 
+/// Rebuild unit 11 (design D6: "Invalid Codex managed arguments have no
+/// verbatim bypass"): a Codex plan's own argv is parsed under the codex
+/// grammar like every other origin. A misplaced terminator, a bare word,
+/// an unmodelled option or a dangling `-c` after the measured OFF pair
+/// refuses the composition in the engine's own voice, naming a position
+/// and a bounded label and never the token; the sound OFF still composes.
+#[test]
+fn codex_managed_arguments_are_parsed_and_never_forwarded_unread() {
+    let seat = argv(&["--sandbox", "read-only"]);
+    let placed = |at: usize, label: &str, cause: &str| Refusal {
+        authored: false,
+        cause: format!(
+            "cannot be composed: the 'codex' command grammar cannot place argument {at} \
+             ({label}): it {cause}. A harness brokkr launches is parsed against a model of its \
+             options, and a token that grammar cannot place is refused rather than passed \
+             through, because a control nobody can read is a control nobody can rule on \
+             (decision 0066 ruling 6)"
+        ),
+    };
+    let off = |tail: &[&str]| Controls {
+        argv: [argv(&["-c", "web_search=\"disabled\""]), argv(tail)].concat(),
+        ..ready("codex", &[], &["web-search"])
+    };
+    let observed: Vec<Result<Composed, Refusal>> = [
+        &["--"][..],
+        &["hello"],
+        &["--unknown-off=synthetic"],
+        &["-c"],
+        &[],
+    ]
+    .iter()
+    .map(|tail| compose_for_provider("codex", &seat, &[], &off(tail)))
+    .collect();
+    assert_eq!(
+        observed,
+        [
+            Err(placed(3, "the terminator '--'", "names no option")),
+            Err(placed(
+                3,
+                grammar::POSITIONAL_LABEL,
+                "is a bare word, and no positional argument is part of the supported shape"
+            )),
+            Err(placed(
+                3,
+                "'--unknown-off'",
+                "names no option, or names one that has no equals-joined spelling"
+            )),
+            Err(placed(
+                3,
+                "'--config'",
+                "takes a value and is the last argument, so it has none"
+            )),
+            Ok(Composed {
+                extra: seat.clone(),
+                managed: argv(&["-c", "web_search=\"disabled\""])
+            }),
+        ]
+    );
+}
+
 /// Decision 0066 ruling 4, the carried fact: an engine launch is judged in
 /// the two parts the engine RECORDED, and a record that is absent, null,
 /// unreadable, or does not reassemble the argv actually handed over is

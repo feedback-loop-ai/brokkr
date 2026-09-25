@@ -834,6 +834,12 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     if driver.is_empty() {
         return invalid(format!("{what} 'driver' is empty; it is the invocation"));
     }
+    // Rebuild unit 11: both declared halves parse under the grammar of the
+    // harness this adapter dispatches, here, whether or not a realm uses
+    // them (operator ruling 2).
+    native
+        .check_declared(&what, crate::capabilities::harness_of(&driver))
+        .map_err(LibraryError::Invalid)?;
     let models = name_map(map, "models", &what)?;
     let judges = match map.get("judges") {
         Some(_) => string_array(map, "judges", &what)?,

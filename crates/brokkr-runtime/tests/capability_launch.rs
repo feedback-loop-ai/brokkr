@@ -5857,9 +5857,12 @@ fn a_native_control_declared_as_argv_reaches_the_final_claude_command() {
         )
     );
     // A form no launch consumes is refused where it is compiled: Codex
-    // takes no tool selection.
+    // takes no tool selection. The adapter's own invocation dispatches no
+    // modelled grammar, so the declaration loads (rebuild unit 11) and the
+    // inline seat's codex launch is what refuses it.
     let selecting = copied_adapters();
     edit_adapter(selecting.path(), "codex", |adapter| {
+        adapter["driver"] = json!(["codex"]);
         let native = &mut adapter["native_capabilities"];
         native["known"]["web-search"]["off"] =
             json!({"selection": {"include": [], "allow": [], "deny": ["web_search"]}});
