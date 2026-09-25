@@ -2962,18 +2962,25 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
 /// first, so the judgment's own requirement is shown on segments directly.
 #[test]
 fn the_inline_codex_launch_judgment_requires_the_engines_fragment_of_the_class() {
+    use brokkr_protocol::native_controls::SandboxIntent;
     let segment = |origin: Origin, argv: &[&str]| {
         Segment::new(
             origin,
             &argv.iter().map(|part| part.to_string()).collect::<Vec<_>>(),
         )
     };
-    let judged = |segments: &[Segment]| {
+    // Rebuild unit 5d-fix-c1: the judgment is the grammar's, and the site is
+    // named by the one wrapper both boundaries use.
+    let judged_as = |class: SandboxIntent, segments: &[Segment]| {
         format!(
             "{:?}",
-            inline_codex_launch("work", segments, Sandbox::WorkspaceWrite, None)
+            brokkr_protocol::native_controls::grammar::judge_inline_codex_launch(
+                class, segments, None
+            )
+            .map_err(|cause| inline_codex_refusal("work", &cause))
         )
     };
+    let judged = |segments: &[Segment]| judged_as(Sandbox::WorkspaceWrite.intent(), segments);
     let rows: Vec<Row<String>> = vec![
         (
             "the fragment".into(),
@@ -3010,7 +3017,76 @@ fn the_inline_codex_launch_judgment_requires_the_engines_fragment_of_the_class()
              rather than reconciled or ordered, whoever composed it\")"
                 .into(),
         ),
+        // Rebuild unit 5d-fix-c1: a judgment with no class to judge refuses
+        // before any fragment could stand for one.
+        (
+            "no class".into(),
+            judged_as(
+                SandboxIntent::Unspecified,
+                &[segment(Origin::Local, &["--sandbox", "workspace-write"])],
+            ),
+            "Err(\"the inline Codex launch of seat 'work' is judged with no sandbox class, so no \
+             fragment of the engine's could express the class it was admitted with\")"
+                .into(),
+        ),
     ];
+    assert_eq!(rows.len(), 5);
+    each_row(rows);
+}
+
+/// Rebuild unit 5d-fix-c1 (chief F4 of run 0065-rebuild-unit-5d-fix-b-see-t-8067eebc):
+/// admission names the seat in the one bounded representation the dispatch
+/// door uses, at both places its refusal names it. A dotted label keeps its
+/// identity; a long label with a newline is named by its lead and length.
+#[test]
+fn an_inline_codex_admission_names_its_seat_bounded_and_keeps_a_dotted_identity() {
+    let fixture = AgentFixture::new();
+    fixture.write("adapters/codex.json", codex_off(&["-a", "never"]));
+    let long = format!("work\n{}", "w".repeat(100));
+    let refused = |named: &str| {
+        format!(
+            "bundle: seat {named} declares 'tools.sandbox' 'workspace-write', but the inline Codex \
+             launch of seat {named} carries '--ask-for-approval' (argument 9) in its `native` \
+             contribution, a permission control, which sets, lifts or replaces the sandbox or its \
+             approvals; the launch admits only the engine's one sandbox fragment of the site's \
+             class, at a gate the engine's one capture into the result path it owns, and \
+             configuration on a closed allowlist, so every other effect is refused rather than \
+             reconciled or ordered, whoever composed it (operator ruling of 2026-09-25; rebuild \
+             unit 5d-fix-b; design D5.3)"
+        )
+    };
+    let rows: Vec<Row<String>> = [
+        ("plain", "work", refused("'work'")),
+        ("dotted", "work.v1", refused("'work.v1'")),
+        (
+            "long, with a newline",
+            long.as_str(),
+            refused("'work…' (105 bytes, not echoed in full)"),
+        ),
+    ]
+    .into_iter()
+    .map(|(label, seat, expected)| {
+        // The seat stands in the policy's first phase, under its own name.
+        let mut config = fixture.config();
+        config["seats"].as_object_mut().unwrap().remove("work");
+        config["seats"][seat] = json!({
+            "results": ["complete"],
+            "role": "roles/work.md",
+            "driver": {"command": codex_inline(&[])},
+            "tools": {"sandbox": "workspace-write"},
+        });
+        let mut table = policy();
+        table["phases"][0] = json!(seat);
+        table["initial"] = json!(seat);
+        table["rules"][0]["from"] = json!(seat);
+        (
+            label.into(),
+            outcome(fixture.compile_with_policy(config, &table)),
+            expected,
+        )
+    })
+    .collect();
+    assert_eq!(rows.len(), 3);
     each_row(rows);
 }
 

@@ -2362,7 +2362,7 @@ fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
 /// member name cannot become a 100,000-byte reason and a newline cannot
 /// forge a line. Rebuild unit 5e-fix-b renders a root key and a
 /// composition chain's layer names the same way.
-fn bounded_site(label: &str) -> String {
+pub(crate) fn bounded_site(label: &str) -> String {
     if plain_label(label) {
         return format!("'{label}'");
     }
@@ -3052,158 +3052,18 @@ fn authored_sandbox_control(
 /// engine fills with the result path it owns at dispatch.
 pub const RESULT_PATH: &str = "{result_path}";
 
-/// Every option of an inline Codex launch's contributions, read together
-/// under the codex grammar as the harness reads them, each beside the
-/// origin of the segment it stands in (rebuild unit 5d-fix). An argv the
-/// grammar cannot place is refused naming its position and its bounded
-/// label, never its token.
-fn codex_contributions(
-    site: &str,
-    segments: &[Segment],
-) -> Result<Vec<(Origin, brokkr_protocol::native_controls::grammar::Node)>, String> {
-    let argv = brokkr_protocol::native_controls::flatten(segments);
-    let command = brokkr_protocol::native_controls::grammar::parse("codex", &argv)
-        .expect("the codex grammar is modelled")
-        .map_err(|problem| {
-            format!(
-                "the inline Codex launch of seat '{site}' cannot be read whole under the 'codex' \
-                 grammar (argument {}, {}: it {}), so none of its effects can be judged; an \
-                 unclassified option is refused, never passed through",
-                problem.at + 1,
-                problem.label,
-                problem.cause
-            )
-        })?;
-    let ends: Vec<(usize, Origin)> = segments
-        .iter()
-        .scan(0, |end, segment| {
-            *end += segment.argv.len();
-            Some((*end, segment.origin))
-        })
-        .collect();
-    Ok(command
-        .nodes
-        .into_iter()
-        .map(|node| {
-            let (_, origin) = ends
-                .iter()
-                .find(|(end, _)| node.at < *end)
-                .expect("every option stands in a segment");
-            (*origin, node)
-        })
-        .collect())
-}
-
-/// Rebuild unit 5d-fix-b (chief F1–F5 of run `0065-rebuild-unit-5d-fix-see-the-569be761`;
-/// operator ruling of 2026-09-25, "narrow"; design D5.3): the one judgment
-/// of a whole inline Codex launch, run at admission over the compiled plan
-/// and again at the dispatch door over the argv composition hands the
-/// harness — the authored command, the adapter's template, the engine's
-/// `local` fragment and the native plan, in that order, none exempt.
+/// A refusal of an inline Codex launch as admission and the dispatch door
+/// both word it (rebuild unit 5d-fix-c1, chief F4 of run
+/// `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`): the seat in the one
+/// bounded representation, [`bounded_site`], beside the value-free cause of
+/// [`judge_inline_codex_launch`], the judgment both boundaries call.
 ///
-/// It admits a closed set of effects, read by the grammar's own effect
-/// classification: exactly one `--sandbox`, in the engine's `local`
-/// fragment, of exactly `class`; where `capture` names the engine-owned
-/// result path (a gate), exactly one `--output-last-message` into exactly
-/// it, in that fragment, and where it is `None` (a work seat) none;
-/// configuration on the grammar's closed [`LAUNCH_SETTINGS`] allowlist; and
-/// options whose value is data or that switch nothing. Every other sandbox,
-/// approval, writable-root, capture, root-selector, profile or
-/// configuration-document effect, every assignment off the allowlist and
-/// every option the grammar cannot place refuses, naming the seat, the
-/// contribution, the position and the canonical option, never a value.
-///
-/// [`LAUNCH_SETTINGS`]: brokkr_protocol::native_controls::grammar::LAUNCH_SETTINGS
-pub fn inline_codex_launch(
-    site: &str,
-    segments: &[Segment],
-    class: Sandbox,
-    capture: Option<&str>,
-) -> Result<(), String> {
-    use brokkr_protocol::native_controls::grammar::{self, Effect, Power};
-    let (mut sandboxes, mut captures) = (0, 0);
-    for (origin, node) in codex_contributions(site, segments)? {
-        let effect = match (node.name(), node.spec.effect) {
-            // Any other `--sandbox` is a permission control like the rest.
-            ("--sandbox", _) if origin == Origin::Local && node.values == [class.name()] => {
-                sandboxes += 1;
-                None
-            }
-            ("--output-last-message", _) => match capture {
-                Some(target) if origin == Origin::Local && node.values == [target] => {
-                    captures += 1;
-                    None
-                }
-                Some(_) => Some(
-                    "a result capture other than the engine's own into exactly the result path \
-                     it owns, a harness write path outside the result sink"
-                        .to_string(),
-                ),
-                None => Some(
-                    "a result capture at a work seat, whose result is the file the seat writes; \
-                     a capture the engine does not own is a harness write path outside the \
-                     result sink"
-                        .to_string(),
-                ),
-            },
-            // The grammar types the root selector's value as data, but
-            // D5.3 refuses it wherever it stands (unit 2-fix A1).
-            ("--cd", _) => Some(
-                "a root selector, which moves the root the sandbox class is measured from"
-                    .to_string(),
-            ),
-            (_, Effect::Inert | Effect::Switch) => None,
-            (_, Effect::Config) => node
-                .values
-                .iter()
-                .find_map(|value| grammar::launch_setting(value).err())
-                .map(|cause| format!("a configuration assignment that {cause}")),
-            (_, Effect::Control(Power::Permission)) => Some(
-                "a permission control, which sets, lifts or replaces the sandbox or its approvals"
-                    .to_string(),
-            ),
-            (_, Effect::Control(Power::Filesystem)) => {
-                Some("a writable root beyond the sandbox class's reach".to_string())
-            }
-            (_, Effect::Load) => Some(
-                "a configuration document the engine cannot see into, which can set the sandbox"
-                    .to_string(),
-            ),
-            (_, _) => Some(
-                "a capability-bearing control outside the closed set an inline Codex launch \
-                 admits"
-                    .to_string(),
-            ),
-        };
-        if let Some(effect) = effect {
-            return Err(format!(
-                "the inline Codex launch of seat '{site}' carries '{}' (argument {}) in its `{}` \
-                 contribution, {effect}; the launch admits only the engine's one sandbox fragment \
-                 of the site's class, at a gate the engine's one capture into the result path it \
-                 owns, and configuration on a closed allowlist, so every other effect is refused \
-                 rather than reconciled or ordered, whoever composed it",
-                node.name(),
-                node.at + 1,
-                origin.word()
-            ));
-        }
-    }
-    if sandboxes == 0 {
-        return Err(format!(
-            "the inline Codex launch of seat '{site}' carries no sandbox fragment of the site's \
-             '{}' class in the engine's `local` contribution, so the class it was admitted with \
-             would not reach the harness",
-            class.name()
-        ));
-    }
-    if capture.is_some() && captures == 0 {
-        return Err(format!(
-            "the inline Codex launch of seat '{site}' is a gate's, and no contribution carries \
-             the engine's capture into the result path it owns, which the last-message door \
-             needs, so the gate's result could not be delivered"
-        ));
-    }
-    Ok(())
+/// [`judge_inline_codex_launch`]: brokkr_protocol::native_controls::grammar::judge_inline_codex_launch
+pub(crate) fn inline_codex_refusal(site: &str, cause: &impl std::fmt::Display) -> String {
+    format!(
+        "the inline Codex launch of seat {} {cause}",
+        bounded_site(site)
+    )
 }
 
 /// Rebuild unit 5b (design D5.3, D5.7): the one inline shape whose typed
@@ -3772,15 +3632,17 @@ fn admit_native_sandbox(
 /// inline Codex seat's whole launch over its compiled plan — the authored
 /// command, the recorded template, the engine's `local` fragment and each
 /// resolved native plan, in the order dispatch composes them — by
-/// [`inline_codex_launch`], the same judgment the dispatch door runs over
-/// the final argv. The capture follows the admitted class: a `read-only`
-/// class is a gate's and captures into the engine-owned result path.
+/// [`grammar::judge_inline_codex_launch`], the same judgment the dispatch
+/// door runs (rebuild unit 5d-fix-c1). The capture follows the admitted
+/// class: a `read-only` class is a gate's and captures into the
+/// engine-owned result path. The seat is named bounded ([`bounded_site`]).
 fn admit_inline_launch(
     what: &str,
     parts: &[String],
     facts: &SiteFacts,
     site: &crate::capabilities::SiteCapabilities,
 ) -> Result<(), CompileError> {
+    use brokkr_protocol::native_controls::grammar;
     let Some(lowered) = &facts.inline_sandbox else {
         return Ok(());
     };
@@ -3801,13 +3663,17 @@ fn admit_inline_launch(
             Segment::new(Origin::Native, &plan.argv),
         ])
         .collect();
-        inline_codex_launch(what, &segments, lowered.class, capture).map_err(|cause| {
-            CompileError::Invalid(format!(
-                "seat '{what}' declares 'tools.sandbox' '{}', but {cause} (operator ruling of \
-                 2026-09-25; rebuild unit 5d-fix-b; design D5.3)",
-                lowered.class.name()
-            ))
-        })?;
+        grammar::judge_inline_codex_launch(lowered.class.intent(), &segments, capture).map_err(
+            |cause| {
+                CompileError::Invalid(format!(
+                    "seat {} declares 'tools.sandbox' '{}', but {} (operator ruling of \
+                     2026-09-25; rebuild unit 5d-fix-b; design D5.3)",
+                    bounded_site(what),
+                    lowered.class.name(),
+                    inline_codex_refusal(what, &cause)
+                ))
+            },
+        )?;
     }
     Ok(())
 }

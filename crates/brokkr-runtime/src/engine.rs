@@ -4629,14 +4629,28 @@ pub fn verify_record(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
 /// sealed class is the engine's own `local` emission, the whole launch the
 /// driver is handed — the sealed extras and, last, the native plan the
 /// input carries, as composition appends it — is judged by the same
-/// [`crate::bundle::inline_codex_launch`] admission ran. The door and the
-/// capture follow the admitted class, never the recorded door alone: a
-/// `read-only` class is a gate's, so the input must name the last-message
-/// door and the launch must capture into exactly the result path the input
-/// hands over, and a `workspace-write` class is a work seat's, which names no
-/// such door and captures nothing. The seat is named bounded.
+/// [`judge_inline_codex_launch`] admission ran (rebuild unit 5d-fix-c1). The
+/// door and the capture follow the admitted class, never the recorded door
+/// alone: a `read-only` class is a gate's, so the input must name the
+/// last-message door and the launch must capture into exactly the result
+/// path the input hands over, and a `workspace-write` class is a work
+/// seat's, which names no such door and captures nothing.
+///
+/// Rebuild unit 5d-fix-c1 (chief F1, F3 and F4 of run
+/// `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`): where the sealed
+/// expectation denies a native power, the engine's plan is required — a
+/// missing `native_controls` key or a plan with no argv refuses — and the
+/// delivered launch must itself express each sealed denial, read by the
+/// grammar ([`inline_codex_denials`]), never taken from the plan's own
+/// claim. An unreadable plan refuses with a fixed cause: the decoder's text
+/// can carry the plan's own strings and is never echoed. The seat is named
+/// in the one bounded representation admission uses.
+///
+/// [`judge_inline_codex_launch`]: brokkr_protocol::native_controls::grammar::judge_inline_codex_launch
+/// [`inline_codex_denials`]: brokkr_protocol::native_controls::grammar::inline_codex_denials
 fn inline_codex_door(record: &LaunchRecord, input: &Value) -> Result<(), String> {
     use crate::agents::Sandbox;
+    use brokkr_protocol::native_controls::{grammar, NativeExpectation};
     let intent = local_class(&record.expected);
     let Some(class) = [
         Sandbox::ReadOnly,
@@ -4647,16 +4661,9 @@ fn inline_codex_door(record: &LaunchRecord, input: &Value) -> Result<(), String>
     .find(|class| class.intent() == intent) else {
         return Ok(());
     };
-    // Engine-written, but read from an input, so only a plain label is
-    // spelled.
-    let seat = input["seat"]
-        .as_str()
-        .filter(|seat| seat.len() <= 64)
-        .filter(|seat| {
-            seat.chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_:".contains(c))
-        })
-        .unwrap_or("(unnamed)");
+    // Engine-written, but read from an input, so it is named bounded.
+    let seat = input["seat"].as_str().unwrap_or_default();
+    let named = crate::bundle::bounded_site(seat);
     let refuse = |cause: String| {
         format!(
             "dispatch refused: {cause} (decision 0046 ruling 4; operator ruling 2 of 2026-09-23; \
@@ -4667,7 +4674,7 @@ fn inline_codex_door(record: &LaunchRecord, input: &Value) -> Result<(), String>
     let door = input.get("result_delivery") == Some(&json!(ResultDoor::LastMessage.word()));
     if door != gate {
         return Err(refuse(format!(
-            "the inline Codex launch of seat '{seat}' is admitted '{}', a {}, but its input names \
+            "the inline Codex launch of seat {named} is admitted '{}', a {}, but its input names \
              the {} result door; the door follows the admitted class, a gate's result reaching \
              the engine only through the last-message door and a work seat's only through the \
              file it writes",
@@ -4676,16 +4683,50 @@ fn inline_codex_door(record: &LaunchRecord, input: &Value) -> Result<(), String>
             if door { "last-message" } else { "file" }
         )));
     }
-    let native = brokkr_protocol::native_controls::managed(input)
-        .map_err(|cause| {
-            refuse(format!(
-                "the native plan of seat '{seat}' is refused: {cause}"
-            ))
-        })?
-        .map(|plan| Segment::new(Origin::Native, &plan.argv));
+    let plan = brokkr_protocol::native_controls::managed(input).map_err(|_| {
+        refuse(format!(
+            "the native plan of seat {named} is null or cannot be read, so the launch has no \
+             capability authority; the reader's cause is not echoed, because it can carry the \
+             plan's own text (rebuild unit 5d-fix-c1)"
+        ))
+    })?;
+    let denied: &[String] = match &record.expected.native {
+        NativeExpectation::Known { denied, .. } => denied,
+        NativeExpectation::Unmeasured(_) => &[],
+    };
+    let unplanned = match &plan {
+        None => Some("carries no native plan"),
+        Some(plan) if plan.argv.is_empty() => Some("carries a native plan with no argv"),
+        Some(_) => None,
+    };
+    if let (Some(unplanned), false) = (unplanned, denied.is_empty()) {
+        return Err(refuse(format!(
+            "the inline Codex launch of seat {named} {unplanned}, while its sealed expectation \
+             denies {} native power(s); only the plan's OFF argv expresses a denial, so without \
+             it the harness would run at its own defaults (decision 0065 ruling 4; rebuild unit \
+             5d-fix-c1)",
+            denied.len()
+        )));
+    }
+    let native = plan.map(|plan| Segment::new(Origin::Native, &plan.argv));
     let segments: Vec<Segment> = record.segments.iter().cloned().chain(native).collect();
     let capture = gate.then(|| input["result_path"].as_str().unwrap_or_default());
-    crate::bundle::inline_codex_launch(seat, &segments, class, capture).map_err(refuse)
+    grammar::judge_inline_codex_launch(class.intent(), &segments, capture)
+        .map_err(|cause| refuse(crate::bundle::inline_codex_refusal(seat, &cause)))?;
+    let expressed = grammar::inline_codex_denials(&flatten(&segments));
+    match denied
+        .iter()
+        .find(|power| !expressed.contains(&power.as_str()))
+    {
+        Some(power) => Err(refuse(format!(
+            "the inline Codex launch of seat {named} does not express its sealed native denial \
+             of {}; a denial is something the launch proves, so a plan whose OFF argv was \
+             removed or changed is refused, never trusted by its claim (decision 0066; rebuild \
+             unit 5d-fix-c1)",
+            crate::bundle::bounded_site(power)
+        ))),
+        None => Ok(()),
+    }
 }
 
 /// The sandbox class an expected state records for the engine's own

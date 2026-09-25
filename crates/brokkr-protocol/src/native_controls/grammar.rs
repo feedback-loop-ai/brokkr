@@ -22,6 +22,8 @@
 
 use std::fmt;
 
+use super::{flatten, Origin, SandboxIntent, Segment};
+
 /// How many argv tokens one option's value occupies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arity {
@@ -1044,6 +1046,10 @@ fn unquoted(value: &str) -> &str {
 pub struct Admitted {
     pub key: &'static str,
     pub values: &'static [&'static str],
+    /// The native capability an admitted value switches OFF, where it is a
+    /// declared OFF argv's (rebuild unit 5d-fix-c1): what a sealed denial is
+    /// proved against at launch.
+    pub denies: Option<&'static str>,
     pub source: &'static str,
 }
 
@@ -1060,12 +1066,14 @@ pub const LAUNCH_SETTINGS: [Admitted; 2] = [
     Admitted {
         key: EFFORT_KEY,
         values: &EFFORT_LEVELS,
+        denies: None,
         source: "adapters/codex.json `efforts`, which `--effort` is translated into; \
                  .forge/tasks/controller-codex-interface-2026-09-17.json",
     },
     Admitted {
         key: "web_search",
         values: &["disabled"],
+        denies: Some("web-search"),
         source: "adapters/codex.json `native_capabilities.known.web-search.off.argv` and \
                  dialects/tools/codex-native-search.json; measured in \
                  .forge/tasks/controller-codex-web-search-switch-2026-09-21.json, whose scope \
@@ -1100,6 +1108,194 @@ pub fn launch_setting(assignment: &str) -> Result<&'static str, String> {
             admitted.key
         )),
     }
+}
+
+/// Why an inline Codex launch is refused, built only from fixed text,
+/// canonical option names, the grammar's bounded labels, argument positions,
+/// origin words and class words: never a token, a value or a site name. The
+/// caller names the site, bounded (rebuild unit 5d-fix-c1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundedCause(String);
+
+impl fmt::Display for BoundedCause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Every option of an inline Codex launch's contributions, read together
+/// under the codex grammar as the harness reads them, each beside the
+/// origin of the segment it stands in (rebuild unit 5d-fix). An argv the
+/// grammar cannot place is refused naming its position and its bounded
+/// label, never its token.
+fn codex_contributions(segments: &[Segment]) -> Result<Vec<(Origin, Node)>, BoundedCause> {
+    let command = parse("codex", &flatten(segments))
+        .expect("the codex grammar is modelled")
+        .map_err(|problem| {
+            BoundedCause(format!(
+                "cannot be read whole under the 'codex' grammar (argument {}, {}: it {}), so none \
+                 of its effects can be judged; an unclassified option is refused, never passed \
+                 through",
+                problem.at + 1,
+                problem.label,
+                problem.cause
+            ))
+        })?;
+    let ends: Vec<(usize, Origin)> = segments
+        .iter()
+        .scan(0, |end, segment| {
+            *end += segment.argv.len();
+            Some((*end, segment.origin))
+        })
+        .collect();
+    Ok(command
+        .nodes
+        .into_iter()
+        .map(|node| {
+            let (_, origin) = ends
+                .iter()
+                .find(|(end, _)| node.at < *end)
+                .expect("every option stands in a segment");
+            (*origin, node)
+        })
+        .collect())
+}
+
+/// The one judgment of a whole inline Codex launch (rebuild unit 5d-fix-b,
+/// moved here by unit 5d-fix-c1 so admission and the launch call exactly this
+/// pure function; operator ruling of 2026-09-25, "narrow"; design D5.3): the
+/// authored command, the adapter's template, the engine's `local` fragment
+/// and the native plan, in that order, none exempt.
+///
+/// It admits a closed set of effects, read by the grammar's own effect
+/// classification: exactly one `--sandbox`, in the engine's `local`
+/// fragment, of exactly `class`; where `owned_capture` names the
+/// engine-owned result path (a gate), exactly one `--output-last-message`
+/// into exactly it, in that fragment, and where it is `None` (a work seat)
+/// none; configuration on the closed [`LAUNCH_SETTINGS`] allowlist; and
+/// options whose value is data or that switch nothing. Every other sandbox,
+/// approval, writable-root, capture, root-selector, profile or
+/// configuration-document effect, every assignment off the allowlist and
+/// every option the grammar cannot place refuses, naming the contribution,
+/// the position and the canonical option, never a value. The cause reads
+/// as the predicate of "the inline Codex launch of seat …".
+pub fn judge_inline_codex_launch(
+    class: SandboxIntent,
+    argv: &[Segment],
+    owned_capture: Option<&str>,
+) -> Result<(), BoundedCause> {
+    if class == SandboxIntent::Unspecified {
+        return Err(BoundedCause(
+            "is judged with no sandbox class, so no fragment of the engine's could express the \
+             class it was admitted with"
+                .to_string(),
+        ));
+    }
+    let (mut sandboxes, mut captures) = (0, 0);
+    for (origin, node) in codex_contributions(argv)? {
+        let effect = match (node.name(), node.spec.effect) {
+            // Any other `--sandbox` is a permission control like the rest.
+            ("--sandbox", _) if origin == Origin::Local && node.values == [class.word()] => {
+                sandboxes += 1;
+                None
+            }
+            ("--output-last-message", _) => match owned_capture {
+                Some(target) if origin == Origin::Local && node.values == [target] => {
+                    captures += 1;
+                    None
+                }
+                Some(_) => Some(
+                    "a result capture other than the engine's own into exactly the result path \
+                     it owns, a harness write path outside the result sink"
+                        .to_string(),
+                ),
+                None => Some(
+                    "a result capture at a work seat, whose result is the file the seat writes; \
+                     a capture the engine does not own is a harness write path outside the \
+                     result sink"
+                        .to_string(),
+                ),
+            },
+            // The grammar types the root selector's value as data, but
+            // D5.3 refuses it wherever it stands (unit 2-fix A1).
+            ("--cd", _) => Some(
+                "a root selector, which moves the root the sandbox class is measured from"
+                    .to_string(),
+            ),
+            (_, Effect::Inert | Effect::Switch) => None,
+            (_, Effect::Config) => node
+                .values
+                .iter()
+                .find_map(|value| launch_setting(value).err())
+                .map(|cause| format!("a configuration assignment that {cause}")),
+            (_, Effect::Control(Power::Permission)) => Some(
+                "a permission control, which sets, lifts or replaces the sandbox or its approvals"
+                    .to_string(),
+            ),
+            (_, Effect::Control(Power::Filesystem)) => {
+                Some("a writable root beyond the sandbox class's reach".to_string())
+            }
+            (_, Effect::Load) => Some(
+                "a configuration document the engine cannot see into, which can set the sandbox"
+                    .to_string(),
+            ),
+            (_, _) => Some(
+                "a capability-bearing control outside the closed set an inline Codex launch \
+                 admits"
+                    .to_string(),
+            ),
+        };
+        if let Some(effect) = effect {
+            return Err(BoundedCause(format!(
+                "carries '{}' (argument {}) in its `{}` contribution, {effect}; the launch admits \
+                 only the engine's one sandbox fragment of the site's class, at a gate the \
+                 engine's one capture into the result path it owns, and configuration on a closed \
+                 allowlist, so every other effect is refused rather than reconciled or ordered, \
+                 whoever composed it",
+                node.name(),
+                node.at + 1,
+                origin.word()
+            )));
+        }
+    }
+    if sandboxes == 0 {
+        return Err(BoundedCause(format!(
+            "carries no sandbox fragment of the site's '{}' class in the engine's `local` \
+             contribution, so the class it was admitted with would not reach the harness",
+            class.word()
+        )));
+    }
+    if owned_capture.is_some() && captures == 0 {
+        return Err(BoundedCause(
+            "is a gate's, and no contribution carries the engine's capture into the result path \
+             it owns, which the last-message door needs, so the gate's result could not be \
+             delivered"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// The native capabilities an inline Codex launch's argv switches OFF, read
+/// under the codex grammar (rebuild unit 5d-fix-c1): one entry for each
+/// configuration assignment on [`LAUNCH_SETTINGS`] whose admitted value is a
+/// declared OFF argv's. An argv the grammar cannot place proves no denial.
+pub fn inline_codex_denials(argv: &[String]) -> Vec<&'static str> {
+    parse("codex", argv)
+        .and_then(Result::ok)
+        .map(|command| command.nodes)
+        .unwrap_or_default()
+        .iter()
+        .filter(|node| node.spec.effect == Effect::Config)
+        .flat_map(|node| node.values.iter())
+        .filter_map(|value| launch_setting(value).ok())
+        .filter_map(|key| {
+            LAUNCH_SETTINGS
+                .iter()
+                .find(|admitted| admitted.key == key)
+                .and_then(|admitted| admitted.denies)
+        })
+        .collect()
 }
 
 /// The dotted key parts and the trimmed value of one `KEY=VALUE`

@@ -3985,3 +3985,19 @@ fn a_final_command_places_its_positions_and_nothing_else() {
     );
     assert!(grammar::parse_final("exec", &argv(&["bash"])).is_none());
 }
+
+/// Rebuild unit 5d-fix-c1 (chief F1): the denials a launch proves are read
+/// from its argv by the grammar, never from a plan's claim. The declared OFF
+/// pair, in either spelling, proves the web-search denial; an admitted
+/// assignment that denies nothing, another value, and an argv the grammar
+/// cannot place prove none.
+#[test]
+fn an_inline_codex_launch_proves_only_the_denials_its_argv_expresses() {
+    let denials = |parts: &[&str]| grammar::inline_codex_denials(&argv(parts));
+    let none: Vec<&str> = Vec::new();
+    assert_eq!(denials(&["-c", "web_search=\"disabled\""]), ["web-search"]);
+    assert_eq!(denials(&["--config=web_search=disabled"]), ["web-search"]);
+    assert_eq!(denials(&["-c", "model_reasoning_effort=\"high\""]), none);
+    assert_eq!(denials(&["-c", "web_search=\"live\""]), none);
+    assert_eq!(denials(&["-c", "web_search=\"disabled\"", "stray"]), none);
+}

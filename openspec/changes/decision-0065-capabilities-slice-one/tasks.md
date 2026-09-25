@@ -1132,13 +1132,62 @@ ruling (F4)**; 5d-fix-b adds no out-of-inventory line.
 
 Observed 2026-09-25 (evidence.md, "Unit 5d-fix-b"). Production is `bundle.rs`,
 `engine.rs` and `native_controls/grammar.rs`; tests are
-`bundle/agent_tests.rs` (a 38-row admission table and a 3-row direct
+`bundle/agent_tests.rs` (a 38-row admission table and a 4-row direct
 judgment table) and `tests/capability_launch.rs` (a 26-row launch table and a
 17-row door table). On `6407fb3e` the native launch rows all launched, and so
 did the gate changed to `file` with no capture. Seven admission rows compiled
-there. M1–M14 each compiled, bound and were restored. See evidence.md for the
+there. M1–M15 each compiled, bound and were restored. See evidence.md for the
 gates. **Not fully green:** workspace exact coverage, macOS and remote CI are
 pending, and so is the F4 ruling.
+
+**Correction (5d-fix-c1, chief F5 of run
+`0065-rebuild-unit-5d-fix-b-see-t-8067eebc`):** the 5d-fix-b tick above
+overstated completion. Its council held it (SECURITY-HOLD, spec_defect=true):
+
+- the dispatch door accepted a missing `native_controls` key and a plan with
+  an empty argv, so the sealed web-search denial could be dropped (F1);
+- the judgment ran before the Codex adapter composes the actual command
+  (`--effort` translation, generated `--json` and `-C`, resume), so it did
+  not judge the whole launch (F2);
+- the plan refusal forwarded the decoder's cause, which can carry the
+  plan's own text (F3);
+- the site was spelled raw at admission and as `(unnamed)` for a dotted
+  label at the door (F4);
+- the tick and the evidence treated a pre-driver check as the whole launch
+  and exempted `--effort` as inert despite its translation (F5). The counts
+  above were "3-row" and "M1–M14"; they are corrected to the suite's four
+  rows and M15.
+
+5d-fix-b completes only with 5d-fix-c1 and 5d-fix-c2 below, split under the
+preamble's three-file ceiling (design.md, Rebuild units, 5d).
+
+- [x] 5d-fix-c1 Unit 5d-fix-c1 moves the whole-launch judgment into `native_controls/grammar.rs` as one pure public function, `judge_inline_codex_launch(class, argv, owned_capture) -> Result<(), BoundedCause>`, which `bundle.rs` admission and `engine.rs`'s dispatch door both call, with unchanged behaviour. At the door, wherever the sealed expectation carries a native denial, a missing `native_controls` key and a plan with no argv refuse, and each sealed denial must be expressed by the delivered argv as the grammar reads it (`inline_codex_denials`), never taken from the plan's claim (F1). A null or unreadable plan refuses with one fixed cause, never the decoder's (F3). Admission and the door name the seat in one bounded representation (`bundle.rs::bounded_site`, through `inline_codex_refusal`), so a dotted label keeps its identity and a long or control-character label is named by its lead and length (F4). The 5d-fix-b artifacts are corrected (F5). Requirements: operator ruling of 2026-09-25 ("narrow"), operator rulings 1 and 2, decision 0066, design D5.3, [Refusal proofs assert the full reason][SC8]. (run `0065-rebuild-unit-5d-fix-c1-see--b800f52a`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5d-fix-c1"). Production is
+`grammar.rs`, `bundle.rs` and `engine.rs`. `adapters.rs` did not move. Tests:
+- `bundle/agent_tests.rs`: the direct judgment table now has 5 rows, adding
+  "no class". A new 3-row admission test covers plain, dotted and long
+  labels.
+- `tests/capability_launch.rs`: a new 11-row door test, and 2 corrected rows
+  in the 17-row door table.
+- `native_controls/tests.rs`: a denials test.
+
+On `79a0ba86`:
+- every F1 row launched: no plan at the work seat and at the gate, an
+  empty argv, and the OFF replaced by an admitted effort at both;
+- the unreadable-plan row carried the newline and the sentinel into the
+  reason;
+- the dotted seat was `(unnamed)` at the door;
+- the long label was spelled raw at admission.
+
+N1–N10 and a re-run of 5d-fix-b's M3, M10, M13 and M15 each compiled, bound
+and were restored. fmt, clippy, both crate suites, both bundle compiles
+(digests unchanged), every recipe, `openspec validate --all --strict` and
+`git diff --check` passed. **Not fully green:** workspace exact coverage,
+macOS and remote CI are pending, and so is the F4 fixture ruling of unit
+5d-fix.
+
+- [ ] 5d-fix-c2 Unit 5d-fix-c2 runs `judge_inline_codex_launch` at the actual composition boundary, `adapters.rs::codex_command`, over the command the Codex adapter composes, including the `--effort` translation into `model_reasoning_effort` (an out-of-level effort such as `ultra` must refuse), generated `--json` and `-C` (an authored `--json` duplicating the driver's must refuse), and the `exec resume` transformation. It proves each transformed or generated path with exact regressions bound by compiling mutations. Production: `crates/brokkr-protocol/src/adapters.rs`. Tests: adapters/tests.rs and crates/brokkr-runtime/tests/capability_launch.rs. Requirements: chief F2 of run `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`, operator ruling 2 of 2026-09-23 ("the launch proves itself"). **Open**: 5d-fix-c1 left this obligation unmet on purpose.
 
 ## 6. Unit 6 — Migrate Claude recipes
 

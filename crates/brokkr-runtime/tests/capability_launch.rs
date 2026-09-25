@@ -2526,9 +2526,12 @@ fn inline_codex_launching(
     let launched = verify_record(&spawn, &handed).and_then(|()| {
         let argv = &spawn.argv;
         let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-        let input = json!({"workdir": "/w", "seat": label,
-                           "native_controls": handed["native_controls"],
-                           "launch_arguments": spawn.launch_arguments()});
+        let mut input = json!({"workdir": "/w", "seat": label,
+                               "launch_arguments": spawn.launch_arguments()});
+        // A plan the door admitted as absent stays absent (unit 5d-fix-c1).
+        if let Some(plan) = handed.get("native_controls") {
+            input["native_controls"] = plan.clone();
+        }
         brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input)
     });
     (sealing, record, launched, door.to_string())
@@ -3219,11 +3222,14 @@ fn an_inline_codex_launch_judges_the_native_plan_and_binds_the_door_to_the_class
              2026-09-23; ruling of 2026-09-25; rebuild unit 5d-fix-b)"
         )
     };
-    let native = |seat: &str, canonical: &str, at: usize, effect: &str| {
+    let native_as = |named: &str, canonical: &str, at: usize, effect: &str| {
         refused(format!(
-            "the inline Codex launch of seat '{seat}' carries '{canonical}' (argument {at}) in \
+            "the inline Codex launch of seat {named} carries '{canonical}' (argument {at}) in \
              its `native` contribution, {effect}; {rest}"
         ))
+    };
+    let native = |seat: &str, canonical: &str, at: usize, effect: &str| {
+        native_as(&format!("'{seat}'"), canonical, at, effect)
     };
     let unreadable = |seat: &str, at: usize, label: &str, cause: &str| {
         refused(format!(
@@ -3356,13 +3362,9 @@ fn an_inline_codex_launch_judges_the_native_plan_and_binds_the_door_to_the_class
             "native plan null",
             "work",
             handed("native_controls", Value::Null),
-            refused(
-                "the native plan of seat 'work' is refused: refusing to invoke the agent CLI: the \
-                 engine computed no capability authority for this site, and a harness is never \
-                 launched on its own defaults — everything is off until the realm lists it \
-                 (decision 0065 ruling 4)"
-                    .to_string(),
-            ),
+            // Rebuild unit 5d-fix-c1 (F3): one fixed cause, the reader's
+            // never echoed.
+            unread_plan("'work'"),
         ),
         (
             "work, the last-message door",
@@ -3397,7 +3399,14 @@ fn an_inline_codex_launch_judges_the_native_plan_and_binds_the_door_to_the_class
                 handed["seat"] = json!("work seat");
                 handed["native_controls"]["argv"] = json!(["-a", "never"]);
             }),
-            native("(unnamed)", "--ask-for-approval", 7, permission),
+            // Rebuild unit 5d-fix-c1 (F4): named in admission's bounded
+            // representation.
+            native_as(
+                "'work…' (9 bytes, not echoed in full)",
+                "--ask-for-approval",
+                7,
+                permission,
+            ),
         ),
     ];
     assert_eq!(rows.len(), 17);
@@ -3423,6 +3432,213 @@ fn an_inline_codex_launch_judges_the_native_plan_and_binds_the_door_to_the_class
             };
             (observed != expected)
                 .then(|| format!("row {label}:\n  left:  {observed}\n  right: {expected}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The dispatch door's refusal of an inline Codex launch, as the launch
+/// helpers above report it.
+fn door_refused(cause: &str) -> String {
+    format!(
+        "refused: dispatch refused: {cause} (decision 0046 ruling 4; operator ruling 2 of \
+         2026-09-23; ruling of 2026-09-25; rebuild unit 5d-fix-b)"
+    )
+}
+
+/// Rebuild unit 5d-fix-c1 (F3): the one fixed refusal of a null or
+/// unreadable native plan, naming the seat `named` as rendered.
+fn unread_plan(named: &str) -> String {
+    door_refused(&format!(
+        "the native plan of seat {named} is null or cannot be read, so the launch has no \
+         capability authority; the reader's cause is not echoed, because it can carry the plan's \
+         own text (rebuild unit 5d-fix-c1)"
+    ))
+}
+
+/// Rebuild unit 5d-fix-c1 (chief F1, F3 and F4 of run
+/// 0065-rebuild-unit-5d-fix-b-see-t-8067eebc): where the sealed expectation
+/// denies a native power, the dispatch door requires the engine's plan — a
+/// missing `native_controls` key and a plan with no argv each refuse — and
+/// proves that the delivered launch itself expresses each sealed denial, so a
+/// plan whose OFF argv was replaced by another admitted assignment refuses.
+/// An unmeasured inventory seals no denial, and its launch without a plan
+/// stands. An unreadable plan refuses with one fixed cause, and neither a
+/// newline nor a long value it carries reaches the reason. The seat is named
+/// in admission's bounded representation: a dotted label keeps its identity,
+/// and a long label with a newline is named by its lead and length.
+#[test]
+fn an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial() {
+    use brokkr_runtime::capabilities::NativePlan;
+    use brokkr_runtime::SeatClass;
+    let operator = Operator::new();
+    inline_codex_seats(&operator, "workspace-write", "read-only");
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    let mut unmeasured = bundle.sites["work"].clone();
+    unmeasured.capabilities.as_mut().unwrap().outcomes[0].native = NativePlan::Unmeasured {
+        declaration: None,
+        reason: "unmeasured".to_string(),
+    };
+    let sentinel = format!("x\n{}", "s".repeat(4096));
+    let long_seat = format!("work\n{}", "w".repeat(100));
+    let unplanned = |named: &str, what: &str| {
+        door_refused(&format!(
+            "the inline Codex launch of seat {named} {what}, while its sealed expectation denies \
+             1 native power(s); only the plan's OFF argv expresses a denial, so without it the \
+             harness would run at its own defaults (decision 0065 ruling 4; rebuild unit \
+             5d-fix-c1)"
+        ))
+    };
+    let undenied = |named: &str| {
+        door_refused(&format!(
+            "the inline Codex launch of seat {named} does not express its sealed native denial \
+             of 'web-search'; a denial is something the launch proves, so a plan whose OFF argv \
+             was removed or changed is refused, never trusted by its claim (decision 0066; \
+             rebuild unit 5d-fix-c1)"
+        ))
+    };
+    let no_plan = || -> Box<dyn FnOnce(&mut Value)> {
+        Box::new(|handed: &mut Value| {
+            handed.as_object_mut().unwrap().remove("native_controls");
+        })
+    };
+    let argv = |argv: &[&str]| -> Box<dyn FnOnce(&mut Value)> {
+        let argv = json!(argv);
+        Box::new(move |handed: &mut Value| handed["native_controls"]["argv"] = argv)
+    };
+    type Row<'a> = (
+        &'static str,
+        &'static str,
+        &'a brokkr_runtime::bundle::SiteFacts,
+        Box<dyn FnOnce(&mut Value)>,
+        String,
+    );
+    let (work, review) = (&bundle.sites["work"], &bundle.sites["review"]);
+    let effort = ["-c", "model_reasoning_effort=\"high\""];
+    let rows: Vec<Row> = vec![
+        (
+            "work as handed",
+            "work",
+            work,
+            Box::new(|_| {}),
+            "launched".into(),
+        ),
+        (
+            "gate as handed",
+            "review",
+            review,
+            Box::new(|_| {}),
+            "launched".into(),
+        ),
+        (
+            "work, no plan",
+            "work",
+            work,
+            no_plan(),
+            unplanned("'work'", "carries no native plan"),
+        ),
+        (
+            "gate, no plan",
+            "review",
+            review,
+            no_plan(),
+            unplanned("'review'", "carries no native plan"),
+        ),
+        (
+            "work, a plan with no argv",
+            "work",
+            work,
+            argv(&[]),
+            unplanned("'work'", "carries a native plan with no argv"),
+        ),
+        (
+            "work, the OFF replaced by an admitted effort",
+            "work",
+            work,
+            argv(&effort),
+            undenied("'work'"),
+        ),
+        (
+            "gate, the OFF replaced by an admitted effort",
+            "review",
+            review,
+            argv(&effort),
+            undenied("'review'"),
+        ),
+        (
+            "unmeasured, no plan",
+            "work",
+            &unmeasured,
+            no_plan(),
+            "launched".into(),
+        ),
+        (
+            "an unreadable plan carrying a newline and a long value",
+            "work",
+            work,
+            {
+                let sentinel = sentinel.clone();
+                Box::new(move |handed: &mut Value| {
+                    handed["native_controls"]["inventory"] = json!(sentinel)
+                })
+            },
+            unread_plan("'work'"),
+        ),
+        (
+            "a dotted seat",
+            "work",
+            work,
+            Box::new(|handed: &mut Value| {
+                handed["seat"] = json!("work.v1");
+                handed["native_controls"]["argv"] = json!(["-a", "never"]);
+            }),
+            door_refused(
+                "the inline Codex launch of seat 'work.v1' carries '--ask-for-approval' \
+                 (argument 7) in its `native` contribution, a permission control, which sets, \
+                 lifts or replaces the sandbox or its approvals; the launch admits only the \
+                 engine's one sandbox fragment of the site's class, at a gate the engine's one \
+                 capture into the result path it owns, and configuration on a closed allowlist, \
+                 so every other effect is refused rather than reconciled or ordered, whoever \
+                 composed it",
+            ),
+        ),
+        (
+            "a long seat with a newline",
+            "work",
+            work,
+            {
+                let long_seat = long_seat.clone();
+                Box::new(move |handed: &mut Value| {
+                    handed["seat"] = json!(long_seat);
+                    handed.as_object_mut().unwrap().remove("native_controls");
+                })
+            },
+            unplanned(
+                "'work…' (105 bytes, not echoed in full)",
+                "carries no native plan",
+            ),
+        ),
+    ];
+    assert_eq!(rows.len(), 11);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, seat, facts, handed_as, expected)| {
+            let class = match seat {
+                "review" => SeatClass::Gate,
+                _ => SeatClass::Work,
+            };
+            let (sealing, _, launched, _) =
+                inline_codex_launching(&bundle, seat, class, facts, |_| {}, handed_as);
+            let observed = match (sealing, launched) {
+                (Err(reason), _) => format!("sealing refused: {reason}"),
+                (Ok(()), Ok(_)) => "launched".to_string(),
+                (Ok(()), Err(reason)) => format!("refused: {reason}"),
+            };
+            let leaked = observed.contains('\n') || observed.contains("ssssssss");
+            (observed != expected || leaked).then(|| {
+                format!("row {label}:\n  left:  {observed}\n  right: {expected} (leaked: {leaked})")
+            })
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));

@@ -7718,3 +7718,191 @@ On the final bytes:
   engine's door now refuses these at an inline typed site. The same append
   on agent-backed and unsandboxed inline Codex sites is outside this unit's
   files.
+
+**Correction (unit 5d-fix-c1, chief F5 of run
+`0065-rebuild-unit-5d-fix-b-see-t-8067eebc`):** two claims above were wrong,
+and spec_defect=true stands for the 5d-fix-b artifacts.
+
+- "Launch (`engine.rs::inline_codex_door`)" judged the argv the dispatch door
+  is handed, not the command the Codex adapter composes afterwards. That
+  composition translates `--effort` into `model_reasoning_effort`, adds
+  `--json` and `-C`, and rewrites the argv for `exec resume`. So it was a
+  pre-driver check, not the whole launch (F2). That obligation is open as
+  unit 5d-fix-c2.
+- The first assumption called `--effort` inert data. It is translated into
+  a configuration assignment the allowlist bounds, so `--effort ultra`
+  passed the check and became a value the grammar refuses. That is F2's
+  subject too.
+
+Beyond those two claims, the door accepted a missing plan and an empty plan
+argv (F1). It forwarded the decoder's cause (F3), and it spelled a dotted
+seat as `(unnamed)` while admission spelled every seat raw (F4). Unit
+5d-fix-c1 below repairs F1, F3 and F4. In tasks.md, the 5d-fix-b record said
+"3-row" and "M1–M14"; it is corrected to the four direct rows and M15 recorded
+here.
+
+## Unit 5d-fix-c1 — the judgment moves to the grammar; the plan and its denials are required, 2026-09-25
+
+Run `0065-rebuild-unit-5d-fix-c1-see--b800f52a`, on `79a0ba86`. This is the
+first half of the split repair of 5d-fix-b (design.md, Rebuild units, 5d).
+The narrow ruling and D5.3 are not reopened. F2 is left open for 5d-fix-c2,
+and `adapters.rs` did not move. N1 needed no action.
+
+### What changed
+
+Production is the unit's three files: `grammar.rs`, `bundle.rs` and
+`engine.rs`.
+
+- **The judgment (`grammar.rs::judge_inline_codex_launch`).** 5d-fix-b's
+  `bundle.rs::inline_codex_launch` and `codex_contributions` move here,
+  unchanged in what they admit and refuse. The judgment is one pure public
+  function over the ordered segments, `(class: SandboxIntent, argv:
+  &[Segment], owned_capture: Option<&str>) -> Result<(), BoundedCause>`.
+  - `BoundedCause` is built only from fixed text, canonical option names,
+    the grammar's bounded labels, positions, origin words and class words.
+    It carries no site.
+  - An `Unspecified` class refuses before any fragment is read. Before this
+    unit the runtime type made that shape impossible, but the public function
+    must refuse it.
+  - Assumption: the segmented argv stands for "the complete argv". The
+    judgment's origin rule (only the engine's `local` fragment bears the
+    sandbox) needs the origins, and 5d-fix-b's direct rows prove that rule.
+- **Denials read from the argv (`grammar.rs::inline_codex_denials`).**
+  `LAUNCH_SETTINGS` entries now carry `denies`. `web_search="disabled"`
+  denies `web-search`, and the effort denies nothing. The function returns
+  the capabilities an argv switches OFF under the grammar. An argv the
+  grammar cannot place proves none.
+- **Admission (`bundle.rs::admit_inline_launch`).** It calls
+  `grammar::judge_inline_codex_launch` directly. `inline_codex_refusal`
+  names the seat through `bounded_site`, which is now `pub(crate)`. The
+  outer "seat … declares" also uses `bounded_site`, so both mentions are
+  bounded (F4).
+- **Launch (`engine.rs::inline_codex_door`).** It calls the same function
+  and the same `inline_codex_refusal`, and it adds these checks:
+  - F3: a null or unreadable plan refuses with one fixed cause. The
+    decoder's text is never interpolated.
+  - F1: when the sealed `expected.native` is `Known` with a nonempty
+    `denied`, a missing `native_controls` key refuses ("carries no native
+    plan"), and so does a plan with an empty argv. After the judgment,
+    every sealed denial must appear in `inline_codex_denials` over the
+    delivered segments (the sealed extras and the native plan). Otherwise
+    the launch refuses, naming the denial bounded. An `Unmeasured`
+    expectation seals no denial, so its launch without a plan stands.
+  - F4: the seat comes from the input's `seat` through `bounded_site`, so
+    `work.v1` keeps its identity. A long label, or one with a control
+    character, is named by its lead and length.
+
+  Assumption: the denial may be expressed anywhere in the delivered argv,
+  not only in the native segment. The allowlist admits `web_search` only as
+  `"disabled"`, so any spelling of it is the OFF.
+
+### Tests
+
+- `bundle/agent_tests.rs::the_inline_codex_launch_judgment_requires_the_engines_fragment_of_the_class`
+  now calls the grammar function through `inline_codex_refusal`. Its four
+  rows keep their exact reasons. The fifth row, "no class", is new.
+- `bundle/agent_tests.rs::an_inline_codex_admission_names_its_seat_bounded_and_keeps_a_dotted_identity`
+  has 3 rows: `work`, `work.v1`, and `work` plus a newline and 100 bytes.
+  Each is a native `-a never` refusal at admission, with the seat spelled
+  in both places.
+- `tests/capability_launch.rs::an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial`
+  has 11 rows:
+  - valid controls: the work seat and the gate as handed, and an
+    unmeasured plan with no key, which launches;
+  - F1: no plan at the work seat and at the gate, an empty argv, and the
+    OFF replaced by an admitted effort at the work seat and at the gate;
+  - F3: a plan whose `inventory` is a newline plus 4,096 bytes. The row
+    also fails if the observation contains a newline or the sentinel run;
+  - F4: a dotted seat and a long seat with a newline.
+
+  The helper `inline_codex_launching` now hands the codex driver an absent
+  plan as absent, not as `null`.
+- In the 17-row door table, the `null` row now expects the fixed F3 cause,
+  and the unplain-seat row now expects `'work…' (9 bytes, not echoed in
+  full)` in place of `(unnamed)`.
+- `native_controls/tests.rs::an_inline_codex_launch_proves_only_the_denials_its_argv_expresses`
+  covers the OFF in both spellings, the effort, `"live"`, and an unplaceable
+  argv.
+
+Unit 5d's and 5d-fix-b's other tables pass unchanged (38 admission, 19
+lowering, 26 launch, 9 seal rows).
+
+### Baseline on 79a0ba86
+
+`grammar.rs`, `bundle.rs`, `engine.rs` and `native_controls/tests.rs` were
+restored with `git checkout HEAD --`. The new tests were kept, except the
+direct-judgment test, which was compiled out with `#[cfg(any())]` because it
+calls the new function. The build succeeded, and the tests failed at their
+assertions (`.forge/scratch-5dfc1/baseline-*.txt`, not committed).
+
+- The 11-row door test failed 8 rows:
+  - these five F1 rows **launched**: no plan at the work seat and at the
+    gate, an empty argv, and the OFF replaced by an effort at both;
+  - the F3 row's reason carried the decoder's `'inventory' is 'x` followed
+    by the newline and the sentinel run;
+  - the dotted seat was named `(unnamed)`;
+  - the long seat **launched**, because the plan was removed.
+
+  The three valid controls passed.
+- The 17-row table failed its `null` and unplain rows on the old wording.
+- The admission test failed 1 of 3 rows. The long label was spelled raw,
+  newline included, in both places. The dotted label was already spelled
+  whole at admission. The F4 gap there was the missing bound.
+
+### Mutations
+
+Each mutation compiled, was run, and was restored. The three production
+files were checked byte-identical to the fix with `cmp`. Outputs are in
+`.forge/scratch-5dfc1/N*.txt` and `M*.txt`.
+
+| # | Mutation | Failing rows |
+|---|---|---|
+| N1 | missing-plan check off | door: no plan (work, gate), long seat (`work, no plan` was seen refused by the denial check instead) |
+| N2 | empty-argv check off | door: a plan with no argv (then refused by the denial check) |
+| N3 | denial proof off | door: OFF replaced by an effort (work, gate), both launched |
+| N4 | decoder cause appended again (F3) | door: unreadable plan (with `leaked: true`); 17-row table: `null` |
+| N5 | door names the seat raw | door: long seat |
+| N6 | `inline_codex_refusal` names the seat raw | admission: long label; 17-row table: unplain seat |
+| N7 | door maps a dotted seat to `(unnamed)` | door: dotted seat |
+| N8 | missing plan refused with no sealed denial | door: unmeasured, no plan |
+| N9 | `Unspecified` guard off | direct: no class |
+| N10 | the effort entry claims the web-search denial | door: OFF replaced by an effort (work, gate); protocol denials test |
+| M3 | config arm admits `profile*` (5d-fix-b's M3, re-run) | agent: 4 profile rows; door: 3 profile rows, as recorded for 5d-fix-b |
+| M10 | gate missing-capture check off (re-run) | agent and launch: gate, no capture, as recorded |
+| M13 | no-fragment check off (re-run) | direct: no fragment, as recorded |
+| M15 | fragment guard `&&` made `\|\|` (a variant of 5d-fix-b's M15) | direct: the class in another contribution, a local fragment of another class |
+
+### Gates
+
+On the final bytes:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 of 25 results
+  ok, lib 564 passed, capability_launch 39 passed.
+- `cargo test -p brokkr-protocol --all-features --locked`: 483, 99 (2
+  ignored) and 1 passed.
+- `compile --bundle bundles/self` gave `45dc1c7e…` and `bundles/verify` gave
+  `65baad08…`, both unchanged. All 16 recipes compile, and their top-level
+  digests equal the 5d-fix-b table. The recipes were compiled before the
+  unused `BoundedCause::as_str` was removed. The suites and both bundles
+  were rerun after the removal.
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- Local diagnostic: `cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-runtime -p brokkr-protocol --all-features --locked --lcov`, read
+  against the new ranges. There is no zero-hit line and no untaken branch
+  in the new code of `grammar.rs` (lines 1113–1300), `bundle.rs`
+  (3055–3070, 3635–3680) or `engine.rs` (4632–4730).
+  `BoundedCause::as_str`, which nothing called, was removed before this
+  run.
+- **Pending:** workspace exact coverage (`scripts/coverage-exact.sh`),
+  macOS, remote CI, the F4 fixture ruling of unit 5d-fix, and unit
+  5d-fix-c2 (F2). This unit adds no out-of-inventory line.
+
+### Follow-ups, not fixed here
+
+- `bundle.rs::admit_inline_launch` and `admit_native_sandbox` still forward
+  `managed`'s decoder cause on a compile-time plan. That plan is the
+  engine's own resolution, not an input. It is outside F3, which named the
+  door.

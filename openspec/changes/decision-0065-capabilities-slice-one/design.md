@@ -1341,6 +1341,29 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    mutation. Production: bundle.rs, engine.rs, and native_controls.rs only
    if the expected-state carrier needs it. Migrate no recipe: that is units
    7 and 8.
+   **5d-fix-c1 and 5d-fix-c2. Split repair of 5d-fix-b.** Inserted by
+   operator commission after the council of run
+   `0065-rebuild-unit-5d-fix-b-see-t-8067eebc` held unit 5d-fix-b
+   (SECURITY-HOLD, chief F1–F5). Closing its F2 (the judgment runs before
+   the Codex adapter composes the actual command) needs `adapters.rs` beside
+   `grammar.rs`, `bundle.rs` and `engine.rs`: four production files, over
+   this preamble's ceiling. So the repair is split, in this order.
+   **5d-fix-c1.** Production: `native_controls/grammar.rs`, `bundle.rs`,
+   `engine.rs`. Move the whole-launch judgment into `grammar.rs` as one pure
+   public function, `judge_inline_codex_launch(class, argv, owned_capture)`,
+   returning a bounded cause. Admission and the dispatch door both call
+   exactly it, with unchanged behaviour. At launch, require the engine's
+   native plan wherever the sealed expectation carries a native denial, and
+   prove that the delivered argv expresses each sealed denial (F1). Make the
+   plan refusal bounded and value-free (F3). Use one bounded site
+   representation at admission and at launch (F4). Correct the artifacts
+   (F5). **5d-fix-c2.** Production: `adapters.rs`. Run the same judgment at
+   the actual composition boundary, `codex_command`, over the command
+   after `--effort` translation, generated `--json`/`-C` and resume
+   transformation, and prove those paths (F2). Tests for both:
+   bundle/agent_tests.rs, native_controls/tests.rs,
+   crates/brokkr-runtime/tests/capability_launch.rs, and adapters/tests.rs
+   for c2. The narrow ruling and D5.3 are unchanged.
 6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,
