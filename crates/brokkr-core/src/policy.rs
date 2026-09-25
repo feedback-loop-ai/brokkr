@@ -34,6 +34,22 @@ pub const STRATEGIES: [&str; 5] = ["chore", "feature", "design", "engine", "esca
 pub const TABLE_SCHEMA_V1: &str = "forge.phase-machine/v1";
 pub const TABLE_SCHEMA_V2: &str = "forge.phase-machine/v2";
 
+/// The closed rule vocabulary of a `v2` table, as
+/// `contracts/phase-machine.v2.schema.json` declares it. A misspelt rule
+/// key would otherwise drop an artifact gate or a condition in silence.
+/// `v1` stays open: the frozen production table carries annotation keys.
+const RULE_KEYS_V2: [&str; 9] = [
+    "id",
+    "from",
+    "result",
+    "next",
+    "park",
+    "severity",
+    "requires_artifacts",
+    "reason",
+    "when",
+];
+
 /// Condition prefix of the phase-visit predicate (decision 0022):
 /// `visits_<phase>_gte` reads how many times the run has entered
 /// `<phase>`. Engine-owned like every other counter — the journal counts
@@ -308,6 +324,14 @@ fn parse_rule(
     let from = field("from")?;
     let result = field("result")?;
     let reason = field("reason")?;
+    if schema == Some(TABLE_SCHEMA_V2) {
+        if let Some(key) = obj.keys().find(|key| !RULE_KEYS_V2.contains(&key.as_str())) {
+            return Err(PolicyError(format!(
+                "rule {id} declares '{key}', which is not {TABLE_SCHEMA_V2} rule \
+                 vocabulary"
+            )));
+        }
+    }
     // A rule either advances the run or parks it — never both, never
     // neither. `park` is v2 vocabulary and the table must declare it:
     // a park read out of a table calling itself v1 would be a ruling

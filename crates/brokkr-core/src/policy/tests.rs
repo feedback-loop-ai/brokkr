@@ -358,6 +358,44 @@ fn a_rule_may_rule_a_park_and_only_a_v2_table_may_hold_one() {
     assert!(machine.rules[0].next.is_none());
 }
 
+/// Issue #369: a v2 rule key outside the contract's nine refuses to
+/// load, so a misspelt artifact gate, condition or severity cannot vanish.
+/// v1 stays open for the frozen table's annotation keys.
+#[test]
+fn a_v2_rule_refuses_a_key_outside_its_vocabulary_and_v1_stays_open() {
+    for misspelt in ["requires_artifact", "whenn", "severty", "source"] {
+        let mut misspelt_rule = rule();
+        misspelt_rule[misspelt] = json!(["review"]);
+        let mut v2 = table(misspelt_rule.clone());
+        v2["schema"] = json!(TABLE_SCHEMA_V2);
+        assert_eq!(
+            Machine::from_table(&v2).unwrap_err().0,
+            format!(
+                "rule WORK-DONE declares '{misspelt}', which is not \
+                 forge.phase-machine/v2 rule vocabulary"
+            )
+        );
+
+        let mut v1 = table(misspelt_rule.clone());
+        v1["schema"] = json!(TABLE_SCHEMA_V1);
+        for open in [v1, table(misspelt_rule)] {
+            let machine = Machine::from_table(&open).unwrap();
+            assert!(machine.rules[0].requires_artifacts.is_empty());
+        }
+    }
+
+    let mut full = rule();
+    full["severity"] = json!("flagged");
+    full["requires_artifacts"] = json!(["review"]);
+    full["when"] = json!({"fixes_applied": true});
+    let mut v2 = table(full);
+    v2["schema"] = json!(TABLE_SCHEMA_V2);
+    let machine = Machine::from_table(&v2).unwrap();
+    assert_eq!(machine.rules[0].requires_artifacts, vec!["review"]);
+    assert_eq!(machine.rules[0].severity, "flagged");
+    assert_eq!(machine.rules[0].when.len(), 1);
+}
+
 #[test]
 fn every_runtime_condition_shape_is_strict() {
     let counter = Condition::CounterGte {
