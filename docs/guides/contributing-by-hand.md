@@ -199,18 +199,28 @@ refusal. There is no threshold to lower. This one has its own section:
 [the coverage gate, practically](#the-coverage-gate-practically).
 
 One operational note before you run it. The script builds a second,
-instrumented copy of the workspace under a temporary directory:
+instrumented copy of the workspace and keeps it warm between runs, under
+a cache root:
 
 ```
-forge_coverage_dir="$(mktemp -d "${TMPDIR:-/tmp}/forge-coverage.XXXXXX")"
+${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/brokkr-coverage}
 ```
 
-— `scripts/coverage-exact.sh:17`. On a machine where `/tmp` is a tmpfs
-(RAM-backed, and commonly a few gigabytes), that instrumented target
-directory can fill it and the run dies with `ENOSPC` partway through a
-link step. This project has hit exactly that. If your `/tmp` is small or
-RAM-backed, point `TMPDIR` at a disk-backed scratch directory outside any Git
-worktree before running:
+The build directory is keyed by the pinned nightly, the lockfile and the
+workspace's target set, so the dependency build is reused until one of
+them changes, and an old key is pruned when a new one is made. Every
+workspace artifact and profile is still dropped before the run
+(`cargo llvm-cov clean --workspace`), so the report is always this
+checkout's. Only one run holds the cache at a time: a second run on the
+same host waits for the first, because two runs sharing a target would
+merge each other's profiles. The instrumented copy takes several
+gigabytes, so point `BROKKR_COVERAGE_CACHE` at a disk-backed directory if
+your cache home is small or RAM-backed.
+
+The tests themselves still create ordinary temporary directories under
+`TMPDIR`, and so does the script's report scratch. On a machine where
+`/tmp` is a small tmpfs, point `TMPDIR` at a disk-backed directory outside
+any Git worktree:
 
 ```
 TMPDIR=/var/tmp bash scripts/coverage-exact.sh
@@ -218,7 +228,6 @@ TMPDIR=/var/tmp bash scripts/coverage-exact.sh
 
 The directory must be outside a Git worktree: tests that create ordinary
 temporary directories expect Git discovery to find no parent repository.
-The script deletes its own temporary build directory on exit.
 
 ### Dependency licences
 
@@ -455,13 +464,33 @@ therefore sit in a sibling file, declared from the production file as
 the two the crate you are editing already uses; every crate here uses
 one of them.
 
-**A `coverage(off)` attribute.** Forbidden outright. The script greps
-for it before it runs anything
-(`scripts/coverage-exact.sh:9-14`) and refuses:
+**A `coverage(off)` attribute or a `cfg(coverage)` switch.** Forbidden
+outright, in every spelling: `#[coverage(off)]`, and any `cfg`, `cfg_attr`
+or `cfg!` predicate that names `coverage` or `coverage_nightly`, however it
+is spaced, nested or split across lines. The script reads every Rust file
+under `crates/` before it builds anything, names each file and line it
+finds, and refuses:
 
 ```
-coverage refusal: attribute-based source exclusions are forbidden
+coverage refusal: attribute and cfg(coverage) source exclusions are forbidden
 ```
+
+**A production target at a test path.** A `[[bin]]` or `[lib]` whose source
+sits under `tests/`, or in a `tests.rs` or `*_tests.rs` file, would compile
+into the product yet leave the report. The script reads every target from
+`cargo metadata` and refuses one:
+
+```
+<package>: bin target <name> sits at test path <path>
+coverage refusal: a production target escapes the denominator, or an exclusion is not what it claims
+```
+
+The only way out of the denominator is a package named in the script's
+`coverage_exclusions`, with its reason, and it must be `publish = false`.
+Today that is one package, `brokkr-seatbelt-probe`: the Seatbelt probe and
+its helper executable, whose Gate B roles run only inside a macOS
+`sandbox-exec` cell under launchd, so no Linux run can reach most of it. Its
+tests still run, so the production code they reach is still measured.
 
 There is no discussion to have here: production code may not shrink its
 own denominator. If a line is genuinely unreachable, the fix is to make

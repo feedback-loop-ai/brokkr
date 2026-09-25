@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 // The one source of the startup denial-control targets, shared with the
 // host-independent check by `#[path]` so the helper's attack functions and the
 // check read identical constants (design D3).
-#[path = "controls.rs"]
+#[path = "../tests/seatbelt_probe/controls.rs"]
 mod controls;
 
 /// The exact helper spelling the observer passed as `--helper`, which every

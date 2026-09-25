@@ -2474,13 +2474,13 @@ fn walk(root: &Path) -> Vec<String> {
 /// 3. **`/var/tmp`**, the system temporary directory the profile does
 ///    NOT replace — it puts its tmpfs over `/tmp` and nothing else.
 ///
-/// The third is what makes the proof runnable under the exact-coverage
-/// gate: `scripts/coverage-exact.sh` gives cargo-llvm-cov a unique target
-/// directory under `${TMPDIR:-/tmp}`, so on a CI runner with no `TMPDIR`
-/// the test binary itself runs from `/tmp` and the first two candidates
-/// are both inside the tmpfs. Without a third the proof would skip there
-/// — and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` would rightly turn that skip
-/// into a failure. `None` when none of the three can hold a directory,
+/// The third is what keeps the proof runnable under the exact-coverage
+/// gate wherever its instrumented target sits: `scripts/coverage-exact.sh`
+/// builds it under its cache root, which a host may place in `/tmp`
+/// (`BROKKR_COVERAGE_CACHE`), and on a runner with no `TMPDIR` the first
+/// two candidates are then both inside the tmpfs. Without a third the
+/// proof would skip there — and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` would
+/// rightly turn that skip into a failure. `None` when none of the three can hold a directory,
 /// which is still a skip rather than a proof.
 fn fixture_root() -> Option<tempfile::TempDir> {
     fixture_root_in([
@@ -2517,8 +2517,8 @@ fn fixture_root_in(
 
 /// The proof above must be RUNNABLE on an ordinary CI runner, not only on
 /// a host whose operator exported a `TMPDIR` outside `/tmp`. Under
-/// `scripts/coverage-exact.sh` the test binary itself runs from
-/// `${TMPDIR:-/tmp}/forge-coverage.*/target`, so on a runner with no
+/// `scripts/coverage-exact.sh` the test binary itself runs from the gate's
+/// cache root, which a host may place in `/tmp`, so on a runner with no
 /// `TMPDIR` the binary's own directory AND `std::env::temp_dir()` are both
 /// inside the tmpfs the profile creates — and a proof that skips there is
 /// a proof `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` rightly fails the run over.

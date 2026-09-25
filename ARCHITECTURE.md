@@ -31,10 +31,11 @@ flowchart TB
     store --> core
   end
   protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · exec<br/>capability, as leaf effects])
+  seatbelt-probe["brokkr-seatbelt-probe<br/>test-support"]
 ```
 
-Every edge is a real dependency; all seven crates are drawn. Transitive
-edges are omitted (decision 0037).
+Every edge is a real dependency and every crate is drawn, without transitive
+edges (decision 0037).
 
 `brokkr-core` performs no I/O, clock reads, randomness or process execution.
 The same journal and bundle produce the same state and ruling. Effectful work
