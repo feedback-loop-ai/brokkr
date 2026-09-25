@@ -528,12 +528,18 @@ fn a_seat_whose_charter_is_gone_is_journaled_as_a_failure_to_start() {
         "{events:#?}"
     );
     assert_eq!(failed[0]["payload"]["start_failure_sites"], json!([null]));
+    // The engine names the charter by its resolved path; a temporary
+    // directory reached through a symlink (macOS's /var -> /private/var)
+    // resolves too. The charter itself is gone, so its directory is.
+    let resolved = std::fs::canonicalize(charter.parent().unwrap())
+        .unwrap()
+        .join(charter.file_name().unwrap());
     assert_eq!(
         failed[0]["payload"]["error"],
         format!(
             "seat refused to start: charter '{}' is unreadable: \
              No such file or directory (os error 2); stderr tail: ",
-            charter.display()
+            resolved.display()
         )
     );
 }
