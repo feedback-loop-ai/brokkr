@@ -1078,6 +1078,9 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// paragraph, an evidence paragraph and a targeted-edit sentence.
 /// `bundles/verify` seats no implementer and reported no movement; each
 /// value is the test's own reported digest.
+/// Decision 0071 (#333) moves `recipes/panel-review` and `bundles/self`
+/// again: the charters they seat gained its principles. `recipes/fast` and
+/// `bundles/verify` reported no movement.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
@@ -1085,11 +1088,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "6a1b5cfc2e853bd48e45adc4b31e48546696ebc5857858bf297d750729c0599e",
+        "19b8aa567885b268b1e94882cce573ebe58108083ca9ceb92d8ed6630bcdb92a",
     ),
     (
         "bundles/self",
-        "697b7a2e7e34d1ff6a741ca3e7e0fa6c7f6b26af54d4a602b7b146618caca757",
+        "c3975d727b9ce05e683331a6c5be9cc17e708fdd37657f83b8dadc52d703cc0f",
     ),
     (
         "bundles/verify",
@@ -1241,8 +1244,10 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Fable 5.1 prompt audit (acffed37) moves it once more: the SDD
         // smith's charter and its composed `fast` base's implementer role
         // gained the scope and evidence text; the measured value agrees with
-        // the witness pin.
-        "dc83420d3b8369ae7e5ed441cef178f700ea32b930044979eb285945a810a344",
+        // the witness pin. Decision 0071 (#333) moves it again: the design
+        // offices' charters gained its principles, and the measured value
+        // again agrees with the witness pin.
+        "b47cf99547b9cd4688575a2df6dc0f866766be9ef3c7b4e3db9a2dad74128cfe",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

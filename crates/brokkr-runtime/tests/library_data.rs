@@ -30,11 +30,14 @@ fn workspace() -> PathBuf {
 /// The current bytes of every shared charter. Decision 0041 ruling 8 moves
 /// the affected witnesses because repository rules left the office text and
 /// the three sequence disclaimers disappeared. Decision 0042 moves the four
-/// SDD office charters as dialect-specific prose leaves them.
+/// SDD office charters as dialect-specific prose leaves them. Decision 0071
+/// (#333) moves the eight pinned here that build, design or judge code, as
+/// their charters gained its principles; each value is the test's own
+/// reported digest.
 const CHARTERS: [(&str, &str); 13] = [
     (
         "chief-architect.md",
-        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
+        "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
     ),
     (
         // Moved by proposed decision 0056 ruling 10: the SDD smith
@@ -42,14 +45,16 @@ const CHARTERS: [(&str, &str); 13] = [
         // against the worktree on recovery, warm or cold. Moved again by
         // the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the condensed
         // scope, evidence and targeted-edit paragraph.
+        // Moved again by decision 0071 (#333): the design paragraph.
         "implementer-sdd.md",
-        "b9a4aa1634f1c36b65c1927f82b6236ce31685ff33c3871b1af3a35f6d153ecf",
+        "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
     ),
     (
         // Moved by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
         // scope and evidence paragraphs and the targeted-edit sentence.
+        // Moved again by decision 0071 (#333): the design paragraph.
         "implementer.md",
-        "e4d77e5c90e6601c5ab82dfdc72dacc7da9948d07094e9813c80268047cae4b8",
+        "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
     ),
     (
         "intake-sdd.md",
@@ -61,15 +66,15 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "position-robustness.md",
-        "696802b3d981e7d487926500a749c699e1697b05a0d7e5686639f8dd09067533",
+        "6d7926ae2f207ca576f65d949dae79501cfeccca5cd0ae436b2e85ce8969241a",
     ),
     (
         "position-simplicity.md",
-        "81a14dffa301d38f2d523d0a828fd7ce5accf38a0e75dc3995f9682c9cf72b0d",
+        "22a5d52aa78e3b1d9ba28afdcdb938b1f2857d7c5a946dbd10a205fc4d1e880f",
     ),
     (
         "review-correctness.md",
-        "7d11cd3201c6bf9464b7092e456ad0e432772aa7cf0fee28d3b18782733b172b",
+        "40fe2d11b6d20ee7964d503aea72548605758ee20f8bae521ad65664028dbea1",
     ),
     (
         "review-adversarial.md",
@@ -77,7 +82,7 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "review-chief.md",
-        "72aa9dcee51170ef932661db045a3acc40e7af47fc9f68271c00fa15f943ddec",
+        "199acde1e2e1cdd41d432f58c2f9a5ea6d74fa80d26c06302ad464125774b7e8",
     ),
     (
         "review-security.md",
@@ -89,7 +94,7 @@ const CHARTERS: [(&str, &str); 13] = [
     ),
     (
         "reviewer.md",
-        "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
+        "311489fc120a0bec72ffd0302bac12e60f184ca0e6d4c9e168f4e88453f6c410",
     ),
 ];
 

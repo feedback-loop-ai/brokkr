@@ -242,6 +242,10 @@ fn workspace() -> PathBuf {
 /// resolves its seats through the dsh adapter, and `recipes/gpt-flash`'s
 /// six Flash offices now hire `flash`. The seven others reported no
 /// movement; each value is the test's own reported digest.
+/// Decision 0071 (#333) moves three: `recipes/triage` seats the design
+/// offices whose charters gained its principles, and `recipes/night-shift`
+/// and `recipes/gpt-flash` derive from triage. The seven others reported no
+/// movement; each value is the test's own reported digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -257,7 +261,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "57c8f6e0ac3bfad33b9943ad5445b44197ff8e5d3080c353322cf75e3f1bd74b",
+        "b3d3254f6a52193b68373b6cc1ac91f458b6428399b6a2d62744dc553e8a4f18",
     ),
     (
         "recipes/wager-harness",
@@ -265,7 +269,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/triage",
-        "dc83420d3b8369ae7e5ed441cef178f700ea32b930044979eb285945a810a344",
+        "b47cf99547b9cd4688575a2df6dc0f866766be9ef3c7b4e3db9a2dad74128cfe",
     ),
     (
         "recipes/research",
@@ -277,7 +281,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "6649f1bfe3ca48da0208900ff4dbebc5c86b7a25b93347dc5b89d27bfae29417",
+        "e6c3252d09ccae4c0d87d408b8e68fc0e362037c732b4d9e670804eef72b4364",
     ),
     (
         "bundles/verify",

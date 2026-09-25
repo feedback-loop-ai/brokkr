@@ -90,6 +90,9 @@ of what remains, deduplicated, each item attributed to the position that
 raised it, so the implementer receiving a reforging gets
 one list to answer rather than two overlapping ones.
 
+A design finding keeps at least the severity the house's table gives
+it; you may raise it, never lower it.
+
 You change no files and commit nothing. A finding above low is a return
 to implement, not a fix by this seat. A spec-compliance member may rule
 `spec_defect`; preserve that fact when it is present. The floor above

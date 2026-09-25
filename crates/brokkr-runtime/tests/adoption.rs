@@ -94,7 +94,9 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
     out
 }
 
-/// site → (concrete model id, current charter digest).
+/// site → (concrete model id, current charter digest). Decision 0071 (#333)
+/// moves the pin of every office whose charter gained its principles; each
+/// value is the test's own reported digest.
 type Roster = [(&'static str, &'static str, &'static str)];
 
 const PANEL_REVIEW: &Roster = &[
@@ -108,12 +110,13 @@ const PANEL_REVIEW: &Roster = &[
         "claude-opus-5-5",
         // Moved by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
         // implementer charter gained its scope and evidence paragraphs.
-        "e4d77e5c90e6601c5ab82dfdc72dacc7da9948d07094e9813c80268047cae4b8",
+        // Moved again by decision 0071 (#333): the design paragraph.
+        "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
     ),
     (
         "review:correctness",
         "gpt-6-sol",
-        "7d11cd3201c6bf9464b7092e456ad0e432772aa7cf0fee28d3b18782733b172b",
+        "40fe2d11b6d20ee7964d503aea72548605758ee20f8bae521ad65664028dbea1",
     ),
     (
         "review:security",
@@ -130,7 +133,8 @@ const TRIAGE: &Roster = &[
         // charter gained the progress-timing and recovery clauses. Moved
         // again by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
         // condensed scope and evidence paragraph.
-        "b9a4aa1634f1c36b65c1927f82b6236ce31685ff33c3871b1af3a35f6d153ecf",
+        // Moved again by decision 0071 (#333): the design paragraph.
+        "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
     ),
     (
         "review:design:positions:spec-compliance",
@@ -145,12 +149,12 @@ const TRIAGE: &Roster = &[
     (
         "design:chief",
         "claude-fable-5-1",
-        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
+        "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
     ),
     (
         "specify:author",
         "claude-fable-5-1",
-        "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
+        "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
     ),
     (
         "tasks:author",
@@ -159,7 +163,8 @@ const TRIAGE: &Roster = &[
         // charter gained the progress-timing and recovery clauses. Moved
         // again by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
         // condensed scope and evidence paragraph.
-        "b9a4aa1634f1c36b65c1927f82b6236ce31685ff33c3871b1af3a35f6d153ecf",
+        // Moved again by decision 0071 (#333): the design paragraph.
+        "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
     ),
     (
         "clarify:judge",
@@ -169,17 +174,17 @@ const TRIAGE: &Roster = &[
     (
         "analyze:judge",
         "claude-fable-5-1",
-        "964414f4d6e6f4bc871e793707197eb38b3aa6005051fe5012187a160d1f44e0",
+        "2a2a606dab2737936ba5efd2e972c4c2f36300a9cce39f2c09c836091d08408f",
     ),
     (
         "design:positions:simplicity",
         "claude-opus-5-5",
-        "81a14dffa301d38f2d523d0a828fd7ce5accf38a0e75dc3995f9682c9cf72b0d",
+        "22a5d52aa78e3b1d9ba28afdcdb938b1f2857d7c5a946dbd10a205fc4d1e880f",
     ),
     (
         "design:positions:robustness",
         "gpt-6-sol",
-        "696802b3d981e7d487926500a749c699e1697b05a0d7e5686639f8dd09067533",
+        "6d7926ae2f207ca576f65d949dae79501cfeccca5cd0ae436b2e85ce8969241a",
     ),
 ];
 const SELF: &Roster = &[
@@ -193,12 +198,13 @@ const SELF: &Roster = &[
         "claude-opus-5-5",
         // Moved by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
         // implementer charter gained its scope and evidence paragraphs.
-        "e4d77e5c90e6601c5ab82dfdc72dacc7da9948d07094e9813c80268047cae4b8",
+        // Moved again by decision 0071 (#333): the design paragraph.
+        "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
     ),
     (
         "review",
         "gpt-6-astra",
-        "4efedc43f0b8ac110000f4ffa3b3205aac3acac0850485b027d298dd2b8aa4e8",
+        "311489fc120a0bec72ffd0302bac12e60f184ca0e6d4c9e168f4e88453f6c410",
     ),
 ];
 
