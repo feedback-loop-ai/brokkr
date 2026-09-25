@@ -47,12 +47,15 @@ the authority, and a finding it would catch is the gate's.
   out by string key. Never put `format!("{:?}")` in anything digested or
   journaled. A doubly-optional field or a string vocabulary is a missing enum.
 - **Small functions (ruling 4).** New and changed functions stay within 100
-  lines, nesting depth 5 and 7 parameters. Production files stay within 800
-  lines. Today's offenders carry `#[allow(clippy::…)]`, and #337 converts
-  them to `#[expect(clippy::…, reason = "…")]`. Add a suppression only by a
-  ruling, and remove it when you fix the function. A new suppression is
-  `#[expect(…, reason)]`, never `#[allow]`. These numbers are provisional
-  until the operator rules them from the measured baseline.
+  lines, nesting depth 5 and 7 parameters. A new function stays within
+  cyclomatic complexity 15, and an existing one never grows more complex.
+  Production files stay within 800 lines and test files within 2,000, and a
+  file already over may not grow. Add no new `jscpd` clone in production
+  code, test code or data. `quality/` holds the measured baseline. Today's
+  offenders carry `#[allow(clippy::…)]`, and #337 converts them to
+  `#[expect(clippy::…, reason = "…")]`. Add a suppression only by a ruling,
+  and remove it when you fix the function. A new suppression is
+  `#[expect(…, reason)]`, never `#[allow]`.
 - **Once (ruling 5).** Every fact has one home. A repeated vocabulary, skeleton
   or helper becomes one function or one table. An agent is defined once under
   `agents/`, and seats hire it by reference. A recipe that differs from another

@@ -1,6 +1,6 @@
 # 0071 — The architectural principles: how Brokkr's code is shaped, which gate holds each rule, and which charter judges it
 
-Status: accepted (operator ruled in chat, 2026-09-25; epic #330, issue #331)
+Status: accepted (operator ruled in chat, 2026-09-25; epic #330, issue #331). Ruling 4's ceilings were ruled final the same day, from #335's baseline.
 Date: 2026-09-25
 
 ## Context
@@ -129,15 +129,20 @@ that began. Rulings 3 and 4 pay that price.
 4. **One responsibility per function, measured.** A function holds one
    level of abstraction. New and changed functions stay within the
    ceilings below. Today's offenders are a committed baseline that may
-   only shrink. The **provisional** ceilings, which the operator rules
-   final from #335's baseline, are:
+   only shrink. The operator ruled the ceilings final on 2026-09-25 from
+   the baseline #335 recorded under `quality/`. They are:
    - 100 lines per function, as clippy counts them;
-   - nesting depth 5;
+   - nesting depth 5, as clippy's `excessive_nesting` counts it (`impl`
+     and `mod` levels included);
    - 7 parameters;
-   - 800 lines per production file;
-   - cyclomatic complexity per function held by `cargo-crap` as a
-     ratchet against the committed baseline, not an absolute number (at
-     100% coverage CRAP equals CC).
+   - cyclomatic complexity 15 for a new function, as `cargo-crap` counts
+     it, and no rise for an existing one against the committed baseline
+     (at 100% coverage CRAP equals CC);
+   - 800 lines per production file and 2,000 per test file, and a file
+     already over its ceiling may not grow past its baseline;
+   - no new clone in production code, test code or data, as `jscpd`
+     finds them against the committed baselines; ruling 5's `jscpd`
+     ratchet holds this one.
 
    Clippy's `cognitive_complexity` is not used; its own documentation
    says it does not measure what its name claims.
@@ -290,8 +295,9 @@ that began. Rulings 3 and 4 pay that price.
   recipes), 0029 (the fenced append), 0043 (the hands are one tool) and
   0063 (Linux and macOS) stand as the floor these principles are built
   on.
-- It does not fix the numbers. Ruling 4's ceilings are provisional until
-  the operator rules them from #335's measured baseline.
+- It fixed the numbers only once they were measured. Ruling 4's ceilings
+  were provisional until #335 recorded the baseline, and the operator
+  ruled them final from it on 2026-09-25.
 
 ## Consequences
 
