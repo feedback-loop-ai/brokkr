@@ -3840,7 +3840,13 @@ fn a_final_command_places_its_positions_and_nothing_else() {
         (
             argv(&["--json", "exec"]),
             1,
-            "'--json'",
+            positional,
+            "stands where the 'exec' subcommand a codex serving command opens with belongs",
+        ),
+        (
+            argv(&["--REVIEW-SENTINEL", "exec"]),
+            1,
+            positional,
             "stands where the 'exec' subcommand a codex serving command opens with belongs",
         ),
         (
@@ -3857,9 +3863,22 @@ fn a_final_command_places_its_positions_and_nothing_else() {
             "stands where the stdin positional '-' that ends a rejoin belongs",
         ),
         (
+            argv(&["exec", "resume", "--json", "abc-123", "--REVIEW-SENTINEL"]),
+            5,
+            positional,
+            "stands where the stdin positional '-' that ends a rejoin belongs",
+        ),
+        (
             argv(&["exec", "resume", "--json", "-REVIEW_SENTINEL", "-"]),
             4,
-            grammar::UNMODELLED_LABEL,
+            positional,
+            "stands where a rejoin's session identifier belongs but is not a plain one: ASCII \
+             letters, digits and dashes, not leading with a dash, at most 128 bytes",
+        ),
+        (
+            argv(&["exec", "resume", "--json", "--REVIEW-SENTINEL", "-"]),
+            4,
+            positional,
             "stands where a rejoin's session identifier belongs but is not a plain one: ASCII \
              letters, digits and dashes, not leading with a dash, at most 128 bytes",
         ),

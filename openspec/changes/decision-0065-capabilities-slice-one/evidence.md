@@ -6857,7 +6857,8 @@ inventory, catalogue, DSH, prompt, config, managed-list and final-position
 tests use `Effect::Control`, `Effect::Route`, `setting`, `managed_*`,
 `parse_final` or `bears_capability`, none of which existed. Each is
 recorded as unavailable as a compiling baseline red, and is bound by the
-mutations below. The existing
+mutations below. The prompt test was not bound by M1–M21. The return visit
+below binds it with M25 and M26. The existing
 `every_token_the_grammar_cannot_place_is_refused_at_its_own_cause` changed
 its expectation from echoed tokens to labels (`'resume'` became the
 positional label, `'--nope=1'` became `'--nope'`, `'--verbose=1'` became
@@ -6948,3 +6949,67 @@ All on the final bytes:
   `managed_patterns` and `parse_final`.
 - `Problem::token` remains a public raw field for `bundle.rs::unplaced_label`.
   Once that consumer uses `Problem::label`, the field can go.
+
+### Return visit — positional labels and the prompt test's binding, 2026-09-25
+
+The review of `dd5f66e8` returned two medium findings. Both are answered
+here in the same two files. No line was admitted under the standing
+admission.
+
+**F1: a reserved position echoed an option-looking payload.**
+`parse_final` refused at the `exec`, session and stdin positions through
+`Grammar::label`, which spells a plain long name. So
+`[exec, resume, --json, --REVIEW-SENTINEL, -]` rendered
+`argument 4 ('--REVIEW-SENTINEL')`. `grammar.rs::parse_final`'s `refuse`
+now builds the problem with `POSITIONAL_LABEL`, whatever the token spells,
+as D6's "malformed positional payloads use a positional label" requires.
+
+In `a_final_command_places_its_positions_and_nothing_else`, two rows
+changed their expected label to the positional one: `[--json, exec]` (was
+`'--json'`) and `[exec, resume, --json, -REVIEW_SENTINEL, -]` (was
+`UNMODELLED_LABEL`). Three rows were added, each asserting the complete
+rendered problem:
+- `[--REVIEW-SENTINEL, exec]` at argument 1;
+- `[exec, resume, --json, abc-123, --REVIEW-SENTINEL]` at argument 5;
+- `[exec, resume, --json, --REVIEW-SENTINEL, -]` at argument 4.
+
+- **Baseline on `dd5f66e8`, rows written first.** `cargo test --locked -q
+  -p brokkr-protocol --lib -- a_final_command_places_its_positions` failed
+  at `tests.rs:3924` on `["--json", "exec"]`. The left side read
+  `argument 1 ('--json')`, the right `argument 1 (a positional argument,
+  whose text is not echoed)`.
+- **After the fix.** `native_controls::tests` passed 33 of 33.
+- **Per-slot mutations**, each compiled, run over `native_controls::tests`
+  and restored. Each failed only the final-position test, at `tests.rs:3924`:
+
+| # | Mutation of `refuse`'s label | First failing row (left side) |
+|---|---|---|
+| M22 | fixed only at argument 1, `Grammar::label` elsewhere | `[exec, resume, --json, abc-123, --REVIEW-SENTINEL]`, `argument 5 ('--REVIEW-SENTINEL')` |
+| M23 | `Grammar::label` for a `--` token at the session slot | `[exec, resume, --json, --REVIEW-SENTINEL, -]`, `argument 4 ('--REVIEW-SENTINEL')` |
+| M24 | `Grammar::label` for an unmodelled `--` name at argument 1 | `[--REVIEW-SENTINEL, exec]`, `argument 1 ('--REVIEW-SENTINEL')` |
+
+**F2: the prompt test had no recorded binding.** Two mutations of the
+prompt boundary in `parse_span` bind
+`a_prompt_value_is_data_and_never_absorbs_a_control`:
+
+| # | Mutation | Failing assertion (actual) |
+|---|---|---|
+| M25 | a split value is taken even when it reads as an option (`Some(value) if true`) | `tests.rs:3528`: left `argument 3 (a positional argument, …): it is a bare word, …`, right `argument 2 ('--disallowedTools'): it stands where the value of '--append-system-prompt' belongs but reads as an option, …`. `a_grammar_refusal_names_a_bounded_label_and_never_a_payload` also failed. |
+| M26 | the equals-joined spelling refused for a dash-led value | `tests.rs:3138`, through `one_node` from `:3519`: `["--append-system-prompt=--disallowedTools hello"] parses: … argument 1 ('--append-system-prompt'): it names no option, or names one that has no equals-joined spelling`. `an_unrelated_value_is_never_read_as_a_control` and `an_authored_capability_server_…` also failed. |
+
+After the restores, a grep for the mutation marker in `grammar.rs` counted
+0, and the suite passed 33 of 33.
+
+**Gates, on the final bytes:**
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --locked -q -p brokkr-protocol --all-features`: lib 482
+  passed, then 99 passed (2 ignored) and 1 passed.
+- `parse_final` has no caller outside the protocol grammar and its tests
+  (`grep -rln parse_final crates`), so no other crate's suite was rerun.
+- `compile --bundle bundles/self` gave `45dc1c7e…` and `bundles/verify` gave
+  `65baad08…`, unchanged.
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- **Pending:** workspace exact coverage (`scripts/coverage-exact.sh` outside
+  the box), macOS and remote CI.

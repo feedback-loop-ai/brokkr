@@ -803,11 +803,18 @@ impl Grammar {
     /// which no option's value can reach. Claude and LaneTally select a
     /// session by option and DSH's argv is its driver's input, so neither
     /// carries a positional. Nothing else is a position: an unexpected
-    /// word refuses, and `--image resume` stays an image's value.
+    /// word refuses, and `--image resume` stays an image's value. A token
+    /// refused at one of these reserved positions is labelled as the
+    /// positional it stands for, whatever it spells, so a misplaced
+    /// option-looking payload is not echoed as an option name (design D6).
     pub fn parse_final(&self, argv: &[String]) -> Result<Final, Problem> {
         let word = |at: usize| argv.get(at).map(String::as_str);
-        let refuse =
-            |at: usize, cause: &str| Err(self.problem(at, word(at).unwrap_or_default(), cause));
+        let refuse = |at: usize, cause: &str| {
+            Err(Problem {
+                label: POSITIONAL_LABEL.to_string(),
+                ..self.problem(at, word(at).unwrap_or_default(), cause)
+            })
+        };
         if self.harness != "codex" {
             return Ok(Final {
                 subcommands: Vec::new(),
