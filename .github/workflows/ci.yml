@@ -305,9 +305,17 @@ jobs:
   # the download is a local file:// read, not a GitHub transfer, and the
   # timed run drives a stub standing in for the `claude` binary, so no
   # agent session is spawned and nothing is billed.
+  #
+  # Both hosts the README's bootstrap names (decision 0063): on Linux the
+  # scaffold's verify and ship gates run boxed under `namespace`; on
+  # macOS `init` declares `harness`, and the same steps run unboxed.
   bootstrap-budgets:
-    name: bootstrap budgets (60s install / 5min first run)
-    runs-on: ubuntu-latest
+    name: bootstrap budgets (60s install / 5min first run, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -316,6 +324,7 @@ jobs:
       # The benchmark runs the boxed gates from the real init scaffold.
       # Decision 0043 never simulates their bubblewrap boundary.
       - name: bubblewrap for the hands tests
+        if: runner.os == 'Linux'
         # The runner image restricts unprivileged user namespaces through
         # AppArmor, and Ubuntu's package is 0.9; overlay binds need 0.10+.
         run: |

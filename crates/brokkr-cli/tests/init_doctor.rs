@@ -9,9 +9,23 @@
 
 use std::process::Command;
 
+/// Run `brokkr`. An `init` runs with a `claude` first on PATH: it
+/// scaffolds for the first of claude, codex or dsh it finds, and these
+/// proofs are about the claude scaffold whatever agent CLIs this host
+/// carries. Every other verb sees the host's own PATH.
 fn brokkr(args: &[&str], cwd: &std::path::Path) -> (Option<i32>, String, String) {
+    let stubs = tempfile::tempdir().unwrap();
+    std::fs::write(stubs.path().join("claude"), "").unwrap();
+    let mut path = std::env::var_os("PATH").unwrap();
+    if args.first() == Some(&"init") {
+        path = std::env::join_paths(
+            std::iter::once(stubs.path().to_path_buf()).chain(std::env::split_paths(&path)),
+        )
+        .unwrap();
+    }
     let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(args)
+        .env("PATH", path)
         .current_dir(cwd)
         .output()
         .unwrap();
@@ -56,12 +70,213 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     assert!(adapter.contains("\"trust_tier\": \"trusted\""), "{adapter}");
     assert!(adapter.contains("\"binding_grant\": false"), "{adapter}");
 
+    // The review seat is a gate, and a gate that moves HEAD parks the
+    // run: its charter is read-only, as the library's reviewer is.
+    let reviewer = std::fs::read_to_string(bundle.join("agents/charters/reviewer.md")).unwrap();
+    assert!(
+        reviewer.contains("strictly read-only: change no files and make no commits"),
+        "{reviewer}"
+    );
+    assert!(
+        reviewer.contains("`clean` with `inputs: {\"fixes_applied\": false}`"),
+        "{reviewer}"
+    );
+    assert!(!reviewer.contains("commit them"), "{reviewer}");
+
     // Refuses to clobber an existing bundle.
     let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
     assert_eq!(code, Some(1));
     assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
 }
 
+/// `init` under a PATH holding only the named agent CLIs: the scaffold
+/// directory, its stderr, and the compile run from inside it.
+fn init_with_only(present: &[&str]) -> (tempfile::TempDir, std::path::PathBuf, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let bins = dir.path().join("bins");
+    std::fs::create_dir(&bins).unwrap();
+    for binary in present {
+        std::fs::write(bins.join(binary), "").unwrap();
+    }
+    let bundle = dir.path().join("bundle");
+    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(["init", bundle.to_str().unwrap()])
+        .env("PATH", &bins)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    let (code, stdout, error) = brokkr(&["compile", "--bundle", "."], &bundle);
+    assert_eq!(code, Some(0), "{error}");
+    assert!(stdout.contains("\"starter\""), "{stdout}");
+    (dir, bundle, stderr)
+}
+
+fn json_at(path: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// A claude-less host with codex gets a codex scaffold that compiles: the
+/// codex adapter and no claude one, every seat hired from codex with
+/// hands and no tool allowance, and a realm under `harness`, where
+/// codex's own sandbox classes hold those hands — so nothing asks for
+/// bubblewrap.
+#[test]
+fn a_codex_only_host_gets_a_codex_scaffold_that_compiles() {
+    let (_dir, bundle, stderr) = init_with_only(&["codex"]);
+    assert!(
+        stderr
+            .contains("Scaffolded for `codex`, the first of claude, codex and dsh found on PATH."),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("hands need bubblewrap"), "{stderr}");
+    assert!(bundle.join("adapters/codex.json").is_file());
+    assert!(!bundle.join("adapters/claude.json").exists());
+    let adapter = json_at(&bundle.join("adapters/codex.json"));
+    assert_eq!(adapter["trust_tier"], "trusted");
+    assert_eq!(adapter["judges"], serde_json::json!(["astra", "sol"]));
+    let map = json_at(&bundle.join("realms.json"));
+    assert_eq!(map["schema"], "forge.realms/v4");
+    assert_eq!(map["realms"][0]["boundary"], "harness");
+    for (agent, models) in [
+        ("intake", ["sol", "terra"]),
+        ("implementer", ["sol", "terra"]),
+        ("reviewer", ["astra", "sol"]),
+    ] {
+        let definition = json_at(&bundle.join(format!("agents/{agent}.json")));
+        assert_eq!(definition["models"], serde_json::json!(models), "{agent}");
+        assert_eq!(definition["hands"]["kind"], "workspace", "{agent}");
+        assert!(definition.get("tools").is_none(), "{agent}: {definition}");
+    }
+    // Its README speaks of the adapters it wrote, and of no tool map.
+    let readme = std::fs::read_to_string(bundle.join("agents/README.md")).unwrap();
+    assert!(!readme.contains("claude.json"), "{readme}");
+    assert!(
+        readme.contains("## Tool grants\n\nNone. No seat is hired from claude"),
+        "{readme}"
+    );
+}
+
+/// A run writes its journal, results and ledger under `.forge/`, and the
+/// ship gate closes out only on a clean tree: `init` ignores `.forge/`
+/// from inside, beside the map and in the repository, and keeps an
+/// ignore file the operator already has there.
+#[test]
+fn init_ignores_the_runs_own_forge_directory() {
+    let git = |repo: &std::path::Path, args: &[&str]| {
+        let out = Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgSign=false",
+            ])
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let repo = tempfile::tempdir().unwrap();
+    git(repo.path(), &["init", "-q"]);
+    let (code, _, stderr) = brokkr(&["init", "."], repo.path());
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join(".forge/.gitignore")).unwrap(),
+        "*\n"
+    );
+    git(repo.path(), &["add", "-A"]);
+    git(repo.path(), &["commit", "-q", "-m", "brokkr starter"]);
+    std::fs::create_dir_all(repo.path().join(".forge/results")).unwrap();
+    std::fs::write(repo.path().join(".forge/forge.db"), "").unwrap();
+    std::fs::write(repo.path().join(".forge/results/seat.json"), "{}").unwrap();
+    assert_eq!(git(repo.path(), &["status", "--porcelain"]), "");
+
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir(repo.path().join(".forge")).unwrap();
+    std::fs::write(repo.path().join(".forge/.gitignore"), "theirs\n").unwrap();
+    let (code, _, stderr) = brokkr(&["init", "my-bundle"], repo.path());
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join(".forge/.gitignore")).unwrap(),
+        "theirs\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("my-bundle/.forge/.gitignore")).unwrap(),
+        "*\n"
+    );
+}
+
+/// A dsh-only host: dsh holds intake and implement, and the review gate —
+/// which an untrusted adapter with no judges can never hold — stays on
+/// claude, and the output says so.
+#[test]
+fn a_dsh_only_host_names_the_gate_dsh_cannot_hold() {
+    let (_dir, bundle, stderr) = init_with_only(&["dsh"]);
+    assert!(
+        stderr.contains("The review gate cannot be held by dsh: its adapter is untrusted"),
+        "{stderr}"
+    );
+    let readme = std::fs::read_to_string(bundle.join("agents/README.md")).unwrap();
+    assert!(
+        readme.contains("The review gate cannot be held by dsh"),
+        "{readme}"
+    );
+    for adapter in ["dsh", "claude", "exec"] {
+        assert!(bundle.join(format!("adapters/{adapter}.json")).is_file());
+    }
+    assert!(!bundle.join("adapters/codex.json").exists());
+    assert_eq!(
+        json_at(&bundle.join("adapters/dsh.json"))["trust_tier"],
+        "untrusted"
+    );
+    for (agent, models) in [
+        ("intake", ["flash", "pro"]),
+        ("implementer", ["pro", "flash"]),
+        ("reviewer", ["fable", "opus"]),
+    ] {
+        let definition = json_at(&bundle.join(format!("agents/{agent}.json")));
+        assert_eq!(definition["models"], serde_json::json!(models), "{agent}");
+        assert!(definition.get("hands").is_none(), "{agent}: {definition}");
+    }
+}
+
+/// On macOS the scaffold's realm declares `harness`, because `namespace`
+/// cannot be built there: nothing asks for bubblewrap, and the output
+/// says which boundary was written and why.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_macos_scaffold_declares_harness_and_asks_nothing_of_bubblewrap() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    let empty_path = dir.path().join("empty-path");
+    std::fs::create_dir(&empty_path).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(["init", bundle.to_str().unwrap()])
+        .env("PATH", &empty_path)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    assert!(!stderr.contains("hands need bubblewrap"), "{stderr}");
+    assert!(
+        stderr.contains("`realms.json` declares the `harness` boundary"),
+        "{stderr}"
+    );
+    let map = std::fs::read_to_string(bundle.join("realms.json")).unwrap();
+    assert!(map.contains("\"boundary\": \"harness\""), "{map}");
+}
+
+#[cfg(target_os = "linux")]
 #[test]
 fn init_names_the_scaffolded_seats_that_need_missing_bubblewrap() {
     let dir = tempfile::tempdir().unwrap();

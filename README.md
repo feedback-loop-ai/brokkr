@@ -36,7 +36,11 @@ On Windows, use WSL2: it is Linux, and every Linux row above serves it (decision
 
 ## 60-second bootstrap
 
-Sixty seconds from a fresh machine to a lit run, then five minutes to the run's first completed effect. Both budgets are measured in CI by [`scripts/bootstrap-bench.sh`](scripts/bootstrap-bench.sh), which prints what it mocks. You need a git repository you are willing to let an agent edit and one agent CLI on `PATH` (`claude`, `codex` or `dsh`).
+Sixty seconds from a fresh machine to a lit run, then five minutes to a completed run. Both budgets are measured in CI on Ubuntu and macOS by [`scripts/bootstrap-bench.sh`](scripts/bootstrap-bench.sh), which prints what it mocks. You need:
+
+- **Every host:** `git`, `bash`, a git repository you are willing to let an agent edit, and `claude` or `codex` on `PATH`. `init` scaffolds for the first of `claude`, `codex` or `dsh` it finds. `dsh` alone is not enough: it cannot hold the review gate, because its adapter is untrusted and names no judges, so a dsh scaffold keeps the reviewer on `claude`.
+- **Linux:** bubblewrap (`bwrap`) 0.10 or newer on `PATH`, with unprivileged user namespaces allowed. The scaffold's verify and ship gates run boxed under the default `namespace` boundary. A codex scaffold declares `harness` instead and needs no bubblewrap.
+- **macOS:** nothing more. `init` declares the `harness` boundary, because `namespace` is Linux-only, so verify and ship run their pinned scripts unboxed.
 
 ```mermaid
 flowchart LR
@@ -54,7 +58,8 @@ flowchart LR
 
 ```console
 brokkr doctor                       # ok / warn / MISSING per tool and driver; executes no agent
-cd your-repo && brokkr init .       # writes bundle.json, policy.json, agents/, adapters/ — open them
+cd your-repo && brokkr init .       # writes bundle.json, policy.json, realms.json, agents/, adapters/, scripts/, .forge/.gitignore (and dialects/ for a spec repo) — open them
+git add -A && git commit -m "brokkr starter"   # ship closes out on a clean tree
 brokkr run --bundle . --repo . --feature "add one visible improvement" && brokkr inspect --run latest
 ```
 

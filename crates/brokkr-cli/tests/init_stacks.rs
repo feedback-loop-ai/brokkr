@@ -220,9 +220,23 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/init-stacks")
 }
 
+/// Run `brokkr`. An `init` runs with a `claude` first on PATH: it
+/// scaffolds for the first of claude, codex or dsh it finds, and these
+/// proofs are about the claude scaffold whatever agent CLIs this host
+/// carries. Every other verb sees the host's own PATH.
 fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
+    let stubs = tempfile::tempdir().unwrap();
+    std::fs::write(stubs.path().join("claude"), "").unwrap();
+    let mut path = std::env::var_os("PATH").unwrap();
+    if args.first() == Some(&"init") {
+        path = std::env::join_paths(
+            std::iter::once(stubs.path().to_path_buf()).chain(std::env::split_paths(&path)),
+        )
+        .unwrap();
+    }
     let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(args)
+        .env("PATH", path)
         .current_dir(cwd)
         .output()
         .unwrap();

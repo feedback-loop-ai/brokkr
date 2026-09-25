@@ -56,9 +56,16 @@ my-bundle/agents/intake.json
 my-bundle/agents/reviewer.json
 my-bundle/bundle.json
 my-bundle/policy.json
+my-bundle/realms.json
 my-bundle/scripts/ship-seat.sh
 my-bundle/scripts/verify-seat.sh
 ```
+
+A repository carrying `.specify/` or `openspec/config.yaml` also gets
+`dialects/`, the detected dialect's pinned data. The adapters follow the
+agent CLI on `PATH`: this fixture was scaffolded for `claude`. A codex
+scaffold writes `adapters/codex.json` in its place, and a dsh scaffold
+writes `adapters/dsh.json` beside it.
 
 **The policy, intake/reviewer charters, ship script, and fixed model-agent
 fields do not vary by stack.** What varies is the stack's own data: the

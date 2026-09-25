@@ -20,11 +20,14 @@
 //! gate seats would have had to be demoted to `work` to make it pass.
 //! That would have been a benchmark of a different bundle.
 //!
-//! Linux only: the stub is a shell script, and the byte-identical
-//! scaffold carries boxed verify and ship gates. Decision 0043 never
-//! simulates that Linux boundary on macOS or Windows.
+//! Linux and macOS: the stub is a shell script. The scaffold's verify
+//! and ship gates run for real — boxed under `namespace` on Linux, and
+//! under the `harness` boundary `init` declares on macOS, where
+//! decision 0043's Linux box cannot be built. A Linux host that cannot
+//! build that box (inside one already, or no usable bubblewrap) skips,
+//! and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` turns that skip into a failure.
 
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 use std::path::Path;
 use std::process::Command;
@@ -33,12 +36,12 @@ use std::process::Command;
 /// prompt on stdin — the same prompt a real session would — finds the
 /// one file the engine reads a result from, and answers the phase it was
 /// seated in. It writes no code: what is being measured is the ENGINE's
-/// cost to reach a first completed effect.
+/// cost to carry a run to `done`.
 ///
-/// `intake` resolves; `implement` reports `blocked`, which the starter
-/// table rules a hard stop (`IMPL-BLOCKED`). So the run ends one seat
-/// PAST its first completed effect, and the script's timed window
-/// over-measures time-to-first-effect rather than under-measuring it.
+/// `intake` resolves, `implement` completes and `review` is clean with no
+/// fixes; `verify` and `ship` are the scaffold's own exec scripts, run
+/// for real against the fixture's `Makefile`. So the run the README
+/// promises — implement → verify → review → ship — completes end to end.
 const STUB: &str = r#"#!/usr/bin/env bash
 set -uo pipefail
 prompt="$(cat)"
@@ -47,8 +50,11 @@ prompt="$(cat)"
 # charter's indented lines are commands and come first.
 result_file="$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | tail -n 1)"
 phase="$(printf '%s\n' "$prompt" | sed -n 's/^Phase: \([a-z-]*\).*/\1/p' | head -n 1)"
+inputs='{}'
 case "$phase" in
   intake) result=resolved ;;
+  implement) result=complete ;;
+  review) result=clean; inputs='{"fixes_applied":false}' ;;
   *) result=blocked ;;
 esac
 if [ -z "$result_file" ]; then
@@ -56,9 +62,30 @@ if [ -z "$result_file" ]; then
   exit 1
 fi
 mkdir -p "$(dirname "$result_file")"
-printf '{"result":"%s","notes":"benchmark stub; no agent ran"}\n' "$result" >"$result_file"
+printf '{"result":"%s","inputs":%s,"notes":"benchmark stub; no agent ran"}\n' "$result" "$inputs" >"$result_file"
 printf '{"type":"result","subtype":"success","num_turns":1,"total_cost_usd":0.0}\n'
 "#;
+
+/// The fixture's own suite: `init` reads the `Makefile` as the make
+/// stack, and the verify gate runs `make test` and `make lint`.
+const MAKEFILE: &str = "build:\n\t@true\ntest:\n\t@true\nlint:\n\t@true\n";
+
+/// On Linux the scaffold's gates stand under `namespace`, so the run
+/// needs a real box: bubblewrap answers, and this process is not itself
+/// inside one (`BROKKR_HANDS_BOX`), where the test skips rather than
+/// parking on a refused nest. macOS declares `harness` and never asks.
+#[cfg(target_os = "linux")]
+fn can_create_namespace() -> bool {
+    if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        return false;
+    }
+    Command::new("bwrap")
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
 
 fn git(repo: &Path, args: &[&str]) {
     assert!(Command::new("git")
@@ -70,8 +97,17 @@ fn git(repo: &Path, args: &[&str]) {
 }
 
 #[test]
-fn a_pristine_scaffold_reaches_a_first_completed_effect_with_no_agent() {
+fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     use std::os::unix::fs::PermissionsExt;
+
+    #[cfg(target_os = "linux")]
+    if !can_create_namespace() {
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "no namespace can be built here for the scaffold's boxed gates",
+        );
+        return;
+    }
 
     let repo = tempfile::tempdir().unwrap();
     let repo = repo.path();
@@ -81,18 +117,29 @@ fn a_pristine_scaffold_reaches_a_first_completed_effect_with_no_agent() {
     git(repo, &["config", "commit.gpgSign", "false"]);
     // A marker, so `init` writes a stack-aware charter rather than the
     // placeholder one — the scaffold an operator would actually get.
-    std::fs::write(repo.join("package.json"), "{\"name\":\"bench-app\"}\n").unwrap();
-    std::fs::write(repo.join(".gitignore"), ".forge/\n").unwrap();
+    // No `.gitignore`: the README asks for none, and `init` ignores the
+    // run's own `.forge/` itself.
+    std::fs::write(repo.join("Makefile"), MAKEFILE).unwrap();
     git(repo, &["add", "."]);
     git(repo, &["commit", "-q", "-m", "bench fixture"]);
 
-    let stub = repo.join("claude-stub");
+    // Outside the repository: the ship gate closes out on a clean tree.
+    // First on PATH as `claude`, so `init` scaffolds for claude whatever
+    // agent CLIs this host carries.
+    let stubs = tempfile::tempdir().unwrap();
+    let stub = stubs.path().join("claude");
     std::fs::write(&stub, STUB).unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(stubs.path().to_path_buf())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
 
     // Step 2 of the spine, into the repository root itself.
     let init = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(["init", "."])
+        .env("PATH", &path)
         .current_dir(repo)
         .output()
         .unwrap();
@@ -102,6 +149,10 @@ fn a_pristine_scaffold_reaches_a_first_completed_effect_with_no_agent() {
         "init: {}",
         String::from_utf8_lossy(&init.stderr)
     );
+    // The README's next step: the scaffold is committed before the run,
+    // or the ship gate finds it untracked and rules SHIP-DIRTY.
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-q", "-m", "brokkr starter"]);
 
     // Step 3, with the agent stubbed and NOTHING else changed.
     let run = Command::new(env!("CARGO_BIN_EXE_brokkr"))
@@ -141,20 +192,19 @@ fn a_pristine_scaffold_reaches_a_first_completed_effect_with_no_agent() {
         "inspect: {}",
         String::from_utf8_lossy(&inspect.stderr)
     );
-    // 3 is a stopped run, which is what the scripted `blocked` rules.
-    // Any other code and the script above would be timing a failure.
-    assert_eq!(run.status.code(), Some(3), "run: {stderr}\n{readout}");
+    // 0 is a run at `done`. Any other code and the script above would be
+    // timing a park or a stop.
+    assert_eq!(run.status.code(), Some(0), "run: {stderr}\n{readout}");
 
-    // The effect that mattered actually completed, and the ruling that
-    // ended the run is the one the stub scripted.
+    // Effects actually completed, the real verify gate passed, and the
+    // ruling that ended the run is the table's close-out.
     assert!(
         readout.contains("effect/succeeded"),
         "no effect completed: {readout}"
     );
-    assert!(
-        readout.contains("IMPL-BLOCKED"),
-        "unexpected ruling: {readout}"
-    );
+    for ruling in ["VERIFY-PASS", "REVIEW-CLEAN-NO-FIXES", "SHIP-COMPLETE"] {
+        assert!(readout.contains(ruling), "no {ruling}: {readout}");
+    }
 
     // Nothing was billed, because nothing was spawned: the only binary
     // the adapter reached for was the stub in this tempdir.
