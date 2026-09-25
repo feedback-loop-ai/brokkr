@@ -158,19 +158,20 @@ fn every_strategy_implements_with_flash_41() {
         let candidate = sole_candidate(&cases[strategy], strategy);
         assert_eq!(candidate.agent, agent, "{strategy} hires the wrong smith");
         assert_eq!(
-            candidate.model, "flash-experiment",
+            candidate.model, "flash",
             "{strategy} must hire the Flash lane, not another model"
         );
         assert_eq!(candidate.provider, "dsh", "{strategy} must run on dsh");
         assert!(
-            candidate
-                .argv
-                .iter()
-                .any(|token| token == "deepseek-v4.1-flash-expires-on-0910"),
-            "{strategy} must compose the 4.1 beta id, not an older Flash: {:?}",
+            candidate.argv.iter().any(|token| token == "deepseek-flash"),
+            "{strategy} must compose DeepSeek's current Flash id, not a retired name: {:?}",
             candidate.argv
         );
-        for older in ["deepseek-v4-flash", "deepseek-v4-flash-0731"] {
+        for older in [
+            "deepseek-v4-flash",
+            "deepseek-v4-flash-0731",
+            "deepseek-v4.1-flash-expires-on-0910",
+        ] {
             assert!(
                 !candidate.argv.iter().any(|token| token == older),
                 "{strategy} reached the older Flash lane '{older}'"
@@ -256,7 +257,7 @@ fn every_strategy_reviews_with_a_mixed_panel_before_the_astra_chief() {
                 .iter()
                 .find(|member| member.name == "security")
                 .map(|member| member.candidates[0].model.as_str()),
-            Some("flash-experiment"),
+            Some("flash"),
             "{strategy} security position must be DeepSeek Flash"
         );
         for member in compiled {
@@ -292,7 +293,7 @@ fn sol_rules_specification_and_planning() {
         &bundle,
         "design:positions:simplicity",
         "gpt-flash-position-simplicity",
-        "flash-experiment",
+        "flash",
         "dsh",
     );
 }

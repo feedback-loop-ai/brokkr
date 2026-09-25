@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.5-rc.2 · serves flash, flash-experiment, glm, glm-flash, glm53, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-flash41, studio-pro · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
+ok       dsh: 0.1.5-rc.2 · serves flash, glm, glm-flash, glm53, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-flash41, studio-pro · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
@@ -137,7 +137,7 @@ The built-in adapters are reachable directly as
 is exactly how a bundle names them.
 
 The `dsh` adapter reaches two provider routes through one grammar. A
-bare id (`deepseek-v4-flash`, `deepseek-v4-pro`) is DeepSeek's own API,
+bare id (`deepseek-flash`, `deepseek-v4-pro`) is DeepSeek's own API,
 keyed by `DEEPSEEK_API_KEY` in the engine's launching environment; a
 `dashscope/<id>` lane is Model Studio's Token Plan catalogue
 (`deepseek-v4-flash-0731`, `qwen3.8-max`, `glm-5.2`, …), keyed by
@@ -182,10 +182,13 @@ table is measured (see the `qwen-max` note above). All three new lanes —
 these two and `glm-flash` — sealed a result through `brokkr driver dsh`
 on 2026-09-21 with no effort pinned.
 
-The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
-on DeepSeek's own API. A completion verified this beta id on 2026-09-08;
-it was not yet included in the API's model list. Its name indicates a
-September 10 expiry; the exact cutoff time is unconfirmed.
+The `flash` alias pins `deepseek-flash` on DeepSeek's own API: the name
+DeepSeek's [pricing page](https://api-docs.deepseek.com/quick_start/pricing/)
+gives DeepSeek-V4.1-Flash, and dsh's own default model. The earlier
+`flash-experiment` alias (`deepseek-v4.1-flash-expires-on-0910`) is removed
+because the beta expired. The retired `deepseek-v4-flash` name is no longer
+pinned either. On 2026-09-25, completions against DeepSeek's API under both
+old names answered as `deepseek-flash`.
 
 The same adapter reaches Muse Spark 1.3 through OpenRouter
 (`https://openrouter.ai/api/v1`, OpenAI-compatible, Meta as the sole

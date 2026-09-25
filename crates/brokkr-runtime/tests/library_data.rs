@@ -432,13 +432,15 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     );
     // `dsh` maps the lanes this tree has evidence for, each verified
     // with a completion against its provider on 2026-09-02: DeepSeek's
-    // own API serves `deepseek-v4-flash` and `deepseek-v4-pro`
-    // (bare ids — the dated spellings live only in LaneTally's price
-    // rows), and Model Studio's Token Plan catalogue serves the eight
-    // behind `dashscope/`, its own DeepSeek snapshot dated in the id.
-    // `flash-experiment` pins `deepseek-v4.1-flash-expires-on-0910`,
-    // verified with a completion against DeepSeek's API on 2026-09-08
-    // even though its model list does not yet include the beta id.
+    // own API serves `deepseek-v4-pro` (bare id — the dated spellings
+    // live only in LaneTally's price rows), and Model Studio's Token Plan
+    // catalogue serves the eight behind `dashscope/`, its own DeepSeek
+    // snapshot dated in the id. `flash` pins `deepseek-flash`, the name
+    // DeepSeek's pricing page gives DeepSeek-V4.1-Flash; the retired
+    // `deepseek-v4-flash` and the expired beta
+    // `deepseek-v4.1-flash-expires-on-0910` both answer as
+    // `deepseek-flash` (completions against DeepSeek's API, 2026-09-25),
+    // so neither is pinned.
     // `spark/` is the operator's DGX Spark: SGLang serving
     // RadixArk/Qwen3.8-Flash-Next-NVFP4 as `qwen3.8-flash` (256k context,
     // qwen3_coder tool parser, radix prefix cache), verified with a
@@ -474,8 +476,7 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     assert_eq!(
         lanes,
         [
-            ("flash", "deepseek-v4-flash"),
-            ("flash-experiment", "deepseek-v4.1-flash-expires-on-0910"),
+            ("flash", "deepseek-flash"),
             ("glm", "dashscope/glm-5.2"),
             ("glm-flash", "spark-glm/GLM-5.3-Flash-EXL3"),
             ("glm53", "dashscope/glm-5.3"),

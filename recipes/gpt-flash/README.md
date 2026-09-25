@@ -15,10 +15,12 @@ All strategies use a correctness/security panel before Astra; design and engine
 retain their additional specialist reviewers. Astra cannot lower the panel verdict.
 
 Implementation retains each strategy's existing charter. Flash uses the
-`flash-experiment` adapter alias, currently
-`deepseek-v4.1-flash-expires-on-0910`. This is an expiring experimental endpoint;
-refresh the adapter mapping when a replacement is available. No fallback to
-Flash 4.0 is configured. The scoped `gpt-flash-*` offices are proposed by
+`flash` adapter alias, which pins `deepseek-flash`: the name DeepSeek's
+[pricing page](https://api-docs.deepseek.com/quick_start/pricing/) gives
+DeepSeek-V4.1-Flash. The beta id the recipe first pinned
+(`deepseek-v4.1-flash-expires-on-0910`) has expired, and the older
+`deepseek-v4-flash` is retired; DeepSeek serves both as `deepseek-flash`. No
+fallback lane is configured. The scoped `gpt-flash-*` offices are proposed by
 decision 0058: each reuses a library charter and pins exactly one model, so the
 mandated crew is forced and no fallback is hired.
 
