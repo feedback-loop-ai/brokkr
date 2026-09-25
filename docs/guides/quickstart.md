@@ -25,7 +25,7 @@ Then three things extend the spine rather than restating it:
 **About the two budgets.** They are measured, not claimed.
 [`scripts/bootstrap-bench.sh`](../../scripts/bootstrap-bench.sh) times
 both paths on a clean tempdir and exits non-zero when either blows, and
-it runs as the `bootstrap-budgets` job in CI. Read what it does *not*
+it runs as the `bootstrap-budgets` jobs in CI, one per host. Read what it does *not*
 measure before you trust a number: it prints that itself, and
 [§ what the budgets do not cover](#what-the-budgets-do-not-cover) says
 it here.

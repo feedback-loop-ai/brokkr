@@ -9,6 +9,18 @@ on:
     # close-and-reopen ceremony.
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
+# A new event on a pull request supersedes the run still going on its
+# older one. Any other run is grouped by its own commit, so a later push
+# to main neither cancels nor queues behind it, and every main commit
+# keeps its verdict (issue #340).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Every action is pinned by commit SHA, its release in the trailing
+# comment, and every Rust toolchain by exact version: the stable one is
+# rust-toolchain.toml's channel. A tag or a branch can move under a
+# verdict with no change here; `workflow_pins.rs` refuses one (issue #340).
 jobs:
   delivered-by-brokkr:
     name: delivered by brokkr
@@ -22,12 +34,12 @@ jobs:
       # The verifier, the gate script and the delivery classes come from
       # the trusted base, never from the pull request whose evidence they
       # judge.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base-verifier
       # The head under judgment, with the history its merge-base needs.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
@@ -41,7 +53,9 @@ jobs:
           BASE_REPO: https://github.com/${{ github.repository }}.git
         run: |
           git -C pr fetch --no-tags "$BASE_REPO" "${BASE_REF}:refs/remotes/base/${BASE_REF}"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
       - name: build the base branch's offline verifier
         run: cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli
       - name: the tier is cut by the delta since the judgment (decisions 0033, 0038)
@@ -73,26 +87,31 @@ jobs:
   msrv:
     name: MSRV (1.88)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.88.0
       # The README's claim, enforced: the badge says 1.88+, so 1.88
       # must check the locked tree — an untested MSRV is prose, and
       # this one was found stale (it said 1.85; darling requires 1.88).
       # Task 13.6 / design D11: all targets and features, so the
       # dev-only Boa controller harness and its tests compile on the
-      # MSRV too, not just the production targets.
-      - run: cargo check --workspace --all-targets --all-features --locked
+      # MSRV too, not just the production targets. The `+1.88.0` is
+      # load-bearing: rust-toolchain.toml would otherwise select stable.
+      - run: cargo +1.88.0 check --workspace --all-targets --all-features --locked
   quality:
     name: format, clippy, contracts
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
+          toolchain: 1.98.0
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: formatting is canonical
         run: cargo fmt --all -- --check
       - name: clippy is warning-free across every target
@@ -111,27 +130,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Decision 0043: the hands tests build a real bubblewrap namespace on
       # Linux; the boundary is never simulated, so the tool is installed.
       - name: bubblewrap for the hands tests
         if: runner.os == 'Linux'
-        # The runner image restricts unprivileged user namespaces through
-        # AppArmor, which leaves a new network namespace unable to raise
-        # its own loopback ("loopback: Failed RTM_NEWADDR"). That is a
-        # runner setting, not a product requirement: an operator's Linux
-        # box needs bubblewrap and nothing else.
-        # Ubuntu's package is 0.9, and overlay binds arrived in 0.10, so
-        # the release is built from its tarball.
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
-          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
-          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
-          bwrap --version
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+        uses: ./.github/actions/setup-bubblewrap
       - run: cargo test --workspace --all-features --locked --no-fail-fast
         env:
           # Decision 0054 ruling 9: a boundary proof that cannot open a
@@ -141,14 +149,14 @@ jobs:
           # other operating systems have no namespace to open, so they
           # are left to skip.
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
-      # Decision 0046 slice II, design D3/D14: Gate A (startup) executes first
+      # Decision 0046 slice II, design D3/D14: Gate A (startup) executes here
       # and its durable report survives even when it fails. Gate B (lifetime)
-      # is a separate step that only runs after Gate A succeeds, and the gated
-      # driver marks the lifetime matrix `not run` if the startup verdict is
-      # not a pass for the exact helper/profile candidate. Both use real
-      # /usr/bin/sandbox-exec and real per-user launchctl; a missing tool, an
-      # outer box, zero selected cells or any unmet observation fails the job
-      # and never skips into success.
+      # is the `seatbelt-lifetime` job below, whose gated driver re-runs the
+      # startup gate in its own process and marks the lifetime matrix `not
+      # run` if that verdict is not a pass for the exact helper/profile
+      # candidate. Both use real /usr/bin/sandbox-exec and real per-user
+      # launchctl; a missing tool, an outer box, zero selected cells or any
+      # unmet observation fails the step and never skips into success.
       #
       # The destructive launchd adapter is `#[ignore]`d so the generic parallel
       # workspace suite runs only the host-independent model; these steps select
@@ -167,73 +175,97 @@ jobs:
             2>&1 | tee target/r3-startup.log
           grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
           grep -q 'Gate A startup verdict' target/r3-startup-report.txt
-      # Gate A is a hard gate: it passes, so it protects a solved property.
-      # Gate B reports while #269 is open. The launchd lease-pair teardown is
-      # tasks 1.29-1.33 of boundary-seatbelt-slice-ii and all five are
-      # unticked, so this step measures work the slice has not built yet. It
-      # ran for the first time only once Gate A passed. Held as a hard gate in
-      # the required `test (macos-latest)` check it would fail every pull
-      # request's macOS job and block merges on unbuilt work. The verdict is
-      # still printed, the report is still content-checked and the
-      # r3-native-diagnostics artifact still carries every cell, so nothing is
-      # lost. Seatbelt stays unbuilt either way; closing #269 restores the gate.
-      - name: R3 native lifetime feasibility probe
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
-            -- --ignored --exact --nocapture \
-            seatbelt_probe::native::native_lifetime_feasibility_probe \
-            2>&1 | tee target/r3-lifetime.log
-          grep -Eq 'test result: ok\. 1 passed' target/r3-lifetime.log
-          grep -q 'Gate A startup verdict' target/r3-lifetime-report.txt
       - name: R3 native diagnostics
         if: always() && runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: r3-native-diagnostics
           path: |
             target/r3-startup.log
-            target/r3-lifetime.log
             target/r3-startup-report.txt
-            target/r3-lifetime-report.txt
           if-no-files-found: warn
       - name: self and verify bundles compile under the constitutional lint
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
           cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
 
+  # Gate A is a hard gate in `test (macos-latest)`: it passes, so it
+  # protects a solved property. Gate B reports while #269 is open. The
+  # launchd lease-pair teardown is tasks 1.29-1.33 of
+  # boundary-seatbelt-slice-ii and all five are unticked, so this probe
+  # measures work the slice has not built yet. Held as a hard gate in the
+  # required check it would fail every pull request's macOS job and block
+  # merges on unbuilt work, and as a non-blocking step there it still sat
+  # on that job's critical path (103-132 s of it, issue #340). So it is its
+  # own job, in no required check: the verdict is still printed, the report
+  # is still content-checked and the r3-lifetime-diagnostics artifact
+  # still carries every cell, so nothing is lost. Seatbelt stays unbuilt
+  # either way; closing #269 restores the gate.
+  seatbelt-lifetime:
+    name: seatbelt lifetime probe (Gate B, reporting)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: R3 native lifetime feasibility probe
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          test -x /usr/bin/sandbox-exec
+          mkdir -p target
+          cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
+            -- --ignored --exact --nocapture \
+            seatbelt_probe::native::native_lifetime_feasibility_probe \
+            2>&1 | tee target/r3-lifetime.log
+          grep -Eq 'test result: ok\. 1 passed' target/r3-lifetime.log
+          grep -q 'Gate A startup verdict' target/r3-lifetime-report.txt
+      - name: R3 lifetime diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: r3-lifetime-diagnostics
+          path: |
+            target/r3-lifetime.log
+            target/r3-lifetime-report.txt
+          if-no-files-found: warn
+
   coverage:
     name: exact coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The exact gate demands literal 100%, so its compiler is pinned like
       # every other tool CI installs: a nightly release changes the
       # instrumented line, branch and function set, and an unpinned one
       # turns "a test is missing" and "the compiler moved" into the same
       # red. Bumping the pin is its own change, with the numbers in it.
-      - name: the pinned coverage toolchain
+      # The measuring tool is pinned the same way, in the file beside it:
+      # its default ignore regex decides which files are test harness
+      # (issue #340). RUSTUP_TOOLCHAIN makes this job's every cargo the
+      # pin, where rust-toolchain.toml would otherwise select stable.
+      - name: the pinned coverage toolchain and its measuring tool
         id: nightly
-        run: echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+        run: |
+          echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "RUSTUP_TOOLCHAIN=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ steps.nightly.outputs.toolchain }}
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: bubblewrap for the hands tests
-        # Ubuntu's package is 0.9, and overlay binds arrived in 0.10, so
-        # the release is built from its tarball.
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
-          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
-          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
-          bwrap --version
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+        uses: ./.github/actions/setup-bubblewrap
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run: bash scripts/coverage-exact.sh
         env:
@@ -241,7 +273,7 @@ jobs:
           # this job must run the boundary proofs for real too
           # (decision 0054 ruling 9).
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: coverage-exact
@@ -254,8 +286,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # The action's image carries cargo-deny 0.20.2, so pinning the action
+      # by SHA pins the tool that rules on the licences.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check licenses
 
@@ -268,31 +302,16 @@ jobs:
       checks: write
       issues: write
     steps:
-      - uses: actions/checkout@v4
-      # cargo-audit is pinned by version AND digest and installed from
-      # rustsec's own release, never built from source on the runner.
-      # Left to itself, audit-check runs `cargo install cargo-audit`
-      # (latest, unlocked) whenever the binary is absent — and on
-      # 2026-09-03 that pulled a freshly published dependency that
-      # failed to compile, so the required check went red on main with
-      # no advisory involved (#164, #166 merged past it by ruling). A
-      # prebuilt binary whose digest is recorded here fails only when
-      # the pinned release itself changes, which is a fact worth
-      # failing on. Bumping the version means bumping the digest.
-      - name: install cargo-audit 0.22.2, pinned by digest
-        env:
-          CARGO_AUDIT_VERSION: 0.22.2
-          CARGO_AUDIT_SHA256: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
-        run: |
-          set -euo pipefail
-          asset="cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}.tgz"
-          curl -sSfL --retry 3 -o "$asset" \
-            "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${CARGO_AUDIT_VERSION}/${asset}"
-          echo "${CARGO_AUDIT_SHA256}  ${asset}" | sha256sum -c -
-          tar xzf "$asset"
-          install -m 0755 "cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit" "$HOME/.cargo/bin/cargo-audit"
-          cargo audit --version
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # cargo-audit is pinned by version AND digest in the one composite
+      # step both this job and the release admission use; left to
+      # itself, audit-check builds the latest cargo-audit from source.
+      - name: cargo-audit, pinned by digest
+        uses: ./.github/actions/setup-cargo-audit
+      # This job stays apart from every other on purpose: its verdict
+      # changes with the advisory database, by design, while every tool
+      # in it is pinned (issue #340).
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -309,31 +328,40 @@ jobs:
   # Both hosts the README's bootstrap names (decision 0063): on Linux the
   # scaffold's verify and ship gates run boxed under `namespace`; on
   # macOS `init` declares `harness`, and the same steps run unboxed.
+  #
+  # The Linux leg times the binary the `release-binary` job built, so
+  # brokkr is release-built once per run on Linux (issue #340); the macOS
+  # leg builds its own, the only macOS release build, and waits on nothing.
   bootstrap-budgets:
-    name: bootstrap budgets (60s install / 5min first run, ${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: bootstrap budgets (60s install / 5min first run, ubuntu-latest)
+    needs: release-binary
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The benchmark runs the boxed gates from the real init scaffold.
       # Decision 0043 never simulates their bubblewrap boundary.
-      - name: bubblewrap for the hands tests
-        if: runner.os == 'Linux'
-        # The runner image restricts unprivileged user namespaces through
-        # AppArmor, and Ubuntu's package is 0.9; overlay binds need 0.10+.
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils
-          curl -sSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz | tar xJ -C /tmp
-          (cd /tmp/bubblewrap-0.11.0 && meson setup _build -Dselinux=disabled -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled >/dev/null && ninja -C _build >/dev/null && sudo install -m 0755 _build/bwrap /usr/local/bin/bwrap)
-          bwrap --version
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+      - name: bubblewrap for the boxed gates
+        uses: ./.github/actions/setup-bubblewrap
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: brokkr-linux-x86_64
+          path: target/release
+      # An artifact does not keep the file mode.
+      - run: chmod +x target/release/brokkr
+      - name: install and first-run budgets hold
+        run: bash scripts/bootstrap-bench.sh --binary target/release/brokkr
+
+  bootstrap-budgets-macos:
+    name: bootstrap budgets (60s install / 5min first run, macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo build --release --locked -p brokkr-cli
       - name: install and first-run budgets hold
         run: bash scripts/bootstrap-bench.sh --binary target/release/brokkr
@@ -341,16 +369,20 @@ jobs:
   # The packaging channels are proved with the real tools, against real
   # packages built from the real binary — the test's own fallbacks (a
   # synthetic .deb, a skipped createrepo_c) exist for a developer's
-  # laptop, and `BROKKR_PACKAGING_TOOLS=required` forbids them here.
+  # laptop, and `BROKKR_PACKAGING_TOOLS=required` forbids them here. The
+  # binary is the one `release-binary` built, never a second build.
   packaging:
     name: packaging channels
+    needs: release-binary
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: stable
       - name: repository tooling
@@ -361,7 +393,12 @@ jobs:
           # version is installable before a tag depends on it.
           nfpm_version="$(tr -d '[:space:]' < packaging/nfpm-version.txt)"
           go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@${nfpm_version}"
-      - run: cargo build --release --locked -p brokkr-cli
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: brokkr-linux-x86_64
+          path: target/release
+      # An artifact does not keep the file mode.
+      - run: chmod +x target/release/brokkr
       - name: nfpm builds the .deb and the .rpm
         env:
           BROKKR_PKG_ARCH: amd64
@@ -397,8 +434,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v27
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
@@ -409,12 +446,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The one Linux release build per run: the bootstrap bench and the
+      # packaging job download this artifact rather than build their own.
       - run: cargo build --release --locked -p brokkr-cli
       # One binary: the `forge` shim is gone (decision 0019 ruling 9).
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: brokkr-linux-x86_64
           path: target/release/brokkr

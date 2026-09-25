@@ -33,19 +33,21 @@ a stable toolchain.
 
 | Tool | Needed by | Check it is there |
 |---|---|---|
-| A stable Rust toolchain | format, clippy, tests, the bundle compiles, the release build | `cargo --version` |
+| The pinned stable Rust, with clippy and rustfmt | format, clippy, tests, the bundle compiles, the release build | `cargo --version` |
 | Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
 | The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
-| `cargo-llvm-cov` | the coverage gate | `cargo llvm-cov --version` |
+| `cargo-llvm-cov` at the pinned version | the coverage gate | `cargo llvm-cov --version` |
 | `jq` | the coverage gate (the script refuses without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
 install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
-llvm-tools-preview`, `cargo install cargo-llvm-cov cargo-deny`, and `jq`
-from your package manager. There is no `rust-toolchain.toml` in this
-tree, so your default toolchain is what `cargo` uses and the `+1.88.0`
-and dated-nightly prefixes are how the other two get selected.
+llvm-tools-preview`, `cargo install cargo-llvm-cov --version "$(cat
+cargo-llvm-cov-version.txt)"`, `cargo install cargo-deny`, and `jq` from
+your package manager. `rust-toolchain.toml` names the stable release CI
+judges by, so inside this tree plain `cargo` is CI's compiler and CI's
+Clippy (`rustup toolchain install`, run inside the tree, installs it), and the `+1.88.0` and
+dated-nightly prefixes are how the other two get selected.
 
 You do **not** need `cargo-audit`; the RustSec check runs only in CI.
 Installing it locally is a convenience, not a requirement — see
@@ -150,10 +152,10 @@ cargo +1.88.0 check --workspace --locked
 ```
 
 The README's badge says 1.88+, and this check is what makes that a fact
-rather than prose. CI pins the toolchain with
-`dtolnay/rust-toolchain@1.88.0` and then runs plain `cargo check
---workspace --locked`; locally you need the explicit `+1.88.0`, because
-your default toolchain is newer and would not notice.
+rather than prose. CI installs 1.88.0 and runs the same `cargo +1.88.0
+check`, across all targets and features. The explicit `+1.88.0` is needed
+in both places because `rust-toolchain.toml` selects the newer stable pin,
+which would not notice.
 
 A refusal here is almost always a language or standard-library feature
 newer than 1.88, or a dependency bump that raised its own MSRV. The fix
@@ -241,13 +243,14 @@ rule on it. Adding a licence to `deny.toml` is a change to the
 repository's licensing posture, so it is the operator's call, not a
 tidy-up. Suppressing the check is never the fix.
 
-CI runs this through `EmbarkStudios/cargo-deny-action@v2` rather than
-your local binary, so a version skew is possible; `cargo deny check
+CI runs this through `EmbarkStudios/cargo-deny-action` v2.1.1, pinned by
+commit, whose image carries cargo-deny 0.20.2; a local binary of another
+version can disagree with it, so install that one to match. `cargo deny check
 licenses` locally is the same check reading the same `deny.toml`.
 
 ### The RustSec advisory audit
 
-CI runs `rustsec/audit-check@v2.0.0`, which fetches the RustSec advisory
+CI runs `rustsec/audit-check` v2.0.0, pinned by commit, which fetches the RustSec advisory
 database and scans `Cargo.lock`. **This is the one check with no exact
 local equivalent** — the Action reports through the GitHub Checks API
 and reads its own copy of the database. The closest local approximation
