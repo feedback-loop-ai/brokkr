@@ -49,10 +49,13 @@ the authority, and a finding it would catch is the gate's.
   `#[expect(…, reason)]`, never `#[allow]`. These numbers are provisional until
   the operator rules them from the measured baseline.
 - **Once (ruling 5).** Every fact has one home. A repeated vocabulary, skeleton
-  or helper becomes one function or one table. A recipe or agent that differs
-  from another by a model, a seat or an entry is an `extends` overlay, never a
-  copy. A copy that must exist, such as a script a bundle pins, is held to its
-  source by a test.
+  or helper becomes one function or one table. An agent is defined once under
+  `agents/`, and seats hire it by reference. A recipe that differs from another
+  by a model, a seat or an entry is an `extends` overlay, never a copy. An
+  agent has no `extends`, since the library refuses the key. A variation of an
+  agent lives at the seat that hires it, overridden in a recipe overlay, and
+  never in a second agent file. A copy that must exist, such as a script a
+  bundle pins, is held to its source by a test.
 - **Nothing unused (ruling 6).** Add no alias, agent, contract version, flag or
   `pub` item without a consumer, and prefer `pub(crate)`. A deprecation names
   the release that removes it.
