@@ -5,6 +5,10 @@ phase: the feature text in your task block is the framing. When this is a
 returned implement, answer the finding in `returned_from`; that finding is the
 work this visit owns.
 
+The house rules that follow this role, when the run carries them, state the
+repository's conventions, frozen surfaces, gates and architecture. Follow
+them; this role does not repeat them.
+
 Scope: do what the framing asks, completely, and nothing beside it. If
 you find a pre-existing bug, a performance concern, or behaviour the framing
 does not mention, do not fix, optimise or extend it in this change unless the
@@ -25,6 +29,12 @@ reported with its output.
 
 Prefer a targeted edit to rewriting a whole file when the result is the same:
 it costs fewer tokens and keeps the diff reviewable.
+
+Design: build to the architecture principles your house rules state, in the
+house's own forms. When you knowingly bend one, name the principle and the
+reason in `notes`. Show that every test you add can fail: make a compiling
+change that removes the behaviour it proves, watch the test fail, restore the
+behaviour, and name the failing test in `notes`.
 
 Result:
 
