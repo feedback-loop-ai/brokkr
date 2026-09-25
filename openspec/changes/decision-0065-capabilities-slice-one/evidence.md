@@ -9173,3 +9173,119 @@ around it.
 unit 11 to delete exactly the `Contribution::Native` arms at 3376 and
 3403–3408, or assign that deletion to a later unit with exact coverage
 pending until it lands. Then apply the saved patch.
+
+## Unit 11 — the F1 fix lands; the two dead arms go to unit 12, 2026-09-26
+
+Run `0065-rebuild-unit-11-see-the-uni-a2e08218`, the third visit, on
+`a9b46001`, a clean tree. The commission rules the split as a plan
+decision under the preamble:
+
+- apply the saved patch and commit it;
+- do not edit `bundle.rs`;
+- hand the deletion of the two dead arms to unit 12, whose named
+  production files include `bundle.rs`;
+- keep exact coverage pending until then.
+
+The saved patch was committed unchanged. Logs are `.forge/u11f-*.log`.
+
+### Starting point, re-verified
+
+- `sha256sum .forge/unit-11-f1-oversized-2026-09-26.patch` gave
+  `1269285301272d3ac6f3ffb645db682532d61447721cb65374610a6654f246ed`.
+- `git apply --check` was clean. `--stat` touched only
+  `native_controls.rs` (+19), `agents/tests.rs` (+117) and
+  `bundle/agent_tests.rs` (89 changed).
+- After every mutation below was restored, `git diff` was byte-identical
+  to the patch (`diff` empty).
+
+### Baseline red (tests applied, `native_controls.rs` at `a9b46001`)
+
+From `.forge/u11f-base.log`, runtime lib: 562 passed, 3 failed.
+
+- `every_declared_half_parses_under_its_harness_at_load_even_unused`
+  panicked at `agents/tests.rs:1138`. The rows that read `loaded` where a
+  refusal is expected are:
+  - `codex config transport`;
+  - `codex unused ON config table`;
+  - `codex unused ON config value`;
+  - `codex OFF malformed config value`;
+  - `codex OFF quoted config key`;
+  - `codex substituted config transport`.
+- `a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox`
+  failed "4 of 17 rows" (`bundle/agent_tests.rs:4906`).
+- `an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture`
+  failed "5 of 38 rows" (`bundle/agent_tests.rs:2972`).
+
+The earlier record gives the first panic as line 1123. That line predates
+the coverage row, which moved the assertion to 1138. The rows are the
+same.
+
+### Mutations (each compiled, failed as stated, then restored)
+
+- **M22:** `grammar::setting` replaces `launch_setting`
+  (`u11f-mut-M22.log`). The same three tests fail: the six config rows
+  read `loaded`, plus 4 of 17 and 5 of 38.
+- **M23:** the arm refuses every value (`u11f-mut-M23.log`).
+  - `codex sound config` is refused, and
+    `resolved_native_on_and_restriction_contributions_obey_the_same_refusals`
+    fails 11 of 11.
+  - The earlier record did not state this: 68 runtime lib tests fail in
+    all, because the shipped Codex adapter's own declared values are then
+    refused at load.
+- **M24:** the transport drops the slot-holding part instead of
+  substituting it (`u11f-mut-M24.log`). `every_declared_half…` fails
+  (`codex sound transport` is refused), and `resolved_native_on…` fails
+  "5 of 11 rows". In all, 563 passed and 2 failed.
+- **M25:** a malformed selection entry is skipped (`Err(_) => continue`,
+  `u11f-mut-M25.log`). Only `every_declared_half…` fails:
+  `claude OFF malformed selection entry` reads `loaded`.
+
+### The two arms handed to unit 12
+
+`cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --all-features
+--locked --branch --lcov` ran on the fixed tree (`.forge/u11f-lcov.info`,
+log `.forge/u11f-lcov.log`). It printed 24 `test result: ok` lines and 0
+`FAILED`. In the `bundle.rs` record:
+
+- DA:3375 = 9, but DA:3376 = 0: `Contribution::Native => "`--config`, the
+  harness's configuration,"`, the door text of the sandbox-table refusal
+  in `expressed_sandbox`.
+- DA:3397 = 4, but DA:3403–3408 = 0: the `Contribution::Native` door,
+  writer and keys tuple of the refusal for an assignment outside the
+  established keys.
+
+**Why they are dead.** A resolved native plan holds only declared argv.
+Every declared `--config` assignment now passes `grammar::launch_setting`
+at load: a canonically spelled key on the closed `LAUNCH_SETTINGS`
+allowlist, with an admitted value. Such an assignment is neither under a
+sandbox table nor outside the established keys, so neither arm is
+reachable. The opaque-driver route is refused before any native judgment,
+as the second visit's experiment showed.
+
+**Owner.** Unit 12 deletes exactly these two arms and keeps the `Written`
+text. `bundle.rs` is not edited in this unit. **Exact coverage pending:
+deletion owned by unit 12.**
+
+This measurement covers the runtime package only. Its other zero lines,
+for example `capabilities.rs` 838–888 (`denial_on`, which `brokkr doctor`
+calls), are exercised from other crates. They were not measured here, and
+this unit did not move them.
+
+### Gates (committed tree)
+
+- `cargo test -p brokkr-runtime -p brokkr-protocol --all-features --locked
+  --no-fail-fast`: 28 `ok` result lines and no `FAILED`. The runtime lib
+  had 565 passed and the protocol lib 487 (`u11f-fixed-rt-proto.log`).
+- `cargo test -p brokkr-cli --all-features --locked --no-fail-fast`: 33
+  `ok` result lines and no `FAILED`. The CLI lib had 481 passed
+  (`u11f-fixed-cli.log`).
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: exit 0, with 0 `warning`/`error` lines (`u11f-clippy.log`).
+- `bundles/self` and `bundles/verify` compiled, and neither output has an
+  error or warning line.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- **Standing-admission lines:** none.
+- **Pending:** exact coverage (the deletion is owned by unit 12), macOS
+  and remote CI.

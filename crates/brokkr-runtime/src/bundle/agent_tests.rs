@@ -2827,6 +2827,9 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
             compiled(None, "workspace-write", codex_off(&["--full-auto"])),
             work("native", "--full-auto", 9, permission),
         ),
+        // Rebuild unit 11 (the second review's F1): a declared assignment
+        // is read at load by the same bounded reader, so an off-allowlist
+        // native OFF meets the load's refusal and never reaches this launch.
         (
             "native OFF -c sandbox_mode".into(),
             compiled(
@@ -2834,7 +2837,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                 "workspace-write",
                 codex_off(&["-c", "sandbox_mode=\"danger-full-access\""]),
             ),
-            work("native", "--config", 9, &table("sandbox_mode")),
+            off_config_refusal(&fixture, &off_allowlist("sandbox_mode")),
         ),
         (
             "native OFF -c approval_policy".into(),
@@ -2843,7 +2846,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                 "workspace-write",
                 codex_off(&["-c", "approval_policy=\"never\""]),
             ),
-            work("native", "--config", 9, &table("approval_policy")),
+            off_config_refusal(&fixture, &off_allowlist("approval_policy")),
         ),
         (
             "native OFF -s at a gate".into(),
@@ -2881,12 +2884,9 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                 "workspace-write",
                 codex_off(&["-c", "web_search=\"live\""]),
             ),
-            work(
-                "native",
-                "--config",
-                9,
-                "a configuration assignment that assigns 'web_search' a value outside the \
-                 bounded ones its declaration admits",
+            off_config_refusal(
+                &fixture,
+                "assigns 'web_search' a value outside the bounded ones its declaration admits",
             ),
         ),
         (
@@ -2896,7 +2896,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                 "workspace-write",
                 codex_off(&["-c", "web_search.mode=\"disabled\""]),
             ),
-            work("native", "--config", 9, &table("web_search")),
+            off_config_refusal(&fixture, &off_allowlist("web_search")),
         ),
         (
             "template -c profile".into(),
@@ -2924,7 +2924,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
         (
             "native OFF -c profile".into(),
             compiled(None, "workspace-write", codex_off(&["-cprofile=x"])),
-            work("native", "--config", 9, &table("profile")),
+            off_config_refusal(&fixture, &off_allowlist("profile")),
         ),
         (
             "template -c effort outside its levels".into(),
@@ -4555,16 +4555,6 @@ fn switch_cause(name: &str) -> String {
     )
 }
 
-/// The cause of an assignment into a sandbox table in a resolved native
-/// plan: it names canonical `--config` and the fixed table, never the
-/// assignment (unit 2-fix review return C1).
-fn native_table_cause(table: &str) -> String {
-    format!(
-        "assigns '{table}' through `--config`, the harness's configuration, a second door to \
-         the same control that no typed class can be checked against — refused (design D5.3)"
-    )
-}
-
 /// The cause of an added filesystem root; the path is never echoed.
 const ADDED_ROOT_CAUSE: &str = "carries `--add-dir`, which adds a filesystem root the \
     `--sandbox` class would not reach, a competing control on the same reach that no typed \
@@ -4596,15 +4586,26 @@ const REPEATED_ROOT: &str = "repeats option '--cd', which the grammar admits onc
 const ROOT_VALUE_READS_AS_OPTION: &str = "stands where the value of '--cd' belongs but reads as \
     an option, so which of the two it is cannot be told";
 
-/// The cause of an unqualified assignment in a resolved native plan: it
-/// names `--config` and the argument, never the key or the value.
-fn native_config_cause(at: usize) -> String {
+/// The load refusal of a declared native OFF whose second assignment the
+/// bounded configuration reader refuses (rebuild unit 11, the second
+/// review's F1): no such declaration reaches a compile's D5.3 judgment.
+fn off_config_refusal(fixture: &AgentFixture, cause: &str) -> String {
     format!(
-        "assigns configuration through `--config` at argument {at} outside the keys a resolved \
-         native control is established to write (the hands transport under \
-         'mcp_servers.brokkr', the effort 'model_reasoning_effort' and the exact key \
-         'web_search'); an unqualified assignment could reach the same control, so no typed \
-         class can be checked against it — refused (design D5.3)"
+        "bundle: adapter 'codex' ({}) 'native_capabilities' key 'web-search' OFF argv cannot be \
+         composed: '--config' value 1 {cause}; the adapter data is where a driver's model mapping \
+         (decision 0016) and its trust tier and binding grant (decision 0021) are declared, and \
+         this bundle names an agent, seats a gate, declares a secret binding or declares typed \
+         tools",
+        fixture.adapters().join("codex.json").display()
+    )
+}
+
+/// The bounded reader's cause for an assignment into a capability table
+/// off the allowlist.
+fn off_allowlist(table: &str) -> String {
+    format!(
+        "assigns into the '{table}' configuration, which is outside the closed set of keys an \
+         inline Codex launch admits"
     )
 }
 
@@ -4771,7 +4772,10 @@ fn a_root_selector_beside_a_matching_sandbox_refuses_in_the_authored_command_and
 /// descendant assignment and any native `--sandbox` — even the matching
 /// class — refuse with the complete bounded cause, under the matching
 /// requested class so no mismatch can hide them. A competing control
-/// BEFORE the denial refuses as well as one after it.
+/// BEFORE the denial refuses as well as one after it. Since rebuild unit
+/// 11 (the second review's F1), an assignment the bounded configuration
+/// reader refuses — a sandbox or feature table, a descendant key — is
+/// refused where the adapter loads.
 #[test]
 fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
     let fixture = AgentFixture::new();
@@ -4802,7 +4806,7 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
             vec!["-c", "sandbox_workspace_write.network_access=true"],
             None,
             "workspace-write",
-            competing(NATIVE, &native_table_cause("sandbox_workspace_write")),
+            off_config_refusal(&fixture, &off_allowlist("sandbox_workspace_write")),
         ),
         (
             "--full-auto at harness work".to_string(),
@@ -4816,7 +4820,7 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
             vec!["-c", "sandbox_mode=\"danger-full-access\""],
             Some("gate"),
             "read-only",
-            competing(NATIVE, &native_table_cause("sandbox_mode")),
+            off_config_refusal(&fixture, &off_allowlist("sandbox_mode")),
         ),
         (
             "opaque profile load at harness work".to_string(),
@@ -4844,14 +4848,14 @@ fn a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox() {
             vec!["-c", "features.web_search_request=true"],
             None,
             "workspace-write",
-            competing(NATIVE, &native_config_cause(2)),
+            off_config_refusal(&fixture, &off_allowlist("features")),
         ),
         (
             "web_search descendant at harness work".to_string(),
             vec!["-c", "web_search.mode=\"live\""],
             None,
             "workspace-write",
-            competing(NATIVE, &native_config_cause(2)),
+            off_config_refusal(&fixture, &off_allowlist("web_search")),
         ),
         (
             "matching --sandbox at harness work".to_string(),
@@ -5236,8 +5240,12 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     };
     let plain = grant_web_search(&fixture, None);
     let hosts = grant_web_search(&fixture, Some(json!({"hosts": ["example.org"]})));
-    let live = ["-c", "web_search=\"live\""];
-    let transport = ["-c", "web_search={restrictions_json}"];
+    // Rebuild unit 11 (the second review's F1) reads a declared value at
+    // load with the bounded reader, and codex has no measured ON value or
+    // restriction transport: the ON writes the admitted effort key, and
+    // the synthetic transport places its slot in inert data.
+    let live = ["-c", "model_reasoning_effort=\"high\""];
+    let transport = ["--image", "{restrictions_json}"];
     // Slice one carries only the empty restriction (operator ruling of
     // 2026-09-25, "defer"; design D11): a held nonempty one is refused
     // before any transport is composed, whatever the template carries.
@@ -5268,7 +5276,11 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     }
     // The ON argv faces the other competing controls as well.
     on(
-        &["-c", "web_search=\"live\"", "--add-dir=/srv/shared"],
+        &[
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "--add-dir=/srv/shared",
+        ],
         None,
     );
     rows.push((
@@ -5315,7 +5327,10 @@ fn resolved_native_on_and_restriction_contributions_obey_the_same_refusals() {
     assert_eq!(outcome.held.keys().collect::<Vec<_>>(), ["web-search"]);
     assert_eq!(outcome.manifest()["native"]["on"], json!(["web-search"]));
     assert_eq!(outcome.manifest()["native"]["off"], json!([]));
-    assert_eq!(native_argv(&held, 0), json!(["-c", "web_search=\"live\""]));
+    assert_eq!(
+        native_argv(&held, 0),
+        json!(["-c", "model_reasoning_effort=\"high\""])
+    );
 }
 
 /// Unit 2-fix, every outcome and the effective class: a valid primary

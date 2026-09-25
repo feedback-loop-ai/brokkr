@@ -676,9 +676,12 @@ fn a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refu
 /// that is not one managed pattern. A managed list argv's value must be
 /// managed patterns, and a permission control's value must be one of its
 /// recorded bounded set, in either half and in a substituted transport
-/// (the review's F1). A declared restriction transport parses with the
-/// empty restriction in its slot. Each refusal names the adapter file, the
-/// key and the half, never the offending token.
+/// (the review's F1). A configuration assignment is read by the bounded
+/// reader a Codex launch applies, so an unmeasured value, a malformed one,
+/// a quoted key and a key off the allowlist refuse (the second review's
+/// F1). A declared restriction transport parses with the empty restriction
+/// in its slot. Each refusal names the adapter file, the key and the half,
+/// never the offending token.
 #[test]
 fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
     let tree = Tree::new();
@@ -778,7 +781,7 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
             ),
         ),
         (
-            "codex sound",
+            "codex config transport",
             "codex",
             codex(
                 default.clone(),
@@ -902,6 +905,79 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
                 list("--tools", ","),
             ),
         ),
+        (
+            "codex unused ON config table",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "sandbox_mode=\"nonsense\""]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unused ON config value",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "web_search=\"nonsense\""]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex OFF malformed config value",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "web_search={"]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex OFF quoted config key",
+            "codex",
+            codex(
+                default.clone(),
+                json!({"argv": ["-c", "\"web_search\"=\"disabled\""]}),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex substituted config transport",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["-c", "web_search={restrictions_json}["]}),
+            ),
+        ),
+        (
+            "codex sound config",
+            "codex",
+            codex(
+                json!({"argv": ["-c", "model_reasoning_effort=\"high\""]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex sound transport",
+            "codex",
+            codex(
+                default,
+                disabled,
+                json!({"argv": ["--image", "{restrictions_json}"]}),
+            ),
+        ),
+        (
+            "claude OFF malformed selection entry",
+            "claude",
+            claude(
+                json!({"default": "measured on by default"}),
+                json!({"selection": {"include": [], "allow": [], "deny": ["WebSearch("]}}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
     ];
     let what = |provider: &str| {
         format!(
@@ -923,6 +999,9 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
     let codex_key = format!("{} key 'web-search'", what("codex"));
     let claude_selection = format!("{} selection", what("claude"));
     let claude_key = format!("{} key 'web-search'", what("claude"));
+    // The bounded reader a Codex launch applies: only measured values load.
+    let outside = "cannot be composed: '--config' value 1 assigns 'web_search' a value outside \
+                   the bounded ones its declaration admits";
     let expected = [
         format!(
             "{codex_key} OFF argv {}",
@@ -969,7 +1048,9 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
             "{codex_key} restriction transport, with the empty restriction in its slot, {}",
             placed(1, "'--restrict'", "names no option")
         ),
-        "loaded".to_string(),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, {outside}"
+        ),
         format!(
             "{claude_selection} 'deny' separator is not the one separator a managed tool list \
              is joined with, ','"
@@ -1014,6 +1095,32 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
         ),
         "loaded".to_string(),
         "loaded".to_string(),
+        format!(
+            "{codex_key} ON argv cannot be composed: '--config' value 1 assigns into the \
+             'sandbox_mode' configuration, which is outside the closed set of keys an inline \
+             Codex launch admits"
+        ),
+        format!("{codex_key} ON argv {outside}"),
+        format!("{codex_key} OFF argv {outside}"),
+        format!(
+            "{codex_key} OFF argv cannot be composed: '--config' value 1 assigns through a key \
+             not spelled canonically: the harness splits an assignment at its first '=', trims \
+             it and splits the key at every '.', reading a quote or an escape as part of the \
+             name (codex-cli rust-v0.154.0, codex-rs/utils/cli/src/config_override.rs and \
+             codex-rs/config/src/overrides.rs), so only dot-separated bare names of ASCII \
+             letters, digits, '_' and '-', with nothing around the '=', are read as the key \
+             they spell"
+        ),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, {outside}"
+        ),
+        "loaded".to_string(),
+        "loaded".to_string(),
+        format!(
+            "{claude_key} OFF selection 'deny' entry 1 carries a specifier that is not one \
+             parenthesized, nonempty run within 256 bytes without a parenthesis, comma, quote, \
+             backslash or control character"
+        ),
     ];
     let mut observed = Vec::new();
     for (label, provider, adapter) in rows {

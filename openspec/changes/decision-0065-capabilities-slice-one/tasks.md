@@ -1396,9 +1396,9 @@ remote CI are pending.
 
 ## 11. Unit 11 — Validate both declared halves at load
 
-- [ ] 11.1 Unit 11 parses both declared ON/OFF argv at load, even unused. Verify full Codex/mapping/separator/missing-authority refusals and valid positives. Requirements: [Native capability controls are adapter-owned evidence-bearing data][NC1], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.3)
+- [x] 11.1 Unit 11 parses both declared ON/OFF argv at load, even unused. Verify full Codex/mapping/separator/missing-authority refusals and valid positives. Requirements: [Native capability controls are adapter-owned evidence-bearing data][NC1], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.3)
 
-- [ ] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
+- [x] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
 
 Observed 2026-09-25 (evidence.md, "Unit 11 — oversized"), run
 `0065-rebuild-unit-11-see-the-uni-d48cbfd2`. Both tasks stay open. The unit
@@ -1518,11 +1518,41 @@ Re-commissioned 2026-09-26, same run, without a ruling on `bundle.rs`
   same split.
 - **Standing-admission lines:** none.
 
+Closed 2026-09-26 on the third visit, run
+`0065-rebuild-unit-11-see-the-uni-a2e08218` (evidence.md, "Unit 11 — the
+F1 fix lands; the two dead arms go to unit 12"):
+
+- **The F1 fix is committed.** The saved patch still hashed
+  `12692853…46ed`, applied cleanly on `a9b46001`, and was committed
+  unchanged.
+- **Re-verified:** the baseline reds, M22–M25 (each failed, then the tree
+  diffed identical to the patch), the runtime, protocol and CLI suites,
+  clippy, fmt, both bundle compiles, strict openspec and `git diff
+  --check`.
+- **Handed to unit 12:** deleting the two `Contribution::Native` arms of
+  `expressed_sandbox` in `crates/brokkr-runtime/src/bundle.rs`, DA:3376
+  and DA:3403–3408. They are dead because every declared `--config`
+  assignment now passes the bounded reader at load. Such an assignment is
+  either off the sandbox tables or an established key, so neither arm can
+  run. `bundle.rs` is not edited here.
+- **Exact coverage pending: deletion owned by unit 12.** Remote CI and
+  macOS are also pending.
+- **Standing-admission lines:** none.
+- **11.1 and 11.2 are ticked.**
+
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
 - [ ] 12.1 Unit 12 refuses every authored catalogue option regardless of grant/value/polarity/form. Verify complete all-harness matrix and bounded reasons without payloads; typed hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Subtractive tool lists never grant a capability][RGS], [Reserved hands preserves the existing workspace authority][TD6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2. (previous 4.6)
 
 - [ ] 12.2 Unit 12 deletes authored folding and composes only engine controls. Verify exact empty/nonempty restrictions, OFF/hands or full managed conflict refusal. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Authored provider configuration cannot supply capability authority][RGR]. Reopened/remaining: operator ruling 1–2. (previous 4.3)
+
+Handed from unit 11 (2026-09-26): unit 12 also deletes exactly the two
+`Contribution::Native` arms of `expressed_sandbox` in `bundle.rs`, the
+`--config` door text at DA:3376 and the door/writer/keys arm at
+DA:3403–3408, and keeps the `Written` text. Unit 11's load reader made
+both arms unreachable, and exact coverage stays pending until they are
+deleted (evidence.md, "Unit 11 — the F1 fix lands; the two dead arms go to
+unit 12").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 

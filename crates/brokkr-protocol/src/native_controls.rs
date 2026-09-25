@@ -1266,15 +1266,26 @@ pub fn parse_origin(
 /// malformed or empty-pattern entry cannot load as a denial that names
 /// nothing. A permission control's value is one of the bounded set the
 /// engine records for it — Codex's `--sandbox` classes — and a permission
-/// control with no recorded set refuses whatever it names. A configuration
-/// assignment is bounded by [`grammar::Node::bears_capability`], and a
-/// directory's value is a path, which launch containment judges. The cause
-/// never echoes a value.
+/// control with no recorded set refuses whatever it names. Every
+/// configuration assignment is read by [`grammar::launch_setting`], the
+/// bounded reader a Codex launch applies: its key spelled canonically, on
+/// the closed allowlist, with one of the values its declaration admits, so
+/// no unmeasured value or spelling loads as a delivered switch (review F1
+/// of run `0065-rebuild-unit-11-see-the-uni-1d1020cd`). A directory's value
+/// is a path, which launch containment judges. The cause never echoes a
+/// value.
 pub fn declared_values(harness: &str, node: &grammar::Node) -> Result<(), String> {
     match node.spec.effect {
         Effect::List(_) => {
             for (index, value) in node.values.iter().enumerate() {
                 grammar::managed_patterns(value)
+                    .map_err(|cause| format!("value {} {cause}", index + 1))?;
+            }
+            Ok(())
+        }
+        Effect::Config => {
+            for (index, value) in node.values.iter().enumerate() {
+                grammar::launch_setting(value)
                     .map_err(|cause| format!("value {} {cause}", index + 1))?;
             }
             Ok(())
