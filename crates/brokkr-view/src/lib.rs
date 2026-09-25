@@ -59,7 +59,11 @@ use serde_json::Value;
 /// 0047 ruling 3: a residual finding, the run rows that carry it and
 /// the ruling it was read from all state the operator's supersede
 /// annotation when one names it.
-pub const VIEW_VERSION: u32 = 10;
+/// Bumped to 11 by #376, pending the operator's ruling: a participant's
+/// `cost` became every attempt's reported cost summed (the rule
+/// [`reported_cost`] states), where it was the last attempt's alone, and
+/// participants gained `last_attempt_cost` beside it.
+pub const VIEW_VERSION: u32 = 11;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -351,7 +355,7 @@ pub struct Participant {
     pub turns_aggregated: bool,
     pub turns_cell: Cell,
     /// What the seat spent: every attempt's reported cost, summed (the
-    /// rule [`reported_cost`] states). The figure `brokkr costs` reports.
+    /// rule [`reported_cost`] states), the rule `brokkr costs` sums by.
     pub cost: Option<f64>,
     /// The last attempt's finishing cost alone, beside the sum and never
     /// in its place.
