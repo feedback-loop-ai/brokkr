@@ -29,14 +29,18 @@ the authority, and a finding it would catch is the gate's.
 
 - **Pure core (ruling 1).** `brokkr-core` and `brokkr-view` do no I/O and read
   no clock, environment or randomness. They run no process. Pass `now`, paths
-  and environment in as arguments. Effects live in store, runtime, protocol
-  and cli, and are journaled.
+  and environment in as arguments. Effects live in the crates above core and
+  view, and are journaled.
 - **Enums and data, not traits (ruling 2).** A closed set is an enum matched
   exhaustively, with no wildcard arm that decides behaviour. Anything an
   operator extends is data under `adapters/`, `agents/`, `recipes/` or
-  `realms.json`, validated and digested. Add a trait only for a seam with more
-  than one real implementation, and name that seam. Otherwise invert a
-  dependency with a closure (`*_with`, `*_in`).
+  `realms.json`, validated and digested. Add a trait only for a seam whose
+  contract spans several operations that must stay consistent with one
+  another, reached across a process or service boundary, and name that seam
+  in its doc comment. `ProducerTransport` is the one such trait today. A test
+  double alone does not make a seam: a single substitutable function is a
+  closure seam (`*_with`, `*_in`), which is how the house inverts a
+  dependency otherwise.
 - **Typed at the edge (ruling 3).** Parse wire, file and harness data once
   into a type, with `serde` and `deny_unknown_fields` where the contract is
   closed. `serde_json::Value` never goes past the edge, into state, or back
@@ -44,10 +48,11 @@ the authority, and a finding it would catch is the gate's.
   journaled. A doubly-optional field or a string vocabulary is a missing enum.
 - **Small functions (ruling 4).** New and changed functions stay within 100
   lines, nesting depth 5 and 7 parameters. Production files stay within 800
-  lines. Existing offenders carry `#[expect(clippy::…, reason = "…")]`. Add
-  one only by a ruling, and remove it when you fix the function. Suppress with
-  `#[expect(…, reason)]`, never `#[allow]`. These numbers are provisional until
-  the operator rules them from the measured baseline.
+  lines. Today's offenders carry `#[allow(clippy::…)]`, and #337 converts
+  them to `#[expect(clippy::…, reason = "…")]`. Add a suppression only by a
+  ruling, and remove it when you fix the function. A new suppression is
+  `#[expect(…, reason)]`, never `#[allow]`. These numbers are provisional
+  until the operator rules them from the measured baseline.
 - **Once (ruling 5).** Every fact has one home. A repeated vocabulary, skeleton
   or helper becomes one function or one table. An agent is defined once under
   `agents/`, and seats hire it by reference. A recipe that differs from another
@@ -72,7 +77,9 @@ the authority, and a finding it would catch is the gate's.
   the failing test. Share fixtures through builders. Never change the process
   environment without a guard that restores it on unwind.
 - **The house's patterns (ruling 10).**
-  - A harness is a module behind `AdapterKind`.
+  - A harness is a module behind `AdapterKind`. This is the target form;
+    today all five kinds share one module, and #347 and #348 build the
+    split.
   - A CLI verb is a `Cmd` variant plus a handler.
   - A long parameter list becomes a parameter object.
   - Argv and mount tables are built with a builder.
