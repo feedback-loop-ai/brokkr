@@ -551,6 +551,69 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
     );
 }
 
+/// Issue #373: the dsh driver refuses every `--model…` word but the
+/// separate `--model <id>` before it spawns, so a dsh seat carrying one
+/// is refused here, at compile, rather than parked after its run exists.
+/// The joined pin and the long neighbour both readers above accept are
+/// the two words it names.
+#[test]
+fn a_dsh_seat_is_refused_at_compile_for_the_model_words_its_driver_refuses_at_spawn() {
+    let fixture = Fixture::new();
+    let mut dsh = adapter("dsh", Some("untrusted"), Some(false));
+    dsh["models"] = json!({"flash": "deepseek-v4-flash"});
+    dsh["model_flag"] = json!("--model");
+    dsh["efforts"] = json!(["low", "medium", "high", "xhigh"]);
+    dsh["effort_flag"] = json!("--effort");
+    fixture.write_adapter(dsh);
+    let dsh_seat = |pin: &[&str]| {
+        let mut command = vec!["{brokkr}", "driver", "dsh", "--"];
+        command.extend_from_slice(pin);
+        command.extend_from_slice(&["--effort", "medium", "true"]);
+        let mut work = seat("dsh", None, None);
+        work["driver"]["command"] = json!(command);
+        work
+    };
+
+    fixture
+        .compile(dsh_seat(&["--model", "deepseek-v4-flash"]))
+        .expect("the separate spelling is the one the dsh driver admits");
+    for pin in [
+        &["--model=deepseek-v4-flash"][..],
+        &[
+            "--model",
+            "deepseek-v4-flash",
+            "--model-fallback",
+            "deepseek-v4-pro",
+        ],
+        &[
+            "--model",
+            "deepseek-v4-flash",
+            "--model-fallback=deepseek-v4-pro",
+        ],
+    ] {
+        match fixture.compile(dsh_seat(pin)) {
+            Err(CompileError::Invalid(refusal)) => assert_eq!(
+                refusal,
+                "dsh seats 'work' carry a '--model…' word the dsh driver refuses at \
+                 spawn; write the pin as '--model <concrete-model-id>' and no other \
+                 '--model…' flag (issue #373)",
+                "{pin:?}"
+            ),
+            other => panic!("{pin:?} must be refused at compile: {other:?}"),
+        }
+    }
+
+    // The same words on any other built-in stay what decision 0040
+    // ruling 2 reads them as: a pin, and a neighbour walked past.
+    let claude = json!({"work": {"driver": {"command": [
+        "{brokkr}", "driver", "claude", "--",
+        "--model=claude-opus-5", "--model-fallback", "claude-sonnet-5",
+        "--effort", "high"
+    ]}}});
+    enforce_model_pins(claude.as_object().unwrap(), None)
+        .expect("only the dsh driver refuses these words at spawn");
+}
+
 /// Decision 0040 ruling 2's premise, asserted on the function that holds
 /// it: a spelling is decided by the FLAG's shape. Short is one dash and
 /// one character — the getopt shape a value attaches to — and everything
