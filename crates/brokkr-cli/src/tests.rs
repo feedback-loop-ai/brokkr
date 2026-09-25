@@ -1999,6 +1999,70 @@ fn a_vanished_participant_clears_the_same_frames_transcript() {
     );
 }
 
+/// #380: a value the model echoed into its dsh session file reaches the
+/// console as `[secret:NAME]`, masked against the store beside the
+/// journal before the pane draws it, and the pane says what the masking
+/// covered.
+#[test]
+fn the_console_masks_a_bound_value_the_dsh_session_file_holds() {
+    let _home = HOME.lock().unwrap_or_else(|error| error.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    brokkr_protocol::secret::store_set(
+        &dir.path().join("secrets.env"),
+        "GH_TOKEN",
+        "ghp-bound-7f3a9c",
+    )
+    .unwrap();
+    let home = dir.path().join("dsh");
+    let seat = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&seat).unwrap();
+    std::fs::write(
+        seat.join("session.jsonl"),
+        "{\"type\":\"session\",\"version\":0}\n\
+         {\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":[{\"type\":\"text\",\
+         \"text\":\"the token is ghp-bound-7f3a9c\"}]}},\"time\":2000}\n",
+    )
+    .unwrap();
+    let ask = tui::Ask {
+        tab: 0,
+        run: Some("r1"),
+        subject: Some(tui::Subject {
+            tab: 0,
+            realm: None,
+            run: "r1".to_string(),
+            key: "eff".to_string(),
+            reference: Some(brokkr_view::Transcript {
+                kind: "dsh-session".to_string(),
+                locator: "sessions/one".to_string(),
+                home: home.to_str().unwrap().to_string(),
+            }),
+            provenance: LegacyProvenance::Absent,
+            legacy_id: None,
+            working: false,
+        }),
+        force: true,
+        fleet: false,
+    };
+    let clock = || "2026-01-01T00:07:03Z".to_string();
+    let views = tui_views(&db, true, ask, &mut None, &mut None, clock)
+        .unwrap()
+        .expect("the forced frame is built");
+    let read = views.transcript.expect("the subject's transcript is read");
+    assert_eq!(
+        read.turns[0].blocks[0].text,
+        "the token is [secret:GH_TOKEN]"
+    );
+    let notice = "secrets masked against the store's current values for GH_TOKEN; a value \
+                  rotated or removed since the run is not masked";
+    assert_eq!(read.notices, vec![notice.to_string()]);
+    let (_, _, pane) = crate::transcript_surfaces_for_test(&read, None);
+    assert!(pane.contains("[secret:GH_TOKEN]"), "{pane}");
+    assert!(pane.contains(notice), "{pane}");
+    assert!(!pane.contains("ghp-bound-7f3a9c"), "{pane}");
+}
+
 /// The lookup reads every hearth it passes READ-ONLY (ruling 5): a
 /// console asked about ONE run must not migrate the journals of the
 /// realms it merely walked past. An empty file is the proof — a

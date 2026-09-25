@@ -170,8 +170,20 @@ fn parse(output: &std::process::Output) -> Value {
 
 /// Compare every surface against one shared read, for one source.
 fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
-    // The API's Claude body agrees on turns and truncation and keeps its
-    // three-field envelope.
+    // No secrets store sits beside the world's journal, so every surface
+    // that masks says it masked nothing and names where it looked (#380).
+    let mut read = read.clone();
+    if !read.turns.is_empty() {
+        read.notices.push(format!(
+            "secrets not masked: no values found in {}; a value bound from another store, or \
+             removed since the run, is shown as written",
+            world.dir.path().join("secrets.env").display()
+        ));
+    }
+    let read = &read;
+
+    // The API's Claude body agrees on turns, truncation and notices, and
+    // keeps its four-field envelope.
     if world.reference.kind == "claude-session" {
         let response = brokkr_cli::handle(
             &world.db,
@@ -186,9 +198,10 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
             .map(String::as_str)
             .collect();
         keys.sort_unstable();
-        assert_eq!(keys, vec!["session_id", "truncated", "turns"]);
+        assert_eq!(keys, vec!["notices", "session_id", "truncated", "turns"]);
         assert_eq!(body["turns"], serde_json::to_value(&read.turns).unwrap());
         assert_eq!(body["truncated"], read.truncated);
+        assert_eq!(body["notices"], json!(read.notices));
     }
 
     // The browser participant presentation carries only the shared
@@ -814,5 +827,95 @@ fn r25_portable_hint_is_identical_across_every_surface() {
             page.body.contains("el('p', 'cause', view.hint)"),
             "the page paints the shared hint verbatim"
         );
+    }
+}
+
+/// #380: a value the model echoed into its Codex rollout reaches
+/// `brokkr transcript` as `[secret:NAME]`, masked against the store beside
+/// the journal. A value rotated away since the run is no longer in the
+/// store and stays as written, and the command says that masking covers
+/// only the store's current values rather than passing it silently.
+#[test]
+fn the_command_masks_a_bound_value_and_states_what_a_rotation_leaves() {
+    let body = "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"now ghp-bound-7f3a9c, before ghp-rotated-0c11\"}]}}\n";
+    let world = make_world("codex-thread", "0199mine", body);
+    brokkr_protocol::secret::store_set(
+        &world.dir.path().join("secrets.env"),
+        "GH_TOKEN",
+        "ghp-bound-7f3a9c",
+    )
+    .unwrap();
+    let notice = "secrets masked against the store's current values for GH_TOKEN; a value \
+                  rotated or removed since the run is not masked";
+
+    let json_face = command(&world, &["--json"]);
+    assert!(json_face.status.success());
+    let document = parse(&json_face);
+    assert_eq!(
+        document["turns"][0]["blocks"][0]["text"],
+        "now [secret:GH_TOKEN], before ghp-rotated-0c11"
+    );
+    assert_eq!(document["notices"], json!([notice]));
+
+    let text_face = command(&world, &[]);
+    assert!(text_face.status.success());
+    let rendered = String::from_utf8_lossy(&text_face.stdout);
+    assert!(
+        rendered.contains("  text: now [secret:GH_TOKEN], before ghp-rotated-0c11"),
+        "{rendered}"
+    );
+    assert!(rendered.contains(&format!("notice {notice}")), "{rendered}");
+    assert!(!rendered.contains("ghp-bound-7f3a9c"), "{rendered}");
+}
+
+/// #380: a projector renders a Codex shell action and a DSH tool call's
+/// arguments as serialised JSON, so a bound value holding a quote and a
+/// backslash reaches the text re-escaped. `brokkr transcript` masks that
+/// escaped form too, never printing the value in either spelling.
+#[test]
+fn the_command_masks_a_bound_value_a_structured_call_reserialised() {
+    let value = "tok\"en\\7f3a9c";
+    let escaped = "tok\\\"en\\\\7f3a9c";
+    let arguments = json!({"command": ["curl", "-H", value], "type": "exec"});
+    let codex = format!(
+        "{}\n",
+        json!({"timestamp": "t1", "type": "response_item", "payload": {
+            "type": "local_shell_call", "call_id": "c1", "action": arguments}})
+    );
+    let dsh = format!(
+        "{}\n{}\n",
+        json!({"type": "session", "version": 0}),
+        json!({"type": "tool/call", "seq": 5, "time": 1001, "data": {
+            "callId": "c1", "name": "Bash", "arguments": arguments, "turn": 1, "step": 1}})
+    );
+    let masked = "{\"command\":[\"curl\",\"-H\",\"[secret:GH_TOKEN]\"],\"type\":\"exec\"}";
+    for (world, text) in [
+        (
+            make_world("codex-thread", "0199mine", &codex),
+            format!("{masked} [c1]"),
+        ),
+        (
+            make_world("dsh-session", "sessions/one", &dsh),
+            format!("Bash {masked} [c1]"),
+        ),
+    ] {
+        assert!(std::fs::read_to_string(&world.path)
+            .unwrap()
+            .contains(escaped));
+        brokkr_protocol::secret::store_set(
+            &world.dir.path().join("secrets.env"),
+            "GH_TOKEN",
+            value,
+        )
+        .unwrap();
+        let json_face = command(&world, &["--json"]);
+        assert!(json_face.status.success());
+        let document = parse(&json_face);
+        assert_eq!(document["turns"][0]["blocks"][0]["text"], text.as_str());
+        let text_face = command(&world, &[]);
+        assert!(text_face.status.success());
+        let rendered = String::from_utf8_lossy(&text_face.stdout);
+        assert!(rendered.contains(&format!("  tool: {text}")), "{rendered}");
+        assert!(!rendered.contains("7f3a9c"), "{rendered}");
     }
 }

@@ -27,6 +27,16 @@ impl World {
     fn projects(&self) -> PathBuf {
         self.home.join(".claude").join("projects")
     }
+
+    /// No secrets store sits beside the journal, so a read with turns
+    /// says it masked nothing and names where it looked (#380).
+    fn no_store(&self) -> String {
+        format!(
+            "secrets not masked: no values found in {}; a value bound from another store, \
+             or removed since the run, is shown as written",
+            self.path().join("secrets.env").display()
+        )
+    }
 }
 
 /// A run with one participant and no transcript reference yet.
@@ -1025,6 +1035,7 @@ fn selecting_a_retained_turn_keeps_the_whole_reads_notices() {
         json!([
             "transcript truncated (size cap)",
             "unrecognized transcript records: 1",
+            world.no_store(),
         ])
     );
     let past = run(
@@ -1287,7 +1298,10 @@ fn structural_charge_bounds_tiny_dsh_calls_whole_and_selected() {
     assert_eq!(whole["truncated"], true);
     assert_eq!(whole["skipped_lines"], 0);
     assert_eq!(whole["unrecognized_records"], 0);
-    assert_eq!(whole["notices"], json!(["transcript truncated (size cap)"]));
+    assert_eq!(
+        whole["notices"],
+        json!(["transcript truncated (size cap)", world.no_store()])
+    );
     let retained_text: usize = turns
         .iter()
         .map(|turn| turn["blocks"][0]["text"].as_str().unwrap().len())
@@ -1600,7 +1614,7 @@ fn the_shipped_claude_fixture_keeps_its_counts_under_selection() {
     assert_eq!(document["turns"].as_array().unwrap().len(), 2);
     assert_eq!(
         document["notices"],
-        json!(["malformed transcript lines skipped: 1"])
+        json!(["malformed transcript lines skipped: 1", world.no_store()])
     );
     let selected = run(
         &world,
@@ -1622,7 +1636,7 @@ fn the_shipped_claude_fixture_keeps_its_counts_under_selection() {
     assert_eq!(document["turns"][0]["role"], "user");
     assert_eq!(
         document["notices"],
-        json!(["malformed transcript lines skipped: 1"])
+        json!(["malformed transcript lines skipped: 1", world.no_store()])
     );
 }
 

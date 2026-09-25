@@ -1144,8 +1144,10 @@ function renderTranscriptView(view) {
     if (turns.length === 0) {
       transcriptBox.appendChild(el('p', 'cause', 'transcript holds no prose'));
     }
-    if (view.body && view.body.truncated) {
-      transcriptBox.appendChild(el('p', 'cause', 'transcript truncated (size cap)'));
+    // The reader's own notices, as the command and the TUI print them:
+    // the size cap, and what secrets masking covered and could not.
+    for (const notice of (view.body && view.body.notices) ?? []) {
+      transcriptBox.appendChild(el('p', 'cause', notice));
     }
     return;
   }

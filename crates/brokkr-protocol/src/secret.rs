@@ -581,12 +581,38 @@ fn enc_pct_lower(bytes: &[u8]) -> Vec<u8> {
 /// split across two chunks silently reopens the leak. Do not "optimize
 /// to streaming" without carrying that window.
 pub fn mask_bytes(bytes: &[u8], bindings: &[BoundSecret]) -> Vec<u8> {
+    mask_needles(bytes, bindings, &NEEDLE_ENCODINGS)
+}
+
+/// [`mask_bytes`] for text a transcript reader projected (#380), which
+/// also masks each value as it reads inside a JSON string.
+///
+/// A projector renders a structured sub-value — a tool call's arguments
+/// object, a shell action — as serialised JSON, so a value holding a
+/// `"`, a `\` or a control character reaches the text re-escaped and
+/// never matches the raw needle. The extra needle is that value's own
+/// JSON string escaping, the same bytes the projector's serialiser
+/// writes. It stays off the shared [`NEEDLE_ENCODINGS`]: the surfaces
+/// the driver masks decode JSON before masking instead.
+pub fn mask_projected(text: &str, bindings: &[BoundSecret]) -> String {
+    let mut encodings = NEEDLE_ENCODINGS.to_vec();
+    encodings.push(("json-string", enc_json_string));
+    String::from_utf8_lossy(&mask_needles(text.as_bytes(), bindings, &encodings)).into_owned()
+}
+
+/// A value as it reads between the quotes of a serialised JSON string.
+fn enc_json_string(bytes: &[u8]) -> Vec<u8> {
+    let quoted = serde_json::Value::String(String::from_utf8_lossy(bytes).into_owned()).to_string();
+    quoted.as_bytes()[1..quoted.len() - 1].to_vec()
+}
+
+fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Encoder)]) -> Vec<u8> {
     if bindings.is_empty() {
         return bytes.to_vec();
     }
     let mut needles: Vec<(Vec<u8>, &str)> = Vec::new();
     for binding in bindings {
-        for (_, encode) in NEEDLE_ENCODINGS {
+        for (_, encode) in encodings {
             let needle = encode(&binding.secret.bytes);
             if !needle.is_empty() && !needles.iter().any(|(n, _)| *n == needle) {
                 needles.push((needle, binding.name.as_str()));

@@ -80,7 +80,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
     if let Some(session_id) = path.strip_prefix("/api/session/") {
         // Journal-independent: the lowest drill level is the seat's own
         // session transcript on the operator's machine, not the db.
-        return session_transcript(session_id);
+        return session_transcript(&store_beside(db), session_id);
     }
     if !db.is_file() {
         // Reads never create: a missing database is a 404, not an
@@ -177,15 +177,16 @@ pub fn handle(db: &Path, path: &str) -> Response {
 /// id is strictly validated before any path is formed; the response
 /// carries prose text and tool names (file targets only), size-capped.
 /// This is a loopback-only, operator-local surface — the same trust as
-/// `claude --resume <id>` in a terminal.
-fn session_transcript(id: &str) -> Response {
+/// `claude --resume <id>` in a terminal. The prose is masked against the
+/// secrets store beside the journal, and the reader's notices ride along.
+fn session_transcript(store: &Path, id: &str) -> Response {
     // The two misses read differently to the operator, and that is the
     // only reason the validity question is asked here as well: the guard
     // that matters lives inside the shared reader.
     if !brokkr_view::transcript::valid_claude_id(id) {
         return not_found("session");
     }
-    let read = read_local(None, LegacyProvenance::Claude, Some(id));
+    let read = mask_secrets(read_local(None, LegacyProvenance::Claude, Some(id)), store);
     if !read.is_readable() {
         return not_found("transcript");
     }
@@ -203,7 +204,13 @@ fn session_transcript(id: &str) -> Response {
         .collect();
     ok(
         "application/json",
-        json!({"session_id": id, "turns": turns, "truncated": read.truncated}).to_string(),
+        json!({
+            "session_id": id,
+            "turns": turns,
+            "truncated": read.truncated,
+            "notices": read.notices,
+        })
+        .to_string(),
     )
 }
 
@@ -849,6 +856,63 @@ fn read_with_home(
             read
         }
     }
+}
+
+/// The operator's secrets store a read surface masks against: the one
+/// beside the journal it reads, which is where the defaults put both
+/// (`.forge/forge.db` and `.forge/secrets.env`).
+pub(crate) fn store_beside(journal: &Path) -> PathBuf {
+    journal.with_file_name("secrets.env")
+}
+
+/// Mask a read's prose against every value the store holds now (#380).
+///
+/// The harness writes its own session file, so a value the model echoed
+/// is plaintext there; decision 0012's layer 5 is kept on the way out
+/// instead, before any surface prints a block. The journal records no
+/// seat's declared names, so every held value is a needle — a superset of
+/// what any seat could have bound from this store. A value rotated or
+/// removed since the run is no longer here and cannot be masked, which is
+/// why the notice names what was masked against and says so. A store that
+/// is absent, holds no values, or cannot be read masks nothing and says
+/// so, naming the path, never the contents. A read with no turns has no
+/// prose to mask.
+pub(crate) fn mask_secrets(mut read: TranscriptRead, store: &Path) -> TranscriptRead {
+    use brokkr_protocol::secret;
+    if read.turns.is_empty() {
+        return read;
+    }
+    let bindings = match secret::store_names(store)
+        .and_then(|names| secret::resolve_bindings(store, &names))
+    {
+        Ok(bindings) => bindings,
+        Err(error) => {
+            read.notices.push(format!("secrets not masked: {error}"));
+            return read;
+        }
+    };
+    if bindings.is_empty() {
+        read.notices.push(format!(
+            "secrets not masked: no values found in {}; a value bound from another store, or \
+             removed since the run, is shown as written",
+            store.display()
+        ));
+        return read;
+    }
+    for block in read
+        .turns
+        .iter_mut()
+        .flat_map(|turn| turn.blocks.iter_mut())
+    {
+        block.text = secret::mask_projected(&block.text, &bindings);
+    }
+    let names: Vec<&str> = bindings.iter().map(secret::BoundSecret::name).collect();
+    read.notices.push(format!(
+        "secrets masked against the store's current values for {}; a value rotated or \
+         removed since the run is not masked",
+        names.join(", ")
+    ));
+    read
 }
 
 /// The fail-closed read-boundary refusal: a fresh acquisition that no
