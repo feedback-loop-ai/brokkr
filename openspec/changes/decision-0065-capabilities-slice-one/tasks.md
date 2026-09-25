@@ -1416,6 +1416,11 @@ every one would change an assertion. The split asks for those three test
 files to be added to unit 11's inventory. The formatted patch is at
 `.forge/unit-11-oversized-2026-09-25.patch`, uncommitted.
 
+A second implement visit in the same run re-confirmed this on `789b812f`,
+after triage re-ruled `chore` with an unchanged inventory. With the patch
+applied, all seven tests failed; on the unpatched head, all seven passed.
+The result is oversized again (evidence.md, "Second implement visit").
+
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
 - [ ] 12.1 Unit 12 refuses every authored catalogue option regardless of grant/value/polarity/form. Verify complete all-harness matrix and bounded reasons without payloads; typed hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Subtractive tool lists never grant a capability][RGS], [Reserved hands preserves the existing workspace authority][TD6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2. (previous 4.6)

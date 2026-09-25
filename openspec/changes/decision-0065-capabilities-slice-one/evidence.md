@@ -8524,3 +8524,34 @@ fixtures first. The saved patch is the production half either way.
   `cargo fmt --all`. Clippy was not run, because the change was reverted.
 - **Pending:** everything the re-run owes, including exact coverage, macOS
   and remote CI.
+
+### Second implement visit, same run, after triage re-ruled `chore`
+
+Triage returned the commission as `chore` with the same inventory: framing
+`.forge/tasks/0065-unit-11-load-validation.md`, whose test list is the
+unit's three named suites. No operator ruling adds
+`bundle/agent_tests.rs`, `tests/capability_launch.rs` or
+`doctor/capability_tests.rs` to it. The addenda in
+`operator-ruling-2026-09-23.md` end with the 2026-09-25 defer ruling. The
+result is **oversized** again. No production or test byte moved.
+
+This visit re-checked the finding on head `789b812f`:
+
+- `git apply --check` on the saved patch was clean. Its sha256 is
+  unchanged: `54de029c…05ac`.
+- With the patch applied, `cargo test --locked` failed all seven named
+  tests:
+  - `-p brokkr-runtime --lib`: 0 passed, 4 failed. The panics are at
+    `bundle/agent_tests.rs` lines 4986, 5252, 2498 and 4301.
+  - `-p brokkr-runtime --test capability_launch`: 0 passed, 1 failed, at
+    line 5872.
+  - `-p brokkr-cli --lib`: 0 passed, 2 failed, at
+    `doctor/capability_tests.rs` lines 477 and 547.
+- The patch was then reverted with `git apply -R`, and `git status --short`
+  was empty.
+- On the unpatched head, the same three filtered runs passed 4/4, 1/1 and
+  2/2. The failures therefore come from unit 11's change alone.
+
+The split named above still stands. Add the three test files to unit 11's
+inventory for assertion updates only, or have an earlier unit re-plant
+those fixtures first.
