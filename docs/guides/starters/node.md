@@ -33,8 +33,8 @@ run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust
 ## What it wrote
 
 The same scaffold shape as every stack: `agents/README.md`, `bundle.json`,
-`policy.json`, model and exec adapters, three model definitions and
-charters, plus verify and ship scripts. The invariant `bundle.json` is in
+`policy.json`, `realms.json`, model and exec adapters, three model
+definitions and charters, plus verify and ship scripts. The invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote), and so are the fixed parts of the
 agent files. What this repository changed is the stack's own data:
 the implementer charter and verifier script below, plus the model adapter's

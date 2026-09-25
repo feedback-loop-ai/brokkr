@@ -1989,11 +1989,18 @@ fn run_with(
             // there. Same tree every other verb resolves (decision 0023),
             // for the same reason: what a command produces is a function
             // of its arguments, not of where the caller happens to stand.
-            let digest = init::init(&dir, workspace)?;
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let scaffold = init::init(&dir, workspace, &path, std::env::consts::OS)?;
             eprintln!(
-                "initialized reviewable bundle at {} (digest {digest})",
-                dir.display()
+                "initialized reviewable bundle at {} (digest {})",
+                dir.display(),
+                scaffold.digest
             );
+            // Which agent CLI the seats are hired from, and which boundary
+            // the realm declares — the two facts read off this machine.
+            for note in &scaffold.notes {
+                eprintln!("{note}");
+            }
             // The scaffold carries its own `adapters/` and `agents/`,
             // where the trust tier its gate seats compile against and the
             // tool grants its seats run under are declared (decisions
@@ -2007,9 +2014,10 @@ fn run_with(
             );
             // Decision 0046: the scaffolded seats run under the realm's
             // boundary, and `namespace` — the default — is the one that
-            // needs bubblewrap; a realm may declare `harness` instead.
-            if let Err(reason) =
-                brokkr_protocol::hands::bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
+            // needs bubblewrap; a realm may declare `harness` instead, and
+            // a scaffold that already did asks nothing of bubblewrap.
+            if let (true, Err(reason)) =
+                (scaffold.namespace, brokkr_protocol::hands::bwrap_on(&path))
             {
                 eprintln!(
                     "warning: {reason}; the scaffolded seats [\"ship\", \"verify\"] \

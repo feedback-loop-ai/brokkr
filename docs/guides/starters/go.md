@@ -27,7 +27,8 @@ run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust
 ## What it wrote
 
 The same scaffold shape as every stack: three model offices and two boxed
-exec gates, with model and exec adapters and verify/ship scripts. The
+exec gates, with model and exec adapters, verify/ship scripts and
+`realms.json`. The
 invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote); so are the fixed parts of the agent
 files. What this repository changed is the stack's own data:

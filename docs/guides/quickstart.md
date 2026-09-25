@@ -194,6 +194,7 @@ What it wrote:
 ```
 ./bundle.json          # five seats: three model offices and two boxed exec gates
 ./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
+./realms.json          # the realm map: this repository, its journal, and the boundary where one is declared
 ./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
 ./adapters/exec.json   # the deterministic boxed driver
 ./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
@@ -205,7 +206,22 @@ What it wrote:
 ./agents/charters/reviewer.md
 ./scripts/verify-seat.sh # detected test and lint commands, boxed without network
 ./scripts/ship-seat.sh   # deterministic ledger and closeout
+./dialects/              # only in a spec-kit or OpenSpec repository: the detected dialect's pinned data
+./.forge/.gitignore      # ignores the run's own journal, results and ledger; one already there is kept
 ```
+
+`init` scaffolds for the first agent CLI on `PATH`: `claude`, `codex`
+or `dsh`, and `claude` when none is found. A codex scaffold writes
+`adapters/codex.json` in place of `adapters/claude.json`, hires every
+seat from codex, and declares the `harness` boundary in `realms.json`,
+so codex's own sandbox holds each seat's hands. dsh cannot hold the
+review gate, because its adapter is untrusted and names no judges. A dsh
+scaffold therefore hires intake and implement from dsh and keeps the
+reviewer on claude, and says so. On macOS `realms.json` declares
+`harness` whatever the CLI, because the default `namespace` boundary
+needs Linux bubblewrap 0.10 or newer. Commit the scaffold before the
+first run: the ship gate closes out only on a clean tree, and the
+`.forge/.gitignore` keeps the run's own output out of it.
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is

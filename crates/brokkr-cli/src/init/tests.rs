@@ -8,8 +8,9 @@
 //! synthetic `Detected` can reach.
 
 use super::{
-    allowance, command_tools, detect, grants, leading_word, relative_realm_path, runner_tools,
-    tools_for, write_dialect, AgentSpec, Class, Detected, DialectDetection, Tool, OPENSPEC,
+    allowance, command_tools, detect, grants, host, leading_word, realms_json, relative_realm_path,
+    runner_tools, stack_readme, tools_for, write_dialect, AgentSpec, Boundary, Class, Cli,
+    Detected, DialectDetection, Tool, NO_TOOL_MAP, OPENSPEC, SEATS,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -213,6 +214,8 @@ fn an_agents_allowance_follows_its_seats_class() {
         class: Class::Work,
         description: "",
         models: ["opus", "sonnet"],
+        codex: ["sol", "terra"],
+        dsh: Some(["pro", "flash"]),
         max_attempts: 2,
         timeout_seconds: 5400,
     };
@@ -221,6 +224,8 @@ fn an_agents_allowance_follows_its_seats_class() {
         class: Class::Gate,
         description: "",
         models: ["sonnet", "opus"],
+        codex: ["astra", "sol"],
+        dsh: None,
         max_attempts: 2,
         timeout_seconds: 3600,
     };
@@ -231,13 +236,162 @@ fn an_agents_allowance_follows_its_seats_class() {
         "cargo clippy --workspace --all-targets -- -D warnings",
     );
     let grant = grants(Some(&d));
-    assert_eq!(names(allowance(&work, &grant).unwrap()), names(&grant.work));
-    assert_eq!(names(allowance(&gate, &grant).unwrap()), names(&grant.gate));
-    assert_eq!(allowance(&work, &grant).unwrap().len(), 5);
+    let claude = |spec, grant| allowance(spec, Cli::Claude, grant);
+    assert_eq!(names(claude(&work, &grant).unwrap()), names(&grant.work));
+    assert_eq!(names(claude(&gate, &grant).unwrap()), names(&grant.gate));
+    assert_eq!(claude(&work, &grant).unwrap().len(), 5);
 
     let nothing = grants(None);
-    assert!(allowance(&work, &nothing).is_none());
-    assert!(allowance(&gate, &nothing).is_none());
+    assert!(claude(&work, &nothing).is_none());
+    assert!(claude(&gate, &nothing).is_none());
+
+    // codex and dsh cannot express a tool name: no allowance, whatever
+    // the stack granted.
+    for cli in [Cli::Codex, Cli::Dsh] {
+        assert!(allowance(&work, cli, &grant).is_none());
+        assert!(allowance(&gate, cli, &grant).is_none());
+    }
+}
+
+/// Each seat's hire under each CLI: its own chain, except that dsh never
+/// holds the gate, which a dsh scaffold hires from claude.
+#[test]
+fn a_dsh_scaffold_hires_its_gate_from_claude() {
+    let hires = |cli| {
+        SEATS
+            .iter()
+            .map(|spec| (spec.agent, spec.hire(cli)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        hires(Cli::Claude),
+        [
+            ("intake", (Cli::Claude, ["sonnet", "opus"])),
+            ("implementer", (Cli::Claude, ["opus", "sonnet"])),
+            ("reviewer", (Cli::Claude, ["fable", "opus"])),
+        ]
+    );
+    assert_eq!(
+        hires(Cli::Codex),
+        [
+            ("intake", (Cli::Codex, ["sol", "terra"])),
+            ("implementer", (Cli::Codex, ["sol", "terra"])),
+            ("reviewer", (Cli::Codex, ["astra", "sol"])),
+        ]
+    );
+    assert_eq!(
+        hires(Cli::Dsh),
+        [
+            ("intake", (Cli::Dsh, ["flash", "pro"])),
+            ("implementer", (Cli::Dsh, ["pro", "flash"])),
+            ("reviewer", (Cli::Claude, ["fable", "opus"])),
+        ]
+    );
+}
+
+/// The scaffold's README names the adapters it wrote, and a scaffold
+/// with no claude-hired seat says it has no tool map rather than
+/// describing claude's.
+#[test]
+fn the_readme_names_the_adapters_written_and_no_tool_map_without_claude() {
+    let cargo = detected("cargo build", "cargo test", "cargo clippy");
+    let codex = stack_readme(Some(&cargo), &[Cli::Codex]);
+    assert!(
+        codex.contains("- `adapters/codex.json` and `adapters/exec.json` — the model and"),
+        "{codex}"
+    );
+    assert!(codex.ends_with(NO_TOOL_MAP), "{codex}");
+    assert!(!codex.contains("claude.json"), "{codex}");
+    let dsh = stack_readme(Some(&cargo), &[Cli::Dsh, Cli::Claude]);
+    assert!(
+        dsh.contains(
+            "- `adapters/dsh.json`, `adapters/claude.json` and `adapters/exec.json` — the model and"
+        ),
+        "{dsh}"
+    );
+    assert!(
+        dsh.contains("`adapters/claude.json` maps each tool"),
+        "{dsh}"
+    );
+}
+
+/// The agent CLI is the first of claude, codex and dsh on PATH, claude
+/// when none is; the boundary is `harness` for a codex scaffold and on
+/// macOS, and left to the `namespace` default otherwise.
+#[test]
+fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
+    let bins = tempfile::tempdir().unwrap();
+    let dir = |name: &str, present: &[&str]| {
+        let dir = bins.path().join(name);
+        std::fs::create_dir(&dir).unwrap();
+        for binary in present {
+            std::fs::write(dir.join(binary), "").unwrap();
+        }
+        dir.into_os_string()
+    };
+    let all = dir("all", &["dsh", "codex", "claude"]);
+    let codex = dir("codex", &["dsh", "codex"]);
+    let dsh = dir("dsh", &["dsh"]);
+    let none = dir("none", &[]);
+
+    let picked = |path: &std::ffi::OsString, os| {
+        let host = host(path, os);
+        (host.cli, host.boundary)
+    };
+    assert_eq!(picked(&all, "linux"), (Cli::Claude, None));
+    assert_eq!(
+        picked(&all, "macos"),
+        (Cli::Claude, Some(Boundary::Harness))
+    );
+    assert_eq!(
+        picked(&codex, "linux"),
+        (Cli::Codex, Some(Boundary::Harness))
+    );
+    assert_eq!(picked(&dsh, "linux"), (Cli::Dsh, None));
+    assert_eq!(picked(&dsh, "macos"), (Cli::Dsh, Some(Boundary::Harness)));
+    assert_eq!(picked(&none, "linux"), (Cli::Claude, None));
+
+    assert_eq!(
+        host(&all, "linux").notes,
+        ["Scaffolded for `claude`, the first of claude, codex and dsh found on PATH."]
+    );
+    let fallback = host(&none, "macos").notes;
+    assert_eq!(fallback.len(), 2, "{fallback:?}");
+    assert!(
+        fallback[0].starts_with("No agent CLI (claude, codex or dsh) was found on PATH"),
+        "{fallback:?}"
+    );
+    assert!(
+        fallback[1].contains("bubblewrap 0.10 or newer, which is Linux-only"),
+        "{fallback:?}"
+    );
+    let dsh_notes = host(&dsh, "linux").notes;
+    assert_eq!(dsh_notes.len(), 3, "{dsh_notes:?}");
+    assert!(
+        dsh_notes[2].starts_with("The review gate cannot be held by dsh"),
+        "{dsh_notes:?}"
+    );
+    let codex_notes = host(&codex, "linux").notes;
+    assert_eq!(codex_notes.len(), 3, "{codex_notes:?}");
+    assert!(
+        codex_notes[2].contains("codex holds each seat's hands under its own sandbox"),
+        "{codex_notes:?}"
+    );
+}
+
+/// A declared boundary is v4's one addition; without one the map stays
+/// at v3, byte for byte what it was.
+#[test]
+fn a_declared_boundary_writes_a_v4_map() {
+    let path = std::path::Path::new(".");
+    let absent = DialectDetection::Absent;
+    let v3: serde_json::Value = serde_json::from_str(&realms_json(&absent, path, None)).unwrap();
+    assert_eq!(v3["schema"], "forge.realms/v3");
+    assert!(v3["realms"][0].get("boundary").is_none(), "{v3}");
+    let v4: serde_json::Value =
+        serde_json::from_str(&realms_json(&absent, path, Some(Boundary::Harness))).unwrap();
+    assert_eq!(v4["schema"], "forge.realms/v4");
+    assert_eq!(v4["realms"][0]["boundary"], "harness");
 }
 
 /// A tiny `Detected` for the derivation's own tests: the identity fields

@@ -86,6 +86,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use brokkr_core::realms::{Boundary, SCHEMA_V3, SCHEMA_V4};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
@@ -192,16 +193,23 @@ const POLICY: &str = r#"{
 }
 "#;
 
-/// The scaffold follows the shipped roster: work and review are model
-/// offices, while verify and ship are deterministic boxed exec scripts.
-fn bundle_json(detected: Option<&Detected>) -> String {
-    let mut verify_binds = Vec::new();
+/// The binds a box needs to run the stack's own suite: a cargo stack
+/// reads its toolchain and registry, and no other row needs anything.
+fn stack_binds(detected: Option<&Detected>) -> Vec<serde_json::Value> {
+    let mut binds = Vec::new();
     if detected.is_some_and(|stack| leading_word(&stack.test) == "cargo") {
-        verify_binds.extend([
+        binds.extend([
             json!({"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]}),
             json!({"path": "~/.rustup", "mode": "ro"}),
         ]);
     }
+    binds
+}
+
+/// The scaffold follows the shipped roster: work and review are model
+/// offices, while verify and ship are deterministic boxed exec scripts.
+fn bundle_json(detected: Option<&Detected>) -> String {
+    let verify_binds = stack_binds(detected);
     let bundle = json!({
         "name": "starter",
         "policy": "policy.json",
@@ -300,14 +308,63 @@ write_result shipped
 /// bounds the starter used to declare inline. The model chains are the
 /// repository's own library's: work leads with the stronger model where
 /// the ship does, review reads adversarially, and the gate seats fall
-/// back rather than pretend.
+/// back rather than pretend. Each seat carries one chain per agent CLI
+/// `init` can scaffold for, in that CLI's adapter vocabulary; `dsh` is
+/// `None` on the gate, because an untrusted adapter with no judges can
+/// never hold one (decision 0021 ruling 2).
 struct AgentSpec {
     agent: &'static str,
     class: Class,
     description: &'static str,
     models: [&'static str; 2],
+    codex: [&'static str; 2],
+    dsh: Option<[&'static str; 2]>,
     max_attempts: u64,
     timeout_seconds: u64,
+}
+
+/// The agent CLIs `init` scaffolds for, in the order it prefers them when
+/// more than one is on PATH: the README promises that any one of the
+/// three is enough.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cli {
+    Claude,
+    Codex,
+    Dsh,
+}
+
+const CLIS: [Cli; 3] = [Cli::Claude, Cli::Codex, Cli::Dsh];
+
+impl Cli {
+    /// The binary on PATH, which is also the adapter's provider name.
+    fn binary(self) -> &'static str {
+        match self {
+            Cli::Claude => "claude",
+            Cli::Codex => "codex",
+            Cli::Dsh => "dsh",
+        }
+    }
+}
+
+/// The first agent CLI on `path`, in `CLIS` order. File presence is the
+/// whole of the evidence, as it is for the stack: nothing is executed.
+fn found_cli(path: &std::ffi::OsStr) -> Option<Cli> {
+    let look = crate::boundary::on_path(path);
+    CLIS.into_iter().find(|cli| look(cli.binary()).is_some())
+}
+
+impl AgentSpec {
+    /// The CLI this seat is hired from when `cli` was scaffolded, and the
+    /// chain it is hired with: its own, except that a dsh scaffold's gate
+    /// stays on claude — the one gate the starter has cannot be held by
+    /// dsh.
+    fn hire(&self, cli: Cli) -> (Cli, [&'static str; 2]) {
+        match (cli, self.dsh) {
+            (Cli::Claude, _) | (Cli::Dsh, None) => (Cli::Claude, self.models),
+            (Cli::Codex, _) => (Cli::Codex, self.codex),
+            (Cli::Dsh, Some(chain)) => (Cli::Dsh, chain),
+        }
+    }
 }
 
 /// The effort every scaffolded agent hires its model at: the level the
@@ -331,6 +388,8 @@ const SEATS: &[AgentSpec] = &[
         class: Class::Work,
         description: "Frames a raw request into a recorded, actionable task before any code is written.",
         models: ["sonnet", "opus"],
+        codex: ["sol", "terra"],
+        dsh: Some(["flash", "pro"]),
         max_attempts: 2,
         timeout_seconds: 1800,
     },
@@ -339,6 +398,8 @@ const SEATS: &[AgentSpec] = &[
         class: Class::Work,
         description: "Builds the framed task to the repository's conventions and commits the work with its tests.",
         models: ["opus", "sonnet"],
+        codex: ["sol", "terra"],
+        dsh: Some(["pro", "flash"]),
         max_attempts: 2,
         timeout_seconds: 5400,
     },
@@ -347,6 +408,8 @@ const SEATS: &[AgentSpec] = &[
         class: Class::Gate,
         description: "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
         models: ["fable", "opus"],
+        codex: ["astra", "sol"],
+        dsh: None,
         max_attempts: 2,
         timeout_seconds: 3600,
     },
@@ -591,21 +654,100 @@ fn adapter_json(grants: &Grants) -> String {
     )
 }
 
+/// The scaffold's codex adapter, from the library's own: trusted, with
+/// the two judges the review gate is hired from. It restricts by sandbox
+/// CLASS, not by tool name, so no seat hired from it carries a tool
+/// allowance; its seats carry hands instead, and under the `harness`
+/// boundary the class fragments below are what hold them — read-only for
+/// the gate, workspace-write for the work seats.
+const CODEX_ADAPTER: &str = r#"{
+  "provider": "codex",
+  "trust_tier": "trusted",
+  "binding_grant": false,
+  "binary": "codex",
+  "driver": ["{brokkr}", "driver", "codex", "--"],
+  "models": {
+    "astra": "gpt-6-astra",
+    "sol": "gpt-6-sol",
+    "terra": "gpt-5.6-terra"
+  },
+  "judges": ["astra", "sol"],
+  "model_flag": "--model",
+  "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  "effort_flag": "--effort",
+  "tool_permissions": {
+    "unsupported": "codex exec restricts by sandbox class (read-only, workspace-write), not by tool name; there is no per-tool allow-list flag to map a seat's tools onto"
+  },
+  "mcp": "unsupported",
+  "hands": {
+    "workspace": [
+      "--sandbox", "read-only",
+      "-c", "mcp_servers.brokkr.command=\"{brokkr}\"",
+      "-c", "mcp_servers.brokkr.args={hands_args_toml}",
+      "-c", "mcp_servers.brokkr.default_tools_approval_mode=\"approve\""
+    ],
+    "notice": {"workspace_tool": "mcp__brokkr__workspace", "discovery_tool": "tool_search"},
+    "harness": {
+      "gate": ["--sandbox", "read-only", "--output-last-message", "{result_path}"],
+      "work": ["--sandbox", "workspace-write"],
+      "result": "last-message"
+    }
+  }
+}
+"#;
+
+/// The scaffold's dsh adapter: untrusted and judging nothing, so it holds
+/// the work seats and never the review gate. It can restrict neither its
+/// tools nor its hands from the command line, and says so.
+const DSH_ADAPTER: &str = r#"{
+  "provider": "dsh",
+  "trust_tier": "untrusted",
+  "binding_grant": false,
+  "binary": "dsh",
+  "driver": ["{brokkr}", "driver", "dsh", "--"],
+  "models": {
+    "flash": "deepseek-v4-flash",
+    "pro": "deepseek-v4-pro"
+  },
+  "judges": [],
+  "model_flag": "--model",
+  "efforts": ["low", "medium", "high", "xhigh"],
+  "effort_flag": "--effort",
+  "tool_permissions": "unsupported",
+  "mcp": "unsupported",
+  "hands": {
+    "unsupported": "dsh replaces its tool surface only through a profile plugin; no CLI flag disables its shell and file tools or adds an MCP server"
+  }
+}
+"#;
+
+/// The scaffold's hands for a codex-hired agent: the same workspace the
+/// verify gate stands in, so the seat's sandbox class comes from the
+/// adapter's fragment for the realm's boundary.
+fn codex_hands(detected: Option<&Detected>) -> serde_json::Value {
+    json!({"kind": "workspace", "network": false, "binds": stack_binds(detected)})
+}
+
 /// One agent definition, in the repository's own library format. The
 /// `tools` key is omitted — not written empty — when there is nothing to
 /// grant: the loader rejects an empty `allow` as ambiguous between "no
 /// restriction" and "restrict to nothing", and the README says which of
 /// the two an absent key means.
-fn agent_json(spec: &AgentSpec, allowance: Option<&[Tool]>) -> String {
+fn agent_json(
+    spec: &AgentSpec,
+    models: [&str; 2],
+    allowance: Option<&[Tool]>,
+    hands: Option<serde_json::Value>,
+) -> String {
     let mut definition = json!({
         "description": spec.description,
         "charter": format!("charters/{}.md", spec.agent),
-        "models": spec.models,
+        "models": models,
         // Every model pin carries an effort pin (decision 0035 ruling
         // 5): the scaffold names the effort it hires beside the model,
         // at the level the harness runs unconfigured, so a stranger's
         // first bundle compiles and reads as a complete hire.
-        "efforts": spec.models.iter()
+        "efforts": models.iter()
             .map(|model| (model.to_string(), json!(SCAFFOLD_EFFORT)))
             .collect::<serde_json::Map<String, serde_json::Value>>(),
         "limits": {
@@ -619,6 +761,9 @@ fn agent_json(spec: &AgentSpec, allowance: Option<&[Tool]>) -> String {
             "mcp": [],
         });
     }
+    if let Some(hands) = hands {
+        definition["hands"] = hands;
+    }
     format!(
         "{}\n",
         serde_json::to_string_pretty(&definition).expect("an agent definition serializes")
@@ -628,14 +773,17 @@ fn agent_json(spec: &AgentSpec, allowance: Option<&[Tool]>) -> String {
 /// The allowance one seat's agent is written with: the whole set for the
 /// work-class seats, the read-only subset for the gate-class seats —
 /// the class the seat declares in `bundle.json`, applied here to the
-/// grant the agent may express.
-fn allowance<'a>(spec: &AgentSpec, grants: &'a Grants) -> Option<&'a [Tool]> {
-    match (spec.class, grants.work.is_empty()) {
-        (Class::Work, false) => Some(&grants.work),
-        (Class::Gate, false) => Some(&grants.gate),
+/// grant the agent may express. Only a claude-hired agent is written one:
+/// codex and dsh cannot express a tool name, and an allowance their
+/// adapter cannot express refuses the compile.
+fn allowance<'a>(spec: &AgentSpec, provider: Cli, grants: &'a Grants) -> Option<&'a [Tool]> {
+    match (provider, spec.class, grants.work.is_empty()) {
+        (Cli::Claude, Class::Work, false) => Some(&grants.work),
+        (Cli::Claude, Class::Gate, false) => Some(&grants.gate),
         // No stack was recognized: no tool was granted, and an agent must
         // not name one — omit the restriction and let the README say why.
-        (_, true) => None,
+        (Cli::Claude, _, true) => None,
+        (Cli::Codex | Cli::Dsh, _, _) => None,
     }
 }
 
@@ -645,7 +793,13 @@ fn allowance<'a>(spec: &AgentSpec, grants: &'a Grants) -> Option<&'a [Tool]> {
 /// seats were granted and why. Where no stack was recognized it says the
 /// map is EMPTY, in those words, so an empty grant cannot be mistaken for
 /// a considered one. It is never written to the target's own README.md.
-fn stack_readme(detected: Option<&Detected>) -> String {
+/// `hired` is the agent CLIs the seats are hired from: the adapters named
+/// here are the ones written, and only a claude adapter carries a tool map.
+fn stack_readme(detected: Option<&Detected>, hired: &[Cli]) -> String {
+    if !hired.contains(&Cli::Claude) {
+        return format!("{}{NO_TOOL_MAP}", stack_header(detected, hired));
+    }
+    let header = stack_header(detected, hired);
     match detected {
         Some(detected) => {
             let grants = grants(Some(detected));
@@ -657,22 +811,7 @@ fn stack_readme(detected: Option<&Detected>) -> String {
                     .join("\n    ")
             };
             format!(
-                "# starter — scaffolded by `brokkr init`\n\n\
-                 This directory was scaffolded from inside a repository that reads\n\
-                 as a {name} project ({evidence}). Everything here is ordinary text:\n\
-                 read it, edit it, commit it.\n\n\
-                 ## What is here\n\n\
-                 - `bundle.json` — three model offices plus boxed exec verify and\n\
-                   ship gates, with each seat's results and limits.\n\
-                 - `policy.json` — the phase table; `review` is the protected phase.\n\
-                 - `adapters/claude.json` and `adapters/exec.json` — the model and\n\
-                   deterministic drivers, including their trust tiers.\n\
-                 - `agents/*.json` — one agent per model office: charter, model chain,\n\
-                   tool allowance, limits. `brokkr agents show <name>` reads one back.\n\
-                 - `agents/charters/*.md` — the three model-office charters.\n\
-                 - `scripts/*.sh` — deterministic verify and ship offices; verify\n\
-                   names this repository's own commands and runs without network.\n\n\
-                 ## Tool grants\n\n\
+                "{header}## Tool grants\n\n\
                  `adapters/claude.json` maps each tool the seats are granted below\n\
                  to the `Bash(...)` expression the claude CLI reads — the stack's\n\
                  own runners, and nothing broader:\n\
@@ -692,8 +831,6 @@ fn stack_readme(detected: Option<&Detected>) -> String {
                  scaffold's own compile, so when you edit one, edit both.\n\n\
                  `brokkr init` chose all of this from the files at the repository\n\
                  root — it ran nothing to find out. Correct it here if it is wrong.\n",
-                name = detected.name,
-                evidence = detected.evidence,
                 work_rendered = rendered(&grants.work),
                 work_list = grants
                     .work
@@ -709,13 +846,8 @@ fn stack_readme(detected: Option<&Detected>) -> String {
                     .join(", "),
             )
         }
-        None => "# starter — scaffolded by `brokkr init`\n\n\
-                 NO STACK WAS RECOGNIZED at the repository `init` was run in:\n\
-                 none of the manifests or lockfiles it looks for were at that root,\n\
-                 so the implement charter carries GENERIC placeholders and\n\
-                 `scripts/verify-seat.sh` fails closed until its commands are filled\n\
-                 in. Fill them in before the first run.\n\n\
-                 The tool map was scaffolded EMPTY for the same reason:\n\
+        None => format!(
+            "{header}The tool map was scaffolded EMPTY for the same reason:\n\
                  `adapters/claude.json` → `tool_permissions.names` names nothing,\n\
                  and no agent under `agents/` declares a `tools` restriction.\n\
                  `brokkr init` grants no tool it could not read from a manifest,\n\
@@ -726,16 +858,147 @@ fn stack_readme(detected: Option<&Detected>) -> String {
                  the names in each agent's `tools.allow` — the work-class seats\n\
                  (intake, implement) get the whole set and the model-backed review\n\
                  gate gets the read-only subset (git, ls, rg and the test runner).\n"
+        ),
+    }
+}
+
+/// What a scaffold with no claude-hired seat says in place of the tool
+/// map: there is none, because its adapter cannot express a tool name.
+const NO_TOOL_MAP: &str = "## Tool grants\n\n\
+     None. No seat is hired from claude, and the agent CLI that hires them\n\
+     restricts by sandbox class rather than by tool name, so no agent under\n\
+     `agents/` declares a `tools` restriction and no adapter carries a tool\n\
+     map to edit.\n";
+
+/// The part of the scaffold's README that does not depend on the tool
+/// map: which stack was read, and — for a recognized one — the files
+/// written, naming the adapters `hired` actually produced.
+fn stack_header(detected: Option<&Detected>, hired: &[Cli]) -> String {
+    match detected {
+        Some(detected) => {
+            let adapters = hired
+                .iter()
+                .map(|cli| format!("`adapters/{}.json`", cli.binary()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "# starter — scaffolded by `brokkr init`\n\n\
+                 This directory was scaffolded from inside a repository that reads\n\
+                 as a {name} project ({evidence}). Everything here is ordinary text:\n\
+                 read it, edit it, commit it.\n\n\
+                 ## What is here\n\n\
+                 - `bundle.json` — three model offices plus boxed exec verify and\n\
+                   ship gates, with each seat's results and limits.\n\
+                 - `policy.json` — the phase table; `review` is the protected phase.\n\
+                 - {adapters} and `adapters/exec.json` — the model and\n\
+                   deterministic drivers, including their trust tiers.\n\
+                 - `agents/*.json` — one agent per model office: charter, model chain,\n\
+                   tool allowance, limits. `brokkr agents show <name>` reads one back.\n\
+                 - `agents/charters/*.md` — the three model-office charters.\n\
+                 - `scripts/*.sh` — deterministic verify and ship offices; verify\n\
+                   names this repository's own commands and runs without network.\n\n",
+                name = detected.name,
+                evidence = detected.evidence,
+            )
+        }
+        None => "# starter — scaffolded by `brokkr init`\n\n\
+                 NO STACK WAS RECOGNIZED at the repository `init` was run in:\n\
+                 none of the manifests or lockfiles it looks for were at that root,\n\
+                 so the implement charter carries GENERIC placeholders and\n\
+                 `scripts/verify-seat.sh` fails closed until its commands are filled\n\
+                 in. Fill them in before the first run.\n\n"
             .to_string(),
     }
 }
 
-fn readme(detected: Option<&Detected>, dialect: &DialectDetection) -> String {
+fn readme(
+    detected: Option<&Detected>,
+    dialect: &DialectDetection,
+    host: &Host,
+    hired: &[Cli],
+) -> String {
     format!(
-        "{}\n## Specification dialect\n\n{}\n",
-        stack_readme(detected),
+        "{}\n## Agent CLI and boundary\n\n{}\n\n## Specification dialect\n\n{}\n",
+        stack_readme(detected, hired),
+        host.notes.join("\n\n"),
         dialect.note()
     )
+}
+
+/// What `init` concluded about the machine it ran on: the agent CLI the
+/// scaffold is written for, the boundary its realm declares (`None` is
+/// the `namespace` default, left unwritten), and the sentences that say
+/// why — printed once and kept in the scaffold's README.
+struct Host {
+    cli: Cli,
+    boundary: Option<Boundary>,
+    notes: Vec<String>,
+}
+
+/// Read the search path and the operating system, decide nothing else.
+/// Two facts turn the boundary to `harness`: a codex scaffold, whose
+/// seats' hands are held by codex's own sandbox classes (the shape its
+/// adapter measured), and macOS, where `namespace` cannot be built.
+fn host(path: &std::ffi::OsStr, os: &str) -> Host {
+    let found = found_cli(path);
+    let cli = found.unwrap_or(Cli::Claude);
+    let mut notes = vec![match found {
+        Some(cli) => format!(
+            "Scaffolded for `{}`, the first of claude, codex and dsh found on PATH.",
+            cli.binary()
+        ),
+        None => "No agent CLI (claude, codex or dsh) was found on PATH, so this \
+                 scaffold is written for `claude`. Install one before the first \
+                 run; to scaffold for codex or dsh instead, re-run `init` once it \
+                 is installed."
+            .to_string(),
+    }];
+    if cli != Cli::Claude {
+        notes.push(format!(
+            "`{}` cannot express a tool name, so no `{}`-hired agent carries a \
+             tool allowance; where this README speaks of tool grants, it speaks \
+             of the claude-hired seats only.",
+            cli.binary(),
+            cli.binary()
+        ));
+    }
+    if cli == Cli::Dsh {
+        notes.push(
+            "The review gate cannot be held by dsh: its adapter is untrusted and \
+             names no judges, and a gate seat judges only on a trusted adapter's \
+             judge (decision 0021). So intake and implement are hired from dsh \
+             and `agents/reviewer.json` is hired from claude, which is not on \
+             PATH — install claude before a run reaches review."
+                .to_string(),
+        );
+    }
+    let boundary = if cli == Cli::Codex {
+        notes.push(
+            "`realms.json` declares the `harness` boundary: codex holds each \
+             seat's hands under its own sandbox — read-only for the review gate, \
+             workspace-write for intake and implement — as `adapters/codex.json` \
+             addresses it, and verify and ship run their pinned scripts under no \
+             box of Brokkr's (decision 0046)."
+                .to_string(),
+        );
+        Some(Boundary::Harness)
+    } else if os == "macos" {
+        notes.push(
+            "`realms.json` declares the `harness` boundary: `namespace`, the \
+             default, is built by bubblewrap 0.10 or newer, which is Linux-only, \
+             so on macOS verify and ship run their pinned scripts under no box \
+             of Brokkr's (decision 0046)."
+                .to_string(),
+        );
+        Some(Boundary::Harness)
+    } else {
+        None
+    };
+    Host {
+        cli,
+        boundary,
+        notes,
+    }
 }
 
 /// One recognized stack: the marker files that identify it, the name the
@@ -1059,7 +1322,13 @@ fn relative_realm_path(map_dir: &Path, repo: &Path) -> PathBuf {
     relative
 }
 
-fn realms_json(dialect: &DialectDetection, realm_path: &Path) -> String {
+/// The map, at v3 unless a boundary is declared — the boundary is v4's
+/// one addition (decision 0046 ruling 1).
+fn realms_json(
+    dialect: &DialectDetection,
+    realm_path: &Path,
+    boundary: Option<Boundary>,
+) -> String {
     let mut realm = json!({
         "name": "starter",
         "path": realm_path.to_string_lossy().replace('\\', "/"),
@@ -1068,8 +1337,15 @@ fn realms_json(dialect: &DialectDetection, realm_path: &Path) -> String {
     if let Some(choice) = dialect.choice() {
         realm["dialect"] = json!(choice.name);
     }
+    let schema = match boundary {
+        Some(boundary) => {
+            realm["boundary"] = json!(boundary.word());
+            SCHEMA_V4
+        }
+        None => SCHEMA_V3,
+    };
     serde_json::to_string_pretty(&json!({
-        "schema": "forge.realms/v3",
+        "schema": schema,
         "realms": [realm],
         "journal": ".forge/forge.db"
     }))
@@ -1298,9 +1574,18 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
         ),
         (
             "reviewer.md",
-            "# Reviewer seat — adversarial review, security riding along\n\nReview everything changed since the run began (`git log`/`git diff`).\nDimensions: correctness, simplicity, and SECURITY (non-removable;\nseverity vocabulary `none|info|low|medium|high|critical`). You may\napply small safe fixes — commit them and set `fixes_applied: true`\n(the machine then re-verifies; that is correct).\n\nResult: `clean` with `inputs: {\"fixes_applied\": <bool>}` · `residual`\nwith `inputs: {\"max_residual_severity\": \"<severity>\",\n\"has_security_residual\": <bool>}` (list every finding in `notes`;\nnever understate severity — the table decides what ships) ·\n`security-hold` for any unresolved high/critical security finding.\n".to_string(),
+            "# Reviewer seat — adversarial review, security riding along\n\nReview everything changed since the run began (`git log`/`git diff`).\nDimensions: correctness, simplicity, and SECURITY (non-removable;\nseverity vocabulary `none|info|low|medium|high|critical`). You are\nstrictly read-only: change no files and make no commits. This seat is\na gate, and a gate that moves HEAD parks the run; report each finding\nand let the implementer own the fix.\n\nResult: `clean` with `inputs: {\"fixes_applied\": false}` · `residual`\nwith `inputs: {\"max_residual_severity\": \"<severity>\",\n\"has_security_residual\": <bool>}` (list every finding in `notes`;\nnever understate severity — the table decides what ships) ·\n`security-hold` for any unresolved high/critical security finding.\n".to_string(),
         ),
     ]
+}
+
+/// What `init` hands back: the compiled scaffold's digest, whether its
+/// realm stands under `namespace` (which needs bubblewrap), and the
+/// sentences that say which agent CLI and boundary it chose and why.
+pub struct Scaffold {
+    pub digest: String,
+    pub namespace: bool,
+    pub notes: Vec<String>,
 }
 
 /// Scaffold into `dir`, having read `repo` — the repository being
@@ -1308,8 +1593,9 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
 /// the directory the recipe lands in. Two paths because they are two
 /// things: `brokkr init my-bundle` is run from inside the project whose
 /// seats the charters describe, and `my-bundle` is only where the text
-/// is written.
-pub fn init(dir: &Path, repo: &Path) -> Result<String> {
+/// is written. `path` and `os` are the machine's search path and
+/// operating system, read for the agent CLI and the boundary.
+pub fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaffold> {
     if dir.join("bundle.json").exists() {
         bail!(
             "{} already contains a bundle.json; refusing to overwrite",
@@ -1333,21 +1619,44 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
     // operator had demoted — the one move this vocabulary exists to make
     // impossible by accident. Refused on the same terms, and before
     // anything is written.
-    let declaration = dir.join(DEFAULT_ADAPTERS_DIR).join("claude.json");
-    if declaration.exists() {
-        bail!(
-            "{} already declares a trust tier; refusing to overwrite — a tier \
-             is an operator's ruling, not a scaffold's",
-            declaration.display()
-        );
+    let host = host(path, os);
+    let detected = detection.stack.as_ref();
+    let grants = grants(detected);
+    // One declaration per agent CLI a seat is hired from, then exec's.
+    let mut hired: Vec<Cli> = Vec::new();
+    for spec in SEATS {
+        let (cli, _) = spec.hire(host.cli);
+        if !hired.contains(&cli) {
+            hired.push(cli);
+        }
     }
-    let exec_declaration = dir.join(DEFAULT_ADAPTERS_DIR).join("exec.json");
-    if exec_declaration.exists() {
-        bail!(
-            "{} already declares a trust tier; refusing to overwrite — a tier \
-             is an operator's ruling, not a scaffold's",
-            exec_declaration.display()
-        );
+    let adapters_dir = dir.join(DEFAULT_ADAPTERS_DIR);
+    let declarations: Vec<(PathBuf, String)> = hired
+        .iter()
+        .map(|&cli| {
+            let declared = match cli {
+                Cli::Claude => adapter_json(&grants),
+                Cli::Codex => CODEX_ADAPTER.to_string(),
+                Cli::Dsh => DSH_ADAPTER.to_string(),
+            };
+            (
+                adapters_dir.join(format!("{}.json", cli.binary())),
+                declared,
+            )
+        })
+        .chain(std::iter::once((
+            adapters_dir.join("exec.json"),
+            EXEC_ADAPTER.to_string(),
+        )))
+        .collect();
+    for (declaration, _) in &declarations {
+        if declaration.exists() {
+            bail!(
+                "{} already declares a trust tier; refusing to overwrite — a tier \
+                 is an operator's ruling, not a scaffold's",
+                declaration.display()
+            );
+        }
     }
     for script in ["verify-seat.sh", "ship-seat.sh"] {
         let path = dir.join("scripts").join(script);
@@ -1373,31 +1682,49 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
             );
         }
     }
-    let detected = detection.stack.as_ref();
     let dialect = &detection.dialect;
-    let grants = grants(detected);
     std::fs::create_dir_all(library.join("charters"))?;
-    std::fs::create_dir_all(dir.join(DEFAULT_ADAPTERS_DIR))?;
+    std::fs::create_dir_all(&adapters_dir)?;
     std::fs::create_dir_all(dir.join("scripts"))?;
     let realm_path = relative_realm_path(dir, repo);
     std::fs::write(dir.join("policy.json"), POLICY)?;
     std::fs::write(dir.join("bundle.json"), bundle_json(detected))?;
-    std::fs::write(dir.join("realms.json"), realms_json(dialect, &realm_path))?;
+    let realms = realms_json(dialect, &realm_path, host.boundary);
+    std::fs::write(dir.join("realms.json"), realms)?;
     if let Some(choice) = dialect.choice() {
         write_dialect(dir, choice)?;
     }
     // The scaffold's notes live inside the library it wrote, never at the
     // target's own README.md: `brokkr init .` runs at a project's root, and
     // a project's README is the operator's file, not a scaffold's.
-    std::fs::write(library.join("README.md"), readme(detected, dialect))?;
-    std::fs::write(&declaration, adapter_json(&grants))?;
-    std::fs::write(exec_declaration, EXEC_ADAPTER)?;
+    let notes = readme(detected, dialect, &host, &hired);
+    std::fs::write(library.join("README.md"), notes)?;
+    // A run writes its journal beside the map and its results and ledger
+    // under the repository's `.forge/`, and the ship gate closes out only
+    // on a clean tree: each is ignored where it lands, from inside, so the
+    // operator's own `.gitignore` is never touched. The ignore file itself
+    // is excepted, so a committed scaffold carries it to every clone. One
+    // already there is the operator's and is kept.
+    for root in [dir, repo] {
+        let ignore = root.join(".forge/.gitignore");
+        if !ignore.exists() {
+            std::fs::create_dir_all(root.join(".forge"))?;
+            std::fs::write(ignore, "*\n!.gitignore\n")?;
+        }
+    }
+    for (declaration, declared) in &declarations {
+        std::fs::write(declaration, declared)?;
+    }
     std::fs::write(dir.join("scripts/verify-seat.sh"), verify_script(detected))?;
     std::fs::write(dir.join("scripts/ship-seat.sh"), SHIP_SCRIPT)?;
     for spec in SEATS {
-        let allowance = allowance(spec, &grants);
+        let (provider, models) = spec.hire(host.cli);
+        let allowance = allowance(spec, provider, &grants);
+        // A codex seat's sandbox class is what holds its hands; without
+        // them it would run at codex's own default, which writes nothing.
+        let hands = (provider == Cli::Codex).then(|| codex_hands(detected));
         let definition = library.join(format!("{}.json", spec.agent));
-        std::fs::write(definition, agent_json(spec, allowance))?;
+        std::fs::write(definition, agent_json(spec, models, allowance, hands))?;
     }
     for (name, content) in charters(detected) {
         std::fs::write(library.join("charters").join(name), content)?;
@@ -1410,10 +1737,16 @@ pub fn init(dir: &Path, repo: &Path) -> Result<String> {
     // SCAFFOLD's own roots, not the process's: what init proves must be a
     // property of what it wrote, and a starter that compiled only because
     // the caller happened to stand in a tree with an `adapters/` or
-    // `agents/` would be a proof about the caller.
-    let bundle = Bundle::compile_with(dir, &library, &dir.join(DEFAULT_ADAPTERS_DIR))
+    // `agents/` would be a proof about the caller. Under the boundary the
+    // scaffold's own realm declares, for the same reason.
+    let boundary = host.boundary.unwrap_or(Boundary::Namespace);
+    let bundle = Bundle::compile_under(dir, &library, &adapters_dir, boundary)
         .context("scaffolded bundle failed to compile")?;
-    Ok(bundle.manifest_digest())
+    Ok(Scaffold {
+        digest: bundle.manifest_digest(),
+        namespace: boundary == Boundary::Namespace,
+        notes: host.notes,
+    })
 }
 
 #[cfg(test)]
