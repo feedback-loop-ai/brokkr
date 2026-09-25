@@ -8944,3 +8944,192 @@ adds.
 - `compose_for_provider` still does not run `declared_values` on a
   plan's argv. Its inputs come from declarations that now pass at load,
   and the final exact-state check is units 13–15.
+
+## Unit 11 — the second review's return: oversized, 2026-09-26
+
+Run `0065-rebuild-unit-11-see-the-uni-1d1020cd`. The review of
+`5643a827..0e7e777e` returned `residual` (medium, security). This
+implement visit answers F1 on `0e7e777e`, a clean tree. F2 is about the
+panel's prose and asks nothing of the code. The result is **oversized**.
+The fix is built and proved in the unit's files, but it makes two arms of
+`crates/brokkr-runtime/src/bundle.rs` unreachable. That production file
+is outside the unit, so the exact-coverage gate cannot be cleaned inside
+it. The whole change is saved as
+`.forge/unit-11-f1-oversized-2026-09-26.patch` (sha256
+`12692853…46ed`), and the tree was reset to `0e7e777e` for this record.
+
+### F1: declared configuration values were never read
+
+`declared_values` (`native_controls.rs`) let `Effect::Config` fall
+through to `Ok`. `bears_capability` classifies a key and never reads its
+value, so an unmeasured or malformed assignment loaded as a delivered
+switch.
+
+**The fix.** A new `Effect::Config` arm reads every value with
+`grammar::launch_setting`, the bounded reader a Codex launch already
+applies. Only three things pass:
+
+- a canonically spelled key;
+- a key on the closed `LAUNCH_SETTINGS` allowlist;
+- one of the values its declaration admits: an effort level, or
+  `web_search="disabled"`.
+
+The cause is `value <n>` followed by the reader's fixed cause, and it
+never echoes a value. `--config` exists only in the codex grammar.
+
+**Assumption.** No other bounded set for a configuration value is
+recorded. `sandbox_mode` therefore refuses at load even with a class
+word, although `--sandbox <class>` loads. Every `web_search` value other
+than `"disabled"` refuses, `{}` included, because the adapter records
+those values as unmeasured. So no codex restriction transport of the
+form `web_search={restrictions_json}` can load until one is measured,
+which is the deferral the 2026-09-25 ruling states.
+
+**Tests.** `agents/tests.rs`, `every_declared_half_parses_under_its_harness_at_load_even_unused`:
+
+- **New exact refusals:**
+  - `codex unused ON config table` (`sandbox_mode="nonsense"`);
+  - `codex unused ON config value` (`web_search="nonsense"`);
+  - `codex OFF malformed config value` (`web_search={`);
+  - `codex OFF quoted config key` (`"web_search"="disabled"`, the
+    non-canonical cause);
+  - `codex substituted config transport`
+    (`web_search={restrictions_json}[`).
+- **New positives:** `codex sound config`
+  (`model_reasoning_effort="high"`) and `codex sound transport`
+  (`--image {restrictions_json}`).
+- **Changed:** the positive `codex sound` (transport
+  `-c web_search={restrictions_json}`) becomes `codex config transport`.
+  It now asserts the exact refusal, because `web_search={}` is an
+  unmeasured value.
+- **Coverage row:** `claude OFF malformed selection entry` (`deny`
+  `["WebSearch("]`). It reaches `capabilities.rs:1038`, which the
+  measurement below showed unhit.
+
+**Baseline red** (these tests, with `native_controls.rs` at HEAD;
+`.forge/u11d-base.log`):
+
+- `every_declared_half…` FAILED at `agents/tests.rs:1123`. The five new
+  refusal rows and `codex config transport` read `loaded`.
+- `a_resolved_native_off…` failed 4 of 17 rows, and `an_inline_codex_seat_refuses…`
+  failed 5 of 38. In each, HEAD produced the D5.3 cause where the edited
+  assertion expects the load refusal.
+- `resolved_native_on…` passed, because its re-plant does not depend on
+  the change.
+- `claude OFF malformed selection entry` also passes at baseline. It
+  covers existing unit-11 code and is bound by M25.
+
+### Changed assertions in `bundle/agent_tests.rs` (the widened inventory)
+
+With the fix and the old assertions, four tests failed
+(`.forge/u11d-probe-runtime.log`): `every_declared_half…` and the three
+below.
+
+- **`an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture`:
+  five rows moved to the load refusal.** The rows are native OFF
+  `sandbox_mode`, `approval_policy`, `web_search="live"`,
+  `web_search.mode` and `-cprofile=x`. The same bounded reader now
+  refuses them at load, so they cannot be re-planted: an assignment the
+  reader admits is one the inline launch admits too. The template rows
+  keep proving the inline configuration refusal, which is origin-generic.
+  Each now expects `off_config_refusal(..)`, a new helper that gives the
+  adapter path and the reader's cause. Original red: 5 of 38 rows.
+- **`a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox`:
+  four rows moved to the load refusal.** The rows are S1.3
+  `sandbox_workspace_write.network_access`, `sandbox_mode` at a gate,
+  `features.web_search_request` and `web_search.mode`. A re-plant was
+  tried with the opaque driver `["codex"]` (`.forge/u11d-exp1.log`). It
+  failed: 16 of 17 rows met "dispatches the '<custom>' harness … only the
+  codex harness's own `--sandbox` fragments express a sandbox class"
+  before any native judgment, so the experiment was reverted.
+  `native_table_cause` and `native_config_cause` are no longer used, and
+  both were deleted because they would break clippy's `-D warnings`.
+  Original red: 4 of 17 rows.
+- **`resolved_native_on_and_restriction_contributions_obey_the_same_refusals`:
+  re-planted, with the same assertions.**
+  - The ON argv `-c web_search="live"`, an unmeasured value, becomes
+    `-c model_reasoning_effort="high"`, an admitted, established key.
+  - The synthetic transport `-c web_search={restrictions_json}` becomes
+    `--image {restrictions_json}`, inert data.
+  - The root-selector, `--add-dir`, clean-ON and deferral rows still
+    reach their refusals. The clean ON's pinned argv follows the
+    re-plant.
+
+  Original red: 11 of 11 rows, all meeting the ON load refusal.
+  Baseline: passes.
+
+**Standing-admission lines:** none. Every edit is in a named or widened
+file.
+
+### Mutations (each compiled, failed as stated, then restored)
+
+Each mutation was restored with `git checkout` plus `git apply
+--include`, and the tree diff then hashed `88b9cc94…546d` (the snapshot
+before the coverage row). Logs are `.forge/u11d-mut-M<n>.log`.
+
+- **M22:** the config arm reads the key alone (`grammar::setting`).
+  - `every_declared_half…` fails, and all six config refusal rows read
+    `loaded`.
+  - `a_resolved_native_off…` fails 4 of 17 rows, and `an_inline_codex_seat_refuses…`
+    fails 5 of 38.
+- **M23:** the config arm refuses every value. `codex sound config` is
+  refused, and `resolved_native_on…` fails 11 of 11 rows.
+- **M24:** the transport check drops the slot-holding part instead of
+  substituting it. `codex sound transport` is refused, and
+  `resolved_native_on…` fails its five restriction rows.
+- **M25:** a malformed selection entry is skipped (`Err(_) => continue`).
+  `claude OFF malformed selection entry` reads `loaded`.
+- **M14 was not re-run.** Its binding row, `codex sound`, is now a
+  refusal, and M24 binds the substitution instead.
+
+### Why oversized: two arms of `bundle.rs` become unreachable
+
+`cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --all-features
+--locked --branch --lcov` was run on the fixed tree
+(`.forge/u11d-lcov.info`). It reports `bundle.rs` DA:3376 = 0 and
+DA:3403–3408 = 0. These are the `Contribution::Native` arms of
+`expressed_sandbox`'s configuration refusals:
+
+- the `--config` door text of the sandbox-table refusal;
+- the door, writer and keys text of the refusal for an assignment
+  outside the established keys.
+
+A resolved native plan holds only declared argv, and every declared
+assignment now passes the bounded reader at load. Such an assignment is
+either off the sandbox tables or an established key, so neither arm can
+run. The opaque-driver route is refused earlier, as the experiment
+above showed.
+
+The measurement was scoped to the runtime package. No brokkr-cli,
+bridge or view test plants such a declaration: a search for
+`sandbox_mode`, `sandbox_workspace_write`, `approval_policy`,
+`features.`, `web_search.` and `web_search="live"` found only
+`driver_conformance.rs` rejoin lines. The exact gate
+(`scripts/coverage-exact.sh`) requires every DA and BRDA record to be
+hit, so it cannot pass while these arms stay.
+
+Deleting them, which leaves the `Written` text in place, edits a
+production file outside unit 11's three.
+
+**Split needed:** admit `crates/brokkr-runtime/src/bundle.rs` into unit 11
+to delete exactly those `Contribution::Native` arms, or assign that
+deletion to a later unit, with exact coverage pending until it lands.
+
+### Gates (fixed tree, before the reset)
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: exit 0 with no warning, re-run on the final tree
+  (`.forge/u11d-clippy2.log`).
+- `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast`:
+  lib 565 passed, and all 25 result lines read 0 failed, `witness_digests`
+  4/4 included (`.forge/u11d-final-runtime.log`).
+- `cargo test -p brokkr-cli -p brokkr-protocol --all-features --locked
+  --no-fail-fast`: every result line reads 0 failed; the CLI lib had 481
+  passed (`.forge/u11d-final-cli-protocol.log`).
+- `bundles/self` and `bundles/verify` compiled, and their output has no
+  error or warning line.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed. `git diff --check` was clean.
+- **Pending:** exact coverage, which is known red on the two `bundle.rs`
+  arms above; macOS; remote CI.

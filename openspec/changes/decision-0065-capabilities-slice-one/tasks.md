@@ -1396,9 +1396,9 @@ remote CI are pending.
 
 ## 11. Unit 11 — Validate both declared halves at load
 
-- [x] 11.1 Unit 11 parses both declared ON/OFF argv at load, even unused. Verify full Codex/mapping/separator/missing-authority refusals and valid positives. Requirements: [Native capability controls are adapter-owned evidence-bearing data][NC1], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.3)
+- [ ] 11.1 Unit 11 parses both declared ON/OFF argv at load, even unused. Verify full Codex/mapping/separator/missing-authority refusals and valid positives. Requirements: [Native capability controls are adapter-owned evidence-bearing data][NC1], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.3)
 
-- [x] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
+- [ ] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
 
 Observed 2026-09-25 (evidence.md, "Unit 11 — oversized"), run
 `0065-rebuild-unit-11-see-the-uni-d48cbfd2`. Both tasks stay open. The unit
@@ -1480,6 +1480,33 @@ value. A comma-only `--disallowedTools` loaded, and `denial_on` read
   (`witness_digests` 4/4), both bundle compiles, strict openspec and
   `git diff --check` all passed. Exact coverage, macOS and remote CI are
   pending.
+
+Returned by the second review 2026-09-26 (evidence.md, "Unit 11 — the
+second review's return: oversized"), same run, on `0e7e777e`. F1 was
+medium and security: `declared_values` let every `--config` assignment
+through unread.
+
+- **The fix is built and saved, not committed:**
+  `.forge/unit-11-f1-oversized-2026-09-26.patch` (`12692853…46ed`).
+  - **Production:** a new `Effect::Config` arm reads each declared value
+    with `grammar::launch_setting`.
+  - **Tests:** `every_declared_half…` gains five config refusals, two
+    positives and a selection-entry coverage row. Its `codex sound`
+    becomes a refusal.
+  - **Widened inventory:** in `bundle/agent_tests.rs`, nine native-config
+    rows moved to the load refusal, and the ON/transport fixtures were
+    re-planted.
+  - **Proof:** reds, and M22–M25 each failed and was restored. The gates
+    passed.
+  - **Standing-admission lines:** none.
+- **Oversized:** `bundle.rs` DA:3376 and 3403–3408, the `Contribution::Native`
+  config arms, are measured unhit. The exact gate needs them deleted, and
+  `bundle.rs` is outside this unit. The split needed is to admit
+  `bundle.rs` into unit 11 for that deletion, or to assign the deletion
+  to a later unit.
+- **11.1 and 11.2 are unticked.** They stay open until the F1 fix lands.
+  A declared configuration value and a substituted configuration
+  transport are not yet read on the branch.
 
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
