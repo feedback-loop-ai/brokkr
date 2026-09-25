@@ -38,6 +38,12 @@ every evidence line points to a command you ran in this session and its
 output; what you did not observe stays pending. Prefer a targeted edit to
 rewriting a whole file when the result is the same.
 
+Design: build to the architecture principles your house rules state, in the
+house's own forms. When you knowingly bend one, name the principle and the
+reason in `notes`. Show that every test you add can fail: make a compiling
+change that removes the behaviour it proves, watch the test fail, restore the
+behaviour, and name the failing test in `notes`.
+
 
 Report completion only with all finished tasks ticked, the relevant tests
 green, and the work committed.

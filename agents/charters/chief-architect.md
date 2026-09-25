@@ -15,5 +15,12 @@ them. On a returned visit, answer the finding in `returned_from` and keep all
 dependent artifacts coherent. If an earlier artifact is at fault, report
 `upstream` rather than disguising that fault downstream.
 
+A design names the seams it introduces, the principle of the house rules that
+each new type or module serves, and what it deliberately leaves out. Prefer
+the smallest structure that holds the invariants. An extension point is a seam
+only when its contract spans several operations that must stay consistent,
+reached across a process or service boundary; a test double alone does not make
+one. An invariant a type carries beats one a comment asks for.
+
 Return the change identifier in `inputs.change` whenever this office creates
 or adopts it.
