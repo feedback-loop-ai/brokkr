@@ -438,11 +438,18 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
         .join(format!("exported/{run_id}.ndjson"))
         .is_file());
 
-    // `--db` outranks the map's journal, and the fleet there is empty —
-    // and the operator's own answer is not announced back to them.
+    // `--db` outranks the map's journal: the read goes to the journal
+    // named, which is not there, so it refuses by that name and creates
+    // nothing (#375) — and the operator's own answer is not announced
+    // back to them.
     let (code, listed, stderr) = ws.run(&["runs", "--json", "--db", "state/other.db"]);
-    assert_eq!(code, Some(0), "{stderr}");
-    assert!(!listed.contains(&run_id), "{listed}");
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(listed.is_empty(), "{listed}");
+    assert!(
+        stderr.contains("journal does not exist: state/other.db; a read never creates one"),
+        "{stderr}"
+    );
+    assert!(!ws.path().join("state/other.db").exists());
     assert!(!announced(&stderr), "{stderr}");
 }
 

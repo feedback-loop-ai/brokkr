@@ -1548,6 +1548,156 @@ fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_clo
     assert!(closed_tty.is_err());
 }
 
+/// #375: every reading verb, pointed at a journal that is not there,
+/// refuses in the same words and leaves the directory as empty as it
+/// found it — no `.forge/`, no database, no WAL, no export directory.
+#[test]
+fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join(".forge/forge.db");
+    let refusal = format!(
+        "journal does not exist: {}; a read never creates one",
+        db.display()
+    );
+    let verbs = [
+        (
+            "costs",
+            Cmd::Costs(CostsArgs {
+                run: "x".into(),
+                db: db.clone(),
+            }),
+        ),
+        (
+            "inspect",
+            Cmd::Inspect(InspectArgs {
+                run: "x".into(),
+                realms: None,
+                db: Some(db.clone()),
+                json: false,
+                phase: None,
+                seat: None,
+            }),
+        ),
+        (
+            "seats",
+            Cmd::Seats(SeatsArgs {
+                run: "x".into(),
+                realms: None,
+                db: Some(db.clone()),
+                json: false,
+            }),
+        ),
+        (
+            "watch",
+            Cmd::Watch(WatchArgs {
+                run: "x".into(),
+                realms: None,
+                db: Some(db.clone()),
+                once: true,
+                interval_ms: 750,
+            }),
+        ),
+        (
+            "replay",
+            Cmd::Replay(ReplayArgs {
+                run: "x".into(),
+                db: db.clone(),
+            }),
+        ),
+        (
+            "export",
+            Cmd::Export(ExportArgs {
+                run: "x".into(),
+                out: dir.path().join("out"),
+                realms: None,
+                db: Some(db.clone()),
+                redact: false,
+            }),
+        ),
+        (
+            "runs",
+            Cmd::Runs(RunsArgs {
+                realms: None,
+                db: Some(db.clone()),
+                json: false,
+            }),
+        ),
+        (
+            "compare",
+            Cmd::Compare(CompareArgs {
+                run_a: "x".into(),
+                run_b: "y".into(),
+                db: db.clone(),
+            }),
+        ),
+    ];
+    for (name, verb) in verbs {
+        let error = run_in(dir.path(), cli(verb)).unwrap_err().to_string();
+        assert_eq!(error, refusal, "{name}");
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "{name} created a file"
+        );
+    }
+}
+
+/// #375: `watch` polls a journal a live writer holds open, and every
+/// poll is a read-only open. A read-write open repairs a missing append
+/// guard (`Store::migrate`); a read-only one cannot, so the dropped
+/// guard staying dropped across polls — while the writer appends — is
+/// the proof no poll took the write path.
+#[test]
+fn watch_never_opens_a_live_journal_read_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let mut writer = Store::open(&db).unwrap();
+    let guard = "events_append_only_delete";
+    let raw = rusqlite::Connection::open(&db).unwrap();
+    raw.execute_batch(&format!("DROP TRIGGER {guard}")).unwrap();
+    let guards = || -> i64 {
+        raw.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+            [guard],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    let style = render::Style::plain(80);
+    let mut frames = Vec::new();
+    let mut sleep = |_: u64| {
+        writer
+            .append_next(
+                "r1",
+                EventType::EffectRequested,
+                json!({"effect_id": "eff1", "seat": "work", "phase": "work"}),
+                None,
+                None,
+            )
+            .unwrap();
+    };
+    watch_loop(
+        &db,
+        "r1",
+        750,
+        false,
+        &style,
+        &mut frames,
+        &mut fixed_clock,
+        &mut sleep,
+        2,
+    )
+    .unwrap();
+    let text = String::from_utf8(frames).unwrap();
+    assert_eq!(text.matches("── ").count(), 2, "the writer moved the head");
+    assert_eq!(
+        guards(),
+        0,
+        "a poll repaired the guard, so it opened read-write"
+    );
+}
+
 /// The verb, its selector, and the promise that a read never creates a
 /// database (decision 0014's AC-1 and AC-2).
 #[test]
@@ -1879,9 +2029,9 @@ fn resolving_across_hearths_migrates_no_journal_it_passes() {
     assert!(!dir.path().join("alpha.db-wal").exists());
 }
 
-/// The transcript command resolves even a SOLE named hearth read-only: a
-/// read must not create a WAL sidecar, migrate or repair the journal it
-/// came to read.
+/// Resolution opens even a SOLE named hearth read-only (#375): a read
+/// must not create a WAL sidecar, migrate or repair the journal it came
+/// to read.
 #[test]
 fn read_only_resolution_opens_a_sole_hearth_without_writing() {
     let dir = tempfile::tempdir().unwrap();
@@ -1893,7 +2043,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
         journal: db.clone(),
     }];
     assert_eq!(
-        resolve_in_hearths_read_only(&world, "run-al".to_string()).unwrap(),
+        resolve_in_hearths(&world, "run-al".to_string()).unwrap(),
         (0, "run-alpha".to_string())
     );
     assert_eq!(
@@ -1912,7 +2062,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
         journal: unborn.clone(),
     }];
     assert!(
-        resolve_in_hearths_read_only(&sole_unborn, "latest".to_string()).is_err(),
+        resolve_in_hearths(&sole_unborn, "latest".to_string()).is_err(),
         "an unmigrated sole journal is refused, not repaired"
     );
     assert_eq!(
@@ -1929,7 +2079,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
         journal: ghost.clone(),
     }];
     assert_eq!(
-        resolve_in_hearths_read_only(&empty, "latest".to_string()).unwrap(),
+        resolve_in_hearths(&empty, "latest".to_string()).unwrap(),
         (0, "latest".to_string())
     );
     assert!(
