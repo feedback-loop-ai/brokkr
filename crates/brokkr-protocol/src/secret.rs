@@ -610,5 +610,44 @@ pub fn mask_bytes(bytes: &[u8], bindings: &[BoundSecret]) -> Vec<u8> {
     out
 }
 
+/// [`mask_bytes`] over every string inside a JSON value — object keys
+/// included — in place.
+///
+/// For the surfaces that reach the driver as JSON: a harness's stream,
+/// a harness's transcript and a seat's result file. A secret the model
+/// echoed arrives there JSON-escaped on the wire (a `"`, a `\`, a tab),
+/// so it never matches in the raw bytes; it must be masked on the
+/// DECODED strings, and before anything clamps or rewrites them — a
+/// prefix cut at a length limit, or whitespace collapsed for a one-line
+/// reason, no longer matches the whole needle. Keys are masked too
+/// because a result file's keys are the seat's to choose. Numbers are
+/// left as numbers: a count must stay a count for the seat record, so a
+/// wholly numeric secret echoed as a bare JSON number is not rewritten
+/// (the secrets guide says so).
+pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
+    match value {
+        serde_json::Value::String(text) => {
+            *text = mask_text(text, bindings);
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                mask_json(item, bindings);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let entries = std::mem::take(map);
+            for (key, mut item) in entries {
+                mask_json(&mut item, bindings);
+                map.insert(mask_text(&key, bindings), item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn mask_text(text: &str, bindings: &[BoundSecret]) -> String {
+    String::from_utf8_lossy(&mask_bytes(text.as_bytes(), bindings)).into_owned()
+}
+
 #[cfg(test)]
 mod tests;

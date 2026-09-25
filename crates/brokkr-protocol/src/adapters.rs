@@ -618,6 +618,43 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
     )
 }
 
+/// Injection discipline (decision 0012, layer 3): values reach the child
+/// ONLY through its environment, resolved at spawn time — never argv
+/// (/proc/*/cmdline is world-readable), never the template. Every harness
+/// spawn — claude, lanetally, codex, dsh and exec alike — binds through
+/// here, so this holds the sole production call site of
+/// expose_for_spawn, CI-grep pinned. A declared name overrides any
+/// pre-existing env entry: the declaration is in the reviewed charter, so
+/// a collision is visible at review time.
+fn bind_environment(command: &mut Command, bindings: &[secret::BoundSecret]) -> Result<(), String> {
+    for binding in bindings {
+        let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
+            Ok(value) => value,
+            Err(_) => return Err(format!("secret '{}' is not valid UTF-8", binding.name())),
+        };
+        command.env(binding.name(), value);
+    }
+    Ok(())
+}
+
+/// Drain a child's stderr on its own thread, so a chatty session cannot
+/// deadlock the stdout stream being folded live. The bytes come back
+/// raw: known-plaintext masking (decision 0012, layer 5) runs on them
+/// before any string conversion, in [`masked_text`].
+fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<u8>> {
+    let mut pipe = child.stderr.take().expect("piped");
+    std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let _ = pipe.read_to_end(&mut captured);
+        captured
+    })
+}
+
+/// Captured child bytes as text, masked first and converted second.
+fn masked_text(bytes: &[u8], bindings: &[secret::BoundSecret]) -> String {
+    String::from_utf8_lossy(&secret::mask_bytes(bytes, bindings)).into_owned()
+}
+
 fn run_cli(
     command: &[String],
     stdin_payload: Option<&str>,
@@ -634,20 +671,7 @@ fn run_cli(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Injection discipline (decision 0012, layer 3): values reach the
-    // child ONLY through its environment, resolved at spawn time — never
-    // argv (/proc/*/cmdline is world-readable), never the template. This
-    // is the sole production call site of expose_for_spawn, CI-grep
-    // pinned. A declared name overrides any pre-existing env entry: the
-    // declaration is in the reviewed charter, so a collision is visible
-    // at review time.
-    for binding in bindings {
-        let value = match std::str::from_utf8(binding.secret().expose_for_spawn()) {
-            Ok(value) => value,
-            Err(_) => return Err(format!("secret '{}' is not valid UTF-8", binding.name())),
-        };
-        invocation.env(binding.name(), value);
-    }
+    bind_environment(&mut invocation, bindings)?;
     let mut child = io_context(invocation.spawn(), "could not invoke the agent CLI")?;
     if let Some(payload) = stdin_payload {
         let mut stdin = child.stdin.take().expect("piped");
@@ -2245,12 +2269,14 @@ struct DshTail {
 /// telemetry in the journal, never an injection or a control-flow
 /// decision. A driver whose harness offers a real stdout stream should
 /// use it rather than inherit this.
+#[allow(clippy::too_many_arguments)]
 fn drain_dsh_transcript(
     tail: &mut DshTail,
     root: &std::path::Path,
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) {
     if tail.file.is_none() {
@@ -2264,9 +2290,10 @@ fn drain_dsh_transcript(
     tail.pending.extend_from_slice(&chunk);
     while let Some(index) = tail.pending.iter().position(|byte| *byte == b'\n') {
         let line: Vec<u8> = tail.pending.drain(..=index).collect();
-        let Ok(event) = serde_json::from_slice::<Value>(&line) else {
+        let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
             continue;
         };
+        secret::mask_json(&mut event, bindings);
         fold_dsh_event(&event, first_seq, turns, session_meta, emit);
     }
 }
@@ -2347,19 +2374,21 @@ fn invoke_stream_json(
     command: &[String],
     prompt: &str,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
     let (program, args) = (&command[0], &command[1..]);
-    let child = Command::new(program)
+    let mut builder = Command::new(program);
+    builder
         .args(args)
         .current_dir(if workdir.is_empty() { "." } else { workdir })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut child = io_context(child, "could not invoke the agent CLI")?;
+        .stderr(Stdio::piped());
+    bind_environment(&mut builder, bindings)?;
+    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     {
         let mut stdin = child.stdin.take().expect("piped");
         io_context(
@@ -2367,15 +2396,7 @@ fn invoke_stream_json(
             "could not write the prompt",
         )?;
     }
-    // stderr drains on its own thread so a chatty session cannot
-    // deadlock the stdout stream we are folding live.
-    let stderr_pipe = child.stderr.take().expect("piped");
-    let stderr_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut pipe = stderr_pipe;
-        let _ = pipe.read_to_end(&mut captured);
-        String::from_utf8_lossy(&captured).into_owned()
-    });
+    let stderr_thread = drain_stderr(&mut child);
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
     let mut assistant_turns = 0u64;
@@ -2394,9 +2415,12 @@ fn invoke_stream_json(
             let Ok(line) = line else { break };
             // Unparseable stream lines are noise, never repaired
             // (decision 0001).
-            let Ok(event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+            // Masked before the fold clamps or rewrites anything it takes
+            // (decision 0012, layer 5): see `secret::mask_json`.
+            secret::mask_json(&mut event, bindings);
             let classified = fold_stream_event(
                 &event,
                 &mut assistant_turns,
@@ -2414,7 +2438,7 @@ fn invoke_stream_json(
         exit_code: status.code().unwrap_or(-1),
         session_meta,
         stdout: String::new(),
-        stderr: stderr_thread.join().unwrap_or_default(),
+        stderr: masked_text(&stderr_thread.join().unwrap_or_default(), bindings),
         state: None,
         refusal,
         launch: LaunchTerminal::Cold,
@@ -3019,32 +3043,28 @@ fn invoke_codex(
     command: &[String],
     prompt: &str,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
     let (program, args) = (&command[0], &command[1..]);
-    let child = Command::new(program)
+    let mut builder = Command::new(program);
+    builder
         .args(args)
         .current_dir(if workdir.is_empty() { "." } else { workdir })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut child = io_context(child, "could not invoke the agent CLI")?;
+        .stderr(Stdio::piped());
+    bind_environment(&mut builder, bindings)?;
+    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
         stdin.write_all(prompt.as_bytes()),
         "could not write the prompt",
     )?;
     drop(stdin);
-    let stderr_pipe = child.stderr.take().expect("piped");
-    let stderr_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut pipe = stderr_pipe;
-        let _ = pipe.read_to_end(&mut captured);
-        String::from_utf8_lossy(&captured).into_owned()
-    });
+    let stderr_thread = drain_stderr(&mut child);
     let mut session_meta = Map::new();
     let mut turn = 0;
     let mut echo = CodexThreadEcho::default();
@@ -3059,7 +3079,8 @@ fn invoke_codex(
         let mut watch = |data: &Value| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
-            if let Ok(event) = serde_json::from_str::<Value>(&line) {
+            if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
+                secret::mask_json(&mut event, bindings);
                 let classified = fold_codex_event(
                     &event,
                     &mut turn,
@@ -3073,7 +3094,7 @@ fn invoke_codex(
         }
         io_context(child.wait(), "agent CLI did not conclude")?
     };
-    let stderr = stderr_thread.join().unwrap_or_default();
+    let stderr = masked_text(&stderr_thread.join().unwrap_or_default(), bindings);
     // An attempt that concluded without ever reaching a `turn.completed`
     // — a release that folds none, or a codex that exits before its
     // first turn finishes — has read the thread record not at all. Ask
@@ -3142,13 +3163,23 @@ fn invoke_dsh(
     workdir: &str,
     input: &Value,
     session: Option<&str>,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    invoke_dsh_with(extra, prompt, workdir, input, session, emit, |child| {
-        child
-            .try_wait()
-            .map(|status| status.map(|status| status.code().unwrap_or(-1)))
-    })
+    invoke_dsh_with(
+        extra,
+        prompt,
+        workdir,
+        input,
+        session,
+        bindings,
+        emit,
+        |child| {
+            child
+                .try_wait()
+                .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+        },
+    )
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -3953,12 +3984,13 @@ fn invoke_dsh_with(
     workdir: &str,
     input: &Value,
     session: Option<&str>,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let launch = dsh_launch(&bin, extra, workdir, session, input)?;
-    invoke_dsh_launch(launch, prompt, workdir, emit, wait)
+    invoke_dsh_launch(launch, prompt, workdir, bindings, emit, wait)
 }
 
 /// `invoke_dsh_with` over an already-settled launch, so the qualified
@@ -3969,10 +4001,11 @@ fn invoke_dsh_launch(
     launch: DshLaunch,
     prompt: &str,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
-    invoke_dsh_launch_observed(launch, prompt, workdir, emit, wait, &mut |_| {})
+    invoke_dsh_launch_observed(launch, prompt, workdir, bindings, emit, wait, &mut |_| {})
 }
 
 /// `invoke_dsh_launch` with this ONE invocation's observer of the
@@ -3983,6 +4016,7 @@ fn invoke_dsh_launch_observed(
     mut launch: DshLaunch,
     prompt: &str,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
@@ -4034,6 +4068,7 @@ fn invoke_dsh_launch_observed(
             &command,
             &launch,
             workdir,
+            bindings,
             &mut watch,
             &mut hold,
             &mut session_meta,
@@ -4041,7 +4076,15 @@ fn invoke_dsh_launch_observed(
             observer,
         )
     } else {
-        invoke_dsh_shipped(&command, workdir, &launch, wait, &mut session_meta, emit)
+        invoke_dsh_shipped(
+            &command,
+            workdir,
+            &launch,
+            bindings,
+            wait,
+            &mut session_meta,
+            emit,
+        )
     };
     let mut invocation = match attempt {
         Ok(invocation) => invocation,
@@ -4076,7 +4119,8 @@ fn spawn_dsh(
     workdir: &str,
     stdout: Stdio,
     facts: &GitFacts,
-) -> Result<(std::process::Child, std::thread::JoinHandle<String>), String> {
+    bindings: &[secret::BoundSecret],
+) -> Result<(std::process::Child, std::thread::JoinHandle<Vec<u8>>), String> {
     let mut builder = Command::new(&command[0]);
     builder
         .args(&command[1..])
@@ -4097,15 +4141,9 @@ fn spawn_dsh(
     for (key, value) in &facts.identity {
         builder.env(key, value);
     }
-    let child = builder.spawn();
-    let mut child = io_context(child, "could not invoke the agent CLI")?;
-    let stderr_pipe = child.stderr.take().expect("piped");
-    let stderr_thread = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut pipe = stderr_pipe;
-        let _ = pipe.read_to_end(&mut captured);
-        String::from_utf8_lossy(&captured).into_owned()
-    });
+    bind_environment(&mut builder, bindings)?;
+    let mut child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
+    let stderr_thread = drain_stderr(&mut child);
     Ok((child, stderr_thread))
 }
 
@@ -4117,11 +4155,13 @@ fn invoke_dsh_shipped(
     command: &[String],
     workdir: &str,
     launch: &DshLaunch,
+    bindings: &[secret::BoundSecret],
     mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::null(), &launch.facts)?;
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, workdir, Stdio::null(), &launch.facts, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let exit_code = poll_until_exit(
@@ -4133,11 +4173,12 @@ fn invoke_dsh_shipped(
                 launch.first_seq,
                 &mut turns,
                 session_meta,
+                bindings,
                 emit,
             )
         },
     )?;
-    finish_dsh(session_meta, exit_code, stderr_thread)
+    finish_dsh(session_meta, exit_code, stderr_thread, bindings)
 }
 
 /// The qualified `--output-format stream-json` exchange (task 8.8(d)):
@@ -4151,13 +4192,15 @@ fn invoke_dsh_stream_json(
     command: &[String],
     launch: &DshLaunch,
     workdir: &str,
+    bindings: &[secret::BoundSecret],
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped(), &launch.facts)?;
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, workdir, Stdio::piped(), &launch.facts, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
     let mut tail = DshTail::default();
@@ -4182,7 +4225,8 @@ fn invoke_dsh_stream_json(
             break;
         };
         let read = match serde_json::from_str::<Value>(&line) {
-            Ok(event) => {
+            Ok(mut event) => {
+                secret::mask_json(&mut event, bindings);
                 fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
                 DshStreamLine::Event
             }
@@ -4207,6 +4251,7 @@ fn invoke_dsh_stream_json(
                 launch.first_seq,
                 &mut turns,
                 session_meta,
+                bindings,
                 emit,
             );
         }
@@ -4222,10 +4267,16 @@ fn invoke_dsh_stream_json(
             launch.first_seq,
             &mut turns,
             session_meta,
+            bindings,
             emit,
         );
     }
-    finish_dsh(session_meta, status.code().unwrap_or(-1), stderr_thread)
+    finish_dsh(
+        session_meta,
+        status.code().unwrap_or(-1),
+        stderr_thread,
+        bindings,
+    )
 }
 
 /// One line of the plugin's stream-json envelope. The init event names the
@@ -4671,7 +4722,8 @@ fn dsh_census_within(
 fn finish_dsh(
     session_meta: &mut Map<String, Value>,
     exit_code: i32,
-    stderr_thread: std::thread::JoinHandle<String>,
+    stderr_thread: std::thread::JoinHandle<Vec<u8>>,
+    bindings: &[secret::BoundSecret],
 ) -> Result<Invocation, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
@@ -4683,7 +4735,10 @@ fn finish_dsh(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
-    let stderr = redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default());
+    let stderr = redact_dsh_reasoning(&masked_text(
+        &stderr_thread.join().unwrap_or_default(),
+        bindings,
+    ));
     // The promotion that moves the seat's commits out of the private
     // store happens in `invoke_dsh_with`, which owns the store for the
     // seat's whole life and is the one place both routes return through.
@@ -4789,7 +4844,8 @@ fn invoke_with_stager(
             let plan = claude_launch(&bin, extra, session, input, CLAUDE_SHAPE, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
-            let mut invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation =
+                invoke_stream_json(&command, prompt, &workdir, bindings, &mut hold, emit)?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
             Ok(invocation)
@@ -4811,7 +4867,8 @@ fn invoke_with_stager(
             let plan = claude_launch(&bin, extra, session, input, LANETALLY_SHAPE, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
-            let mut invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation =
+                invoke_stream_json(&command, prompt, &workdir, bindings, &mut hold, emit)?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
             Ok(invocation)
@@ -4821,7 +4878,8 @@ fn invoke_with_stager(
             let plan = codex_launch(&bin, extra, &workdir, session, input)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
-            let mut invocation = invoke_codex(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation =
+                invoke_codex(&command, prompt, &workdir, bindings, &mut hold, emit)?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
             // Ruling 8's ONE pre-work replacement, and only on evidence
@@ -4858,7 +4916,8 @@ fn invoke_with_stager(
                 );
                 let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
-                let mut outcome = invoke_codex(&command, prompt, &workdir, &mut replacement, emit)?;
+                let mut outcome =
+                    invoke_codex(&command, prompt, &workdir, bindings, &mut replacement, emit)?;
                 replacement.finish(emit);
                 outcome.launch = replacement.terminal();
                 // No recursion: a failed replacement reports its own
@@ -4867,7 +4926,7 @@ fn invoke_with_stager(
             }
             Ok(invocation)
         }
-        AdapterKind::Dsh => invoke_dsh(extra, prompt, &workdir, input, session, emit),
+        AdapterKind::Dsh => invoke_dsh(extra, prompt, &workdir, input, session, bindings, emit),
         AdapterKind::Exec => {
             if extra.is_empty() {
                 return Err("exec driver needs a command template after '--'".to_string());
@@ -5732,6 +5791,13 @@ fn run_seat_with(
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {
         let mut data = data.clone();
+        // Masking choke point for the model harnesses (decision 0012,
+        // layer 5): a checkpoint is folded from the child's stdout, so a
+        // bound value the seat echoed must not reach the journal through
+        // it. Masked on the parsed strings — see `secret::mask_json`.
+        if !bindings.is_empty() {
+            secret::mask_json(&mut data, &bindings);
+        }
         // Every fold emits a JSON object and the seat record (0034)
         // is defined on objects, so there is no non-object
         // checkpoint to branch on.
@@ -5827,13 +5893,21 @@ fn run_seat_with(
     };
     let Invocation {
         exit_code,
-        session_meta,
+        mut session_meta,
         stdout,
         stderr,
         state,
         refusal,
         launch,
     } = invocation;
+    // The same choke point for what the folds kept aside: the session
+    // record and a provider's refusal prose both come from the child's
+    // stream and both can reach the journal. stdout, stderr and state
+    // were masked on raw bytes where they were captured.
+    for value in session_meta.values_mut() {
+        secret::mask_json(value, &bindings);
+    }
+    let refusal = refusal.map(|reason| masked_text(reason.as_bytes(), &bindings));
     // A provider refusal before the first turn is a determinate failure
     // to start (decision 0053): `result: failed`, no `accepted`, no
     // checkpoint, and the reason is the result's error so the journal
@@ -6023,13 +6097,22 @@ fn run_seat_with(
     // append-only journal via EffectSucceeded — a child that echoes
     // $TOKEN into its notes must not put plaintext there. Raw bytes
     // first, string conversion second.
-    let raw = secret::mask_bytes(&raw, &bindings);
+    // Parsed FIRST and masked second: a bound value with a character JSON
+    // escapes never appears verbatim in the escaped bytes, so a raw-bytes
+    // pass would miss it and the parse would decode it back to plaintext.
     let raw = String::from_utf8_lossy(&raw);
     // Typed-invalid on purpose when unparseable: the engine parks with
-    // raw evidence (decision 0001); adapters repair nothing.
+    // raw evidence (decision 0001); adapters repair nothing. The parse
+    // error is masked too, since it is the one string here that can quote
+    // the file.
     let mut seat_result = match serde_json::from_str::<Value>(&raw) {
-        Ok(result) => result,
-        Err(error) => json!({"__unparseable_result_file__": error.to_string()}),
+        Ok(mut result) => {
+            secret::mask_json(&mut result, &bindings);
+            result
+        }
+        Err(error) => {
+            json!({"__unparseable_result_file__": masked_text(error.to_string().as_bytes(), &bindings)})
+        }
     };
     // Result contracts are objects. Enrich the driver's copy with the
     // provider report after masking/parsing so seat-authored content can

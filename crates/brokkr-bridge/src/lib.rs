@@ -116,6 +116,11 @@ pub enum BridgeError {
     UnboundRun,
     #[error("producer transport: {0}")]
     Transport(String),
+    /// The transport would deliver to an origin other than the one the
+    /// dispatch sealed. The text is the one the HTTP transport has always
+    /// printed, so an operator reading it sees nothing new.
+    #[error("producer transport: transport origin does not match the sealed callback audience")]
+    AudienceMismatch,
     #[error("normalized event exceeds dispatch bound")]
     EventTooLarge,
     #[error("producer semantic type is outside the dispatch grant")]
@@ -127,6 +132,11 @@ pub enum BridgeError {
 }
 
 pub trait ProducerTransport {
+    /// The origin every request of this transport is sent to. The bridge
+    /// refuses to register a dispatch whose sealed callback audience is
+    /// any other origin, whatever the transport, so a transport cannot
+    /// opt out of that check by not implementing it.
+    fn origin(&self) -> &str;
     fn register(
         &mut self,
         dispatch: &DispatchEnvelopeV2,
@@ -188,17 +198,29 @@ fn data<T: for<'de> Deserialize<'de>>(value: Value) -> Result<T, BridgeError> {
         .map_err(|error| BridgeError::Transport(format!("invalid response shape: {error}")))
 }
 
+/// The one audience rule: a transport may deliver only to the origin the
+/// dispatch sealed. `Bridge::sync_once` applies it to every transport
+/// before registering; the HTTP transport applies it again for callers
+/// that register through it directly.
+fn audience_matches(origin: &str, dispatch: &DispatchEnvelopeV2) -> Result<(), BridgeError> {
+    if origin.trim_end_matches('/') == dispatch.producer.callback_audience.trim_end_matches('/') {
+        Ok(())
+    } else {
+        Err(BridgeError::AudienceMismatch)
+    }
+}
+
 impl ProducerTransport for HttpTransport {
+    fn origin(&self) -> &str {
+        &self.base_url
+    }
+
     fn register(
         &mut self,
         dispatch: &DispatchEnvelopeV2,
         run_manifest: &Value,
     ) -> Result<RegistrationState, BridgeError> {
-        if self.base_url != dispatch.producer.callback_audience.trim_end_matches('/') {
-            return Err(BridgeError::Transport(
-                "transport origin does not match the sealed callback audience".into(),
-            ));
-        }
+        audience_matches(&self.base_url, dispatch)?;
         let response = self.request(
             "POST",
             "/api/v1/delivery/forge-producers/registrations",
@@ -266,6 +288,11 @@ fn digest_string(value: Option<&Value>) -> Option<Value> {
     Some(Value::String(canonical::sha256_bytes(text.as_bytes())))
 }
 
+/// Only the fields the producer vocabulary names leave the journal.
+/// Fields the engine began recording later — `effort` and
+/// `reasoning_output_tokens` among them — are withheld until that
+/// vocabulary names them: forwarding one is a change to the consumer's
+/// contract, not a detail of this bridge.
 fn safe_checkpoint(checkpoint: &Value) -> Value {
     let mut output = Map::new();
     for key in [
@@ -577,6 +604,7 @@ impl<T: ProducerTransport> Bridge<T> {
         if dispatch.forge_run_id != run_id {
             return Err(BridgeError::RegistrationMismatch);
         }
+        audience_matches(self.transport.origin(), &dispatch)?;
         let registration = self.transport.register(&dispatch, &manifest)?;
         if registration.registration_id != dispatch.producer.registration_id {
             return Err(BridgeError::RegistrationMismatch);

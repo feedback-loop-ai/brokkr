@@ -422,3 +422,54 @@ fn store_parse_skips_comments_and_refuses_garbage() {
     assert!(error.contains("line 1"), "{error}");
     assert!(!error.contains("equals"), "never the contents: {error}");
 }
+
+#[test]
+fn mask_json_masks_every_decoded_string_and_leaves_keys_and_scalars() {
+    // A value with a quote and a backslash is JSON-escaped on the wire,
+    // so only masking after parsing can find it: this is the stream-json
+    // surface decision 0012's layer 5 covers for the model harnesses.
+    let value = "p\"a\\ss-w0rd";
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = store_dir.path().join("secrets.env");
+    store_set(&store, "API_TOKEN", value).unwrap();
+    let bindings = resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let wire = serde_json::to_string(&serde_json::json!({
+        "target": format!("/work/{value}"),
+        "nested": [{"note": format!("said {value}")}, 7, true, null],
+        "tokens": 3,
+    }))
+    .unwrap();
+    assert!(!wire.contains(value), "the wire form is escaped: {wire}");
+    let mut parsed: serde_json::Value = serde_json::from_str(&wire).unwrap();
+    mask_json(&mut parsed, &bindings);
+    assert_eq!(
+        parsed,
+        serde_json::json!({
+            "target": "/work/[secret:API_TOKEN]",
+            "nested": [{"note": "said [secret:API_TOKEN]"}, 7, true, null],
+            "tokens": 3,
+        })
+    );
+}
+
+#[test]
+fn mask_json_masks_object_keys_and_leaves_numbers_as_numbers() {
+    // A result file's keys are the seat's to choose, so a key that echoes
+    // a bound value is masked like any string. A count stays a count.
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = store_dir.path().join("secrets.env");
+    store_set(&store, "API_TOKEN", "key-leak-value").unwrap();
+    let bindings = resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let mut value = serde_json::json!({
+        "key-leak-value": {"inner key-leak-value": 1},
+        "tokens": 42,
+    });
+    mask_json(&mut value, &bindings);
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "[secret:API_TOKEN]": {"inner [secret:API_TOKEN]": 1},
+            "tokens": 42,
+        })
+    );
+}
