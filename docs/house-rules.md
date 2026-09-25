@@ -50,9 +50,9 @@ the authority, and a finding it would catch is the gate's.
   lines, nesting depth 5 and 7 parameters. A new function stays within
   cyclomatic complexity 15, and an existing one never grows more complex.
   Production files stay within 800 lines and test files within 2,000, and a
-  file already over may not grow. Add no new copy of a block: move it into
-  one home instead. `quality/` holds the measured baseline. Today's offenders
-  carry `#[allow(clippy::…)]`, and #337 converts them to
+  file already over may not grow. Add no new `jscpd` clone in production
+  code, test code or data. `quality/` holds the measured baseline. Today's
+  offenders carry `#[allow(clippy::…)]`, and #337 converts them to
   `#[expect(clippy::…, reason = "…")]`. Add a suppression only by a ruling,
   and remove it when you fix the function. A new suppression is
   `#[expect(…, reason)]`, never `#[allow]`.

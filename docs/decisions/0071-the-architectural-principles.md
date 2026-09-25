@@ -130,9 +130,7 @@ that began. Rulings 3 and 4 pay that price.
    level of abstraction. New and changed functions stay within the
    ceilings below. Today's offenders are a committed baseline that may
    only shrink. The operator ruled the ceilings final on 2026-09-25 from
-   the baseline #335 recorded under `quality/`. Each sits near today's 95th
-   to 98th percentile, so new code is no worse than nearly all existing
-   code:
+   the baseline #335 recorded under `quality/`. They are:
    - 100 lines per function, as clippy counts them;
    - nesting depth 5, as clippy's `excessive_nesting` counts it (`impl`
      and `mod` levels included);
@@ -143,7 +141,8 @@ that began. Rulings 3 and 4 pay that price.
    - 800 lines per production file and 2,000 per test file, and a file
      already over its ceiling may not grow past its baseline;
    - no new clone in production code, test code or data, as `jscpd`
-     finds them against the committed baselines.
+     finds them against the committed baselines; ruling 5's `jscpd`
+     ratchet holds this one.
 
    Clippy's `cognitive_complexity` is not used; its own documentation
    says it does not measure what its name claims.
