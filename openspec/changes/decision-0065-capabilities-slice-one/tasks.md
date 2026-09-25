@@ -1508,6 +1508,16 @@ through unread.
   A declared configuration value and a substituted configuration
   transport are not yet read on the branch.
 
+Re-commissioned 2026-09-26, same run, without a ruling on `bundle.rs`
+(evidence.md, "Unit 11 — re-commissioned without a ruling"):
+
+- The saved patch still hashes `12692853…46ed` and still applies cleanly.
+- Re-measured with the patch applied: all runtime tests pass, and
+  `bundle.rs` DA:3376 and 3403–3408 are still 0.
+- The tree was restored, and the unit is **oversized** again with the
+  same split.
+- **Standing-admission lines:** none.
+
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
 - [ ] 12.1 Unit 12 refuses every authored catalogue option regardless of grant/value/polarity/form. Verify complete all-harness matrix and bounded reasons without payloads; typed hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Subtractive tool lists never grant a capability][RGS], [Reserved hands preserves the existing workspace authority][TD6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2. (previous 4.6)

@@ -9133,3 +9133,43 @@ deletion to a later unit, with exact coverage pending until it lands.
   failed. `git diff --check` was clean.
 - **Pending:** exact coverage, which is known red on the two `bundle.rs`
   arms above; macOS; remote CI.
+
+## Unit 11 — re-commissioned without a ruling on `bundle.rs`: oversized again, 2026-09-26
+
+Same run, `0065-rebuild-unit-11-see-the-uni-1d1020cd`. Triage re-ruled
+`chore` (framing `.forge/tasks/0065-unit-11-triage-b47fdf78.md`). That
+framing repeats the first visit's commission, and it names no ruling on
+the split asked for above. `operator-ruling-2026-09-23.md` has no addendum
+after "rebuild unit 11's test inventory". So `bundle.rs` is still outside
+the unit, and this visit re-verified the blocker instead of landing
+around it.
+
+**Re-verification on `9973a268`, a clean tree:**
+
+- `sha256sum .forge/unit-11-f1-oversized-2026-09-26.patch` gave
+  `12692853…46ed`, matching the record above. `git apply --check --stat`
+  was clean and touched only `native_controls.rs`, `agents/tests.rs` and
+  `bundle/agent_tests.rs`.
+- The patch was applied, then `cargo +nightly-2026-09-05 llvm-cov -p
+  brokkr-runtime --all-features --locked --branch --lcov` was run
+  (`.forge/u11e-lcov.info`). It exited 0: 24 `test result: ok` lines and
+  0 `FAILED`.
+- The `bundle.rs` record reads DA:3375 = 9 but DA:3376 = 0, and DA:3397
+  = 4 but DA:3403–3408 = 0. These are the same two
+  `Contribution::Native` arms of `expressed_sandbox`.
+- The tree was then restored to `9973a268` with `git checkout`, and
+  `git status --short` was empty.
+
+**Routes considered and not taken, because each widens scope:**
+
+- Keeping the arms alive with a test that builds a `SiteCapabilities`
+  past the loader would add assertions to `bundle/agent_tests.rs`. The
+  ruling admits that file for assertion updates only, and such a test
+  would bind code that production cannot reach.
+- Narrowing the fix to read only allowlisted keys would leave an unread
+  declared `-c sandbox_mode=…` loading, which is F1 itself.
+
+**Split still needed:** admit `crates/brokkr-runtime/src/bundle.rs` into
+unit 11 to delete exactly the `Contribution::Native` arms at 3376 and
+3403–3408, or assign that deletion to a later unit with exact coverage
+pending until it lands. Then apply the saved patch.
