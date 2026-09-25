@@ -1,7 +1,7 @@
 use super::*;
+use crate::env_guard::EnvGuard;
 use crate::transcript::{dsh_home, dsh_home_from};
 use std::path::Path;
-use std::sync::Mutex;
 
 /// A host path spelled the way THIS platform spells an absolute one.
 /// `dsh_git_runner_scope` absolutizes the workdir against the host, and
@@ -22,13 +22,6 @@ macro_rules! absolute {
         $path
     };
 }
-
-/// The one lock every adapter test that MUTATES or READS the process
-/// environment takes. It is reachable from the sibling composite suite
-/// because a reader there is as much a party to the race as a writer
-/// here: the process has one `DSH_HOME`, and a reader that skips this
-/// lock observes another test's temporary home.
-pub(in crate::adapters) static ADAPTER_ENV: Mutex<()> = Mutex::new(());
 
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
@@ -283,7 +276,7 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
 
 #[test]
 fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     struct BrokenWriter;
     impl Write for BrokenWriter {
         fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
@@ -339,8 +332,8 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     assert!(!adapter_binary("PATH", None, "fallback").is_empty());
     // The renamed overrides: the new spelling wins, the old one answers
     // when the new one is absent (decision 0019, one release).
-    std::env::set_var("BROKKR_TEST_BINARY_RENAMED", "new");
-    std::env::set_var("FORGE_TEST_BINARY_RENAMED", "old");
+    env.set("BROKKR_TEST_BINARY_RENAMED", "new");
+    env.set("FORGE_TEST_BINARY_RENAMED", "old");
     assert_eq!(
         adapter_binary(
             "BROKKR_TEST_BINARY_RENAMED",
@@ -349,7 +342,7 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         ),
         "new"
     );
-    std::env::remove_var("BROKKR_TEST_BINARY_RENAMED");
+    env.remove("BROKKR_TEST_BINARY_RENAMED");
     assert_eq!(
         adapter_binary(
             "BROKKR_TEST_BINARY_RENAMED",
@@ -358,7 +351,7 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         ),
         "old"
     );
-    std::env::remove_var("FORGE_TEST_BINARY_RENAMED");
+    env.remove("FORGE_TEST_BINARY_RENAMED");
     assert_eq!(io_context::<()>(Ok(()), "ok"), Ok(()));
     assert!(
         io_context::<()>(Err(std::io::Error::other("no")), "context")
@@ -641,7 +634,7 @@ fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathB
 #[cfg(unix)]
 #[test]
 fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let invalid = executable(
         dir.path(),
@@ -653,22 +646,19 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         "closed-stdin",
         "#!/bin/sh\nexec 0<&-\nsleep 0.1\n",
     );
-    let prior_claude = std::env::var_os("BROKKR_CLAUDE_BIN");
-    let prior_codex = std::env::var_os("FORGE_CODEX_BIN");
     // Codex is pinned here through its OLD spelling, which the new one
     // outranks (decision 0019): an inherited BROKKR_CODEX_BIN would
     // send this test at a real codex, so it goes for the duration.
-    let prior_brokkr_codex = std::env::var_os("BROKKR_CODEX_BIN");
-    std::env::remove_var("BROKKR_CODEX_BIN");
+    env.remove("BROKKR_CODEX_BIN");
 
     for (kind, variable) in [
         (AdapterKind::Claude, "BROKKR_CLAUDE_BIN"),
         (AdapterKind::Codex, "FORGE_CODEX_BIN"),
     ] {
-        std::env::set_var(variable, &invalid);
+        env.set(variable, &invalid);
         assert!(invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {}).is_ok());
 
-        std::env::set_var(variable, &closed);
+        env.set(variable, &closed);
         let prompt = "x".repeat(1_000_000);
         let error = match invoke(kind, &[], &prompt, &json!({}), None, &[], &mut |_| {}) {
             Ok(_) => panic!("closed stdin must refuse prompt delivery"),
@@ -676,24 +666,12 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         };
         assert!(error.contains("could not write the prompt"));
     }
-
-    match prior_claude {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
-    match prior_codex {
-        Some(value) => std::env::set_var("FORGE_CODEX_BIN", value),
-        None => std::env::remove_var("FORGE_CODEX_BIN"),
-    }
-    if let Some(value) = prior_brokkr_codex {
-        std::env::set_var("BROKKR_CODEX_BIN", value);
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn claude_and_lanetally_accept_their_one_release_legacy_overrides() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
@@ -709,30 +687,19 @@ fn claude_and_lanetally_accept_their_one_release_legacy_overrides() {
             "FORGE_LANETALLY_BIN",
         ),
     ] {
-        let prior_primary = std::env::var_os(primary);
-        let prior_legacy = std::env::var_os(legacy);
-        std::env::remove_var(primary);
-        std::env::set_var(legacy, &shim);
+        env.remove(primary);
+        env.set(legacy, &shim);
 
         let invocation = invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {})
             .expect("the legacy override must select the shim");
         assert_eq!(invocation.exit_code, 0);
-
-        match prior_primary {
-            Some(value) => std::env::set_var(primary, value),
-            None => std::env::remove_var(primary),
-        }
-        match prior_legacy {
-            Some(value) => std::env::set_var(legacy, value),
-            None => std::env::remove_var(legacy),
-        }
     }
 }
 
 #[cfg(unix)]
 #[test]
 fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     // A stand-in wrapper whose result event tries to smuggle a
     // stream-derived `capture`: the run_seat source literal is inserted
@@ -751,10 +718,8 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
         "input": {"workdir": dir.path(), "result_path": result,
                   "allowed_results": ["complete"], "role_path": "/dev/null"}
     });
-    let prior_lanetally = std::env::var_os("BROKKR_LANETALLY_BIN");
-    let prior_claude = std::env::var_os("BROKKR_CLAUDE_BIN");
-    std::env::set_var("BROKKR_LANETALLY_BIN", &shim);
-    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    env.set("BROKKR_LANETALLY_BIN", &shim);
+    env.set("BROKKR_CLAUDE_BIN", &shim);
     let mut bodies = Vec::new();
     run_seat(AdapterKind::Lanetally, &[], &start, None, &mut |b| {
         bodies.push(b)
@@ -762,14 +727,6 @@ fn lanetally_capture_constant_is_inserted_after_the_session_meta_extend() {
     run_seat(AdapterKind::Claude, &[], &start, None, &mut |b| {
         bodies.push(b)
     });
-    match prior_lanetally {
-        Some(value) => std::env::set_var("BROKKR_LANETALLY_BIN", value),
-        None => std::env::remove_var("BROKKR_LANETALLY_BIN"),
-    }
-    match prior_claude {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
     let finished: Vec<&Value> = bodies
         .iter()
         .filter_map(|body| match body {
@@ -842,7 +799,7 @@ fn adapter_stdio_ignores_noise_and_handles_control_messages() {
 
 #[test]
 fn dialect_exec_turns_command_output_and_state_into_a_typed_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let start = |dialect: Value| {
         json!({
@@ -940,7 +897,7 @@ fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
 #[cfg(unix)]
 #[test]
 fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let overlay = dir.path().join("overlay.yml");
@@ -968,14 +925,11 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
             settings = settings.display()
         ),
     );
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
+    env.set("BROKKR_DSH_BIN", &fake);
+    env.remove("FORGE_DSH_BIN");
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     let extra: Vec<String> = ["--model", "deepseek-v4-flash"]
         .iter()
@@ -1140,18 +1094,6 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     // No pin, still a served model: the record carries what the harness
     // reported, never a default (decision 0031).
     assert_eq!(invocation.session_meta["model"], "served-by-dsh");
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -1197,12 +1139,11 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
 #[cfg(unix)]
 #[test]
 fn dsh_driver_refuses_a_transcript_root_that_spans_a_line() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home\nline");
     std::fs::create_dir_all(&home).unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &home);
+    env.set("DSH_HOME", &home);
     let mut emitted = Vec::new();
     let refused = match invoke(
         AdapterKind::Dsh,
@@ -1217,10 +1158,6 @@ fn dsh_driver_refuses_a_transcript_root_that_spans_a_line() {
         Err(problem) => problem,
     };
     assert!(refused.contains("spans more than one line"), "{refused}");
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// An effort pinned with no model beside it is refused, not dropped: the
@@ -1951,7 +1888,7 @@ fn a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too() {
     // own error, raised before any codex is spawned — no shim is needed
     // because no binary is reached.
     {
-        let _guard = ADAPTER_ENV.lock().unwrap();
+        let _env = EnvGuard::lock();
         let error = invoke(
             AdapterKind::Codex,
             &s(&["resume", thread]),
@@ -2348,35 +2285,26 @@ fn recorded(argv: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-/// Pin the codex binary for one test and put back whatever was there.
+/// Pin the codex binary for one test; the guard puts back whatever was
+/// there.
 #[cfg(unix)]
-fn with_codex_bin<T>(shim: &std::path::Path, body: impl FnOnce() -> T) -> T {
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    std::env::set_var("BROKKR_CODEX_BIN", shim);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    let outcome = body();
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    outcome
+fn with_codex_bin<T>(env: &mut EnvGuard, shim: &std::path::Path, body: impl FnOnce() -> T) -> T {
+    env.set("BROKKR_CODEX_BIN", shim);
+    env.remove("FORGE_CODEX_BIN");
+    body()
 }
 
 #[cfg(unix)]
 #[test]
 fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
         "codex-model-header",
         "#!/bin/sh\ncat >/dev/null\nprintf 'model: gpt-from-header\\n' >&2\n",
     );
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &["--model".into(), "gpt-pinned".into()],
@@ -2409,7 +2337,7 @@ fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
 #[cfg(unix)]
 #[test]
 fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     for (case, sandbox, class) in [
         ("short-separate", vec!["-s", "read-only"], "read-only"),
@@ -2426,7 +2354,7 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
         extra.push("--model".into());
         extra.push("gpt-5.6-sol".into());
         let mut emitted = Vec::new();
-        let invocation = with_codex_bin(&shim, || {
+        let invocation = with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -2563,7 +2491,7 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
 #[cfg(unix)]
 #[test]
 fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     for (case, pin) in [
         ("separate", vec!["--effort", "high"]),
@@ -2576,7 +2504,7 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
             .map(|part| part.to_string())
             .collect();
         extra.extend(pin.iter().map(|part| part.to_string()));
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -2647,7 +2575,7 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
 #[cfg(unix)]
 #[test]
 fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let cases: [(&str, Vec<&str>, &str); 20] = [
         // Nothing declared: a codex resume does not inherit the class
@@ -2816,7 +2744,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
             THREAD
         };
         let mut emitted = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
@@ -2859,7 +2787,7 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
 #[cfg(unix)]
 #[test]
 fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
@@ -2877,7 +2805,7 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
     );
     let extra = vec!["--sandbox".to_string(), "read-only".into()];
     let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &extra,
@@ -2921,7 +2849,7 @@ fn a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled() {
 #[cfg(unix)]
 #[test]
 fn a_resume_that_started_and_failed_is_not_respawned_cold() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
@@ -2937,7 +2865,7 @@ fn a_resume_that_started_and_failed_is_not_respawned_cold() {
     );
     let extra = vec!["--sandbox".to_string(), "workspace-write".into()];
     let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &extra,
@@ -3237,7 +3165,7 @@ fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
 #[cfg(unix)]
 #[test]
 fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let shim = codex_shim(dir.path(), "codex", &argv);
@@ -3269,7 +3197,7 @@ fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
     let extra = vec!["--sandbox".to_string(), "read-only".into()];
     let input = format!("{hello}\n{resume}\n{}\n{}\n", start("a1"), start("a2"));
     let mut output = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         serve_io(AdapterKind::Codex, &extra, input.as_bytes(), &mut output).unwrap()
     });
     let messages: Vec<Value> = String::from_utf8(output)
@@ -3325,7 +3253,7 @@ fn the_resume_message_hands_one_session_to_the_next_seat_and_no_other() {
 #[cfg(unix)]
 #[test]
 fn a_codex_whose_installed_version_has_moved_declines_the_offer() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     // The shim answers a DIFFERENT version than the assessment's.
@@ -3341,7 +3269,7 @@ fn a_codex_whose_installed_version_has_moved_declines_the_offer() {
         ),
     );
     let mut emitted = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &["--sandbox".to_string(), "read-only".into()],
@@ -4276,7 +4204,7 @@ fn claude_refuses_a_duplicate_or_valueless_authoritative_restriction() {
 #[cfg(unix)]
 #[test]
 fn a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     let other = "01a06183-0000-0000-0000-000000000000";
     for (case, announced, exit, launch, spawns) in [
@@ -4326,7 +4254,7 @@ fn a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing() {
             ),
         );
         let mut emitted = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &["--sandbox".to_string(), "read-only".into()],
@@ -4370,7 +4298,7 @@ fn a_launch_is_published_on_confirmation_and_a_mismatch_publishes_nothing() {
 #[cfg(unix)]
 #[test]
 fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let result = dir.path().join("result.json");
@@ -4387,7 +4315,7 @@ fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
     let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
     input["result_path"] = json!(result);
     let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
+    let invocation = with_codex_bin(&mut env, &shim, || {
         invoke(
             AdapterKind::Codex,
             &["--sandbox".to_string(), "read-only".into()],
@@ -4420,7 +4348,7 @@ fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
 #[cfg(unix)]
 #[test]
 fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     let other = "01a06183-0000-0000-0000-000000000000";
     for (case, announced) in [("a different root", other), ("no root at all", "")] {
@@ -4447,7 +4375,7 @@ fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() 
         let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
         input["result_path"] = json!(result);
         let mut messages = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             run_seat(
                 AdapterKind::Codex,
                 &["--sandbox".to_string(), "read-only".into()],
@@ -4499,7 +4427,7 @@ fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() 
 #[cfg(unix)]
 #[test]
 fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble("2.1.266 (Claude Code)");
     let offered = "019c4b7e-0000-7000-8000-000000000001";
     let other = "019c4b7e-0000-7000-8000-0000000000ff";
@@ -4530,8 +4458,7 @@ fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result()
         );
         let mut input = enabled_input(CLAUDE_SHAPE, "2.1.266", dir.path());
         input["result_path"] = json!(result);
-        let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
-        std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+        env.set("BROKKR_CLAUDE_BIN", &shim);
         let mut messages = Vec::new();
         run_seat(
             AdapterKind::Claude,
@@ -4542,10 +4469,6 @@ fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result()
             Some(offered),
             &mut |body| messages.push(body),
         );
-        match prior {
-            Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-            None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-        }
         let (status, error) = messages
             .iter()
             .find_map(|body| match body {
@@ -4582,7 +4505,7 @@ fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result()
 #[cfg(unix)]
 #[test]
 fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
     for (case, rejected, spawns, usage) in [
         (
@@ -4615,7 +4538,7 @@ fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
             ),
         );
         let mut emitted = Vec::new();
-        let invocation = with_codex_bin(&shim, || {
+        let invocation = with_codex_bin(&mut env, &shim, || {
             invoke(
                 AdapterKind::Codex,
                 &["--sandbox".to_string(), "read-only".into()],
@@ -4651,10 +4574,9 @@ fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
 #[cfg(unix)]
 #[test]
 fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     // No assessment: the fail-closed default every unmeasured shape gets.
     let bare = json!({"workdir": dir.path()});
@@ -4702,11 +4624,6 @@ fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
     assert_eq!(missing.refusal, Some("unverified-harness"));
     assert!(!missing.stream_json);
     assert!(missing.rejoining.is_none());
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A synthetic composite with a chosen canonical digest, so every
@@ -4964,11 +4881,10 @@ fn dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root() 
 #[cfg(unix)]
 #[test]
 fn a_retained_dsh_directory_alone_never_supplies_a_provider_handle() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
     let home = root.as_path();
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(home, "dsh-retained", "0.1.5-rc.1");
@@ -5040,20 +4956,14 @@ fn a_retained_dsh_directory_alone_never_supplies_a_provider_handle() {
     assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
     assert_eq!(warm.first_seq, Some(9));
     assert_eq!(warm.root, home.join("sessions/brokkr/seat-1"));
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_qualified_dsh_launch_uses_the_stream_json_forms_and_records_observed_identity() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-cold", "0.1.5-rc.1");
@@ -5128,20 +5038,14 @@ fn a_qualified_dsh_launch_uses_the_stream_json_forms_and_records_observed_identi
         || panic!("a refused control never reaches the recompute"),
     );
     assert!(conflicted.is_err());
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     plant_dsh_session(
         dir.path(),
@@ -5212,11 +5116,6 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
     .unwrap();
     assert_eq!(declined.refusal, Some("unverified-harness"));
     assert!(!declined.stream_json);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// The boundary the planner settles is the boundary the real transcript
@@ -5227,10 +5126,9 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
 #[cfg(unix)]
 #[test]
 fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-fold-boundary", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -5367,11 +5265,6 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
         "the warm plan folds past its stored boundary"
     );
     assert_eq!(warm.first_seq, Some(0), "the offered store's boundary");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A settled DSH launch over a synthetic store and a synthetic child, so
@@ -7150,13 +7043,12 @@ fn a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing() {
 #[cfg(unix)]
 #[test]
 fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
     // The admitted home IS the tempdir, so the locator this launch
     // records resolves back to the planted store: the round trip below
     // reads the same address a later attempt would be handed.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let root = dir.path().join("seat");
     plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
     let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
@@ -7237,11 +7129,6 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
     assert_eq!(invocation.session_meta["num_turns"], 1);
     assert_eq!(invocation.session_meta["input_tokens"], 5);
     assert_eq!(invocation.session_meta["output_tokens"], 2);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A qualified stream-json launch whose stdout carries a line the plugin's
@@ -7415,14 +7302,11 @@ fn a_qualified_stream_json_launch_ends_on_a_non_utf8_line() {
 #[cfg(unix)]
 #[test]
 fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_spawn() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", dir.path().join("dsh-does-not-exist"));
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("BROKKR_DSH_BIN", dir.path().join("dsh-does-not-exist"));
+    env.remove("FORGE_DSH_BIN");
+    env.set("DSH_HOME", dir.path());
 
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
@@ -7438,18 +7322,6 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
         Some("session-019c4b7e"),
         &mut |body| messages.push(body),
     );
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let accepted = messages
         .iter()
@@ -7490,11 +7362,8 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
 #[cfg(unix)]
 #[test]
 fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
     let argv = dir.path().join("argv");
     let result = dir.path().join("result.json");
     // No installed provider: a shim that records every invocation's argv,
@@ -7511,9 +7380,9 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
             result = result.display()
         ),
     );
-    std::env::set_var("BROKKR_DSH_BIN", &shim);
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("BROKKR_DSH_BIN", &shim);
+    env.remove("FORGE_DSH_BIN");
+    env.set("DSH_HOME", dir.path());
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Dsh,
@@ -7527,17 +7396,6 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
         Some("session-019c4b7e"),
         &mut |body| messages.push(body),
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let spawned = std::fs::read_to_string(&argv).unwrap();
     assert_eq!(
@@ -7593,7 +7451,7 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
 #[cfg(unix)]
 #[test]
 fn a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let argv = dir.path().join("argv");
     let shim = codex_shim(dir.path(), "codex", &argv);
@@ -7624,9 +7482,9 @@ fn a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing() {
         .unwrap()
     };
     let extra = vec!["--sandbox".to_string(), "read-only".into()];
-    let drive = |input: String| -> Vec<Value> {
+    let mut drive = |input: String| -> Vec<Value> {
         let mut output = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             serve_io(AdapterKind::Codex, &extra, input.as_bytes(), &mut output).unwrap()
         });
         String::from_utf8(output)
@@ -7799,17 +7657,14 @@ printf 'a last line still being written' >> "$f"
 #[cfg(unix)]
 #[test]
 fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "dsh", DSH_TRANSCRIPT_SHIM);
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
+    env.set("BROKKR_DSH_BIN", &fake);
+    env.remove("FORGE_DSH_BIN");
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     let seen = dir.path().join("dsh-seen");
     let mut emitted: Vec<Value> = Vec::new();
@@ -7902,7 +7757,7 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     // seat is silent, not broken. Named workdir absent too, so the
     // driver falls back to its own directory as every other arm does.
     let quiet = executable(dir.path(), "quiet-dsh", "#!/bin/sh\nexit 0\n");
-    std::env::set_var("BROKKR_DSH_BIN", &quiet);
+    env.set("BROKKR_DSH_BIN", &quiet);
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
         AdapterKind::Dsh,
@@ -7919,18 +7774,6 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     assert_eq!(emitted[1]["step"], "harness-started");
     assert_eq!(invocation.exit_code, 0);
     assert!(invocation.session_meta.get("num_turns").is_none());
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -8535,7 +8378,7 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
 #[cfg(unix)]
 #[test]
 fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -8557,12 +8400,9 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
         "dsh",
         &format!("#!/bin/sh\nenv > {}\n", dump.display()),
     );
-    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("BROKKR_DSH_BIN", &fake);
+    env.remove("FORGE_DSH_BIN");
+    env.set("DSH_HOME", dir.path());
 
     invoke(
         AdapterKind::Dsh,
@@ -8574,18 +8414,6 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
         &mut |_| {},
     )
     .unwrap();
-
-    match prior_bin {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let seen = std::fs::read_to_string(&dump).unwrap();
     assert!(seen.contains("GIT_CONFIG_COUNT=1"), "{seen}");
@@ -8607,7 +8435,7 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
 #[cfg(unix)]
 #[test]
 fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");
     std::fs::create_dir_all(&main).unwrap();
@@ -8666,12 +8494,10 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
             gitdir = git_dir.display()
         ),
     );
-    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
-    std::env::set_var("DSH_PERMISSION_MODE", "workspace-write");
+    env.set("BROKKR_DSH_BIN", &fake);
+    env.remove("FORGE_DSH_BIN");
+    env.set("DSH_HOME", dir.path());
+    env.set("DSH_PERMISSION_MODE", "workspace-write");
 
     let run = invoke(
         AdapterKind::Dsh,
@@ -8686,7 +8512,7 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
     // A seat that committed nothing — a verify or review seat reusing the
     // same worktree — leaves the branch where it was and says nothing.
     let idle = executable(dir.path(), "idle-dsh", "#!/bin/sh\nexit 0\n");
-    std::env::set_var("BROKKR_DSH_BIN", &idle);
+    env.set("BROKKR_DSH_BIN", &idle);
     let quiet = invoke(
         AdapterKind::Dsh,
         &[],
@@ -8697,15 +8523,7 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
         &mut |_| {},
     );
 
-    match prior_bin {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
-    std::env::remove_var("DSH_PERMISSION_MODE");
+    env.remove("DSH_PERMISSION_MODE");
 
     match run {
         Ok(run) => {
@@ -8832,16 +8650,13 @@ printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3ae
 #[cfg(unix)]
 #[test]
 fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_NO_TURN_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    let prior_home = std::env::var_os("CODEX_HOME");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    std::env::set_var("CODEX_HOME", &home);
+    env.set("BROKKR_CODEX_BIN", &fake);
+    env.remove("FORGE_CODEX_BIN");
+    env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -8854,18 +8669,6 @@ fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
         &mut |event| emitted.push(event.clone()),
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("CODEX_HOME", value),
-        None => std::env::remove_var("CODEX_HOME"),
-    }
 
     assert_eq!(invocation.exit_code, 0, "{emitted:?}");
     assert!(
@@ -8902,16 +8705,13 @@ printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3ae
 #[cfg(unix)]
 #[test]
 fn a_refused_effort_does_not_hide_the_one_the_thread_still_names() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_REFUSED_EFFORT_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    let prior_home = std::env::var_os("CODEX_HOME");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    std::env::set_var("CODEX_HOME", &home);
+    env.set("BROKKR_CODEX_BIN", &fake);
+    env.remove("FORGE_CODEX_BIN");
+    env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -8924,18 +8724,6 @@ fn a_refused_effort_does_not_hide_the_one_the_thread_still_names() {
         &mut |event| emitted.push(event.clone()),
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("CODEX_HOME", value),
-        None => std::env::remove_var("CODEX_HOME"),
-    }
 
     let meta = &invocation.session_meta;
     assert_eq!(meta["model"], "gpt-5.6-sol", "{emitted:?}");
@@ -8969,16 +8757,13 @@ printf '{"type":"thread.started","thread_id":"01a0619c-928b-7ad3-8cc9-9eaa94c3ae
 #[cfg(unix)]
 #[test]
 fn a_refused_model_walks_back_while_the_newest_effort_stands() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_REFUSED_MODEL_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    let prior_home = std::env::var_os("CODEX_HOME");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
-    std::env::set_var("CODEX_HOME", &home);
+    env.set("BROKKR_CODEX_BIN", &fake);
+    env.remove("FORGE_CODEX_BIN");
+    env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -8991,18 +8776,6 @@ fn a_refused_model_walks_back_while_the_newest_effort_stands() {
         &mut |event| emitted.push(event.clone()),
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("CODEX_HOME", value),
-        None => std::env::remove_var("CODEX_HOME"),
-    }
 
     let meta = &invocation.session_meta;
     assert_eq!(meta["model"], "gpt-5.5-sol", "{emitted:?}");
@@ -9033,13 +8806,11 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
     // only, which the journal sees once — inside the finishing
     // checkpoint — so `brokkr inspect --seat` on a WORKING codex seat
     // showed no session id and the drilldown had nothing to open.
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "codex", CODEX_THREAD_SHIM);
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    let prior_legacy = std::env::var_os("FORGE_CODEX_BIN");
-    std::env::set_var("BROKKR_CODEX_BIN", &fake);
-    std::env::remove_var("FORGE_CODEX_BIN");
+    env.set("BROKKR_CODEX_BIN", &fake);
+    env.remove("FORGE_CODEX_BIN");
 
     let seen = dir.path().join("codex-seen");
     let mut emitted: Vec<Value> = Vec::new();
@@ -9058,14 +8829,6 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
         },
     )
     .unwrap();
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_CODEX_BIN", value);
-    }
 
     let thread = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
     assert_eq!(invocation.exit_code, 0, "{emitted:?}");
@@ -9145,17 +8908,14 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
     // checkpoints exist to end, reached by a longer road. A real
     // `waitpid` cannot be made to fail from here, so the question is
     // injected the way this driver's other syscalls already are.
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "dsh", "#!/bin/sh\nexit 0\n");
-    let prior = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("BROKKR_DSH_BIN", &fake);
-    std::env::remove_var("FORGE_DSH_BIN");
+    env.set("BROKKR_DSH_BIN", &fake);
+    env.remove("FORGE_DSH_BIN");
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
 
     let mut passes = 0;
     let mut emitted: Vec<Value> = Vec::new();
@@ -9179,18 +8939,6 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
             Err(std::io::Error::other("no child processes"))
         },
     );
-
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 
     let refused = match refused {
         Ok(_) => panic!("a child that cannot be waited on is not a success"),
@@ -9391,7 +9139,7 @@ fn the_hands_paragraph_follows_the_boundary_and_is_prose_for_a_model_only() {
 #[cfg(unix)]
 #[test]
 fn a_last_message_capture_uses_the_ordinary_result_file_door_and_rejects_prose() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("result.json");
     for (message, valid) in [
@@ -9420,7 +9168,7 @@ printf '%s' '{message}' > "$capture"
         assert!(prompt.contains(path.to_str().unwrap()));
         assert!(prompt.contains("final message"));
         let mut messages = Vec::new();
-        with_codex_bin(&shim, || {
+        with_codex_bin(&mut env, &shim, || {
             run_seat(
                 AdapterKind::Codex,
                 &[
@@ -9629,7 +9377,7 @@ fn a_refusal_reason_is_one_bounded_line() {
 #[cfg(unix)]
 #[test]
 fn a_refusing_claude_stream_is_reported_without_accepted_or_checkpoint() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
@@ -9642,8 +9390,7 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
 "#,
     );
     let result = dir.path().join("result.json");
-    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
-    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    env.set("BROKKR_CLAUDE_BIN", &shim);
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Claude,
@@ -9657,10 +9404,6 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
         None,
         &mut |body| messages.push(body),
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
     assert!(
         !messages
             .iter()
@@ -9696,7 +9439,7 @@ printf '{"type":"result","is_error":true,"error":"rate_limit","result":"You have
 #[cfg(unix)]
 #[test]
 fn a_refusing_codex_stream_is_reported_without_accepted_or_checkpoint() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
@@ -9709,7 +9452,7 @@ printf '{"type":"error","message":"stream error: still refused"}\n'
     );
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
@@ -9813,7 +9556,7 @@ fn a_refusal_reason_with_empty_text_adds_no_excerpt() {
 #[cfg(unix)]
 #[test]
 fn an_exec_that_cannot_spawn_accepts_once_and_fails_after_its_launch_row() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
@@ -9862,7 +9605,7 @@ fn an_exec_that_cannot_spawn_accepts_once_and_fails_after_its_launch_row() {
 #[cfg(unix)]
 #[test]
 fn a_refusal_after_work_began_is_not_a_failure_to_start() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let shim = executable(
         dir.path(),
@@ -9875,7 +9618,7 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
     );
     let result = dir.path().join("result.json");
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
@@ -9924,12 +9667,12 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
 #[cfg(unix)]
 #[test]
 fn a_codex_that_cannot_spawn_reports_no_launch_and_keeps_its_accepted() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let missing = dir.path().join("codex-does-not-exist");
     let mut messages = Vec::new();
-    with_codex_bin(&missing, || {
+    with_codex_bin(&mut env, &missing, || {
         run_seat(
             AdapterKind::Codex,
             &[],
@@ -10057,7 +9800,7 @@ fn a_refused_attempt_names_its_transcript_only_when_there_is_one() {
 #[cfg(unix)]
 #[test]
 fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let thread = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
@@ -10077,7 +9820,7 @@ fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
         ),
     );
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
@@ -10130,7 +9873,7 @@ fn a_harness_that_errs_and_then_works_keeps_its_session_and_its_result() {
 #[cfg(unix)]
 #[test]
 fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     let shim = executable(
@@ -10147,7 +9890,7 @@ fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order(
         ),
     );
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
@@ -10203,7 +9946,7 @@ fn the_pre_session_rows_are_held_until_the_first_turn_and_then_flushed_in_order(
 #[cfg(unix)]
 #[test]
 fn a_refusal_never_discards_a_session_that_delivered_its_result() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let result = dir.path().join("result.json");
     // No turn row at all, so `began_work` stays false and the delivery
@@ -10220,7 +9963,7 @@ fn a_refusal_never_discards_a_session_that_delivered_its_result() {
         ),
     );
     let mut messages = Vec::new();
-    with_codex_bin(&shim, || {
+    with_codex_bin(&mut env, &shim, || {
         run_seat(
             AdapterKind::Codex,
             &[],
@@ -10350,10 +10093,9 @@ fn dsh_recording_version_shim(
 #[cfg(unix)]
 #[test]
 fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let marker = dir.path().join("version-was-called");
     let shim = dsh_recording_version_shim(dir.path(), "dsh-gate", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -10498,22 +10240,16 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
             );
         }
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let canonical = dir.path().canonicalize().unwrap();
     let home = canonical.as_path();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", home);
+    env.set("DSH_HOME", home);
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, home);
     let workdir = home.to_str().unwrap();
@@ -10818,11 +10554,6 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
             declined.command
         );
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// Which fixed diagnostic a rejected spelling must name: the residual
@@ -10857,7 +10588,7 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
     // cases pin it, and no control refusal may name it.
     const MARK: &str = "zzz-9f31c7-marker";
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     // The fixture root is canonicalized once and every path below is
     // derived from it: on macOS the temporary directory is reached
@@ -10865,8 +10596,7 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
     // spelled the other way is a different path to the admission
     // comparisons this ledger drives.
     let root = dir.path().canonicalize().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
     let marker = root.join("m-controls");
     let shim = dsh_recording_version_shim(&root, "dsh-ctl", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11126,11 +10856,6 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
         // the seat's own store was never created either.
         assert!(!root.join("sessions").exists(), "{path}: no retained root");
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// The counter the ledger's zero assertions read against is calibrated on
@@ -11142,13 +10867,12 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
 #[cfg(unix)]
 #[test]
 fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
     // Derived from one canonicalized root, for the reason the ledger
     // above states: `/var` and `/private/var` are not the same path.
     let root = dir.path().canonicalize().unwrap();
-    std::env::set_var("DSH_HOME", &root);
+    env.set("DSH_HOME", &root);
     let marker = root.join("m-effort");
     let shim = dsh_recording_version_shim(&root, "dsh-effort", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11192,11 +10916,6 @@ fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
     );
     assert!(separate.contains("reasoningEffort: 'xhigh'"), "{separate}");
     assert!(!marker.exists(), "a disabled gate probes no version");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// A transcript root the overlay cannot write as one YAML scalar refuses
@@ -11214,13 +10933,12 @@ fn a_dsh_transcript_root_refusal_names_its_field_and_never_the_root() {
     // cannot write: no diagnostic may carry either back to the seat.
     const MARK: &str = "zzz-4a0e13-home";
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let home = root.join(format!("{MARK}\nline"));
     std::fs::create_dir_all(&home).unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &home);
+    env.set("DSH_HOME", &home);
     let marker = root.join("m-transcript");
     let shim = dsh_recording_version_shim(&root, "dsh-root", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11248,11 +10966,6 @@ fn a_dsh_transcript_root_refusal_names_its_field_and_never_the_root() {
             !error.contains(root.to_str().unwrap()),
             "{path}: the root path echoed in {error}"
         );
-    }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
     }
 }
 
@@ -11415,7 +11128,7 @@ fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
     use std::os::unix::fs::PermissionsExt;
     const MARK: &str = "zzz-1e84fa-retained";
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let home = root.join(MARK);
@@ -11431,8 +11144,7 @@ fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
         "the source error must carry the home it tried: {source}"
     );
 
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", &home);
+    env.set("DSH_HOME", &home);
     let marker = root.join("m-retained");
     let shim = dsh_recording_version_shim(&root, "dsh-retained", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11468,10 +11180,6 @@ fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
 
     // Writable again, so the fixture's own directory can be reaped.
     std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// The shipped cold command shape, asserted whole rather than by the
@@ -11492,10 +11200,9 @@ fn assert_shipped_cold_command(command: &[String], bin: &str) {
 #[cfg(unix)]
 #[test]
 fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-own", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -11719,11 +11426,6 @@ fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
     let error =
         resolve_dsh_root(dir.path(), "zzz-marker/../zzz-marker", "session-zzz-marker").unwrap_err();
     assert!(!error.contains("zzz-marker"), "{error}");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
@@ -11731,10 +11433,9 @@ fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
 fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_staging() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let valid = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              high: high\n";
     let invalid = String::from_utf8(valid.to_vec())
         .unwrap()
@@ -11828,11 +11529,6 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
     .unwrap();
     assert!(error.contains("no bound route overlay"), "{error}");
     assert_eq!(dsh_staging_calls(), 0, "an absent binding precedes staging");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
@@ -11840,11 +11536,10 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
 fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let valid = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              high: high\n";
     let digest = |bytes: &[u8]| {
         let mut hasher = Sha256::new();
@@ -11925,11 +11620,6 @@ fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
     let raw = b"- id: llm-pi-ai\n  # zzz-marker\n\xff\n";
     std::fs::write(&route_path, raw).unwrap();
     check(&digest(raw), "non-utf8");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
@@ -12156,10 +11846,9 @@ fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
 #[cfg(unix)]
 #[test]
 fn a_dsh_warm_offer_reads_the_selected_storage_generation() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-generation", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -12216,11 +11905,6 @@ fn a_dsh_warm_offer_reads_the_selected_storage_generation() {
     assert_eq!(declined.refusal, Some("unverified-harness"));
     assert!(!declined.stream_json && declined.rejoining.is_none());
     assert_shipped_cold_command(&declined.command, &shim_text);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -12230,10 +11914,9 @@ fn the_planned_locator_is_bounded_before_anything_is_staged() {
     // address under the home, and a root whose address is longer than
     // the admitted bound is refused rather than silently clamped into a
     // different address.
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let transcript = Transcript::resolve(TranscriptKind::DshSession).unwrap();
 
     let ordinary = dir.path().join("sessions").join("brokkr").join("seat-1");
@@ -12273,20 +11956,14 @@ fn the_planned_locator_is_bounded_before_anything_is_staged() {
         refused.contains("planned dsh locator is outside the admitted bound"),
         "{refused}"
     );
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let home = dir.path().to_path_buf();
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(&home, "dsh-unsafe", "0.1.5-rc.1");
@@ -12465,25 +12142,19 @@ fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
     .unwrap();
     assert!(dsh_session_file(&padded_header, "session-1").is_err());
     refused("padded-header");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     // The CANONICAL spelling of the root, because the round trip below
     // compares a resolved root against a path this test joins by hand
     // (review 2026-09-23, finding 2).
     let home = std::fs::canonicalize(dir.path()).unwrap();
     let home = home.as_path();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", home);
+    env.set("DSH_HOME", home);
     let valid = format!("sessions/brokkr/{}", "a".repeat(64));
     assert_eq!(valid.chars().count(), 80, "the prefix itself is the bound");
     plant_dsh_session(home, &valid, "--p--", "session-80", 2);
@@ -12533,11 +12204,6 @@ fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
     .unwrap();
     assert_eq!(launch.refusal, Some("unverified-harness"));
     assert!(!launch.stream_json && launch.rejoining.is_none());
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[cfg(unix)]
@@ -12545,10 +12211,9 @@ fn a_dsh_overlong_locator_is_never_truncated_into_another_valid_root() {
 fn a_dsh_route_overlay_planner_folds_on_the_offered_and_unmeasured_paths() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let route = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              high: high\n";
     std::fs::write(dir.path().join("route.yml"), route).unwrap();
     let route_digest = {
@@ -12612,11 +12277,6 @@ fn a_dsh_route_overlay_planner_folds_on_the_offered_and_unmeasured_paths() {
     assert!(!cold.stream_json && cold.rejoining.is_none());
     let folded = std::fs::read_to_string(cold.overlay.path()).unwrap();
     assert!(folded.contains("- id: llm-pi-ai"), "{folded}");
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -12694,10 +12354,9 @@ fn assert_dsh_planner_overlay(launch: &DshLaunch, stream: bool) {
 #[cfg(unix)]
 #[test]
 fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let (route, route_digest) = shipped_dsh_route();
     std::fs::write(dir.path().join("route.yml"), &route).unwrap();
     let declared = "b".repeat(64);
@@ -12837,11 +12496,6 @@ fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() 
     assert!(!origin.stream_json && origin.rejoining.is_none());
     assert_dsh_planner_overlay(&origin, false);
     levels(&origin);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// R3: the route grammar matrix through all three planner paths. Each
@@ -12853,10 +12507,9 @@ fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() 
 fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let declared = "b".repeat(64);
     let marker = dir.path().join("m-matrix");
     let shim = dsh_recording_version_shim(dir.path(), "dsh-matrix", "0.1.5-rc.1", &marker);
@@ -13140,11 +12793,6 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
             }
         }
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// R3: the binding-relationship matrix through all three planner paths.
@@ -13156,10 +12804,9 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
 fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let declared = "b".repeat(64);
     let marker = dir.path().join("m-binding");
     let shim = dsh_recording_version_shim(dir.path(), "dsh-binding", "0.1.5-rc.1", &marker);
@@ -13301,11 +12948,6 @@ fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
             );
         }
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// R4: an eligible locator of at most 80 Rust characters whose UTF-8
@@ -13316,10 +12958,9 @@ fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
 #[cfg(unix)]
 #[test]
 fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let shim = dsh_version_shim(dir.path(), "dsh-multibyte", "0.1.5-rc.1");
     let shim_text = shim.to_string_lossy().into_owned();
@@ -13379,11 +13020,6 @@ fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning()
         emitted.push(value.clone())
     });
     assert_eq!(meta["transcript"]["locator"], locator);
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 #[test]
@@ -13726,20 +13362,17 @@ fn a_retained_session_entry_the_reader_cannot_yield_is_a_bounded_refusal() {
 #[cfg(unix)]
 #[test]
 fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
-    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
-    std::env::set_var("DSH_HOME", dir.path());
-    std::env::remove_var("FORGE_DSH_BIN");
+    env.set("DSH_HOME", dir.path());
+    env.remove("FORGE_DSH_BIN");
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-real-seams", "0.1.5-rc.1");
     // The closure's seam resolver reads this override, not the `bin`
     // argument; the home is a bare directory, so the composite read is
     // refused and the cold route ships.
-    std::env::set_var("BROKKR_DSH_BIN", &shim);
+    env.set("BROKKR_DSH_BIN", &shim);
     let launch = dsh_launch(
         &shim.to_string_lossy(),
         &[],
@@ -13749,18 +13382,6 @@ fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
     )
     .unwrap();
     assert!(!launch.stream_json);
-
-    match prior_bin {
-        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
-        None => std::env::remove_var("BROKKR_DSH_BIN"),
-    }
-    if let Some(value) = prior_legacy {
-        std::env::set_var("FORGE_DSH_BIN", value);
-    }
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 /// `dsh_launch`'s own seam probe refuses an unreadable seam set; the
@@ -13769,10 +13390,9 @@ fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
 #[cfg(unix)]
 #[test]
 fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
+    env.set("DSH_HOME", dir.path());
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-launch-seams", "0.1.5-rc.1");
@@ -13811,10 +13431,6 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
     let launch = launch.unwrap();
     assert!(!launch.stream_json);
     assert!(launch.rejoining.is_none());
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -14024,10 +13640,7 @@ fn dsh_logging_version_shim(
 #[cfg(unix)]
 #[test]
 fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    let prior_user_home = std::env::var_os("HOME");
-    let prior_node_path = std::env::var_os("NODE_PATH");
+    let mut env = EnvGuard::lock();
 
     // Each case is one drifted source, applied to its own fresh install.
     type Drift = fn(&DshInstall);
@@ -14095,13 +13708,13 @@ fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
 
     for (case, drift) in cases {
         let install = synthetic_dsh_install();
-        std::env::set_var("DSH_HOME", &install.home);
+        env.set("DSH_HOME", &install.home);
         // The bundle search reads Node's global folders, which the child
         // environment spells from `HOME` and `NODE_PATH`; both are pinned
         // inside the fixture so no directory of this host's can answer a
         // bundle lookup.
-        std::env::set_var("HOME", &install.root);
-        std::env::remove_var("NODE_PATH");
+        env.set("HOME", &install.root);
+        env.remove("NODE_PATH");
 
         let declared = install.composite().canonical().to_string();
         assert_eq!(declared.len(), 64, "{case}");
@@ -14184,18 +13797,6 @@ fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
             "{case}: the only provider invocation is the identity probe"
         );
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
-    match prior_user_home {
-        Some(value) => std::env::set_var("HOME", value),
-        None => std::env::remove_var("HOME"),
-    }
-    if let Some(value) = prior_node_path {
-        std::env::set_var("NODE_PATH", value);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -14271,14 +13872,11 @@ fn dsh_plan_probed(
 fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_journal() {
     use sha2::{Digest, Sha256};
 
-    let _guard = ADAPTER_ENV.lock().unwrap();
-    let prior_home = std::env::var_os("DSH_HOME");
-    let prior_user_home = std::env::var_os("HOME");
-    let prior_node_path = std::env::var_os("NODE_PATH");
+    let mut env = EnvGuard::lock();
     let install = synthetic_dsh_install();
-    std::env::set_var("DSH_HOME", &install.home);
-    std::env::set_var("HOME", &install.root);
-    std::env::remove_var("NODE_PATH");
+    env.set("DSH_HOME", &install.home);
+    env.set("HOME", &install.root);
+    env.remove("NODE_PATH");
 
     let model = "deepseek/deepseek-v4-flash";
     let route = marked_dsh_route();
@@ -14590,18 +14188,6 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
             "{case}: the seat completes: {messages:?}"
         );
     }
-
-    match prior_home {
-        Some(value) => std::env::set_var("DSH_HOME", value),
-        None => std::env::remove_var("DSH_HOME"),
-    }
-    match prior_user_home {
-        Some(value) => std::env::set_var("HOME", value),
-        None => std::env::remove_var("HOME"),
-    }
-    if let Some(value) = prior_node_path {
-        std::env::set_var("NODE_PATH", value);
-    }
 }
 
 /// Issue #370, decisions 0012, 0021 ruling 4 and 0036 ruling 4: a seat
@@ -14612,7 +14198,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
 #[cfg(unix)]
 #[test]
 fn every_model_harness_receives_its_bindings_and_masks_its_stderr() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let bindings = [binding("API_TOKEN", "tok-3xample-value")];
     let body = "#!/bin/sh\n\
@@ -14625,8 +14211,7 @@ fn every_model_harness_receives_its_bindings_and_masks_its_stderr() {
         (AdapterKind::Codex, "BROKKR_CODEX_BIN"),
     ] {
         let shim = executable(dir.path(), &format!("{variable}-shim"), body);
-        let prior = std::env::var_os(variable);
-        std::env::set_var(variable, &shim);
+        env.set(variable, &shim);
         let outcome = invoke(
             kind,
             &[],
@@ -14636,10 +14221,6 @@ fn every_model_harness_receives_its_bindings_and_masks_its_stderr() {
             &bindings,
             &mut |_| {},
         );
-        match prior {
-            Some(value) => std::env::set_var(variable, value),
-            None => std::env::remove_var(variable),
-        }
         let invocation = outcome.unwrap_or_else(|error| panic!("{kind:?}: {error}"));
         assert_eq!(
             invocation.exit_code, 0,
@@ -14713,7 +14294,7 @@ fn a_dsh_seat_receives_its_bindings_and_masks_its_stderr() {
 #[cfg(unix)]
 #[test]
 fn a_bound_claude_seat_runs_and_journals_only_the_secret_name() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("secrets.env");
     secret::store_set(&store, "API_TOKEN", "tok-3xample-value").unwrap();
@@ -14732,8 +14313,7 @@ fn a_bound_claude_seat_runs_and_journals_only_the_secret_name() {
             result.display()
         ),
     );
-    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
-    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    env.set("BROKKR_CLAUDE_BIN", &shim);
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Claude,
@@ -14748,10 +14328,6 @@ fn a_bound_claude_seat_runs_and_journals_only_the_secret_name() {
         None,
         &mut |body| messages.push(body),
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
     let journaled = format!("{messages:?}");
     assert!(!journaled.contains("tok-3xample-value"), "{journaled}");
     assert!(
@@ -14778,7 +14354,7 @@ fn a_bound_claude_seat_runs_and_journals_only_the_secret_name() {
 #[cfg(unix)]
 #[test]
 fn a_refusal_that_quotes_a_bound_value_is_journaled_masked() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("secrets.env");
     secret::store_set(&store, "API_TOKEN", "tok-3xample-value").unwrap();
@@ -14791,8 +14367,7 @@ fn a_refusal_that_quotes_a_bound_value_is_journaled_masked() {
          printf '{\"type\":\"result\",\"is_error\":true,\"error\":\"authentication_failed\",\"result\":\"key %s rejected\"}\\n' \"$API_TOKEN\"\n",
     );
     let result = dir.path().join("result.json");
-    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
-    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    env.set("BROKKR_CLAUDE_BIN", &shim);
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Claude,
@@ -14807,10 +14382,6 @@ fn a_refusal_that_quotes_a_bound_value_is_journaled_masked() {
         None,
         &mut |body| messages.push(body),
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
     let Some(Body::Result {
         status: ResultStatus::Failed,
         error: Some(error),
@@ -14827,9 +14398,10 @@ fn a_refusal_that_quotes_a_bound_value_is_journaled_masked() {
 /// unless the value arrived, replays `stream` (JSON built here, so the
 /// escaping on the wire is serde's, exactly as a harness writes it) and,
 /// given `result`, writes it as the result file. Returns every protocol
-/// message the seat sent. Callers hold `ADAPTER_ENV`.
+/// message the seat sent.
 #[cfg(unix)]
 fn run_bound_claude(
+    env: &mut EnvGuard,
     dir: &std::path::Path,
     value: &str,
     stream: &[Value],
@@ -14868,8 +14440,7 @@ fn run_bound_claude(
             lines.display()
         ),
     );
-    let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
-    std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+    env.set("BROKKR_CLAUDE_BIN", &shim);
     let mut messages = Vec::new();
     run_seat(
         AdapterKind::Claude,
@@ -14884,10 +14455,6 @@ fn run_bound_claude(
         None,
         &mut |body| messages.push(body),
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
-        None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
-    }
     messages
 }
 
@@ -14898,10 +14465,11 @@ fn run_bound_claude(
 #[cfg(unix)]
 #[test]
 fn a_result_file_quoting_an_escaped_bound_value_is_journaled_masked() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let value = "zq\"7w\\k-leak-value";
     let messages = run_bound_claude(
+        &mut env,
         dir.path(),
         value,
         &[json!({"type":"system","subtype":"init","session_id":"escaped-1"})],
@@ -14927,11 +14495,12 @@ fn a_result_file_quoting_an_escaped_bound_value_is_journaled_masked() {
 #[cfg(unix)]
 #[test]
 fn a_bound_value_longer_than_the_target_clamp_leaks_no_prefix() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let value = format!("longsecret-{}", "0123456789".repeat(9));
     assert!(value.len() > 80);
     let messages = run_bound_claude(
+        &mut env,
         dir.path(),
         &value,
         &[
@@ -14960,10 +14529,11 @@ fn a_bound_value_longer_than_the_target_clamp_leaks_no_prefix() {
 #[cfg(unix)]
 #[test]
 fn a_refusal_quoting_a_bound_value_with_tab_and_double_space_is_masked() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let value = "tok  3x\tample-leak-value";
     let messages = run_bound_claude(
+        &mut env,
         dir.path(),
         value,
         &[
@@ -14991,7 +14561,7 @@ fn a_refusal_quoting_a_bound_value_with_tab_and_double_space_is_masked() {
 #[cfg(unix)]
 #[test]
 fn a_codex_refusal_quoting_a_long_bound_value_leaks_no_prefix() {
-    let _guard = ADAPTER_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let value = format!("codexsecret  \t{}", "0123456789".repeat(20));
     let lines = dir.path().join("codex.ndjson");
@@ -15008,8 +14578,7 @@ fn a_codex_refusal_quoting_a_long_bound_value_leaks_no_prefix() {
         "codex-bound-refusal",
         &format!("#!/bin/sh\ncat >/dev/null\ncat '{}'\n", lines.display()),
     );
-    let prior = std::env::var_os("BROKKR_CODEX_BIN");
-    std::env::set_var("BROKKR_CODEX_BIN", &shim);
+    env.set("BROKKR_CODEX_BIN", &shim);
     let store = dir.path().join("secrets.env");
     secret::store_set(&store, "API_TOKEN", &value).unwrap();
     let bindings = secret::resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
@@ -15022,10 +14591,6 @@ fn a_codex_refusal_quoting_a_long_bound_value_leaks_no_prefix() {
         &bindings,
         &mut |_| {},
     );
-    match prior {
-        Some(value) => std::env::set_var("BROKKR_CODEX_BIN", value),
-        None => std::env::remove_var("BROKKR_CODEX_BIN"),
-    }
     let refusal = outcome.unwrap().refusal.expect("an error before any turn");
     assert!(
         refusal.contains("key [secret:API_TOKEN] rejected"),

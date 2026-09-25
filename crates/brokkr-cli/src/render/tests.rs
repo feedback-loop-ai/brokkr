@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::envelope_builder::EnvelopeBuilder;
 use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::{json, Value};
@@ -10,20 +11,14 @@ const T2: &str = "2026-01-01T00:02:03Z";
 const NOW: &str = "2026-01-01T00:07:03Z";
 
 fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run-7".to_string(),
-        seq,
-        event_id: format!("ev{seq}"),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "corr".to_string(),
-        attempt_id: None,
-        recorded_at: at.to_string(),
-        previous_hash: String::new(),
-        event_hash: String::new(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("run-7")
+        .correlation("corr")
+        .seq(seq)
+        .event_id(format!("ev{seq}"))
+        .at(at)
+        .previous("")
+        .build()
 }
 
 fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunState {

@@ -2,26 +2,24 @@ use super::*;
 use brokkr_core::fold::Cursor;
 use serde_json::json;
 
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;
+use envelope_builder::EnvelopeBuilder;
+
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
 const T2: &str = "2026-01-01T00:02:03Z";
 const T3: &str = "2026-01-01T01:05:00Z";
 
 fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "r1".to_string(),
-        seq,
-        event_id: format!("ev{seq}"),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "corr".to_string(),
-        attempt_id: None,
-        recorded_at: at.to_string(),
-        previous_hash: String::new(),
-        event_hash: String::new(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("r1")
+        .correlation("corr")
+        .seq(seq)
+        .event_id(format!("ev{seq}"))
+        .at(at)
+        .previous("")
+        .build()
 }
 
 fn caused(mut event: EventEnvelope, cause: &str) -> EventEnvelope {

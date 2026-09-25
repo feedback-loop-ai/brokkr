@@ -1,5 +1,6 @@
 use super::*;
 use crate::bundle::{Limits, Seat};
+use crate::envelope_builder::EnvelopeBuilder;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::dispatch::PRODUCER_EFFECTS;
 use brokkr_core::policy::Machine;
@@ -1366,20 +1367,11 @@ fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
 }
 
 pub(super) fn event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run".into(),
-        seq: 2,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-28T00:00:00Z".into(),
-        previous_hash: ZERO_HASH.into(),
-        event_hash: "a".repeat(64),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .seq(2)
+        .at("2026-08-28T00:00:00Z")
+        .hash("a".repeat(64))
+        .build()
 }
 
 pub(super) fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {

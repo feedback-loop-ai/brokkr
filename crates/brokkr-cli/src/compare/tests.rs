@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::envelope_builder::EnvelopeBuilder;
 
 #[test]
 fn divergence_handles_equal_prefix_and_mismatch_trails() {
@@ -15,20 +16,10 @@ fn divergence_handles_equal_prefix_and_mismatch_trails() {
 }
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run".into(),
-        seq: 1,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-28T00:00:00Z".into(),
-        previous_hash: String::new(),
-        event_hash: String::new(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .at("2026-08-28T00:00:00Z")
+        .previous("")
+        .build()
 }
 
 #[test]

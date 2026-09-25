@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::env_guard::EnvGuard;
 use brokkr_core::envelope::EventType;
 use serde_json::json;
 use std::io::{Read, Write};
@@ -286,12 +287,12 @@ fn listener_open_hook_is_testable_and_public_bind_errors_return() {
     // Both spellings reach the same opener: the new name is what this
     // release documents, the old one answers for one release more
     // (decision 0019).
-    std::env::set_var("BROKKR_BROWSER_BIN", "true");
+    let mut env = EnvGuard::lock();
+    env.set("BROKKR_BROWSER_BIN", "true");
     open_system_browser("http://127.0.0.1:9/");
-    std::env::remove_var("BROKKR_BROWSER_BIN");
-    std::env::set_var("FORGE_BROWSER_BIN", "true");
+    env.remove("BROKKR_BROWSER_BIN");
+    env.set("FORGE_BROWSER_BIN", "true");
     open_system_browser("http://127.0.0.1:9/");
-    std::env::remove_var("FORGE_BROWSER_BIN");
 }
 
 #[test]
@@ -631,9 +632,7 @@ fn the_session_lookup_carries_its_own_id_validation() {
 /// display truth is being landed in Rust at all.
 #[test]
 fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut env = EnvGuard::lock();
     let missing_db = PathBuf::from("missing.db");
 
     // The id is validated STRICTLY, before any path is formed: empty,
@@ -685,8 +684,7 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     oversized.push_str("\"}}\n");
     std::fs::write(projects.join("real-project/0000-1111.jsonl"), &oversized).unwrap();
 
-    let previous_home = std::env::var_os("HOME");
-    std::env::set_var("HOME", &home);
+    env.set("HOME", &home);
 
     let response = handle(&missing_db, "/api/session/abcd-1234");
     assert_eq!(response.status, "200 OK");
@@ -727,21 +725,18 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     );
 
     // No projects directory at all: the scan finds nothing and says so.
-    std::env::set_var("HOME", dir.path().join("elsewhere"));
+    env.set("HOME", dir.path().join("elsewhere"));
     assert_eq!(
         handle(&missing_db, "/api/session/abcd-1234").status,
         "404 Not Found"
     );
 
     // No HOME: there is nowhere to look, and nothing is invented.
-    std::env::remove_var("HOME");
+    env.remove("HOME");
     assert_eq!(
         handle(&missing_db, "/api/session/abcd-1234").status,
         "404 Not Found"
     );
-    if let Some(previous_home) = previous_home {
-        std::env::set_var("HOME", previous_home);
-    }
 }
 
 /// #380: the browser's session drill masks a bound value the model echoed
@@ -751,9 +746,7 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
 /// say so rather than passing silently.
 #[test]
 fn the_session_drill_masks_a_bound_value_and_says_what_it_covered() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     let store = dir.path().join("secrets.env");
@@ -767,8 +760,7 @@ fn the_session_drill_masks_a_bound_value_and_says_what_it_covered() {
          \"content\":\"echo says ghp-bound-7f3a9c\"}}\n",
     )
     .unwrap();
-    let previous_home = std::env::var_os("HOME");
-    std::env::set_var("HOME", &home);
+    env.set("HOME", &home);
 
     let response = handle(&db, "/api/session/abcd-1234");
     assert_eq!(response.status, "200 OK");
@@ -833,10 +825,6 @@ fn the_session_drill_masks_a_bound_value_and_says_what_it_covered() {
             )])
         );
     }
-    match previous_home {
-        Some(previous_home) => std::env::set_var("HOME", previous_home),
-        None => std::env::remove_var("HOME"),
-    }
 }
 
 /// The liveness rule the watch keeps, now measured through the retained
@@ -865,10 +853,7 @@ fn source_growth_is_measured_through_the_retained_handle() {
 /// connection left open waiting for a file to appear.
 #[test]
 fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let previous_home = std::env::var_os("HOME");
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let projects = home.join(".claude").join("projects").join("live-project");
@@ -877,7 +862,7 @@ fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
     let turn = "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\
                 \"content\":\"a word\"}}\n";
     std::fs::write(&file, turn).unwrap();
-    std::env::set_var("HOME", &home);
+    env.set("HOME", &home);
 
     // The same guard the drill applies, on the same id, before any path
     // is formed — and a valid id with no transcript behind it reads the
@@ -943,12 +928,6 @@ fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
         &mut FailAfterOneWrite::default(),
         Some(1),
     );
-
-    if let Some(previous_home) = previous_home {
-        std::env::set_var("HOME", previous_home);
-    } else {
-        std::env::remove_var("HOME");
-    }
 }
 
 /// The stream's clock, driven from the writer: the transcript gains a
@@ -3097,17 +3076,14 @@ fn a_hostile_recorded_home_reaches_the_page_only_as_portable_display_data() {
 
 #[test]
 fn an_eligible_claude_participant_shares_the_hint_and_turns() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let previous = std::env::var_os("HOME");
+    let mut env = EnvGuard::lock();
     let (home, projects) = claude_projects_home();
     std::fs::write(
         projects.join("seat/abcd-1234.jsonl"),
         "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"the words\"}}\n",
     )
     .unwrap();
-    std::env::set_var("HOME", home.path());
+    env.set("HOME", home.path());
     let recorded = std::fs::canonicalize(&projects)
         .unwrap()
         .to_str()
@@ -3137,27 +3113,18 @@ fn an_eligible_claude_participant_shares_the_hint_and_turns() {
     assert_eq!(body["session_id"], "abcd-1234");
     assert_eq!(body["turns"][0]["blocks"][0]["text"], "the words");
     assert_eq!(body["truncated"], false);
-
-    if let Some(previous) = previous {
-        std::env::set_var("HOME", previous);
-    } else {
-        std::env::remove_var("HOME");
-    }
 }
 
 #[test]
 fn a_legacy_codex_participant_is_ineligible_while_the_id_route_answers() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let previous = std::env::var_os("HOME");
+    let mut env = EnvGuard::lock();
     let (home, projects) = claude_projects_home();
     std::fs::write(
         projects.join("seat/abcd-1234.jsonl"),
         "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}\n",
     )
     .unwrap();
-    std::env::set_var("HOME", home.path());
+    env.set("HOME", home.path());
     let (_dir, db, key) = participant_fixture(None, Some("codex"), Some("abcd-1234"));
 
     let response = handle(
@@ -3176,12 +3143,6 @@ fn a_legacy_codex_participant_is_ineligible_while_the_id_route_answers() {
     assert_eq!(api.status, "200 OK", "{}", api.body);
     let body: Value = serde_json::from_str(&api.body).unwrap();
     assert_eq!(body["turns"][0]["blocks"][0]["text"], "hello");
-
-    if let Some(previous) = previous {
-        std::env::set_var("HOME", previous);
-    } else {
-        std::env::remove_var("HOME");
-    }
 }
 
 #[test]
@@ -3210,10 +3171,7 @@ fn a_common_reference_defeats_a_stale_flat_id() {
 /// exact envelope, on both routes, before any stream header.
 #[test]
 fn lookup_refusals_are_the_exact_envelope_on_both_routes() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let previous = std::env::var_os("HOME");
+    let mut env = EnvGuard::lock();
     let (home, projects) = claude_projects_home();
     // An unreadable body: the body route refuses it with the same envelope.
     std::fs::write(projects.join("seat/dead-beef.jsonl"), [0xff, 0xfe]).unwrap();
@@ -3241,7 +3199,7 @@ fn lookup_refusals_are_the_exact_envelope_on_both_routes() {
         projects.join("other/baad-beef.jsonl"),
     )
     .unwrap();
-    std::env::set_var("HOME", home.path());
+    env.set("HOME", home.path());
     let db = PathBuf::from("missing.db");
 
     // The body route refuses every lookup and body failure identically.
@@ -3288,12 +3246,6 @@ fn lookup_refusals_are_the_exact_envelope_on_both_routes() {
     );
     assert!(sse.starts_with("HTTP/1.1 200 OK"), "{sse}");
     assert!(sse.contains("Content-Type: text/event-stream"), "{sse}");
-
-    if let Some(previous) = previous {
-        std::env::set_var("HOME", previous);
-    } else {
-        std::env::remove_var("HOME");
-    }
 }
 
 #[test]
@@ -3334,12 +3286,9 @@ fn every_api_body_and_the_presentation_send_no_store() {
 
 #[test]
 fn a_foreign_claude_home_admits_and_drills_nothing_over_http() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let previous = std::env::var_os("HOME");
+    let mut env = EnvGuard::lock();
     let (local_home, _local_projects) = claude_projects_home();
-    std::env::set_var("HOME", local_home.path());
+    env.set("HOME", local_home.path());
     let custom = tempfile::tempdir().unwrap();
     let custom_projects = custom.path().join("claude-projects");
     std::fs::create_dir_all(custom_projects.join("seat")).unwrap();
@@ -3366,12 +3315,6 @@ fn a_foreign_claude_home_admits_and_drills_nothing_over_http() {
     assert_eq!(parsed["drill_eligible"], false, "{}", response.body);
     assert_eq!(parsed["hint"], "full session: claude --resume abcd-1234");
     assert_eq!(parsed["reason"], Value::Null);
-
-    if let Some(previous) = previous {
-        std::env::set_var("HOME", previous);
-    } else {
-        std::env::remove_var("HOME");
-    }
 }
 
 #[test]
@@ -3464,10 +3407,7 @@ fn a_failed_presentation_request_is_an_unreadable_refusal() {
 /// journal is untouched and the retained file keeps every byte.
 #[test]
 fn a_growth_watch_changes_no_retained_byte() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let previous_home = std::env::var_os("HOME");
+    let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let projects = home.join(".claude").join("projects").join("live-project");
@@ -3478,7 +3418,7 @@ fn a_growth_watch_changes_no_retained_byte() {
         "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"a word\"}}\n",
     )
     .unwrap();
-    std::env::set_var("HOME", &home);
+    env.set("HOME", &home);
     let before = std::fs::read(&file).unwrap();
     let mut request = std::io::Cursor::new(
         b"GET /sse/session/abcd-1234 HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
@@ -3495,11 +3435,6 @@ fn a_growth_watch_changes_no_retained_byte() {
         before,
         "a growth watch must read the source, never rewrite it"
     );
-    if let Some(previous_home) = previous_home {
-        std::env::set_var("HOME", previous_home);
-    } else {
-        std::env::remove_var("HOME");
-    }
 }
 
 /// Syncing a participant from working to concluded closes the watch it

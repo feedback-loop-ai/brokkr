@@ -1632,20 +1632,11 @@ fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
 /// One journaled event, hand-built: the store seals real ones, and these
 /// are fixtures for a predicate that only reads.
 fn envelope(event_type: EventType, payload: Value, attempt_id: Option<&str>) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run".into(),
-        seq: 1,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: attempt_id.map(str::to_string),
-        recorded_at: "2026-09-02T00:00:00Z".into(),
-        previous_hash: brokkr_core::canonical::ZERO_HASH.into(),
-        event_hash: "a".repeat(64),
-    }
+    crate::envelope_builder::EnvelopeBuilder::new(event_type, payload)
+        .attempt(attempt_id)
+        .at("2026-09-02T00:00:00Z")
+        .hash("a".repeat(64))
+        .build()
 }
 
 // ---------------------------------------------------------------------------

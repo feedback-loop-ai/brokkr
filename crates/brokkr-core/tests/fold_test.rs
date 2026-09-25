@@ -7,6 +7,10 @@ use brokkr_core::fold::{computed_inputs, fold, Cursor, FoldError, Status};
 use brokkr_core::realms::recorded_head;
 use serde_json::{json, Value};
 
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;
+use envelope_builder::EnvelopeBuilder;
+
 struct Journal {
     events: Vec<EventEnvelope>,
 }
@@ -28,21 +32,13 @@ impl Journal {
             .last()
             .map(|e| e.event_hash.clone())
             .unwrap_or_else(|| ZERO_HASH.to_string());
-        let envelope = EventEnvelope {
-            run_id: "r1".into(),
-            seq,
-            event_id: format!("e{seq}"),
-            event_schema_version: 1,
-            event_type,
-            payload,
-            causation_id: None,
-            correlation_id: "r1".into(),
-            attempt_id: None,
-            recorded_at: "2026-08-23T00:00:00Z".into(),
-            previous_hash,
-            event_hash: String::new(),
-        }
-        .sealed();
+        let envelope = EnvelopeBuilder::new(event_type, payload)
+            .run("r1")
+            .seq(seq)
+            .event_id(format!("e{seq}"))
+            .at("2026-08-23T00:00:00Z")
+            .previous(previous_hash)
+            .sealed();
         self.events.push(envelope);
         self.events.last().unwrap()
     }

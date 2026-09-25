@@ -3,6 +3,7 @@
 //! the shell runs over injected key and refresh sources.
 
 use super::*;
+use crate::tests::envelope_builder::EnvelopeBuilder;
 use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::Store;
@@ -22,20 +23,14 @@ pub(super) const NOW: &str = "2026-01-01T00:07:03Z";
 // -------------------------------------------------------------- fixtures
 
 fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run-7".to_string(),
-        seq,
-        event_id: format!("ev{seq}"),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "corr".to_string(),
-        attempt_id: None,
-        recorded_at: at.to_string(),
-        previous_hash: String::new(),
-        event_hash: String::new(),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .run("run-7")
+        .correlation("corr")
+        .seq(seq)
+        .event_id(format!("ev{seq}"))
+        .at(at)
+        .previous("")
+        .build()
 }
 
 fn state() -> RunState {
@@ -3520,12 +3515,9 @@ fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
 /// refusal with no hint and no door.
 #[test]
 fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
-    let _home = crate::tests::HOME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let saved_home = std::env::var_os("HOME");
+    let mut env = crate::tests::env_guard::EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    std::env::set_var("HOME", dir.path());
+    env.set("HOME", dir.path());
 
     for (provider, claude_hint) in [
         (Some("codex"), false),
@@ -3575,11 +3567,6 @@ fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
                 "{provider:?}"
             );
         }
-    }
-
-    match saved_home {
-        Some(home) => std::env::set_var("HOME", home),
-        None => std::env::remove_var("HOME"),
     }
 }
 

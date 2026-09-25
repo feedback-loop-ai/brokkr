@@ -7,22 +7,13 @@ use crate::agents::Candidate;
 use crate::bundle::{PanelMember, SequenceStep};
 
 use super::tests::{engine, single_body};
+use crate::envelope_builder::EnvelopeBuilder;
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
-    EventEnvelope {
-        run_id: "run".into(),
-        seq: 1,
-        event_id: "event".into(),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-08-29T00:00:00Z".into(),
-        previous_hash: brokkr_core::canonical::ZERO_HASH.into(),
-        event_hash: "a".repeat(64),
-    }
+    EnvelopeBuilder::new(event_type, payload)
+        .at("2026-08-29T00:00:00Z")
+        .hash("a".repeat(64))
+        .build()
 }
 
 fn candidate(agent: &str, model: &str) -> Candidate {

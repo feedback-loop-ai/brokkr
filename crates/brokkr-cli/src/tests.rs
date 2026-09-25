@@ -8,10 +8,14 @@ use std::net::TcpListener;
 use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 
-/// `HOME` is process-global and the transcript lookup reads it, so the
-/// tests that point it at a temp projects tree take turns. One lock for
-/// the whole binary, named where both surfaces' test modules can see it.
-pub(crate) static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// The binary's one environment guard: `HOME` is process-global and the
+/// transcript lookup reads it, so the tests that point it at a temp
+/// projects tree take turns with every other writer.
+#[path = "../../../tests/support/env_guard.rs"]
+pub(crate) mod env_guard;
+#[path = "../../../tests/support/envelope.rs"]
+pub(crate) mod envelope_builder;
+use env_guard::EnvGuard;
 
 #[test]
 fn the_command_tree_builds_on_a_small_stack() {
@@ -1202,8 +1206,9 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .append_next("bridge-run", EventType::RunCompleted, json!({}), None, None)
         .unwrap();
 
+    let mut env = EnvGuard::lock();
     let token_name = format!("FORGE_TEST_TOKEN_{}", std::process::id());
-    std::env::remove_var(&token_name);
+    env.remove(&token_name);
     let command = |follow| {
         Cmd::Bridge(BridgeArgs {
             run: "bridge-run".into(),
@@ -1218,12 +1223,12 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .unwrap_err()
         .to_string()
         .contains("reading producer credential"));
-    std::env::set_var(&token_name, "   ");
+    env.set(&token_name, "   ");
     assert!(run(cli(command(true)))
         .unwrap_err()
         .to_string()
         .contains("credential is empty"));
-    std::env::set_var(&token_name, "test-token");
+    env.set(&token_name, "test-token");
     assert!(run_with(
         cli(Cmd::Bridge(BridgeArgs {
             run: "missing-run".into(),
@@ -1264,7 +1269,6 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .unwrap(),
         ExitCode::SUCCESS
     );
-    std::env::remove_var(&token_name);
     server.join().unwrap();
 }
 
@@ -2135,7 +2139,7 @@ fn a_vanished_participant_clears_the_same_frames_transcript() {
 /// covered.
 #[test]
 fn the_console_masks_a_bound_value_the_dsh_session_file_holds() {
-    let _home = HOME.lock().unwrap_or_else(|error| error.into_inner());
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     running_store(&db, "r1");

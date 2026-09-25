@@ -1,6 +1,13 @@
 use super::*;
 use serde_json::json;
 
+#[path = "../../../tests/support/env_guard.rs"]
+mod env_guard;
+#[path = "../../../tests/support/envelope.rs"]
+pub(crate) mod envelope_builder;
+use env_guard::EnvGuard;
+use envelope_builder::EnvelopeBuilder;
+
 fn store() -> (tempfile::TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("forge.db");
@@ -422,21 +429,13 @@ fn export_verifies_offline() {
 /// 6, which export and offline verify must still refuse.
 fn plant_unfenced(store: &mut Store, run_id: &str, event_type: EventType, payload: Value) {
     let (seq, previous_hash) = store.head_hash(run_id).unwrap();
-    let envelope = EventEnvelope {
-        run_id: run_id.to_string(),
-        seq: seq + 1,
-        event_id: format!("planted-{}", seq + 1),
-        event_schema_version: 1,
-        event_type,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.to_string(),
-        attempt_id: None,
-        recorded_at: now_rfc3339(),
-        previous_hash,
-        event_hash: String::new(),
-    }
-    .sealed();
+    let envelope = EnvelopeBuilder::new(event_type, payload)
+        .run(run_id)
+        .seq(seq + 1)
+        .event_id(format!("planted-{}", seq + 1))
+        .at(now_rfc3339())
+        .previous(previous_hash)
+        .sealed();
     store
         .conn
         .execute(
@@ -1030,21 +1029,10 @@ fn origin(name: &str) -> std::path::PathBuf {
 /// verifies; what a chain cannot vouch for is the *name* it was sealed
 /// under, which is exactly what the gates past verification are for.
 fn sealed_export(run_id: &str, payload: Value) -> String {
-    let envelope = EventEnvelope {
-        run_id: run_id.into(),
-        seq: 1,
-        event_id: "e1".into(),
-        event_schema_version: 1,
-        event_type: EventType::RunStarted,
-        payload,
-        causation_id: None,
-        correlation_id: run_id.into(),
-        attempt_id: None,
-        recorded_at: "2026-01-01T00:00:00Z".into(),
-        previous_hash: ZERO_HASH.into(),
-        event_hash: String::new(),
-    }
-    .sealed();
+    let envelope = EnvelopeBuilder::new(EventType::RunStarted, payload)
+        .run(run_id)
+        .event_id("e1")
+        .sealed();
     format!(
         "{}\n",
         serde_json::to_string(&serde_json::to_value(&envelope).unwrap()).unwrap()
@@ -1598,8 +1586,9 @@ fn a_machine_fingerprint_needs_a_source_that_says_something() {
 /// last resort from `hostname` itself. Blank answers are no answer.
 #[test]
 fn a_machine_without_an_identity_file_still_names_itself() {
+    let mut env = EnvGuard::lock();
     let variable = "BROKKR_TEST_MACHINE_NAME_7f3c";
-    std::env::remove_var(variable);
+    env.remove(variable);
     // Nothing set: the command is asked, and asked once.
     let mut asked = 0;
     let answered = machine_name(&[variable], || {
@@ -1612,18 +1601,17 @@ fn a_machine_without_an_identity_file_still_names_itself() {
     assert_eq!(machine_name(&[variable], || Some("  \n".to_string())), None);
     assert_eq!(machine_name(&[variable], || None), None);
     // A set variable wins without asking.
-    std::env::set_var(variable, "exported-name");
+    env.set(variable, "exported-name");
     assert_eq!(
         machine_name(&[variable], || panic!("the command must not be asked")).as_deref(),
         Some("exported-name")
     );
     // A blank variable does not win.
-    std::env::set_var(variable, "   ");
+    env.set(variable, "   ");
     assert_eq!(
         machine_name(&[variable], || Some("fallback".to_string())).as_deref(),
         Some("fallback")
     );
-    std::env::remove_var(variable);
 
     // The real command answers on the machine running this test; a
     // missing program and a failing one are both no answer.
@@ -1635,14 +1623,13 @@ fn a_machine_without_an_identity_file_still_names_itself() {
     // And the home half follows the platform's spelling: the first set
     // variable wins, and none set is empty rather than a panic.
     let home_variable = "BROKKR_TEST_HOME_7f3c";
-    std::env::remove_var(home_variable);
+    env.remove(home_variable);
     assert_eq!(home_from(&[home_variable]), "");
-    std::env::set_var(home_variable, "/somewhere");
+    env.set(home_variable, "/somewhere");
     assert_eq!(
         home_from(&["BROKKR_TEST_UNSET_7f3c", home_variable]),
         "/somewhere"
     );
-    std::env::remove_var(home_variable);
     let _ = account_home();
 }
 

@@ -923,18 +923,16 @@ fn a_host_only_dialect_tool_is_unreachable_in_the_gate_box() {
     // The host PATH finds the fixture, which is the reading doctor used to
     // take and report as green. PATH is prepended, never replaced, and
     // restored before the box is opened, so no other test's lookup moves.
-    let original = std::env::var_os("PATH");
-    let mut search = tools.clone().into_os_string();
-    if let Some(path) = &original {
-        search.push(":");
-        search.push(path);
-    }
-    std::env::set_var("PATH", &search);
-    let on_host = tool_version("brokkr-218-fixture");
-    match original {
-        Some(path) => std::env::set_var("PATH", path),
-        None => std::env::remove_var("PATH"),
-    }
+    let on_host = {
+        let mut env = crate::tests::env_guard::EnvGuard::lock();
+        let mut search = tools.clone().into_os_string();
+        if let Some(path) = std::env::var_os("PATH") {
+            search.push(":");
+            search.push(path);
+        }
+        env.set("PATH", &search);
+        tool_version("brokkr-218-fixture")
+    };
     assert_eq!(on_host, Some("fixture 1.0.0".into()));
 
     // ...but the gate's box binds no part of that home, so the same bare

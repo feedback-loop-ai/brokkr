@@ -2885,7 +2885,9 @@ fn drive_codex(driver: &[String], shim: &Path, messages: &[Value]) -> Vec<Value>
 /// two proof tests running together must not borrow each other's shim.
 /// The other conformance tests pass their shim per child and never read
 /// these process variables.
-static PROOF_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[path = "../../../tests/support/env_guard.rs"]
+mod env_guard;
+use env_guard::EnvGuard;
 
 const PROOF_OFFER: &str = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
@@ -3240,7 +3242,7 @@ fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
 /// re-expressed and no refusal.
 #[test]
 fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() {
-    let _guard = PROOF_ENV.lock().unwrap();
+    let mut env = EnvGuard::lock();
     for (shape, wrapped) in [
         (ProofShape::Single, true),
         (ProofShape::Single, false),
@@ -3254,9 +3256,9 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             run_dir.path(),
             &proof_shim_body(run_dir.path(), PROOF_OFFER),
         );
-        std::env::set_var("BROKKR_CODEX_BIN", &shim);
-        std::env::set_var("HOME", run_dir.path());
-        std::env::set_var("CODEX_HOME", run_dir.path().join("codex-home"));
+        env.set("BROKKR_CODEX_BIN", &shim);
+        env.set("HOME", run_dir.path());
+        env.set("CODEX_HOME", run_dir.path().join("codex-home"));
         let member = proof_member_of(shape, wrapped);
 
         let (mut store, run_id, events) = run_proof_engine(run_dir.path(), bundle.clone());
@@ -3325,9 +3327,6 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         );
         drop(recipe);
     }
-    std::env::remove_var("BROKKR_CODEX_BIN");
-    std::env::remove_var("HOME");
-    std::env::remove_var("CODEX_HOME");
 }
 
 /// Design D10 item 1: the compiled hands-bearing namespace site (panel
@@ -3343,7 +3342,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
 /// hands site as known no-hands fails at the gate's own decision.
 #[test]
 fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
-    let _guard = PROOF_ENV.lock().unwrap();
+    let _env = EnvGuard::lock();
     for (shape, wrapped) in [
         (ProofShape::HandsMember, true),
         (ProofShape::HandsMember, false),

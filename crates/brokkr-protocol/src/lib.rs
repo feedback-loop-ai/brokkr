@@ -136,3 +136,8 @@ pub struct AttemptReport {
     /// boundary: the engine ended it, no provider refused it.
     pub deadline_killed: bool,
 }
+
+// The binary's one environment guard (#357).
+#[cfg(test)]
+#[path = "../../../tests/support/env_guard.rs"]
+mod env_guard;
