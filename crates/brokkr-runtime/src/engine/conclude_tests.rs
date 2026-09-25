@@ -618,9 +618,11 @@ fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
         }
     })
     .unwrap_err();
-    assert!(
-        refused.to_string().contains("look with `brokkr runs`"),
-        "{refused}"
+    assert_eq!(
+        refused.to_string(),
+        "engine: conclude: run 'conclude-stopped-mid-effect-hand-built' refused the stop \
+         (after_terminal); the journal moved beneath the conclusion, so something may \
+         still be driving this run — look with `brokkr runs` before closing"
     );
     assert!(
         fold(&events(&store, name)).is_ok(),
@@ -657,9 +659,11 @@ fn a_result_landing_inside_the_fence_window_refuses_the_close() {
         }
     })
     .unwrap_err();
-    assert!(
-        refused.to_string().contains("moved beneath the conclusion"),
-        "{refused}"
+    assert_eq!(
+        refused.to_string(),
+        "engine: conclude: the journal moved beneath the conclusion of run \
+         'conclude-stopped-mid-effect-hand-built', so something may still be driving \
+         it — a conclusion is for a run believed dead; look with `brokkr runs` before closing"
     );
     assert!(
         fold(&events(&store, name)).is_ok(),
