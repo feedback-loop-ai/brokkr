@@ -23,6 +23,38 @@ allow = [
 ]
 
 [advisories]
-# Advisories are the RustSec job's beat; cargo-deny here is scoped to
-# licenses so each gate says one thing.
+# Advisories are the RustSec job's beat; cargo-deny here checks
+# licenses, bans and sources, so each gate says one thing.
 db-path = "~/.cargo/advisory-dbs"
+
+# The graph cargo-deny judges is the shipped one: every feature on,
+# dev-dependencies left out. Dev edges are Cargo-legal even when they
+# cycle, so `crates/brokkr-cli/tests/layering.rs` holds them instead.
+[graph]
+exclude-dev = true
+all-features = true
+
+# Every crate comes from crates.io or this workspace, never an unknown
+# registry or a git repository.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+# Decision 0071 ruling 1's one-way crate graph. Each entry names the
+# only crates allowed to depend on it directly (its `wrappers`), so a
+# new upward edge is refused here and a new dev edge by the layering
+# test. `brokkr-cli` is the root and has no parent to name.
+[bans]
+deny = [
+  { crate = "brokkr-core", wrappers = ["brokkr-view", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "core sits at the bottom of the one-way graph (decision 0071 ruling 1)" },
+  { crate = "brokkr-view", wrappers = ["brokkr-runtime", "brokkr-cli"], reason = "view is read by the engine and the surfaces only (decision 0071 ruling 1)" },
+  { crate = "brokkr-protocol", wrappers = ["brokkr-runtime", "brokkr-cli"], reason = "the driver protocol is spoken by the engine and the binary only (decision 0071 ruling 1)" },
+  { crate = "brokkr-store", wrappers = ["brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "the journal is written above core and view (decision 0071 ruling 1)" },
+  { crate = "brokkr-runtime", wrappers = ["brokkr-bridge", "brokkr-cli"], reason = "the engine sits under the bridge and the binary only (decision 0071 ruling 1)" },
+  { crate = "brokkr-bridge", wrappers = ["brokkr-cli"], reason = "the bridge is reached from the binary only (decision 0071 ruling 1)" },
+  { crate = "rusqlite", wrappers = ["brokkr-store"], reason = "SQLite lives behind brokkr-store (decision 0071 ruling 1)" },
+  { crate = "ureq", wrappers = ["brokkr-bridge"], reason = "the network client lives in brokkr-bridge (decision 0071 ruling 1)" },
+  { crate = "ratatui", wrappers = ["brokkr-cli"], reason = "the terminal lives in brokkr-cli (decision 0014)" },
+  { crate = "uuid", wrappers = ["brokkr-protocol", "brokkr-store", "brokkr-runtime"], reason = "fresh ids are randomness, which core and view never draw (decision 0071 ruling 1)" },
+  { crate = "time", wrappers = ["brokkr-core", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "view takes `now` as an argument and needs no clock crate (decision 0071 ruling 1)" },
+]

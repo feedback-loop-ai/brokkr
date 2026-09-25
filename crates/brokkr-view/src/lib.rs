@@ -23,9 +23,15 @@
 //! the console renders `?` and keeps the row. Both are repair
 //! (decision 0001).
 
+#![forbid(unsafe_code)]
+
 pub mod js;
 pub mod transcript;
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 use std::collections::{BTreeMap, HashMap};
 
 use brokkr_core::fold::{RunState, Status};
@@ -1047,6 +1053,10 @@ struct Build {
     status_class: &'static str,
 }
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 struct Scan {
     effects: Vec<EffectFacts>,
     parts: Vec<Build>,
@@ -1092,6 +1102,10 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
     index
 }
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 fn scan_participants(events: &[EventEnvelope]) -> Scan {
     let mut scan = Scan {
         effects: Vec::new(),
@@ -2252,6 +2266,10 @@ fn live_lines(events: &[EventEnvelope]) -> Vec<LiveLine> {
 
 /// Events bucketed by effect once, so `watch` does not pay an
 /// O(phases × events) rescan on every redraw.
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 struct Buckets<'a> {
     /// Phase name -> the NEWEST effect requested in it, and its seat
     /// (last write wins). The seat travels with the id because it is the
@@ -2265,6 +2283,10 @@ struct Buckets<'a> {
     effect_phases: HashMap<&'a str, Vec<String>>,
 }
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
     let mut buckets = Buckets {
         newest: HashMap::new(),
@@ -2647,6 +2669,10 @@ fn label_of(event: &EventEnvelope) -> Cell {
     cell_of(token.map(str::to_string), None)
 }
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 fn journal_rows(
     events: &[EventEnvelope],
     scan: &Scan,

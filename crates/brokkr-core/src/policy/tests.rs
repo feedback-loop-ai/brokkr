@@ -479,6 +479,10 @@ fn every_runtime_condition_shape_is_strict() {
     .is_err());
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads a shipped policy table"
+)]
 fn shipped_machine(relative: &str) -> Machine {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
     let table: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

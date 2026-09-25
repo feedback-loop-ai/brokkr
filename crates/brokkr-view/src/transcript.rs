@@ -9,6 +9,10 @@
 //! and touches no filesystem — decision 0013's separation is a compile
 //! property, not a convention.
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
@@ -1204,6 +1208,10 @@ enum CodexKeySite {
 /// `associate_codex` with a live observation of the actual `(source id,
 /// key)` pair at each key construction. The observer borrows both, so it
 /// changes no strong count; production passes a no-op.
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 fn associate_codex_observed<F>(records: &mut [CodexRecord], mut observe: F)
 where
     F: FnMut(CodexKeySite, &CodexId, &CodexId),
@@ -2266,11 +2274,19 @@ type CoverageEdge = (i128, i32, u32);
 /// (design D2): a sorted, disjoint interval union carrying the greatest
 /// citing row ordinal. A chunk is suppressed when its sequence is unique
 /// and this value is strictly greater than the chunk's own row ordinal.
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 struct CitationCoverage {
     by_step: HashMap<StepKey, Vec<CoveredSpan>>,
 }
 
 impl CitationCoverage {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+    )]
     fn new(assemblies: &[AssemblyFact]) -> CitationCoverage {
         let mut grouped: HashMap<StepKey, Vec<CoverageEdge>> = HashMap::new();
         for assembly in assemblies {
@@ -2568,6 +2584,10 @@ fn block_text_bytes(blocks: &[DshBlock]) -> usize {
     blocks.iter().map(|block| block.block.text.len()).sum()
 }
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // Format admission precedes every projection allocation: a refused
     // opening header returns before any later physical row is decoded,
@@ -2730,6 +2750,10 @@ fn packed_facts(value: &Value, raw: &str, spans: &mut Vec<(i64, i64)>) -> Result
 /// Extract the readable-assembly citation facts and the dedicated-tool key
 /// counts from one row's already observed block-bearing events (design D2).
 /// The events are drained and released; only compact facts survive.
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 fn collect_ordinary_facts(
     retained: &mut Vec<DshEvent>,
     ordinal: u32,
@@ -2897,6 +2921,10 @@ fn flush_run(
 
 /// Emit one ordinary DSH event: suppression first, then dedicated-tool
 /// association, then the bounded collector (design D1, D4).
+#[expect(
+    clippy::disallowed_types,
+    reason = "view's hash maps predate decision 0071; moving them to BTreeMap awaits the operator's ruling (#336)"
+)]
 fn emit_ordinary(
     collector: &mut DshCollector,
     row: DshEvent,

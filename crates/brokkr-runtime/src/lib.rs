@@ -2,6 +2,8 @@
 //! commands. Decision authority stays in brokkr-core's evaluator; this
 //! crate only performs journaled effects around it.
 
+#![forbid(unsafe_code)]
+
 pub mod agents;
 pub mod anchor;
 pub mod bundle;

@@ -3351,6 +3351,10 @@ fn unrecognized_and_omission_rows_without_a_sequence_are_counted() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "collect_ordinary_facts still takes a HashMap (#336)"
+)]
 fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
     fn tool(id: &str) -> DshBlock {
         DshBlock {
@@ -4700,6 +4704,11 @@ fn a_blockless_duplicate_sequence_keeps_a_packed_citation_ambiguous() {
 /// not an allocator report.
 #[test]
 #[ignore]
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_macros,
+    reason = "D8's measurement seam reads the fixture it is named and prints its counters"
+)]
 fn measure_projection_peak() {
     let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
     let bytes = std::fs::read(&path).expect("fixture");
@@ -4740,6 +4749,11 @@ fn measure_projection_peak() {
 /// counting members, without invoking the projector.
 #[test]
 #[ignore]
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_macros,
+    reason = "D8's measurement seam reads the fixture it is named and prints its counters"
+)]
 fn measure_parse_only() {
     let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
     let bytes = std::fs::read(&path).expect("fixture");
@@ -4760,6 +4774,11 @@ fn measure_parse_only() {
 /// resident source bytes without parsing or projecting.
 #[test]
 #[ignore]
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_macros,
+    reason = "D8's measurement seam reads the fixture it is named and prints its counters"
+)]
 fn measure_input_only() {
     let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
     let bytes = std::fs::read(&path).expect("fixture");
