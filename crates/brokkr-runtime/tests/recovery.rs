@@ -50,7 +50,7 @@ fn attempt_in_flight_at_restart_parks_indeterminate() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = Bundle::compile(&bundle_dir(dir.path())).unwrap();
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut engine = Engine::start(store, bundle, "crash test", None).unwrap();
+    let mut engine = Engine::start(store, bundle, "crash test", Some(dir.path().into())).unwrap();
     let run_id = engine.run_id.clone();
 
     // Simulate the journal of a process that died mid-attempt.
@@ -100,7 +100,7 @@ fn requested_effect_with_stale_input_refuses_to_execute() {
     let dir = tempfile::tempdir().unwrap();
     let bundle = Bundle::compile(&bundle_dir(dir.path())).unwrap();
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut engine = Engine::start(store, bundle, "crash test", None).unwrap();
+    let mut engine = Engine::start(store, bundle, "crash test", Some(dir.path().into())).unwrap();
     let run_id = engine.run_id.clone();
 
     engine

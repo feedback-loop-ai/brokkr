@@ -2249,7 +2249,7 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     let reviewed = git_commit(&repo, "reviewed");
-    engine.repo = Some(repo.clone());
+    engine.repo = repo.clone();
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
@@ -2925,7 +2925,8 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         ),
     ];
     let drive = |store: Store, run_id: &str| {
-        let mut engine = Engine::resume(store, bundle.clone(), run_id, None).unwrap();
+        let mut engine =
+            Engine::resume(store, bundle.clone(), run_id, Some(dir.path().join("work"))).unwrap();
         let end = engine.drive().unwrap();
         let events = engine.store.load(run_id).unwrap();
         // Round trip: the fold reads back every journal the engine
@@ -3203,7 +3204,7 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
 #[test]
 fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     let (missing_dir, mut missing) = engine(single_body(vec!["driver".into()]));
-    missing.repo = Some(missing_dir.path().join("not-a-repository"));
+    missing.repo = missing_dir.path().join("not-a-repository");
     // The run cites a head, so the conclusion has an exhibit it cannot
     // keep in a repository that is not one: the anchor gap AND the
     // keep-ref gap are both reported, and neither fails the run.
@@ -3238,7 +3239,7 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     let head = git_commit(&repo, "base");
-    anchored.repo = Some(repo.clone());
+    anchored.repo = repo.clone();
     // A run that reached a decision citing this repository's head: the
     // exhibit its own conclusion must keep, with no operator verb (0026).
     for (event_type, payload) in [
@@ -3379,7 +3380,7 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     let workdir = dir.path().join("work");
     engine.store = Store::open(&workdir.join("journal.db")).unwrap();
     assert!(engine.runtime_hands("ship").unwrap().binds.is_empty());
-    engine.repo = Some(dir.path().join("not-created"));
+    engine.repo = dir.path().join("not-created");
     assert_eq!(engine.runtime_hands("ship").unwrap().binds.len(), 1);
     assert!(engine.runtime_hands("missing").is_none());
 }
@@ -4064,7 +4065,7 @@ fn seat_input_spells_the_workdir_and_result_path_absolutely() {
     // A path that cannot be made absolute at all is threaded as written:
     // the driver receives what it would have received anyway, and the
     // refusal belongs to the driver rather than to this composition.
-    engine.repo = Some(std::path::PathBuf::new());
+    engine.repo = std::path::PathBuf::new();
     let unresolvable = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();

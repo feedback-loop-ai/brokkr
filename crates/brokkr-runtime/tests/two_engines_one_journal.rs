@@ -278,6 +278,9 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
     let spawn = |role: &str| {
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "two_engines_engine_child", "--nocapture"])
+            // The child starts without a repository, so it operates the
+            // directory it stands in: the scratch one, never this tree.
+            .current_dir(dir.path())
             .env(DB_VAR, &db)
             .env(BUNDLE_VAR, &bundle)
             .env(ROLE_VAR, role)

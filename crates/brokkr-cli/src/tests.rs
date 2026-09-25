@@ -976,7 +976,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
             feature: "feature".into(),
             realms: None,
             db: Some(dir.path().join("dispatch.db")),
-            repo: None,
+            repo: Some(dir.path().to_path_buf()),
             dispatch: Some(dispatch_path),
             secrets_file: None,
         })
@@ -2635,7 +2635,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
                 recipes_dir: workspace().join("recipes"),
                 run: "stopped-mid-flight".into(),
                 db: db.clone(),
-                repo: None,
+                repo: Some(dir.path().to_path_buf()),
                 secrets_file: None,
             }))
         )
