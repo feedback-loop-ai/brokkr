@@ -2432,6 +2432,10 @@ impl DshCollector {
 /// no counter and the CLI/TUI integration tests cannot observe them. The
 /// counters are logical, not allocator measurements.
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "test-only counters; thread-local state never reaches a production build (#336)"
+)]
 mod observe {
     use std::cell::Cell;
 
