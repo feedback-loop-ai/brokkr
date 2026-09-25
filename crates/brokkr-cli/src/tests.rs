@@ -2698,24 +2698,20 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
     stopped_mid_flight_store(&db, "stopped-mid-flight");
     running_store(&db, "healthy");
 
-    let store = Store::open(&db).unwrap();
-    let events = store.load("stopped-mid-flight").unwrap();
-    let folded = fold_or_quarantine(&events);
-    let state = folded.as_ref().expect("the live journal folds");
+    let read = fleet::read_hearth(&Store::open(&db).unwrap());
+    let listed = read
+        .runs
+        .iter()
+        .find(|run| run.run_id == "stopped-mid-flight")
+        .expect("the run is read");
+    let state = listed.entry().state.expect("the live journal folds");
     assert_eq!(state.seq, 105);
     assert_eq!(state.status, Status::Running);
     assert_eq!(state.phase.as_deref(), Some("verify"));
     assert_eq!(state.cursor, Cursor::Stop, "concluded per the operator");
 
     let entries = [
-        brokkr_view::RunEntry {
-            run_id: "stopped-mid-flight",
-            feature: "tui graph: the selection box",
-            created_at: "2026-08-30T22:20:34Z",
-            state: folded.as_ref().ok(),
-            detail: folded.as_ref().err().map(String::as_str),
-            residuals: &[],
-        },
+        listed.entry(),
         brokkr_view::RunEntry {
             run_id: "healthy",
             feature: "feature",
@@ -2849,34 +2845,9 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
     // The rows that listing built, checked at the model rather than
     // through the terminal: both runs present, one of them quarantined
     // in the fold's own words.
-    let store = Store::open(&db).unwrap();
-    let folded: Vec<(
-        String,
-        String,
-        String,
-        std::result::Result<RunState, String>,
-    )> = store
-        .list_runs()
-        .unwrap()
-        .into_iter()
-        .map(|(run_id, feature, created_at)| {
-            let folded = fold_or_quarantine(&store.load(&run_id).unwrap());
-            (run_id, feature, created_at, folded)
-        })
-        .collect();
-    let entries: Vec<brokkr_view::RunEntry> = folded
-        .iter()
-        .map(
-            |(run_id, feature, created_at, folded)| brokkr_view::RunEntry {
-                run_id,
-                feature,
-                created_at,
-                state: folded.as_ref().ok(),
-                detail: folded.as_ref().err().map(String::as_str),
-                residuals: &[],
-            },
-        )
-        .collect();
+    let read = fleet::read_hearth(&Store::open(&db).unwrap());
+    let entries: Vec<brokkr_view::RunEntry> =
+        read.runs.iter().map(fleet::ListedRun::entry).collect();
     let view = serde_json::to_value(brokkr_view::run_rows(&entries)).unwrap();
     assert_eq!(view["count"], 2, "no run is dropped: {view}");
     let row = |run_id: &str| -> Value {
@@ -2936,6 +2907,118 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
         })))
         .unwrap(),
         ExitCode::from(1)
+    );
+}
+
+/// A journal whose hash chain was broken behind the store's back: a
+/// running run, then a third event inserted verbatim whose
+/// `previous_hash` names no event. `Store::load` refuses it at
+/// `verify_chain` (#377), before any fold is asked.
+pub(crate) fn broken_chain_store(db: &std::path::Path, run_id: &str) {
+    running_store(db, run_id);
+    let events = Store::open(db).unwrap().load(run_id).unwrap();
+    let mut tampered = serde_json::to_value(&events[1]).unwrap();
+    tampered["seq"] = json!(3);
+    tampered["previous_hash"] = json!(ZERO_HASH);
+    rusqlite::Connection::open(db)
+        .unwrap()
+        .execute(
+            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, 3, ?2, ?3)",
+            rusqlite::params![run_id, events[1].event_hash, tampered.to_string()],
+        )
+        .unwrap();
+}
+
+/// One broken chain reads ONE way on every fleet surface (#377): the
+/// healthy runs beside it are all listed, and the broken one is a
+/// quarantined row carrying the store's own words — on `runs`, `tui`,
+/// `ui` and Muninn alike, where it used to exit 1, blank the dossier and
+/// show a bare `?` by turns.
+#[test]
+fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "healthy");
+    broken_chain_store(&db, "broken");
+    running_store(&db, "also-healthy");
+    const REFUSAL: &str = "chain: event 3: previous_hash does not match event 2";
+
+    // Every surface's rows, in the shape each one hands them over, put in
+    // run-id order: the three runs may share a creation second.
+    let listing = |surface: &str, rows: &Value| -> Vec<Value> {
+        let mut rows = rows.as_array().unwrap().clone();
+        rows.sort_by_key(|row| row["run_id"].as_str().unwrap().to_string());
+        let ids: Vec<&str> = rows
+            .iter()
+            .map(|row| row["run_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            ["also-healthy", "broken", "healthy"],
+            "{surface} lists every run: {rows:?}"
+        );
+        for healthy in [&rows[0], &rows[2]] {
+            assert_eq!(healthy["status"], "running", "{surface}: {healthy}");
+        }
+        rows
+    };
+
+    // `runs`: the listing no longer exits 1 on the broken run.
+    assert_eq!(
+        run(cli(Cmd::Runs(RunsArgs {
+            realms: None,
+            db: Some(db.clone()),
+            json: true,
+        })))
+        .unwrap(),
+        ExitCode::SUCCESS
+    );
+
+    // `tui`: the forced fleet frame, with the refusal as the row's detail
+    // where it used to be a bare `?`.
+    let ask = tui::Ask {
+        tab: 0,
+        run: None,
+        subject: None,
+        force: true,
+        fleet: false,
+    };
+    let views = tui_views(&db, true, ask, &mut None, &mut None, now_rfc3339)
+        .unwrap()
+        .expect("the forced frame is built");
+    let tui_rows = listing("tui", &serde_json::to_value(&views.runs).unwrap()["runs"]);
+    assert_eq!(tui_rows[1]["status"], Value::Null, "printed as '?'");
+    assert_eq!(tui_rows[1]["detail"], REFUSAL);
+    assert_eq!(tui_rows[0]["detail"], Value::Null);
+
+    // `ui`: the same rows over HTTP.
+    let response = ui::handle(&db, "/api/runs");
+    assert_eq!(response.status, "200 OK");
+    let ui_rows = listing("ui", &serde_json::from_str(&response.body).unwrap());
+    assert_eq!(ui_rows[1]["status"], Value::Null);
+    assert_eq!(ui_rows[1]["detail"], REFUSAL);
+
+    // Muninn: a dossier, with the broken run quarantined and raised as
+    // a finding, where it used to be no dossier at all.
+    let store = Store::open_read_only(&db).unwrap();
+    let dossier = muninn::dossier_of(
+        &[muninn::Source {
+            realm: None,
+            store: &store,
+        }],
+        &[],
+        "2026-09-25T00:00:00Z",
+    )
+    .unwrap();
+    let muninn_rows = listing("muninn", &dossier.value["runs"]);
+    assert_eq!(muninn_rows[1]["status"], "?");
+    assert_eq!(muninn_rows[1]["fold_error"], REFUSAL);
+    assert_eq!(muninn_rows[1]["seq"], 0);
+    assert_eq!(dossier.value["fleet"]["quarantined"], 1);
+    assert_eq!(dossier.value["fleet"]["running"], 2);
+    assert_eq!(
+        dossier.value["residual_findings"][0]["line"],
+        format!("broken seq 0 · journal does not fold · {REFUSAL}")
     );
 }
 

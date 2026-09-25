@@ -15,6 +15,7 @@ mod boundary;
 mod cli_args;
 mod compare;
 mod doctor;
+mod fleet;
 mod init;
 mod ledger;
 mod muninn;
@@ -1049,38 +1050,6 @@ fn refreshed_subject(prior: &tui::Subject, view: &brokkr_view::RunView) -> Optio
     })
 }
 
-/// Fold one run of a FLEET read. A journal that does not fold
-/// quarantines that row — its error text becomes the row's detail — so
-/// one corrupt run cannot blind an operator to every other run. Single-
-/// run verbs (`inspect`, `watch`, `resume`) keep their bare `fold(..)?`:
-/// a command aimed at one run must fail loudly on that run.
-pub(crate) fn fold_or_quarantine(
-    events: &[brokkr_core::EventEnvelope],
-) -> Result<RunState, String> {
-    fold(events).map_err(|error| error.to_string())
-}
-
-/// One run of a fleet listing, read ONCE: what the fold says about it,
-/// and the residual findings its journal carries with the operator's
-/// supersede marks on them (decision 0047 ruling 3). Re-opening the
-/// journal for the marks would be a second derivation waiting to
-/// disagree with the first. A journal that will not open at all states
-/// neither, which is exactly the quarantined row it always was.
-pub(crate) fn listed_run(
-    store: &Store,
-    run_id: &str,
-) -> (
-    Option<Result<RunState, String>>,
-    Vec<brokkr_view::ResidualFinding>,
-) {
-    let read = store.load(run_id).ok();
-    let residuals = read
-        .as_deref()
-        .map(|events| brokkr_view::residual_findings(run_id, events))
-        .unwrap_or_default();
-    (read.map(|events| fold_or_quarantine(&events)), residuals)
-}
-
 /// One refresh for `brokkr tui`: the only place a store is opened on that
 /// path, and the reason `tui.rs` can name none. The head is compared on
 /// **both** seq and hash — a rewritten journal at equal seq is the
@@ -1146,32 +1115,14 @@ fn tui_views(
         return Ok(None);
     }
     *head = current;
-    let mut folded = Vec::new();
-    for (run_id, feature, created_at) in store.list_runs()? {
-        // Deliberately not `?`: a console would otherwise lose the
-        // operator's whole fleet table because one old run is corrupt.
-        // The absence mark is `RunRow.status_known`'s job (0001), and
-        // the fold's own words now ride along as the row's detail
-        // instead of being discarded.
-        let (folded_run, residuals) = listed_run(&store, &run_id);
-        folded.push((run_id, feature, created_at, folded_run, residuals));
-    }
-    let entries: Vec<brokkr_view::RunEntry> = folded
-        .iter()
-        .map(
-            |(run_id, feature, created_at, folded_run, residuals)| brokkr_view::RunEntry {
-                run_id,
-                feature,
-                created_at,
-                state: folded_run.as_ref().and_then(|folded| folded.as_ref().ok()),
-                detail: folded_run
-                    .as_ref()
-                    .and_then(|folded| folded.as_ref().err())
-                    .map(String::as_str),
-                residuals,
-            },
-        )
-        .collect();
+    // Quarantined per run: a console would otherwise lose the operator's
+    // whole fleet table because one old run is corrupt. The absence mark
+    // is `RunRow.status_known`'s job (0001), and the refusal's own words
+    // ride along as the row's detail.
+    let listed = fleet::read_hearth(&store)
+        .listed()
+        .map_err(anyhow::Error::msg)?;
+    let entries: Vec<brokkr_view::RunEntry> = listed.iter().map(fleet::ListedRun::entry).collect();
     let run = ask.run.and_then(|run| store.load(run).ok()).map(|events| {
         let state = fold(&events).ok();
         brokkr_view::run_view(&events, state.as_ref())
@@ -1866,48 +1817,6 @@ fn fleet_of(
         false => hearths,
     };
     Ok((invocation.world, hearths))
-}
-
-/// One hearth's runs, folded. A journal that will not open at all is the
-/// hearth's own refusal, in its own words: a many-hearth listing survives
-/// a realm whose journal is not there yet, the same way a fleet listing
-/// already survives one unfoldable run.
-///
-/// Opened READ-ONLY, and deliberately: a reading surface that creates the
-/// journal it came to read has written to a world it was only asked to
-/// look at (decision 0026 ruling 5).
-///
-/// One folded run: its id, its feature, when it started, what the fold
-/// says about it, and the residual findings its journal carries
-/// (decision 0047 ruling 3) — all read together, from one load.
-type FoldedRun = (
-    String,
-    String,
-    String,
-    Result<RunState, String>,
-    Vec<brokkr_view::ResidualFinding>,
-);
-
-fn hearth_runs(journal: &std::path::Path) -> Result<Vec<FoldedRun>, String> {
-    // One error voice for the three doors: what a hearth refuses with is
-    // the store's own words, wherever in the read it refused.
-    fn hearth_error(error: brokkr_store::StoreError) -> String {
-        error.to_string()
-    }
-    let store = Store::open_read_only(journal).map_err(hearth_error)?;
-    let mut folded = Vec::new();
-    for (run_id, feature, created_at) in store.list_runs().map_err(hearth_error)? {
-        let events = store.load(&run_id).map_err(hearth_error)?;
-        let residuals = brokkr_view::residual_findings(&run_id, &events);
-        folded.push((
-            run_id,
-            feature,
-            created_at,
-            fold_or_quarantine(&events),
-            residuals,
-        ));
-    }
-    Ok(folded)
 }
 
 /// The pinned manifest an export wrote beside its journal, named the
@@ -2710,28 +2619,13 @@ fn run_with(
             // realm; a world with one is byte-for-byte the listing it
             // always was, down to opening its journal the same way.
             if hearths.len() > 1 {
-                let read: Vec<Result<Vec<FoldedRun>, String>> = hearths
+                let read: Vec<fleet::HearthRead> = hearths
                     .iter()
-                    .map(|hearth| hearth_runs(&hearth.journal))
+                    .map(|hearth| fleet::read_journal(&hearth.journal))
                     .collect();
                 let entries: Vec<Vec<brokkr_view::RunEntry>> = read
                     .iter()
-                    .map(|folded| match folded {
-                        Err(_) => Vec::new(),
-                        Ok(runs) => runs
-                            .iter()
-                            .map(|(run_id, feature, created_at, state, residuals)| {
-                                brokkr_view::RunEntry {
-                                    run_id,
-                                    feature,
-                                    created_at,
-                                    state: state.as_ref().ok(),
-                                    detail: state.as_ref().err().map(String::as_str),
-                                    residuals,
-                                }
-                            })
-                            .collect(),
-                    })
+                    .map(|hearth| hearth.runs.iter().map(fleet::ListedRun::entry).collect())
                     .collect();
                 let labels: Vec<String> = hearths.iter().map(Hearth::label).collect();
                 let journals: Vec<String> = hearths
@@ -2743,7 +2637,7 @@ fn run_with(
                         realm: &labels[index],
                         journal: &journals[index],
                         entries: &entries[index],
-                        detail: read[index].as_ref().err().map(String::as_str),
+                        detail: read[index].detail.as_deref(),
                     })
                     .collect();
                 let view = brokkr_view::fleet_rows(&grouped);
@@ -2763,30 +2657,15 @@ fn run_with(
                 .expect("a world resolves to at least one hearth")
                 .journal;
             let store = open_journal(&db, Access::Read)?;
-            let mut folded = Vec::new();
-            for (run_id, feature, created_at) in store.list_runs()? {
-                // A fleet listing survives one unfoldable journal: that
-                // run becomes a quarantined row carrying the fold's own
-                // words, and the rest of the fleet is still listed. The
-                // journal is never touched — the refusal is reported.
-                let events = store.load(&run_id)?;
-                let residuals = brokkr_view::residual_findings(&run_id, &events);
-                let folded_run = fold_or_quarantine(&events);
-                folded.push((run_id, feature, created_at, folded_run, residuals));
-            }
-            let entries: Vec<brokkr_view::RunEntry> = folded
-                .iter()
-                .map(
-                    |(run_id, feature, created_at, folded_run, residuals)| brokkr_view::RunEntry {
-                        run_id,
-                        feature,
-                        created_at,
-                        state: folded_run.as_ref().ok(),
-                        detail: folded_run.as_ref().err().map(String::as_str),
-                        residuals,
-                    },
-                )
-                .collect();
+            // A fleet listing survives one corrupt journal: that run
+            // becomes a quarantined row carrying the refusal's own words,
+            // and the rest of the fleet is still listed. The journal is
+            // never touched — the refusal is reported.
+            let listed = fleet::read_hearth(&store)
+                .listed()
+                .map_err(anyhow::Error::msg)?;
+            let entries: Vec<brokkr_view::RunEntry> =
+                listed.iter().map(fleet::ListedRun::entry).collect();
             let view = brokkr_view::run_rows(&entries);
             if json {
                 println!("{}", serde_json::to_string_pretty(&view)?);

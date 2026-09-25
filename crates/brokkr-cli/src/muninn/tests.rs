@@ -614,8 +614,9 @@ fn an_empty_fleet_is_an_empty_dossier_not_a_failure() {
 fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
     // A journal that does not FOLD is quarantined and reported: the aide
     // still reads the rest of the fleet. A journal that cannot be READ
-    // at all is a store fault, not a protocol one, and stays fatal —
-    // nothing here can say which run the unreadable bytes belonged to.
+    // at all is quarantined the same way (#377) — the store listed the
+    // run, so the row can name it — in the store's own words, cited at
+    // the position before the first event, since none could be read.
     let fleet = Fleet::new();
     let mut store = fleet.store();
     store
@@ -647,8 +648,16 @@ fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
     .unwrap();
     drop(conn);
     let reader = Store::open_read_only(&broken.db()).unwrap();
-    let error = dossier(&reader, NOW).unwrap_err().to_string();
-    assert!(error.contains("loading run 'broken-run'"), "{error}");
+    let derived = dossier(&reader, NOW).unwrap();
+    assert_eq!(derived.value["runs"][0]["run_id"], "broken-run");
+    assert_eq!(derived.value["runs"][0]["status"], "?");
+    assert_eq!(derived.value["runs"][0]["seq"], 0);
+    assert_eq!(
+        derived.value["runs"][0]["fold_error"],
+        "json: expected ident at line 1 column 2"
+    );
+    assert_eq!(derived.value["fleet"]["quarantined"], 1);
+    assert!(derived.states("broken-run", 0));
 }
 
 #[test]

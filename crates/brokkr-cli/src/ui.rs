@@ -104,32 +104,24 @@ pub fn handle(db: &Path, path: &str) -> Response {
         // The page receives `RunsView.runs` — already newest first,
         // because ordering is a derivation rule and not something each
         // surface reverses for itself.
-        let mut folded = Vec::new();
-        if let Ok(list) = store.list_runs() {
-            for (run_id, feature, created_at) in list {
-                // The same fleet grace the table gives: a run whose
-                // journal does not fold is a quarantined row carrying
-                // the fold error, never a missing row.
-                let (folded_run, residuals) = crate::listed_run(&store, &run_id);
-                folded.push((run_id, feature, created_at, folded_run, residuals));
+        //
+        // The same fleet grace the table gives: a run whose journal does
+        // not load or fold is a quarantined row carrying the refusal,
+        // never a missing row. A journal that cannot list its runs at
+        // all is refused the way one that cannot open is, never an
+        // empty fleet.
+        let listed = match crate::fleet::read_hearth(&store).listed() {
+            Ok(listed) => listed,
+            Err(detail) => {
+                return Response {
+                    status: "500 Internal Server Error",
+                    content_type: "application/json",
+                    body: json!({"error": detail}).to_string(),
+                }
             }
-        }
-        let entries: Vec<brokkr_view::RunEntry> = folded
-            .iter()
-            .map(
-                |(run_id, feature, created_at, folded_run, residuals)| brokkr_view::RunEntry {
-                    run_id,
-                    feature,
-                    created_at,
-                    state: folded_run.as_ref().and_then(|folded| folded.as_ref().ok()),
-                    detail: folded_run
-                        .as_ref()
-                        .and_then(|folded| folded.as_ref().err())
-                        .map(String::as_str),
-                    residuals,
-                },
-            )
-            .collect();
+        };
+        let entries: Vec<brokkr_view::RunEntry> =
+            listed.iter().map(crate::fleet::ListedRun::entry).collect();
         let view = brokkr_view::run_rows(&entries);
         return ok(
             "application/json",

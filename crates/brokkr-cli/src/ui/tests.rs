@@ -205,7 +205,16 @@ fn request_parser_store_errors_and_all_statuses_are_explicit() {
         )
         .unwrap();
     drop(connection);
-    assert_eq!(handle(&malformed_schema, "/api/runs").body, "[]");
+    // A journal that cannot list its runs is refused, never an empty
+    // fleet (#377).
+    let refused = handle(&malformed_schema, "/api/runs");
+    assert_eq!(refused.status, "500 Internal Server Error");
+    assert_eq!(
+        refused.body,
+        json!({"error": "sqlite: no such column: feature in SELECT run_id, feature, \
+                         created_at FROM runs ORDER BY created_at at offset 15"})
+        .to_string()
+    );
 
     let mut output = Vec::new();
     serve_io(&db_for_missing(), &mut BrokenReader, &mut output, None);
