@@ -75,6 +75,23 @@ the authority, and a finding it would catch is the gate's.
   - Observing the world is split from deciding on it.
   - Never use a trait-object registry for a closed set.
 
+Judges rate a finding against these rulings by this table, and cite the ruling
+number:
+
+- **info:** something a house gate would catch. The gate's verdict is the
+  authority.
+- **low:** a new or changed function over a ceiling, a rule written a second
+  time, an item added without a consumer, or a `Value` carried past its edge
+  within one module.
+- **medium:** an untyped vocabulary that crosses crates, recipe or agent data
+  copied instead of extended, a fact derived a second time on another surface,
+  an error matched by its text, or a new test that cannot fail.
+- **high or above:** any violation that hides a fail-open path or weakens a
+  refusal. It is carried as a security finding.
+
+A principle the implementer bent knowingly, and named with its reason in
+`notes`, is still rated, and the judge carries that reason with the finding.
+
 ## Release configuration
 
 The release manager prepares the candidate and profile patches; the operator
