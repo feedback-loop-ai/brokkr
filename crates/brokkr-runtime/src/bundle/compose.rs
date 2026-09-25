@@ -430,9 +430,50 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
     Ok(Some((table, path)))
 }
 
+/// The capability-bearing words a seat writes, which the compiler reads
+/// only at a site (decision 0065 slice one, rebuild unit 5e-fix). The
+/// root keeps every other member it carries and hands it to the parser
+/// (the loop in [`merge_layer`]), which reads none of these there, so each
+/// is refused at the root of every layer rather than retained and ignored.
+const ROOT_CAPABILITY_KEYS: [&str; 6] = [
+    "tools",
+    "sandbox",
+    "hands",
+    "capabilities",
+    "driver",
+    "boundary",
+];
+
+/// Decision 0004's closed input semantics at the root of one layer: a
+/// capability declaration written at the root, as if for every seat,
+/// governs none, so before this unit it compiled and left each seat at its
+/// harness default. The reason names the layer, bounded, and the key, and
+/// never the value.
+fn refuse_root_capabilities(layer: &Layer) -> Result<(), CompileError> {
+    let Some(key) = ROOT_CAPABILITY_KEYS
+        .into_iter()
+        .find(|key| layer.document.contains_key(*key))
+    else {
+        return Ok(());
+    };
+    let place = match key {
+        "sandbox" => "a sandbox is a typed tool field, written as 'tools.sandbox' on each seat",
+        "boundary" => "a boundary is the realm's, declared in realms.json and never by a bundle",
+        _ => "it is a site declaration, written on each seat it governs",
+    };
+    Err(invalid(format!(
+        "recipe {} declares '{key}' at the bundle root, where the compiler does not read it; \
+         {place}. A capability written there would compile, deliver nothing and leave every \
+         seat at its harness default, so it is refused rather than ignored (decision 0004; \
+         decision 0065 slice one, rebuild unit 5e-fix)",
+        super::bounded_site(&layer.name)
+    )))
+}
+
 /// Merge one layer over everything resolved beneath it.
 fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<(), CompileError> {
     let layer = &layers[index];
+    refuse_root_capabilities(layer)?;
     let markers = Markers::read(layer)?;
     let table = own_table(layer)?;
 

@@ -11,14 +11,18 @@ fn error<T>(result: Result<T, CompileError>) -> String {
 
 struct Fixture {
     dir: tempfile::TempDir,
+    /// The temporary root, canonicalised once: on macOS the temp root is
+    /// /var -> /private/var, and the compiler records canonical paths.
+    root: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("roles")).unwrap();
-        std::fs::write(dir.path().join("roles/role.md"), "# role").unwrap();
-        Self { dir }
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir(root.join("roles")).unwrap();
+        std::fs::write(root.join("roles/role.md"), "# role").unwrap();
+        Self { dir, root }
     }
 
     fn policy() -> Value {
@@ -54,16 +58,16 @@ impl Fixture {
 
     fn compile(&self, config: &Value, policy: &Value) -> Result<Bundle, CompileError> {
         std::fs::write(
-            self.dir.path().join("bundle.json"),
+            self.root.join("bundle.json"),
             serde_json::to_vec(config).unwrap(),
         )
         .unwrap();
         std::fs::write(
-            self.dir.path().join("policy.json"),
+            self.root.join("policy.json"),
             serde_json::to_vec(policy).unwrap(),
         )
         .unwrap();
-        Bundle::compile(self.dir.path())
+        Bundle::compile(&self.root)
     }
 }
 
@@ -1121,6 +1125,52 @@ fn a_misplaced_driver_key_is_refused_at_every_site_a_driver_is_written() {
     ));
     for (site, observed, expected) in &rows {
         assert_eq!(observed, expected, "{site}");
+    }
+}
+
+/// Rebuild unit 5e-fix (the chief's R2 on unit 5e): the site label in the
+/// driver refusal is built from an author-written member name, and nothing
+/// bounds it. A 100,000-character name is named by a 32-byte lead and its
+/// length, and a name carrying a newline cannot forge a line of the reason.
+#[test]
+fn a_driver_refusal_names_a_long_or_unsafe_site_boundedly() {
+    let fixture = Fixture::new();
+    let inline = json!({"role": "roles/role.md", "driver": {"command": ["driver"]}});
+    let mut misplaced = inline.clone();
+    misplaced["driver"]["sandbox"] = json!("read-only");
+    let mut policy = Fixture::policy();
+    policy["rules"] = json!([
+        {"id":"WP", "from":"work", "result":"pass", "next":"review", "reason":"pass"},
+        {"id":"WF", "from":"work", "result":"fail", "next":"review", "reason":"fail"},
+        {"id":"REVIEW", "from":"review", "result":"clean", "next":"done", "reason":"review"},
+    ]);
+    let rows = [
+        (
+            "a".repeat(100_000),
+            format!(
+                "'work:{}…' (100005 bytes, not echoed in full)",
+                "a".repeat(27)
+            ),
+        ),
+        (
+            "evil\nforged".to_string(),
+            "'work:evil…' (16 bytes, not echoed in full)".to_string(),
+        ),
+    ];
+    for (member, named) in rows {
+        let mut config = Fixture::config();
+        config["seats"]["work"] = json!({
+            "results": ["pass", "fail"],
+            "aggregate": "unanimous-pass",
+            "panel": {member.clone(): misplaced.clone(), "two": inline.clone()},
+        });
+        let expected = super::agent_tests::misplaced_in_driver(
+            "SITE",
+            "'sandbox'",
+            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.",
+        )
+        .replace("'SITE'", &named);
+        assert_eq!(error(fixture.compile(&config, &policy)), expected);
     }
 }
 

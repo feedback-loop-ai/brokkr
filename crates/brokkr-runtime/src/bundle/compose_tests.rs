@@ -1829,3 +1829,67 @@ fn no_spelling_and_no_link_hides_an_active_input_under_a_skipped_tree() {
         )
     );
 }
+
+/// Rebuild unit 5e-fix (the chief's R1 and R2 on unit 5e): the root keeps
+/// every member it carries, and the compiler reads a capability only at a
+/// seat, so `tools`, `hands` or `sandbox` written at a root compiled and
+/// confined nothing. Each is refused at the root of every layer, a leaf
+/// and a base alike, naming the layer boundedly and the key, never the
+/// value. The same declaration on a seat is the seat's and still resolves.
+#[test]
+fn a_capability_declared_at_a_bundle_root_is_refused_at_every_layer() {
+    let library = Library::new();
+    let refusal = |recipe: &str, key: &str, place: &str| {
+        format!(
+            "bundle: recipe {recipe} declares '{key}' at the bundle root, where the compiler \
+             does not read it; {place}. A capability written there would compile, deliver \
+             nothing and leave every seat at its harness default, so it is refused rather than \
+             ignored (decision 0004; decision 0065 slice one, rebuild unit 5e-fix)"
+        )
+    };
+    let on_a_seat = "it is a site declaration, written on each seat it governs";
+    let rows = [
+        ("tools", json!({"sandbox": "workspace-write"}), on_a_seat),
+        (
+            "hands",
+            json!({"workspace": "rw", "network": false, "binds": []}),
+            on_a_seat,
+        ),
+        (
+            "sandbox",
+            json!("read-only"),
+            "a sandbox is a typed tool field, written as 'tools.sandbox' on each seat",
+        ),
+    ];
+    for (key, value, place) in &rows {
+        let mut bundle = base_bundle();
+        bundle[*key] = value.clone();
+        let leaf = library.recipe("base", &bundle, Some(&base_policy()));
+        assert_eq!(
+            error(resolve(&leaf)),
+            refusal("'base'", key, place),
+            "leaf {key}"
+        );
+        let leaf = library.recipe("derived", &derived(json!({})), None);
+        assert_eq!(
+            error(resolve(&leaf)),
+            refusal("'base'", key, place),
+            "base {key}"
+        );
+    }
+
+    let mut bundle = base_bundle();
+    bundle["name"] = json!("x".repeat(100_000));
+    bundle["tools"] = json!({"sandbox": "workspace-write"});
+    let leaf = library.recipe("long", &bundle, Some(&base_policy()));
+    let named = format!("'{}…' (100000 bytes, not echoed in full)", "x".repeat(32));
+    assert_eq!(error(resolve(&leaf)), refusal(&named, "tools", on_a_seat));
+
+    let mut bundle = base_bundle();
+    bundle["seats"]["work"]["tools"] = json!({"sandbox": "workspace-write"});
+    let leaf = library.recipe("base", &bundle, Some(&base_policy()));
+    assert_eq!(
+        resolve(&leaf).unwrap().document["seats"]["work"]["tools"],
+        json!({"sandbox": "workspace-write"})
+    );
+}

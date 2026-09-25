@@ -6216,3 +6216,142 @@ the root, as if for every seat, would be ignored, in the same way this unit
 fixed for `driver`. Closing the root needs its
 own vocabulary, one that covers composition's resolver keys (`extends`,
 `override`, `remove`, `policy`). It is a separate visit.
+
+**Corrected by 5e-fix.** The council on `dcd900d1` held this deferral. The
+commission named every object a recipe author could plausibly put `tools`,
+`hands` or `sandbox` into, and the root is one. Deferring it left the gap
+open while tasks.md ticked 5e.1. The next section closes it.
+
+## Unit 5e-fix — capabilities at a bundle root, and bounded site names, 2026-09-25
+
+Run `0065-rebuild-unit-5e-fix-see-the-87ebafa9`, implement, based on
+`dcd900d1`. It answers the chief's R1–R3 on unit 5e (run
+`0065-rebuild-unit-5e-see-the-uni-90209c7a`, SECURITY-HOLD). Production:
+`crates/brokkr-runtime/src/bundle/compose.rs` and `bundle.rs`. Tests:
+`bundle/compose_tests.rs` and `bundle/tests.rs`. No recipe, pin, adapter,
+agent, frozen contract or fixture moved.
+
+### R1: the root keeps what it carries
+
+`merge_layer` copies every top-level member of every layer into the flat
+document, except `seats` and the resolver's four keys. The compiler reads a
+capability only at a site. So a root `tools`, `hands` or `sandbox` compiled
+and confined nothing. The fix adds `ROOT_CAPABILITY_KEYS` (`compose.rs:438`):
+`tools`, `sandbox`, `hands`, `capabilities`, `driver` and `boundary`. It also
+adds `refuse_root_capabilities` (`compose.rs:452`), which is the first call
+in `merge_layer` (`compose.rs:476`). Every layer passes through `merge_layer`,
+from the deepest base to the leaf, so a base's root is refused as well as a
+leaf's. An uncomposed bundle is a chain of one layer. `Bundle::compile`
+calls `compose::resolve` before anything else, so the refusal comes before
+adapter loading, agent resolution and capability authority. The reason
+names the layer's recipe name (bounded, see R2) and the key, never the
+value. It says where the key belongs. `sandbox` belongs in `tools.sandbox`
+on each seat, `boundary` belongs to the realm, and the rest are written on
+each seat they govern.
+
+The six keys are the site words that carry a capability or a confinement.
+The root stays open to any other key. `compose_tests.rs` already uses an
+arbitrary root member (`"absent"`) to test `override.bundle`, and closing
+the whole root needs its own vocabulary and ruling. That is a follow-up.
+
+End-to-end probe, not committed: a minimal bundle under
+`.forge/probe-5efix/root-hands/` with a root
+`hands: {workspace: rw, network: false, binds: []}`. `cargo run --locked -q
+-p brokkr-cli -- compile --bundle .forge/probe-5efix/root-hands` exited 1
+with:
+
+    error: bundle: recipe 'probe' declares 'hands' at the bundle root, where the compiler does not read it; it is a site declaration, written on each seat it governs. A capability written there would compile, deliver nothing and leave every seat at its harness default, so it is refused rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e-fix)
+
+### R2: the site name is bounded
+
+`bounded_site` (`bundle.rs:2344`) renders a site identity. A label of at
+most 64 bytes, made only of ASCII letters, digits, `_`, `-`, `.` and `:`,
+is quoted whole. So every short label reads exactly as it did before, and
+5e's four tests did not change. Any other label is rendered as its leading
+run of those characters, at most 32 bytes, followed by `…` and its length:
+`'work:aaa…' (100005 bytes, not echoed in full)`. `refuse_driver_keys` uses
+it (`bundle.rs:2330`). The root refusal uses it for the layer's name, which
+`read_layers` never validates.
+
+### R3: one canonical root
+
+`bundle/tests.rs`'s `Fixture` now canonicalises its temporary directory
+once, into `root`. `new` and `compile` write and compile from it, and the
+exact assertions are unchanged. No assertion in this file includes a path,
+so on Linux no mutation can make the canonical root observable. This is a
+compliance repair, and no macOS failure is claimed.
+
+### Tests and mutations
+
+New tests:
+- `compose_tests.rs::a_capability_declared_at_a_bundle_root_is_refused_at_every_layer`
+  (`:1840`). Rows for `tools`, `hands` (the exact
+  `{workspace: rw, network: false, binds: []}` shape from the chief's
+  control) and `sandbox`. Each row is written at a leaf root (`:1871`) and
+  again under a derived leaf that declares nothing, so the base's root is
+  refused by name (`:1877`). A 100,000-byte recipe name is refused boundedly
+  (`:1886`). A control shows the same `tools` on a seat still resolves.
+- `tests.rs::a_driver_refusal_names_a_long_or_unsafe_site_boundedly`
+  (`:1136`, assertion `:1173`). It uses a panel member named with 100,000 `a`s,
+  and one named `evil\nforged`, each with `driver.sandbox`.
+
+Every assertion compares the complete reason. Each mutation below compiled,
+was run with `cargo test --locked -q -p brokkr-runtime --all-features --lib
+-- <test>`, and was then restored:
+
+| # | Mutation | Observed |
+|---|---|---|
+| MA | Replace the `refuse_root_capabilities(layer)?` call with `let _ = refuse_root_capabilities;` | The root test panics in `error()`: "expected the composition to fail". |
+| MB | Drop `"tools"` from `ROOT_CAPABILITY_KEYS` | The same panic. It was run without a backtrace, and `tools` is the first row. |
+| MC | Drop `"hands"` | The same panic, at the leaf row (`compose_tests.rs:1869`, the `error(resolve(&leaf))` call), after the `tools` row passed. |
+| MD | Drop `"sandbox"` | The same panic at `:1869`, after the `tools` and `hands` rows passed. |
+| ME | The root refusal renders `format!("'{}'", layer.name)` instead of `bounded_site` | The root test fails `left == right` at `compose_tests.rs:1886`. |
+| MF | `refuse_driver_keys` renders `format!("'{what}'")` instead of `bounded_site` | The long-name test fails `left == right` at `tests.rs:1173`. The test output is 101,627 bytes (`wc -c`). 5e's every-site test stays green, as short labels should. |
+| MG | Drop `.take(32)` from `bounded_site` | Both long-name tests fail, at `tests.rs:1173` and `compose_tests.rs:1886`. |
+| MH | Drop the character check from `bounded_site`, so only the length is tested | The long-name test fails on the newline row. The left side reads `seat 'work:evil\nforged' driver has…`. |
+| MI | Refuse only at the leaf (`if index == 0`) | The root test panics in `error()` at the base row (`compose_tests.rs:1875`) after the leaf `tools` row passed. |
+
+After the restores, `git diff` showed the intended lines only: the call at
+`compose.rs:476`, the six keys, `bounded_site(what)`, `.take(32)` and the
+character check.
+
+### Shipped bundles
+
+`cargo run --locked -q -p brokkr-cli -- compile --bundle <dir>` compiled
+all 18. Their top-level digests are identical to the ones 5e recorded, so
+no identity moved. `bundles/self` `45dc1c7e…`, `bundles/verify` `65baad08…`,
+fast `2ee700f8…`, gpt-flash `1f03218c…`, landing `b348e919…`, night-shift
+`c5c12801…`, node `84f74cc4…`, panel-review `1d78f70b…`, preflight
+`5a86020a…`, release `4ed9a22b…`, research `a1da4388…`, research-dsh
+`cbd910ee…`, review-first `327e48ca…`, standby `78a632c7…`, triage
+`c9c9c347…`, wager-harness `13fc4e2d…`, wager-harness-dsh `a5c3d2cf…` and
+wager-harness-muse `f25c7bb5…`. No shipped layer writes any of the six keys
+at its root. Across the 18 `bundle.json` files the only top-level keys are
+`name`, `description`, `cost`, `policy`, `protected_phase`, `seats`,
+`extends` and `override`.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean. The first run reflowed one assertion
+  in the new compose test. `cargo fmt --all` applied the change, and the
+  check was then clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --locked -p brokkr-runtime --all-features`: 25 of 25 test
+  binaries ok, and the lib has 559 passed, 0 failed.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+- **Not fully green:** workspace exact coverage
+  (`scripts/coverage-exact.sh` outside the box), macOS and remote CI are
+  pending. The brokkr-cli suite was not re-run: no brokkr-cli byte moved,
+  and a grep of its tests found no bundle root carrying any of the six keys.
+
+### Follow-ups, not fixed here
+
+- The root is still open to keys other than the six. A closed root
+  vocabulary needs its own ruling, because tests already use arbitrary root
+  members.
+- `refuse_unknown_keys`, `refuse_boundary_key`, `refuse_crossing_keys` and
+  `refuse_confine` still interpolate the site label and, in
+  `refuse_unknown_keys`, the unknown key whole. They predate 5e and are
+  outside this unit's refusals, so R2's bound does not reach them.

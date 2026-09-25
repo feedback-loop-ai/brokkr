@@ -2323,12 +2323,36 @@ fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
         _ => String::new(),
     };
     Err(CompileError::Invalid(format!(
-        "seat '{what}' driver has an unknown key, {named}; known: {}.{place} A key the compiler \
+        "seat {} driver has an unknown key, {named}; known: {}.{place} A key the compiler \
          does not read is a declaration that was never made — a capability placed there would \
          compile, deliver nothing and run the seat at its harness default — so it is refused \
          rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e)",
+        bounded_site(what),
         DRIVER_KEYS.join(", ")
     )))
+}
+
+/// A site identity rendered for a refusal, bounded and safe (decision
+/// 0065 slice one, rebuild unit 5e-fix). A site label is built from
+/// author-written phase, member, step, case and recipe names, and nothing
+/// bounds their length or their characters. A label of at most 64 bytes of
+/// ASCII letters, digits, `_`, `-`, `.` and `:` (the site separator) is
+/// quoted whole. Any other is named by its leading run of those
+/// characters, at most 32, and its length in bytes, so a 100,000-character
+/// member name cannot become a 100,000-byte reason and a newline cannot
+/// forge a line.
+fn bounded_site(label: &str) -> String {
+    let safe = |byte: &u8| byte.is_ascii_alphanumeric() || b"_-.:".contains(byte);
+    if label.len() <= 64 && label.bytes().all(|byte| safe(&byte)) {
+        return format!("'{label}'");
+    }
+    let lead: String = label
+        .bytes()
+        .take_while(safe)
+        .take(32)
+        .map(char::from)
+        .collect();
+    format!("'{lead}…' ({} bytes, not echoed in full)", label.len())
 }
 
 /// Decision 0046 ruling 1: the boundary is the realm's fact, declared in

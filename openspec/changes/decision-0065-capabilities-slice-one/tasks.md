@@ -962,6 +962,35 @@ and branch of `refuse_driver_keys`. **Not fully green:** exact coverage,
 macOS and remote CI are pending. A follow-up is named and not fixed here:
 the bundle root has no unknown-key check.
 
+Corrected 2026-09-25 (run `0065-rebuild-unit-5e-fix-see-the-87ebafa9`,
+after the council on `dcd900d1` ruled SECURITY-HOLD). Unit 5e alone did not
+close 5e.1, and its tick above overstated what it proved. What 5e proved: the
+`driver` object is closed at all four sites, with the exact reasons and M1–M7
+recorded. What it did not prove: (1) the unit named "any other object a recipe
+author could plausibly put `tools`, `hands` or `sandbox` into", and the bundle
+root was one. 5e deferred it as a follow-up instead, so a root `tools`, `hands`
+or `sandbox` still compiled and confined nothing (chief R1). (2) The reason was
+not bounded. It interpolated the author-written site label whole, so a
+100,000-character member name produced a 100,427-byte refusal (chief R2).
+(3) `bundle/tests.rs`'s `Fixture` compiled from a temporary root that was not
+canonicalised (chief R3). 5e.1 closes only together with 5e-fix below.
+
+- [x] 5e-fix.1 Unit 5e-fix repairs 5e. A capability-bearing key (`tools`, `sandbox`, `hands`, `capabilities`, `driver`, `boundary`) written at the root of any composition layer, whether leaf or base, refuses compilation. The bounded, value-free reason names the layer and the key. Every refusal this unit and 5e add renders the site identity bounded and safe. The every-site test's fixture compiles from one canonical temporary root. Verify the exact refusals for root `tools`, `hands` and `sandbox`, and a long-name regression for both refusals, each bound by a compiling mutation. The self and verify bundles and every recipe under `recipes/` still compile. Requirements: decision 0004 (closed input semantics), [Refusal proofs assert the full reason][SC8]. (inserted by operator commission after 5e's council; run `0065-rebuild-unit-5e-fix-see-the-87ebafa9`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5e-fix"). Production: `bundle/compose.rs`
+(`ROOT_CAPABILITY_KEYS` and `refuse_root_capabilities`, called first in
+`merge_layer`, so every layer is checked) and `bundle.rs` (`bounded_site`,
+used by `refuse_driver_keys` and the root refusal). Tests:
+`compose_tests.rs::a_capability_declared_at_a_bundle_root_is_refused_at_every_layer`
+and `tests.rs::a_driver_refusal_names_a_long_or_unsafe_site_boundedly`.
+`Fixture` now carries a canonical `root`. MA–MI each bound and were
+restored. All 18 shipped bundles compile with the same top-level digests
+5e recorded. fmt, clippy, the brokkr-runtime suite (25 binaries; the lib
+reports 559 passed), `openspec validate --all --strict` (18 passed) and
+`git diff --check` passed. **Not fully green:** exact coverage, macOS and
+remote CI are pending. The root is still open to keys other than these six.
+Closing it entirely is a follow-up.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)
