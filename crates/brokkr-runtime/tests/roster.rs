@@ -786,7 +786,8 @@ fn every_shipped_adapter_declares_the_shape_its_gate_and_doctor_read() {
 /// are what an inline seat reads in place of a charter (issue #334). They
 /// defer to the house rules instead of restating them, and they carry the
 /// same principle text their charter does, so a recipe's seats and the
-/// library's offices cannot drift apart.
+/// library's offices cannot drift apart. The three reviewer roles that do
+/// not specialise are the reviewer charter's bytes and are held to them.
 #[test]
 fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
     let root = workspace();
@@ -854,4 +855,13 @@ fn recipe_roles_defer_to_the_house_and_carry_their_charters_principles() {
         }
     }
     assert!(implementers > 0 && reviewers > 0, "the walk found no roles");
+    let charter = std::fs::read(root.join("agents/charters/reviewer.md")).unwrap();
+    for recipe in ["fast", "review-first", "standby"] {
+        let role = format!("recipes/{recipe}/roles/reviewer.md");
+        assert_eq!(
+            charter,
+            std::fs::read(root.join(&role)).unwrap(),
+            "{role} is a copy of agents/charters/reviewer.md"
+        );
+    }
 }

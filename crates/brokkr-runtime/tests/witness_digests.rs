@@ -246,11 +246,13 @@ fn workspace() -> PathBuf {
 /// offices whose charters gained its principles, and `recipes/night-shift`
 /// and `recipes/gpt-flash` derive from triage. The seven others reported no
 /// movement; each value is the test's own reported digest.
-/// #334 moves eight: each recipe role now points at the house rules and
-/// carries its charter's design paragraph. `recipes/fast`, `recipes/node`,
-/// `recipes/night-shift`, `recipes/wager-harness`, `recipes/preflight` and
-/// `bundles/verify` carry an edited role; `recipes/triage` composes `fast`,
-/// and `recipes/gpt-flash` derives from triage. Both research recipes
+/// #334 moves eight. The implementer roles now defer to the house rules
+/// and carry their charter's design paragraph, and the reviewer roles carry
+/// the reviewer charter's principles sentence. `recipes/fast`,
+/// `recipes/node`, `recipes/night-shift`, `recipes/wager-harness`,
+/// `recipes/preflight` and `bundles/verify` carry an edited role;
+/// `recipes/triage` composes `fast`, and `recipes/gpt-flash` derives from
+/// triage. Both research recipes
 /// reported no movement; each value is the test's own reported digest.
 /// `recipes/node` moves again when its implementer role gains the
 /// house-deferral paragraph the other seven carry.
