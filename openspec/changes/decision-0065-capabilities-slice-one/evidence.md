@@ -6291,6 +6291,12 @@ New tests:
   again under a derived leaf that declares nothing, so the base's root is
   refused by name (`:1877`). A 100,000-byte recipe name is refused boundedly
   (`:1886`). A control shows the same `tools` on a seat still resolves.
+  *Corrected by unit 5e-fix-b (chief R3):* that `hands` value is not the
+  chief's control. `{workspace: rw, …}` is not valid hands, and compiling it
+  on a seat refuses with unknown key `workspace`; the valid shape is
+  `{kind: workspace, network: false, binds: []}`. The `tools` control ran
+  `resolve` only and compiled nothing. Neither was a production-compiling
+  control. 5e-fix-b replaces this test.
 - `tests.rs::a_driver_refusal_names_a_long_or_unsafe_site_boundedly`
   (`:1136`, assertion `:1173`). It uses a panel member named with 100,000 `a`s,
   and one named `evil\nforged`, each with `driver.sandbox`.
@@ -6314,6 +6320,19 @@ was run with `cargo test --locked -q -p brokkr-runtime --all-features --lib
 After the restores, `git diff` showed the intended lines only: the call at
 `compose.rs:476`, the six keys, `bounded_site(what)`, `.take(32)` and the
 character check.
+
+*Corrected by unit 5e-fix-b (chief R4):* the table above records
+post-repair removals only. No baseline red of these two tests on `dcd900d1`
+was run before 5e-fix committed, and none is claimed for that visit. A
+retrospective reconstruction was run on 2026-09-25 in run
+`0065-rebuild-unit-5e-fix-b-see-t-74cfe22d`: `git checkout dcd900d1 --
+crates/brokkr-runtime/src/bundle/compose.rs crates/brokkr-runtime/src/bundle.rs`
+over the 17810f7c tests, then `cargo test --locked -q -p brokkr-runtime
+--all-features --lib -- <both tests>`. Both failed: the root test panicked
+in `error()` at `compose_tests.rs:14` ("expected the composition to fail"),
+and the long-name test failed `left == right` at `tests.rs:1173`, the left
+side echoing the 100,000-byte label. Both files were restored to `17810f7c`
+and `git status` was clean.
 
 ### Shipped bundles
 
@@ -6355,3 +6374,176 @@ at its root. Across the 18 `bundle.json` files the only top-level keys are
   `refuse_confine` still interpolate the site label and, in
   `refuse_unknown_keys`, the unknown key whole. They predate 5e and are
   outside this unit's refusals, so R2's bound does not reach them.
+
+## Unit 5e-fix-b — a closed bundle root, and a bounded chain note, 2026-09-25
+
+Run `0065-rebuild-unit-5e-fix-b-see-t-74cfe22d`, implement, based on
+`17810f7c`. It answers the chief's R1–R4 on 5e-fix (run
+`0065-rebuild-unit-5e-fix-see-the-87ebafa9`, SECURITY-HOLD). Production:
+`crates/brokkr-runtime/src/bundle/compose.rs` and `bundle.rs`, no third
+file. Tests: `bundle/compose_tests.rs` and `bundle/tests.rs`. No recipe,
+pin, adapter, agent, frozen contract, fixture or doc moved.
+
+### R1: the root is a closed vocabulary
+
+5e-fix refused six named keys and kept every other root member, so
+`confine`, `allow`, `mcp`, `network` and any unknown key compiled and
+confined nothing. The six-key list is replaced by `ROOT_KEYS` in
+`compose.rs`, and `refuse_unknown_root_keys` stays the first call in
+`merge_layer`, so every layer is checked, deepest base first. The ten keys
+and the code that reads each at the root:
+
+| Key | Reader |
+|---|---|
+| `name` | `compose.rs::read_layers` (the layer's identity) |
+| `extends` | `compose.rs::read_layers` |
+| `override`, `remove` | `compose.rs::Markers::read` (`RESOLVER_KEYS`) |
+| `policy` | `compose.rs::own_table` (`RESOLVER_KEYS`) |
+| `seats` | `compose.rs::merge_layer` |
+| `description`, `cost`, `protected_phase` | `bundle.rs::Bundle::assemble` |
+| `egress_minimum` | `bundle.rs::parse_egress_minimum` |
+
+This is also the table in `docs/guides/recipe-authoring.md` ("`bundle.json`
+anatomy"), in its order. `jq -r 'keys|join(",")'` over the 18 tracked
+`bundle.json` files shows eight of them in use: `name`, `description`,
+`cost`, `policy`, `protected_phase`, `seats`, `extends` and `override`.
+Nothing else in `crates/` reads a bundle root: a grep for `get("cost")`,
+`get("description")`, `get("egress_minimum")` and `get("protected_phase")`
+outside tests finds only these readers. `contracts/` has no bundle schema.
+
+The reason names the layer's declared name and the key, both through
+`bounded_site`, never the value, and lists the vocabulary. It says a
+capability or confinement goes on each seat, a sandbox as `tools.sandbox`,
+and a boundary in the realm's `realms.json`.
+
+CLI probe, not committed: `.forge/probe-5efixb/root-confine/` is a minimal
+bundle with a root `confine`. `cargo run --locked -q -p brokkr-cli --
+compile --bundle .forge/probe-5efixb/root-confine` exited 1 with:
+
+    error: bundle: recipe 'probe' declares 'confine' at the bundle root, which admits only name, description, cost, policy, protected_phase, egress_minimum, seats, extends, override and remove. A capability or confinement is written on each seat it governs (a sandbox as 'tools.sandbox'), and a boundary is the realm's, declared in realms.json. A key the compiler does not read would compile, deliver nothing and leave every seat at its harness default, so it is refused rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e-fix-b)
+
+### R2: the chain note is bounded
+
+`Resolved::chain_note` joined each layer's declared name whole. It now
+renders a plain name (`plain_label`: at most 64 bytes of ASCII letters,
+digits, `_`, `-`, `.` and `:`) as written, so every existing chain-note
+assertion is unchanged, and any other name through `bounded_site`.
+`bundle.rs` factors `plain_label` and `safe_label_byte` out of
+`bounded_site` without changing its output. The other composition-name
+diagnostics in `read_layers` (cycle, depth and duplicate-name) still echo
+names whole. They are follow-ups, below.
+
+### R3: production-valid controls
+
+- The root test's `hands` row is `{kind: workspace, network: false, binds:
+  []}`. The same bytes on a seat compile, and the manifest records
+  `hands == {"work": {"kind": "workspace", "network": false, "binds": []}}`
+  and `boundary == {"work": "namespace"}` (`compose_tests.rs:1941–1942`).
+- Every row is paired with the same layers without the key, compiled by
+  `Bundle::compile`. The standalone control's manifest files are exactly
+  `bundle.json`, `policy.json`, `roles/role.md`, and the inherited control's
+  are `@compose/0000/base`, `bundle.json`, `roles/role.md`. After each row
+  both compile again to the control digests.
+- `tests.rs::a_driver_refusal_names_a_long_or_unsafe_site_boundedly` now
+  compiles the same panel with the member's driver carrying only `command`
+  and asserts the exact site set, `review`, `work:two` and
+  `work:<member>`.
+- The R2 test compiles each chain without the misplaced key and asserts the
+  bundle's name and chain names exactly.
+- A stale-marker row in `bundle_members_and_marker_shapes_are_checked_by_name`
+  (`compose_tests.rs:566`) used the arbitrary root key
+  `absent`, which the closed root now refuses first. It uses
+  `egress_minimum`, which the base does not set, so it still asserts "no
+  ancestor sets it".
+
+### Baseline on 17810f7c (R4)
+
+The new tests were written first and run against unchanged `17810f7c`
+production with `cargo test --locked -q -p brokkr-runtime --all-features
+--lib -- <three tests>`. All three failed:
+- the root test at `compose_tests.rs:1912` ("standalone tools"), the left
+  side being 5e-fix's reason and the right the closed-vocabulary one;
+- the R2 test at `:1981` (before `cargo fmt`; now `:1996`), the chain note
+  echoing the 100,000-byte leaf name;
+- the driver test at `tests.rs:1184`, on its new control's site set
+  (the test's first expectation wrongly included a `work` site; it was
+  corrected to `review`, `work:two`, `work:<member>` before the change).
+
+A scratch variant of the root test, run once and removed, reported what
+each row did on `17810f7c`. The six named keys were refused. Each of the
+following compiled at the standalone, inherited and derived roots, and the
+control compiled after each row:
+
+| Key | Standalone | Inherited |
+|---|---|---|
+| `confine` | `b3d3e120…` | `f33ce088…` |
+| `allow` | `a80ec0a4…` | `e6f00f8a…` |
+| `mcp` | `20690c3e…` | `895babba…` |
+| `network` | `1c205c4d…` | `0d8816fa…` |
+| `frobnicate` | `23b9682f…` | `0f01ccc0…` |
+| 100,000 × `k` | `ede420d4…` | `d08c3d49…` |
+| `evil\nkey` | `7cce918f…` | `d17e0f84…` |
+
+### Mutations
+
+Each compiled, was run with `cargo test --locked -q -p brokkr-runtime
+--all-features --lib -- <test>`, and was restored. Line numbers after
+`:1943` are pre-`cargo fmt` where marked.
+
+| # | Mutation | Observed |
+|---|---|---|
+| MJ | `refuse_unknown_root_keys(layer)?` → `let _ = refuse_unknown_root_keys;` | `compose_tests.rs:1912` "standalone tools": left `compiled to 9e278f02…`. |
+| MK | Admit one key (`&& *key != "<key>"` in the `find`), once each for `confine`, `allow`, `mcp`, `network`, `frobnicate` | `:1912` "standalone <key>", left `compiled to` exactly the baseline standalone digest above. |
+| ML | Check only the leaf (`if index == 0`) | `:1913` "inherited tools", left `compiled to 9e6f4d37…`. |
+| ML-key | Skip the check only at an ancestor carrying `<key>` (`index == 0 \|\| !contains_key("<key>")`), once each for the five keys | `:1913` "inherited <key>", left `compiled to` exactly the baseline inherited digest above. |
+| MM | Render the key as `'{key}'` | `:1912` "standalone kkk…", the 100,000-byte key echoed. |
+| MN | Render the layer name as `'{name}'` | `:1934`, the 100,000-byte recipe name echoed. |
+| MO | `chain_note` joins raw names | R2 test `:1981` (now `:1996`), long-leaf row. |
+| MP | `chain_note` bounds the leaf only | R2 test `:1981` (now `:1996`), on the long-ancestor row after the leaf row passed. |
+| MQ | `plain_label` drops the character check | All three fail on newline rows: `tests.rs:1173` (`work:evil\nforged`), R2 `:1981` (`evil\nleaf`), root `:1912` (`evil\nkey`). |
+| MR | `plain_label` drops the length check | All three fail on 100,000-byte rows: `tests.rs:1173`, R2 `:1981`, root `:1912`. |
+| MS | `refuse_driver_keys` refuses a valid driver at a non-plain site | `tests.rs:1178`, the new control's `unwrap` on `Invalid("MS")`. |
+| MS2 | `compile_with_capabilities` refuses a compiled bundle with a non-plain leaf or first-ancestor name | R2 control `unwrap` at `:1988` (now `:2003`) on `Invalid("MS2")`. |
+| MT | The manifest boundary word is `"MT"` | `:1942`: left `{"work": "MT"}`, right `{"work": "namespace"}`; `:1941` (hands) passed first. |
+| MU | `extends` refused as if outside the vocabulary | `:1890`, the inherited control's `Bundle::compile(...).unwrap()`. |
+
+After the restores, `git diff` on the two production files showed only the
+intended change.
+
+### Shipped bundles
+
+`cargo run --locked -q -p brokkr-cli -- compile --bundle <dir>` compiled
+all 18, with the digests 5e-fix recorded: `bundles/self` `45dc1c7e…`,
+`bundles/verify` `65baad08…`, fast `2ee700f8…`, gpt-flash `1f03218c…`,
+landing `b348e919…`, night-shift `c5c12801…`, node `84f74cc4…`,
+panel-review `1d78f70b…`, preflight `5a86020a…`, release `4ed9a22b…`,
+research `a1da4388…`, research-dsh `cbd910ee…`, review-first `327e48ca…`,
+standby `78a632c7…`, triage `c9c9c347…`, wager-harness `13fc4e2d…`,
+wager-harness-dsh `a5c3d2cf…` and wager-harness-muse `f25c7bb5…`.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean after `cargo fmt --all` reflowed the
+  R2 test's rows.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --locked -p brokkr-runtime --all-features`: 25 of 25 binaries
+  ok, lib 560 passed.
+- brokkr-cli: one full run on the change before the `split_at` tidy-up
+  reported 33 of 33 binaries ok. On the final bytes the lib binary hung
+  twice in the known in-binary deadlock and was stopped. `--lib` alone then
+  reported 481 passed, and `--test '*'` 30 of 30 targets ok.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+- **Not fully green:** workspace exact coverage
+  (`scripts/coverage-exact.sh` outside the box), macOS and remote CI are
+  pending.
+
+### Follow-ups, not fixed here
+
+- `read_layers`'s cycle, depth and duplicate-name refusals still echo
+  declared layer names whole.
+- 5e-fix's follow-up on `refuse_unknown_keys`, `refuse_boundary_key`,
+  `refuse_crossing_keys` and `refuse_confine` stands.
+- `docs/guides/recipe-authoring.md`'s anatomy table lists the vocabulary
+  but does not yet say that any other root key is refused.

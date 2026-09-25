@@ -991,6 +991,40 @@ reports 559 passed), `openspec validate --all --strict` (18 passed) and
 remote CI are pending. The root is still open to keys other than these six.
 Closing it entirely is a follow-up.
 
+Corrected 2026-09-25 (run `0065-rebuild-unit-5e-fix-b-see-t-74cfe22d`,
+after the council on `17810f7c` ruled SECURITY-HOLD). 5e-fix did not close
+5e-fix.1, and its tick above overstated what it proved. (1) Six named keys
+were not "a capability-bearing key": `confine`, `allow`, `mcp`, `network` and
+any other key still compiled at a standalone, inherited or derived root and
+confined nothing (chief R1; reproduced on `17810f7c`, evidence.md "Unit
+5e-fix-b"). (2) The chain note on a composed bundle's refusal still echoed
+the leaf's and every ancestor's declared name whole, newlines included
+(chief R2). (3) The `hands` row's value `{workspace: rw, …}` is not valid
+hands, and its `tools` control ran `resolve` only, so neither was a
+production-compiling control; `tests.rs`'s long-name test had no valid
+control (chief R3). (4) No baseline red of the new regressions on `dcd900d1`
+was run before the repair; the one now recorded is retrospective (chief R4).
+5e-fix.1 closes only together with 5e-fix-b below.
+
+- [x] 5e-fix-b.1 Unit 5e-fix-b repairs 5e-fix. Every composition layer's root is a closed vocabulary: `name`, `description`, `cost`, `policy`, `protected_phase`, `egress_minimum`, `seats`, `extends`, `override` and `remove`, each cited to the code that reads it, and any other key refuses compilation with a bounded, value-free reason naming the layer and the key. The chain note renders leaf and ancestor names bounded and safe. Verify exact refusals for `confine`, `allow`, `mcp`, `network` and an arbitrary key at standalone and inherited roots, each bound by a compiling mutation with a baseline red on `17810f7c`; the long/unsafe leaf and ancestor names through `Bundle::compile`; production-valid controls paired with each regression. The self and verify bundles and every recipe still compile. Requirements: decision 0004 (closed input semantics), [Refusal proofs assert the full reason][SC8]. (inserted by operator commission after 5e-fix's council; run `0065-rebuild-unit-5e-fix-b-see-t-74cfe22d`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5e-fix-b"). Production:
+`bundle/compose.rs` (`ROOT_KEYS` and `refuse_unknown_root_keys` replace the
+six-key list; `chain_note` bounds each name) and `bundle.rs` (`plain_label`
+and `safe_label_byte` factored out of `bounded_site`). No third file. Tests:
+`compose_tests.rs::a_bundle_root_is_a_closed_vocabulary_at_every_layer`
+(replaces 5e-fix's root test), `compose_tests.rs::a_composed_refusal_names_long_or_unsafe_layers_boundedly`,
+and a paired control in `tests.rs::a_driver_refusal_names_a_long_or_unsafe_site_boundedly`;
+one stale-marker row moved from the arbitrary root key `absent` to
+`egress_minimum`. Baseline: all three red on `17810f7c`, and `confine`,
+`allow`, `mcp`, `network`, `frobnicate`, a 100,000-byte key and `evil\nkey`
+compiled at every root. MJ–MU and per-key MK/ML each bound and were
+restored. All 18 shipped bundles compile with the digests 5e-fix recorded.
+fmt, clippy, brokkr-runtime (25 of 25 binaries, lib 560 passed),
+brokkr-cli (lib 481 passed, 30 of 30 integration targets),
+`openspec validate --all --strict` (18 passed) and `git diff --check`
+passed. **Not fully green:** exact coverage, macOS and remote CI are pending.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

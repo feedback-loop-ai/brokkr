@@ -563,7 +563,7 @@ fn bundle_members_and_marker_shapes_are_checked_by_name() {
     );
     for (extra, why) in [
         (
-            json!({"override": {"bundle": ["absent"]}, "absent": 1}),
+            json!({"override": {"bundle": ["egress_minimum"]}, "egress_minimum": "local"}),
             "no ancestor sets it",
         ),
         (
@@ -1830,66 +1830,181 @@ fn no_spelling_and_no_link_hides_an_active_input_under_a_skipped_tree() {
     );
 }
 
-/// Rebuild unit 5e-fix (the chief's R1 and R2 on unit 5e): the root keeps
-/// every member it carries, and the compiler reads a capability only at a
-/// seat, so `tools`, `hands` or `sandbox` written at a root compiled and
-/// confined nothing. Each is refused at the root of every layer, a leaf
-/// and a base alike, naming the layer boundedly and the key, never the
-/// value. The same declaration on a seat is the seat's and still resolves.
+/// Rebuild unit 5e-fix-b (the chief's R1 and R3 on 5e-fix): a layer's root
+/// is a closed vocabulary. 5e-fix refused six capability words by name, and
+/// its council then compiled `confine`, `allow`, `mcp` and `network` at a
+/// root, where they confined nothing. Every key outside the vocabulary is
+/// now refused at the root of every layer, a standalone bundle, an
+/// inherited base and a derived leaf alike, naming the layer and the key
+/// boundedly and never the value. The same layers without the key compile,
+/// and hands written on a seat compile and record exactly those hands and
+/// the realm's boundary.
 #[test]
-fn a_capability_declared_at_a_bundle_root_is_refused_at_every_layer() {
+fn a_bundle_root_is_a_closed_vocabulary_at_every_layer() {
     let library = Library::new();
-    let refusal = |recipe: &str, key: &str, place: &str| {
+    let refusal = |recipe: &str, key: &str| {
         format!(
-            "bundle: recipe {recipe} declares '{key}' at the bundle root, where the compiler \
-             does not read it; {place}. A capability written there would compile, deliver \
-             nothing and leave every seat at its harness default, so it is refused rather than \
-             ignored (decision 0004; decision 0065 slice one, rebuild unit 5e-fix)"
+            "bundle: recipe {recipe} declares {key} at the bundle root, which admits only \
+             name, description, cost, policy, protected_phase, egress_minimum, seats, extends, \
+             override and remove. A capability or confinement is written on each seat it \
+             governs (a sandbox as 'tools.sandbox'), and a boundary is the realm's, declared in \
+             realms.json. A key the compiler does not read would compile, deliver nothing and \
+             leave every seat at its harness default, so it is refused rather than ignored \
+             (decision 0004; decision 0065 slice one, rebuild unit 5e-fix-b)"
         )
     };
-    let on_a_seat = "it is a site declaration, written on each seat it governs";
+    let hands = json!({"kind": "workspace", "network": false, "binds": []});
+    let long = "k".repeat(100_000);
     let rows = [
-        ("tools", json!({"sandbox": "workspace-write"}), on_a_seat),
         (
-            "hands",
-            json!({"workspace": "rw", "network": false, "binds": []}),
-            on_a_seat,
+            "tools",
+            json!({"allow": ["Read"], "sandbox": "workspace-write"}),
         ),
-        (
-            "sandbox",
-            json!("read-only"),
-            "a sandbox is a typed tool field, written as 'tools.sandbox' on each seat",
-        ),
+        ("sandbox", json!("read-only")),
+        ("hands", hands.clone()),
+        ("capabilities", json!({"web": "requires"})),
+        ("driver", json!({"command": ["./drive", "plain"]})),
+        ("boundary", json!("open")),
+        ("confine", json!({"network": false})),
+        ("allow", json!(["Read", "Grep"])),
+        ("mcp", json!({"servers": {}})),
+        ("network", json!(false)),
+        ("frobnicate", json!(1)),
+        (long.as_str(), json!(1)),
+        ("evil\nkey", json!(1)),
     ];
-    for (key, value, place) in &rows {
+    let named = |key: &str| match key {
+        "evil\nkey" => "'evil…' (8 bytes, not echoed in full)".to_string(),
+        key if key.len() == 100_000 => {
+            format!("'{}…' (100000 bytes, not echoed in full)", "k".repeat(32))
+        }
+        key => format!("'{key}'"),
+    };
+
+    // The controls: the same layers, carrying no such key, compile.
+    let base = library.recipe("base", &base_bundle(), Some(&base_policy()));
+    let leaf = library.recipe("derived", &derived(json!({})), None);
+    let standalone = said(&base);
+    let inherited = said(&leaf);
+    let files = |dir: &Path| -> Vec<String> {
+        let compiled = Bundle::compile(dir).unwrap();
+        compiled.manifest["files"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    };
+    assert_eq!(
+        files(&base),
+        ["bundle.json", "policy.json", "roles/role.md"]
+    );
+    assert_eq!(
+        files(&leaf),
+        ["@compose/0000/base", "bundle.json", "roles/role.md"]
+    );
+
+    for (key, value) in &rows {
         let mut bundle = base_bundle();
         bundle[*key] = value.clone();
-        let leaf = library.recipe("base", &bundle, Some(&base_policy()));
+        library.recipe("base", &bundle, Some(&base_policy()));
+        let expected = refusal("'base'", &named(key));
+        assert_eq!(said(&base), expected, "standalone {key}");
+        assert_eq!(said(&leaf), expected, "inherited {key}");
+        library.recipe("base", &base_bundle(), Some(&base_policy()));
+        library.recipe("derived", &derived(json!({ *key: value })), None);
         assert_eq!(
-            error(resolve(&leaf)),
-            refusal("'base'", key, place),
-            "leaf {key}"
+            said(&leaf),
+            refusal("'derived'", &named(key)),
+            "derived {key}"
         );
-        let leaf = library.recipe("derived", &derived(json!({})), None);
+        library.recipe("derived", &derived(json!({})), None);
         assert_eq!(
-            error(resolve(&leaf)),
-            refusal("'base'", key, place),
-            "base {key}"
+            (said(&base), said(&leaf)),
+            (standalone.clone(), inherited.clone()),
+            "control {key}"
         );
     }
 
     let mut bundle = base_bundle();
     bundle["name"] = json!("x".repeat(100_000));
-    bundle["tools"] = json!({"sandbox": "workspace-write"});
-    let leaf = library.recipe("long", &bundle, Some(&base_policy()));
-    let named = format!("'{}…' (100000 bytes, not echoed in full)", "x".repeat(32));
-    assert_eq!(error(resolve(&leaf)), refusal(&named, "tools", on_a_seat));
+    bundle["confine"] = json!({"network": false});
+    let long_named = library.recipe("long", &bundle, Some(&base_policy()));
+    let recipe = format!("'{}…' (100000 bytes, not echoed in full)", "x".repeat(32));
+    assert_eq!(said(&long_named), refusal(&recipe, "'confine'"));
 
+    // A seat's own hands are the seat's: they compile and are recorded.
     let mut bundle = base_bundle();
-    bundle["seats"]["work"]["tools"] = json!({"sandbox": "workspace-write"});
-    let leaf = library.recipe("base", &bundle, Some(&base_policy()));
-    assert_eq!(
-        resolve(&leaf).unwrap().document["seats"]["work"]["tools"],
-        json!({"sandbox": "workspace-write"})
+    bundle["seats"]["work"]["hands"] = hands.clone();
+    library.recipe("base", &bundle, Some(&base_policy()));
+    let compiled = Bundle::compile(&base).unwrap();
+    assert_eq!(compiled.manifest["hands"], json!({"work": hands}));
+    assert_eq!(compiled.manifest["boundary"], json!({"work": "namespace"}));
+}
+
+/// Rebuild unit 5e-fix-b (the chief's R2 on 5e-fix): a refusal on a
+/// composed bundle ends with the chain, leaf first, and every name in it
+/// is the one its layer declares, which nothing bounds. A 100,000-byte or
+/// newline-bearing leaf or ancestor name is rendered bounded in the
+/// complete diagnostic, and a plain name reads as it always has. Each
+/// row's control, the same chain without the misplaced key, compiles
+/// under exactly those names.
+#[test]
+fn a_composed_refusal_names_long_or_unsafe_layers_boundedly() {
+    let library = Library::new();
+    let bounded = |fill: &str| format!("'{}…' (100000 bytes, not echoed in full)", fill.repeat(32));
+    let unsafe_name = "'evil…' (9 bytes, not echoed in full)";
+    let rows = [
+        (
+            "x".repeat(100_000),
+            "base".to_string(),
+            bounded("x"),
+            "base".to_string(),
+        ),
+        (
+            "derived".to_string(),
+            "y".repeat(100_000),
+            "derived".to_string(),
+            bounded("y"),
+        ),
+        (
+            "evil\nleaf".to_string(),
+            "base".to_string(),
+            unsafe_name.to_string(),
+            "base".to_string(),
+        ),
+        (
+            "derived".to_string(),
+            "evil\nbase".to_string(),
+            "derived".to_string(),
+            unsafe_name.to_string(),
+        ),
+    ];
+    let misplaced = super::agent_tests::misplaced_in_driver(
+        "work",
+        "'sandbox'",
+        " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.",
     );
+    for (leaf_name, base_name, leaf_shown, base_shown) in rows {
+        let mut base = base_bundle();
+        base["name"] = json!(base_name);
+        base["seats"]["work"]["driver"]["sandbox"] = json!("read-only");
+        library.recipe("base", &base, Some(&base_policy()));
+        let mut leaf = derived(json!({}));
+        leaf["name"] = json!(leaf_name);
+        let dir = library.recipe("derived", &leaf, None);
+        assert_eq!(
+            error(Bundle::compile(&dir)),
+            format!("bundle: {misplaced} (composed: {leaf_shown} -> {base_shown})"),
+            "{leaf_shown} -> {base_shown}"
+        );
+        base["seats"]["work"]["driver"] = json!({"command": ["./drive", "plain"]});
+        library.recipe("base", &base, Some(&base_policy()));
+        let compiled = Bundle::compile(&dir).unwrap();
+        let chain: Vec<&str> = compiled.chain.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(
+            (compiled.name.as_str(), chain),
+            (leaf_name.as_str(), vec![base_name.as_str()])
+        );
+    }
 }

@@ -2340,19 +2340,29 @@ fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
 /// quoted whole. Any other is named by its leading run of those
 /// characters, at most 32, and its length in bytes, so a 100,000-character
 /// member name cannot become a 100,000-byte reason and a newline cannot
-/// forge a line.
+/// forge a line. Rebuild unit 5e-fix-b renders a root key and a
+/// composition chain's layer names the same way.
 fn bounded_site(label: &str) -> String {
-    let safe = |byte: &u8| byte.is_ascii_alphanumeric() || b"_-.:".contains(byte);
-    if label.len() <= 64 && label.bytes().all(|byte| safe(&byte)) {
+    if plain_label(label) {
         return format!("'{label}'");
     }
     let lead: String = label
         .bytes()
-        .take_while(safe)
+        .take_while(safe_label_byte)
         .take(32)
         .map(char::from)
         .collect();
     format!("'{lead}…' ({} bytes, not echoed in full)", label.len())
+}
+
+/// A label [`bounded_site`] quotes whole: at most 64 bytes, all of them
+/// [`safe_label_byte`].
+fn plain_label(label: &str) -> bool {
+    label.len() <= 64 && label.bytes().all(|byte| safe_label_byte(&byte))
+}
+
+fn safe_label_byte(byte: &u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"_-.:".contains(byte)
 }
 
 /// Decision 0046 ruling 1: the boundary is the realm's fact, declared in

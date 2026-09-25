@@ -94,13 +94,20 @@ impl Resolved {
     /// The chain as one line, leaf first — appended ONCE to any compile
     /// error raised downstream of resolution, so a composed bundle's
     /// failures say what they were composed from without teaching every
-    /// lint about layers. `None` when nothing was composed.
+    /// lint about layers. `None` when nothing was composed. Each name is
+    /// the one its layer declares, which nothing bounds, so a plain name
+    /// reads as written and any other is rendered bounded and safe
+    /// (rebuild unit 5e-fix-b).
     pub fn chain_note(&self) -> Option<String> {
         if self.chain.is_empty() {
             return None;
         }
-        let mut names = vec![self.name.clone()];
-        names.extend(self.chain.iter().map(|ancestor| ancestor.name.clone()));
+        let shown = |name: &str| match super::plain_label(name) {
+            true => name.to_string(),
+            false => super::bounded_site(name),
+        };
+        let mut names = vec![shown(&self.name)];
+        names.extend(self.chain.iter().map(|ancestor| shown(&ancestor.name)));
         Some(format!("composed: {}", names.join(" -> ")))
     }
 }
@@ -430,50 +437,63 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
     Ok(Some((table, path)))
 }
 
-/// The capability-bearing words a seat writes, which the compiler reads
-/// only at a site (decision 0065 slice one, rebuild unit 5e-fix). The
-/// root keeps every other member it carries and hands it to the parser
-/// (the loop in [`merge_layer`]), which reads none of these there, so each
-/// is refused at the root of every layer rather than retained and ignored.
-const ROOT_CAPABILITY_KEYS: [&str; 6] = [
-    "tools",
-    "sandbox",
-    "hands",
-    "capabilities",
-    "driver",
-    "boundary",
+/// Every key a layer's root may carry, and nothing else (decision 0004's
+/// closed inputs; decision 0065 slice one, rebuild unit 5e-fix-b). Each is
+/// read at the root by exactly one owner: `name` and `extends` by
+/// [`read_layers`], `override` and `remove` by [`Markers::read`], `policy`
+/// by [`own_table`], `seats` by [`merge_layer`], and `description`, `cost`,
+/// `protected_phase` and `egress_minimum` by `Bundle::assemble` and
+/// `parse_egress_minimum` in `bundle.rs`. It is the table of
+/// `docs/guides/recipe-authoring.md` ("`bundle.json` anatomy"), in its
+/// order, and the 18 shipped `bundle.json` files use eight of the ten. A
+/// capability is read only at a site, so a capability word at a root, or
+/// any other key, was retained and ignored: it compiled and confined
+/// nothing. The root is closed rather than a list of known capability words
+/// extended, because a list of refused words is only as complete as its
+/// last council.
+const ROOT_KEYS: [&str; 10] = [
+    "name",
+    "description",
+    "cost",
+    "policy",
+    "protected_phase",
+    "egress_minimum",
+    "seats",
+    "extends",
+    "override",
+    "remove",
 ];
 
-/// Decision 0004's closed input semantics at the root of one layer: a
-/// capability declaration written at the root, as if for every seat,
-/// governs none, so before this unit it compiled and left each seat at its
-/// harness default. The reason names the layer, bounded, and the key, and
+/// Refuse any key outside [`ROOT_KEYS`] at the root of one layer. The
+/// reason names the layer and the key, both rendered bounded and safe, and
 /// never the value.
-fn refuse_root_capabilities(layer: &Layer) -> Result<(), CompileError> {
-    let Some(key) = ROOT_CAPABILITY_KEYS
-        .into_iter()
-        .find(|key| layer.document.contains_key(*key))
+fn refuse_unknown_root_keys(layer: &Layer) -> Result<(), CompileError> {
+    let Some(key) = layer
+        .document
+        .keys()
+        .find(|key| !ROOT_KEYS.contains(&key.as_str()))
     else {
         return Ok(());
     };
-    let place = match key {
-        "sandbox" => "a sandbox is a typed tool field, written as 'tools.sandbox' on each seat",
-        "boundary" => "a boundary is the realm's, declared in realms.json and never by a bundle",
-        _ => "it is a site declaration, written on each seat it governs",
-    };
+    let (rest, last) = ROOT_KEYS.split_at(ROOT_KEYS.len() - 1);
     Err(invalid(format!(
-        "recipe {} declares '{key}' at the bundle root, where the compiler does not read it; \
-         {place}. A capability written there would compile, deliver nothing and leave every \
-         seat at its harness default, so it is refused rather than ignored (decision 0004; \
-         decision 0065 slice one, rebuild unit 5e-fix)",
-        super::bounded_site(&layer.name)
+        "recipe {} declares {} at the bundle root, which admits only {} and {}. A \
+         capability or confinement is written on each seat it governs (a sandbox as \
+         'tools.sandbox'), and a boundary is the realm's, declared in realms.json. A key the \
+         compiler does not read would compile, deliver nothing and leave every seat at its \
+         harness default, so it is refused rather than ignored (decision 0004; decision 0065 \
+         slice one, rebuild unit 5e-fix-b)",
+        super::bounded_site(&layer.name),
+        super::bounded_site(key),
+        rest.join(", "),
+        last[0]
     )))
 }
 
 /// Merge one layer over everything resolved beneath it.
 fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<(), CompileError> {
     let layer = &layers[index];
-    refuse_root_capabilities(layer)?;
+    refuse_unknown_root_keys(layer)?;
     let markers = Markers::read(layer)?;
     let table = own_table(layer)?;
 

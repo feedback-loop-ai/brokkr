@@ -1171,6 +1171,17 @@ fn a_driver_refusal_names_a_long_or_unsafe_site_boundedly() {
         )
         .replace("'SITE'", &named);
         assert_eq!(error(fixture.compile(&config, &policy)), expected);
+        // The paired control (rebuild unit 5e-fix-b, the chief's R3): the
+        // same panel, its member's driver carrying only `command`, compiles
+        // and addresses the member under its whole name.
+        config["seats"]["work"]["panel"][member.as_str()] = inline.clone();
+        let compiled = fixture.compile(&config, &policy).unwrap();
+        let sites: Vec<&str> = compiled.sites.keys().map(String::as_str).collect();
+        let mut wanted = vec!["review", "work:two"];
+        let member_site = format!("work:{member}");
+        wanted.push(&member_site);
+        wanted.sort_unstable();
+        assert_eq!(sites, wanted);
     }
 }
 
