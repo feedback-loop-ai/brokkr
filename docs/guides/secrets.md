@@ -32,7 +32,11 @@ only what the route is cleared to receive.
 
 Whatever the child writes back is masked to `[secret:NAME]` before it
 reaches the journal: its stderr on raw bytes before the string ever
-exists, and every checkpoint folded from a harness's stream, a
-provider's refusal and the result file. The `{{secret:NAME}}` spelling
+exists; a harness's stream and transcript on each decoded event, before
+any fold clamps a field to a length or rewrites a refusal into one line;
+and the result file after it is parsed, so a value JSON escaped on the
+way out is still found. A wholly numeric secret that a structured field
+carries as a bare JSON number is not rewritten there — a count stays a
+number — so do not bind a secret that is only digits. The `{{secret:NAME}}` spelling
 itself is not secret-bearing, which is why it is journalable and the
 resolved command line is not.

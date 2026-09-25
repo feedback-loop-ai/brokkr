@@ -451,3 +451,25 @@ fn mask_json_masks_every_decoded_string_and_leaves_keys_and_scalars() {
         })
     );
 }
+
+#[test]
+fn mask_json_masks_object_keys_and_leaves_numbers_as_numbers() {
+    // A result file's keys are the seat's to choose, so a key that echoes
+    // a bound value is masked like any string. A count stays a count.
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = store_dir.path().join("secrets.env");
+    store_set(&store, "API_TOKEN", "key-leak-value").unwrap();
+    let bindings = resolve_bindings(&store, &["API_TOKEN".to_string()]).unwrap();
+    let mut value = serde_json::json!({
+        "key-leak-value": {"inner key-leak-value": 1},
+        "tokens": 42,
+    });
+    mask_json(&mut value, &bindings);
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "[secret:API_TOKEN]": {"inner [secret:API_TOKEN]": 1},
+            "tokens": 42,
+        })
+    );
+}

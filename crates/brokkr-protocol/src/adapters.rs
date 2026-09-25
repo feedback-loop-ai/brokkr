@@ -2269,12 +2269,14 @@ struct DshTail {
 /// telemetry in the journal, never an injection or a control-flow
 /// decision. A driver whose harness offers a real stdout stream should
 /// use it rather than inherit this.
+#[allow(clippy::too_many_arguments)]
 fn drain_dsh_transcript(
     tail: &mut DshTail,
     root: &std::path::Path,
     first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
+    bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) {
     if tail.file.is_none() {
@@ -2288,9 +2290,10 @@ fn drain_dsh_transcript(
     tail.pending.extend_from_slice(&chunk);
     while let Some(index) = tail.pending.iter().position(|byte| *byte == b'\n') {
         let line: Vec<u8> = tail.pending.drain(..=index).collect();
-        let Ok(event) = serde_json::from_slice::<Value>(&line) else {
+        let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
             continue;
         };
+        secret::mask_json(&mut event, bindings);
         fold_dsh_event(&event, first_seq, turns, session_meta, emit);
     }
 }
@@ -2412,9 +2415,12 @@ fn invoke_stream_json(
             let Ok(line) = line else { break };
             // Unparseable stream lines are noise, never repaired
             // (decision 0001).
-            let Ok(event) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+            // Masked before the fold clamps or rewrites anything it takes
+            // (decision 0012, layer 5): see `secret::mask_json`.
+            secret::mask_json(&mut event, bindings);
             let classified = fold_stream_event(
                 &event,
                 &mut assistant_turns,
@@ -3073,7 +3079,8 @@ fn invoke_codex(
         let mut watch = |data: &Value| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
-            if let Ok(event) = serde_json::from_str::<Value>(&line) {
+            if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
+                secret::mask_json(&mut event, bindings);
                 let classified = fold_codex_event(
                     &event,
                     &mut turn,
@@ -4166,6 +4173,7 @@ fn invoke_dsh_shipped(
                 launch.first_seq,
                 &mut turns,
                 session_meta,
+                bindings,
                 emit,
             )
         },
@@ -4217,7 +4225,8 @@ fn invoke_dsh_stream_json(
             break;
         };
         let read = match serde_json::from_str::<Value>(&line) {
-            Ok(event) => {
+            Ok(mut event) => {
+                secret::mask_json(&mut event, bindings);
                 fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
                 DshStreamLine::Event
             }
@@ -4242,6 +4251,7 @@ fn invoke_dsh_stream_json(
                 launch.first_seq,
                 &mut turns,
                 session_meta,
+                bindings,
                 emit,
             );
         }
@@ -4257,6 +4267,7 @@ fn invoke_dsh_stream_json(
             launch.first_seq,
             &mut turns,
             session_meta,
+            bindings,
             emit,
         );
     }
@@ -6086,13 +6097,22 @@ fn run_seat_with(
     // append-only journal via EffectSucceeded — a child that echoes
     // $TOKEN into its notes must not put plaintext there. Raw bytes
     // first, string conversion second.
-    let raw = secret::mask_bytes(&raw, &bindings);
+    // Parsed FIRST and masked second: a bound value with a character JSON
+    // escapes never appears verbatim in the escaped bytes, so a raw-bytes
+    // pass would miss it and the parse would decode it back to plaintext.
     let raw = String::from_utf8_lossy(&raw);
     // Typed-invalid on purpose when unparseable: the engine parks with
-    // raw evidence (decision 0001); adapters repair nothing.
+    // raw evidence (decision 0001); adapters repair nothing. The parse
+    // error is masked too, since it is the one string here that can quote
+    // the file.
     let mut seat_result = match serde_json::from_str::<Value>(&raw) {
-        Ok(result) => result,
-        Err(error) => json!({"__unparseable_result_file__": error.to_string()}),
+        Ok(mut result) => {
+            secret::mask_json(&mut result, &bindings);
+            result
+        }
+        Err(error) => {
+            json!({"__unparseable_result_file__": masked_text(error.to_string().as_bytes(), &bindings)})
+        }
     };
     // Result contracts are objects. Enrich the driver's copy with the
     // provider report after masking/parsing so seat-authored content can
