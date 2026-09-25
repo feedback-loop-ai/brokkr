@@ -1554,6 +1554,24 @@ both arms unreachable, and exact coverage stays pending until they are
 deleted (evidence.md, "Unit 11 — the F1 fix lands; the two dead arms go to
 unit 12").
 
+Unit 12, first visit (2026-09-26, run
+`0065-rebuild-unit-12-see-the-uni-245a74ff`): **oversized, nothing
+landed.** The built core, dead-arm deletion included, is saved as
+`.forge/unit-12-oversized-2026-09-26.patch`. With it applied, two test
+files outside the inventory fail because their fixtures author a refused
+option:
+
+- `bundle/agent_tests.rs`, `a_resolved_seat_equals_the_equivalent_inline_seat`
+  (`--allowedTools`);
+- `brokkr-cli/tests/driver_conformance.rs`, `proof_codex_argv` and
+  `proof_codex_driver` (`--sandbox danger-full-access`).
+
+The split needed is a test-inventory widening, or a prior migration unit.
+The patch's three standing-admission lines (`written: &[]` in
+`capabilities/tests.rs`, `engine/capability_tests.rs` and
+`agents/tests.rs`) are recorded in evidence.md, "Unit 12 — oversized".
+12.1 and 12.2 stay open.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

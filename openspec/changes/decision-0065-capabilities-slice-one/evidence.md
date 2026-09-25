@@ -9289,3 +9289,122 @@ this unit did not move them.
 - **Standing-admission lines:** none.
 - **Pending:** exact coverage (the deletion is owned by unit 12), macOS
   and remote CI.
+
+## Unit 12 — oversized: authored refusal reaches two test files outside the inventory, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-245a74ff`, on `dad55f70`, a clean
+tree. The unit's production core was built, measured, saved as a patch and
+reverted. Nothing in `crates/` is committed by this visit. Logs are
+`.forge/u12-exp1*.log`.
+
+### What was built (then reverted)
+
+The saved patch is `.forge/unit-12-oversized-2026-09-26.patch`, sha256
+`f12b3e528af9c906ac172d18b327bf3a528e94398602de722a738786daa209e6`.
+`git apply --check` is clean on `dad55f70`. It touches:
+
+- `native_controls.rs`:
+  - adds `authored_refusal`, which is value-independent. It parses what
+    the recipe wrote under the harness grammar, and any node that
+    `bears_capability()` (or that has an assignment with no bounded
+    meaning) refuses. The refusal names the canonical option and its
+    position, and never the value.
+  - `compose_for_provider` no longer judges authored values. The
+    value-dependent `authored_server_conflict` moves into
+    `authored_conflict`, which is now only the LAUNCH boundary's guard
+    over the driver's legacy authored part. That part still carries the
+    engine's template and local segments.
+- `capabilities.rs`:
+  - `Serving` gains `written`, the recipe's own words by origin.
+  - `resolve` calls `authored_refusal` on `written` before the native
+    plan.
+  - The guard-based `authored_conflict` stays only for an opaque harness,
+    which nothing parses (D6a).
+- `bundle.rs`:
+  - `written` is the inline command, or the candidate's `authored`
+    segments (none for an agent composition).
+  - Deletes the two dead `Contribution::Native` arms of
+    `expressed_sandbox` handed over by unit 11. The `Written` text is
+    kept byte for byte.
+- Standing-admission lines, one each, forced by the new `Serving`
+  field (`written: &[]`):
+  - `capabilities/tests.rs:121`;
+  - `engine/capability_tests.rs:34`;
+  - `agents/tests.rs:4753`.
+
+  These are line numbers in the patched files, read from the patch's
+  hunk headers.
+
+The `cargo build --workspace --all-targets --all-features --locked` build
+was clean, and `cargo fmt --all -- --check` was clean.
+
+### Suites with the change applied
+
+- `cargo test -p brokkr-protocol -p brokkr-runtime --all-features --locked
+  --no-fail-fast` (`.forge/u12-exp1.log`):
+  - protocol lib: 485 passed, 2 failed, both in the named
+    `native_controls/tests.rs`: `a_tool_list_that_admits_a_native_tool_is_an_authored_control`
+    and `an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes`.
+    `adapters/tests.rs` is green, so the launch boundary is unchanged.
+  - runtime lib: 564 passed, 1 failed, **outside the inventory**:
+    `bundle::agent_tests::a_resolved_seat_equals_the_equivalent_inline_seat`
+    (`bundle/agent_tests.rs:308:42`). Its "equivalent inline seat" authors
+    `--allowedTools Bash(cargo:*)`. It now meets `seat 'work' (office
+    'work') in realm '<unmapped>': its arguments carry '--allowedTools'
+    (argument 5), a capability-bearing option of harness 'claude'. …`.
+  - `tests/capability_launch.rs` (named): 29 passed, 14 failed. Each of
+    13 fixtures authors `--sandbox` inline and now meets `carry '--sandbox'
+    (argument 5)`. One, at 5711, asserts the old composed command. All 14
+    are inside the inventory.
+- `cargo test -p brokkr-cli --all-features --locked --no-fail-fast`
+  (`.forge/u12-exp1-cli.log`): every result line is ok except
+  `tests/driver_conformance.rs`, 22 passed and 2 failed, **outside the
+  inventory**:
+  - `the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement`
+    (3063:6) compiles `proof_codex_argv` (lines 2864–2893). That fixture
+    authors `--sandbox danger-full-access` inline, and it now meets
+    `seat 'verify:alpha' …: its arguments carry '--sandbox' (argument 5),
+    a capability-bearing option of harness 'codex'. …`.
+  - `the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root`
+    (3195:35) fails on the `PoisonError` of the shared `PROOF_ENV` lock
+    that the first failure poisoned.
+
+### Why oversized
+
+Operator ruling 1 names `--allowedTools` and `--sandbox` in the refused
+catalogue, so no faithful unit 12 compiles either fixture. Each must move
+to a typed declaration: `tools.allow`, or `tools.sandbox` under the
+2026-09-25 "narrow" ruling, which admits `danger-full-access` nowhere.
+Otherwise it must be re-planted. Either way its fixture or assertions
+change, and the change is not compiler-forced, so the standing admission
+does not cover it.
+
+**Split needed:** widen unit 12's test inventory, for fixture migration
+and assertion updates only, to add:
+
+- `crates/brokkr-runtime/src/bundle/agent_tests.rs`: the inline equivalent
+  in `a_resolved_seat_equals_the_equivalent_inline_seat`;
+- `crates/brokkr-cli/tests/driver_conformance.rs`: `proof_codex_argv` and
+  `proof_codex_driver` and the two proof tests that compile them.
+
+Or assign those migrations to a separate unit that lands before unit 12.
+No production file is added. Then apply the saved patch and finish the
+named suites.
+
+**For the same ruling (a reading, not a widening).** The launch boundary's
+value-dependent guard (`authored_conflict`, called from `adapters.rs`)
+judges the driver's legacy authored part. That part carries the engine's
+template and local segments, so a value-independent judgment there would
+refuse every agent-backed Claude launch. Making it origin-aware needs
+`adapters.rs`, which units 13 and 14 name, and `adapters/tests.rs`. The
+patch therefore deletes value-dependent admission from compilation and
+from `compose_for_provider`, and leaves that guard for units 13–15 under
+15.2. If the operator reads unit 12 as owning the launch guard too, that
+is a second production file outside the unit.
+
+### Gates (reverted tree)
+
+- `git status --short` was empty after `git checkout -- crates`.
+- Exact coverage is still pending. The dead-arm deletion is in the saved
+  patch and has not landed, so the `bundle.rs` DA:3376 and DA:3403–3408
+  record stays open.
