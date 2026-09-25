@@ -47,11 +47,15 @@ means the newest run in the world, and the recorded stamp decides it).
 Phase 1 wires the flag into `run` and the read surfaces the ruling names
 — `runs`, `realms`, `tui`, `watch`, `inspect`, `export`, `muninn run` —
 and, since decision 0047, `operator supersede`, whose citation may name a
-run in another hearth. The others (`resume`, `conclude`, `rerun`,
-`doctor`, `ui`, `costs`,
-`compare`, `anchor`, `bridge`) still take `--db` alone, so a run started
-in a world whose map names a journal other than `.forge/forge.db` is
-resumed by naming that journal with `--db`.
+run in another hearth. Since #374 every other verb that opens a journal
+— `resume`, `rerun`, `conclude`, `operator retry`/`stop`, `costs`,
+`replay`, `ledger`, `anchor`, `keep-refs`, `compare`, `bridge`, `ui` and
+`doctor`'s database line — opens the journal the map names too, on the
+same three rules: `--db` outranks it, and with neither the journal is
+`.forge/forge.db`. A run started in a mapped world is resumed, concluded
+or stopped with no `--db`. `ui` reads the fleet `tui` reads; because it
+serves one journal, a world whose realms name several hearths is refused
+by name until `--db` picks one.
 
 ### `brokkr realms` — the world
 

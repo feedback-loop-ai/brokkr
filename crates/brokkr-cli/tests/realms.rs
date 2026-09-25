@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use brokkr_core::EventType;
 use serde_json::{json, Value};
 
 fn brokkr() -> &'static str {
@@ -451,6 +452,80 @@ fn the_map_chooses_the_journal_for_the_run_and_for_every_read_surface() {
     );
     assert!(!ws.path().join("state/other.db").exists());
     assert!(!announced(&stderr), "{stderr}");
+}
+
+/// #374: the recovery verbs address the journal `run` wrote. In a mapped
+/// world a parked run is resumed, stopped and concluded with no `--db`
+/// anywhere, every step lands in the map's journal, and the default one
+/// is never so much as created. The read verbs that took only `--db`
+/// before find the run there too.
+#[test]
+fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
+    let ws = Workspace::new(Some(map_over(".")));
+    // The implementer vanishes, so the run — and its rerun — parks
+    // awaiting an operator.
+    std::fs::write(
+        ws.path().join("script.json"),
+        json!({"seats": {
+            "implement": [{"behavior": "vanish"}, {"behavior": "vanish"}],
+            "review": [{"behavior": "succeed", "result": {"result": "clean"}}],
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let (code, run_id, stderr) = ws.brokkr_run(&[]);
+    assert_eq!(code, Some(2), "{stderr}");
+    let world = ws.path().join("state/world.db");
+    let default = ws.path().join(".forge/forge.db");
+    let last_event = || {
+        let store = brokkr_store::Store::open_read_only(&world).unwrap();
+        let events = store.load(&run_id).unwrap();
+        events.last().unwrap().event_type
+    };
+
+    let (code, _, stderr) = ws.run(&["resume", "--run", &run_id, "--bundle", "bundle"]);
+    assert_eq!(code, Some(2), "resumed and still parked: {stderr}");
+
+    let (code, _, stderr) = ws.run(&["operator", "stop", "--run", &run_id, "--reason", "done"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "recorded operator stop; continue with: brokkr resume --run {run_id}"
+        )),
+        "{stderr}"
+    );
+    assert_eq!(last_event(), EventType::OperatorAccepted);
+
+    let (code, _, stderr) = ws.run(&["conclude", "--run", &run_id, "--reason", "closing"]);
+    assert_eq!(code, Some(3), "concluded as stopped: {stderr}");
+    assert_eq!(last_event(), EventType::RunStopped);
+
+    for verb in [
+        vec!["costs", "--run", &run_id],
+        vec!["replay", "--run", &run_id],
+        vec!["ledger", "--run", &run_id],
+        vec!["compare", &run_id, &run_id],
+    ] {
+        let (code, _, stderr) = ws.run(&verb);
+        assert_eq!(code, Some(0), "{verb:?}: {stderr}");
+    }
+    let (code, _, stderr) = ws.run(&["rerun", "--run", &run_id, "--bundle", "bundle"]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains(&format!("rerun of {run_id} as ")),
+        "{stderr}"
+    );
+    let runs = brokkr_store::Store::open_read_only(&world)
+        .unwrap()
+        .list_runs()
+        .unwrap();
+    assert_eq!(runs.len(), 2, "the rerun is in the map's journal: {runs:?}");
+    let (_, readout, _) = ws.run(&["doctor"]);
+    assert!(
+        readout.contains(&format!("{} opens", world.display())),
+        "{readout}"
+    );
+    assert!(!default.exists(), "no verb opened the default journal");
 }
 
 /// Many hearths (decision 0026 rulings 1, 3 and 5), through the shipped

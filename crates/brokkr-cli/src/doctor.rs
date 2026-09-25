@@ -657,7 +657,7 @@ fn ambient_variable(name: &str) -> bool {
 
 pub fn doctor(
     bundle: Option<&Path>,
-    db: &Path,
+    db: Option<&Path>,
     secrets_store: &Path,
     realms: Option<&Path>,
 ) -> Report {
@@ -678,9 +678,16 @@ pub fn doctor(
         Ok(Some(world)) => world.boundary_for(&workspace),
         _ => Boundary::Namespace,
     };
+    // The database line checks the journal every other verb opens (#374):
+    // `--db`, else the one the map names, else the default. A map that
+    // will not load is its own line below, and names no journal here.
+    let db = db.map(Path::to_path_buf).unwrap_or_else(|| match &world {
+        Ok(Some(world)) => world.journal(),
+        _ => super::DEFAULT_DB.into(),
+    });
     let mut report = doctor_in(
         bundle,
-        db,
+        &db,
         Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         secrets_store,

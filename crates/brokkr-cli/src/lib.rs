@@ -317,8 +317,8 @@ enum KeepRefsCmd {
         /// Full run id, a unique run-id prefix, or `latest`.
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
+        #[command(flatten)]
+        journal: JournalArgs,
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -329,8 +329,8 @@ enum KeepRefsCmd {
         /// every run holding keep-refs in this repository.
         #[arg(long)]
         run: Option<String>,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
+        #[command(flatten)]
+        journal: JournalArgs,
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -340,8 +340,8 @@ enum KeepRefsCmd {
     Delete {
         #[arg(long)]
         run: String,
-        #[arg(long, default_value = DEFAULT_DB)]
-        db: PathBuf,
+        #[command(flatten)]
+        journal: JournalArgs,
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -639,9 +639,10 @@ fn watch_loop(
 /// answer, and no repository holds a run called `latest`. Answering it
 /// literally would report a released or listed nothing as if it were an
 /// answer — the quiet outcome these verbs exist to prevent.
-fn keep_ref_run(db: &std::path::Path, run: &str) -> Result<String> {
+fn keep_ref_run(workspace: &std::path::Path, journal: JournalArgs, run: &str) -> Result<String> {
+    let db = journal.journal(workspace)?;
     if db.is_file() {
-        return selector::resolve_run(&Store::open(db)?, run);
+        return selector::resolve_run(&Store::open(&db)?, run);
     }
     anyhow::ensure!(
         run != selector::LATEST,
@@ -657,10 +658,10 @@ fn keep_ref_run(db: &std::path::Path, run: &str) -> Result<String> {
 /// The keep-ref verbs. Planting reads the journal (so it resolves
 /// strictly, through the store it must open anyway); listing and
 /// deleting read only the repository.
-fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
+fn keep_refs(workspace: &std::path::Path, command: KeepRefsCmd) -> Result<ExitCode> {
     match command {
-        KeepRefsCmd::Plant { run, db, repo } => {
-            let store = Store::open(&db)?;
+        KeepRefsCmd::Plant { run, journal, repo } => {
+            let store = Store::open(&journal.journal(workspace)?)?;
             let run = selector::resolve_run(&store, &run)?;
             let planted = brokkr_runtime::plant_keep_refs(&store, &repo, &run)?;
             eprintln!(
@@ -676,10 +677,10 @@ fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
                 );
             }
         }
-        KeepRefsCmd::List { run, db, repo } => {
+        KeepRefsCmd::List { run, journal, repo } => {
             let mut held = brokkr_runtime::list_keep_refs(&repo)?;
             if let Some(run) = run {
-                let run = keep_ref_run(&db, &run)?;
+                let run = keep_ref_run(workspace, journal, &run)?;
                 held.retain(|holder, _| *holder == run);
             }
             println!(
@@ -687,8 +688,8 @@ fn keep_refs(command: KeepRefsCmd) -> Result<ExitCode> {
                 serde_json::to_string_pretty(&json!({ "keep": held }))?
             );
         }
-        KeepRefsCmd::Delete { run, db, repo } => {
-            let run = keep_ref_run(&db, &run)?;
+        KeepRefsCmd::Delete { run, journal, repo } => {
+            let run = keep_ref_run(workspace, journal, &run)?;
             let removed = brokkr_runtime::delete_keep_refs(&repo, &run)?;
             eprintln!("released {removed} exhibit(s) for {run}");
         }
@@ -1656,7 +1657,9 @@ impl Invocation {
     /// doctor` does — a surface that only looks refuses nothing, and
     /// refusing here would blank the readout in exactly the world an
     /// operator opened it to see (decision 0046's Addendum; decision 0023
-    /// ruling 6, which makes `realms` a read surface with no writes).
+    /// ruling 6, which makes `realms` a read surface with no writes). The
+    /// verbs that take the map only for its journal read it this way too
+    /// ([`JournalArgs::journal`]).
     fn inspect(
         workspace: &std::path::Path,
         realms: Option<PathBuf>,
@@ -1809,6 +1812,44 @@ fn journal_of(
     Ok(Invocation::resolve(workspace, realms, db)?
         .announce()
         .journal)
+}
+
+impl JournalArgs {
+    /// The journal a verb that takes the map ONLY for its journal opens
+    /// (#374) — resolved on [`Invocation`]'s three rules, so `resume`,
+    /// `conclude` and `operator stop` address the journal `run` wrote.
+    ///
+    /// Read the way [`Invocation::inspect`] reads it: none of these verbs
+    /// pins the world it read, so a crossing that has moved is not theirs
+    /// to refuse — and a recovery verb that refused there would fail in
+    /// exactly the world it is needed in. `resume` still refuses one
+    /// through its own pinned world's fence, before any seat spawns.
+    fn journal(self, workspace: &std::path::Path) -> Result<PathBuf> {
+        Ok(Invocation::inspect(workspace, self.realms, self.db)?
+            .announce()
+            .journal)
+    }
+}
+
+/// The one journal `brokkr ui` serves: the fleet `brokkr tui` opens, read
+/// the way `tui` reads it ([`hearths_of`]), so the two surfaces never show
+/// different fleets (#374). The web view serves a single journal, so a
+/// world whose realms name several hearths is refused, naming them, rather
+/// than served one of them as though it were the whole fleet.
+fn ui_journal(workspace: &std::path::Path, journal: JournalArgs) -> Result<PathBuf> {
+    let mut hearths = hearths_of(workspace, journal.realms, journal.db)?;
+    anyhow::ensure!(
+        hearths.len() == 1,
+        "brokkr ui serves one journal, and this world's realms name {}: {}; --db names \
+         the one to serve (brokkr tui and brokkr runs read them all)",
+        hearths.len(),
+        hearths
+            .iter()
+            .map(|hearth| hearth.journal.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok(hearths.remove(0).journal)
 }
 
 /// The journals a FLEET read opens (decision 0026 rulings 2 and 3): one
@@ -2061,8 +2102,8 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Costs(CostsArgs { run, db }) => {
-            let store = open_journal(&db, Access::Read)?;
+        Cmd::Costs(CostsArgs { run, journal }) => {
+            let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
             let events = store.load(&run)?;
             let (report, total) = compare::seat_costs(&events);
             println!(
@@ -2075,7 +2116,8 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Ledger(LedgerArgs { run, db, repo }) => {
+        Cmd::Ledger(LedgerArgs { run, journal, repo }) => {
+            let db = journal.journal(workspace)?;
             anyhow::ensure!(
                 db.is_file(),
                 "journal does not exist: {}; ledger reads never create one",
@@ -2092,11 +2134,11 @@ fn run_with(
         }
         Cmd::Anchor(AnchorArgs {
             run,
-            db,
+            journal,
             repo,
             check,
         }) => {
-            let store = Store::open(&db)?;
+            let store = Store::open(&journal.journal(workspace)?)?;
             let run = selector::resolve_run(&store, &run)?;
             if check {
                 let report = brokkr_runtime::verify_anchor(&store, &repo, &run)?;
@@ -2107,9 +2149,13 @@ fn run_with(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::KeepRefs { command } => keep_refs(command),
-        Cmd::Ui(UiArgs { db, port, open }) => {
-            serve_ui(db, port, open)?;
+        Cmd::KeepRefs { command } => keep_refs(workspace, command),
+        Cmd::Ui(UiArgs {
+            journal,
+            port,
+            open,
+        }) => {
+            serve_ui(ui_journal(workspace, journal)?, port, open)?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Tui(TuiArgs { run, realms, db }) => {
@@ -2136,7 +2182,12 @@ fn run_with(
             db,
             secrets_file,
         }) => {
-            let report = doctor::doctor(bundle.as_deref(), &db, &secrets_file, realms.as_deref());
+            let report = doctor::doctor(
+                bundle.as_deref(),
+                db.as_deref(),
+                &secrets_file,
+                realms.as_deref(),
+            );
             println!("{}", report.render());
             Ok(if report.healthy {
                 ExitCode::SUCCESS
@@ -2229,11 +2280,11 @@ fn run_with(
             recipe,
             recipes_dir,
             run,
-            db,
+            journal,
             repo,
             secrets_file,
         }) => {
-            let store = open_journal(&db, Access::Append)?;
+            let store = open_journal(&journal.journal(workspace)?, Access::Append)?;
             let manifest = store.manifest(&run)?;
             let bundle = compile_from_manifest(
                 workspace,
@@ -2269,10 +2320,18 @@ fn run_with(
             bundle,
             recipe,
             recipes_dir,
-            db,
+            journal,
             repo,
             secrets_file,
         }) => {
+            // A rerun is a NEW run, and it stands where `run` stands
+            // (decision 0046 ruling 1; design DD6): the map is read
+            // before anything opens, the world it names is pinned, and
+            // the journal it names is the one the rerun is written to
+            // (#374) — never the default while the world is the map's.
+            let Invocation {
+                world, journal: db, ..
+            } = Invocation::resolve(workspace, journal.realms, journal.db)?.announce();
             let store = open_journal(&db, Access::Append)?;
             let events = store
                 .load(&run)
@@ -2286,15 +2345,12 @@ fn run_with(
                     anyhow::anyhow!("source run '{run}' has no run/started feature to re-run")
                 })?
                 .to_string();
-            // A rerun is a NEW run, and it stands where `run` stands
-            // (decision 0046 ruling 1; design DD6): the workspace map is
-            // discovered, the bundle compiles against the operated
-            // repository's realm — its boundary and its dialect — and
-            // the world is pinned into the new run's manifest. A rerun
-            // that ignored the realm's word would refuse on a `harness`
-            // Mac for want of bubblewrap, and run boxed on a `harness`
-            // Linux while the realm said otherwise.
-            let world = World::discover(workspace, None)?;
+            // The bundle compiles against the operated repository's
+            // realm — its boundary and its dialect — and the world is
+            // pinned into the new run's manifest. A rerun that ignored
+            // the realm's word would refuse on a `harness` Mac for want
+            // of bubblewrap, and run boxed on a `harness` Linux while
+            // the realm said otherwise.
             let operated_repo = repo.as_deref().unwrap_or(workspace);
             let bundle = compile_in_realm(
                 workspace,
@@ -2312,8 +2368,12 @@ fn run_with(
             let end = engine.drive()?;
             Ok(finish(&end.state))
         }
-        Cmd::Conclude(ConcludeArgs { run, reason, db }) => {
-            let mut store = open_journal(&db, Access::Append)?;
+        Cmd::Conclude(ConcludeArgs {
+            run,
+            reason,
+            journal,
+        }) => {
+            let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
             let state = conclude(&mut store, &run, &operator, &reason)?;
             Ok(finish(&state))
@@ -2326,8 +2386,7 @@ fn run_with(
             by_run,
             by_seq,
             by_realm,
-            realms,
-            db,
+            journal,
         }) => {
             anyhow::ensure!(
                 command == "retry" || command == "stop" || command == brokkr_view::SUPERSEDE,
@@ -2342,7 +2401,6 @@ fn run_with(
                 by_run.is_some(),
                 by_seq.is_some(),
                 by_realm.is_some(),
-                realms.is_some(),
             ]
             .contains(&true);
             if command == brokkr_view::SUPERSEDE {
@@ -2352,20 +2410,18 @@ fn run_with(
                     &reason,
                     &findings,
                     (by_run, by_seq, by_realm),
-                    realms,
-                    db,
+                    journal.realms,
+                    journal.db,
                 );
             }
             anyhow::ensure!(
                 !cited,
-                "--findings, --by-run, --by-seq, --by-realm and --realms belong to \
-                 'supersede'; '{command}' takes --run, --reason and --db"
+                "--findings, --by-run, --by-seq and --by-realm belong to \
+                 'supersede'; '{command}' takes --run, --reason, --realms and --db"
             );
-            // The journal `retry` and `stop` have always opened: this
-            // pair takes no map, so `--db` or the default and nothing
-            // else decides it.
-            let db = db.unwrap_or(PathBuf::from(DEFAULT_DB));
-            let mut store = open_journal(&db, Access::Append)?;
+            // The journal `run` wrote (#374): the map's, unless `--db`
+            // outranks it.
+            let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
             let operator = std::env::var("USER").unwrap_or("operator".into());
             // The command is fenced against a concurrently-driving
             // engine, so it can come back refused. Saying "recorded"
@@ -2489,8 +2545,8 @@ fn run_with(
                 iterations,
             )
         }
-        Cmd::Replay(ReplayArgs { run, db }) => {
-            let store = open_journal(&db, Access::Read)?;
+        Cmd::Replay(ReplayArgs { run, journal }) => {
+            let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
             let run = selector::resolve_run(&store, &run)?;
             let events = store.load(&run)?;
             let first = format!("{:?}", fold(&events)?);
@@ -2633,12 +2689,13 @@ fn run_with(
         }
         Cmd::Bridge(BridgeArgs {
             run,
-            db,
+            journal,
             looper_url,
             token_env,
             follow,
             interval_ms,
         }) => {
+            let db = journal.journal(workspace)?;
             let token = std::env::var(&token_env)
                 .with_context(|| format!("reading producer credential from {token_env}"))?;
             anyhow::ensure!(!token.trim().is_empty(), "producer credential is empty");
@@ -2809,8 +2866,12 @@ fn run_with(
             brokkr_protocol::adapters::serve(kind, extra)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Compare(CompareArgs { run_a, run_b, db }) => {
-            compare::compare(&run_a, &run_b, &db)?;
+        Cmd::Compare(CompareArgs {
+            run_a,
+            run_b,
+            journal,
+        }) => {
+            compare::compare(&run_a, &run_b, &journal.journal(workspace)?)?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Recipes { command } => {
