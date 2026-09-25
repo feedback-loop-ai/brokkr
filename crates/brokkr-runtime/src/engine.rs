@@ -4481,10 +4481,7 @@ impl SiteSpawn {
     /// modelled grammar — has no option to express a class, so it expresses
     /// none, and a recorded class there is refused.
     fn local_sandbox_agrees(&self, expected: &Expected) -> Result<(), String> {
-        let recorded = match expected.hands {
-            HandsIntent::Required => SandboxIntent::Unspecified,
-            HandsIntent::None => expected.local.sandbox,
-        };
+        let recorded = local_class(expected);
         let local = flatten(
             &self
                 .extras()
@@ -4529,9 +4526,17 @@ impl SiteSpawn {
                 ))
             }
         };
-        match emitted == Some(recorded) {
-            true => Ok(()),
-            false => Err(
+        // Rebuild unit 5d-fix (chief F1): where the class is the engine's
+        // own, every contribution of the launch is judged beside it.
+        match (emitted == Some(recorded), recorded) {
+            (true, SandboxIntent::Unspecified) => Ok(()),
+            (true, _) => crate::bundle::inline_codex_competitor(&self.extras()).map_err(|cause| {
+                format!(
+                    "dispatch refused: {cause} (operator ruling 2 of 2026-09-23; ruling of \
+                     2026-09-25; rebuild unit 5d-fix)"
+                )
+            }),
+            (false, _) => Err(
                 "dispatch refused: the sandbox class this spawn's own `local` segments express \
                  is not the one its expected state records from the site's typed declaration; a \
                  class omitted, altered or added on its way into the command is never sealed as \
@@ -4620,7 +4625,36 @@ pub fn verify_record(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
                 .to_string(),
         );
     }
-    reassemble(&record.segments, &spawn.argv[spawn.extras_start()..])
+    reassemble(&record.segments, &spawn.argv[spawn.extras_start()..])?;
+    // Rebuild unit 5d-fix (chief F2; decision 0046 ruling 4): where the
+    // class is the engine's own, the capture is judged here, where the
+    // result path the engine owns is known, against the door `mark_delivery`
+    // wrote: exactly that path in the engine's fragment at `last-message`,
+    // and no capture at all where the seat writes its file.
+    match local_class(&record.expected) {
+        SandboxIntent::Unspecified => Ok(()),
+        _ => {
+            let door = input.get("result_delivery") == Some(&json!(ResultDoor::LastMessage.word()));
+            let capture = door.then(|| input["result_path"].as_str().unwrap_or_default());
+            crate::bundle::inline_codex_capture(&record.segments, capture).map_err(|cause| {
+                format!(
+                    "dispatch refused: {cause} (decision 0046 ruling 4; operator ruling of \
+                     2026-09-25; rebuild unit 5d-fix)"
+                )
+            })
+        }
+    }
+}
+
+/// The sandbox class an expected state records for the engine's own
+/// `local` emission (rebuild unit 5d): the site's typed class where no
+/// hands carry it, and none where hands do, because an agent's class rides
+/// its hands fragment (design D5.3).
+fn local_class(expected: &Expected) -> SandboxIntent {
+    match expected.hands {
+        HandsIntent::Required => SandboxIntent::Unspecified,
+        HandsIntent::None => expected.local.sandbox,
+    }
 }
 
 /// The expected state of the site a spawn serves (design D5.7), sealed from

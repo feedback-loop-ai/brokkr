@@ -1077,6 +1077,41 @@ compiles (digests unchanged), `openspec validate --all --strict` and
 exact coverage, macOS and remote CI are pending. The local llvm-cov
 diagnostic could not run from this session.
 
+**Correction (5d-fix):** the tick above overstated completion. 5d's council
+held the unit (SECURITY-HOLD, spec_defect=true). The problems it found:
+
+- the template and every non-`local` contribution went unjudged for
+  competing sandbox effects (F1);
+- the gate's capture was never required or bound to the engine's result
+  path (F2);
+- the migration scenario still named danger-full-access (F3);
+- the baseline was a build error (F5);
+- the work/read-only row had no independent mutation (F6).
+
+5d.1 completes only with 5d-fix below. Its four `engine/capability_tests.rs`
+fixture lines are **admitted pending operator ruling (F4)**: the standing
+admission names units 7–27, not 5d. Nothing is ticked on the strength of
+that admission.
+
+- [x] 5d-fix Unit 5d-fix repairs unit 5d under its council's SECURITY-HOLD (chief F1–F6). At an inline Codex site whose typed class the engine lowers, every contribution (authored, template, local and native) is judged at admission, and every spawn segment again at the seal, by the codex grammar's effect classification. Only the engine fragment's one `--sandbox` bears the sandbox. Any other permission control, writable root, load, root selector, sandbox or approval configuration, or unbounded assignment refuses with a bounded, value-free reason. A gate delivers only through the last-message door: file delivery, a missing capture and a capture in another contribution or to another target refuse at admission and again at the dispatch door against the engine-owned result path. A work seat carries no capture. The migration scenario follows the narrow ruling. Requirements: operator ruling of 2026-09-25 ("narrow"), operator rulings 1 and 2, decision 0046 ruling 4, design D5.3, [Refusal proofs assert the full reason][SC8]. (run `0065-rebuild-unit-5d-fix-see-the-569be761`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5d-fix"). Production is `bundle.rs`
+(`codex_contributions`, `inline_codex_competitor`, `inline_codex_capture`,
+wired into `lower_inline_sandbox` and `admit_native_sandbox`) and
+`engine.rs` (`local_sandbox_agrees` and `verify_record`, through
+`local_class`). `native_controls/grammar.rs` did not move. There is a
+19-row agent test and a 25-row launch test.
+
+On `e3d08c9f` they failed 18 of 19 and 23 of 25 rows at their assertions;
+only the positives passed. F5 has behavioral probes at `1c7c9884`, red at
+their `assert_eq!` and passing on the fix head. F6 has a compiling mutation
+that fails `work, read-only` alone. MA–MT each bound and were restored.
+
+fmt, clippy, brokkr-runtime (25 of 25 results, lib 562), both bundle
+compiles (digests unchanged), `openspec validate --all --strict` and `git
+diff --check` passed. **Not fully green:** workspace exact coverage, macOS
+and remote CI are pending, and so is the F4 ruling.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

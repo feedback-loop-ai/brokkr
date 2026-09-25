@@ -2495,6 +2495,294 @@ fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuse
     each_row(rows);
 }
 
+/// Rebuild unit 5d-fix (chief F1 and F2 of run 0065-rebuild-unit-5d-see-the-uni-5b7d59c1;
+/// operator ruling of 2026-09-25; design D5.3): the engine's fragment is the
+/// only sandbox-bearing element of an inline Codex launch. Every contribution
+/// — the adapter's template, the engine's own fragment and the resolved
+/// native plan, beside the authored command already judged — is read under
+/// the codex grammar, and an option it classifies as a permission control, a
+/// writable root, a load or sandbox, approval or unbounded configuration
+/// refuses in every spelling. A gate delivers through the last-message door
+/// alone, captured into exactly the engine-owned result path by the engine's
+/// fragment; file delivery, a missing capture, a capture elsewhere and a
+/// capture at a work seat each refuse. Every cause is complete and names no
+/// value.
+#[test]
+fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture() {
+    let fixture = AgentFixture::new();
+    let compiled = |class: Option<&str>, sandbox: &str, adapter: Value| {
+        fixture.write("adapters/codex.json", adapter);
+        let mut config = fixture.config();
+        config["seats"]["review"]["driver"]["command"] = codex_inline(&[]);
+        config["seats"]["review"]["tools"] = json!({"sandbox": sandbox});
+        if let Some(class) = class {
+            config["seats"]["review"]["class"] = json!(class);
+        }
+        outcome(fixture.compile(config))
+    };
+    let templated = |tail: &[&str]| {
+        let mut adapter = codex();
+        let mut driver = vec!["{brokkr}", "driver", "codex", "--"];
+        driver.extend(tail);
+        adapter["driver"] = json!(driver);
+        adapter
+    };
+    let fragment = |adapter: Value, part: &str, argv: &[&str]| {
+        let mut adapter = adapter;
+        adapter["hands"]["harness"][part] = json!(argv);
+        adapter
+    };
+    let rest = "the engine's typed class, expressed by its own fragment, is the only \
+                sandbox-bearing element of an inline Codex launch, so a competing one is refused \
+                rather than reconciled or ordered, whoever composed it";
+    let competing = |class: &str, origin: &str, canonical: &str, at: usize, effect: &str| {
+        format!(
+            "bundle: seat 'review' declares 'tools.sandbox' '{class}' while the `{origin}` \
+             contribution of its launch carries '{canonical}' (argument {at}), {effect}; {rest} \
+             (operator ruling of 2026-09-25; rebuild unit 5d-fix; design D5.3)"
+        )
+    };
+    let permission = "a permission control, which sets, lifts or replaces the sandbox or its \
+                      approvals";
+    let table = |name: &str| {
+        format!(
+            "an assignment into the '{name}' configuration, the same control through another door"
+        )
+    };
+    let work = |origin: &str, canonical: &str, at: usize, effect: &str| {
+        competing("workspace-write", origin, canonical, at, effect)
+    };
+    let capture = |class: &str, cause: String| {
+        format!(
+            "bundle: seat 'review' declares 'tools.sandbox' '{class}' while {cause} (decision \
+             0046 ruling 4; operator ruling of 2026-09-25; rebuild unit 5d-fix)"
+        )
+    };
+    let misdirected = |origin: &str, at: usize| {
+        capture(
+            "read-only",
+            format!(
+                "the `{origin}` contribution of its launch carries '--output-last-message' \
+                 (argument {at}), which is not the engine's own capture into exactly the result \
+                 path it owns; a misdirected capture is a harness write path outside the result \
+                 sink"
+            ),
+        )
+    };
+    let gate_reads = &["--sandbox", "read-only"];
+    let mut file_door = codex();
+    file_door["hands"]["harness"]["result"] = json!("file");
+    let rows: Vec<Row<String>> =
+        vec![
+        (
+            "template --dangerously-bypass-approvals-and-sandbox".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["--dangerously-bypass-approvals-and-sandbox"]),
+            ),
+            work(
+                "template",
+                "--dangerously-bypass-approvals-and-sandbox",
+                5,
+                permission,
+            ),
+        ),
+        (
+            "template --full-auto".into(),
+            compiled(None, "workspace-write", templated(&["--full-auto"])),
+            work("template", "--full-auto", 5, permission),
+        ),
+        (
+            "template --add-dir".into(),
+            compiled(None, "workspace-write", templated(&["--add-dir", "/x"])),
+            work(
+                "template",
+                "--add-dir",
+                5,
+                "a writable root beyond the sandbox class's reach",
+            ),
+        ),
+        (
+            "template -a".into(),
+            compiled(None, "workspace-write", templated(&["-a", "never"])),
+            work("template", "--ask-for-approval", 5, permission),
+        ),
+        (
+            "template -c sandbox_mode".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["-c", "sandbox_mode=\"danger-full-access\""]),
+            ),
+            work("template", "--config", 5, &table("sandbox_mode")),
+        ),
+        (
+            "template -c attached sandbox_workspace_write".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["-csandbox_workspace_write.network_access=true"]),
+            ),
+            work("template", "--config", 5, &table("sandbox_workspace_write")),
+        ),
+        (
+            "template --config= approval_policy".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["--config=approval_policy=\"never\""]),
+            ),
+            work("template", "--config", 5, &table("approval_policy")),
+        ),
+        (
+            "template -c unbounded".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["-c", "unmodelled.key=1"]),
+            ),
+            work(
+                "template",
+                "--config",
+                5,
+                "a configuration assignment with no bounded meaning, which could set the sandbox",
+            ),
+        ),
+        (
+            "template -C".into(),
+            compiled(None, "workspace-write", templated(&["-C", "/elsewhere"])),
+            work(
+                "template",
+                "--cd",
+                5,
+                "a root selector, which moves the root the sandbox class is measured from",
+            ),
+        ),
+        (
+            "template -c inert effort stands".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["-c", "model_reasoning_effort=\"high\""]),
+            ),
+            "compiled: [(\"review\", Some(LocalTools { allow: None, sandbox: \
+             Some(WorkspaceWrite) })), (\"work\", Some(LocalTools { allow: Some([\"cargo\"]), \
+             sandbox: None }))]"
+                .to_string(),
+        ),
+        (
+            "template -p".into(),
+            compiled(None, "workspace-write", templated(&["-p", "x"])),
+            work(
+                "template",
+                "--profile",
+                5,
+                "a configuration document the engine cannot see into, which can set the sandbox",
+            ),
+        ),
+        (
+            "template -s beside the fragment's class".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["-s", "workspace-write"]),
+            ),
+            "bundle: seat 'review' declares 'tools.sandbox' 'workspace-write' while the \
+             contributions of its launch cannot be read together under the 'codex' grammar \
+             (argument 7: it repeats option '--sandbox', which the grammar admits once; a CLI \
+             that resolves a duplicate last-wins would resolve it against the control the engine \
+             composed), so no sandbox class can be judged in them (operator ruling of \
+             2026-09-25; rebuild unit 5d-fix; design D5.3)"
+                .to_string(),
+        ),
+        (
+            "fragment -a beside its class".into(),
+            compiled(
+                None,
+                "workspace-write",
+                fragment(codex(), "work", &["--sandbox", "workspace-write", "-a", "never"]),
+            ),
+            work("local", "--ask-for-approval", 7, permission),
+        ),
+        (
+            "native OFF -a".into(),
+            compiled(None, "workspace-write", codex_off(&["-a", "never"])),
+            format!(
+                "bundle: seat 'review' requests 'tools.sandbox' 'workspace-write', but the \
+                 `native` contribution of its launch carries '--ask-for-approval' (argument 3), \
+                 {permission}; {rest} (operator ruling of 2026-09-25; rebuild unit 5d-fix; \
+                 design D5.3)"
+            ),
+        ),
+        (
+            "gate, file delivery".into(),
+            compiled(Some("gate"), "read-only", file_door),
+            "bundle: seat 'review' declares 'tools.sandbox' 'read-only' at an inline Codex gate, \
+             but the codex adapter declares its `hands.harness.result` door as 'file'; a gate \
+             delivers only through the last-message door, the harness's capture of its final \
+             message into the engine-owned result path, so file delivery is refused (decision \
+             0046 ruling 4; operator ruling of 2026-09-25; rebuild unit 5d-fix)"
+                .to_string(),
+        ),
+        (
+            "gate, no capture".into(),
+            compiled(Some("gate"), "read-only", fragment(codex(), "gate", gate_reads)),
+            capture(
+                "read-only",
+                "no contribution of its launch carries the result capture the last-message door \
+                 needs, bound to exactly the engine-owned result path, so the gate's result \
+                 could not be delivered"
+                    .to_string(),
+            ),
+        ),
+        (
+            "gate, capture elsewhere".into(),
+            compiled(
+                Some("gate"),
+                "read-only",
+                fragment(
+                    codex(),
+                    "gate",
+                    &["--sandbox", "read-only", "-o", "/elsewhere"],
+                ),
+            ),
+            misdirected("local", 7),
+        ),
+        (
+            "gate, capture in the template".into(),
+            compiled(
+                Some("gate"),
+                "read-only",
+                fragment(templated(&["-o", "{result_path}"]), "gate", gate_reads),
+            ),
+            misdirected("template", 5),
+        ),
+        (
+            "work, a capture".into(),
+            compiled(
+                None,
+                "workspace-write",
+                fragment(
+                    codex(),
+                    "work",
+                    &["--sandbox", "workspace-write", "-o", "{result_path}"],
+                ),
+            ),
+            capture(
+                "workspace-write",
+                "the `local` contribution of its launch carries '--output-last-message' \
+                 (argument 7), a result capture where the engine's result door is the file the \
+                 seat writes; a capture the engine does not own is a harness write path outside \
+                 the result sink"
+                    .to_string(),
+            ),
+        ),
+    ];
+    assert_eq!(rows.len(), 19);
+    each_row(rows);
+}
+
 /// Rebuild unit 5c-fix2 (operator ruling 2 of 2026-09-23; the ruling of
 /// 2026-09-24, item 2): an agent-backed site's compiled composition carries
 /// its adapter's declared permission template as a typed fact, expanded as

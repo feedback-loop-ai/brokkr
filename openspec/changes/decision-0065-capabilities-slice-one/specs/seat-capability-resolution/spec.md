@@ -482,7 +482,7 @@ unsupported runnable path.
 
 - **WHEN** fast/node/preflight/verify and the three Codex recipe files in design's Migration Plan are migrated
 - **THEN** `pytest` still maps to `Bash(.venv/bin/pytest:*)`, verify keeps separate `Bash(gh pr view:*)` and `Bash(gh run view:*)`, and Claude permission templates preserve `acceptEdits`
-- **AND** standby implement and wager-harness implement retain danger-full-access, while standby review and review-first review retain workspace-write, subject to their existing realm/boundary constraints
+- **AND** under the operator's ruling of 2026-09-25 ("narrow"), standby implement and wager-harness implement declare workspace-write, while standby review and review-first review, which are gates, declare read-only and deliver through the last-message door; danger-full-access is declared by no seat and admitted on no path, all subject to their existing realm/boundary constraints
 - **AND** independent compiled final-command expectations prove these limits, with no added realm grant or unrestricted replacement
 
 #### Scenario: The preflight reviewer has no inline authority flags

@@ -7146,6 +7146,11 @@ fixture now reverses `two_candidates()`, so the DSH outcome serves it.
 Three code lines and a three-line comment replace one line. They add no
 assertion, remove none and change no tested value.
 
+**Correction (unit 5d-fix, chief F4):** the standing admission covers units
+7 through 27, not 5d. These four fixture lines are **admitted pending
+operator ruling (F4)**. They stay as they are, and nothing is ticked on the
+strength of that admission.
+
 ### Tests
 
 - `bundle/agent_tests.rs::an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses`
@@ -7251,3 +7256,210 @@ On the final bytes:
 - The agent path's `Contribution::Written` still admits an authored
   `-c mcp_servers.brokkr…` assignment beside a matching fragment. This is
   pre-existing, and it belongs to unit 12's authored refusal.
+
+## Unit 5d-fix — every contribution judged, and the gate's capture bound, 2026-09-25
+
+Run `0065-rebuild-unit-5d-fix-see-the-569be761`, on `e3d08c9f`. It repairs
+unit 5d under its council's SECURITY-HOLD (spec_defect=true). The ruling of
+2026-09-25 and its addendum stand as written. The chief's findings F1–F6
+are answered below; N1 needed no action.
+
+### What changed
+
+Production is `bundle.rs` and `engine.rs`. `native_controls/grammar.rs` did
+not move: its public `Effect`, `Power` and `setting` classification was
+enough, so no accessor was needed.
+
+- **F1, admission (`bundle.rs`).** `inline_codex_competitor` reads
+  contributions together under the codex grammar, as the harness reads them
+  (`codex_contributions`), with each option tagged by the origin of the
+  segment it stands in. The one `--sandbox` in the engine's `local` fragment
+  is the only sandbox-bearing element admitted. Everything below is refused,
+  naming the origin, the position and the canonical option, never a value:
+  - any other `Effect::Control(Power::Permission)`: `-s/--sandbox`,
+    `-a/--ask-for-approval`, `--full-auto` and
+    `--dangerously-bypass-approvals-and-sandbox`;
+  - `Effect::Control(Power::Filesystem)`: `--add-dir`;
+  - `Effect::Load`: `-p/--profile`;
+  - a `--config` assignment whose `Setting` is the capability table
+    `approval_policy`, `sandbox_mode` or `sandbox_workspace_write`;
+  - a `--config` assignment with no bounded meaning.
+
+  The root selector `--cd`/`-C` is refused as well. The grammar types its
+  value as data, but D5.3 already refuses it wherever it stands (unit 2-fix
+  A1). A second `--sandbox` never reaches classification, because the
+  grammar admits one and the parse refuses the repeat.
+
+  `lower_inline_sandbox` builds the contributions in dispatch order (the
+  authored harness arguments, the adapter's template, the engine's fragment)
+  and judges them after unit 5c's `inline_template`. `admit_native_sandbox`
+  judges an inline seat's resolved native plan the same way, as a `native`
+  contribution.
+- **F1, launch (`engine.rs`).** `local_sandbox_agrees` runs once the class
+  agrees and the recorded class is the engine's own (`local_class`: the
+  site's class where no hands carry it). It then judges every segment of
+  the spawn's extras, whatever its origin, with the same
+  `inline_codex_competitor`. A refusal seals nothing.
+- **F2, admission.** At an inline Codex gate, an adapter whose
+  `hands.harness.result` is `file` is refused (file delivery).
+  `inline_codex_capture` needs exactly one `--output-last-message`, in the
+  engine's `local` fragment, into exactly `{result_path}`. A missing capture
+  is refused, and so is a capture in another contribution or into another
+  target. At a work seat, any capture is refused.
+- **F2, launch.** `verify_record`, the dispatch door that `spawn_site` calls
+  on the final input, runs the same judgment wherever the record's class is
+  the engine's own. The target is the input's `result_path`, the path the
+  spawn was composed with. The door is `result_delivery`, which
+  `mark_delivery` writes. The door judgment is here and not in the seal,
+  because the seal is never handed the result path.
+- **F3.** `specs/seat-capability-resolution/spec.md`, "Migration preserves
+  concrete prefix and sandbox limits", now follows the narrow ruling and the
+  amended Migration Plan. Standby implement and wager-harness implement
+  declare workspace-write. Standby review and review-first review are gates,
+  so they declare read-only and deliver through the last-message door.
+  Danger-full-access is declared by no seat and admitted on no path.
+- **F4.** The four fixture lines in `engine/capability_tests.rs` stay as
+  they are, **admitted pending operator ruling (F4)** (see the correction
+  under unit 5d's standing admission). This unit adds no out-of-inventory
+  line.
+
+### Assumptions
+
+- The native plan is judged at admission. At launch the codex driver
+  composes it from the compiled plan it is handed, in `brokkr-protocol`,
+  which is outside this unit's files.
+- A forged `result_delivery` fails closed. At a work seat it demands a
+  capture that is not there. At a gate, `mark_delivery` always writes it.
+- The permission tables named are the grammar's `CAPABILITY_TABLES` entries
+  that govern the sandbox or its approvals. Other capability tables (for
+  example the measured `web_search` OFF) are not sandbox effects, and they
+  keep their own fences.
+
+### Tests
+
+- `bundle/agent_tests.rs::an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture`
+  has 19 rows, compared at `:2783`:
+  - template `--dangerously-bypass-approvals-and-sandbox`, `--full-auto`,
+    `--add-dir`, `-a`, `-c sandbox_mode`, attached
+    `-csandbox_workspace_write…`, `--config=approval_policy…`, an unbounded
+    `-c`, `-C` and `-p`;
+  - template `-s` (the repeat parse refusal);
+  - an inert `-c model_reasoning_effort` in the template, which compiles;
+  - a fragment `-a`;
+  - a native OFF `-a`;
+  - gate file delivery, a missing capture, a capture elsewhere and a capture
+    in the template;
+  - a work seat capture.
+- `tests/capability_launch.rs::an_inline_codex_launch_refuses_every_competing_contribution_and_every_misbound_capture`
+  has 25 rows, compared at `:3135`. It uses the production-compiled seats
+  and the engine's compose, seal and dispatch door, then the shipped codex
+  driver:
+  - the work seat and the gate as compiled (launched);
+  - recorded templates: the eight flag forms, `--cd` and `-s`;
+  - authored spawn tokens: `--full-auto`, `--add-dir=`, `-p`, an unbounded
+    `-c`, `-C`, `--sandbox=` and a bare word;
+  - a `local` `-a`;
+  - a work seat capture;
+  - at the gate: a capture elsewhere, the capture retargeted in the spawn,
+    no capture, the capture moved into the template, and file delivery.
+
+  Every refused seal leaves no record.
+- `inline_codex_sealing` now hands the input as dispatch does:
+  `result_path`, plus `result_delivery` where the door is `last-message`.
+  Unit 5d's two launch tests pass unchanged.
+
+### Baseline on e3d08c9f
+
+The new tests compile against `e3d08c9f`'s APIs. With `bundle.rs` and
+`engine.rs` restored from `e3d08c9f` (`git show e3d08c9f:…`), they fail at
+their intended assertions. Build errors are not cited:
+
+- The agent test fails 18 of 19 rows at `:2783`. Every refused row compiled
+  (`compiled: [("review", Some(LocalTools { … sandbox: Some(…) }))…]`). The
+  inert positive passed.
+- The launch test fails 23 of 25 rows at `:3135`. Most rows launched with a
+  record sealed. The template and authored `-s`/`--sandbox=` rows, the
+  authored `-p` row and the bare word got only the shipped driver's own
+  refusal. The two positives passed.
+
+**F5, behavioral baseline for unit 5d's two launch tests.** A scratch probe
+(`.forge/5dfix/probe.rs`, not committed) uses only APIs present at both
+`1c7c9884` and the fix head. It was run against `1c7c9884`'s `bundle.rs`,
+`engine.rs` and `capability_launch.rs`:
+
+- Probe A, the whole final commands, failed at its `assert_eq!`: left was
+  `{"compile": "bundle: seat 'review' declares 'tools.sandbox' on a site
+  whose command no office composes; …"}`, right was the two final commands.
+- Probe B, three `local` classes added to a compiled inline Codex spawn,
+  failed at its `assert_eq!`: left was `["Ok(())", "Ok(())", "Ok(())"]`,
+  right was three copies of 5d's exact contradiction refusal.
+- Both passed on the fix head (restored pass).
+
+The gate's door is not observable through public API at `1c7c9884`, so it is
+bound by mutation MR below: 5d's final-command test fails at `:2574` on
+`"door": "file"` against `"last-message"`.
+
+### Mutations
+
+Each mutation compiled and was run with `cargo test -p brokkr-runtime
+--locked --lib an_inline_codex_seat_refuses` and `--test capability_launch
+an_inline_codex_launch`, then restored. Outputs are in `.forge/5dfix/M*.txt`.
+
+| # | Mutation | Failing rows |
+|---|---|---|
+| MA | template left out of the admission contributions | agent: all 10 template-flag rows and the template capture (11) |
+| MB | inline native judgment skipped | agent: native OFF `-a` |
+| MC | `Power::Permission` arm → none | agent: bypass, full-auto, template `-a`, fragment `-a`, native `-a`; launch: bypass, full-auto, template `-a`, authored full-auto, local `-a` |
+| MD | `Power::Filesystem` arm → none | agent: template add-dir; launch: template add-dir, authored `--add-dir=` |
+| ME | `Effect::Load` arm → none | agent: template `-p`; launch: authored `-p` |
+| MF | permission tables never match | agent and launch: sandbox_mode, sandbox_workspace_write, approval_policy |
+| MG | unbounded assignment → none | agent: template unbounded `-c`; launch: authored unbounded `-c` |
+| MH | exemption moved from `local` to `native` | agent: 6 rows; launch: the compile itself refuses (`:2762` unwrap) |
+| MI | seal judges no segment | launch: 15 rows (every template, authored and local flag row) |
+| MJ | origin boundary `<` → `<=` | agent: 15 rows; launch: compile refuses |
+| MK | gate file-door check disabled | agent: gate file delivery |
+| ML | admission capture judges nothing | agent: no capture, elsewhere, in the template, work capture |
+| MM | dispatch-door capture judges nothing | launch: work capture, elsewhere, retargeted, no capture, file delivery |
+| MN | capture origin ignored | agent: capture in the template; launch: capture moved into the template |
+| MO | capture target ignored | agent: capture elsewhere; launch: elsewhere, retargeted |
+| MP | missing-capture check disabled | agent and launch: no capture |
+| MQ | door read inverted | launch: 8 capture rows and positives; 5d final-command test |
+| MR | `result_door`'s inline arm needs a link | 5d final-command test `:2574`, review door `file` |
+| MS | inert assignment refused | agent: the inert positive |
+| MT | root-selector arm never matches | agent: template `-C`; launch: template `--cd`, authored `-C` |
+
+**F6.** On unit 5d's `an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses`,
+the class check was mutated to let `read-only` pass at a work seat
+(`class != admitted && !(seat_class == SeatClass::Work && class ==
+Sandbox::ReadOnly)`). It compiled and failed 1 of 19 rows, `work,
+read-only`, alone, at `:2495`. The left was the unmatched-fragment
+refusal, and the right was the narrowed-class refusal. On restore, it
+passed.
+
+### Gates
+
+On the final bytes:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 of 25 results
+  ok, lib 562 passed.
+- `compile --bundle bundles/self` gave `45dc1c7e…` and `bundles/verify`
+  gave `65baad08…`, unchanged.
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- Local diagnostic: `cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-runtime --lcov`, read against the new ranges. One line was
+  uncovered: the inert `Setting` arm, which the inert positive row now
+  covers. All other lines and branches in the new code were hit.
+- **Pending:** workspace exact coverage (`scripts/coverage-exact.sh`),
+  macOS and remote CI, and the operator's ruling on F4.
+
+### Follow-ups, not fixed here
+
+- A template `--cd` launched through the shipped codex driver at baseline,
+  beside the driver's own `-C`, so the driver's final parse did not refuse
+  it. The engine now refuses it at an inline typed site, but the driver's
+  passthrough handling of a second root selector belongs to
+  `brokkr-protocol`.
+- The shipped driver also passed an unbounded authored `-c` at baseline.

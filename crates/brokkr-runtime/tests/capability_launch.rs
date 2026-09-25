@@ -2491,7 +2491,14 @@ fn inline_codex_sealing(
     let sealing =
         expected_state(outcome, None, Some(facts)).and_then(|expected| spawn.seal(expected));
     let record = spawn.launch_record();
-    let handed = json!({LAUNCH_RECORD: record});
+    let gate = class == brokkr_runtime::SeatClass::Gate;
+    let door = result_door(Boundary::Harness, gate, Some(facts), None).word();
+    // Handed as dispatch hands it: the result path the spawn was composed
+    // with, and the door `mark_delivery` writes where it is the capture.
+    let mut handed = json!({LAUNCH_RECORD: record, "result_path": "/w/result.json"});
+    if door == "last-message" {
+        handed["result_delivery"] = json!(door);
+    }
     let launched = verify_record(&spawn, &handed).and_then(|()| {
         let argv = &spawn.argv;
         let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
@@ -2499,8 +2506,6 @@ fn inline_codex_sealing(
                            "launch_arguments": spawn.launch_arguments()});
         brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input)
     });
-    let gate = class == brokkr_runtime::SeatClass::Gate;
-    let door = result_door(Boundary::Harness, gate, Some(facts), None).word();
     (sealing, record, launched, door.to_string())
 }
 
@@ -2727,6 +2732,402 @@ fn an_inline_codex_seal_whose_emitted_class_contradicts_the_declared_one_refuses
                 format!(
                     "row {label}:\n  left:  {observed:?} {observed_record}\n  right: \
                      {expected:?} {recorded}"
+                )
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 5d-fix (chief F1 and F2 of run 0065-rebuild-unit-5d-see-the-uni-5b7d59c1;
+/// operator ruling 2 of 2026-09-23; ruling of 2026-09-25): at the final
+/// launch of the production-compiled inline Codex seats, the seal reads
+/// every contribution back under the codex grammar — a template the
+/// compiler recorded, the author's command as it reaches the spawn and the
+/// engine's own fragment — and refuses every competing sandbox, approval,
+/// root, load or configuration effect beside the engine's one class, in
+/// every spelling, sealing nothing. The dispatch door then holds the gate's
+/// capture to exactly the result path it hands over, in the engine's
+/// fragment, and holds a work seat to none.
+#[test]
+fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misbound_capture() {
+    use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
+    use brokkr_runtime::agents::ResultDoor;
+    use brokkr_runtime::bundle::{InlineSandbox, SiteFacts};
+    use brokkr_runtime::engine::SiteSpawn;
+    use brokkr_runtime::SeatClass;
+    let operator = Operator::new();
+    inline_codex_seats(&operator, "workspace-write", "read-only");
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    let argv = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let facts = |label: &str, edit: &dyn Fn(&mut SiteFacts)| {
+        let mut facts = bundle.sites[label].clone();
+        edit(&mut facts);
+        facts
+    };
+    // A template the compiler would have recorded from an adapter's driver
+    // tail: declared and emitted alike, so the template seal agrees.
+    let templated = |tail: &[&str]| {
+        let tail = argv(tail);
+        facts("work", &|facts| {
+            facts.inline_template = Some(Segment::new(Origin::Template, &tail));
+            facts.declared_template = Some(TemplateExpectation::Declared(tail.clone()));
+        })
+    };
+    let lowered = |label: &str, edit: &dyn Fn(&mut InlineSandbox)| {
+        facts(label, &|facts| edit(facts.inline_sandbox.as_mut().unwrap()))
+    };
+    // Tokens the author's command carries into the spawn, behind its pins.
+    let authored = |tokens: &[&str]| -> Box<dyn FnOnce(&mut SiteSpawn)> {
+        let tokens = argv(tokens);
+        Box::new(move |spawn: &mut SiteSpawn| {
+            let at = spawn.segments[0].argv.len();
+            spawn.segments[0].argv.extend(tokens.iter().cloned());
+            spawn.argv.splice(at..at, tokens);
+        })
+    };
+    let untouched = || -> Box<dyn FnOnce(&mut SiteSpawn)> { Box::new(|_| {}) };
+    let rest = "the engine's typed class, expressed by its own fragment, is the only \
+                sandbox-bearing element of an inline Codex launch, so a competing one is refused \
+                rather than reconciled or ordered, whoever composed it";
+    let permission = "a permission control, which sets, lifts or replaces the sandbox or its \
+                      approvals";
+    let root = "a root selector, which moves the root the sandbox class is measured from";
+    let competing = |origin: &str, canonical: &str, at: usize, effect: &str| {
+        format!(
+            "sealing refused: dispatch refused: the `{origin}` contribution of its launch carries \
+             '{canonical}' (argument {at}), {effect}; {rest} (operator ruling 2 of 2026-09-23; \
+             ruling of 2026-09-25; rebuild unit 5d-fix)"
+        )
+    };
+    let table = |name: &str| {
+        format!(
+            "an assignment into the '{name}' configuration, the same control through another door"
+        )
+    };
+    let unreadable = |at: usize, cause: &str| {
+        format!(
+            "sealing refused: dispatch refused: the contributions of its launch cannot be read \
+             together under the 'codex' grammar (argument {at}: it {cause}), so no sandbox class \
+             can be judged in them (operator ruling 2 of 2026-09-23; ruling of 2026-09-25; \
+             rebuild unit 5d-fix)"
+        )
+    };
+    let repeated = "repeats option '--sandbox', which the grammar admits once; a CLI that \
+                    resolves a duplicate last-wins would resolve it against the control the \
+                    engine composed";
+    let capture = |cause: String| {
+        format!(
+            "launch refused: dispatch refused: {cause} (decision 0046 ruling 4; operator ruling \
+             of 2026-09-25; rebuild unit 5d-fix)"
+        )
+    };
+    let misdirected = capture(
+        "the `local` contribution of its launch carries '--output-last-message' (argument 7), \
+         which is not the engine's own capture into exactly the result path it owns; a \
+         misdirected capture is a harness write path outside the result sink"
+            .to_string(),
+    );
+    let unowned = capture(
+        "the `local` contribution of its launch carries '--output-last-message' (argument 7), a \
+         result capture where the engine's result door is the file the seat writes; a capture \
+         the engine does not own is a harness write path outside the result sink"
+            .to_string(),
+    );
+    type Row = (
+        &'static str,
+        &'static str,
+        SiteFacts,
+        Box<dyn FnOnce(&mut SiteSpawn)>,
+        String,
+    );
+    type Moved = Box<dyn FnOnce(&mut SiteSpawn)>;
+    let work = |facts: SiteFacts, moved: Moved, expected: String| ("work", facts, moved, expected);
+    let rows: Vec<Row> =
+        vec![
+        ("work as compiled", work(facts("work", &|_| {}), untouched(), "launched".into())),
+        (
+            "template --dangerously-bypass-approvals-and-sandbox",
+            work(
+                templated(&["--dangerously-bypass-approvals-and-sandbox"]),
+                untouched(),
+                competing(
+                    "template",
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    5,
+                    permission,
+                ),
+            ),
+        ),
+        (
+            "template --full-auto",
+            work(
+                templated(&["--full-auto"]),
+                untouched(),
+                competing("template", "--full-auto", 5, permission),
+            ),
+        ),
+        (
+            "template --add-dir",
+            work(
+                templated(&["--add-dir", "/x"]),
+                untouched(),
+                competing(
+                    "template",
+                    "--add-dir",
+                    5,
+                    "a writable root beyond the sandbox class's reach",
+                ),
+            ),
+        ),
+        (
+            "template -a",
+            work(
+                templated(&["-a", "never"]),
+                untouched(),
+                competing("template", "--ask-for-approval", 5, permission),
+            ),
+        ),
+        (
+            "template -c sandbox_mode",
+            work(
+                templated(&["-c", "sandbox_mode=\"danger-full-access\""]),
+                untouched(),
+                competing("template", "--config", 5, &table("sandbox_mode")),
+            ),
+        ),
+        (
+            "template -c attached sandbox_workspace_write",
+            work(
+                templated(&["-csandbox_workspace_write.network_access=true"]),
+                untouched(),
+                competing("template", "--config", 5, &table("sandbox_workspace_write")),
+            ),
+        ),
+        (
+            "template --config= approval_policy",
+            work(
+                templated(&["--config=approval_policy=\"never\""]),
+                untouched(),
+                competing("template", "--config", 5, &table("approval_policy")),
+            ),
+        ),
+        (
+            "template --cd",
+            work(
+                templated(&["--cd", "/elsewhere"]),
+                untouched(),
+                competing("template", "--cd", 5, root),
+            ),
+        ),
+        (
+            "authored -C",
+            work(
+                facts("work", &|_| {}),
+                authored(&["-C", "/elsewhere"]),
+                competing("authored", "--cd", 5, root),
+            ),
+        ),
+        (
+            "template -s beside the engine's class",
+            work(templated(&["-s", "read-only"]), untouched(), unreadable(7, repeated)),
+        ),
+        (
+            "authored --full-auto",
+            work(
+                facts("work", &|_| {}),
+                authored(&["--full-auto"]),
+                competing("authored", "--full-auto", 5, permission),
+            ),
+        ),
+        (
+            "authored --add-dir=",
+            work(
+                facts("work", &|_| {}),
+                authored(&["--add-dir=/x"]),
+                competing(
+                    "authored",
+                    "--add-dir",
+                    5,
+                    "a writable root beyond the sandbox class's reach",
+                ),
+            ),
+        ),
+        (
+            "authored -p",
+            work(
+                facts("work", &|_| {}),
+                authored(&["-p", "x"]),
+                competing(
+                    "authored",
+                    "--profile",
+                    5,
+                    "a configuration document the engine cannot see into, which can set the \
+                     sandbox",
+                ),
+            ),
+        ),
+        (
+            "authored -c unbounded",
+            work(
+                facts("work", &|_| {}),
+                authored(&["-c", "unmodelled.key=1"]),
+                competing(
+                    "authored",
+                    "--config",
+                    5,
+                    "a configuration assignment with no bounded meaning, which could set the \
+                     sandbox",
+                ),
+            ),
+        ),
+        (
+            "authored --sandbox= beside the engine's class",
+            work(
+                facts("work", &|_| {}),
+                authored(&["--sandbox=read-only"]),
+                unreadable(6, repeated),
+            ),
+        ),
+        (
+            "authored bare word",
+            work(
+                facts("work", &|_| {}),
+                authored(&["stray"]),
+                unreadable(
+                    5,
+                    "is a bare word, and no positional argument is part of the supported shape",
+                ),
+            ),
+        ),
+        (
+            "local -a beside the class",
+            work(
+                lowered("work", &|lowered| {
+                    lowered.segment.argv = argv(&["--sandbox", "workspace-write", "-a", "never"])
+                }),
+                untouched(),
+                competing("local", "--ask-for-approval", 7, permission),
+            ),
+        ),
+        (
+            "work, a capture in the fragment",
+            work(
+                lowered("work", &|lowered| {
+                    lowered.segment.argv =
+                        argv(&["--sandbox", "workspace-write", "-o", "{result_path}"])
+                }),
+                untouched(),
+                unowned.clone(),
+            ),
+        ),
+        (
+            "gate as compiled",
+            ("review", facts("review", &|_| {}), untouched(), "launched".into()),
+        ),
+        (
+            "gate, capture elsewhere",
+            (
+                "review",
+                lowered("review", &|lowered| {
+                    lowered.segment.argv = argv(&["--sandbox", "read-only", "-o", "/elsewhere"])
+                }),
+                untouched(),
+                misdirected.clone(),
+            ),
+        ),
+        (
+            "gate, capture retargeted in the spawn",
+            (
+                "review",
+                facts("review", &|_| {}),
+                Box::new(|spawn: &mut SiteSpawn| {
+                    let at = spawn.argv.len() - 1;
+                    spawn.argv[at] = "/w/other.json".to_string();
+                    let local = spawn.segments.last_mut().unwrap();
+                    *local.argv.last_mut().unwrap() = "/w/other.json".to_string();
+                }) as Moved,
+                misdirected,
+            ),
+        ),
+        (
+            "gate, no capture",
+            (
+                "review",
+                lowered("review", &|lowered| {
+                    lowered.segment.argv = argv(&["--sandbox", "read-only"])
+                }),
+                untouched(),
+                capture(
+                    "no contribution of its launch carries the result capture the last-message \
+                     door needs, bound to exactly the engine-owned result path, so the gate's \
+                     result could not be delivered"
+                        .to_string(),
+                ),
+            ),
+        ),
+        (
+            "gate, the capture moved into the template",
+            (
+                "review",
+                facts("review", &|facts| {
+                    let tail = argv(&["-o", "/w/result.json"]);
+                    facts.inline_template = Some(Segment::new(Origin::Template, &tail));
+                    facts.declared_template = Some(TemplateExpectation::Declared(tail));
+                    facts.inline_sandbox.as_mut().unwrap().segment.argv =
+                        argv(&["--sandbox", "read-only"]);
+                }),
+                untouched(),
+                capture(
+                    "the `template` contribution of its launch carries '--output-last-message' \
+                     (argument 5), which is not the engine's own capture into exactly the result \
+                     path it owns; a misdirected capture is a harness write path outside the \
+                     result sink"
+                        .to_string(),
+                ),
+            ),
+        ),
+        (
+            "gate, file delivery",
+            (
+                "review",
+                lowered("review", &|lowered| lowered.door = ResultDoor::File),
+                untouched(),
+                unowned,
+            ),
+        ),
+    ]
+        .into_iter()
+        .map(|(label, (site, facts, moved, expected))| (label, site, facts, moved, expected))
+        .collect();
+    assert_eq!(rows.len(), 25);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, site, facts, moved, expected)| {
+            let class = match site {
+                "review" => SeatClass::Gate,
+                _ => SeatClass::Work,
+            };
+            let (sealing, record, launched, _) =
+                inline_codex_sealing(&bundle, site, class, &facts, moved);
+            let observed = match (sealing, launched) {
+                (Err(reason), _) => format!("sealing refused: {reason}"),
+                (Ok(()), Ok(_)) => "launched".to_string(),
+                (Ok(()), Err(reason)) => format!("launch refused: {reason}"),
+            };
+            // A refused seal leaves no record behind.
+            let sealed = !record.is_null();
+            let expected_sealed = !expected.starts_with("sealing refused");
+            (observed != expected || sealed != expected_sealed).then(|| {
+                format!(
+                    "row {label}:\n  left:  {observed} (record: {sealed})\n  right: {expected} \
+                     (record: {expected_sealed})"
                 )
             })
         })
