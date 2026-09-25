@@ -136,8 +136,9 @@ that began. Rulings 3 and 4 pay that price.
    Clippy's `cognitive_complexity` is not used; its own documentation
    says it does not measure what its name claims.
 
-   *Violating it looks like:* `run_with` at 908 lines; `assemble` at
-   626; `execute_sequence` at 424 (#288).
+   *Violating it looks like:* `run_with` at 908 lines and
+   `execute_sequence` at 424 (#288); `assemble` at 626 in the epic #330
+   sweep, grown from the 508 that #288 recorded.
 
    **Enforcement binding:** #335 records the baseline. #337 enables the
    clippy lints, with today's offenders as `#[expect(…, reason)]` that
@@ -149,10 +150,13 @@ that began. Rulings 3 and 4 pay that price.
    drain) becomes one function or one table. In data, an agent is
    defined once and seats reference it (decision 0016). A recipe that
    differs from another by a model, a seat or a table entry is an overlay
-   (`extends`, decision 0017), never a copy. An agent has no `extends`:
-   the library refuses the key, so a variation of an agent lives at the
-   seat that hires it, overridden in such a recipe overlay, never in a
-   second agent file that restates the first. A copy that must exist,
+   (`extends`, decision 0017), never a copy. The agent library does not
+   yet accept `extends` (the loader in `agents/load.rs` refuses the key);
+   #360 builds agent-level `extends` resolved by `resolve_agent`, which
+   is then the form an agent's variation takes. Until #360 lands, a
+   variation of an agent lives at the seat that hires it, overridden in
+   such a recipe overlay. In neither case is it a second agent file that
+   restates the first. A copy that must exist,
    such as a script whose bytes a bundle pins, is held to its source by a
    test.
 
@@ -175,8 +179,8 @@ that began. Rulings 3 and 4 pay that price.
 
    *Violating it looks like:* `legacy.rs` promised "one more release" in
    v0.5.0 and was still present in v0.11.0; `intake-sdd` is seated by no
-   recipe; 14 of 17 dsh aliases are hired by nothing; Windows code grew
-   six hours after 0063 was enacted (#355, #356).
+   recipe (#355); 14 of 17 dsh aliases are hired by nothing (#360);
+   Windows code grew six hours after 0063 was enacted (#356).
 
    **Enforcement binding:** #337's `unreachable_pub`; #338's
    `cargo-shear`; a test that every agent is seated or catalogued (#355);
