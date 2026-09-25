@@ -154,3 +154,7 @@ assertion and changes no tested behaviour, and each is recorded in
 `evidence.md` and in the unit's `tasks.md` note. Anything else outside a
 unit's files, including any production file, any new assertion or any changed
 behaviour, still stops as `oversized`.
+
+## Addendum, 2026-09-25: inline Codex sandbox classes are narrowed
+
+OPERATOR RULING, 2026-09-25 ("narrow"), on the inline Codex sandbox classes: rebuild unit 7 found that standby's implement seat (danger-full-access), standby's review seat (workspace-write) and review-first's review seat (workspace-write) cannot move to typed tools.sandbox, because design D5.3 refuses inline sandboxes and admits danger-full-access nowhere and workspace-write at no gate. The operator ruled to NARROW the seats, not widen D5.3: (1) review seats are gates and change no files, so they run `read-only` and deliver their result through decision 0046's last-message door (the harness writes the seat's final message to the result path); (2) implementer seats run `workspace-write`; (3) `danger-full-access` is admitted nowhere, including wager-harness; (4) new unit 5d lowers a typed sandbox at inline Codex sites as an engine-owned segment, admitting only `workspace-write` at work sites and `read-only` at gates, recorded in the expected state and parsed back at launch; every other inline sandbox shape keeps its refusal.

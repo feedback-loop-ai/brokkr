@@ -1046,6 +1046,10 @@ passed) and `git diff --check` passed. The self and verify digests are
 unchanged. **Not fully green:** exact coverage, macOS and remote CI
 are pending.
 
+## 5d. Unit 5d — Lower a typed sandbox at inline Codex sites
+
+- [ ] 5d.1 Unit 5d lowers a typed `tools.sandbox` at an inline Codex site through unit 5b's inline lowering and unit 5c's template recording: the engine appends the adapter's sandbox control as its own engine-owned segment, the expected state records the class as `Expected.local.sandbox`, and the seal parses it back. Exactly `workspace-write` is admitted at a work site and `read-only` at a gate; every other class, and any sandbox at a gate that is not read-only, refuses with a bounded, value-free reason. An inline Codex gate at read-only delivers through the last-message door, and the door is shown to be selected. Verify the whole final command for an inline Codex work site and gate, each refused class and a contradiction refused at the seal, each bound by a compiling mutation. Migrate no recipe. Requirements: operator ruling of 2026-09-25 ("narrow"), operator rulings 1 and 2, decision 0046 ruling 4, [Refusal proofs assert the full reason][SC8]. (inserted before 7.1 by the operator's ruling of 2026-09-25; run `0065-rebuild-unit-5d-see-the-uni-5b7d59c1`)
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

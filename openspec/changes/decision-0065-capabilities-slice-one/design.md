@@ -451,8 +451,15 @@ campaign. Authored flags can never supply the missing representation.
 | Agent with hands, actual Codex dispatch, harness gate | Only read-only matching the existing valid gate fragment can be admitted; missing fragment and open-gate authority refusals retain precedence. Workspace-write and danger-full-access conflict with the gate. |
 | Agent with hands, actual Codex dispatch, harness work | Only workspace-write matching the existing work fragment can be admitted. Read-only would require replacing the writable fragment; danger-full-access would contradict it. Both refuse in this unit. |
 | Agent with hands, actual Codex dispatch, boxed boundary | Only read-only matching the existing workspace fragment can be admitted, with the box and hands policy unchanged. Other explicit classes refuse; harness.work cannot substitute for missing workspace support. |
-| Open work with hands; any no-hands sandbox; inline sandbox | No existing typed emission path supplies the requested class. Refuse, including danger-full-access: a presumed provider default is not a representation. |
+| Inline seat, no hands, actual Codex dispatch, work (unit 5d; ruling of 2026-09-25) | Only workspace-write. The engine appends the adapter's `hands.harness.work` fragment, which must express exactly that class, as its own `local` segment behind the authored command. The expected state records the class, and the seal parses it back. |
+| Inline seat, no hands, actual Codex dispatch, gate (unit 5d; ruling of 2026-09-25) | Only read-only. The engine appends the adapter's `hands.harness.gate` fragment, which must express exactly that class, as its own `local` segment. That fragment carries the last-message door (decision 0046 ruling 4): the harness writes the seat's final message to the result path, and the seat is told so. Recorded and parsed back as at work. |
+| Open work with hands; agent-backed without hands; every other inline sandbox (a panel member, sequence step or select case, hands, another driver, an authored capability-bearing option) | No existing typed emission path supplies the requested class. Refuse, including danger-full-access: a presumed provider default is not a representation. |
 | Claude/LaneTally/DSH, exec or opaque dispatch with explicit sandbox | No established mapping to these three classes in current data. Refuse; acceptEdits is not evidence of a Codex sandbox class. |
+
+Danger-full-access is admitted on no path, inline or agent-backed,
+wager-harness included (operator ruling of 2026-09-25, "narrow"). An inline
+Codex gate never holds workspace-write: gates change no files, so they run
+read-only and deliver through the last-message door.
 
 Recognize the actual driver, not the adapter's provider label. For the admitted
 Codex cases, inspect the selected engine fragment through the existing public
@@ -1049,9 +1056,9 @@ are future migration work, not edits in this visit.
 | recipes/node/bundle.json | implement and review: remove both flags; typed allow npm, npx, node, git, ls, rg, mkdir; adapter names must be declared. |
 | recipes/preflight/bundle.json | reviewer: remove both flags; typed allow cargo, git, ls, rg. |
 | bundles/verify/bundle.json | reviewer: remove the same inline flags; typed allow cargo, git, python3, pytest, ls, rg, gh-pr-view, gh-run-view; preserve the two gh subcommand patterns, not unrestricted gh. |
-| recipes/standby/bundle.json | implement/review: move --sandbox to typed tools.sandbox: implement danger-full-access, review workspace-write. |
-| recipes/review-first/bundle.json | Codex review: move --sandbox workspace-write to its typed restriction. |
-| recipes/wager-harness/bundle.json | Codex implement: move --sandbox danger-full-access to its typed restriction. |
+| recipes/standby/bundle.json | implement/review: remove the authored --sandbox and declare typed tools.sandbox, narrowed by the operator's ruling of 2026-09-25: implement `workspace-write` (was danger-full-access); review `read-only` (was workspace-write), delivering through the last-message door. |
+| recipes/review-first/bundle.json | Codex review: remove the authored --sandbox workspace-write and declare typed `read-only`, delivering through the last-message door (ruling of 2026-09-25). |
+| recipes/wager-harness/bundle.json | Codex implement: remove the authored --sandbox danger-full-access and declare typed `workspace-write`; danger-full-access is admitted nowhere (ruling of 2026-09-25). |
 | adapters/claude.json, adapters/lanetally.json | driver permission-mode templates and generated tool mappings are engine-owned; identify that origin explicitly. Add local command mappings needed by typed migration, not native grants. |
 | adapters/codex.json, adapters/dsh.json | native/hands/route declarations are engine data; validate them, not migrate them into authored allowlists. No inline recipe migration found here. |
 | agents/researcher.json | prior typed wants migration survives; no inline capability-bearing argv found in any agents/*.json. Preserve local restrictions and DATA charter. |
@@ -1314,6 +1321,26 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    correctly placed seat-level `tools` still compiles. Production: at most
    three files (likely `crates/brokkr-runtime/src/bundle.rs` and its
    loader). Tests: bundle/tests.rs or bundle/agent_tests.rs.
+   **5d. Lower a typed sandbox at inline Codex sites.** Inserted before unit
+   7, after units 5e and 6 landed, by the operator's ruling of 2026-09-25
+   (operator-ruling-2026-09-23.md, addendum "inline Codex sandbox classes are
+   narrowed"), because unit 7 found every seat it migrates inline. Close
+   5d.1. Reuse unit 5b's inline lowering and unit 5c's template recording;
+   do not duplicate them. At an inline Codex site whose typed declaration
+   carries tools.sandbox, the engine appends the provider's sandbox control
+   (from adapter data) as its own engine-owned segment, records it as
+   Expected.local sandbox, and the launch parses it back (ruling 2). Admit
+   exactly `workspace-write` at work-class sites and `read-only` at
+   gate-class sites; refuse every other class, and any sandbox at a gate
+   that is not read-only, with bounded, value-free reasons. An inline Codex
+   gate at read-only delivers its result through the last-message door;
+   prove that the door is selected. Tests: bundle/agent_tests.rs and
+   crates/brokkr-runtime/tests/capability_launch.rs, covering the whole
+   final command for an inline Codex work site and gate, each refused class,
+   and a contradiction refused at the seal, each bound by a compiling
+   mutation. Production: bundle.rs, engine.rs, and native_controls.rs only
+   if the expected-state carrier needs it. Migrate no recipe: that is units
+   7 and 8.
 6. **Recipe/agent migration: Claude recipes.** Close 6.1. Production data:
    `recipes/fast/bundle.json`, `recipes/node/bundle.json`,
    `recipes/preflight/bundle.json`. Replace inline lists/modes with typed tools,
@@ -1329,8 +1356,9 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    witness/compose pins. No boundary widening.
 8. **Recipe migration: wager and inventory.** Close 8.1. Production:
    `recipes/wager-harness/bundle.json`; docs `recipes/node/README.md`,
-   `recipes/wager-harness/README.md`. Preserve typed danger-full-access under
-   existing authority; update examples. Re-audit adapters/recipes/agents/
+   `recipes/wager-harness/README.md`. Narrow to typed workspace-write
+   (operator ruling of 2026-09-25: danger-full-access is admitted nowhere);
+   update examples. Re-audit adapters/recipes/agents/
    extensions/bundles and scaffolds. Tests: brokkr-runtime/tests/capability_launch.rs
    under crates/; record every file disposition. Newly discovered migrations
    get bounded visits before unit 12; no filename exemption.
