@@ -2526,12 +2526,13 @@ fn inline_codex_launching(
     let launched = verify_record(&spawn, &handed).and_then(|()| {
         let argv = &spawn.argv;
         let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-        let mut input = json!({"workdir": "/w", "seat": label,
-                               "launch_arguments": spawn.launch_arguments()});
-        // A plan the door admitted as absent stays absent (unit 5d-fix-c1).
-        if let Some(plan) = handed.get("native_controls") {
-            input["native_controls"] = plan.clone();
-        }
+        // The driver is handed what the door admitted — the record, the
+        // result path and door, and a plan admitted as absent stays absent
+        // (unit 5d-fix-c1) — so it judges the final command it composes
+        // (unit 5d-fix-c2).
+        let mut input = handed.clone();
+        input["workdir"] = json!("/w");
+        input["launch_arguments"] = spawn.launch_arguments();
         brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input)
     });
     (sealing, record, launched, door.to_string())
@@ -3639,6 +3640,197 @@ fn an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial
             (observed != expected || leaked).then(|| {
                 format!("row {label}:\n  left:  {observed}\n  right: {expected} (leaked: {leaked})")
             })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 5d-fix-c2 (chief F1 of run
+/// 0065-rebuild-unit-5d-fix-c1-see--b800f52a): at the production-compiled
+/// inline Codex seats, a native plan whose OFF key is double- or
+/// single-quoted — a key the harness reads literally, leaving search on
+/// (codex-cli rust-v0.154.0 config_override.rs and overrides.rs, per the
+/// chief) — refuses at the dispatch door, at the work seat and at the gate,
+/// and so does a partly quoted dotted key; the canonical OFF launches.
+/// Chief F2: the driver judges the final command it composes, so the
+/// door-admitted `--effort ultra` refuses once it is translated, and an
+/// authored `--json` beside the driver's own refuses as the repeat it is.
+#[test]
+fn an_inline_codex_launch_reads_its_keys_as_the_harness_does_and_is_judged_as_composed() {
+    use brokkr_runtime::engine::SiteSpawn;
+    use brokkr_runtime::SeatClass;
+    let operator = Operator::new();
+    inline_codex_seats(&operator, "workspace-write", "read-only");
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    let rest = "the launch admits only the engine's one sandbox fragment of the site's class, at \
+                a gate the engine's one capture into the result path it owns, and configuration \
+                on a closed allowlist, so every other effect is refused rather than reconciled or \
+                ordered, whoever composed it";
+    let noncanonical = "a configuration assignment that assigns through a key not spelled \
+                        canonically: the harness splits an assignment at its first '=', trims it \
+                        and splits the key at every '.', reading a quote or an escape as part of \
+                        the name (codex-cli rust-v0.154.0, \
+                        codex-rs/utils/cli/src/config_override.rs and \
+                        codex-rs/config/src/overrides.rs), so only dot-separated bare names of \
+                        ASCII letters, digits, '_' and '-', with nothing around the '=', are read \
+                        as the key they spell";
+    let at_door = |seat: &str, at: usize| {
+        door_refused(&format!(
+            "the inline Codex launch of seat '{seat}' carries '--config' (argument {at}) in its \
+             `native` contribution, {noncanonical}; {rest}"
+        ))
+    };
+    let composed = |cause: String| {
+        format!(
+            "refused: refusing to invoke the agent CLI: the final command of this inline Codex \
+             launch {cause} (decision 0046 ruling 4; operator ruling of 2026-09-25; rebuild unit \
+             5d-fix-c2)"
+        )
+    };
+    let argv = |argv: &[&str]| -> Box<dyn FnOnce(&mut Value)> {
+        let argv = json!(argv);
+        Box::new(move |handed: &mut Value| handed["native_controls"]["argv"] = argv)
+    };
+    let as_handed = || -> Box<dyn FnOnce(&mut Value)> { Box::new(|_| {}) };
+    // The author's pinned level, or tokens behind its pins, as the spawn
+    // carries them.
+    let start = |spawn: &SiteSpawn| {
+        spawn.argv.len()
+            - spawn
+                .segments
+                .iter()
+                .map(|segment| segment.argv.len())
+                .sum::<usize>()
+    };
+    let level = move |level: &'static str| -> Box<dyn FnOnce(&mut SiteSpawn)> {
+        Box::new(move |spawn: &mut SiteSpawn| {
+            let pin = spawn.segments[0].argv.len() - 1;
+            assert_eq!(spawn.segments[0].argv[pin - 1..], ["--effort", "high"]);
+            let at = start(spawn) + pin;
+            spawn.argv[at] = level.to_string();
+            spawn.segments[0].argv[pin] = level.to_string();
+        })
+    };
+    let behind = move |token: &'static str| -> Box<dyn FnOnce(&mut SiteSpawn)> {
+        Box::new(move |spawn: &mut SiteSpawn| {
+            let at = start(spawn) + spawn.segments[0].argv.len();
+            spawn.segments[0].argv.push(token.to_string());
+            spawn.argv.insert(at, token.to_string());
+        })
+    };
+    let unmoved = || -> Box<dyn FnOnce(&mut SiteSpawn)> { Box::new(|_| {}) };
+    type Row = (
+        &'static str,
+        &'static str,
+        Box<dyn FnOnce(&mut SiteSpawn)>,
+        Box<dyn FnOnce(&mut Value)>,
+        String,
+    );
+    let rows: Vec<Row> = vec![
+        (
+            "work as handed",
+            "work",
+            unmoved(),
+            as_handed(),
+            "launched".into(),
+        ),
+        (
+            "gate as handed",
+            "review",
+            unmoved(),
+            as_handed(),
+            "launched".into(),
+        ),
+        (
+            "work, the OFF key double-quoted",
+            "work",
+            unmoved(),
+            argv(&["-c", "\"web_search\"=\"disabled\""]),
+            at_door("work", 7),
+        ),
+        (
+            "gate, the OFF key double-quoted",
+            "review",
+            unmoved(),
+            argv(&["-c", "\"web_search\"=\"disabled\""]),
+            at_door("review", 9),
+        ),
+        (
+            "work, the OFF key single-quoted",
+            "work",
+            unmoved(),
+            argv(&["-c", "'web_search'=\"disabled\""]),
+            at_door("work", 7),
+        ),
+        (
+            "gate, the OFF key single-quoted",
+            "review",
+            unmoved(),
+            argv(&["-c", "'web_search'=\"disabled\""]),
+            at_door("review", 9),
+        ),
+        (
+            "work, a partly quoted dotted key",
+            "work",
+            unmoved(),
+            argv(&[
+                "-c",
+                "web_search=\"disabled\"",
+                "-c",
+                "web_search.\"mode\"=1",
+            ]),
+            at_door("work", 9),
+        ),
+        (
+            "gate, the canonical OFF joined",
+            "review",
+            unmoved(),
+            argv(&["--config=web_search=disabled"]),
+            "launched".into(),
+        ),
+        (
+            "work, --effort ultra admitted at the door and translated",
+            "work",
+            level("ultra"),
+            as_handed(),
+            composed(format!(
+                "carries '--config' (argument 2) in its `authored` contribution, a configuration \
+                 assignment that assigns 'model_reasoning_effort' a value outside the bounded \
+                 ones its declaration admits; {rest}"
+            )),
+        ),
+        (
+            "work, an authored --json beside the driver's",
+            "work",
+            behind("--json"),
+            as_handed(),
+            composed(
+                "cannot be read whole as the harness receives it under the 'codex' grammar \
+                 (argument 9, '--json': it repeats option '--json', which the grammar admits \
+                 once; a CLI that resolves a duplicate last-wins would resolve it against the \
+                 control the engine composed), so none of its effects can be judged"
+                    .to_string(),
+            ),
+        ),
+    ];
+    assert_eq!(rows.len(), 10);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, seat, moved, handed_as, expected)| {
+            let class = match seat {
+                "review" => SeatClass::Gate,
+                _ => SeatClass::Work,
+            };
+            let (sealing, _, launched, _) =
+                inline_codex_launching(&bundle, seat, class, &bundle.sites[seat], moved, handed_as);
+            let observed = match (sealing, launched) {
+                (Err(reason), _) => format!("sealing refused: {reason}"),
+                (Ok(()), Ok(_)) => "launched".to_string(),
+                (Ok(()), Err(reason)) => format!("refused: {reason}"),
+            };
+            (observed != expected)
+                .then(|| format!("row {label}:\n  left:  {observed}\n  right: {expected}"))
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));

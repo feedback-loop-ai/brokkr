@@ -1081,14 +1081,52 @@ pub const LAUNCH_SETTINGS: [Admitted; 2] = [
     },
 ];
 
+/// Why an assignment whose key is not spelled canonically is refused
+/// (rebuild unit 5d-fix-c2).
+const NONCANONICAL: &str = "assigns through a key not spelled canonically: the harness splits an \
+                            assignment at its first '=', trims it and splits the key at every \
+                            '.', reading a quote or an escape as part of the name (codex-cli \
+                            rust-v0.154.0, codex-rs/utils/cli/src/config_override.rs and \
+                            codex-rs/config/src/overrides.rs), so only dot-separated bare names \
+                            of ASCII letters, digits, '_' and '-', with nothing around the '=', \
+                            are read as the key they spell";
+
+/// Whether a key is spelled canonically, exactly as the allowlist spells its
+/// keys (rebuild unit 5d-fix-c2): dot-separated bare names of ASCII
+/// letters, digits, `_` and `-`, with no quote, whitespace or escape. This
+/// is the one spelling the harness reads as the key it appears to be,
+/// because the harness never unquotes a key: `"web_search"` is a key whose
+/// name holds two quotes, not `web_search`. It is read after
+/// [`assignment_parts`], which has already bounded a key of these bytes —
+/// no quote, so its split is the harness's — to nonempty parts within 16
+/// parts and 256 bytes; what is left to judge is the bytes.
+fn canonical_key(key: &str) -> bool {
+    key.bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
 /// Whether one `--config` value is on [`LAUNCH_SETTINGS`], as the key it
 /// admits, or the fixed cause it is refused for. The key is read by the same
 /// bounded reading [`setting`] uses and must be exactly an admitted key, not
 /// a descendant of one; its value, unquoted, must be one of that key's
 /// bounded values. A refused capability table is named canonically; no key
 /// or value an author wrote is echoed.
+///
+/// Rebuild unit 5d-fix-c2 (chief F1 of run
+/// `0065-rebuild-unit-5d-fix-c1-see--b800f52a`): the assignment is read
+/// exactly as the harness reads it or refused. The harness splits at the
+/// FIRST `=` and never unquotes a key, so a key is admitted only in its
+/// canonical spelling ([`canonical_key`]) with nothing around the `=`; a
+/// quoted, partly quoted or spaced key is refused rather than normalised
+/// into the key it resembles.
 pub fn launch_setting(assignment: &str) -> Result<&'static str, String> {
     let (parts, value) = assignment_parts(assignment).map_err(str::to_string)?;
+    let (key, raw) = assignment
+        .split_once('=')
+        .expect("a readable assignment holds '='");
+    if !canonical_key(key) || raw != value {
+        return Err(NONCANONICAL.to_string());
+    }
     let Some(admitted) = LAUNCH_SETTINGS
         .iter()
         .find(|admitted| parts == [admitted.key])
@@ -1199,6 +1237,14 @@ pub fn judge_inline_codex_launch(
                 sandboxes += 1;
                 None
             }
+            // The rejoin's spelling of the same class (rebuild unit
+            // 5d-fix-c2): `codex exec resume` takes no `--sandbox`, so the
+            // driver re-expresses the engine's class as exactly this one
+            // assignment, which counts only in the engine's contribution.
+            ("--config", _) if origin == Origin::Local && node.values == [rejoin_class(class)] => {
+                sandboxes += 1;
+                None
+            }
             ("--output-last-message", _) => match owned_capture {
                 Some(target) if origin == Origin::Local && node.values == [target] => {
                     captures += 1;
@@ -1265,6 +1311,13 @@ pub fn judge_inline_codex_launch(
             class.word()
         )));
     }
+    if sandboxes > 1 {
+        return Err(BoundedCause(
+            "carries the site's class in more than one sandbox fragment, a flag and the rejoin's \
+             assignment together; the launch admits exactly one"
+                .to_string(),
+        ));
+    }
     if owned_capture.is_some() && captures == 0 {
         return Err(BoundedCause(
             "is a gate's, and no contribution carries the engine's capture into the result path \
@@ -1276,10 +1329,95 @@ pub fn judge_inline_codex_launch(
     Ok(())
 }
 
+/// The one assignment a rejoin re-expresses a sandbox class as, the
+/// driver's own spelling (rebuild unit 5d-fix-c2).
+pub fn rejoin_class(class: SandboxIntent) -> String {
+    format!("sandbox_mode=\"{}\"", class.word())
+}
+
+/// The judgment of an inline Codex launch's FINAL command, exactly as the
+/// harness receives it after its binary (rebuild unit 5d-fix-c2; chief F2
+/// of runs `0065-rebuild-unit-5d-fix-b-see-t-8067eebc` and
+/// `0065-rebuild-unit-5d-fix-c1-see--b800f52a`). The driver composes the
+/// command from the contributions it was handed: it translates `--effort`,
+/// generates `--json` and `-C`, and on a rejoin moves the class into an
+/// assignment. `contributions` are the options it placed after its own
+/// lead, each beside the origin it came from, the translated effort
+/// carrying the origin of the pin it translated and the native plan last.
+///
+/// The command is read whole under the codex grammar at its fixed
+/// positions ([`parse_final`]), so a part the composition duplicated is the
+/// repeat it is. It must be exactly the driver's own lead — `exec --json -C
+/// <workdir>` cold, `exec resume --json -c sandbox_mode="<class>"` on a
+/// rejoin, with the rejoin's `<session> -` last — around the contributions,
+/// byte for byte, so no part escapes attribution. Then every option but the
+/// root the lead names is judged by [`judge_inline_codex_launch`], the same
+/// function admission and the dispatch door call: the lead's `--json` as the
+/// adapter's template, the rejoin's class as the engine's `local` class it
+/// re-expresses, and the contributions as handed. Argument positions in a
+/// cause count those judged options, from the lead's `--json`.
+pub fn judge_inline_codex_command(
+    class: SandboxIntent,
+    command: &[String],
+    contributions: &[Segment],
+    owned_capture: Option<&str>,
+    workdir: &str,
+) -> Result<(), BoundedCause> {
+    let composed = parse_final("codex", command)
+        .expect("the codex grammar is modelled")
+        .map_err(|problem| {
+            BoundedCause(format!(
+                "cannot be read whole as the harness receives it under the 'codex' grammar \
+                 (argument {}, {}: it {}), so none of its effects can be judged",
+                problem.at + 1,
+                problem.label,
+                problem.cause
+            ))
+        })?;
+    let text = |parts: &[&str]| {
+        parts
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let (lead, generated, trail) = match &composed.session {
+        None => (
+            text(&["exec", "--json", "-C", workdir]),
+            Vec::new(),
+            Vec::new(),
+        ),
+        Some(session) => (
+            text(&["exec", "resume", "--json", "-c", &rejoin_class(class)]),
+            vec![Segment::new(
+                Origin::Local,
+                &text(&["-c", &rejoin_class(class)]),
+            )],
+            text(&[session, "-"]),
+        ),
+    };
+    let expected = [lead, flatten(contributions), trail].concat();
+    if command != expected.as_slice() {
+        return Err(BoundedCause(
+            "is not the driver's own lead around the contributions it was handed, so a part of \
+             it cannot be attributed to whoever composed it, and a part nobody composed is \
+             refused rather than judged by its bytes"
+                .to_string(),
+        ));
+    }
+    let judged: Vec<Segment> = [Segment::new(Origin::Template, &text(&["--json"]))]
+        .into_iter()
+        .chain(generated)
+        .chain(contributions.iter().cloned())
+        .collect();
+    judge_inline_codex_launch(class, &judged, owned_capture)
+}
+
 /// The native capabilities an inline Codex launch's argv switches OFF, read
 /// under the codex grammar (rebuild unit 5d-fix-c1): one entry for each
 /// configuration assignment on [`LAUNCH_SETTINGS`] whose admitted value is a
-/// declared OFF argv's. An argv the grammar cannot place proves no denial.
+/// declared OFF argv's. An argv the grammar cannot place proves no denial,
+/// and neither does an assignment whose key is not spelled canonically,
+/// byte for byte: [`launch_setting`] refuses it (rebuild unit 5d-fix-c2).
 pub fn inline_codex_denials(argv: &[String]) -> Vec<&'static str> {
     parse("codex", argv)
         .and_then(Result::ok)

@@ -15815,3 +15815,568 @@ fn the_rendered_prompt_carries_every_capability_fact_whole() {
         }
     }
 }
+
+// -------------------------------------------- rebuild unit 5d-fix-c2
+
+/// The judged predicate every inline Codex refusal below ends with.
+const INLINE_REST: &str = "; the launch admits only the engine's one sandbox fragment of the \
+                           site's class, at a gate the engine's one capture into the result path \
+                           it owns, and configuration on a closed allowlist, so every other \
+                           effect is refused rather than reconciled or ordered, whoever composed \
+                           it";
+
+/// The fixed cause of an assignment whose key is not spelled canonically.
+const NONCANONICAL_KEY: &str = "assigns through a key not spelled canonically: the harness \
+                                splits an assignment at its first '=', trims it and splits the \
+                                key at every '.', reading a quote or an escape as part of the \
+                                name (codex-cli rust-v0.154.0, \
+                                codex-rs/utils/cli/src/config_override.rs and \
+                                codex-rs/config/src/overrides.rs), so only dot-separated bare \
+                                names of ASCII letters, digits, '_' and '-', with nothing around \
+                                the '=', are read as the key they spell";
+
+/// The driver's refusal of an inline Codex launch's final command.
+fn final_refused(cause: &str) -> String {
+    format!(
+        "refusing to invoke the agent CLI: the final command of this inline Codex launch {cause} \
+         (decision 0046 ruling 4; operator ruling of 2026-09-25; rebuild unit 5d-fix-c2)"
+    )
+}
+
+/// One judged option refused for `effect`, at its position among the judged
+/// options, in its contribution.
+fn final_carrying(canonical: &str, at: usize, origin: &str, effect: &str) -> String {
+    final_refused(&format!(
+        "carries '{canonical}' (argument {at}) in its `{origin}` contribution, {effect}{INLINE_REST}"
+    ))
+}
+
+/// An inline Codex site's driver input as the engine writes it: the plan,
+/// the argv's two parts, the result path and door, and the sealed launch
+/// record whose segments are `authored` then the engine's `local` fragment
+/// and whose expected state names `class` with no hands (or `hands`).
+fn inline_codex_input(
+    base: Value,
+    authored: &[&str],
+    local: &[&str],
+    plan: Value,
+    class: crate::native_controls::SandboxIntent,
+    hands: crate::native_controls::HandsIntent,
+) -> (Vec<String>, Value) {
+    use crate::native_controls::{
+        AllowIntent, Application, Expected, Identity, LaunchRecord, LocalExpectation,
+        NativeExpectation, Origin, SandboxIntent, Segment, TemplateExpectation,
+    };
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let (authored, local) = (s(authored), s(local));
+    let record = LaunchRecord {
+        segments: vec![
+            Segment::new(Origin::Authored, &authored),
+            Segment::new(Origin::Local, &local),
+        ],
+        expected: Expected {
+            identity: Identity {
+                provider: "codex".into(),
+                harness: "codex".into(),
+                model: None,
+            },
+            native: NativeExpectation::Known {
+                held: Vec::new(),
+                denied: vec!["web-search".into()],
+            },
+            local: LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: class,
+                application: Application::Unrestricted,
+            },
+            hands,
+            template: TemplateExpectation::None,
+        },
+    };
+    let extra = [authored.clone(), local.clone()].concat();
+    let mut input = engine_input(base, plan, &extra, local.len());
+    input["seat"] = json!("inline");
+    input["launch_record"] = record.value();
+    input["result_path"] = json!("/w/result.json");
+    if class == SandboxIntent::ReadOnly {
+        input["result_delivery"] = json!("last-message");
+    }
+    (extra, input)
+}
+
+/// Rebuild unit 5d-fix-c2 (chief F2 of runs 0065-rebuild-unit-5d-fix-b and
+/// -c1; chief F1 of -c1): the COLD command the driver composes for an inline
+/// Codex site is judged as the harness receives it. `--effort ultra` is a
+/// plain pin the pre-composition judgment reads as inert, and the driver's
+/// translation of it is refused; an authored `--json` duplicates the driver's
+/// own; a native plan whose OFF key is quoted, partly quoted or spaced is
+/// refused by the canonical-key rule, at a work seat and at a gate, where the
+/// harness would read the literal key and leave search on (codex-cli
+/// rust-v0.154.0 config_override.rs and overrides.rs, per the chief). The
+/// shipped work seat and gate, and the canonical spellings of the OFF value,
+/// launch; so do a launch with no record and an agent's, whose class rides
+/// its hands and is not judged here.
+#[test]
+fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it() {
+    use crate::native_controls::{HandsIntent, SandboxIntent};
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let pins = ["--model", "gpt-6-astra", "--effort", "high"];
+    let work_local = ["--sandbox", "workspace-write"];
+    let gate_local = [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "/w/result.json",
+    ];
+    let with_argv = |argv: &[&str]| {
+        let mut plan = codex_denied();
+        plan["argv"] = json!(argv);
+        plan
+    };
+    let effort = "a configuration assignment that assigns 'model_reasoning_effort' a value \
+                  outside the bounded ones its declaration admits";
+    let noncanonical = format!("a configuration assignment that {NONCANONICAL_KEY}");
+    let cold = |local: &[&str], managed: &[&str]| {
+        let mut command = s(&[
+            "codex",
+            "exec",
+            "--json",
+            "-C",
+            "/w",
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "--model",
+            "gpt-6-astra",
+        ]);
+        command.extend(s(local));
+        command.extend(s(managed));
+        Ok::<_, String>(command)
+    };
+    type Row<'a> = (
+        &'static str,
+        Vec<&'a str>,
+        &'a [&'a str],
+        SandboxIntent,
+        Value,
+        Result<Vec<String>, String>,
+    );
+    let work = SandboxIntent::WorkspaceWrite;
+    let gate = SandboxIntent::ReadOnly;
+    let rows: Vec<Row> = vec![
+        (
+            "work as composed",
+            pins.to_vec(),
+            &work_local,
+            work,
+            codex_denied(),
+            cold(&work_local, &CODEX_OFF),
+        ),
+        (
+            "gate as composed",
+            pins.to_vec(),
+            &gate_local,
+            gate,
+            codex_denied(),
+            cold(&gate_local, &CODEX_OFF),
+        ),
+        (
+            "work with no effort pin",
+            vec!["--model", "gpt-6-astra"],
+            &work_local,
+            work,
+            codex_denied(),
+            Ok(s(&[
+                "codex",
+                "exec",
+                "--json",
+                "-C",
+                "/w",
+                "--model",
+                "gpt-6-astra",
+                "--sandbox",
+                "workspace-write",
+                "-c",
+                "web_search=\"disabled\"",
+            ])),
+        ),
+        (
+            "work, --effort ultra translated",
+            vec!["--model", "gpt-6-astra", "--effort", "ultra"],
+            &work_local,
+            work,
+            codex_denied(),
+            Err(final_carrying("--config", 2, "authored", effort)),
+        ),
+        (
+            "work, an authored --json beside the driver's",
+            vec!["--json", "--model", "gpt-6-astra", "--effort", "high"],
+            &work_local,
+            work,
+            codex_denied(),
+            Err(final_refused(
+                "cannot be read whole as the harness receives it under the 'codex' grammar \
+                 (argument 7, '--json': it repeats option '--json', which the grammar admits \
+                 once; a CLI that resolves a duplicate last-wins would resolve it against the \
+                 control the engine composed), so none of its effects can be judged",
+            )),
+        ),
+        (
+            "work, the OFF key double-quoted",
+            pins.to_vec(),
+            &work_local,
+            work,
+            with_argv(&["-c", "\"web_search\"=\"disabled\""]),
+            Err(final_carrying("--config", 8, "native", &noncanonical)),
+        ),
+        (
+            "gate, the OFF key double-quoted",
+            pins.to_vec(),
+            &gate_local,
+            gate,
+            with_argv(&["-c", "\"web_search\"=\"disabled\""]),
+            Err(final_carrying("--config", 10, "native", &noncanonical)),
+        ),
+        (
+            "work, the OFF key single-quoted",
+            pins.to_vec(),
+            &work_local,
+            work,
+            with_argv(&["-c", "'web_search'=\"disabled\""]),
+            Err(final_carrying("--config", 8, "native", &noncanonical)),
+        ),
+        (
+            "gate, the OFF key single-quoted",
+            pins.to_vec(),
+            &gate_local,
+            gate,
+            with_argv(&["-c", "'web_search'=\"disabled\""]),
+            Err(final_carrying("--config", 10, "native", &noncanonical)),
+        ),
+        (
+            "work, a partly quoted dotted key",
+            pins.to_vec(),
+            &work_local,
+            work,
+            with_argv(&[
+                "-c",
+                "web_search=\"disabled\"",
+                "-c",
+                "\"tools\".web_search=false",
+            ]),
+            Err(final_carrying("--config", 10, "native", &noncanonical)),
+        ),
+        (
+            "work, space before the '='",
+            pins.to_vec(),
+            &work_local,
+            work,
+            with_argv(&["-c", "web_search =\"disabled\""]),
+            Err(final_carrying("--config", 8, "native", &noncanonical)),
+        ),
+        (
+            "work, space after the '='",
+            pins.to_vec(),
+            &work_local,
+            work,
+            with_argv(&["-c", "web_search= \"disabled\""]),
+            Err(final_carrying("--config", 8, "native", &noncanonical)),
+        ),
+        (
+            "work, the canonical OFF joined and bare",
+            pins.to_vec(),
+            &work_local,
+            work,
+            with_argv(&["--config=web_search=disabled"]),
+            cold(&work_local, &["--config=web_search=disabled"]),
+        ),
+        (
+            "gate, the canonical OFF single-quoted value",
+            pins.to_vec(),
+            &gate_local,
+            gate,
+            with_argv(&["-c", "web_search='disabled'"]),
+            cold(&gate_local, &["-c", "web_search='disabled'"]),
+        ),
+    ];
+    assert_eq!(rows.len(), 14);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, authored, local, class, plan, expected)| {
+            let (extra, input) = inline_codex_input(
+                json!({"workdir": "/w"}),
+                &authored,
+                local,
+                plan,
+                class,
+                HandsIntent::None,
+            );
+            let observed = codex_command("codex", &extra, "/w", None, &input);
+            (observed != expected)
+                .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // No record, and an agent's record: neither is an inline Codex launch,
+    // so the duplicate the rows above refuse is left to the harness.
+    let doubled = ["--json", "--sandbox", "workspace-write"];
+    let (extra, mut input) = inline_codex_input(
+        json!({"workdir": "/w"}),
+        &doubled[..1],
+        &doubled[1..],
+        codex_denied(),
+        work,
+        HandsIntent::Required,
+    );
+    let launched = s(&[
+        "codex",
+        "exec",
+        "--json",
+        "-C",
+        "/w",
+        "--json",
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        "web_search=\"disabled\"",
+    ]);
+    assert_eq!(
+        codex_command("codex", &extra, "/w", None, &input),
+        Ok(launched.clone())
+    );
+    input.as_object_mut().unwrap().remove("launch_record");
+    assert_eq!(
+        codex_command("codex", &extra, "/w", None, &input),
+        Ok(launched)
+    );
+}
+
+/// Rebuild unit 5d-fix-c2 (chief F2): the REJOIN the driver composes for an
+/// inline Codex site is judged as the harness receives it — `exec resume`,
+/// the class moved into its one assignment, the translated effort, the
+/// passthrough and the plan, before the session and the stdin `-`. A real
+/// rejoin of the work seat and of the gate launches. A plan that also
+/// assigns `sandbox_mode` is refused: cold the `--sandbox` flag outranks it,
+/// but the rejoin's transform moves the class into the same last-wins
+/// channel, where the plan's later assignment would win. The rejoin's own
+/// `--effort ultra` translation is refused too.
+#[cfg(unix)]
+#[test]
+fn the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it() {
+    use crate::native_controls::{HandsIntent, SandboxIntent};
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = codex_shim(dir.path(), "codex-inline", &dir.path().join("argv"));
+    let bin = shim.to_str().unwrap();
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let pins = ["--model", "gpt-6-astra", "--effort", "high"];
+    let work_local = ["--sandbox", "workspace-write"];
+    let gate_local = [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "/w/result.json",
+    ];
+    let competing = {
+        let mut plan = codex_denied();
+        plan["argv"] = json!([
+            "-c",
+            "web_search=\"disabled\"",
+            "-c",
+            "sandbox_mode=\"danger-full-access\""
+        ]);
+        plan
+    };
+    let rejoined = |class: &str, capture: &[&str]| {
+        let mut command = s(&[
+            bin,
+            "exec",
+            "resume",
+            "--json",
+            "-c",
+            &format!("sandbox_mode=\"{class}\""),
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "--model",
+            "gpt-6-astra",
+        ]);
+        command.extend(s(capture));
+        command.extend(s(&CODEX_OFF));
+        command.extend(s(&[THREAD, "-"]));
+        Ok::<_, String>(command)
+    };
+    let effort = "a configuration assignment that assigns 'model_reasoning_effort' a value \
+                  outside the bounded ones its declaration admits";
+    let table = "a configuration assignment that assigns into the 'sandbox_mode' configuration, \
+                 which is outside the closed set of keys an inline Codex launch admits";
+    type Row<'a> = (
+        &'static str,
+        Vec<&'a str>,
+        &'a [&'a str],
+        SandboxIntent,
+        Value,
+        Result<Vec<String>, String>,
+    );
+    let rows: Vec<Row> = vec![
+        (
+            "work rejoined",
+            pins.to_vec(),
+            &work_local,
+            SandboxIntent::WorkspaceWrite,
+            codex_denied(),
+            rejoined("workspace-write", &[]),
+        ),
+        (
+            "gate rejoined",
+            pins.to_vec(),
+            &gate_local,
+            SandboxIntent::ReadOnly,
+            codex_denied(),
+            rejoined("read-only", &gate_local[2..]),
+        ),
+        (
+            "work, a plan assignment competing with the rejoin's class",
+            pins.to_vec(),
+            &work_local,
+            SandboxIntent::WorkspaceWrite,
+            competing,
+            Err(final_carrying("--config", 10, "native", table)),
+        ),
+        (
+            "work, --effort ultra translated on the rejoin",
+            vec!["--model", "gpt-6-astra", "--effort", "ultra"],
+            &work_local,
+            SandboxIntent::WorkspaceWrite,
+            codex_denied(),
+            Err(final_carrying("--config", 4, "authored", effort)),
+        ),
+    ];
+    assert_eq!(rows.len(), 4);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, authored, local, class, plan, expected)| {
+            let (extra, input) = inline_codex_input(
+                enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                &authored,
+                local,
+                plan,
+                class,
+                HandsIntent::None,
+            );
+            let observed = codex_command(bin, &extra, "/w", Some(THREAD), &input);
+            (observed != expected)
+                .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 5d-fix-c2: what the final judgment refuses beside the
+/// options it reads. A record that cannot be read, and one that does not
+/// reassemble the arguments composed, refuse with fixed causes that echo
+/// none of it; a command that is not the driver's own lead around its
+/// contributions refuses; and the class in both of its spellings at once is
+/// more than the one sandbox fragment the launch admits.
+#[test]
+fn the_final_judgment_refuses_what_it_cannot_attribute() {
+    use crate::native_controls::{grammar, HandsIntent, Origin, SandboxIntent, Segment};
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let work = SandboxIntent::WorkspaceWrite;
+    let local = ["--sandbox", "workspace-write"];
+    let (extra, input) = inline_codex_input(
+        json!({"workdir": "/w"}),
+        &["--model", "gpt-6-astra"],
+        &local,
+        codex_denied(),
+        work,
+        HandsIntent::None,
+    );
+    let mut unreadable = input.clone();
+    unreadable["launch_record"]["segments"] = json!("x\nsecret");
+    assert_eq!(
+        codex_command("codex", &extra, "/w", None, &unreadable),
+        Err(final_refused(
+            "carries a launch record that cannot be read, so its class cannot be judged"
+        ))
+    );
+    let mut unassembled = input.clone();
+    unassembled["launch_record"]["segments"][0]["argv"] = json!(["--model", "secret"]);
+    assert_eq!(
+        codex_command("codex", &extra, "/w", None, &unassembled),
+        Err(final_refused(
+            "is composed from arguments its sealed record does not reassemble, so no part of it \
+             has an origin to be judged by"
+        ))
+    );
+    let contributions = [
+        Segment::new(Origin::Authored, &s(&["--model", "gpt-6-astra"])),
+        Segment::new(Origin::Local, &s(&local)),
+    ];
+    let command = |root: &str| {
+        s(&[
+            "exec",
+            "--json",
+            "-C",
+            root,
+            "--model",
+            "gpt-6-astra",
+            "--sandbox",
+            "workspace-write",
+        ])
+    };
+    let judged = |command: &[String], contributions: &[Segment]| {
+        grammar::judge_inline_codex_command(work, command, contributions, None, "/w")
+            .map_err(|cause| cause.to_string())
+    };
+    assert_eq!(judged(&command("/w"), &contributions), Ok(()));
+    assert_eq!(
+        judged(&command("/elsewhere"), &contributions),
+        Err(
+            "is not the driver's own lead around the contributions it was handed, so a part of \
+             it cannot be attributed to whoever composed it, and a part nobody composed is \
+             refused rather than judged by its bytes"
+                .to_string()
+        )
+    );
+    let both = [Segment::new(
+        Origin::Local,
+        &s(&[
+            "--sandbox",
+            "workspace-write",
+            "-c",
+            "sandbox_mode=\"workspace-write\"",
+        ]),
+    )];
+    let mut doubled = command("/w");
+    doubled.truncate(4);
+    doubled.extend(both[0].argv.iter().cloned());
+    assert_eq!(
+        judged(&doubled, &both),
+        Err(
+            "carries the site's class in more than one sandbox fragment, a flag and the \
+             rejoin's assignment together; the launch admits exactly one"
+                .to_string()
+        )
+    );
+    // The rejoin's spelling counts only for the site's own class: another
+    // class in it is the sandbox configuration it assigns.
+    let other = [Segment::new(
+        Origin::Local,
+        &s(&[
+            "--sandbox",
+            "workspace-write",
+            "-c",
+            "sandbox_mode=\"read-only\"",
+        ]),
+    )];
+    let mut crossed = command("/w");
+    crossed.truncate(4);
+    crossed.extend(other[0].argv.iter().cloned());
+    assert_eq!(
+        judged(&crossed, &other),
+        Err(format!(
+            "carries '--config' (argument 4) in its `local` contribution, a configuration \
+             assignment that assigns into the 'sandbox_mode' configuration, which is outside the \
+             closed set of keys an inline Codex launch admits{INLINE_REST}"
+        ))
+    );
+}

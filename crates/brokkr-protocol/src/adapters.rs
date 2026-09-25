@@ -2349,34 +2349,45 @@ fn codex_effort_config(effort: &str) -> String {
 /// word, stays in the argv, so the harness refuses it loudly rather
 /// than this adapter dropping a pin in silence.
 fn split_effort(extra: &[String]) -> (Option<String>, Vec<String>) {
+    let (effort, kept) = effort_split(extra);
+    (effort.map(|(level, _)| level), picked(extra, &kept))
+}
+
+/// [`split_effort`] by position: the level with the index of the part that
+/// carried it, and the indices of the parts that pass through, so the
+/// final judgment can name the origin of every part it reads (rebuild unit
+/// 5d-fix-c2).
+fn effort_split(extra: &[String]) -> (Option<(String, usize)>, Vec<usize>) {
     let mut effort = None;
-    let mut passthrough = Vec::with_capacity(extra.len());
-    let mut parts = extra.iter();
-    while let Some(part) = parts.next() {
+    let mut kept = Vec::with_capacity(extra.len());
+    let mut at = 0;
+    while at < extra.len() {
+        let part = &extra[at];
         // `--effort <level>` and `--effort=<level>`: the value is
         // whichever spelling carried it, and a bare `--effort` at the
-        // end of the argv carries none.
-        let level = match part.strip_prefix("--effort=") {
-            Some(value) => Some(value.to_string()),
-            None if part == "--effort" => parts.next().cloned(),
-            None => None,
+        // end of the argv carries none. Only a value that arrived as its
+        // OWN argv part is a second part; an `--effort=…` spelling
+        // carries its level inside its one part.
+        let (level, width) = match part.strip_prefix("--effort=") {
+            Some(value) => (Some(value.to_string()), 1),
+            None if part == "--effort" => match extra.get(at + 1) {
+                Some(value) => (Some(value.clone()), 2),
+                None => (None, 1),
+            },
+            None => (None, 1),
         };
         match level.as_deref().and_then(effort_token) {
-            Some(level) if effort.is_none() => effort = Some(level),
-            _ => {
-                passthrough.push(part.clone());
-                // Only a value that arrived as its OWN argv part goes
-                // back as one; an `--effort=…` spelling already carries
-                // its level inside the part just pushed.
-                if part == "--effort" {
-                    if let Some(level) = level {
-                        passthrough.push(level);
-                    }
-                }
-            }
+            Some(level) if effort.is_none() => effort = Some((level, at)),
+            _ => kept.extend(at..at + width),
         }
+        at += width;
     }
-    (effort, passthrough)
+    (effort, kept)
+}
+
+/// The parts of `argv` at `kept`, in order.
+fn picked(argv: &[String], kept: &[usize]) -> Vec<String> {
+    kept.iter().map(|&at| argv[at].clone()).collect()
 }
 
 /// The cold argv: `codex exec --json -C <workdir>`, the pinned effort as
@@ -2410,22 +2421,34 @@ fn codex_cold(bin: &str, extra: &[String], workdir: &str, managed: &[String]) ->
 /// `-c sandbox_mode="<class>"`. A flag with nothing after it declares
 /// nothing, and the resume refuses itself rather than inventing a class.
 fn split_codex_sandbox(extra: &[String]) -> (Option<String>, Vec<String>) {
+    let (class, kept) = sandbox_split(extra);
+    (class, picked(extra, &kept))
+}
+
+/// [`split_codex_sandbox`] by position: the class, and the indices of the
+/// parts that pass through (rebuild unit 5d-fix-c2).
+fn sandbox_split(extra: &[String]) -> (Option<String>, Vec<usize>) {
     let mut class = None;
-    let mut passthrough = Vec::with_capacity(extra.len());
-    let mut parts = extra.iter();
-    while let Some(part) = parts.next() {
+    let mut kept = Vec::with_capacity(extra.len());
+    let mut at = 0;
+    while at < extra.len() {
+        let part = &extra[at];
         if let Some(value) = part.strip_prefix("--sandbox=") {
             class = Some(value.to_string());
         } else if part == "--sandbox" || part == "-s" {
-            match parts.next() {
-                Some(value) => class = Some(value.clone()),
-                None => passthrough.push(part.clone()),
+            match extra.get(at + 1) {
+                Some(value) => {
+                    class = Some(value.clone());
+                    at += 1;
+                }
+                None => kept.push(at),
             }
         } else {
-            passthrough.push(part.clone());
+            kept.push(at);
         }
+        at += 1;
     }
-    (class, passthrough)
+    (class, kept)
 }
 
 /// The passthrough flags that may travel to a resume, each verified
@@ -2636,7 +2659,110 @@ fn codex_launch_and_cold(
         input,
         &composed.managed,
     );
+    // Both commands this launch can spawn, the rejoin and the cold one a
+    // rejected rejoin is replaced by, are judged as composed.
+    let rejoin = plan.rejoining.is_some();
+    inline_codex_final(input, &composed, workdir, &plan.command, rejoin)?;
+    inline_codex_final(input, &composed, workdir, &cold, false)?;
     Ok((plan, cold))
+}
+
+/// Rebuild unit 5d-fix-c2 (chief F2 of runs
+/// `0065-rebuild-unit-5d-fix-b-see-t-8067eebc` and
+/// `0065-rebuild-unit-5d-fix-c1-see--b800f52a`; operator ruling of
+/// 2026-09-25, "narrow"; design D5.3): where the sealed launch record names
+/// the engine's own `local` class, which is an inline Codex site's, the
+/// FINAL command — after `--effort` was translated, `--json` and `-C`
+/// generated and, on a rejoin, the class moved into an assignment — is
+/// judged exactly as the harness receives it, through
+/// [`grammar::judge_inline_codex_command`] and so the same
+/// `judge_inline_codex_launch` admission and the dispatch door call.
+///
+/// The record's segments must reassemble the arguments composed, so every
+/// part the harness receives is judged beside its origin: the translated
+/// effort carries the origin of the pin it translated, and the native plan
+/// is the engine's `native` contribution. A gate is the `read-only` class,
+/// whose capture must be into exactly the result path the input names. The
+/// cause is bounded and value-free, and names no seat. A launch no record
+/// was sealed for, and one whose record names no `local` class (an agent's
+/// class rides its hands), is not an inline Codex launch and is not judged
+/// here.
+///
+/// [`grammar::judge_inline_codex_command`]: crate::native_controls::grammar::judge_inline_codex_command
+fn inline_codex_final(
+    input: &Value,
+    composed: &crate::native_controls::Composed,
+    workdir: &str,
+    command: &[String],
+    rejoin: bool,
+) -> Result<(), String> {
+    use crate::native_controls::{
+        grammar, reassemble, HandsIntent, LaunchRecord, Origin, SandboxIntent, Segment,
+    };
+    let Some(sealed) = input.get("launch_record") else {
+        return Ok(());
+    };
+    let refuse = |cause: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the final command of this inline Codex launch \
+             {cause} (decision 0046 ruling 4; operator ruling of 2026-09-25; rebuild unit \
+             5d-fix-c2)"
+        )
+    };
+    // The decoder's and the reassembly's text is not echoed: the final
+    // judgment's causes are fixed.
+    let record = LaunchRecord::decode(Some(sealed)).map_err(|_| {
+        refuse("carries a launch record that cannot be read, so its class cannot be judged")
+    })?;
+    let class = match record.expected.hands {
+        HandsIntent::None => record.expected.local.sandbox,
+        HandsIntent::Required => SandboxIntent::Unspecified,
+    };
+    if class == SandboxIntent::Unspecified {
+        return Ok(());
+    }
+    let extra = &composed.extra;
+    reassemble(&record.segments, extra).map_err(|_| {
+        refuse(
+            "is composed from arguments its sealed record does not reassemble, so no part of it \
+             has an origin to be judged by",
+        )
+    })?;
+    let origins: Vec<Origin> = record
+        .segments
+        .iter()
+        .flat_map(|segment| std::iter::repeat_n(segment.origin, segment.argv.len()))
+        .collect();
+    // The composition's own splits, by position: the effort leaves first,
+    // and on a rejoin the class leaves what remains.
+    let (effort, mut kept) = effort_split(extra);
+    if rejoin {
+        let (_, remaining) = sandbox_split(&picked(extra, &kept));
+        kept = remaining.iter().map(|&at| kept[at]).collect();
+    }
+    let mut runs: Vec<(Origin, Vec<String>)> = Vec::new();
+    let mut place = |origin: Origin, part: String| match runs.last_mut() {
+        Some((last, parts)) if *last == origin => parts.push(part),
+        _ => runs.push((origin, vec![part])),
+    };
+    if let Some((level, at)) = effort {
+        place(origins[at], "-c".to_string());
+        place(origins[at], codex_effort_config(&level));
+    }
+    for at in kept {
+        place(origins[at], extra[at].clone());
+    }
+    for part in &composed.managed {
+        place(Origin::Native, part.clone());
+    }
+    let contributions: Vec<Segment> = runs
+        .iter()
+        .map(|(origin, parts)| Segment::new(*origin, parts))
+        .collect();
+    let capture = (class == SandboxIntent::ReadOnly)
+        .then(|| input["result_path"].as_str().unwrap_or_default());
+    grammar::judge_inline_codex_command(class, &command[1..], &contributions, capture, workdir)
+        .map_err(|cause| refuse(&cause.to_string()))
 }
 
 /// The plan of one validated codex launch: `extra` and `managed` are what

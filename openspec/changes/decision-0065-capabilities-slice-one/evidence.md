@@ -7906,3 +7906,192 @@ On the final bytes:
   `managed`'s decoder cause on a compile-time plan. That plan is the
   engine's own resolution, not an input. It is outside F3, which named the
   door.
+
+## Unit 5d-fix-c2 — keys read as the harness reads them, and the final command judged, 2026-09-25
+
+Run `0065-rebuild-unit-5d-fix-c2-see--ba7515f2`, on `06a03f99`. This is the
+second half of the split repair of 5d-fix-b (design.md, Rebuild units, 5d).
+It closes 5d-fix-b's chief F2 and 5d-fix-c1's chief F1. The commission named
+`adapters.rs` and `native_controls/grammar.rs` as its two production files.
+The narrow ruling and D5.3 are not reopened, and N1 needed no action.
+
+### What changed
+
+- **Keys (`grammar.rs::launch_setting`, C1-F1).** An assignment is read
+  exactly as the harness reads it, or refused. The semantics matched are
+  those the chief cited: codex-cli rust-v0.154.0,
+  `codex-rs/utils/cli/src/config_override.rs` and
+  `codex-rs/config/src/overrides.rs`. This seat could not fetch those files
+  (WebFetch was refused), so the reading rests on the chief's report: the
+  split is at the first `=`, the key splits at every `.`, and the key's
+  quotes are kept.
+  - After the existing bounded reading, the harness's key (everything
+    before the first `=`) must be canonical (`canonical_key`): only ASCII
+    letters, digits, `_`, `-` and `.`. The bounded reading has already
+    limited such a key to nonempty parts, at most 16 parts and 256 bytes.
+  - The value must also carry no blank beside the `=`.
+  - Anything else is refused with one fixed cause, `NONCANONICAL`, which
+    echoes nothing: a double- or single-quoted key, a partly quoted dotted
+    key, or a space on either side of the `=`.
+  - `inline_codex_denials` reads through `launch_setting`, so only a
+    canonical assignment proves a sealed denial. Values keep their three
+    spellings (bare, `"…"`, `'…'`), each of which the harness reads as the
+    same string.
+- **The final command (`grammar.rs::judge_inline_codex_command`, F2).** A new
+  pure function takes `(class, command after the binary, contributions by
+  origin, owned_capture, workdir)`. It:
+  1. reads the whole command under `parse_final`, so a repeat the
+     composition created (an authored `--json` beside the driver's) is the
+     grammar's repeat;
+  2. requires the command to be exactly the driver's own lead around the
+     contributions, byte for byte. Cold, the lead is `exec --json -C
+     <workdir>`. On a rejoin it is `exec resume --json -c
+     sandbox_mode="<class>"`, with `<session> -` last;
+  3. calls `judge_inline_codex_launch` over the lead's `--json` (as
+     `template`), the rejoin's class assignment (as `local`) and the
+     contributions. `-C <workdir>` is the only token the closed set does not
+     judge; step 2 proves it is the driver's own root.
+- **The rejoin's spelling of the class (`judge_inline_codex_launch`).**
+  `codex exec resume` takes no `--sandbox`, so the closed set now also
+  counts exactly `-c sandbox_mode="<class>"` in the `local` contribution as
+  the one sandbox fragment. A second fragment refuses: "carries the site's
+  class in more than one sandbox fragment". Assumption: at admission and at
+  the door this adds nothing reachable. The seal (`local_sandbox_agrees`)
+  requires `--sandbox` in the `local` segments, and a `local` assignment
+  beside it is now the second fragment.
+- **The driver (`adapters.rs::inline_codex_final`).** `codex_launch_and_cold`
+  judges the plan's command (cold or rejoin) and the cold replacement. It
+  does so where the input's `launch_record` decodes and names the engine's
+  `local` class (hands `none`, class not `unspecified`):
+  - an unreadable record, and a record whose segments do not reassemble the
+    composed arguments, refuse with fixed causes;
+  - origins come from the record, by position, through `effort_split` and
+    `sandbox_split`, the index forms that `split_effort` and
+    `split_codex_sandbox` now wrap unchanged. The translated effort carries
+    the origin of its pin, and the plan's argv is `native`;
+  - a `read-only` class is a gate, and its capture must be into the input's
+    `result_path`;
+  - the cause names no seat.
+
+  A launch with no record, and an agent's launch, whose class rides its
+  hands, are not judged here.
+
+### Tests
+
+- `adapters/tests.rs::the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it`,
+  14 rows:
+  - valid controls: the work seat and the gate as composed, a seat with no
+    effort pin, the canonical `--config=web_search=disabled` and
+    `web_search='disabled'`;
+  - F2: `--effort ultra` translated, and an authored `--json`;
+  - C1-F1: the OFF key double-quoted and single-quoted, each at the work
+    seat and at the gate, a partly quoted dotted key (`"tools".web_search`),
+    and a space before and after the `=`.
+
+  Beside the rows, a launch with an agent's record and one with no record
+  both launch the doubled `--json` unjudged.
+- `adapters/tests.rs::the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it`
+  (unix), 4 rows: a real `exec resume` of the work seat and of the gate,
+  whole argv; a plan that also assigns `sandbox_mode="danger-full-access"`
+  (cold, the `--sandbox` flag outranks it; the rejoin moves the class into
+  the same last-wins channel); and `--effort ultra` translated on the
+  rejoin.
+- `adapters/tests.rs::the_final_judgment_refuses_what_it_cannot_attribute`
+  covers an unreadable record (with a newline sentinel), an unreassembled
+  record, a lead naming another root, both class spellings at once, and a
+  `local` assignment of another class.
+- `tests/capability_launch.rs::an_inline_codex_launch_reads_its_keys_as_the_harness_does_and_is_judged_as_composed`
+  has 10 rows over the production-compiled seats:
+  - valid controls: the work seat and the gate as handed, and the canonical
+    joined OFF at the gate;
+  - door refusals: the double- and single-quoted OFF key at the work seat
+    and at the gate, and `web_search."mode"`;
+  - driver refusals: `--effort ultra` (admitted at the door) and an authored
+    `--json`.
+- `inline_codex_launching` now hands the driver the input the door admitted:
+  the record, the result path and door. So every existing inline door row
+  that launches now also passes the driver's final judgment. All 40
+  capability_launch tests pass.
+
+### Baseline on 06a03f99
+
+`adapters.rs` and `grammar.rs` were restored with `git checkout HEAD --`.
+The attribution test was compiled out with `#[cfg(any())]`, because it calls
+the new function. The build succeeded, and the tests failed at their
+assertions (`.forge/scratch-5dfc2/baseline-*.log`, not committed).
+
+- Cold table: 9 rows failed, and each **launched** (`Ok`): `--effort ultra`
+  as `model_reasoning_effort="ultra"`, the doubled `--json`, both quoted
+  keys at the work seat and at the gate, the partly quoted dotted key, and
+  both spaced keys. The 4 valid controls passed. The no-effort row was
+  added later and has no baseline.
+- Rejoin table: the `sandbox_mode` row and the `--effort ultra` rejoin both
+  **launched** `exec resume` commands. The two real rejoins passed.
+- capability_launch: the four quoted-key rows **launched** through the door
+  and the driver, which is the chief's C1-F1 probe reproduced. `--effort
+  ultra` and the authored `--json` **launched**. The dotted row was refused
+  under the old cause ("assigns into the 'web_search' configuration"). The
+  3 valid controls passed.
+
+### Mutations
+
+Each mutation compiled, was run, and was restored. After M1–M11, the two
+production files were checked byte-identical to the fix with `cmp`. M12 and
+M1' ran on the final bytes. Logs are in `.forge/scratch-5dfc2/mut-*.log`.
+
+| # | Mutation | Failing rows |
+|---|---|---|
+| M1 | `canonical_key` always true | cold: both quoted keys at work and gate, dotted, space before `=`; capability_launch: 4 quoted rows (all launched), dotted |
+| M1' | `canonical_key` admits `"`, `'` and space (run on the simplified form) | the same rows as M1 |
+| M2 | blank beside `=` admitted | cold: space after `=` (launched) |
+| M3 | driver skips the final judgment after reading the record | cold: all 9 refusals; rejoin: both refusals; attribution: unreassembled record (launched); capability_launch: `--effort ultra`, `--json` |
+| M4 | rejoin class spelling not admitted | rejoin: every row refused as an assignment into `sandbox_mode`; attribution: both spellings |
+| M5 | more than one fragment admitted | attribution: both spellings (`Ok(())`) |
+| M6 | lead check off | attribution: other root (`Ok(())`) |
+| M7 | unreadable record not judged | attribution: unreadable record (launched) |
+| M8 | reassembly ignored | attribution: unreassembled record (launched) |
+| M9 | translated effort given the `template` origin | cold and rejoin: `--effort ultra`; capability_launch: `--effort ultra` |
+| M10 | gate capture never owned | cold: 4 gate rows; rejoin: gate; capability_launch: gate rows |
+| M11 | agent launches judged too | cold: the agent-record assertion (refused as a repeat) |
+| M12 | rejoin spelling admits any `sandbox_mode` | attribution: another class in `local` (seen as two fragments) |
+
+### Gates
+
+On the final bytes:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-protocol -p brokkr-runtime --all-features --locked`:
+  28 of 28 results ok. Protocol lib: 486 passed. Runtime lib: 564 passed.
+  capability_launch: 40 passed.
+- `cargo test -p brokkr-cli --all-features --locked`: 33 of 33 results ok.
+  It runs the real driver paths on top of the protocol crate.
+- `compile --bundle bundles/self` gave `45dc1c7e…` and `bundles/verify` gave
+  `65baad08…`, both unchanged.
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- Local diagnostic: `cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-protocol --all-features --locked --lcov`, run after `llvm-cov
+  clean --workspace`, read against the new ranges. The first report merged
+  a stale object from an older build, which put zeros on shifted lines. On
+  the final bytes there is no zero-hit line and no untaken branch in the new
+  code of `adapters.rs` or `grammar.rs`. Before that, three untaken branches
+  were bounds `canonical_key` repeated from the bounded reading; they were
+  removed. Two branches were covered by rows added then: a seat with no
+  effort pin, and a `local` assignment of another class.
+- **Pending:** workspace exact coverage (`scripts/coverage-exact.sh`),
+  macOS, remote CI, and the F4 fixture ruling of unit 5d-fix. Every recipe
+  was not recompiled here; both bundle digests are unchanged.
+
+### Follow-ups, not fixed here
+
+- Two allowlisted assignments of one key, such as an authored
+  `-c model_reasoning_effort=low` beside a translated `--effort high`, are
+  both admitted. The harness resolves them last-wins. Neither is a
+  capability, and the closed set does not require keys to be unique.
+- A `--effort` whose level is not one bounded word stays in the argv, and
+  the grammar reads it as inert. The harness has no `--effort` and refuses
+  the launch itself.
+- The driver judges only where the input carries the sealed record. The
+  dispatch door (`verify_record`) requires that record in the input it
+  hands over. An input stripped of it after the door is outside this unit.

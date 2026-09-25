@@ -1187,7 +1187,36 @@ and were restored. fmt, clippy, both crate suites, both bundle compiles
 macOS and remote CI are pending, and so is the F4 fixture ruling of unit
 5d-fix.
 
-- [ ] 5d-fix-c2 Unit 5d-fix-c2 runs `judge_inline_codex_launch` at the actual composition boundary, `adapters.rs::codex_command`, over the command the Codex adapter composes, including the `--effort` translation into `model_reasoning_effort` (an out-of-level effort such as `ultra` must refuse), generated `--json` and `-C` (an authored `--json` duplicating the driver's must refuse), and the `exec resume` transformation. It proves each transformed or generated path with exact regressions bound by compiling mutations. Production: `crates/brokkr-protocol/src/adapters.rs`. Tests: adapters/tests.rs and crates/brokkr-runtime/tests/capability_launch.rs. Requirements: chief F2 of run `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`, operator ruling 2 of 2026-09-23 ("the launch proves itself"). **Open**: 5d-fix-c1 left this obligation unmet on purpose.
+- [x] 5d-fix-c2 Unit 5d-fix-c2 runs `judge_inline_codex_launch` at the actual composition boundary, `adapters.rs::codex_command`, over the command the Codex adapter composes, including the `--effort` translation into `model_reasoning_effort` (an out-of-level effort such as `ultra` must refuse), generated `--json` and `-C` (an authored `--json` duplicating the driver's must refuse), and the `exec resume` transformation. It proves each transformed or generated path with exact regressions bound by compiling mutations. Production: `crates/brokkr-protocol/src/adapters.rs`. Tests: adapters/tests.rs and crates/brokkr-runtime/tests/capability_launch.rs. Requirements: chief F2 of run `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`, operator ruling 2 of 2026-09-23 ("the launch proves itself"). The commission added chief F1 of run `0065-rebuild-unit-5d-fix-c1-see--b800f52a` (a quoted OFF key passes the denial proof) and `native_controls/grammar.rs` as the second production file. (run `0065-rebuild-unit-5d-fix-c2-see--ba7515f2`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5d-fix-c2"). Production is
+`adapters.rs` and `grammar.rs`:
+- **C1-F1:** `launch_setting` reads a `-c` assignment the way the harness
+  does, or refuses it. A key counts only when spelled canonically, and
+  nothing may stand around the `=`. So a double-, single- or partly quoted
+  key and a spaced key are refused with one fixed cause, and none of them
+  proves a denial.
+- **F2:** `codex_launch_and_cold` judges both commands it can spawn, the
+  plan's (cold or rejoin) and the cold replacement. It does so wherever the
+  sealed record names the engine's `local` class, through the new
+  `grammar::judge_inline_codex_command`, which calls
+  `judge_inline_codex_launch`. That covers the translated effort, the
+  generated `--json` and `-C`, and the rejoin's class assignment.
+
+Tests:
+- `adapters/tests.rs`: a 14-row cold table, a 4-row rejoin table and an
+  attribution test.
+- `tests/capability_launch.rs`: a new 10-row test, and the launch helper
+  now hands the driver the record.
+
+On `06a03f99` every targeted row launched. The partly quoted dotted key,
+which the door already refused, did so under another cause. M1–M12 and M1'
+each compiled, bound and were restored. fmt, clippy, the protocol, runtime
+and cli suites, both bundle compiles (digests unchanged),
+`openspec validate --all --strict` and `git diff --check` passed. **Not
+fully green:** workspace exact coverage, macOS and remote CI are pending,
+and so is the F4 fixture ruling of unit 5d-fix. 5d-fix-b's F2 is closed by
+this unit.
 
 ## 6. Unit 6 — Migrate Claude recipes
 
