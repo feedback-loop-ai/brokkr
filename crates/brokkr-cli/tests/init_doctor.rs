@@ -191,10 +191,15 @@ fn init_ignores_the_runs_own_forge_directory() {
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(
         std::fs::read_to_string(repo.path().join(".forge/.gitignore")).unwrap(),
-        "*\n"
+        "*\n!.gitignore\n"
     );
     git(repo.path(), &["add", "-A"]);
     git(repo.path(), &["commit", "-q", "-m", "brokkr starter"]);
+    // The commit carries the ignore file, so a clone ignores `.forge/` too.
+    assert_eq!(
+        git(repo.path(), &["ls-files", ".forge"]),
+        ".forge/.gitignore\n"
+    );
     std::fs::create_dir_all(repo.path().join(".forge/results")).unwrap();
     std::fs::write(repo.path().join(".forge/forge.db"), "").unwrap();
     std::fs::write(repo.path().join(".forge/results/seat.json"), "{}").unwrap();
@@ -211,7 +216,7 @@ fn init_ignores_the_runs_own_forge_directory() {
     );
     assert_eq!(
         std::fs::read_to_string(repo.path().join("my-bundle/.forge/.gitignore")).unwrap(),
-        "*\n"
+        "*\n!.gitignore\n"
     );
 }
 

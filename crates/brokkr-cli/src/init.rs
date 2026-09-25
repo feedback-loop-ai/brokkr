@@ -1702,13 +1702,14 @@ pub fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) -> Result
     // A run writes its journal beside the map and its results and ledger
     // under the repository's `.forge/`, and the ship gate closes out only
     // on a clean tree: each is ignored where it lands, from inside, so the
-    // operator's own `.gitignore` is never touched. One already there is
-    // the operator's and is kept.
+    // operator's own `.gitignore` is never touched. The ignore file itself
+    // is excepted, so a committed scaffold carries it to every clone. One
+    // already there is the operator's and is kept.
     for root in [dir, repo] {
         let ignore = root.join(".forge/.gitignore");
         if !ignore.exists() {
             std::fs::create_dir_all(root.join(".forge"))?;
-            std::fs::write(ignore, "*\n")?;
+            std::fs::write(ignore, "*\n!.gitignore\n")?;
         }
     }
     for (declaration, declared) in &declarations {
