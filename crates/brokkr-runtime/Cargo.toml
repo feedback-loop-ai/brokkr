@@ -26,3 +26,6 @@ time = { workspace = true }
 tempfile = { workspace = true }
 rusqlite = { workspace = true }
 jsonschema = { workspace = true }
+# Decision 0014's dependency ruling of 2026-09-26 (#342): report-only token
+# counts for the prompt byte budgets. The bytes are gated; tokens are not.
+tiktoken-rs = "=0.12.1"

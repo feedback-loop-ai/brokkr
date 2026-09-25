@@ -630,8 +630,65 @@ jobs:
       # The one Linux release build per run: the bootstrap bench and the
       # packaging job download this artifact rather than build their own.
       - run: cargo build --release --locked -p brokkr-cli
+      # The binary size budget (#342): within one per cent of the committed
+      # size either way, so growth is raised on purpose and a shrink is kept.
+      - run: bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json
       # One binary: the `forge` shim is gone (decision 0019 ruling 9).
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: brokkr-linux-x86_64
           path: target/release/brokkr
+
+  # The CPU budgets (#342): instruction counts under Callgrind for the fold,
+  # the run view, a compile of bundles/self, one TUI frame, startup and
+  # `inspect`. Counts do not move with the runner's load the way wall clock
+  # does, so the pull request's merge is measured against its base in this
+  # one job, and a rise over 2% on any bench fails it (gungraun exits 3). It
+  # is not a required check: a regression is ruled on, not merged past
+  # silently. Valgrind runs on Linux only. The bench build's `--timings`
+  # report is an artifact, never a gate.
+  cpu-budgets:
+    name: CPU budgets (Callgrind, against the base)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: valgrind and the gungraun runner the library pins
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q valgrind
+          cargo install --locked gungraun-runner --version 0.19.4
+      - name: the base's counts
+        run: |
+          export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
+          git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
+          if [ -f "$RUNNER_TEMP/base/crates/brokkr-cli/benches/budgets_lib.rs" ]; then
+            cd "$RUNNER_TEMP/base"
+            cargo bench --locked -p brokkr-cli --bench budgets_lib --bench budgets_bin -- --save-baseline=base
+          else
+            echo "the base carries no CPU budgets yet; this run records the first counts"
+          fi
+      - name: this merge's counts, 2% over the base at most
+        run: |
+          export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
+          set -- --locked --timings -p brokkr-cli --bench budgets_lib --bench budgets_bin
+          if [ -d "$GUNGRAUN_HOME" ]; then
+            cargo bench "$@" -- --baseline=base --callgrind-limits='ir=2%'
+          else
+            cargo bench "$@"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cargo-timings
+          path: target/cargo-timings/

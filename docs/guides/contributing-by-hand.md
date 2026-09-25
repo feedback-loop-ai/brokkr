@@ -93,7 +93,7 @@ pull request. This is the full list, in CI's own order:
 | 5 | `exact coverage gate` | `coverage` | `bash scripts/coverage-exact.sh` |
 | 6 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses` |
 | 7 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
-| 8 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli` |
+| 8 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli`; the size budget in `quality/binary-size.json` holds only for CI's build, whose embedded paths yours do not share |
 
 The sections below are in a different order on purpose: run them from
 the repository root in the order written, cheapest refusal first, so a

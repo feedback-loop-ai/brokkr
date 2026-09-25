@@ -1,0 +1,5 @@
+{
+  "schema": "brokkr.crate-count/v1",
+  "note": "The [[package]] tables Cargo.lock holds, measured 2026-09-26 after decision 0014's dev-dependency ruling for #342 (301 before it; bincode-next is held at 2.1.0 because 3.x needs rustc 1.90 and the MSRV job checks every target on 1.88). crates/brokkr-runtime/tests/budgets.rs refuses any count above this one; a dependency moves it in the pull request that adds it.",
+  "packages": 322
+}

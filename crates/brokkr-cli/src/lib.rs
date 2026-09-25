@@ -32,6 +32,9 @@ mod ui;
 // supported surface.
 #[doc(hidden)]
 pub use tui::transcript_surfaces_for_test;
+// The TUI frame the CPU budgets measure (#342), reachable from the bench.
+#[doc(hidden)]
+pub use tui::run_frame_for_budget;
 #[doc(hidden)]
 pub use ui::{handle, read_local, Response};
 

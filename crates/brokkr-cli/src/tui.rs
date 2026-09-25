@@ -801,6 +801,48 @@ pub fn transcript_surfaces_for_test(
     (turn_keys_of(Some(read)), selected, transcript_text(read))
 }
 
+/// One frame of the RUN level, drawn into ratatui's `TestBackend` at `width`×`height` from the derivation
+/// the console reads: the TUI frame the CPU budget measures (#342). `now`
+/// is the clock read the derivation refuses to make itself. A journal
+/// that does not fold draws with no state, as the fleet shows a
+/// quarantined run.
+pub fn run_frame_for_budget(
+    events: &[brokkr_core::envelope::EventEnvelope],
+    now: &str,
+    width: u16,
+    height: u16,
+) -> ratatui::buffer::Buffer {
+    let state = brokkr_core::fold::fold(events).ok();
+    let first = events.first();
+    let run_id = first.map_or("", |event| event.run_id.as_str());
+    let entry = brokkr_view::RunEntry {
+        run_id,
+        feature: state
+            .as_ref()
+            .and_then(|state| state.feature.as_deref())
+            .unwrap_or(""),
+        created_at: first.map_or("", |event| event.recorded_at.as_str()),
+        state: state.as_ref(),
+        detail: None,
+        residuals: &[],
+    };
+    let views = Views {
+        now: now.to_string(),
+        runs: brokkr_view::run_rows(&[entry]),
+        run: Some(brokkr_view::run_view(events, state.as_ref())),
+        transcript: None,
+        note: None,
+    };
+    // Opened at the RUN level, as `brokkr tui --run <id>` opens.
+    let tui = Tui::over(Some(run_id.to_string()), Vec::new(), 0);
+    let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(width, height))
+        .expect("a TestBackend terminal cannot fail to open");
+    terminal
+        .draw(|frame| draw(frame, &tui, &views))
+        .expect("a TestBackend draw cannot fail");
+    terminal.backend().buffer().clone()
+}
+
 fn step(tui: &mut Tui, views: &Views, step: Step) {
     if tui.level == Level::Participant {
         // The transcript pane moves a cursor over TURNS — never over

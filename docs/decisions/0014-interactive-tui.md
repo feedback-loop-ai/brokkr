@@ -77,6 +77,15 @@ a mismatch, so the existing test jobs are the gate and no job is added.
 It brings `console`, `encode_unicode` and `similar` into the lockfile.
 No PTY driver (`expectrl`, `termlens`) is admitted by this ruling.
 
+**The budget gates' dev-dependencies are admitted (operator ruling,
+2026-09-26, #342)**: `dhat` 0.3.3 for the heap budgets of transcript
+projection, `gungraun` 0.19.4 for the instruction-count budgets of the
+hot paths, which Valgrind runs on Linux only, and `tiktoken-rs` 0.12.1
+for report-only token counts beside the gated prompt byte budgets. They
+are dev-dependencies, used by those gates only, and never linked into
+the release binary. `tokenizers` was asked for and not admitted, so
+open-weight token counts stay out of scope.
+
 ## Constraints
 
 - Key handling is a **pure state machine** over view models plus a key
