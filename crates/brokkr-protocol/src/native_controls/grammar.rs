@@ -1008,16 +1008,108 @@ fn key_parts(key: &str) -> Option<Vec<&str>> {
 /// unclassified configuration passes through as opaque data. The cause
 /// never echoes the key or the value.
 pub fn setting(assignment: &str) -> Result<Setting, &'static str> {
+    let (parts, value) = assignment_parts(assignment)?;
+    if let Some(table) = CAPABILITY_TABLES.iter().find(|table| **table == parts[0]) {
+        return Ok(Setting::Capability(table));
+    }
+    if parts != [EFFORT_KEY] {
+        return Err(UNCLASSIFIED);
+    }
+    match EFFORT_LEVELS.contains(&unquoted(value)) {
+        true => Ok(Setting::Inert(EFFORT_KEY)),
+        false => Err(EFFORT),
+    }
+}
+
+const UNCLASSIFIED: &str = "assigns a key no bounded meaning is modelled for, so it is refused \
+                            rather than passed through as opaque configuration";
+const EFFORT: &str = "assigns 'model_reasoning_effort' a value outside its bounded levels \
+                      (none, minimal, low, medium, high, xhigh, max)";
+
+/// A value with one matching pair of surrounding quotes removed.
+fn unquoted(value: &str) -> &str {
+    ['"', '\'']
+        .iter()
+        .find_map(|quote| {
+            value
+                .strip_prefix(*quote)
+                .and_then(|value| value.strip_suffix(*quote))
+        })
+        .unwrap_or(value)
+}
+
+/// One configuration key an inline Codex launch admits, with the bounded
+/// values it admits and the declaration that establishes them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Admitted {
+    pub key: &'static str,
+    pub values: &'static [&'static str],
+    pub source: &'static str,
+}
+
+/// The closed allowlist of configuration an inline Codex launch admits
+/// beside the engine's own class (rebuild unit 5d-fix-b; operator ruling of
+/// 2026-09-25, "narrow"; design D5.3). Each key is derived from a
+/// declaration, never from what a contribution happens to spell: the effort
+/// the engine translates `--effort` into, at the adapter's levels, and the
+/// one web-search value the codex adapter declares as its measured OFF
+/// switch. Every other key — a profile, a sandbox, approval or tool table,
+/// an MCP server, another web-search spelling or value, and a key with no
+/// bounded meaning — is outside it.
+pub const LAUNCH_SETTINGS: [Admitted; 2] = [
+    Admitted {
+        key: EFFORT_KEY,
+        values: &EFFORT_LEVELS,
+        source: "adapters/codex.json `efforts`, which `--effort` is translated into; \
+                 .forge/tasks/controller-codex-interface-2026-09-17.json",
+    },
+    Admitted {
+        key: "web_search",
+        values: &["disabled"],
+        source: "adapters/codex.json `native_capabilities.known.web-search.off.argv` and \
+                 dialects/tools/codex-native-search.json; measured in \
+                 .forge/tasks/controller-codex-web-search-switch-2026-09-21.json, whose scope \
+                 is the \"disabled\" value alone",
+    },
+];
+
+/// Whether one `--config` value is on [`LAUNCH_SETTINGS`], as the key it
+/// admits, or the fixed cause it is refused for. The key is read by the same
+/// bounded reading [`setting`] uses and must be exactly an admitted key, not
+/// a descendant of one; its value, unquoted, must be one of that key's
+/// bounded values. A refused capability table is named canonically; no key
+/// or value an author wrote is echoed.
+pub fn launch_setting(assignment: &str) -> Result<&'static str, String> {
+    let (parts, value) = assignment_parts(assignment).map_err(str::to_string)?;
+    let Some(admitted) = LAUNCH_SETTINGS
+        .iter()
+        .find(|admitted| parts == [admitted.key])
+    else {
+        return Err(match setting(assignment) {
+            Ok(Setting::Capability(table)) => format!(
+                "assigns into the '{table}' configuration, which is outside the closed set of \
+                 keys an inline Codex launch admits"
+            ),
+            _ => "assigns a key outside the closed set an inline Codex launch admits".to_string(),
+        });
+    };
+    match admitted.values.contains(&unquoted(value)) {
+        true => Ok(admitted.key),
+        false => Err(format!(
+            "assigns '{}' a value outside the bounded ones its declaration admits",
+            admitted.key
+        )),
+    }
+}
+
+/// The dotted key parts and the trimmed value of one `KEY=VALUE`
+/// assignment, or the fixed cause it cannot be read for.
+fn assignment_parts(assignment: &str) -> Result<(Vec<&str>, &str), &'static str> {
     const NOT_ASSIGNMENT: &str = "is not a KEY=VALUE configuration assignment";
     const MALFORMED: &str = "assigns through a key the grammar cannot read: each dotted part is a \
                              bare name or a quoted one without escapes, within 16 parts and 256 \
                              bytes";
     const NO_VALUE: &str = "assigns no value";
-    const UNCLASSIFIED: &str =
-        "assigns a key no bounded meaning is modelled for, so it is refused \
-                                rather than passed through as opaque configuration";
-    const EFFORT: &str = "assigns 'model_reasoning_effort' a value outside its bounded levels \
-                          (none, minimal, low, medium, high, xhigh, max)";
     let mut quote = None;
     let split = assignment.char_indices().find(|&(_, c)| {
         match (quote, c) {
@@ -1039,24 +1131,7 @@ pub fn setting(assignment: &str) -> Result<Setting, &'static str> {
     if value.is_empty() {
         return Err(NO_VALUE);
     }
-    if let Some(table) = CAPABILITY_TABLES.iter().find(|table| **table == parts[0]) {
-        return Ok(Setting::Capability(table));
-    }
-    if parts != [EFFORT_KEY] {
-        return Err(UNCLASSIFIED);
-    }
-    let level = ['"', '\'']
-        .iter()
-        .find_map(|quote| {
-            value
-                .strip_prefix(*quote)
-                .and_then(|value| value.strip_suffix(*quote))
-        })
-        .unwrap_or(value);
-    match EFFORT_LEVELS.contains(&level) {
-        true => Ok(Setting::Inert(EFFORT_KEY)),
-        false => Err(EFFORT),
-    }
+    Ok((parts, value))
 }
 
 /// The separators a managed tool list may be joined with. A comma is what

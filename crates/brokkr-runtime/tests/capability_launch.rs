@@ -2469,6 +2469,26 @@ fn inline_codex_sealing(
     Result<Vec<String>, String>,
     String,
 ) {
+    inline_codex_launching(bundle, label, class, facts, moved, |_| {})
+}
+
+/// [`inline_codex_sealing`], with `handed` applied to the input the
+/// dispatch door is handed after the engine wrote it (rebuild unit
+/// 5d-fix-b): the seat, the native plan, the result path and the door, as
+/// dispatch writes them.
+fn inline_codex_launching(
+    bundle: &Bundle,
+    label: &str,
+    class: brokkr_runtime::SeatClass,
+    facts: &brokkr_runtime::bundle::SiteFacts,
+    moved: impl FnOnce(&mut brokkr_runtime::engine::SiteSpawn),
+    handed_as: impl FnOnce(&mut Value),
+) -> (
+    Result<(), String>,
+    Value,
+    Result<Vec<String>, String>,
+    String,
+) {
     use brokkr_runtime::engine::{expected_state, result_door, verify_record, LAUNCH_RECORD};
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[0];
     let SeatBody::Single { command, .. } = &bundle.seats[label].body else {
@@ -2493,16 +2513,21 @@ fn inline_codex_sealing(
     let record = spawn.launch_record();
     let gate = class == brokkr_runtime::SeatClass::Gate;
     let door = result_door(Boundary::Harness, gate, Some(facts), None).word();
-    // Handed as dispatch hands it: the result path the spawn was composed
-    // with, and the door `mark_delivery` writes where it is the capture.
-    let mut handed = json!({LAUNCH_RECORD: record, "result_path": "/w/result.json"});
+    // Handed as dispatch hands it: the seat, the native plan, the result
+    // path the spawn was composed with, and the door `mark_delivery` writes
+    // where it is the capture.
+    let mut handed = json!({LAUNCH_RECORD: record, "seat": label,
+                            "native_controls": outcome.controls(),
+                            "result_path": "/w/result.json"});
     if door == "last-message" {
         handed["result_delivery"] = json!(door);
     }
+    handed_as(&mut handed);
     let launched = verify_record(&spawn, &handed).and_then(|()| {
         let argv = &spawn.argv;
         let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-        let input = json!({"workdir": "/w", "seat": label, "native_controls": outcome.controls(),
+        let input = json!({"workdir": "/w", "seat": label,
+                           "native_controls": handed["native_controls"],
                            "launch_arguments": spawn.launch_arguments()});
         brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input)
     });
@@ -2741,14 +2766,17 @@ fn an_inline_codex_seal_whose_emitted_class_contradicts_the_declared_one_refuses
 
 /// Rebuild unit 5d-fix (chief F1 and F2 of run 0065-rebuild-unit-5d-see-the-uni-5b7d59c1;
 /// operator ruling 2 of 2026-09-23; ruling of 2026-09-25): at the final
-/// launch of the production-compiled inline Codex seats, the seal reads
-/// every contribution back under the codex grammar — a template the
-/// compiler recorded, the author's command as it reaches the spawn and the
-/// engine's own fragment — and refuses every competing sandbox, approval,
-/// root, load or configuration effect beside the engine's one class, in
-/// every spelling, sealing nothing. The dispatch door then holds the gate's
-/// capture to exactly the result path it hands over, in the engine's
-/// fragment, and holds a work seat to none.
+/// launch of the production-compiled inline Codex seats, every contribution
+/// is read back under the codex grammar — a template the compiler recorded,
+/// the author's command as it reaches the spawn and the engine's own
+/// fragment — and every competing sandbox, approval, root, load or
+/// configuration effect beside the engine's one class refuses, in every
+/// spelling. The gate's capture is held to exactly the result path handed
+/// over, in the engine's fragment, and a work seat to none. Rebuild unit
+/// 5d-fix-b moved this judgment whole to the dispatch door, where the native
+/// plan is known, so each refusal is the launch's, and bound the door to the
+/// admitted class: file delivery at a gate refuses with or without its
+/// capture (chief F4).
 #[test]
 fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misbound_capture() {
     use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
@@ -2793,53 +2821,68 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
         })
     };
     let untouched = || -> Box<dyn FnOnce(&mut SiteSpawn)> { Box::new(|_| {}) };
-    let rest = "the engine's typed class, expressed by its own fragment, is the only \
-                sandbox-bearing element of an inline Codex launch, so a competing one is refused \
-                rather than reconciled or ordered, whoever composed it";
+    let rest = "the launch admits only the engine's one sandbox fragment of the site's class, at \
+                a gate the engine's one capture into the result path it owns, and configuration \
+                on a closed allowlist, so every other effect is refused rather than reconciled or \
+                ordered, whoever composed it";
     let permission = "a permission control, which sets, lifts or replaces the sandbox or its \
                       approvals";
     let root = "a root selector, which moves the root the sandbox class is measured from";
-    let competing = |origin: &str, canonical: &str, at: usize, effect: &str| {
+    let capture = |cause: String| {
         format!(
-            "sealing refused: dispatch refused: the `{origin}` contribution of its launch carries \
-             '{canonical}' (argument {at}), {effect}; {rest} (operator ruling 2 of 2026-09-23; \
-             ruling of 2026-09-25; rebuild unit 5d-fix)"
+            "launch refused: dispatch refused: {cause} (decision 0046 ruling 4; operator ruling \
+             2 of 2026-09-23; ruling of 2026-09-25; rebuild unit 5d-fix-b)"
         )
+    };
+    let carrying = |seat: &str, origin: &str, canonical: &str, at: usize, effect: &str| {
+        capture(format!(
+            "the inline Codex launch of seat '{seat}' carries '{canonical}' (argument {at}) in \
+             its `{origin}` contribution, {effect}; {rest}"
+        ))
+    };
+    let competing = |origin: &str, canonical: &str, at: usize, effect: &str| {
+        carrying("work", origin, canonical, at, effect)
     };
     let table = |name: &str| {
         format!(
-            "an assignment into the '{name}' configuration, the same control through another door"
+            "a configuration assignment that assigns into the '{name}' configuration, which is \
+             outside the closed set of keys an inline Codex launch admits"
         )
     };
-    let unreadable = |at: usize, cause: &str| {
-        format!(
-            "sealing refused: dispatch refused: the contributions of its launch cannot be read \
-             together under the 'codex' grammar (argument {at}: it {cause}), so no sandbox class \
-             can be judged in them (operator ruling 2 of 2026-09-23; ruling of 2026-09-25; \
-             rebuild unit 5d-fix)"
-        )
+    let unreadable = |at: usize, label: &str, cause: &str| {
+        capture(format!(
+            "the inline Codex launch of seat 'work' cannot be read whole under the 'codex' \
+             grammar (argument {at}, {label}: it {cause}), so none of its effects can be judged; \
+             an unclassified option is refused, never passed through"
+        ))
     };
     let repeated = "repeats option '--sandbox', which the grammar admits once; a CLI that \
                     resolves a duplicate last-wins would resolve it against the control the \
                     engine composed";
-    let capture = |cause: String| {
-        format!(
-            "launch refused: dispatch refused: {cause} (decision 0046 ruling 4; operator ruling \
-             of 2026-09-25; rebuild unit 5d-fix)"
-        )
+    let elsewhere = "a result capture other than the engine's own into exactly the result path \
+                     it owns, a harness write path outside the result sink";
+    let misdirected = carrying("review", "local", "--output-last-message", 7, elsewhere);
+    let unowned = competing(
+        "local",
+        "--output-last-message",
+        7,
+        "a result capture at a work seat, whose result is the file the seat writes; a capture \
+         the engine does not own is a harness write path outside the result sink",
+    );
+    let uncaptured = capture(
+        "the inline Codex launch of seat 'review' is a gate's, and no contribution carries the \
+         engine's capture into the result path it owns, which the last-message door needs, so \
+         the gate's result could not be delivered"
+            .to_string(),
+    );
+    let door = |seat: &str, class: &str, kind: &str, named: &str| {
+        capture(format!(
+            "the inline Codex launch of seat '{seat}' is admitted '{class}', a {kind}, but its \
+             input names the {named} result door; the door follows the admitted class, a gate's \
+             result reaching the engine only through the last-message door and a work seat's \
+             only through the file it writes"
+        ))
     };
-    let misdirected = capture(
-        "the `local` contribution of its launch carries '--output-last-message' (argument 7), \
-         which is not the engine's own capture into exactly the result path it owns; a \
-         misdirected capture is a harness write path outside the result sink"
-            .to_string(),
-    );
-    let unowned = capture(
-        "the `local` contribution of its launch carries '--output-last-message' (argument 7), a \
-         result capture where the engine's result door is the file the seat writes; a capture \
-         the engine does not own is a harness write path outside the result sink"
-            .to_string(),
-    );
     type Row = (
         &'static str,
         &'static str,
@@ -2849,9 +2892,11 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
     );
     type Moved = Box<dyn FnOnce(&mut SiteSpawn)>;
     let work = |facts: SiteFacts, moved: Moved, expected: String| ("work", facts, moved, expected);
-    let rows: Vec<Row> =
-        vec![
-        ("work as compiled", work(facts("work", &|_| {}), untouched(), "launched".into())),
+    let rows: Vec<Row> = vec![
+        (
+            "work as compiled",
+            work(facts("work", &|_| {}), untouched(), "launched".into()),
+        ),
         (
             "template --dangerously-bypass-approvals-and-sandbox",
             work(
@@ -2936,7 +2981,11 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
         ),
         (
             "template -s beside the engine's class",
-            work(templated(&["-s", "read-only"]), untouched(), unreadable(7, repeated)),
+            work(
+                templated(&["-s", "read-only"]),
+                untouched(),
+                unreadable(7, "'--sandbox'", repeated),
+            ),
         ),
         (
             "authored --full-auto",
@@ -2982,8 +3031,8 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
                     "authored",
                     "--config",
                     5,
-                    "a configuration assignment with no bounded meaning, which could set the \
-                     sandbox",
+                    "a configuration assignment that assigns a key outside the closed set an \
+                     inline Codex launch admits",
                 ),
             ),
         ),
@@ -2992,7 +3041,7 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
             work(
                 facts("work", &|_| {}),
                 authored(&["--sandbox=read-only"]),
-                unreadable(6, repeated),
+                unreadable(6, "'--sandbox'", repeated),
             ),
         ),
         (
@@ -3002,6 +3051,7 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
                 authored(&["stray"]),
                 unreadable(
                     5,
+                    "a positional argument, whose text is not echoed",
                     "is a bare word, and no positional argument is part of the supported shape",
                 ),
             ),
@@ -3029,7 +3079,12 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
         ),
         (
             "gate as compiled",
-            ("review", facts("review", &|_| {}), untouched(), "launched".into()),
+            (
+                "review",
+                facts("review", &|_| {}),
+                untouched(),
+                "launched".into(),
+            ),
         ),
         (
             "gate, capture elsewhere",
@@ -3064,12 +3119,7 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
                     lowered.segment.argv = argv(&["--sandbox", "read-only"])
                 }),
                 untouched(),
-                capture(
-                    "no contribution of its launch carries the result capture the last-message \
-                     door needs, bound to exactly the engine-owned result path, so the gate's \
-                     result could not be delivered"
-                        .to_string(),
-                ),
+                uncaptured,
             ),
         ),
         (
@@ -3084,13 +3134,7 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
                         argv(&["--sandbox", "read-only"]);
                 }),
                 untouched(),
-                capture(
-                    "the `template` contribution of its launch carries '--output-last-message' \
-                     (argument 5), which is not the engine's own capture into exactly the result \
-                     path it owns; a misdirected capture is a harness write path outside the \
-                     result sink"
-                        .to_string(),
-                ),
+                carrying("review", "template", "--output-last-message", 5, elsewhere),
             ),
         ),
         (
@@ -3099,14 +3143,28 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
                 "review",
                 lowered("review", &|lowered| lowered.door = ResultDoor::File),
                 untouched(),
-                unowned,
+                door("review", "read-only", "gate", "file"),
+            ),
+        ),
+        // Rebuild unit 5d-fix-b (chief F4): the door and the capture changed
+        // together still contradict the admitted gate class.
+        (
+            "gate, file delivery and no capture",
+            (
+                "review",
+                lowered("review", &|lowered| {
+                    lowered.door = ResultDoor::File;
+                    lowered.segment.argv = argv(&["--sandbox", "read-only"]);
+                }),
+                untouched(),
+                door("review", "read-only", "gate", "file"),
             ),
         ),
     ]
-        .into_iter()
-        .map(|(label, (site, facts, moved, expected))| (label, site, facts, moved, expected))
-        .collect();
-    assert_eq!(rows.len(), 25);
+    .into_iter()
+    .map(|(label, (site, facts, moved, expected))| (label, site, facts, moved, expected))
+    .collect();
+    assert_eq!(rows.len(), 26);
     let failures: Vec<String> = rows
         .into_iter()
         .filter_map(|(label, site, facts, moved, expected)| {
@@ -3130,6 +3188,241 @@ fn an_inline_codex_launch_refuses_every_competing_contribution_and_every_misboun
                      (record: {expected_sealed})"
                 )
             })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Rebuild unit 5d-fix-b (chief F1–F5 of run 0065-rebuild-unit-5d-fix-see-the-569be761;
+/// operator ruling 2 of 2026-09-23; ruling of 2026-09-25): the dispatch door
+/// judges the whole launch the driver is handed, the native plan the input
+/// carries included, by the admission's own judgment, and binds the result
+/// door to the admitted class. Native sandbox, approval and capture effects,
+/// profile and profiles configuration, a key off the allowlist, an option
+/// the grammar cannot place, an unreadable plan and a door the class does
+/// not admit each refuse before any provider work, naming the seat bounded;
+/// the compiled work seat and gate, as handed, launch.
+#[test]
+fn an_inline_codex_launch_judges_the_native_plan_and_binds_the_door_to_the_class() {
+    use brokkr_runtime::SeatClass;
+    let operator = Operator::new();
+    inline_codex_seats(&operator, "workspace-write", "read-only");
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    let rest = "the launch admits only the engine's one sandbox fragment of the site's class, at \
+                a gate the engine's one capture into the result path it owns, and configuration \
+                on a closed allowlist, so every other effect is refused rather than reconciled or \
+                ordered, whoever composed it";
+    let refused = |cause: String| {
+        format!(
+            "refused: dispatch refused: {cause} (decision 0046 ruling 4; operator ruling 2 of \
+             2026-09-23; ruling of 2026-09-25; rebuild unit 5d-fix-b)"
+        )
+    };
+    let native = |seat: &str, canonical: &str, at: usize, effect: &str| {
+        refused(format!(
+            "the inline Codex launch of seat '{seat}' carries '{canonical}' (argument {at}) in \
+             its `native` contribution, {effect}; {rest}"
+        ))
+    };
+    let unreadable = |seat: &str, at: usize, label: &str, cause: &str| {
+        refused(format!(
+            "the inline Codex launch of seat '{seat}' cannot be read whole under the 'codex' \
+             grammar (argument {at}, {label}: it {cause}), so none of its effects can be judged; \
+             an unclassified option is refused, never passed through"
+        ))
+    };
+    let repeats = |option: &str| {
+        format!(
+            "repeats option '{option}', which the grammar admits once; a CLI that resolves a \
+             duplicate last-wins would resolve it against the control the engine composed"
+        )
+    };
+    let table = |name: &str| {
+        format!(
+            "a configuration assignment that assigns into the '{name}' configuration, which is \
+             outside the closed set of keys an inline Codex launch admits"
+        )
+    };
+    let permission = "a permission control, which sets, lifts or replaces the sandbox or its \
+                      approvals";
+    // The OFF pair the compiled plan carries, then `extra` behind it.
+    let plan = |extra: &[&str]| -> Box<dyn FnOnce(&mut Value)> {
+        let mut argv = vec!["-c".to_string(), "web_search=\"disabled\"".to_string()];
+        argv.extend(extra.iter().map(|part| part.to_string()));
+        Box::new(move |handed: &mut Value| handed["native_controls"]["argv"] = json!(argv))
+    };
+    let handed = |key: &'static str, value: Value| -> Box<dyn FnOnce(&mut Value)> {
+        Box::new(move |handed: &mut Value| handed[key] = value)
+    };
+    type Row = (
+        &'static str,
+        &'static str,
+        Box<dyn FnOnce(&mut Value)>,
+        String,
+    );
+    let rows: Vec<Row> = vec![
+        ("work as handed", "work", plan(&[]), "launched".into()),
+        ("gate as handed", "review", plan(&[]), "launched".into()),
+        (
+            "native --sandbox",
+            "work",
+            plan(&["--sandbox", "danger-full-access"]),
+            unreadable("work", 9, "'--sandbox'", &repeats("--sandbox")),
+        ),
+        (
+            "native -c sandbox_mode",
+            "work",
+            plan(&["-c", "sandbox_mode=\"danger-full-access\""]),
+            native("work", "--config", 9, &table("sandbox_mode")),
+        ),
+        (
+            "native -a",
+            "work",
+            plan(&["-a", "never"]),
+            native("work", "--ask-for-approval", 9, permission),
+        ),
+        (
+            "native --dangerously-bypass-approvals-and-sandbox at a gate",
+            "review",
+            plan(&["--dangerously-bypass-approvals-and-sandbox"]),
+            native(
+                "review",
+                "--dangerously-bypass-approvals-and-sandbox",
+                11,
+                permission,
+            ),
+        ),
+        (
+            "native -o at a work seat",
+            "work",
+            plan(&["-o", "/elsewhere"]),
+            native(
+                "work",
+                "--output-last-message",
+                9,
+                "a result capture at a work seat, whose result is the file the seat writes; a \
+                 capture the engine does not own is a harness write path outside the result sink",
+            ),
+        ),
+        (
+            "native -o at a gate",
+            "review",
+            plan(&["-o", "/w/result.json"]),
+            unreadable(
+                "review",
+                11,
+                "'--output-last-message'",
+                &repeats("--output-last-message"),
+            ),
+        ),
+        (
+            "native -c profile",
+            "work",
+            plan(&["-c", "profile=x"]),
+            native("work", "--config", 9, &table("profile")),
+        ),
+        (
+            "native -c profiles sandbox_mode",
+            "work",
+            plan(&["-c", "profiles.x.sandbox_mode=\"danger-full-access\""]),
+            native("work", "--config", 9, &table("profiles")),
+        ),
+        (
+            "native -c profiles approval_policy",
+            "review",
+            plan(&["-c", "profiles.x.approval_policy=\"never\""]),
+            native("review", "--config", 11, &table("profiles")),
+        ),
+        (
+            "native -c unknown key",
+            "work",
+            plan(&["-c", "unmodelled.key=1"]),
+            native(
+                "work",
+                "--config",
+                9,
+                "a configuration assignment that assigns a key outside the closed set an inline \
+                 Codex launch admits",
+            ),
+        ),
+        (
+            "native, an unclassified option",
+            "work",
+            plan(&["--frobnicate"]),
+            unreadable("work", 9, "'--frobnicate'", "names no option"),
+        ),
+        (
+            "native plan null",
+            "work",
+            handed("native_controls", Value::Null),
+            refused(
+                "the native plan of seat 'work' is refused: refusing to invoke the agent CLI: the \
+                 engine computed no capability authority for this site, and a harness is never \
+                 launched on its own defaults — everything is off until the realm lists it \
+                 (decision 0065 ruling 4)"
+                    .to_string(),
+            ),
+        ),
+        (
+            "work, the last-message door",
+            "work",
+            handed("result_delivery", json!("last-message")),
+            refused(
+                "the inline Codex launch of seat 'work' is admitted 'workspace-write', a work \
+                 seat, but its input names the last-message result door; the door follows the \
+                 admitted class, a gate's result reaching the engine only through the \
+                 last-message door and a work seat's only through the file it writes"
+                    .to_string(),
+            ),
+        ),
+        (
+            "gate, the door removed",
+            "review",
+            Box::new(|handed: &mut Value| {
+                handed.as_object_mut().unwrap().remove("result_delivery");
+            }),
+            refused(
+                "the inline Codex launch of seat 'review' is admitted 'read-only', a gate, but its \
+                 input names the file result door; the door follows the admitted class, a gate's \
+                 result reaching the engine only through the last-message door and a work seat's \
+                 only through the file it writes"
+                    .to_string(),
+            ),
+        ),
+        (
+            "a seat that is not a plain label",
+            "work",
+            Box::new(|handed: &mut Value| {
+                handed["seat"] = json!("work seat");
+                handed["native_controls"]["argv"] = json!(["-a", "never"]);
+            }),
+            native("(unnamed)", "--ask-for-approval", 7, permission),
+        ),
+    ];
+    assert_eq!(rows.len(), 17);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, seat, handed_as, expected)| {
+            let class = match seat {
+                "review" => SeatClass::Gate,
+                _ => SeatClass::Work,
+            };
+            let (sealing, _, launched, _) = inline_codex_launching(
+                &bundle,
+                seat,
+                class,
+                &bundle.sites[seat],
+                |_| {},
+                handed_as,
+            );
+            let observed = match (sealing, launched) {
+                (Err(reason), _) => format!("sealing refused: {reason}"),
+                (Ok(()), Ok(_)) => "launched".to_string(),
+                (Ok(()), Err(reason)) => format!("refused: {reason}"),
+            };
+            (observed != expected)
+                .then(|| format!("row {label}:\n  left:  {observed}\n  right: {expected}"))
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));

@@ -2446,10 +2446,13 @@ fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuse
                 "workspace-write",
                 codex_off(&["--sandbox", "workspace-write"]),
             ),
-            "bundle: seat 'review' requests 'tools.sandbox' 'workspace-write', but the resolved \
-             native control argv of provider 'codex' carries `--sandbox`, a second sandbox \
-             control beside the engine's inline sandbox control; only that control represents a \
-             typed class, so even a matching native class competes — refused (design D5.3)"
+            "bundle: seat 'review' declares 'tools.sandbox' 'workspace-write', but the inline \
+             Codex launch of seat 'review' cannot be read whole under the 'codex' grammar \
+             (argument 9, '--sandbox': it repeats option '--sandbox', which the grammar admits \
+             once; a CLI that resolves a duplicate last-wins would resolve it against the control \
+             the engine composed), so none of its effects can be judged; an unclassified option \
+             is refused, never passed through (operator ruling of 2026-09-25; rebuild unit \
+             5d-fix-b; design D5.3)"
                 .to_string(),
         ),
     ];
@@ -2507,6 +2510,13 @@ fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuse
 /// fragment; file delivery, a missing capture, a capture elsewhere and a
 /// capture at a work seat each refuse. Every cause is complete and names no
 /// value.
+///
+/// Rebuild unit 5d-fix-b: the whole launch is one judgment, run once the
+/// native plan is resolved, over a closed set of admitted effects. The
+/// native plan's sandbox, approval and capture effects, profile and
+/// profiles configuration, every key off the allowlist (and an allowlisted
+/// key with another value) and an option the grammar cannot place refuse,
+/// each naming the seat and the option.
 #[test]
 fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture() {
     let fixture = AgentFixture::new();
@@ -2532,41 +2542,71 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
         adapter["hands"]["harness"][part] = json!(argv);
         adapter
     };
-    let rest = "the engine's typed class, expressed by its own fragment, is the only \
-                sandbox-bearing element of an inline Codex launch, so a competing one is refused \
-                rather than reconciled or ordered, whoever composed it";
-    let competing = |class: &str, origin: &str, canonical: &str, at: usize, effect: &str| {
+    let rest = "the launch admits only the engine's one sandbox fragment of the site's class, at \
+                a gate the engine's one capture into the result path it owns, and configuration \
+                on a closed allowlist, so every other effect is refused rather than reconciled or \
+                ordered, whoever composed it";
+    let capture = |class: &str, cause: String| {
         format!(
-            "bundle: seat 'review' declares 'tools.sandbox' '{class}' while the `{origin}` \
-             contribution of its launch carries '{canonical}' (argument {at}), {effect}; {rest} \
-             (operator ruling of 2026-09-25; rebuild unit 5d-fix; design D5.3)"
+            "bundle: seat 'review' declares 'tools.sandbox' '{class}', but {cause} (operator \
+             ruling of 2026-09-25; rebuild unit 5d-fix-b; design D5.3)"
+        )
+    };
+    let competing = |class: &str, origin: &str, canonical: &str, at: usize, effect: &str| {
+        capture(
+            class,
+            format!(
+                "the inline Codex launch of seat 'review' carries '{canonical}' (argument {at}) \
+                 in its `{origin}` contribution, {effect}; {rest}"
+            ),
+        )
+    };
+    let unreadable = |class: &str, at: usize, label: &str, cause: &str| {
+        capture(
+            class,
+            format!(
+                "the inline Codex launch of seat 'review' cannot be read whole under the 'codex' \
+                 grammar (argument {at}, {label}: it {cause}), so none of its effects can be \
+                 judged; an unclassified option is refused, never passed through"
+            ),
         )
     };
     let permission = "a permission control, which sets, lifts or replaces the sandbox or its \
                       approvals";
     let table = |name: &str| {
         format!(
-            "an assignment into the '{name}' configuration, the same control through another door"
+            "a configuration assignment that assigns into the '{name}' configuration, which is \
+             outside the closed set of keys an inline Codex launch admits"
         )
     };
     let work = |origin: &str, canonical: &str, at: usize, effect: &str| {
         competing("workspace-write", origin, canonical, at, effect)
     };
-    let capture = |class: &str, cause: String| {
-        format!(
-            "bundle: seat 'review' declares 'tools.sandbox' '{class}' while {cause} (decision \
-             0046 ruling 4; operator ruling of 2026-09-25; rebuild unit 5d-fix)"
+    let misdirected = |origin: &str, at: usize| {
+        competing(
+            "read-only",
+            origin,
+            "--output-last-message",
+            at,
+            "a result capture other than the engine's own into exactly the result path it owns, \
+             a harness write path outside the result sink",
         )
     };
-    let misdirected = |origin: &str, at: usize| {
-        capture(
-            "read-only",
-            format!(
-                "the `{origin}` contribution of its launch carries '--output-last-message' \
-                 (argument {at}), which is not the engine's own capture into exactly the result \
-                 path it owns; a misdirected capture is a harness write path outside the result \
-                 sink"
-            ),
+    let at_work = "a result capture at a work seat, whose result is the file the seat writes; a \
+                   capture the engine does not own is a harness write path outside the result \
+                   sink";
+    let off_key = "a configuration assignment that assigns a key outside the closed set an \
+                   inline Codex launch admits";
+    let compiled_as = |review: &str| {
+        format!(
+            "compiled: [(\"review\", Some(LocalTools {{ allow: None, sandbox: Some({review}) }})), \
+             (\"work\", Some(LocalTools {{ allow: Some([\"cargo\"]), sandbox: None }}))]"
+        )
+    };
+    let repeats = |option: &str| {
+        format!(
+            "repeats option '{option}', which the grammar admits once; a CLI that resolves a \
+             duplicate last-wins would resolve it against the control the engine composed"
         )
     };
     let gate_reads = &["--sandbox", "read-only"];
@@ -2642,12 +2682,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                 "workspace-write",
                 templated(&["-c", "unmodelled.key=1"]),
             ),
-            work(
-                "template",
-                "--config",
-                5,
-                "a configuration assignment with no bounded meaning, which could set the sandbox",
-            ),
+            work("template", "--config", 5, off_key),
         ),
         (
             "template -C".into(),
@@ -2666,10 +2701,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                 "workspace-write",
                 templated(&["-c", "model_reasoning_effort=\"high\""]),
             ),
-            "compiled: [(\"review\", Some(LocalTools { allow: None, sandbox: \
-             Some(WorkspaceWrite) })), (\"work\", Some(LocalTools { allow: Some([\"cargo\"]), \
-             sandbox: None }))]"
-                .to_string(),
+            compiled_as("WorkspaceWrite"),
         ),
         (
             "template -p".into(),
@@ -2688,13 +2720,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                 "workspace-write",
                 templated(&["-s", "workspace-write"]),
             ),
-            "bundle: seat 'review' declares 'tools.sandbox' 'workspace-write' while the \
-             contributions of its launch cannot be read together under the 'codex' grammar \
-             (argument 7: it repeats option '--sandbox', which the grammar admits once; a CLI \
-             that resolves a duplicate last-wins would resolve it against the control the engine \
-             composed), so no sandbox class can be judged in them (operator ruling of \
-             2026-09-25; rebuild unit 5d-fix; design D5.3)"
-                .to_string(),
+            unreadable("workspace-write", 7, "'--sandbox'", &repeats("--sandbox")),
         ),
         (
             "fragment -a beside its class".into(),
@@ -2708,12 +2734,7 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
         (
             "native OFF -a".into(),
             compiled(None, "workspace-write", codex_off(&["-a", "never"])),
-            format!(
-                "bundle: seat 'review' requests 'tools.sandbox' 'workspace-write', but the \
-                 `native` contribution of its launch carries '--ask-for-approval' (argument 3), \
-                 {permission}; {rest} (operator ruling of 2026-09-25; rebuild unit 5d-fix; \
-                 design D5.3)"
-            ),
+            work("native", "--ask-for-approval", 9, permission),
         ),
         (
             "gate, file delivery".into(),
@@ -2730,9 +2751,9 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
             compiled(Some("gate"), "read-only", fragment(codex(), "gate", gate_reads)),
             capture(
                 "read-only",
-                "no contribution of its launch carries the result capture the last-message door \
-                 needs, bound to exactly the engine-owned result path, so the gate's result \
-                 could not be delivered"
+                "the inline Codex launch of seat 'review' is a gate's, and no contribution \
+                 carries the engine's capture into the result path it owns, which the \
+                 last-message door needs, so the gate's result could not be delivered"
                     .to_string(),
             ),
         ),
@@ -2769,17 +2790,227 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
                     &["--sandbox", "workspace-write", "-o", "{result_path}"],
                 ),
             ),
-            capture(
+            work("local", "--output-last-message", 7, at_work),
+        ),
+        // Rebuild unit 5d-fix-b (chief F1–F3 of run
+        // 0065-rebuild-unit-5d-fix-see-the-569be761): the native plan, profile
+        // configuration and every key off the closed allowlist, each paired
+        // with its valid control.
+        (
+            "work as compiled".into(),
+            compiled(None, "workspace-write", codex()),
+            compiled_as("WorkspaceWrite"),
+        ),
+        (
+            "gate as compiled".into(),
+            compiled(Some("gate"), "read-only", codex()),
+            compiled_as("ReadOnly"),
+        ),
+        (
+            "native OFF --full-auto".into(),
+            compiled(None, "workspace-write", codex_off(&["--full-auto"])),
+            work("native", "--full-auto", 9, permission),
+        ),
+        (
+            "native OFF -c sandbox_mode".into(),
+            compiled(
+                None,
                 "workspace-write",
-                "the `local` contribution of its launch carries '--output-last-message' \
-                 (argument 7), a result capture where the engine's result door is the file the \
-                 seat writes; a capture the engine does not own is a harness write path outside \
-                 the result sink"
-                    .to_string(),
+                codex_off(&["-c", "sandbox_mode=\"danger-full-access\""]),
+            ),
+            work("native", "--config", 9, &table("sandbox_mode")),
+        ),
+        (
+            "native OFF -c approval_policy".into(),
+            compiled(
+                None,
+                "workspace-write",
+                codex_off(&["-c", "approval_policy=\"never\""]),
+            ),
+            work("native", "--config", 9, &table("approval_policy")),
+        ),
+        (
+            "native OFF -s at a gate".into(),
+            compiled(Some("gate"), "read-only", codex_off(&["-s", "read-only"])),
+            unreadable("read-only", 11, "'--sandbox'", &repeats("--sandbox")),
+        ),
+        (
+            "native OFF -o at a work seat".into(),
+            compiled(None, "workspace-write", codex_off(&["-o", "/elsewhere"])),
+            work("native", "--output-last-message", 9, at_work),
+        ),
+        (
+            "native OFF -o at a gate".into(),
+            compiled(Some("gate"), "read-only", codex_off(&["-o", "/elsewhere"])),
+            unreadable(
+                "read-only",
+                11,
+                "'--output-last-message'",
+                &repeats("--output-last-message"),
             ),
         ),
+        (
+            "native OFF -o at a gate whose fragment captures nothing".into(),
+            compiled(
+                Some("gate"),
+                "read-only",
+                fragment(codex_off(&["-o", "{result_path}"]), "gate", gate_reads),
+            ),
+            misdirected("native", 9),
+        ),
+        (
+            "native OFF web_search, another value".into(),
+            compiled(
+                None,
+                "workspace-write",
+                codex_off(&["-c", "web_search=\"live\""]),
+            ),
+            work(
+                "native",
+                "--config",
+                9,
+                "a configuration assignment that assigns 'web_search' a value outside the \
+                 bounded ones its declaration admits",
+            ),
+        ),
+        (
+            "native OFF web_search, a descendant key".into(),
+            compiled(
+                None,
+                "workspace-write",
+                codex_off(&["-c", "web_search.mode=\"disabled\""]),
+            ),
+            work("native", "--config", 9, &table("web_search")),
+        ),
+        (
+            "template -c profile".into(),
+            compiled(None, "workspace-write", templated(&["-c", "profile=x"])),
+            work("template", "--config", 5, &table("profile")),
+        ),
+        (
+            "template -c profiles sandbox_mode".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["-c", "profiles.x.sandbox_mode=\"danger-full-access\""]),
+            ),
+            work("template", "--config", 5, &table("profiles")),
+        ),
+        (
+            "template -c profiles approval_policy".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["--config=profiles.x.approval_policy=\"never\""]),
+            ),
+            work("template", "--config", 5, &table("profiles")),
+        ),
+        (
+            "native OFF -c profile".into(),
+            compiled(None, "workspace-write", codex_off(&["-cprofile=x"])),
+            work("native", "--config", 9, &table("profile")),
+        ),
+        (
+            "template -c effort outside its levels".into(),
+            compiled(
+                None,
+                "workspace-write",
+                templated(&["-c", "model_reasoning_effort=\"ultra\""]),
+            ),
+            work(
+                "template",
+                "--config",
+                5,
+                "a configuration assignment that assigns 'model_reasoning_effort' a value outside \
+                 the bounded ones its declaration admits",
+            ),
+        ),
+        (
+            "template -c no assignment".into(),
+            compiled(None, "workspace-write", templated(&["-c", "bare"])),
+            work(
+                "template",
+                "--config",
+                5,
+                "a configuration assignment that is not a KEY=VALUE configuration assignment",
+            ),
+        ),
+        (
+            "template --search".into(),
+            compiled(None, "workspace-write", templated(&["--search"])),
+            work(
+                "template",
+                "--search",
+                5,
+                "a capability-bearing control outside the closed set an inline Codex launch \
+                 admits",
+            ),
+        ),
+        (
+            "template, an unclassified option".into(),
+            compiled(None, "workspace-write", templated(&["--frobnicate"])),
+            unreadable("workspace-write", 5, "'--frobnicate'", "names no option"),
+        ),
     ];
-    assert_eq!(rows.len(), 19);
+    assert_eq!(rows.len(), 38);
+    each_row(rows);
+}
+
+/// Rebuild unit 5d-fix-b: the whole-launch judgment requires exactly the
+/// engine's own fragment of the admitted class, whatever composed the rest.
+/// The compile and the seal each refuse a missing or different fragment
+/// first, so the judgment's own requirement is shown on segments directly.
+#[test]
+fn the_inline_codex_launch_judgment_requires_the_engines_fragment_of_the_class() {
+    let segment = |origin: Origin, argv: &[&str]| {
+        Segment::new(
+            origin,
+            &argv.iter().map(|part| part.to_string()).collect::<Vec<_>>(),
+        )
+    };
+    let judged = |segments: &[Segment]| {
+        format!(
+            "{:?}",
+            inline_codex_launch("work", segments, Sandbox::WorkspaceWrite, None)
+        )
+    };
+    let rows: Vec<Row<String>> = vec![
+        (
+            "the fragment".into(),
+            judged(&[segment(Origin::Local, &["--sandbox", "workspace-write"])]),
+            "Ok(())".into(),
+        ),
+        (
+            "no fragment".into(),
+            judged(&[segment(Origin::Authored, &["--model", "m"])]),
+            "Err(\"the inline Codex launch of seat 'work' carries no sandbox fragment of the \
+             site's 'workspace-write' class in the engine's `local` contribution, so the class \
+             it was admitted with would not reach the harness\")"
+                .into(),
+        ),
+        (
+            "the class in another contribution".into(),
+            judged(&[segment(Origin::Template, &["--sandbox", "workspace-write"])]),
+            "Err(\"the inline Codex launch of seat 'work' carries '--sandbox' (argument 1) in \
+             its `template` contribution, a permission control, which sets, lifts or replaces \
+             the sandbox or its approvals; the launch admits only the engine's one sandbox \
+             fragment of the site's class, at a gate the engine's one capture into the result \
+             path it owns, and configuration on a closed allowlist, so every other effect is \
+             refused rather than reconciled or ordered, whoever composed it\")"
+                .into(),
+        ),
+        (
+            "a local fragment of another class".into(),
+            judged(&[segment(Origin::Local, &["--sandbox", "read-only"])]),
+            "Err(\"the inline Codex launch of seat 'work' carries '--sandbox' (argument 1) in \
+             its `local` contribution, a permission control, which sets, lifts or replaces the \
+             sandbox or its approvals; the launch admits only the engine's one sandbox fragment \
+             of the site's class, at a gate the engine's one capture into the result path it \
+             owns, and configuration on a closed allowlist, so every other effect is refused \
+             rather than reconciled or ordered, whoever composed it\")"
+                .into(),
+        ),
+    ];
     each_row(rows);
 }
 

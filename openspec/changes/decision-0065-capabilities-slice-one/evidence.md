@@ -7335,6 +7335,22 @@ enough, so no accessor was needed.
   example the measured `web_search` OFF) are not sandbox effects, and they
   keep their own fences.
 
+**Correction (unit 5d-fix-b, chief F6 of run
+`0065-rebuild-unit-5d-fix-see-the-569be761`):** all three assumptions above
+were wrong, and the 5d-fix tick in `tasks.md` overstated completion
+(spec_defect=true stands for these artifacts). The native plan was **not**
+judged at launch: `verify_record` judged only the sealed spawn segments, and
+the codex driver appends `native_controls.argv` verbatim, so a native
+sandbox, approval or capture effect reached the final command (F1). A native
+`-o` was never judged as a capture, because the grammar types
+`--output-last-message` as inert and the native check looked only for
+sandbox competitors (F2). `profile` and `profiles` are configuration
+documents the three-table denylist let through (F3). The capture followed the
+recorded `result_delivery` alone, so a gate whose door was changed to `file`
+and whose capture was removed launched (F4). The launch refusal named no seat
+(F5). Unit 5d-fix-b below replaces the approach; its baseline on `6407fb3e`
+observes each gap.
+
 ### Tests
 
 - `bundle/agent_tests.rs::an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture`
@@ -7463,3 +7479,242 @@ On the final bytes:
   passthrough handling of a second root selector belongs to
   `brokkr-protocol`.
 - The shipped driver also passed an unbounded authored `-c` at baseline.
+
+## Unit 5d-fix-b — one judgment of the whole inline Codex launch, 2026-09-25
+
+Run `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`, on `6407fb3e`. It repairs
+5d-fix under its council's second SECURITY-HOLD (chief F1–F6 of run
+`0065-rebuild-unit-5d-fix-see-the-569be761`; spec_defect=true stands for the
+5d-fix artifacts, corrected above). The narrow ruling and design D5.3 are not
+reopened. N1 needed no action.
+
+### What changed
+
+Production is the unit's three files. No fourth file was needed.
+
+- **One judgment (`bundle.rs::inline_codex_launch`).** It replaces 5d-fix's
+  `inline_codex_competitor` and `inline_codex_capture`, which are removed.
+  The launch's contributions are read together under the codex grammar
+  (`codex_contributions`), each option tagged with its segment's origin. The
+  judgment admits a closed set of effects and refuses the rest:
+  - admitted: exactly one `--sandbox`, in the engine's `local` fragment, of
+    exactly the site's class;
+  - admitted at a gate: exactly one `--output-last-message`, in that
+    fragment, into exactly the engine-owned result path;
+  - admitted: `--config` assignments on the grammar's closed allowlist;
+  - admitted: options whose grammar effect is inert data or a bare switch;
+  - refused: every other `--sandbox` and every other permission control, a
+    writable root, a load (`--profile`), the root selector `--cd`, any
+    capture at a work seat, any other capture at a gate, any other
+    capability control (`--search`, `--include-plan-tool`), an assignment off
+    the allowlist, and an option the grammar cannot place;
+  - refused: a launch with no fragment of the class, and a gate launch with no
+    capture.
+
+  Each refusal names the seat, the canonical option or the grammar's
+  bounded label, the position and the contribution, never a value (F5).
+- **The allowlist (`grammar.rs::LAUNCH_SETTINGS`, `launch_setting`).** Two
+  keys, each exact (a descendant key is not admitted) with bounded values
+  and a cited source:
+  - `model_reasoning_effort` at the adapter's levels (`adapters/codex.json`
+    `efforts`; `.forge/tasks/controller-codex-interface-2026-09-17.json`);
+  - `web_search` with the value `"disabled"` alone (`adapters/codex.json`
+    `native_capabilities.known.web-search.off.argv`,
+    `dialects/tools/codex-native-search.json`, measured in
+    `.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`, whose
+    scope is that value only).
+
+  A refused capability table is named canonically, `profile` and `profiles`
+  among them (F3). `setting` is unchanged in behaviour and shares the
+  assignment reading (`assignment_parts`, `unquoted`).
+- **Admission (`bundle.rs::admit_inline_launch`).** It runs where the native
+  plans are resolved (`record_capabilities`, the inline branch). For each
+  outcome, it judges the authored harness arguments, the recorded template,
+  the engine's `local` fragment and that outcome's resolved native plan, in
+  dispatch order. A `read-only` class is a gate's, so it captures into
+  `{result_path}`. `lower_inline_sandbox` keeps its class, hands, authored,
+  file-door and fragment checks, but no longer judges a partial launch.
+  `admit_native_sandbox` serves agent-backed seats only.
+- **Launch (`engine.rs::inline_codex_door`).** `verify_record`, the dispatch
+  door `spawn_site` runs before any spawn, calls it on the final input.
+  Wherever the sealed class is the engine's own, it judges the sealed extras
+  followed by the input's `native_controls.argv`, the order the codex driver
+  appends them (F1, F2). It binds the door to the admitted class, not the
+  recorded door (F4): `read-only` must name the `last-message` door and
+  capture into exactly the input's `result_path`, and `workspace-write`
+  must name neither. An unreadable plan refuses. The seat is read from the
+  input's engine-written `seat` and spelled only when it is a plain label of
+  at most 64 bytes; otherwise it is `(unnamed)`. The seal keeps only its
+  class agreement check, because it is never handed the native plan or the
+  result path.
+
+### Assumptions
+
+- Options the grammar classifies as data or as a bare switch (`--model`,
+  `--effort`, `--image`, `--output-schema`, `--color`, `--json`,
+  `--skip-git-repo-check`) are not effects of the closed set. They are
+  admitted, except `--cd` and `--output-last-message`, which are judged by
+  name.
+- A native or template `--sandbox` or `-o` beside the fragment's own is
+  refused by the grammar's repeat refusal. That reason names the option, its
+  position and the seat, like every other.
+- A door refusal happens after the record is sealed. It still comes before
+  `DriverProcess::spawn`, so no provider work happens.
+
+### Tests
+
+- `bundle/agent_tests.rs::an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture`
+  has 38 rows, compared at `:2955`. It keeps 5d-fix's 19 rows, with new
+  reasons. The 19 new rows:
+  - valid controls: the work seat and the gate as compiled;
+  - native OFF: `--full-auto`, `-c sandbox_mode`, `-c approval_policy`, `-s`
+    at a gate, `-o` at a work seat, `-o` at a gate, `-o` at a gate whose
+    fragment captures nothing, `web_search="live"`, `web_search.mode`, and
+    attached `-cprofile=x`;
+  - template: `-c profile`, `-c profiles.x.sandbox_mode`,
+    `--config=profiles.x.approval_policy`, an effort outside its levels, a
+    `-c` with no assignment, `--search`, and an unclassified `--frobnicate`.
+
+  The inert-effort row is a further valid control.
+- `bundle/agent_tests.rs::the_inline_codex_launch_judgment_requires_the_engines_fragment_of_the_class`
+  has 4 rows on segments directly: the fragment, no fragment, the class in
+  another contribution, and a `local` fragment of another class. The compile
+  and the seal refuse these shapes first.
+- `tests/capability_launch.rs::an_inline_codex_launch_refuses_every_competing_contribution_and_every_misbound_capture`
+  has 26 rows, compared at `:3167`. The same rows are now refused at the
+  door with the whole-launch reason. The new row is `gate, file delivery and
+  no capture` (F4). `gate, file delivery` now gets the door refusal.
+- `tests/capability_launch.rs::an_inline_codex_launch_judges_the_native_plan_and_binds_the_door_to_the_class`
+  has 17 rows, compared at `:3403`:
+  - the work seat and the gate as handed (launched through the shipped codex
+    driver);
+  - native `--sandbox`, `-c sandbox_mode`, `-a`, and
+    `--dangerously-bypass-approvals-and-sandbox` at a gate;
+  - native `-o` at a work seat and at a gate;
+  - native `-c profile`, `profiles.x.sandbox_mode` and
+    `profiles.x.approval_policy`;
+  - an unknown key and an unclassified option;
+  - a null plan;
+  - `last-message` at a work seat, and the door removed at a gate;
+  - a seat that is not a plain label.
+- `inline_codex_sealing` now delegates to `inline_codex_launching`. That
+  helper hands the input as dispatch does: `seat`, `native_controls`,
+  `result_path` and, at `last-message`, `result_delivery`. A hook may alter
+  the input. Unit 5d's two launch tests pass unchanged.
+
+### Baseline on 6407fb3e
+
+`bundle.rs`, `engine.rs` and `grammar.rs` were restored with `git show
+6407fb3e:…`. The new tests were kept, except the direct-judgment test, which
+calls the new function and was compiled out for the run. The build
+succeeded, and the tests failed at their assertions (logs in
+`.forge/scratch-5dfb/baseline-*.txt`, not committed).
+
+- The agent table failed 34 of 38 rows. Seven rows **compiled** at baseline:
+  - native `-o` at a work seat;
+  - native `-o` at a gate (a second capture);
+  - native `web_search="live"`;
+  - template `-c profile`, `profiles.x.sandbox_mode` and
+    `profiles.x.approval_policy`;
+  - template `--search`.
+
+  The rest were refused under 5d-fix's wording. The four passing rows were
+  the three valid controls and gate file delivery.
+- The launch table failed 24 of 26. `gate, file delivery and no capture`
+  **launched** with a record sealed (F4). The other 23 were refused under
+  5d-fix's wording, and the two positives passed.
+- The door table failed 15 of 17. Every native row **launched** through the
+  shipped codex driver, including `--sandbox danger-full-access`, `-a
+  never`, `--dangerously-bypass-approvals-and-sandbox`, `-o /elsewhere`,
+  `profile`, `profiles` and `--frobnicate`. `last-message` at a work seat
+  and the gate with its door removed were refused only by 5d-fix's capture
+  wording. The two positives passed.
+
+### Mutations
+
+Each mutation compiled, was run with `cargo test -p brokkr-runtime --locked
+--lib inline_codex` and `--test capability_launch an_inline_codex`, and was
+restored. Byte identity with the fix was checked by `cmp`. Outputs are in
+`.forge/scratch-5dfb/M*.txt`. One attempt at M11 did not compile (`E0282`),
+is not counted, and was redone.
+
+| # | Mutation | Failing rows |
+|---|---|---|
+| M1 | admission leaves the native plan out | agent: all 11 native OFF rows; 5d's native `--sandbox` row |
+| M2 | the door leaves the native plan out | door: all 11 native rows and the unplain seat |
+| M3 | allowlist admits `profile`/`profiles` | agent: 4 profile rows; door: 3 profile rows |
+| M4 | an unclassified key admitted | agent: template unbounded; launch: authored unbounded; door: unknown key |
+| M5 | `web_search` value bound ignored | agent: `web_search="live"` alone |
+| M6 | permission arm admits | agent: 6 rows, direct: another contribution; launch: 5 rows; door: `-a`, bypass, unplain seat |
+| M7 | work-seat capture admitted | agent: work capture, native `-o` at work; launch: fragment capture; door: native `-o` at work |
+| M8 | unreadable launch judged empty | agent: 4 rows (`-s`, native `-s`/`-o` at gate, `--frobnicate`), 5d's native `--sandbox`; launch: 3; door: 3 |
+| M9 | door/class check off (F4) | launch: file delivery, file delivery and no capture; door: `last-message` at work, door removed |
+| M10 | gate missing-capture check off | agent and launch: gate, no capture |
+| M11 | load arm admits | agent: template `-p`; launch: authored `-p` |
+| M12 | catch-all admits | agent: template `--search` |
+| M13 | no-fragment check off | direct: no fragment |
+| M14 | seat bound admits a space | door: the unplain seat |
+| M15 | fragment guard ignores the class | direct: a local fragment of another class |
+
+Under M9, `gate, file delivery and no capture` was still refused by the
+class-bound capture requirement ("is a gate's, and no contribution carries
+the engine's capture"). The invariant is held twice.
+
+### Gates
+
+On the final bytes:
+
+- `cargo fmt --all -- --check`: clean. rustfmt also re-laid out the 5d-fix
+  launch table, layout only.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 of 25 results
+  ok, lib 563 passed.
+- `cargo test -p brokkr-protocol --all-features --locked`: 482, 99 (2
+  ignored) and 1 passed. A first combined run failed
+  `hands::tests::the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path`
+  at `hands/tests.rs:1199`, the planted-`unshare` exec. That file is
+  untouched here, and the crate-scoped rerun passed (the known exec flake,
+  #255).
+- `compile --bundle bundles/self` gave `45dc1c7e…` and `bundles/verify`
+  gave `65baad08…`, both unchanged.
+- Every recipe compiles. Top-level digests:
+
+  | Recipe | Digest |
+  |---|---|
+  | fast | `2ee700f8…` |
+  | gpt-flash | `1f03218c…` |
+  | landing | `b348e919…` |
+  | night-shift | `c5c12801…` |
+  | node | `84f74cc4…` |
+  | panel-review | `1d78f70b…` |
+  | preflight | `5a86020a…` |
+  | release | `4ed9a22b…` |
+  | research | `a1da4388…` |
+  | research-dsh | `cbd910ee…` |
+  | review-first | `327e48ca…` |
+  | standby | `78a632c7…` |
+  | triage | `c9c9c347…` |
+  | wager-harness | `13fc4e2d…` |
+  | wager-harness-dsh | `a5c3d2cf…` |
+  | wager-harness-muse | `f25c7bb5…` |
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- Local diagnostic: `cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-runtime -p brokkr-protocol --lcov`, read against the new ranges.
+  There were no zero-hit lines in `grammar.rs` or `engine.rs`'s new code.
+  One untaken branch was found in `bundle.rs` (`inline_codex_launch`'s
+  fragment guard, a `local` fragment of another class). The added direct row
+  covers it, and M15 binds that row. The diagnostic was not rerun after the
+  row was added.
+- **Pending:** workspace exact coverage (`scripts/coverage-exact.sh`),
+  macOS and remote CI, and the operator's ruling on the F4 fixture
+  admission. This unit adds no out-of-inventory line.
+
+### Follow-ups, not fixed here
+
+- The codex driver (`brokkr-protocol` `adapters.rs`, `native_controls.rs`
+  `composed`) appends a plan's argv verbatim. At baseline an unmodelled
+  `--frobnicate` and every native effect reached the final command. The
+  engine's door now refuses these at an inline typed site. The same append
+  on agent-backed and unsandboxed inline Codex sites is outside this unit's
+  files.

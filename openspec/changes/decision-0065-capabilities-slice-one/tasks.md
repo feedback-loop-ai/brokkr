@@ -1112,6 +1112,34 @@ compiles (digests unchanged), `openspec validate --all --strict` and `git
 diff --check` passed. **Not fully green:** workspace exact coverage, macOS
 and remote CI are pending, and so is the F4 ruling.
 
+**Correction (5d-fix-b):** the 5d-fix tick above overstated completion. Its
+council held it again (SECURITY-HOLD, spec_defect=true):
+
+- the launch never judged the native plan the driver appends (F1);
+- a native `-o` escaped as inert, so a work capture or a second gate capture
+  reached the final command (F2);
+- `profile`/`profiles` configuration passed the three-table denylist (F3);
+- the capture followed the recorded door alone, so a gate changed to `file`
+  with its capture removed launched (F4);
+- the launch refusal named no seat (F5);
+- the 5d-fix evidence excused all of this (F6).
+
+5d-fix completes only with 5d-fix-b below. The four
+`engine/capability_tests.rs` fixture lines stay **admitted pending operator
+ruling (F4)**; 5d-fix-b adds no out-of-inventory line.
+
+- [x] 5d-fix-b Unit 5d-fix-b replaces 5d-fix's per-contribution denylist with one judgment of the whole inline Codex launch, `bundle.rs::inline_codex_launch`, run at admission over the compiled plan (`admit_inline_launch`: authored, template, `local` fragment and each resolved native plan) and again at the dispatch door over the argv the driver is handed (`engine.rs::inline_codex_door`: the sealed extras and the input's native plan). It admits a closed set: exactly one `--sandbox` of the site's class in the engine's `local` fragment; at a gate exactly one capture into the engine-owned result path in that fragment, at a work seat none; configuration only on the grammar's cited allowlist (`grammar.rs::LAUNCH_SETTINGS`: `model_reasoning_effort` at the adapter's levels, `web_search="disabled"`); and data or switch options. Every other effect, key or unplaceable option refuses with a bounded, value-free reason naming the seat, the contribution, the position and the option. The door and the capture follow the admitted class, never the recorded door alone. Requirements: operator ruling of 2026-09-25 ("narrow"), operator rulings 1 and 2, decision 0046 ruling 4, design D5.3, [Refusal proofs assert the full reason][SC8]. (run `0065-rebuild-unit-5d-fix-b-see-t-8067eebc`)
+
+Observed 2026-09-25 (evidence.md, "Unit 5d-fix-b"). Production is `bundle.rs`,
+`engine.rs` and `native_controls/grammar.rs`; tests are
+`bundle/agent_tests.rs` (a 38-row admission table and a 3-row direct
+judgment table) and `tests/capability_launch.rs` (a 26-row launch table and a
+17-row door table). On `6407fb3e` the native launch rows all launched, and so
+did the gate changed to `file` with no capture. Seven admission rows compiled
+there. M1–M14 each compiled, bound and were restored. See evidence.md for the
+gates. **Not fully green:** workspace exact coverage, macOS and remote CI are
+pending, and so is the F4 ruling.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)

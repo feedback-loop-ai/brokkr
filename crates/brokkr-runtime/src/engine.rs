@@ -4526,17 +4526,12 @@ impl SiteSpawn {
                 ))
             }
         };
-        // Rebuild unit 5d-fix (chief F1): where the class is the engine's
-        // own, every contribution of the launch is judged beside it.
-        match (emitted == Some(recorded), recorded) {
-            (true, SandboxIntent::Unspecified) => Ok(()),
-            (true, _) => crate::bundle::inline_codex_competitor(&self.extras()).map_err(|cause| {
-                format!(
-                    "dispatch refused: {cause} (operator ruling 2 of 2026-09-23; ruling of \
-                     2026-09-25; rebuild unit 5d-fix)"
-                )
-            }),
-            (false, _) => Err(
+        // The whole launch, the native plan the input hands the driver
+        // included, is judged at the dispatch door (`verify_record`;
+        // rebuild unit 5d-fix-b).
+        match emitted == Some(recorded) {
+            true => Ok(()),
+            false => Err(
                 "dispatch refused: the sandbox class this spawn's own `local` segments express \
                  is not the one its expected state records from the site's typed declaration; a \
                  class omitted, altered or added on its way into the command is never sealed as \
@@ -4626,24 +4621,71 @@ pub fn verify_record(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
         );
     }
     reassemble(&record.segments, &spawn.argv[spawn.extras_start()..])?;
-    // Rebuild unit 5d-fix (chief F2; decision 0046 ruling 4): where the
-    // class is the engine's own, the capture is judged here, where the
-    // result path the engine owns is known, against the door `mark_delivery`
-    // wrote: exactly that path in the engine's fragment at `last-message`,
-    // and no capture at all where the seat writes its file.
-    match local_class(&record.expected) {
-        SandboxIntent::Unspecified => Ok(()),
-        _ => {
-            let door = input.get("result_delivery") == Some(&json!(ResultDoor::LastMessage.word()));
-            let capture = door.then(|| input["result_path"].as_str().unwrap_or_default());
-            crate::bundle::inline_codex_capture(&record.segments, capture).map_err(|cause| {
-                format!(
-                    "dispatch refused: {cause} (decision 0046 ruling 4; operator ruling of \
-                     2026-09-25; rebuild unit 5d-fix)"
-                )
-            })
-        }
+    inline_codex_door(&record, input)
+}
+
+/// Rebuild unit 5d-fix-b (chief F1, F2, F4 and F5; decision 0046 ruling 4;
+/// operator ruling 2 of 2026-09-23 and the ruling of 2026-09-25): where the
+/// sealed class is the engine's own `local` emission, the whole launch the
+/// driver is handed — the sealed extras and, last, the native plan the
+/// input carries, as composition appends it — is judged by the same
+/// [`crate::bundle::inline_codex_launch`] admission ran. The door and the
+/// capture follow the admitted class, never the recorded door alone: a
+/// `read-only` class is a gate's, so the input must name the last-message
+/// door and the launch must capture into exactly the result path the input
+/// hands over, and a `workspace-write` class is a work seat's, which names no
+/// such door and captures nothing. The seat is named bounded.
+fn inline_codex_door(record: &LaunchRecord, input: &Value) -> Result<(), String> {
+    use crate::agents::Sandbox;
+    let intent = local_class(&record.expected);
+    let Some(class) = [
+        Sandbox::ReadOnly,
+        Sandbox::WorkspaceWrite,
+        Sandbox::DangerFullAccess,
+    ]
+    .into_iter()
+    .find(|class| class.intent() == intent) else {
+        return Ok(());
+    };
+    // Engine-written, but read from an input, so only a plain label is
+    // spelled.
+    let seat = input["seat"]
+        .as_str()
+        .filter(|seat| seat.len() <= 64)
+        .filter(|seat| {
+            seat.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_:".contains(c))
+        })
+        .unwrap_or("(unnamed)");
+    let refuse = |cause: String| {
+        format!(
+            "dispatch refused: {cause} (decision 0046 ruling 4; operator ruling 2 of 2026-09-23; \
+             ruling of 2026-09-25; rebuild unit 5d-fix-b)"
+        )
+    };
+    let gate = class == Sandbox::ReadOnly;
+    let door = input.get("result_delivery") == Some(&json!(ResultDoor::LastMessage.word()));
+    if door != gate {
+        return Err(refuse(format!(
+            "the inline Codex launch of seat '{seat}' is admitted '{}', a {}, but its input names \
+             the {} result door; the door follows the admitted class, a gate's result reaching \
+             the engine only through the last-message door and a work seat's only through the \
+             file it writes",
+            class.name(),
+            if gate { "gate" } else { "work seat" },
+            if door { "last-message" } else { "file" }
+        )));
     }
+    let native = brokkr_protocol::native_controls::managed(input)
+        .map_err(|cause| {
+            refuse(format!(
+                "the native plan of seat '{seat}' is refused: {cause}"
+            ))
+        })?
+        .map(|plan| Segment::new(Origin::Native, &plan.argv));
+    let segments: Vec<Segment> = record.segments.iter().cloned().chain(native).collect();
+    let capture = gate.then(|| input["result_path"].as_str().unwrap_or_default());
+    crate::bundle::inline_codex_launch(seat, &segments, class, capture).map_err(refuse)
 }
 
 /// The sandbox class an expected state records for the engine's own
