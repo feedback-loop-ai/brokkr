@@ -8790,3 +8790,157 @@ sha256sum` read `864a75b2…989e`, the snapshot's hash. Logs are
   native lines (`.forge/u11b-exp8.log`). This is existing doctor
   behaviour on a load failure, which unit 11 now reaches for more
   declarations. It is not changed here.
+
+## Unit 11 — the review's return, 2026-09-26
+
+Run `0065-rebuild-unit-11-see-the-uni-1d1020cd`. The review of
+`e9d3ce8d..a03bdd1e` returned `residual` (medium, security). This
+implement visit answers F1 and F2 on `a03bdd1e`, a clean tree. F3 is a
+run-integrity note about panel prose and asks nothing of the code. The
+result is **complete** locally. Exact coverage, macOS and remote CI are
+pending.
+
+### F1: declared values were never read
+
+`declared_argv` (`capabilities.rs`) checked placement and
+`bears_capability()`, which accepts a list or control node whatever its
+value. The review reproduced four loads: an unused claude ON
+`--allowedTools WebSearch(`, an OFF `--disallowedTools Bash(foo(bar))`,
+an OFF `--disallowedTools ,`, and a codex ON `--sandbox nonsense`. For the
+comma-only OFF, `denial_on` read `Delivered` while nothing was denied.
+
+The fix is a new `declared_values`, at `native_controls.rs:1273`. It is
+called from `declared_argv`, the one path that both halves and the
+substituted transport take. It checks two kinds of node:
+
+- **Managed lists.** Every value of a list node must pass
+  `grammar::managed_patterns`. The cause is `value <n>` followed by that
+  function's fixed cause.
+- **Permission controls that carry a value.** The value must be in the
+  bounded set the engine records. The only recorded set is Codex
+  `--sandbox`, whose classes are `SandboxIntent`'s words (`read-only`,
+  `workspace-write` and `danger-full-access`). Any other valued
+  permission control refuses whatever it names, because no bounded set is
+  recorded for it. That covers `--ask-for-approval` and claude's
+  `--permission-mode`. The `codex exec --help` probe needed approval in
+  this seat and was not run, and no recorded measurement lists either
+  set.
+
+No cause echoes a value.
+
+**Tests.** `agents/tests.rs`, `every_declared_half_parses_under_its_harness_at_load_even_unused`,
+gains eight rows. Six are exact refusals: `codex unused ON sandbox`,
+`codex unused ON approval`, `codex substituted transport` (`--sandbox
+{restrictions_json}`), `claude unused ON argv` (`WebSearch(`), `claude
+OFF nested specifier` and `claude OFF separator only`. Two are
+positives: `codex sound sandbox` (`--sandbox read-only`) and `claude sound
+argv` (`--disallowedTools WebSearch,WebFetch(domain:example.org)`).
+
+**Baseline red** (the new rows, with HEAD's production;
+`.forge/u11c-base-runtime.log`): FAILED at `agents/tests.rs:1031`. All six
+refusal rows read `loaded`, and both positives loaded. The restore was
+checked by `git diff | sha256sum` (`236440c2…adfa`).
+
+**Changed assertions in `bundle/agent_tests.rs`** (the widened inventory):
+two fixtures planted a native OFF of `-a never`. It now meets the new
+load refusal (`.forge/u11c-runtime.log`: 3 of 3 rows, and the one
+competing-contribution row). Both were re-planted as well-formed, so the
+D5.3 permission refusal they exist to bind is still reached, at the same
+argument 9:
+
+- `an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture`:
+  the row "native OFF -a" becomes "native OFF
+  --dangerously-bypass-approvals-and-sandbox". The first choice,
+  `--full-auto`, duplicated an existing row exactly, so it was replaced.
+- `an_inline_codex_admission_names_its_seat_bounded_and_keeps_a_dotted_identity`:
+  the fixture's OFF becomes `--full-auto`, and the option named in the
+  expected refusal follows.
+
+Baseline, with HEAD's production: both pass
+(`.forge/u11c-base-replant2.log`), so neither re-plant depends on the
+change.
+
+**Mutations.** Each compiled and failed as stated. Each was restored with
+`git checkout` plus `git apply --include`, and `git diff | sha256sum`
+then matched the snapshot (`b3a5f9df…32d2`, or `c0f9d982…a5ab` after the
+final re-plant). Logs are `.forge/u11c-mut-M<n>.log`.
+
+- **M15:** the list arm never matches. The three claude refusal rows read
+  `loaded`. This run used the non-canonical `TMPDIR` below.
+- **M16:** the `--sandbox` guard accepts any value. `codex unused ON
+  sandbox` and `codex substituted transport` read `loaded`.
+- **M17:** the unrecorded permission arm returns `Ok`. `codex unused ON
+  approval` reads `loaded`.
+- **M18:** the permission arm drops its value guard, so value-free
+  switches refuse too. This fails both re-planted tests: 3 of 3 rows, and
+  2 of 38 rows, "native OFF --dangerously-bypass-approvals-and-sandbox"
+  and the pre-existing "native OFF --full-auto" (`.forge/u11c-mut-M18b.log`).
+- **M19:** the list arm refuses every value. The `claude sound argv`
+  positive refuses.
+- **M20:** `--sandbox` refuses every value. The `codex sound sandbox`
+  positive refuses.
+- **M21:** `declared_argv` drops the `declared_values` call. All six new
+  refusal rows read `loaded`.
+
+### F2: canonical fixture roots
+
+`cq1_root` (`capabilities/tests.rs:40`), `workspace_with`
+(`doctor/capability_tests.rs:69`) and `copied_adapters`
+(`tests/capability_launch.rs:5292`) now create their `TempDir` inside
+`std::env::temp_dir().canonicalize()`. The guard is kept, and every path
+the fixture writes, loads and expects is the one spelling. Each is one
+helper line, and no assertion changed.
+
+**Removal control.** `cargo --config 'env.TMPDIR="…/.forge/u11c-real/../u11c-real"'`
+was used. It reaches the tests: M15's failure names a fixture under
+`.forge/u11c-real/`. With the three helpers reverted, under that
+`TMPDIR`, three suites passed:
+
+- `capabilities::tests` 33/33;
+- `capability_launch` 43/43;
+- `doctor::capability_tests` 13/13.
+
+The logs are `.forge/u11c-f2-lex-*.log`. On Linux the change therefore
+has no removal control: these expectations do not compare a canonical
+spelling here. The macOS leg is pending.
+
+**Standing-admission lines:** none were used. Every edit is in the unit's
+three production files, its three suites or the three files the ruling
+adds.
+
+### Gates (final tree)
+
+- `cargo fmt --all -- --check`: clean, after one `cargo fmt --all`
+  reflowed `declared_values`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: no warning and no error (`.forge/u11c-clippy2.log`).
+- `cargo test --locked -p brokkr-protocol --all-features --no-fail-fast`:
+  487, 99 (2 ignored) and 1 passed (`.forge/u11c-final-protocol.log`).
+- `cargo test --locked -p brokkr-runtime --all-features --no-fail-fast`:
+  the lib had 565 passed, `capability_launch` 43 and `witness_digests`
+  4/4, and every target was ok (`.forge/u11c-final2-runtime.log`).
+- `cargo test --locked -p brokkr-cli --all-features --no-fail-fast`: the
+  lib had 481 passed, and every integration target was ok
+  (`.forge/u11c-final-cli.log`).
+- `bundles/self` and `bundles/verify` both compiled, with empty stderr.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed. `git diff --check` was clean.
+- **Pending:** exact coverage (`scripts/coverage-exact.sh` outside the
+  box), macOS and remote CI.
+
+### Follow-ups, not fixed here
+
+- A declared list that is EMPTY (`--disallowedTools ""`) still loads.
+  `managed_patterns` reads it as an explicit empty list, which is
+  well-formed, but as an OFF it denies nothing. Whether a declared OFF
+  names the capability's tools is the final-command state check of units
+  13–15. It is not a value's form.
+- Claude's `--permission-mode` and Codex's `--ask-for-approval` refuse
+  every declared value until a bounded set is recorded from a measured
+  help. The guide lists claude's modes (`provider-adapters.md:332`) as
+  "known going in", not as measured.
+- `--add-dir` values are paths and are not bounded here. Launch
+  containment judges them.
+- `compose_for_provider` still does not run `declared_values` on a
+  plan's argv. Its inputs come from declarations that now pass at load,
+  and the final exact-state check is units 13–15.

@@ -5290,7 +5290,9 @@ fn an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body() {
 
 /// A copy of the shipped adapters a test may break one file of.
 fn copied_adapters() -> tempfile::TempDir {
-    let copied = tempfile::tempdir().unwrap();
+    // Under the canonicalised temporary base, so every path a fixture
+    // writes, loads and expects is the one spelling (macOS `/var`).
+    let copied = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     for entry in std::fs::read_dir(workspace().join("adapters")).unwrap() {
         let path = entry.unwrap().path();
         if path

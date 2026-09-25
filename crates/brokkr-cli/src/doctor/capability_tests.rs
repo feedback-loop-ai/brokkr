@@ -67,7 +67,9 @@ fn selecting() -> Value {
 /// measured OFF switch, a measured impossible one, an OFF nobody tried, an
 /// unmeasured inventory, and an adapter written before the ruling.
 fn workspace_with(realms: Option<Value>) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
+    // Under the canonicalised temporary base, so every path a fixture
+    // writes, loads and expects is the one spelling (macOS `/var`).
+    let dir = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     let root = dir.path();
     for (provider, declared) in [
         ("claude", Some(selecting())),

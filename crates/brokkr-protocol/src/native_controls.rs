@@ -1258,6 +1258,51 @@ pub fn parse_origin(
     }
 }
 
+/// Whether one placed node of an adapter's DECLARED native control carries
+/// values the engine can read, or the fixed cause it is refused for
+/// (rebuild unit 11; NC1; design D6). Placement and a classified effect
+/// are the grammar's; this is the value. Every value of a managed tool
+/// list is managed patterns ([`grammar::managed_patterns`]), so a
+/// malformed or empty-pattern entry cannot load as a denial that names
+/// nothing. A permission control's value is one of the bounded set the
+/// engine records for it — Codex's `--sandbox` classes — and a permission
+/// control with no recorded set refuses whatever it names. A configuration
+/// assignment is bounded by [`grammar::Node::bears_capability`], and a
+/// directory's value is a path, which launch containment judges. The cause
+/// never echoes a value.
+pub fn declared_values(harness: &str, node: &grammar::Node) -> Result<(), String> {
+    match node.spec.effect {
+        Effect::List(_) => {
+            for (index, value) in node.values.iter().enumerate() {
+                grammar::managed_patterns(value)
+                    .map_err(|cause| format!("value {} {cause}", index + 1))?;
+            }
+            Ok(())
+        }
+        Effect::Control(grammar::Power::Permission) if !node.values.is_empty() => {
+            let classes = [
+                SandboxIntent::ReadOnly,
+                SandboxIntent::WorkspaceWrite,
+                SandboxIntent::DangerFullAccess,
+            ]
+            .map(SandboxIntent::word);
+            match (harness, node.name()) {
+                ("codex", "--sandbox") if classes.contains(&node.values[0].as_str()) => Ok(()),
+                ("codex", "--sandbox") => Err(format!(
+                    "names a value outside its bounded set: {}",
+                    classes.join(", ")
+                )),
+                _ => Err(
+                    "is a permission control whose values the engine records no bounded \
+                          set for, so no declared value of it can be read"
+                        .to_string(),
+                ),
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The first AUTHORED effect that configures a capability server, loads a
 /// plugin, or admits a server's tools — as the NAME of what was written,
 /// never a value (decision 0066 rulings 4 and 6; second council H1 and

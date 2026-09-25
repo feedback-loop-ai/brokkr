@@ -673,9 +673,12 @@ fn a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refu
 /// terminator, a bare word, an unmodelled option or an unclassified
 /// assignment refuses the load, as does a selection mapped onto a flag the
 /// grammar reads as another list, a separator other than `,` or an entry
-/// that is not one managed pattern. A declared restriction transport parses
-/// with the empty restriction in its slot. Each refusal names the adapter
-/// file, the key and the half, never the offending token.
+/// that is not one managed pattern. A managed list argv's value must be
+/// managed patterns, and a permission control's value must be one of its
+/// recorded bounded set, in either half and in a substituted transport
+/// (the review's F1). A declared restriction transport parses with the
+/// empty restriction in its slot. Each refusal names the adapter file, the
+/// key and the half, never the offending token.
 #[test]
 fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
     let tree = Tree::new();
@@ -814,6 +817,82 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
             ),
         ),
         (
+            "codex unused ON sandbox",
+            "codex",
+            codex(
+                json!({"argv": ["--sandbox", "nonsense"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex unused ON approval",
+            "codex",
+            codex(
+                json!({"argv": ["--ask-for-approval", "never"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "codex substituted transport",
+            "codex",
+            codex(
+                default.clone(),
+                disabled.clone(),
+                json!({"argv": ["--sandbox", "{restrictions_json}"]}),
+            ),
+        ),
+        (
+            "codex sound sandbox",
+            "codex",
+            codex(
+                json!({"argv": ["--sandbox", "read-only"]}),
+                disabled.clone(),
+                unsupported.clone(),
+            ),
+        ),
+        (
+            "claude unused ON argv",
+            "claude",
+            claude(
+                json!({"argv": ["--allowedTools", "WebSearch("]}),
+                off.clone(),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude OFF nested specifier",
+            "claude",
+            claude(
+                on.clone(),
+                json!({"argv": ["--disallowedTools", "Bash(foo(bar))"]}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude OFF separator only",
+            "claude",
+            claude(
+                on.clone(),
+                json!({"argv": ["--disallowedTools", ","]}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
+            "claude sound argv",
+            "claude",
+            claude(
+                json!({"argv": ["--allowedTools", "WebSearch"]}),
+                json!({"argv": ["--disallowedTools", "WebSearch,WebFetch(domain:example.org)"]}),
+                list("--disallowedTools", ","),
+                list("--tools", ","),
+            ),
+        ),
+        (
             "claude sound",
             "claude",
             claude(
@@ -843,6 +922,7 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
     };
     let codex_key = format!("{} key 'web-search'", what("codex"));
     let claude_selection = format!("{} selection", what("claude"));
+    let claude_key = format!("{} key 'web-search'", what("claude"));
     let expected = [
         format!(
             "{codex_key} OFF argv {}",
@@ -903,6 +983,36 @@ fn every_declared_half_parses_under_its_harness_at_load_even_unused() {
              a selection entry is one managed tool pattern",
             what("claude")
         ),
+        format!(
+            "{codex_key} ON argv cannot be composed: '--sandbox' names a value outside its \
+             bounded set: read-only, workspace-write, danger-full-access"
+        ),
+        format!(
+            "{codex_key} ON argv cannot be composed: '--ask-for-approval' is a permission \
+             control whose values the engine records no bounded set for, so no declared value \
+             of it can be read"
+        ),
+        format!(
+            "{codex_key} restriction transport, with the empty restriction in its slot, cannot \
+             be composed: '--sandbox' names a value outside its bounded set: read-only, \
+             workspace-write, danger-full-access"
+        ),
+        "loaded".to_string(),
+        format!(
+            "{claude_key} ON argv cannot be composed: '--allowedTools' value 1 carries a \
+             specifier that is not one parenthesized, nonempty run within 256 bytes without a \
+             parenthesis, comma, quote, backslash or control character"
+        ),
+        format!(
+            "{claude_key} OFF argv cannot be composed: '--disallowedTools' value 1 carries a \
+             specifier that is not one parenthesized, nonempty run within 256 bytes without a \
+             parenthesis, comma, quote, backslash or control character"
+        ),
+        format!(
+            "{claude_key} OFF argv cannot be composed: '--disallowedTools' value 1 joins an \
+             empty pattern: a doubled, leading or trailing separator"
+        ),
+        "loaded".to_string(),
         "loaded".to_string(),
     ];
     let mut observed = Vec::new();

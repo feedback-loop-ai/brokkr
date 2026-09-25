@@ -38,7 +38,9 @@ fn dialect(root: &Path, value: &Value) {
 /// The CQ1 world: `web-search` defined reads+egress, served by
 /// `search-native`, whose schema admits `allow.hosts`.
 fn cq1_root() -> TempDir {
-    let root = TempDir::new().unwrap();
+    // Under the canonicalised temporary base, so every path a fixture
+    // writes, loads and expects is the one spelling (macOS `/var`).
+    let root = TempDir::new_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
     define(root.path(), "web-search", &["reads", "egress"]);
     let mut search = native_dialect("search-native", "web-search", &["lookup", "search"]);
     search["classes"] = json!(["egress", "reads"]);

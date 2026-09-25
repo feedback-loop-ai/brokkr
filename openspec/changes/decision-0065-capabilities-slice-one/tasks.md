@@ -1453,6 +1453,34 @@ inventory"). The saved patch (`54de029c…05ac`) was applied unchanged.
 - **Pending:** exact coverage, macOS and remote CI.
 - **Follow-up:** `doctor.rs:960-966` belongs to unit 22.
 
+Returned by review 2026-09-26 (evidence.md, "Unit 11 — the review's
+return"), same run, on `a03bdd1e`. F1 was medium and security: a declared
+argv was checked for placement and a classified effect, never for its
+value. A comma-only `--disallowedTools` loaded, and `denial_on` read
+`Delivered` while nothing was denied.
+
+- **Production:** a new `declared_values` in protocol `native_controls.rs`,
+  called from `declared_argv` in `capabilities.rs`, the one path both
+  halves and the substituted transport share. Every managed list value
+  must be managed patterns. A permission control's value must be in its
+  recorded bounded set; the engine records one only for Codex's
+  `--sandbox`, so any other valued permission control refuses.
+- **Tests:** eight rows were added to `every_declared_half…`: six exact
+  refusals and two positives. Two `bundle/agent_tests.rs` fixtures that
+  planted `-a never` were re-planted with value-free permission switches:
+  `--dangerously-bypass-approvals-and-sandbox` in the competing-contribution
+  row, and `--full-auto` in the admission test. Both still reach their
+  D5.3 refusal. Reds, M15–M21 and restored passes are recorded.
+- **F2:** the three touched fixture helpers now create their root under
+  the canonicalised temporary base. Reverting them under a non-canonical
+  `TMPDIR` failed nothing on Linux, so this has no Linux removal control;
+  macOS is pending.
+- **Standing-admission lines:** none were used.
+- **Gates:** fmt, clippy, the protocol, runtime and CLI suites
+  (`witness_digests` 4/4), both bundle compiles, strict openspec and
+  `git diff --check` all passed. Exact coverage, macOS and remote CI are
+  pending.
+
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
 - [ ] 12.1 Unit 12 refuses every authored catalogue option regardless of grant/value/polarity/form. Verify complete all-harness matrix and bounded reasons without payloads; typed hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Subtractive tool lists never grant a capability][RGS], [Reserved hands preserves the existing workspace authority][TD6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2. (previous 4.6)

@@ -1067,13 +1067,16 @@ impl NativeInventory {
 }
 
 /// One declared argv under its modelled harness's grammar: every token is
-/// placed, and every option it carries has a classified effect.
+/// placed, every option it carries has a classified effect, and every
+/// managed list and bounded control carries a value the engine can read.
 fn declared_argv(harness: &str, argv: &[String]) -> Result<(), String> {
     let command = launch::parse_origin(harness, argv, false)
         .map_err(|refusal| refusal.cause)?
         .expect("a modelled harness has a grammar");
     for node in &command.nodes {
         node.bears_capability()
+            .map_err(str::to_string)
+            .and_then(|_| launch::declared_values(harness, node))
             .map_err(|cause| format!("cannot be composed: '{}' {cause}", node.name()))?;
     }
     Ok(())

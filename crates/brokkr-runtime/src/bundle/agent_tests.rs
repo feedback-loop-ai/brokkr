@@ -2735,10 +2735,22 @@ fn an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_m
             ),
             work("local", "--ask-for-approval", 7, permission),
         ),
+        // Rebuild unit 11 re-plant: a declared approval value has no
+        // bounded set, so the load refuses it; a value-free permission
+        // switch still reaches this refusal.
         (
-            "native OFF -a".into(),
-            compiled(None, "workspace-write", codex_off(&["-a", "never"])),
-            work("native", "--ask-for-approval", 9, permission),
+            "native OFF --dangerously-bypass-approvals-and-sandbox".into(),
+            compiled(
+                None,
+                "workspace-write",
+                codex_off(&["--dangerously-bypass-approvals-and-sandbox"]),
+            ),
+            work(
+                "native",
+                "--dangerously-bypass-approvals-and-sandbox",
+                9,
+                permission,
+            ),
         ),
         (
             "gate, file delivery".into(),
@@ -3045,12 +3057,14 @@ fn the_inline_codex_launch_judgment_requires_the_engines_fragment_of_the_class()
 #[test]
 fn an_inline_codex_admission_names_its_seat_bounded_and_keeps_a_dotted_identity() {
     let fixture = AgentFixture::new();
-    fixture.write("adapters/codex.json", codex_off(&["-a", "never"]));
+    // Re-planted by rebuild unit 11: a declared approval value no longer
+    // loads, and a value-free permission switch reaches the same refusal.
+    fixture.write("adapters/codex.json", codex_off(&["--full-auto"]));
     let long = format!("work\n{}", "w".repeat(100));
     let refused = |named: &str| {
         format!(
             "bundle: seat {named} declares 'tools.sandbox' 'workspace-write', but the inline Codex \
-             launch of seat {named} carries '--ask-for-approval' (argument 9) in its `native` \
+             launch of seat {named} carries '--full-auto' (argument 9) in its `native` \
              contribution, a permission control, which sets, lifts or replaces the sandbox or its \
              approvals; the launch admits only the engine's one sandbox fragment of the site's \
              class, at a gate the engine's one capture into the result path it owns, and \
