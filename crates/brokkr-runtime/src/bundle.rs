@@ -737,6 +737,22 @@ fn command_pins_model(raw: &Value) -> bool {
     matches!(model_pin(raw), ModelPin::Concrete(_))
 }
 
+/// Issue #373: the dsh driver admits one spelling of its model pin, the
+/// separate `--model <id>`, and refuses every other word beginning with
+/// `--model` before it spawns — the joined `--model=<id>` this compiler
+/// reads as a pin (decision 0040 ruling 2) and a long neighbour such as
+/// `--model-fallback` that it walks past alike. A seat compile admitted
+/// would then park at spawn, after its run and journal exist, so compile
+/// refuses what spawn will.
+fn dsh_refuses_model_word(raw: &Value) -> bool {
+    raw.pointer("/driver/command")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|part| part != MODEL_FLAG && part.starts_with(MODEL_FLAG))
+}
+
 /// The effort pin bound, matching `seat-record/v2`'s own: a level is one
 /// bounded word, never a path and never a sentence.
 fn command_pins_effort(raw: &Value) -> bool {
@@ -749,6 +765,9 @@ fn command_pins_effort(raw: &Value) -> bool {
 struct Unpinned {
     model: Vec<String>,
     effort: Vec<String>,
+    /// Issue #373: dsh sites carrying a `--model…` word the dsh driver
+    /// refuses at spawn.
+    dsh_model: Vec<String>,
     /// Decision 0035 addendum 2026-09-11: per site, the adapter digest
     /// whose effortless listing exempted it from the effort pin. The
     /// declaration that authorised the exemption rides the bundle's
@@ -860,6 +879,9 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
         }
         if !command_pins_effort(raw) && !effort_exempt(what, raw, adapters, &mut out.witnessed) {
             out.effort.push(what.to_string());
+        }
+        if kind == "dsh" && dsh_refuses_model_word(raw) {
+            out.dsh_model.push(what.to_string());
         }
         // The adapter a built-in model driver names answers for this
         // INLINE site as it does for an agent-resolved one: its measured
@@ -973,6 +995,14 @@ fn enforce_model_pins(
              levels that driver's adapter declares — to each driver.command \
              (decision 0035 ruling 5)",
             labels(&unpinned.effort)
+        ));
+    }
+    if !unpinned.dsh_model.is_empty() {
+        refusals.push(format!(
+            "dsh seats {} carry a '--model…' word the dsh driver refuses at spawn; \
+             write the pin as '--model <concrete-model-id>' and no other '--model…' \
+             flag (issue #373)",
+            labels(&unpinned.dsh_model)
         ));
     }
     if refusals.is_empty() {
