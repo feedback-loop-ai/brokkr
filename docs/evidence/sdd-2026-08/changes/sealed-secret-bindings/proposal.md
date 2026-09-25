@@ -60,14 +60,14 @@ unjournaled.
 
 Design artifacts:
 
-- [specs/sealed-secret-bindings/spec.md](../../../specs/sealed-secret-bindings/spec.md)
+- [specs/sealed-secret-bindings/spec.md](../../features/sealed-secret-bindings/spec.md)
   — what and why: the confinement statement, all six layers with
   their fail-closed edges, the amendment, and the
   `## Acceptance Criteria`.
-- [specs/sealed-secret-bindings/plan.md](../../../specs/sealed-secret-bindings/plan.md)
+- [specs/sealed-secret-bindings/plan.md](../../features/sealed-secret-bindings/plan.md)
   — how: the panel-position reconciliation (eleven explicit rulings),
   files touched in dependency order, risks with mitigations.
-- [specs/sealed-secret-bindings/tasks.md](../../../specs/sealed-secret-bindings/tasks.md)
+- [specs/sealed-secret-bindings/tasks.md](../../features/sealed-secret-bindings/tasks.md)
   — twelve ordered tasks, each paired with the test that proves it.
 
 ## Impact

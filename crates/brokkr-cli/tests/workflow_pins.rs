@@ -53,6 +53,23 @@ const SETUP_CARGO_AUDIT: Step = Step {
     keys: 1,
 };
 
+/// The one home of the Renovate image, by release and digest: the Renovate
+/// workflow runs it and ci.yml validates the config from it.
+const RENOVATE_IMAGE_FILE: &str = ".github/renovate-image.txt";
+const RENOVATE_IMAGE_INPUT: &str = "${{ steps.renovate-image.outputs.ref }}";
+
+/// The one step whose output may feed [`RENOVATE_IMAGE_INPUT`]: it reads
+/// [`RENOVATE_IMAGE_FILE`] and writes nothing else.
+const RENOVATE_IMAGE: Step = Step {
+    text: &[
+        "- name: the pinned Renovate image",
+        "id: renovate-image",
+        "run: |",
+        r#"echo "ref=$(tr -d '[:space:]' < .github/renovate-image.txt)" >> "$GITHUB_OUTPUT""#,
+    ],
+    keys: 2,
+};
+
 /// This file lives at `crates/brokkr-cli/tests/`.
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -139,9 +156,12 @@ fn pinned_toolchains(root: &Path) -> [String; 2] {
 enum Unpinned {
     /// A `uses:` whose ref is a tag or a branch rather than a commit.
     Reference(String),
-    /// A commit with no `# <release>` comment naming what it is.
+    /// A commit whose trailing comment does not name its release, `# v27`
+    /// or `# v4.4.0`, or, for `dtolnay/rust-toolchain`, which tags no
+    /// releases, the branch `# master` its commit was read from.
     Unlabelled(String),
-    /// A `./` action that is not in the repository.
+    /// A `./` action that is not one of the repository's own actions, a
+    /// `.github/actions/<name>/` directory this scan also reads.
     LocalAction(String),
     /// A `dtolnay/rust-toolchain` step with no `toolchain:` input: the
     /// pinned master ref installs nothing without one.
@@ -161,6 +181,14 @@ enum Unpinned {
     /// A flow collection, `{…}` or `[…]`, that names an action or a tool
     /// or escapes a character: its keys are not read, so it is refused.
     Flow(String),
+    /// A Go or Node runtime a setup action installs that is not an exact
+    /// release, or one read from a file this scan does not judge.
+    Runtime(String),
+    /// A Renovate image named anywhere but its one home: a literal, an
+    /// output no step here reads from that home, a `renovate-version`, or a
+    /// `renovatebot/github-action` step that names none and so runs the
+    /// action's floating default.
+    Image(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -169,13 +197,44 @@ struct Offense {
     what: Unpinned,
 }
 
+/// How many dot-separated decimal numbers `version` is, or `None` when a
+/// part is empty or not all digits. The one home of what a version is.
+fn numbers(version: &str) -> Option<usize> {
+    version.split('.').try_fold(0, |count, part| {
+        (!part.is_empty() && part.chars().all(|c| c.is_ascii_digit())).then_some(count + 1)
+    })
+}
+
 /// An exact `MAJOR.MINOR.PATCH` release, never a channel or `latest`.
 fn is_release(version: &str) -> bool {
-    let parts: Vec<&str> = version.split('.').collect();
-    parts.len() == 3
-        && parts
-            .iter()
-            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+    numbers(version) == Some(3)
+}
+
+/// An image named by exact release and digest: `name:X.Y.Z@sha256:<64 hex>`.
+fn is_pinned_image(image: &str) -> bool {
+    image
+        .split_once('@')
+        .and_then(|(reference, digest)| Some((reference.rsplit_once(':')?.1, digest)))
+        .is_some_and(|(tag, digest)| {
+            is_release(tag)
+                && digest.strip_prefix("sha256:").is_some_and(|hex| {
+                    hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())
+                })
+        })
+}
+
+/// A commit's label: `v` and one to three numbers, or `master` for the one
+/// action that tags no releases.
+fn is_label(action: &str, comment: &str) -> bool {
+    let comment = comment.trim();
+    let branch_pinned = action
+        .to_ascii_lowercase()
+        .starts_with("dtolnay/rust-toolchain@");
+    (branch_pinned && comment == "master")
+        || comment
+            .strip_prefix('v')
+            .and_then(numbers)
+            .is_some_and(|parts| parts <= 3)
 }
 
 fn is_commit(reference: &str) -> bool {
@@ -211,7 +270,12 @@ fn judge_uses(root: &Path, value: &str) -> Option<Unpinned> {
     let (action, comment) = value.split_once(" # ").unwrap_or((value, ""));
     let action = unquote(action.trim());
     if let Some(local) = action.strip_prefix("./") {
-        let present = action_file(&root.join(local)).is_some();
+        // Only a directory directly under `.github/actions/` is one of the
+        // actions [`local_actions`] lists, and so one this scan reads.
+        let own = local
+            .strip_prefix(".github/actions/")
+            .is_some_and(|name| !name.is_empty() && !name.contains('/') && !name.starts_with('.'));
+        let present = own && action_file(&root.join(local)).is_some();
         return (!present).then(|| Unpinned::LocalAction(action.to_string()));
     }
     let reference = action
@@ -220,10 +284,7 @@ fn judge_uses(root: &Path, value: &str) -> Option<Unpinned> {
     if !is_commit(reference) {
         return Some(Unpinned::Reference(action.to_string()));
     }
-    comment
-        .trim()
-        .is_empty()
-        .then(|| Unpinned::Unlabelled(action.to_string()))
+    (!is_label(action, comment)).then(|| Unpinned::Unlabelled(action.to_string()))
 }
 
 /// The install-action `tool:` entries that do not name an exact release:
@@ -459,11 +520,11 @@ impl Scan<'_> {
             && (0..before).any(|other| self.scopes[other] == job && self.is_step(other, step))
     }
 
-    /// Whether the step whose `uses:` is the node at `at` passes a
-    /// `toolchain:` input. The step's nodes are the ones indented at least
-    /// as deep as that key; its keys sit exactly at it, and the input
-    /// counts only under the `with:` key, not under `env:` or any other.
-    fn step_names_a_toolchain(&self, at: usize) -> bool {
+    /// Whether the step whose `uses:` is the node at `at` passes the input
+    /// `input`. The step's nodes are the ones indented at least as deep as
+    /// that key; its keys sit exactly at it, and the input counts only
+    /// under the `with:` key, not under `env:` or any other.
+    fn step_has_input(&self, at: usize, input: &str) -> bool {
         let column = self.nodes[at].column;
         let step = self.nodes[at + 1..]
             .iter()
@@ -472,7 +533,7 @@ impl Scan<'_> {
         for node in step {
             if node.indent == column {
                 in_with = node.key() == Some("with");
-            } else if in_with && node.key() == Some("toolchain") {
+            } else if in_with && node.key() == Some(input) {
                 return true;
             }
         }
@@ -482,11 +543,16 @@ impl Scan<'_> {
     fn judge_uses(&self, at: usize, value: &str) -> Option<Unpinned> {
         let action = scalar(value).to_ascii_lowercase();
         let toolchain_missing =
-            action.starts_with("dtolnay/rust-toolchain@") && !self.step_names_a_toolchain(at);
+            action.starts_with("dtolnay/rust-toolchain@") && !self.step_has_input(at, "toolchain");
+        let image_missing = action.starts_with("renovatebot/github-action@")
+            && !self.step_has_input(at, "renovate-image");
         let audit_unpinned = action.starts_with("rustsec/audit-check@")
             && !self.job_has_step(at, &SETUP_CARGO_AUDIT, at);
         judge_uses(self.root, value)
             .or_else(|| toolchain_missing.then_some(Unpinned::ToolchainMissing))
+            .or_else(|| {
+                image_missing.then(|| Unpinned::Image(format!("{action} with no renovate-image")))
+            })
             .or_else(|| audit_unpinned.then_some(Unpinned::CargoAuditMissing))
     }
 
@@ -500,7 +566,18 @@ impl Scan<'_> {
             Entry::Unread => return vec![Unpinned::Unread(line)],
             Entry::Flow => return vec![Unpinned::Flow(line)],
         };
-        let judged = matches!(key, "uses" | "toolchain" | "tool");
+        let judged = matches!(
+            key,
+            "uses"
+                | "toolchain"
+                | "tool"
+                | "go-version"
+                | "node-version"
+                | "go-version-file"
+                | "node-version-file"
+                | "renovate-image"
+                | "renovate-version"
+        );
         let folded = self
             .nodes
             .get(at + 1)
@@ -524,6 +601,30 @@ impl Scan<'_> {
                 .into_iter()
                 .map(Unpinned::Tool)
                 .collect(),
+            "go-version" | "node-version" => {
+                let version = scalar(value);
+                (!is_release(version))
+                    .then(|| Unpinned::Runtime(version.to_string()))
+                    .into_iter()
+                    .collect()
+            }
+            "go-version-file" | "node-version-file" => {
+                vec![Unpinned::Runtime(scalar(value).to_string())]
+            }
+            "renovate-image" => {
+                let image = scalar(value);
+                let from_home = image == RENOVATE_IMAGE_INPUT
+                    && self.job_has_step(at, &RENOVATE_IMAGE, self.nodes.len());
+                (!from_home)
+                    .then(|| Unpinned::Image(image.to_string()))
+                    .into_iter()
+                    .collect()
+            }
+            // The image pins the version; this input would float it.
+            "renovate-version" => vec![Unpinned::Image(format!(
+                "renovate-version: {}",
+                scalar(value)
+            ))],
             _ => Vec::new(),
         }
     }
@@ -558,6 +659,20 @@ fn every_workflow_pins_each_action_by_commit_and_each_toolchain_by_version() {
     let channel = field(&toolchain, "channel");
     assert!(is_release(&channel), "{channel} is not MAJOR.MINOR.PATCH");
     assert_eq!(field(&toolchain, "components"), r#"["clippy", "rustfmt"]"#);
+    // The measuring tool and the packager are exact releases too, judged
+    // by the same rule; packaging.rs holds that both workflows read them.
+    let llvm_cov = read("cargo-llvm-cov-version.txt");
+    assert!(
+        is_release(llvm_cov.trim()),
+        "{llvm_cov} is not MAJOR.MINOR.PATCH"
+    );
+    let nfpm = read("packaging/nfpm-version.txt");
+    let nfpm = nfpm.trim();
+    assert!(
+        nfpm.strip_prefix('v')
+            .is_some_and(|version| version.starts_with("2.") && is_release(version)),
+        "{nfpm} is not a pinned nfpm v2.MINOR.PATCH release"
+    );
 
     // The directories are listed, not named, so a workflow or an action
     // added later is judged too; the known files prove the listing read.
@@ -774,6 +889,218 @@ jobs:
     );
 }
 
+/// A commit's label names a release, a runtime is an exact release, and a
+/// `./` action is one of the repository's own. The local cases are planted
+/// in a scratch workspace, beside real action files outside
+/// `.github/actions/<name>/` that the scan would otherwise never read.
+#[test]
+fn a_loose_label_a_floating_runtime_or_a_stray_local_action_is_refused() {
+    let root = std::env::temp_dir().join(format!("workflow-pins-{}", std::process::id()));
+    let actions = [
+        ".github/actions/own",
+        ".github/actions/own/nested",
+        "tools/stray",
+    ];
+    for action in actions {
+        std::fs::create_dir_all(root.join(action)).expect(action);
+        std::fs::write(root.join(action).join("action.yml"), "name: planted\n").expect(action);
+    }
+    for pin in ["rust-toolchain.toml", "Cargo.toml"] {
+        std::fs::copy(workspace().join(pin), root.join(pin)).expect(pin);
+    }
+    let sha = "11d5960a326750d5838078e36cf38b85af677262";
+    let planted = format!(
+        "      - uses: ./.github/actions/own
+      - uses: ./tools/stray
+      - uses: ./.github/actions/own/nested
+      - uses: ./.github/actions/../../tools/stray
+      - uses: actions/checkout@{sha} # v27
+      - uses: actions/checkout@{sha} # junk
+      - uses: actions/checkout@{sha} # master
+      - uses: actions/checkout@{sha} # v4.4.0 or so
+      - uses: actions/setup-go@{sha} # v5.6.0
+        with:
+          go-version: stable
+      - uses: actions/setup-node@{sha} # v4.4.0
+        with:
+          node-version: 22
+          NODE-VERSION: '22.23.3'
+      - uses: actions/setup-node@{sha} # v4.4.0
+        with:
+          node-version-file: .nvmrc
+"
+    );
+    let offenses = offenses_in(&root, &planted);
+    std::fs::remove_dir_all(&root).expect("scratch workspace");
+    let at = |line, what| Offense { line, what };
+    let checkout = format!("actions/checkout@{sha}");
+    assert_eq!(
+        offenses,
+        [
+            at(2, Unpinned::LocalAction("./tools/stray".into())),
+            at(
+                3,
+                Unpinned::LocalAction("./.github/actions/own/nested".into())
+            ),
+            at(
+                4,
+                Unpinned::LocalAction("./.github/actions/../../tools/stray".into())
+            ),
+            at(6, Unpinned::Unlabelled(checkout.clone())),
+            at(7, Unpinned::Unlabelled(checkout.clone())),
+            at(8, Unpinned::Unlabelled(checkout)),
+            at(11, Unpinned::Runtime("stable".into())),
+            at(14, Unpinned::Runtime("22".into())),
+            at(18, Unpinned::Runtime(".nvmrc".into())),
+        ]
+    );
+}
+
+/// The Renovate image has one home, [`RENOVATE_IMAGE_FILE`], naming an
+/// exact release and its digest. Every workflow reaches it through that
+/// file: the Renovate step through [`RENOVATE_IMAGE`]'s output in its own
+/// job, ci.yml's validation by reading the file. A literal image, even a
+/// pinned one, is a second home and is refused.
+#[test]
+fn the_renovate_image_has_one_home_pinned_by_release_and_digest() {
+    let home = read(RENOVATE_IMAGE_FILE);
+    assert!(
+        is_pinned_image(home.trim()),
+        "{home} is not name:X.Y.Z@sha256:<64 hex>"
+    );
+    for file in workflows().iter().chain(&local_actions()) {
+        assert!(
+            !read(file).contains("renovatebot/renovate:"),
+            "{file} names the Renovate image outside {RENOVATE_IMAGE_FILE}"
+        );
+    }
+    let renovate = read(".github/workflows/renovate.yml");
+    assert!(renovate.contains(&format!("renovate-image: {RENOVATE_IMAGE_INPUT}\n")));
+    let jobs = ci_jobs();
+    let (_, lint) = jobs
+        .iter()
+        .find(|(id, _)| id == "lint-non-rust")
+        .expect("a lint-non-rust job");
+    assert!(
+        lint.contains(r#"image="$(tr -d '[:space:]' < .github/renovate-image.txt)""#),
+        "lint-non-rust does not validate from the pinned image"
+    );
+
+    let root = workspace();
+    let sha = "f3a31a786096ba6b40d0f0ffe11a494ef73bfa7c";
+    let digest = "2327f790a2faf49aafc42cb3b5233f4f52b18fd3081c850f1adc17d2a9af584e";
+    let planted = format!(
+        "jobs:
+  reads:
+    steps:
+{reads}      - uses: renovatebot/github-action@{sha} # v46.3.4
+        with:
+          renovate-image: {RENOVATE_IMAGE_INPUT}
+  literal:
+    steps:
+      - uses: renovatebot/github-action@{sha} # v46.3.4
+        with:
+          renovate-image: ghcr.io/renovatebot/renovate:44.115.9@sha256:{digest}
+      - uses: renovatebot/github-action@{sha} # v46.3.4
+        with:
+          token: t
+      - uses: renovatebot/github-action@{sha} # v46.3.4
+        with:
+          renovate-image: {RENOVATE_IMAGE_INPUT}
+          renovate-version: 44.115.9
+",
+        reads = step_text(&RENOVATE_IMAGE)
+    );
+    let at = |line, what| Offense { line, what };
+    assert_eq!(
+        offenses_in(&root, &planted),
+        [
+            at(
+                15,
+                Unpinned::Image(format!(
+                    "ghcr.io/renovatebot/renovate:44.115.9@sha256:{digest}"
+                ))
+            ),
+            at(
+                16,
+                Unpinned::Image(format!(
+                    "renovatebot/github-action@{sha} with no renovate-image"
+                ))
+            ),
+            // No step in this job reads the home, so its output is no pin.
+            at(21, Unpinned::Image(RENOVATE_IMAGE_INPUT.into())),
+            at(22, Unpinned::Image("renovate-version: 44.115.9".into())),
+        ]
+    );
+}
+
+/// Renovate is the one bumper: every tool pinned by version and digest has
+/// a Renovate manager moving its version, and the post-upgrade script that
+/// re-measures its digest resolves the very release its action downloads.
+#[test]
+fn renovate_moves_every_digest_pinned_tool_and_its_script_finds_each_release() {
+    let root = workspace();
+    assert!(
+        !root.join(".github/dependabot.yml").exists(),
+        "Dependabot is back beside Renovate"
+    );
+    let config = read(".github/renovate.json5");
+    let output = std::process::Command::new("bash")
+        .current_dir(&root)
+        .args(["scripts/refresh-pin-checksums.sh", "--print-urls"])
+        .output()
+        .expect("bash");
+    assert!(output.status.success(), "{output:?}");
+    let printed = String::from_utf8(output.stdout).expect("UTF-8");
+    let urls: Vec<(&str, &str)> = printed
+        .lines()
+        .map(|line| line.split_once(' ').expect("an action and its URL"))
+        .collect();
+    let mut digested = Vec::new();
+    for action in local_actions() {
+        let text = read(&action);
+        let Some(key) = text.lines().find_map(|line| {
+            let (key, _) = line.trim().split_once(": ")?;
+            key.ends_with("_SHA256").then(|| key.to_string())
+        }) else {
+            continue;
+        };
+        let version_key = key.replace("_SHA256", "_VERSION");
+        let version = field(&text, &version_key);
+        let (_, url) = urls
+            .iter()
+            .find(|(file, _)| *file == action)
+            .unwrap_or_else(|| panic!("the script does not refresh {action}"));
+        assert!(
+            url.starts_with("https://github.com/") && !url.contains("${") && url.contains(&version),
+            "{action}: {url}"
+        );
+        assert!(
+            config.contains(&format!("{version_key}: (?<currentValue>")),
+            "no Renovate manager moves {action}'s {version_key}"
+        );
+        let directory = action
+            .strip_suffix("/action.yml")
+            .and_then(|path| path.strip_prefix(".github/actions/"))
+            .expect("an action directory");
+        assert!(
+            config.contains(&format!("{directory}/action\\\\.yml$/")),
+            "no Renovate manager reads {action}"
+        );
+        digested.push(action);
+    }
+    assert_eq!(
+        digested,
+        [
+            ".github/actions/setup-actionlint/action.yml",
+            BUBBLEWRAP_ACTION,
+            CARGO_AUDIT_ACTION,
+            ".github/actions/setup-lychee/action.yml",
+        ]
+    );
+    assert_eq!(urls.len(), digested.len(), "{printed}");
+}
+
 /// A tool CI fetches is unpacked only after its tarball matched the
 /// digest its one action records, and no workflow fetches it around that
 /// action.
@@ -861,6 +1188,50 @@ fn cargo_audit_is_installed_once_from_a_release_verified_by_digest() {
     );
 }
 
+/// actionlint and lychee, which rule on the workflows and the links, are
+/// installed from one action each, from a release verified by digest.
+#[test]
+fn the_lint_tools_are_installed_from_releases_verified_by_digest() {
+    for (action, digest, download, unpack, expected) in [
+        (
+            ".github/actions/setup-actionlint/action.yml",
+            "ACTIONLINT_SHA256",
+            "rhysd/actionlint/releases/download",
+            r#"tar xzf "$tarball""#,
+            vec![(".github/workflows/ci.yml", 1)],
+        ),
+        (
+            ".github/actions/setup-lychee/action.yml",
+            "LYCHEE_SHA256",
+            "lycheeverse/lychee/releases/download",
+            r#"tar xzf "$tarball""#,
+            vec![
+                (".github/workflows/ci.yml", 1),
+                (".github/workflows/links-weekly.yml", 1),
+            ],
+        ),
+    ] {
+        let uses = format!(
+            "uses: ./{}",
+            action.strip_suffix("/action.yml").expect("an action file")
+        );
+        let sites: Vec<(String, usize)> = workflows()
+            .into_iter()
+            .map(|file| {
+                let count = read(&file).matches(&uses).count();
+                (file, count)
+            })
+            .filter(|(_, count)| *count > 0)
+            .collect();
+        let expected: Vec<(String, usize)> = expected
+            .into_iter()
+            .map(|(file, count)| (file.to_string(), count))
+            .collect();
+        assert_eq!(sites, expected, "{action}");
+        assert_fetched_by_digest(action, digest, download, unpack);
+    }
+}
+
 /// The job bodies of ci.yml, keyed by job id, in file order.
 fn ci_jobs() -> Vec<(String, String)> {
     let workflow = read(".github/workflows/ci.yml");
@@ -909,6 +1280,7 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "seatbelt-lifetime",
             "coverage",
             "license-compliance",
+            "lint-non-rust",
             "dependency-audit",
             "bootstrap-budgets",
             "bootstrap-budgets-macos",
@@ -951,4 +1323,47 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
     assert!(!job("engine").contains("continue-on-error"), "engine");
     assert!(job("seatbelt-lifetime").contains(gate_b));
     assert!(job("seatbelt-lifetime").contains("    runs-on: macos-latest\n"));
+}
+
+/// The non-Rust half of the tree is linted by one job, each check at the
+/// threshold issue #339 set: dropping a step, or softening its flags,
+/// fails here.
+#[test]
+fn the_non_rust_lints_job_runs_every_check() {
+    let jobs = ci_jobs();
+    let (_, job) = jobs
+        .iter()
+        .find(|(id, _)| id == "lint-non-rust")
+        .expect("a lint-non-rust job");
+    for step in [
+        "uses: ./.github/actions/setup-actionlint\n",
+        "uses: ./.github/actions/setup-lychee\n",
+        "tool: shellcheck@0.11.0,typos@1.50.2,zizmor@1.30.1\n",
+        "SHELLCHECK_OPTS: -S warning\n        run: actionlint\n",
+        "run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline\n",
+        "run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning\n",
+        "run: typos\n",
+        "run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress\n",
+        "npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund\n",
+        "bash scripts/lint-diagrams.sh\n",
+        "--entrypoint renovate-config-validator \"$image\" --strict \"$@\"\n",
+        "validate --no-global .github/renovate.json5\n",
+        "validate .github/renovate-global.json5\n",
+    ] {
+        assert!(job.contains(step), "lint-non-rust does not run {step:?}");
+    }
+    assert!(!job.contains("continue-on-error"), "lint-non-rust");
+    let lock = read(".github/lint/package-lock.json");
+    assert!(
+        lock.contains(
+            r#""node_modules/@mermaid-js/mermaid-cli": {
+      "version": "12.0.0","#
+        ),
+        "the lockfile does not pin mermaid-cli 12.0.0"
+    );
+    // Renovate runs from its pinned image, never from this install.
+    assert!(
+        !lock.contains("node_modules/renovate"),
+        "Renovate is back in .github/lint"
+    );
 }

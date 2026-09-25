@@ -4,6 +4,14 @@ on:
   push:
     tags: ["v*"]
 
+# Every job reads the repository and nothing more unless it names what else
+# it needs, and no checkout keeps the token in .git/config. No step restores
+# a build cache: a release is admitted, measured and built from a cold tree,
+# so no cache another workflow wrote can reach an attested artifact
+# (zizmor's excessive-permissions, artipacked and cache-poisoning, #339).
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: release admission
@@ -14,11 +22,12 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Decision 0043: the shipped verify and ship seats are boxed exec and the
       # quickstart bench drives them, so the release's own admission needs the
       # same bubblewrap CI installs — the release workflow had not run since
@@ -52,6 +61,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # The same two pins CI reads: the nightly and the measuring tool.
       - name: the pinned coverage toolchain and its measuring tool
         id: nightly
@@ -66,7 +77,6 @@ jobs:
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Decision 0043: the shipped verify and ship seats are boxed exec, so
       # the release's coverage needs the same bubblewrap CI installs.
       - name: bubblewrap for the boxed seats
@@ -92,11 +102,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo build --release --locked -p brokkr-cli --target ${{ matrix.target }}
       # brokkr is the binary, and now the only one: the `forge` shim rode
       # along for one release (decision 0019 ruling 9) and is dropped.
@@ -114,7 +125,8 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: matrix.nfpm_arch
         with:
-          go-version: stable
+          go-version: 1.27.1
+          cache: false
       - name: install nfpm
         if: matrix.nfpm_arch
         # Pinned, and pinned in one file both workflows read. `@latest`
@@ -181,7 +193,7 @@ jobs:
           subject-path: dist/SHA256SUMS
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: dist/*
+          files: dist/* # zizmor: ignore[superfluous-actions] the release, its files and its body stay one reviewed step
           generate_release_notes: true
           body: |
             One native binary per platform — no Python, no Node, no services.
@@ -204,6 +216,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
@@ -247,6 +261,8 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
@@ -258,9 +274,12 @@ jobs:
       - name: build the apt repository
         run: bash packaging/apt/build-repo.sh --debs dist --out site/apt
       - name: build the rpm repository
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.event.repository.name }}
         run: |
           bash packaging/rpm/build-repo.sh --rpms dist --out site/rpm \
-            --base-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/rpm"
+            --base-url "https://${OWNER}.github.io/${REPOSITORY}/rpm"
       - name: sign the repository indexes
         env:
           BROKKR_APT_SIGNING_KEY: ${{ secrets.BROKKR_APT_SIGNING_KEY }}
@@ -311,6 +330,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: render the templates from the attested manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -352,6 +373,10 @@ jobs:
         with:
           app-id: ${{ vars.BROKKR_RELEASE_APP_ID }}
           private-key: ${{ secrets.BROKKR_RELEASE_APP_PRIVATE_KEY }}
+          # The token can push the flake branch and open its pull request,
+          # and nothing else the installation could grant.
+          permission-contents: write
+          permission-pull-requests: write
       - name: the flake's digests, as a pull request against this repository
         id: flake-pr
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11

@@ -33,13 +33,13 @@ recipe are all untouched; the only production code change is in
 
 Design artifacts:
 
-- [specs/enforce-requires-artifacts/spec.md](../../../specs/enforce-requires-artifacts/spec.md)
+- [specs/enforce-requires-artifacts/spec.md](../../features/enforce-requires-artifacts/spec.md)
   — what and why, gate semantics, the static-vs-dynamic ruling, and
   the `## Acceptance Criteria`.
-- [specs/enforce-requires-artifacts/plan.md](../../../specs/enforce-requires-artifacts/plan.md)
+- [specs/enforce-requires-artifacts/plan.md](../../features/enforce-requires-artifacts/plan.md)
   — how, the panel-position reconciliation, files touched, risks with
   mitigations.
-- [specs/enforce-requires-artifacts/tasks.md](../../../specs/enforce-requires-artifacts/tasks.md)
+- [specs/enforce-requires-artifacts/tasks.md](../../features/enforce-requires-artifacts/tasks.md)
   — ordered tasks, each paired with the proof that closes it.
 
 ## Impact

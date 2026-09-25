@@ -15,7 +15,7 @@ description: >-
 runs:
   using: composite
   steps:
-    - name: cargo-audit 0.22.2, pinned by digest
+    - name: cargo-audit, pinned by version and digest
       shell: bash
       env:
         CARGO_AUDIT_VERSION: 0.22.2

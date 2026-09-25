@@ -1,0 +1,8 @@
+{
+  "name": "brokkr-non-rust-lints",
+  "private": true,
+  "description": "The diagram renderer the non-Rust lints job installs from this lockfile (issue #339).",
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "12.0.0"
+  }
+}

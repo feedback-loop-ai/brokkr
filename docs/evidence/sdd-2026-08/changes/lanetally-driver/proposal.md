@@ -57,14 +57,14 @@ and the UI tell captured sessions apart.
 
 Design artifacts:
 
-- [specs/lanetally-driver/spec.md](../../../specs/lanetally-driver/spec.md)
+- [specs/lanetally-driver/spec.md](../../features/lanetally-driver/spec.md)
   — what and why: naming, the sharing invariants, the capture
   constant's integrity, masking boundary honesty, and the
   `## Acceptance Criteria`.
-- [specs/lanetally-driver/plan.md](../../../specs/lanetally-driver/plan.md)
+- [specs/lanetally-driver/plan.md](../../features/lanetally-driver/plan.md)
   — how: the panel-position reconciliation (ten explicit rulings),
   files touched in dependency order, risks with mitigations.
-- [specs/lanetally-driver/tasks.md](../../../specs/lanetally-driver/tasks.md)
+- [specs/lanetally-driver/tasks.md](../../features/lanetally-driver/tasks.md)
   — thirteen ordered tasks, each paired with the test that proves it.
 
 ## Impact
