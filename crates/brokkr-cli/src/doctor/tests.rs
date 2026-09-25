@@ -1111,7 +1111,7 @@ fn public_doctor_includes_the_workspace_house_check() {
     let dir = tempfile::tempdir().unwrap();
     let report = doctor(
         None,
-        &dir.path().join("forge.db"),
+        Some(&dir.path().join("forge.db")),
         &dir.path().join("secrets.env"),
         None,
     );

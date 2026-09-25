@@ -164,8 +164,9 @@ no agent. Dialect lines compare the installed specification tool with the
 realm's pin and check every file its dialect requires; a missing dialect tool
 warns that the design route will refuse without making the whole doctor fail.
 Three flags: `--bundle <dir>` also compiles a bundle and reports
-the result, and `--db <path>` chooses the workspace journal (default
-`.forge/forge.db`); `--realms <path>` selects a non-default realm map.
+the result, and `--db <path>` chooses the workspace journal (default: the
+map's journal, else `.forge/forge.db`); `--realms <path>` selects a
+non-default realm map.
 
 ### Step 2 — `brokkr init .`
 
@@ -530,9 +531,10 @@ edited files. If you changed the bundle, that is a new run, not a
 resumed one.
 
 `brokkr resume` takes `--bundle`/`--recipe` (exactly one), `--run`,
-`--db` (default `.forge/forge.db`), `--repo` and `--secrets-file`. It
-takes **no `--realms`**: a run started in a mapped world whose journal
-is not `.forge/forge.db` is resumed by naming that journal with `--db`.
+`--realms`, `--db`, `--repo` and `--secrets-file`. The journal is the one
+`run` wrote: `--db` when typed, else the journal the map names, else
+`.forge/forge.db` — so a run started in a mapped world is resumed with no
+`--db`.
 
 #### Conclude — closing a run whose bundle no longer compiles
 
@@ -597,8 +599,8 @@ $ brokkr costs --run latest
 
 Per seat: `attempts` counted from `effect/started` events, and `turns`
 and `cost_usd` summed from the `num_turns` and `total_cost_usd` fields
-the driver reported in its checkpoints. `--db` defaults to
-`.forge/forge.db`; `brokkr costs` takes no `--realms`.
+the driver reported in its checkpoints. `--db` defaults to the journal
+the map names, else `.forge/forge.db`; `--realms` names the map.
 
 Be clear-eyed about this:
 
@@ -645,11 +647,10 @@ Neither number is a claim about your machine. Run the script.
 - **One journal per world.** A realms map names a set of repositories
   and exactly one `journal` they share (`forge.realms/v1`). There is no
   per-realm journal.
-- **`--realms` reaches only some commands.** `run` and the read surfaces
-  the ruling names — `runs`, `realms`, `tui`, `watch`, `inspect`,
-  `export`, `muninn run` — accept it. `resume`, `conclude`, `rerun`,
-  `doctor`, `ui`, `costs`, `compare`, `anchor` and `bridge` take `--db`
-  alone.
+- **`ui` serves one journal.** Every verb that opens a journal takes
+  `--realms` and opens the journal the map names unless `--db` outranks
+  it (#374), but `ui` refuses a world whose realms name several hearths
+  until `--db` picks one; `tui` and `runs` read them all.
 - **A Looper-dispatched run (`--dispatch`) cannot adopt agents and
   carries no realms map.** The v2 manifest lineage would silently drop
   both, so the engine refuses instead.

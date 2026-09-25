@@ -161,7 +161,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     assert_eq!(
         run(cli(Cmd::Ledger(LedgerArgs {
             run: "ledger-run".into(),
-            db: db.clone(),
+            journal: at(&db),
             repo: None,
         })))
         .unwrap(),
@@ -170,7 +170,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     assert_eq!(
         run(cli(Cmd::Ledger(LedgerArgs {
             run: "ledger-run".into(),
-            db,
+            journal: at(&db),
             repo: Some(dir.path().to_path_buf()),
         })))
         .unwrap(),
@@ -181,7 +181,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     let missing = dir.path().join("missing.db");
     assert!(run(cli(Cmd::Ledger(LedgerArgs {
         run: "ledger-run".into(),
-        db: missing.clone(),
+        journal: at(&missing),
         repo: None,
     })))
     .is_err());
@@ -336,9 +336,16 @@ fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd
         by_run: None,
         by_seq: None,
         by_realm: None,
+        journal: at(db),
+    })
+}
+
+/// `--db <path>` and no `--realms`: the journal a test names outright.
+fn at(db: &std::path::Path) -> JournalArgs {
+    JournalArgs {
         realms: None,
         db: Some(db.to_path_buf()),
-    })
+    }
 }
 
 #[test]
@@ -380,7 +387,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     assert_eq!(
         run(cli(Cmd::Costs(CostsArgs {
             run: "r1".into(),
-            db: db.clone(),
+            journal: at(&db),
         })))
         .unwrap(),
         ExitCode::SUCCESS
@@ -461,7 +468,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         bundle: Some(workspace().join("recipes/fast")),
         recipe: None,
         recipes_dir: workspace().join("recipes"),
-        db,
+        journal: at(&db),
         repo: None,
         secrets_file: None,
     })))
@@ -640,7 +647,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
         assert_eq!(
             run(cli(Cmd::Anchor(AnchorArgs {
                 run: "r1".into(),
-                db: db.clone(),
+                journal: at(&db),
                 repo: repo.clone(),
                 check,
             })))
@@ -652,7 +659,7 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
     let mut seen = None;
     let code = run_with(
         cli(Cmd::Ui(UiArgs {
-            db: db.clone(),
+            journal: at(&db),
             port: 4321,
             open: true,
         })),
@@ -668,6 +675,129 @@ fn anchor_create_check_and_injected_ui_cover_command_boundaries() {
     .unwrap();
     assert_eq!(code, ExitCode::SUCCESS);
     assert_eq!(seen, Some((db, 4321, true)));
+}
+
+/// #374: `ui` and `tui` read one fleet. In a mapped workspace, with no
+/// `--db` typed, the journal `ui` serves is the one hearth `tui` opens —
+/// the map's, not `.forge/forge.db`.
+#[test]
+fn ui_and_tui_open_the_journal_the_map_names() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v1",
+            "realms": [{"name": "here", "path": ".", "default_branch": "main"}],
+            "journal": "state/world.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut served = None;
+    run_with(
+        cli(Cmd::Ui(UiArgs {
+            journal: JournalArgs {
+                realms: None,
+                db: None,
+            },
+            port: 0,
+            open: false,
+        })),
+        dir.path(),
+        |db, _, _| {
+            served = Some(db);
+            Ok(())
+        },
+        None,
+        None,
+        run_tui,
+    )
+    .unwrap();
+    let mut opened = None;
+    run_with(
+        cli(Cmd::Tui(TuiArgs {
+            run: None,
+            realms: None,
+            db: None,
+        })),
+        dir.path(),
+        ui::serve,
+        None,
+        None,
+        |hearths, _, _| {
+            opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
+            Ok(ExitCode::SUCCESS)
+        },
+    )
+    .unwrap();
+    let world = dir.path().join("state/world.db");
+    assert_eq!(served, Some(world.clone()));
+    assert_eq!(opened, Some(vec![world]));
+}
+
+/// #374: where the realms name two hearths, `tui` opens both and `ui`,
+/// which serves one journal, refuses and names them — it never serves
+/// one hearth as though it were the fleet `tui` shows.
+#[test]
+fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": ".", "default_branch": "main", "journal": "alpha.db"},
+                {"name": "beta", "path": ".", "default_branch": "main", "journal": "beta.db"},
+            ],
+            "journal": "alpha.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut opened = None;
+    run_with(
+        cli(Cmd::Tui(TuiArgs {
+            run: None,
+            realms: None,
+            db: None,
+        })),
+        dir.path(),
+        ui::serve,
+        None,
+        None,
+        |hearths, _, _| {
+            opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
+            Ok(ExitCode::SUCCESS)
+        },
+    )
+    .unwrap();
+    let (alpha, beta) = (dir.path().join("alpha.db"), dir.path().join("beta.db"));
+    assert_eq!(opened, Some(vec![alpha.clone(), beta.clone()]));
+    let refused = run_with(
+        cli(Cmd::Ui(UiArgs {
+            journal: JournalArgs {
+                realms: None,
+                db: None,
+            },
+            port: 0,
+            open: false,
+        })),
+        dir.path(),
+        |_, _, _| panic!("a two-hearth world is never served as one journal"),
+        None,
+        None,
+        run_tui,
+    )
+    .unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "brokkr ui serves one journal, and this world's realms name 2: {}, {}; --db names \
+             the one to serve (brokkr tui and brokkr runs read them all)",
+            alpha.display(),
+            beta.display()
+        )
+    );
 }
 
 #[test]
@@ -718,7 +848,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::Plant {
             run: "latest".into(),
-            db: db.clone(),
+            journal: at(&db),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -746,7 +876,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::Plant {
             run: "r1".into(),
-            db: db.clone(),
+            journal: at(&db),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -764,7 +894,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
         assert_eq!(
             keep(KeepRefsCmd::List {
                 run: run_selector,
-                db: db.clone(),
+                journal: at(&db),
                 repo: repo.clone(),
             }),
             ExitCode::SUCCESS
@@ -774,7 +904,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::List {
             run: Some("r1".into()),
-            db: moved_on.clone(),
+            journal: at(&moved_on),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -788,12 +918,12 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     for command in [
         KeepRefsCmd::List {
             run: Some(selector::LATEST.into()),
-            db: moved_on.clone(),
+            journal: at(&moved_on),
             repo: repo.clone(),
         },
         KeepRefsCmd::Delete {
             run: selector::LATEST.into(),
-            db: moved_on.clone(),
+            journal: at(&moved_on),
             repo: repo.clone(),
         },
     ] {
@@ -810,7 +940,7 @@ fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     assert_eq!(
         keep(KeepRefsCmd::Delete {
             run: "r1".into(),
-            db,
+            journal: at(&db),
             repo: repo.clone(),
         }),
         ExitCode::SUCCESS
@@ -1077,7 +1207,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
     let command = |follow| {
         Cmd::Bridge(BridgeArgs {
             run: "bridge-run".into(),
-            db: db.clone(),
+            journal: at(&db),
             looper_url: base_url.clone(),
             token_env: token_name.clone(),
             follow,
@@ -1097,7 +1227,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
     assert!(run_with(
         cli(Cmd::Bridge(BridgeArgs {
             run: "missing-run".into(),
-            db: db.clone(),
+            journal: at(&db),
             looper_url: "http://127.0.0.1:1".into(),
             token_env: token_name.clone(),
             follow: false,
@@ -1564,7 +1694,7 @@ fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
             "costs",
             Cmd::Costs(CostsArgs {
                 run: "x".into(),
-                db: db.clone(),
+                journal: at(&db),
             }),
         ),
         (
@@ -1601,7 +1731,7 @@ fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
             "replay",
             Cmd::Replay(ReplayArgs {
                 run: "x".into(),
-                db: db.clone(),
+                journal: at(&db),
             }),
         ),
         (
@@ -1627,7 +1757,7 @@ fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
             Cmd::Compare(CompareArgs {
                 run_a: "x".into(),
                 run_b: "y".into(),
-                db: db.clone(),
+                journal: at(&db),
             }),
         ),
     ];
@@ -2844,7 +2974,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
                 recipe: None,
                 recipes_dir: workspace().join("recipes"),
                 run: "stopped-mid-flight".into(),
-                db: db.clone(),
+                journal: at(&db),
                 repo: Some(dir.path().to_path_buf()),
                 secrets_file: None,
             }))
@@ -2950,7 +3080,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
         }),
         Cmd::Replay(ReplayArgs {
             run: "poisoned".into(),
-            db: db.clone(),
+            journal: at(&db),
         }),
     ] {
         let error = run(cli(command)).unwrap_err().to_string();
@@ -3587,7 +3717,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
         run(cli(Cmd::Conclude(ConcludeArgs {
             run: "stranded".into(),
             reason: "the engine moved on without it".into(),
-            db: db.clone(),
+            journal: at(&db),
         })))
         .unwrap(),
         ExitCode::from(3),
@@ -3599,7 +3729,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let refusal = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "stranded".into(),
         reason: "again".into(),
-        db: db.clone(),
+        journal: at(&db),
     })))
     .unwrap_err()
     .to_string();
@@ -3613,7 +3743,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
         run(cli(Cmd::Conclude(ConcludeArgs {
             run: "conclude-parked-hand-built".into(),
             reason: "closing the books".into(),
-            db: db.clone(),
+            journal: at(&db),
         })))
         .unwrap(),
         ExitCode::from(3),
@@ -3631,7 +3761,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let missing = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "no-such-run".into(),
         reason: "nothing to close".into(),
-        db,
+        journal: at(&db),
     })))
     .unwrap_err()
     .to_string();
@@ -4028,7 +4158,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
             recipe: None,
             recipes_dir: root.join("recipes"),
             run: "resume-missing-bundle".into(),
-            db: resume_db,
+            journal: at(&resume_db),
             repo: None,
             secrets_file: None,
         })),
@@ -4147,8 +4277,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
             by_run: by_run.map(str::to_string),
             by_seq,
             by_realm: None,
-            realms: None,
-            db: Some(db.clone()),
+            journal: at(&db),
         })
     };
 
@@ -4255,8 +4384,10 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
                 by_run: Some("later".into()),
                 by_seq: Some(6),
                 by_realm: Some("next-door".into()),
-                realms: Some(workspace.path().join("realms.json")),
-                db: None,
+                journal: JournalArgs {
+                    realms: Some(workspace.path().join("realms.json")),
+                    db: None,
+                },
             })),
         )
         .unwrap(),
@@ -4279,7 +4410,11 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     })
     .unwrap_err()
     .to_string();
-    assert!(refusal.contains("belong to 'supersede'"), "{refusal}");
+    assert_eq!(
+        refusal,
+        "--findings, --by-run, --by-seq and --by-realm belong to 'supersede'; \
+         'retry' takes --run, --reason, --realms and --db"
+    );
 }
 
 #[test]

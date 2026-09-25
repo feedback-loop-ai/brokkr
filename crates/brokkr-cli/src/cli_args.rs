@@ -4,8 +4,25 @@
 //! stack before parsing or walking any bundle. Args delegates the finite
 //! command tree one verb at a time, without increasing the process stack.
 
-use super::{DEFAULT_DB, DEFAULT_SECRETS};
+use super::DEFAULT_SECRETS;
 use std::path::PathBuf;
+
+/// Which journal a verb opens, asked the same way at every verb that
+/// takes one (#374): `--db` outranks the journal the map names, and
+/// with neither the default `.forge/forge.db` as always. Resolved once,
+/// by `JournalArgs::journal`, before the verb opens anything.
+#[derive(clap::Args)]
+#[group(skip)]
+pub(super) struct JournalArgs {
+    /// The world's map — the journal it names is the one opened
+    /// (default ./realms.json when present).
+    #[arg(long)]
+    pub(super) realms: Option<PathBuf>,
+    /// The workspace journal. Outranks the map's journal; without
+    /// either, .forge/forge.db as always.
+    #[arg(long)]
+    pub(super) db: Option<PathBuf>,
+}
 
 #[derive(clap::Args)]
 #[group(skip)]
@@ -18,8 +35,8 @@ pub(super) struct InitArgs {
 pub(super) struct CostsArgs {
     #[arg(long)]
     pub(super) run: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
 }
 
 #[derive(clap::Args)]
@@ -27,8 +44,8 @@ pub(super) struct CostsArgs {
 pub(super) struct LedgerArgs {
     #[arg(long)]
     pub(super) run: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
     /// Write `.forge/ledger/<run>.md` here; without it, print the ledger.
     #[arg(long)]
     pub(super) repo: Option<PathBuf>,
@@ -40,8 +57,8 @@ pub(super) struct AnchorArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
     #[arg(long, default_value = ".")]
     pub(super) repo: PathBuf,
     /// Verify instead of writing a new anchor.
@@ -52,8 +69,8 @@ pub(super) struct AnchorArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct UiArgs {
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
     #[arg(long, default_value_t = 8383)]
     pub(super) port: u16,
     /// Open the system browser after binding.
@@ -87,8 +104,10 @@ pub(super) struct DoctorArgs {
     /// (default ./realms.json when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    /// The workspace journal whose database doctor opens. Outranks the
+    /// map's journal; without either, .forge/forge.db as always.
+    #[arg(long)]
+    pub(super) db: Option<PathBuf>,
     /// Operator-side secrets store, so doctor can say which declared
     /// credentials a route is taking from the ambient environment
     /// instead (decision 0036 ruling 5).
@@ -150,8 +169,8 @@ pub(super) struct ResumeArgs {
     pub(super) recipes_dir: PathBuf,
     #[arg(long)]
     pub(super) run: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
     #[arg(long)]
     pub(super) repo: Option<PathBuf>,
     /// Operator-side secrets store for seats with declared bindings
@@ -173,8 +192,8 @@ pub(super) struct RerunArgs {
     pub(super) recipe: Option<String>,
     #[arg(long, default_value = "recipes")]
     pub(super) recipes_dir: PathBuf,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
     #[arg(long)]
     pub(super) repo: Option<PathBuf>,
     /// Operator-side secrets store for seats with declared bindings
@@ -188,8 +207,8 @@ pub(super) struct RerunArgs {
 pub(super) struct CompareArgs {
     pub(super) run_a: String,
     pub(super) run_b: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
 }
 
 #[derive(clap::Args)]
@@ -199,8 +218,8 @@ pub(super) struct ConcludeArgs {
     pub(super) run: String,
     #[arg(long)]
     pub(super) reason: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
 }
 
 #[derive(clap::Args)]
@@ -230,12 +249,10 @@ pub(super) struct OperatorArgs {
     /// the workspace journal, which is every one-hearth world.
     #[arg(long)]
     pub(super) by_realm: Option<String>,
-    /// supersede only: the world's map, so a citation may name a
-    /// run in another hearth.
-    #[arg(long)]
-    pub(super) realms: Option<PathBuf>,
-    #[arg(long)]
-    pub(super) db: Option<PathBuf>,
+    /// The journal the command is written to — and, for supersede, the
+    /// map a citation into another hearth is read through.
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
 }
 
 #[derive(clap::Args)]
@@ -335,8 +352,8 @@ pub(super) struct ReplayArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
 }
 
 #[derive(clap::Args)]
@@ -393,8 +410,8 @@ pub(super) struct VerifyRunArgs {
 pub(super) struct BridgeArgs {
     #[arg(long)]
     pub(super) run: String,
-    #[arg(long, default_value = DEFAULT_DB)]
-    pub(super) db: PathBuf,
+    #[command(flatten)]
+    pub(super) journal: JournalArgs,
     #[arg(long)]
     pub(super) looper_url: String,
     #[arg(long, default_value = "LOOPER_API_KEY")]
