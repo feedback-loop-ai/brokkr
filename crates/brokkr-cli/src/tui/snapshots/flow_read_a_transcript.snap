@@ -1,0 +1,21 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+start  level Participant · pane 0 · cursor [None, Some("eff-i"), None] · turn None · reading None
+    status  runs · run run-7 · seat eff-i · scoped eff-i
+    footer  ↑↓/jk scroll · g/G top/bottom · Tab pane · Esc back · / filter · r refresh · ? help · q quit
+Tab -> Continue  level Participant · pane 1 · cursor [None, Some("eff-i"), None] · turn None · reading None
+    status  runs · run run-7 · seat eff-i · scoped eff-i
+    footer  ↑↓/jk move · Enter read whole transcript · g/G top/bottom · Tab pane · Esc back · / filter · r refresh · ? help · q quit
+Down -> Continue  level Participant · pane 1 · cursor [None, Some("eff-i"), None] · turn Some("0") · reading None
+    status  runs · run run-7 · seat eff-i · scoped eff-i
+    footer  ↑↓/jk move · Enter read turn · Esc unselect · g/G top/bottom · Tab pane · / filter · r refresh · ? help · q quit
+Enter -> Continue  level Participant · pane 1 · cursor [None, Some("eff-i"), None] · turn Some("0") · reading Some("#1 turn 0  2026-01-01T00:00:05Z")
+    status  runs · run run-7 · seat eff-i · scoped eff-i
+    footer  ↑↓/jk scroll · PgUp/PgDn page · g top · Esc or Enter close · q quit
+Down -> Continue  level Participant · pane 1 · cursor [None, Some("eff-i"), None] · turn Some("0") · reading Some("#1 turn 0  2026-01-01T00:00:05Z")
+    status  runs · run run-7 · seat eff-i · scoped eff-i
+    footer  ↑↓/jk scroll · PgUp/PgDn page · g top · Esc or Enter close · q quit
+Escape -> Continue  level Participant · pane 1 · cursor [None, Some("eff-i"), None] · turn Some("0") · reading None
+    status  runs · run run-7 · seat eff-i · scoped eff-i
+    footer  ↑↓/jk move · Enter read turn · Esc unselect · g/G top/bottom · Tab pane · / filter · r refresh · ? help · q quit

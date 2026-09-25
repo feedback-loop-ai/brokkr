@@ -1,0 +1,15 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+"this terminal is too small for brokkr tui                  "
+"try `brokkr inspect --run <id>` or `brokkr watch --run <id>"
+"or make the window bigger. q or Ctrl+C quits.              "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "

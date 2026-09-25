@@ -1,0 +1,23 @@
+---
+source: crates/brokkr-cli/src/tui/snapshot_tests.rs
+---
+"┌seat──────────────────────────────────────────────────────────────────────────┐"
+"│intake · succeeded                                                            │"
+"│terminal  effect/succeeded · 2026-01-01T00:02:03Z                             │"
+"│transcript  claude-session · abcd-1234 · home /home/operator/.claude/projects │"
+"│full session: claude --resume abcd-1234                                       │"
+"│selected by  —                                                                │"
+"│model     — (claimed) · boundary —                                            │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"┌checkpoints───────────────────────────────────────────────────────────────────┐"
+"│3  Read  model —  boundary —  effort —  tokens —  docs/decisions/0014-interact│"
+"│—  claude-session-finished  model —  boundary —  effort —  tokens —  —  2026-0│"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"┌transcript────────────────────────────────────────────────────────────────────┐"
+"│no readable turns — transcript truncated (size cap)                           │"
+"│transcript truncated (size cap)                                               │"
+"│                                                                              │"
+"└──────────────────────────────────────────────────────────────────────────────┘"
+"runs · run run-7 · seat eff-i · scoped eff-i                                    "
+"↑↓/jk scroll · g/G top/bottom · Tab pane · Esc back · / filter · r refresh · ? h"
