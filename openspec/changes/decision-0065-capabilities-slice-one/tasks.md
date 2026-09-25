@@ -1347,7 +1347,11 @@ gives the `--allowedTools` advice and is outside every unit's inventory.
 
 ## 9. Unit 9 — Qualify a supported nonempty restriction
 
-- [ ] 9.1 Unit 9 qualifies nonempty restriction semantics and production fixture; --settings syntax alone is insufficient. Verify provider/version evidence; report upstream before dependent work if no supported transport meets the positive. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–4 / R10. (previous 0.3) Returned upstream 2026-09-25 (run `0065-rebuild-unit-9-see-the-unit-f241ed65`; evidence.md, "Unit 9"; design.md, Open questions): no shipped provider has a bounded supported transport. All three shipped dialects admit only `{}`. Claude and Codex declare restrictions unsupported, and DSH and LaneTally are unmeasured. The single `{restrictions_json}` slot reaches Claude only through `Load` options. Claude WebSearch has no specifier, and WebFetch `domain:` rules are pre-grants that preapproved domains and other settings scopes widen (Claude Code docs, fetched 2026-09-25). Codex host filtering and the installed Claude version were not observable from the seat and are pending. No production, test or pin byte moved, and no admitted test line was used. Stays open until the operator rules on the options (a)–(c) in design.md, before unit 11.
+9.1 is **deferred** to the restriction-transport slice by the operator's addendum
+of 2026-09-25 (operator-ruling-2026-09-23.md, "the nonempty restriction
+positive is deferred"; design.md D11). Unit 9 is closed by its return
+(8338881a). The task, unticked, is under "Deferred to the restriction-transport
+slice" below.
 
 ## 10. Unit 10 — Bound the grammar and redact diagnostics
 
@@ -1394,7 +1398,7 @@ remote CI are pending.
 
 - [ ] 11.1 Unit 11 parses both declared ON/OFF argv at load, even unused. Verify full Codex/mapping/separator/missing-authority refusals and valid positives. Requirements: [Native capability controls are adapter-owned evidence-bearing data][NC1], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 3.3)
 
-- [ ] 11.2 Unit 11 carries unit 9's qualified restriction through real resolution. Verify JSON/encoding/identity and required/wants/unused outcomes; 21.2 owns final proof. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
+- [ ] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
 
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
@@ -1450,9 +1454,11 @@ remote CI are pending.
 
 - [ ] 21.1 Unit 21 proves managed Read/empty restrictions in compiled cold/eligible-resume Claude/LaneTally shapes. Verify authored lists refuse, prompt integrity and independent inventory. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Prompt values cannot absorb a composed control][NCP], [Subtractive tool lists never grant a capability][RGS]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.4)
 
-- [ ] 21.2 Unit 21 separately compiles held nonempty restriction cold/resume fixtures via real realm/dialect/candidate resolution. Verify independent final literals, manifest and session, no fabricated Controls. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.6)
+21.2 is **deferred** to the restriction-transport slice by the operator's
+addendum of 2026-09-25 (design.md D11). The task, unticked, is under "Deferred
+to the restriction-transport slice" below.
 
-- [ ] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the restriction rows too. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
+- [ ] 21.3 Units 20–21 map every supported launch shape to real compiled full literal/refusal assertions and selected charter facts. Verify holdings-only/is_ok do not close rows; close only after unit 21 proves the managed Read/empty and CQ1 restriction rows too (narrowed by the addendum of 2026-09-25; the held nonempty rows are deferred below). Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.5)
 
 ## 22. Unit 22 — Submit whole plans to doctor
 
@@ -1462,7 +1468,7 @@ remote CI are pending.
 
 ## 23. Unit 23 — Audit launch enforcement removals
 
-- [ ] 23.1 Unit 23 independently removes authored refusal/load parsing/final parse-state/cold-resume restriction/ON-OFF enforcement. Verify intended compiled final assertions fail, restore/pass. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Authored provider configuration cannot supply capability authority][RGR], [Refusal proofs assert the full reason][SC8]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.2)
+- [ ] 23.1 Unit 23 independently removes authored refusal/load parsing/final parse-state/cold-resume empty-restriction and CQ1/ON-OFF enforcement (narrowed by the addendum of 2026-09-25; the held nonempty restriction removal is deferred below). Verify intended compiled final assertions fail, restore/pass. Requirements: [Denial and admission have removal proofs and bounded live claims][NC6], [Every accepted native control reaches the final command][NCC], [Authored provider configuration cannot supply capability authority][RGR], [Refusal proofs assert the full reason][SC8]. Reopened/remaining: operator ruling 1–4 / R10. (previous 9.2)
 
 ## 24. Unit 24 — Audit identity enforcement removals
 
@@ -1499,6 +1505,21 @@ remote CI are pending.
 ## 28. Later council judgment and final archive
 
 - [ ] 28.1 **Do not archive or fold in this commission.** The operator holds this final task open for council re-judgment; completed local repairs/gates do not clear the security hold. If subsequently authorized after that judgment, the dialect's final operation is `openspec archive decision-0065-capabilities-slice-one --yes`, folding the six deltas into living truth with append-only provenance, followed by archived strict validation and a commit. That later work is outside this repair visit, so leave this box unchecked. Requirements: [Slice-one records do not claim later-slice behavior][MP6]; [Digest pins are measured and their history remains truthful][MP5]; operator no-archive ruling and dialect archive operation. (previous 12.1)
+
+## Deferred to the restriction-transport slice
+
+The operator's addendum of 2026-09-25 ("the nonempty restriction positive is
+deferred", operator-ruling-2026-09-23.md; design.md D11) moves these out of
+slice one. They stay unticked and are not slice-one work; their text is kept
+as it stood.
+
+- [ ] 9.1 **DEFERRED (addendum 2026-09-25).** Unit 9 qualifies nonempty restriction semantics and production fixture; --settings syntax alone is insufficient. Verify provider/version evidence; report upstream before dependent work if no supported transport meets the positive. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–4 / R10. (previous 0.3) Returned upstream 2026-09-25 (run `0065-rebuild-unit-9-see-the-unit-f241ed65`; evidence.md, "Unit 9"; design.md, Open questions): no shipped provider has a bounded supported transport. All three shipped dialects admit only `{}`. Claude and Codex declare restrictions unsupported, and DSH and LaneTally are unmeasured. The single `{restrictions_json}` slot reaches Claude only through `Load` options. Claude WebSearch has no specifier, and WebFetch `domain:` rules are pre-grants that preapproved domains and other settings scopes widen (Claude Code docs, fetched 2026-09-25). Codex host filtering and the installed Claude version were not observable from the seat and are pending. No production, test or pin byte moved, and no admitted test line was used. The operator ruled option (a), defer, on 2026-09-25.
+
+- [ ] 21.2 **DEFERRED (addendum 2026-09-25).** Unit 21 separately compiles held nonempty restriction cold/resume fixtures via real realm/dialect/candidate resolution. Verify independent final literals, manifest and session, no fabricated Controls. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.6)
+
+- **11.2's restriction half, as it stood:** "Unit 11 carries unit 9's qualified restriction through real resolution. Verify JSON/encoding/identity and required/wants/unused outcomes; 21.2 owns final proof."
+- **21.3's restriction portion:** the held nonempty restriction rows of the launch matrix ("close only after unit 21 proves the restriction rows too").
+- **23.1's restriction portion:** the independent cold/resume removal of the held nonempty restriction's delivery.
 
 [TD1]: specs/tool-dialect-contract/spec.md#requirement-a-tool-dialect-binds-one-capability-to-exactly-one-implementation-kind
 [TD2]: specs/tool-dialect-contract/spec.md#requirement-capability-classes-belong-to-the-abstraction

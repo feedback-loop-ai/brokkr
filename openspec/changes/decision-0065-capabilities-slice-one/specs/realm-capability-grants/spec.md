@@ -257,11 +257,30 @@ capability, or missing required denial authority, SHALL refuse even where a
 wants could otherwise drop or a grant is unused. Successful cases SHALL
 never launch an unrestricted version of the rejected binding.
 
-#### Scenario: A valid restriction survives each boundary
+In slice one no provider restriction transport is supported (operator ruling
+addendum of 2026-09-25). A valid nonempty restriction SHALL be inexpressible
+on every serving candidate, including one whose adapter declares an argv
+transport, so it reaches only the CQ1 outcomes below, with a reason naming the
+deferral where a transport is declared. Only the empty restriction SHALL be
+held, and it SHALL compose no transport argument. A declared transport
+template SHALL still parse at adapter load with the empty restriction in its
+slot. Every shipped dialect SHALL keep its empty-only restriction schema.
+Nothing in slice one SHALL record, compile or claim an enforced nonempty
+restriction.
 
-- **WHEN** a test native binding supports a dialect-defined restriction object and the realm provides a valid value
-- **THEN** resolution, the binding's configuration and the manifest carry that value unchanged
+#### Scenario: A valid restriction is pinned as realm context
+
+- **WHEN** a test native dialect defines a restriction object and the realm provides a valid nonempty value
+- **THEN** the pinned realm grant and the manifest's realm context carry that value unchanged
 - **AND** changing the restriction changes the manifest digest
+- **AND** no holding, binding configuration or composed argv carries it in slice one
+
+#### Scenario: A declared transport carries only the empty restriction
+
+- **GIVEN** the test native adapter declares restriction transport `["--search-restrict", "{restrictions_json}"]` and a supported OFF control
+- **WHEN** a seat requires web-search under a grant whose restriction is valid and nonempty
+- **THEN** compilation refuses with the complete CQ1 reason naming the provider, each restriction and that the declared transport carries only the empty restriction in slice one
+- **AND** a wants drops with that reason and OFF, an unused grant stays inactive, and an empty restriction is held with no transport argument
 
 #### Scenario: CQ1 a required inexpressible restriction refuses
 
@@ -345,3 +364,20 @@ engine controls still need a parse and authors cannot counterfeit ownership.
 CQ1 remains: validate every grant first; unsupported valid restrictions refuse
 requires, drop wants with OFF, and leave unused grants inactive and pinned.
 Discarding a restriction or authoring an equivalent flag is not a remedy.
+The operator's addendum of 2026-09-25 makes CQ1's outcomes slice one's whole
+restriction behaviour: a nonempty restriction is inexpressible on every
+candidate, a declared transport included, until a provider transport is
+measured.
+
+## Deferred to the restriction-transport slice
+
+The operator's addendum of 2026-09-25 ("the nonempty restriction positive is
+deferred") moves the held nonempty positive out of slice one. Its rulings 3
+and 4 remove this scenario's held half with it; it is retained verbatim and is
+not a requirement of slice one.
+
+### Deferred: A valid restriction survives each boundary
+
+- **WHEN** a test native binding supports a dialect-defined restriction object and the realm provides a valid value
+- **THEN** resolution, the binding's configuration and the manifest carry that value unchanged
+- **AND** changing the restriction changes the manifest digest

@@ -348,22 +348,21 @@ No versioned public contract or manifest field is added for this private data.
 - **AND** accepting the declaration and emitting only selection is a test failure
 - **AND** existing hands and local restrictions remain present without conflicting duplicate flags
 
-#### Scenario: H3 a held restriction survives final composition
+#### Scenario: H3 a nonempty restriction is never delivered in slice one
 
-- **GIVEN** a synthetic supported native grant has a schema-valid nonempty restriction and a declared argv transport, with a supported ON disposition
-- **WHEN** a Claude seat compiles with that holding through production admission and reaches actual cold and eligible-resume final command construction
-- **THEN** both complete ordered commands match independent literal expectations containing the accepted ON control and the exact nonempty encoded restriction value
-- **AND** the original structured restriction remains pinned, and the native capability cannot launch unrestricted
-- **AND** the resumed case verifies the offered session and resumed shape, never a cold replacement
-- **AND** rejecting this supported test representation is a failure of the positive proof; separate unsupported-form cases assert their full compile refusal
+- **GIVEN** a valid native grant carries a schema-valid nonempty restriction, and the serving adapter declares a restriction argv transport
+- **WHEN** a seat requires, wants or does not ask for that capability
+- **THEN** compilation reaches only CQ1's outcomes with the complete reason naming the provider, each restriction and the deferral: requires refuses, wants drops with the native OFF control, and an unused grant stays pinned but inactive
+- **AND** no transport argv is composed, no holding records the nonempty restriction, and no manifest claims it enforced
+- **AND** an empty restriction is held with no transport argument, and the declared transport template still parses at adapter load with the empty restriction in its slot (operator ruling addendum 2026-09-25)
 
 #### Scenario: H1 through H3 cover every serving path
 
 - **WHEN** denial/admission, authored-configuration and accepted-control regressions exercise inline and agent-backed work/gate seats, primary and fallback links, panel members, sequence steps and selected/inherited bodies, boxed and unboxed, cold and eligible resumed
-- **THEN** every supported path compiles its fixture through production admission and asserts the complete ordered final command against a literal and its effective ON/OFF/restriction disposition, while an unsupported path asserts its complete refusal
+- **THEN** every supported path compiles its fixture through production admission and asserts the complete ordered final command against a literal and its effective ON/OFF disposition, while an unsupported path asserts its complete refusal
 - **AND** the actual resume assertions verify the offered session and resumed command; boxed ineligible cold fallback stays a separate case
-- **AND** an always-OFF mutation fails authorized ON assertions, and removing a delivered argv or restriction fragment fails its own final-command assertion
-- **AND** this matrix tests the current gate launch paths without implementing slice-two gate capability policy
+- **AND** an always-OFF mutation fails authorized ON assertions, and removing a delivered argv fragment fails its own final-command assertion
+- **AND** this matrix tests the current gate launch paths without implementing slice-two gate capability policy; its nonempty-restriction rows are deferred (see "Deferred to the restriction-transport slice")
 
 ### Requirement: Prompt values cannot absorb a composed control
 
@@ -452,14 +451,6 @@ These tests SHALL NOT substitute for a live provider measurement.
 - **THEN** the held-capability cold and eligible resume assertions fail
 - **AND** restoring the declared grant behavior restores them
 
-#### Scenario: Second M3 restriction removal fails at final launch
-
-- **GIVEN** the held supported nonempty restriction case has passed both compiled cold and actual eligible-resume literal final-command assertions
-- **WHEN** restriction delivery is removed independently at each serving path while compile admission, holding, ON control and fixture remain valid
-- **THEN** each corresponding whole-command equality fails for the missing restriction at the production final launch boundary
-- **AND** restoring delivery restores each pass, with mutation, revision, test, intended assertion, observed failure and restored result recorded
-- **AND** manual construction of a control plan, resolver argv or intermediate composer output cannot substitute for either final-launch failure
-
 #### Scenario: Second H3 H4 and M1 removals detect lost semantics
 
 - **WHEN** positional parsing, explicit nonempty restriction retention, explicit empty retention or authored capability-option refusal is independently removed
@@ -500,9 +491,11 @@ Third S1/S2/C1/R1 are addressed by ruling 1 refusal, not a better authored-list
 merge. C2 requires validating serialization as well as declarations. S3/C4/R4/R8
 reject the unchecked Codex and engine-prefix paths. Managed Read/empty
 restrictions still need compiled cold and actual-resume proofs; no authored
-list is allowed to compete with them. C6/R10 retain the obligation to compile a
-real held nonempty restriction and prove independent final-delivery removals.
-Static command equality never becomes live provider enforcement evidence.
+list is allowed to compete with them. C6/R10's obligation to compile a real
+held nonempty restriction and prove independent final-delivery removals is
+deferred to the restriction-transport slice by the operator's addendum of
+2026-09-25 ("the nonempty restriction positive is deferred"); slice one
+delivers no nonempty restriction and claims none. Static command equality never becomes live provider enforcement evidence.
 The DSH guard order is the operator's addendum of 2026-09-23 (rebuild unit
 1b): the authority refusal wins, and the boundary check reads the composed
 argv under ruling 2.
@@ -520,3 +513,32 @@ The Rust interface may cross runtime/protocol internally; this is no new public
 wire or manifest contract. No authored-refusal activation, unused-half load
 validation, grammar campaign or final checked-command implementation is moved
 into unit 3. Decision 0066 remains proposed.
+
+## Deferred to the restriction-transport slice
+
+The operator's addendum of 2026-09-25 ("the nonempty restriction positive is
+deferred", operator-ruling-2026-09-23.md) moves these obligations out of slice
+one, unchanged, to the slice that measures a provider restriction transport.
+They are retained here verbatim and are not requirements of slice one.
+
+### Deferred: H3 a held restriction survives final composition
+
+- **GIVEN** a synthetic supported native grant has a schema-valid nonempty restriction and a declared argv transport, with a supported ON disposition
+- **WHEN** a Claude seat compiles with that holding through production admission and reaches actual cold and eligible-resume final command construction
+- **THEN** both complete ordered commands match independent literal expectations containing the accepted ON control and the exact nonempty encoded restriction value
+- **AND** the original structured restriction remains pinned, and the native capability cannot launch unrestricted
+- **AND** the resumed case verifies the offered session and resumed shape, never a cold replacement
+- **AND** rejecting this supported test representation is a failure of the positive proof; separate unsupported-form cases assert their full compile refusal
+
+### Deferred: the H1 through H3 matrix's restriction rows
+
+- Every supported path asserts its effective restriction disposition beside its ON/OFF disposition.
+- Removing a delivered restriction fragment fails its own final-command assertion.
+
+### Deferred: Second M3 restriction removal fails at final launch
+
+- **GIVEN** the held supported nonempty restriction case has passed both compiled cold and actual eligible-resume literal final-command assertions
+- **WHEN** restriction delivery is removed independently at each serving path while compile admission, holding, ON control and fixture remain valid
+- **THEN** each corresponding whole-command equality fails for the missing restriction at the production final launch boundary
+- **AND** restoring delivery restores each pass, with mutation, revision, test, intended assertion, observed failure and restored result recorded
+- **AND** manual construction of a control plan, resolver argv or intermediate composer output cannot substitute for either final-launch failure

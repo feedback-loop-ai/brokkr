@@ -879,7 +879,8 @@ paths or arbitrary config key payloads. Unknown option labels are sanitized
 and bounded; malformed positional payloads use a positional label.
 
 At adapter load, parse every declared ON and OFF argv, even unused halves;
-validate mappings, separators and supported restriction transports. Invalid
+validate mappings and separators, and parse a declared restriction transport
+with the empty restriction in its slot (D11). Invalid
 Codex managed arguments have no verbatim bypass. Explicit measured default ON
 is a typed disposition with evidence; it is not an unexplained empty vector.
 Concrete switches remain adapter data; declaration cannot extend the grammar.
@@ -983,8 +984,9 @@ Each rebuild unit adds or adjusts its owning suite, records intended baseline
 failures for changed behavior and independent enforcement removals/restored
 passes, and runs the applicable gates. Tests compile real realm/dialect/seat
 fixtures before observing full final commands; fabricated Controls or resolver
-argv cannot close final-launch proof. Separate cold/actual-resume restriction
-proofs and their final-delivery removals remain owed. Canonicalize one retained
+argv cannot close final-launch proof. Separate cold/actual-resume proofs of the
+managed Read/empty restrictions and their final-delivery removals remain owed;
+the held nonempty restriction's are deferred (D11). Canonicalize one retained
 temporary root for writes and expectations on Linux and macOS.
 
 Run cargo test --workspace, locked all-feature workspace tests, fmt, clippy,
@@ -993,6 +995,31 @@ coverage remains literal nonzero covered/total equality for source lines,
 branches and logical functions. Run it on a capable host/CI outside the nested
 workspace box; pending external results are not green. Remote CI must name the
 final head. No leftover mutation, threshold reduction or stale report may discharge it.
+
+### D11. Nonempty restrictions are deferred (operator ruling, 2026-09-25)
+
+Unit 9 found no supported, bounded provider transport for a nonempty
+restriction (evidence.md, "Unit 9"). The operator chose option (a), DEFER
+(operator-ruling-2026-09-23.md, addendum "the nonempty restriction positive
+is deferred"). Unit 9 is closed by that return, not by a positive.
+
+- The held nonempty positive leaves slice one for the slice that measures a
+  provider restriction transport. NCC "H3 a held restriction survives final
+  composition", the second M3, the H1–H3 matrix's restriction rows, 9.1,
+  11.2's restriction half, 21.2 and the restriction portions of 21.3 and 23.1
+  move under "Deferred to the restriction-transport slice" in the files that
+  held them.
+- Slice one's restriction behaviour is exactly CQ1's reachable outcomes:
+  requires refuses, wants drops with OFF, and an unused grant stays pinned but
+  inactive. A valid nonempty restriction is inexpressible on every candidate,
+  including one whose adapter declares an argv transport; there the reason
+  names the deferral. Only the empty restriction is held, and it composes no
+  transport argument.
+- Load still parses a declared transport template, with the empty
+  restriction's canonical encoding `{}` in its slot, under the harness
+  grammar (unit 11). Every dialect keeps its empty-only restriction schema.
+- Nothing in slice one records, compiles or claims an enforced nonempty
+  restriction.
 
 ## Risks / Trade-offs
 
@@ -1076,7 +1103,9 @@ to revert the release, never a hidden reconciliation compatibility mode.
 
 ## Open questions
 
-- **Supported nonempty restriction proof (task 9.1, unit 9): unresolved.**
+- **Supported nonempty restriction proof (task 9.1, unit 9): resolved as
+  D11 by the operator's ruling (a), DEFER, of 2026-09-25.** The question as
+  it stood is kept below for history.
   Shipped Claude restrictions are unsupported. A synthetic --settings payload
   is insufficient to meet the existing compiled cold/resume positive. Qualify
   one bounded transport with provider/version evidence before load/refusal/
@@ -1102,7 +1131,8 @@ to revert the release, never a hidden reconciliation compatibility mode.
   preapproved-domain and settings-source isolation, and makes
   `--setting-sources` engine-owned.
   Unit 9 recommends (a). It does not amend the deltas: that is a
-  re-specification, which only the operator rules.
+  re-specification, which only the operator rules. The operator ruled (a);
+  the deltas, these units and tasks.md were amended with the addendum.
 - **Unit 1 outstanding proof (1.1):** replay and the inventoried guard-order
   split are recorded in evidence.md; unit 1b has landed. Its pending external
   results remain pending. Unit 2 neither replays the branch nor substitutes
@@ -1391,6 +1421,8 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
    fixture design/probe if useful. Establish bounded provider/version semantics
    and a real compilation path, not arbitrary --settings JSON. An impossible
    positive returns upstream before unit 11; no fabricated plan closes it.
+   **Closed by return** (8338881a): no transport qualified, and the operator
+   deferred the positive on 2026-09-25 (D11). 9.1 is deferred, not ticked.
 10. **Bound the grammar and redact diagnostics.** Close 10.1–10.4. Production:
     `crates/brokkr-protocol/src/native_controls/grammar.rs`. Classify catalogue
     effects, all aliases/split/equals/attached forms and five Codex config forms;
@@ -1398,11 +1430,14 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     and final positions. Test grammar/native_controls suites with full redacted
     causes, newline/long sentinels and DSH route-only controls. Unit 12 activates
     authored refusal; this primitive admits no new opaque syntax.
-11. **Validate both declared halves at load.** Close 11.1 and 11.2. Production:
+11. **Validate both declared halves at load.** Close 11.1 and 11.2 as narrowed
+    by D11. Production:
     `crates/brokkr-runtime/src/agents/load.rs`,
     `crates/brokkr-runtime/src/capabilities.rs`,
     `crates/brokkr-protocol/src/native_controls.rs`. Parse unused ON/OFF,
-    selection maps/separators and unit 9's qualified restriction representation.
+    selection maps/separators and the empty restriction only: a declared
+    transport parses with `{}` in its slot, and any nonempty restriction
+    reaches only CQ1's outcomes with an exact reason.
     Remove Codex's verbatim bypass. Tests: runtime agents/tests.rs,
     capabilities/tests.rs and protocol native_controls/tests.rs; invalid unused
     halves and positive identity pins.
@@ -1472,14 +1507,15 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     or full-refusal assertion and selected charter facts. Fill missing assertions
     in these suites; holdings-only/is_ok evidence closes no row. Restriction
     rows close only with unit 21; task 21.3's full matrix remains open until then.
-21. **Prove compiled restrictions at cold and actual resume.** Close 21.1, 21.2
-    and the remaining restriction rows of 21.3. No production edits. Tests:
+21. **Prove compiled restrictions at cold and actual resume.** Close 21.1 and
+    the remaining managed Read/empty and CQ1 restriction rows of 21.3; 21.2
+    is deferred (D11). No production edits. Tests:
     `crates/brokkr-runtime/tests/capability_launch.rs` and
     `crates/brokkr-protocol/src/adapters/tests.rs`. Use real realm/dialect/
-    candidate resolution for managed Read/empty controls and unit 9's supported
-    held nonempty restriction. Separate cold and eligible-resume expectations,
-    structured manifest objects and session identity; hand-built Controls fail
-    this obligation. Record independent final-delivery removals.
+    candidate resolution for managed Read/empty controls and CQ1's refuse,
+    drop-with-OFF and unused outcomes. Separate cold and eligible-resume
+    expectations, structured manifest objects and session identity; hand-built
+    Controls fail this obligation. Record independent final-delivery removals.
 22. **Doctor submits the complete plan in both paths.** Close 22.1 and 22.2.
     Production: `crates/brokkr-runtime/src/capabilities.rs`,
     `crates/brokkr-cli/src/doctor.rs`. Consume units 13–15's same final composer;
@@ -1491,7 +1527,8 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     edits. Files: brokkr-runtime/tests/capability_launch.rs, brokkr-protocol/src/adapters/tests.rs,
     brokkr-protocol/src/native_controls/tests.rs under crates/ and evidence.md. Check
     or run each missing isolated authored/load/final parse/state/ON/OFF/cold-resume
-    restriction removal from units 10–15/21. Every intended assertion fails and
+    empty-restriction and CQ1 removal from units 10–15/21; the held nonempty
+    restriction removals are deferred (D11). Every intended assertion fails and
     passes after restoration; record revisions, never a build error as proof.
 24. **Audit identity enforcement removals.** Close 24.1. No permanent production
     edits. Files: brokkr-runtime/src/bundle/compose_tests.rs,
@@ -1524,3 +1561,21 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     evidence without changing the validated source head. Pending gates remain
     open. Task 28.1 awaits separate council judgment; no archive/publication
     or security clearance follows from this plan.
+
+## Deferred to the restriction-transport slice
+
+The operator's addendum of 2026-09-25 (D11) removed these unit halves from the
+order above. They are retained verbatim for the slice that measures a provider
+restriction transport, and no slice-one unit executes them.
+
+- **Unit 9** (closed by return): qualify a supported nonempty restriction,
+  with bounded provider/version semantics and a real compilation path, not
+  arbitrary --settings JSON.
+- **Unit 11, restriction half:** parse "unit 9's qualified restriction
+  representation" at load, and carry it through real resolution (11.2's
+  restriction half).
+- **Unit 21, restriction half:** close 21.2 and the held nonempty rows of
+  21.3, using real realm/dialect/candidate resolution for "unit 9's supported
+  held nonempty restriction".
+- **Unit 23, restriction half:** the isolated cold/resume removal of the held
+  nonempty restriction's delivery (the restriction portion of 23.1).

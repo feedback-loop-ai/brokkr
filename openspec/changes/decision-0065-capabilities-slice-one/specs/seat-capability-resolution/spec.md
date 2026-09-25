@@ -503,8 +503,9 @@ Each commissioned behavioral finding SHALL first have a regression that fails
 on the delivered implementation at its intended assertion, then a repair and
 an independent removal/restoration proof. The second chief's named
 reproductions SHALL become regressions, not be replaced by nearby examples.
-Second M3 SHALL add the missing compiled final-launch positive and its
-independent failing removal/restoration. Second V1 SHALL retain the actual
+Second M3's compiled final-launch positive for a held nonempty restriction is
+deferred to the restriction-transport slice by the operator's addendum of
+2026-09-25; slice one SHALL NOT claim it closed. Second V1 SHALL retain the actual
 failing coverage gate and require a fresh final-head exact pass. Second L1
 SHALL receive an evidence/claim audit, not a fabricated behavior mutation.
 Tests of capability compilation SHALL assert the complete diagnostic and
@@ -528,9 +529,9 @@ intermediate composer output SHALL NOT establish final delivery.
 #### Scenario: Second-council regressions remain individually accountable
 
 - **WHEN** H1–H6 and M1–M3 are presented for closure
-- **THEN** each named chief reproduction has its own indexed exact refusal, complete final-command, consumed-file identity or full doctor-line assertion in the owning suite, including all standalone/inherited identity cases and supported cold/eligible-resume restriction cases
+- **THEN** each named chief reproduction has its own indexed exact refusal, complete final-command, consumed-file identity or full doctor-line assertion in the owning suite, including all standalone/inherited identity cases and the empty-restriction and CQ1 restriction cases
 - **AND** each behavioral repair records its baseline red, fix, independent removal failure at the intended assertion and restored pass with revision and test name
-- **AND** second M3's new successful final-launch case is independently removed and restored at that boundary; historical intermediate R-H3c does not satisfy it
+- **AND** second M3 is reported deferred, not closed; historical intermediate R-H3c does not satisfy it
 - **AND** launch matrix rows identify the tested serving shapes and exact unsupported-shape refusals; no row infers a fallback, panel or sequence proof from an ordinary primary launch
 
 #### Scenario: Typed subtraction cannot license an authored denial
@@ -571,8 +572,9 @@ Second-council parsing and consumption proofs extend the retained first-repair
 invariants; they do not reopen strict source-key parsing, whole-loaded-library
 lint or the independently runnable optional notices as different feature work.
 Second M3 rejects manual Controls/composer-only proof for an accepted held
-restriction: it must survive compile and the production final launch on cold
-and actual eligible resume. V1 is a whole-workspace gate obligation and L1 an
+restriction; the operator's addendum of 2026-09-25 defers that positive to the
+restriction-transport slice, where it must survive compile and the production
+final launch on cold and actual eligible resume. V1 is a whole-workspace gate obligation and L1 an
 observational audit, so neither is satisfied by inventing a behavioral test.
 Linux and macOS remain the only hosts; fixture roots are canonical facts.
 
@@ -636,3 +638,13 @@ admission guards: unit 4 must prove any newly admitted path reaches dispatch.
 The existing three sandbox classes and hands replacement semantics stand;
 no new provider mapping or live-enforcement claim is made here. Unit 3 closes
 3.1 only after its own proofs; 4.2 and all later delivery proofs remain open.
+
+## Deferred to the restriction-transport slice
+
+The operator's addendum of 2026-09-25 ("the nonempty restriction positive is
+deferred") moves this text out of "Refusal proofs assert the full reason",
+retained verbatim; it is not a requirement of slice one.
+
+- Second M3 SHALL add the missing compiled final-launch positive and its independent failing removal/restoration.
+- Closure of H1–H6 and M1–M3 includes supported cold/eligible-resume restriction cases.
+- Second M3's new successful final-launch case is independently removed and restored at that boundary; historical intermediate R-H3c does not satisfy it.

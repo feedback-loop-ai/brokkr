@@ -336,7 +336,7 @@ Existing historical reasons SHALL remain historical; unaffected pins SHALL not b
 
 #### Scenario: Second H6 M3 and V1 completion follows the observed boundary
 
-- **WHEN** task 18.1 claims library consumption protection but evidence records only recompile checking, tasks 21.1/21.3/23.1 cite an intermediate restriction removal, or task 27.4 cites a superseded exact pass
+- **WHEN** task 18.1 claims library consumption protection but evidence records only recompile checking, tasks 21.1/21.3/23.1 cite an intermediate restriction removal or claim a nonempty restriction the operator's addendum of 2026-09-25 deferred, or task 27.4 cites a superseded exact pass
 - **THEN** the owning task/evidence revision reopens or qualifies each affected claim until its actual dispatch, final-launch or final-head gate proof exists
 - **AND** retained narrower first-repair observations stay historical and are not relabeled as second-hold closure
 - **AND** every new closure records revision, test/check, intended assertion, observed failure where required and restored pass; notes neither instruct nor waive a gate
