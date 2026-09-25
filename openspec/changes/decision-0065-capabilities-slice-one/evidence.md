@@ -6444,6 +6444,9 @@ names whole. They are follow-ups, below.
   `bundle.json`, `policy.json`, `roles/role.md`, and the inherited control's
   are `@compose/0000/base`, `bundle.json`, `roles/role.md`. After each row
   both compile again to the control digests.
+  *Corrected by the return visit (review R2 on `0a98fa55`):* the
+  100,000-byte-named standalone fixture with a root `confine` had no
+  control. It has one now, below ("Return visit").
 - `tests.rs::a_driver_refusal_names_a_long_or_unsafe_site_boundedly` now
   compiles the same panel with the member's driver carrying only `command`
   and asserts the exact site set, `review`, `work:two` and
@@ -6483,6 +6486,17 @@ control compiled after each row:
 | `frobnicate` | `23b9682f…` | `0f01ccc0…` |
 | 100,000 × `k` | `ede420d4…` | `d08c3d49…` |
 | `evil\nkey` | `7cce918f…` | `d17e0f84…` |
+
+*Corrected by the return visit (review R1 on `0a98fa55`):* this section
+overstated what it observed. The root test's run on `17810f7c` failed on
+its first row, `tools`, whose reason had only changed wording; it never
+reached the `confine`, `allow`, `mcp`, `network` or `frobnicate`
+assertions. The scratch variant showed that those keys compiled, not that
+the committed assertions failed. The driver test's failure was on a
+wrong expectation in its own new control, fixed before the change; it is
+not enforcement proof, and the test is a control that passes on
+`17810f7c` (below). The per-key baseline reds of the committed assertions
+were observed afterwards, in the return visit, and are recorded there.
 
 ### Mutations
 
@@ -6547,3 +6561,63 @@ wager-harness-dsh `a5c3d2cf…` and wager-harness-muse `f25c7bb5…`.
   `refuse_crossing_keys` and `refuse_confine` stands.
 - `docs/guides/recipe-authoring.md`'s anatomy table lists the vocabulary
   but does not yet say that any other root key is refused.
+
+### Return visit — baseline reds and the missing control, 2026-09-25
+
+Same run, implement returned by review on `0a98fa55` (residual, medium).
+It answers review R1 (the baseline record) and R2 (a missing control). No
+production file moved: `git diff --stat` after the mutation restore showed
+only `compose_tests.rs`.
+
+**R1, the baseline observed.** The committed tests were run against
+`17810f7c` production: a detached worktree of `17810f7c` under `.forge/`,
+with its own target directory, and `compose_tests.rs` and `tests.rs`
+checked out from `0a98fa55`. A scratch filter was added there, and
+removed with that worktree afterwards. It reads one key from a file under
+`.forge/`, runs only that row and, when asked, skips the standalone or
+both earlier assertions. Every committed assertion kept its line.
+`cargo test --locked -q -p brokkr-runtime --all-features --lib --
+a_bundle_root_is_a_closed_vocabulary_at_every_layer` failed once per key
+and root, at the committed assertion, with the right side the
+closed-vocabulary reason and the left side `compiled to <digest>`:
+
+| Key | Standalone `:1912` | Inherited `:1913` | Derived `:1916` |
+|---|---|---|---|
+| `confine` | `b3d3e120…` | `f33ce088…` | `ad9a909c…` |
+| `allow` | `a80ec0a4…` | `e6f00f8a…` | `bdd984b3…` |
+| `mcp` | `20690c3e…` | `895babba…` | `8aeb462c…` |
+| `network` | `1c205c4d…` | `0d8816fa…` | `6b653d35…` |
+| `frobnicate` | `23b9682f…` | `0f01ccc0…` | `bef7ca6d…` |
+
+The standalone and inherited digests match the scratch variant's table
+above. The same filter over the R2 test's rows failed at `:1996` on each
+row the first run had not reached. On row 1, the left side's chain note
+echoed the 100,000-byte ancestor name whole. On row 2 it was
+`(composed: evil\nleaf -> base)`, and on row 3
+`(composed: derived -> evil\nbase)`. Row 0 is the first run's recorded
+failure. `a_driver_refusal_names_a_long_or_unsafe_site_boundedly`
+passed on `17810f7c` (1 passed). It is a control, and MS/MQ/MR remain its
+binding proof. These baselines were observed after the repair had been
+committed, not before it. They are a real run of `17810f7c` production
+under the committed assertions, not a reconstruction.
+
+**R2, the long-named standalone control.** In
+`a_bundle_root_is_a_closed_vocabulary_at_every_layer`, the
+100,000-byte-named standalone bundle with a root `confine` (refused at
+`:1934`) now has its control. The same bytes without `confine` compile,
+under exactly that name (`compiled.name == "x" × 100,000`), with manifest
+files `bundle.json`, `policy.json` and `roles/role.md`.
+
+| # | Mutation | Observed |
+|---|---|---|
+| MV | `compile_with_capabilities` refuses a compiled bundle whose name exceeds 64 bytes (`Ok(bundle) if bundle.name.len() > 64 => Err(Invalid("MV"))`) | `compose_tests.rs:1938`, the control's `unwrap` on `Invalid("MV")`. The `:1934` refusal passed first. Restored. |
+
+**Gates.** `cargo fmt --all -- --check` was clean. `cargo clippy
+--workspace --all-targets --all-features --locked -- -D warnings` was
+clean. `cargo test --locked -p brokkr-runtime --all-features` reported 25
+of 25 binaries ok, lib 560 passed. `bundles/self` compiled to
+`45dc1c7e…` and `bundles/verify` to `65baad08…`, as before. No
+production file moved, so the recipes were not recompiled.
+`openspec validate --all --strict` (18 passed, 0 failed) and `git diff
+--check` were clean. **Not fully green:** exact coverage, macOS and remote CI are
+pending.

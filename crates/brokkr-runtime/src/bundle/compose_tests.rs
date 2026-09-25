@@ -1932,6 +1932,15 @@ fn a_bundle_root_is_a_closed_vocabulary_at_every_layer() {
     let long_named = library.recipe("long", &bundle, Some(&base_policy()));
     let recipe = format!("'{}…' (100000 bytes, not echoed in full)", "x".repeat(32));
     assert_eq!(said(&long_named), refusal(&recipe, "'confine'"));
+    // Its control: the same bundle without `confine` compiles under that name.
+    bundle.as_object_mut().unwrap().remove("confine");
+    library.recipe("long", &bundle, Some(&base_policy()));
+    let compiled = Bundle::compile(&long_named).unwrap();
+    assert_eq!(compiled.name, "x".repeat(100_000));
+    assert_eq!(
+        files(&long_named),
+        ["bundle.json", "policy.json", "roles/role.md"]
+    );
 
     // A seat's own hands are the seat's: they compile and are recorded.
     let mut bundle = base_bundle();

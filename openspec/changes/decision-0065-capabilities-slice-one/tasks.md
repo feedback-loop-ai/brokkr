@@ -1025,6 +1025,27 @@ brokkr-cli (lib 481 passed, 30 of 30 integration targets),
 `openspec validate --all --strict` (18 passed) and `git diff --check`
 passed. **Not fully green:** exact coverage, macOS and remote CI are pending.
 
+Corrected 2026-09-25, in the same run's return visit after review of
+`0a98fa55` (evidence.md, "Unit 5e-fix-b", "Return visit"). (1) "All three
+red on `17810f7c`" overstated what was observed. The root test failed only
+on its first row, `tools`, and never reached the commissioned keys. The
+driver test failed on a wrong expectation in its own control, which is not
+enforcement proof. That test is a control and passes on `17810f7c`. The
+return visit then ran the committed assertions against `17810f7c`
+production, filtered to one row at a time. It observed every per-key red:
+`confine`, `allow`, `mcp`, `network` and `frobnicate`, each at the
+standalone (`:1912`), inherited (`:1913`) and derived (`:1916`) roots,
+each compiling to the recorded digest. It also observed the chain-note
+test's remaining rows red at `:1996`. These are real observations of the
+old code, made after the repair rather than before it. (2) The
+100,000-byte-named standalone refusal gained its control, the same bytes
+without `confine` compiling under that name. Mutation MV bound it at
+`compose_tests.rs:1938`, and it was restored. fmt, clippy and
+brokkr-runtime (25 of 25, lib 560), `openspec validate --all --strict` (18
+passed) and `git diff --check` passed. The self and verify digests are
+unchanged. **Not fully green:** exact coverage, macOS and remote CI
+are pending.
+
 ## 6. Unit 6 — Migrate Claude recipes
 
 - [x] 6.1 Unit 6 migrates fast/node/preflight to typed tools. Verify exact compiled local limits/native OFF and measure moved pins. Requirement: [Shipped inline permissions migrate before refusal lands][SCM]. Reopened/remaining: operator ruling 1–2. (previous 3.17)
