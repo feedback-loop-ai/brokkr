@@ -1400,6 +1400,22 @@ remote CI are pending.
 
 - [ ] 11.2 Unit 11 parses a declared restriction transport with the empty restriction in its slot and carries only the empty restriction through real resolution; a nonempty restriction reaches only CQ1's outcomes with an exact reason (narrowed by the addendum of 2026-09-25; the qualified-restriction half is deferred below). Verify transport parsing, identity and required/wants/unused outcomes. Requirements: [Restrictions are validated, carried and pinned without engine interpretation][RG4], [Every accepted native control reaches the final command][NCC], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 1–2. (previous 4.4)
 
+Observed 2026-09-25 (evidence.md, "Unit 11 — oversized"), run
+`0065-rebuild-unit-11-see-the-uni-d48cbfd2`. Both tasks stay open. The unit
+was built within its three production files and its three baseline reds
+were observed. It was then reverted, because it changes the outcomes that
+seven tests outside its named test files assert:
+
+- four tests in `bundle/agent_tests.rs`;
+- one in `tests/capability_launch.rs`;
+- two in `brokkr-cli/src/doctor/capability_tests.rs`.
+
+One of these, the "clean native restriction" row, is a nonempty-restriction
+positive that ruling 4 forbids. No standing-admission line applies, since
+every one would change an assertion. The split asks for those three test
+files to be added to unit 11's inventory. The formatted patch is at
+`.forge/unit-11-oversized-2026-09-25.patch`, uncommitted.
+
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
 - [ ] 12.1 Unit 12 refuses every authored catalogue option regardless of grant/value/polarity/form. Verify complete all-harness matrix and bounded reasons without payloads; typed hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Subtractive tool lists never grant a capability][RGS], [Reserved hands preserves the existing workspace authority][TD6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2. (previous 4.6)

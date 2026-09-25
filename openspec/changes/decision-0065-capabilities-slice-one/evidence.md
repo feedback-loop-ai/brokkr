@@ -8366,3 +8366,161 @@ not move. No compose pin moved (the runtime unit suite passed 564/564).
 - `crates/brokkr-cli/tests/driver_conformance.rs` still hard-codes an
   inline `--sandbox danger-full-access` argv (unit 7's follow-up). The
   sweep now shows that no shipped recipe carries it.
+
+## Unit 11 — oversized: the load check reaches seven tests outside the inventory, 2026-09-25
+
+Run `0065-rebuild-unit-11-see-the-uni-d48cbfd2`, triage `chore`, phase
+implement, sole seat. The head was `a7f0298f`, clean. The result is
+**oversized**. Step 0 (the defer ruling's addendum and the amended deltas,
+design and tasks) landed alone as `5643a827`; `openspec validate --all
+--strict` passed 18/18 and `git diff --check` was clean before it was
+committed. The unit as amended works inside its three production files,
+but it changes the outcome that seven tests outside its named test files
+assert. The standing admission does not cover a changed assertion, so this
+visit stopped instead of widening. No production, test or pin byte moved.
+This record and the 11.1/11.2 note are the only edits beside step 0.
+
+### What was built and observed (then reverted)
+
+The whole change is saved, formatted, as
+`.forge/unit-11-oversized-2026-09-25.patch` (uncommitted; sha256
+`54de029c…05ac`; `git apply --check` clean on `5643a827`).
+
+- **`native_controls.rs`:** the `codex` arm of `compose_for_provider`
+  parses `controls.argv` with `parse_origin` before it appends it. The
+  verbatim bypass is gone.
+- **`capabilities.rs`:** a new `NativeInventory::check_declared(what,
+  harness)`. For a harness with a modelled grammar it checks four things,
+  and it asks nothing of `exec` or an opaque driver:
+  - each selection flag reads as its own list (`grammar::list_of`);
+  - each separator passes `managed_separator`;
+  - every ON and OFF argv, used or not, parses, and each node's
+    `bears_capability` is `Ok`;
+  - every selection entry is exactly one `managed_patterns` pattern;
+  - a declared restriction transport parses with `{}` (the canonical empty
+    restriction) in its slot.
+
+  A nonempty grant restriction is inexpressible on every candidate. When
+  the adapter declares a transport, the CQ1 reason gains "through its
+  declared transport, which carries only the empty restriction until a
+  provider restriction transport is measured (operator ruling of
+  2026-09-25)". The transport substitution for a holding was deleted.
+- **`agents/load.rs`:** `parse_adapter` calls `check_declared` with
+  `harness_of(&driver)`.
+- **Tests (in inventory):**
+  - `agents/tests.rs`:
+    `every_declared_half_parses_under_its_harness_at_load_even_unused`,
+    12 rows, each an exact load refusal or `loaded`.
+  - `capabilities/tests.rs`:
+    `a_declared_transport_carries_only_the_empty_restriction`, which
+    replaces `an_expressible_restriction_rides_one_typed_argument_unchanged`.
+  - `native_controls/tests.rs`:
+    `codex_managed_arguments_are_parsed_and_never_forwarded_unread`.
+
+### Baseline reds (observed before the production edits)
+
+- `cargo test --locked -p brokkr-protocol --lib codex_managed_arguments_are_parsed`
+  FAILED at its `assert_eq!`. All four malformed tails (`--`, `hello`,
+  `--unknown-off=synthetic` and a dangling `-c`) composed `Ok`, forwarded
+  verbatim in `managed`.
+- `cargo test --locked -p brokkr-runtime --lib -- every_declared_half_parses_under_its_harness a_declared_transport_carries_only_the_empty`
+  FAILED both:
+  - the load table read `loaded` on all 12 rows, where 10 expected a
+    refusal;
+  - the restriction test panicked at `unwrap_err()` on an `Ok`. The
+    requirement was held with argv `["--search-on", "--search-restrict",
+    "{\"allow\":{\"hosts\":[\"yaml.org\",\"sourceware.org\"]}}"]`.
+
+After the production edits, all three passed. No mutation records were
+taken, because the change was reverted. The re-run owes them.
+
+### Suites with the change applied
+
+- `cargo test --locked -p brokkr-protocol --all-features --no-fail-fast`:
+  487, 99 (2 ignored) and 1 passed; none failed.
+- `cargo test --locked -p brokkr-runtime --all-features --no-fail-fast`:
+  the lib had 559 passed and 6 failed; `capability_launch` had 42 passed
+  and 1 failed; every other target was ok (`witness_digests` 4/4, so no pin
+  moved).
+- `cargo test --locked -p brokkr-cli --all-features --no-fail-fast`: the
+  lib had 479 passed and 2 failed; the integration targets that finished
+  inside the run were ok.
+
+In inventory, and fixable in this unit's own file (`agents/tests.rs`):
+
+- `unit3_primitives_cannot_bypass_the_delivery_handoff`: its fixture
+  gives a `claude` driver the synthetic ON `--search-on`, which the claude
+  grammar cannot place, so the load now refuses it.
+- `unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission`:
+  it holds a nonempty restriction over a transport, which the ruling now
+  refuses with the deferral reason.
+
+**Out of inventory.** Each of these changes the refusal or outcome its
+assertion expects:
+
+- `crates/brokkr-runtime/src/bundle/agent_tests.rs`:
+  - `an_unreadable_contribution_refuses_by_position_without_echoing_its_token`:
+    it plants unparseable Codex OFF argv (a repeated `--cd`, `--cd --cd`,
+    a bare word and a dangling `--profile`). Load now refuses each one
+    before the D5.3 compile refusal it asserts.
+  - `resolved_native_on_and_restriction_contributions_obey_the_same_refusals`:
+    its "native restriction" rows and its "clean native restriction"
+    positive compile a held nonempty restriction through
+    `-c web_search={restrictions_json}`. Ruling 4 forbids that, and it
+    now refuses with the deferral reason.
+  - `a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly`:
+    its `dsh` adapter carries Claude-style selection flags, which load now
+    refuses.
+  - `an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses`:
+    its `codex` adapter on a `claude` driver carries a bare-word OFF, which
+    load now refuses.
+- `crates/brokkr-runtime/tests/capability_launch.rs`,
+  `a_native_control_declared_as_argv_reaches_the_final_claude_command`: a
+  `codex` adapter with a selection mapping now refuses at load. The test
+  expected the composition's "a tool selection … not consume" refusal.
+- `crates/brokkr-cli/src/doctor/capability_tests.rs`: the same `codex`
+  selection fixture now fails the adapter load, so the doctor reports the
+  load failure instead of the composer's refusal. This hits
+  `an_uncomposable_off_is_reported_as_the_refusal_the_compiler_gives` and
+  `a_dropped_restricted_want_is_promised_off_only_where_off_is_deliverable`.
+
+### The split this needs
+
+Unit 11's test inventory needs these three files added, for assertion
+updates only, with no production file added:
+
+1. `crates/brokkr-runtime/src/bundle/agent_tests.rs`;
+2. `crates/brokkr-runtime/tests/capability_launch.rs`;
+3. `crates/brokkr-cli/src/doctor/capability_tests.rs`.
+
+In each, the planted malformed declarations move to the load refusal they
+now meet, or are re-planted so that the compile-time refusal they exist to
+bind is still reached. The nonempty-restriction positive becomes the
+deferral refusal. Alternatively, a preceding unit could re-plant those
+fixtures first. The saved patch is the production half either way.
+
+### Follow-ups, not fixed here
+
+- `crates/brokkr-cli/src/doctor.rs:960-966` treats a declared restriction
+  transport as able to carry a nonempty restriction. With this unit
+  applied, the compiler refuses that, so the doctor would promise what
+  the compile refuses (ruling 4). No failing test covers it. It belongs
+  to unit 22, or it is a fourth production file if this unit must close
+  it.
+- After the load check, the D5.3 "resolved native control argv … cannot
+  be read" branch in `bundle.rs` may be reachable only through a
+  cross-key concatenation, such as two keys each carrying one `--cd`.
+  Exact coverage on the re-run will show whether it is still covered. It
+  was not measured here.
+- `compose_for_provider` parses Codex's managed argv but does not run
+  `bears_capability` on it. The load does. The final exact-state check is
+  units 13–15.
+
+### Gates
+
+- Step 0 (`5643a827`): `openspec validate --all --strict --no-interactive`
+  passed 18/18; `git diff --check` was clean.
+- With the change applied: `cargo fmt --all -- --check` was clean after
+  `cargo fmt --all`. Clippy was not run, because the change was reverted.
+- **Pending:** everything the re-run owes, including exact coverage, macOS
+  and remote CI.
