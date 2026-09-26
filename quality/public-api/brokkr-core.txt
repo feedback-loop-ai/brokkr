@@ -1,0 +1,474 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_core
+pub mod brokkr_core::canonical
+pub const brokkr_core::canonical::ZERO_HASH: &str
+pub fn brokkr_core::canonical::is_sha256_hex(&str) -> bool
+pub fn brokkr_core::canonical::sha256_bytes(&[u8]) -> alloc::string::String
+pub fn brokkr_core::canonical::sha256_hex(&serde_json::value::Value) -> alloc::string::String
+pub fn brokkr_core::canonical::to_bytes(&serde_json::value::Value) -> alloc::vec::Vec<u8>
+pub mod brokkr_core::dispatch
+pub enum brokkr_core::dispatch::DispatchError
+pub brokkr_core::dispatch::DispatchError::AgentsUnsupportedByDispatchLineage
+pub brokkr_core::dispatch::DispatchError::BadDigest
+pub brokkr_core::dispatch::DispatchError::BadField(&'static str)
+pub brokkr_core::dispatch::DispatchError::BadManifest
+pub brokkr_core::dispatch::DispatchError::BadSchema
+pub brokkr_core::dispatch::DispatchError::Budget
+pub brokkr_core::dispatch::DispatchError::EffectScope
+pub brokkr_core::dispatch::DispatchError::ForbiddenScope
+pub brokkr_core::dispatch::DispatchError::InvalidTime
+pub brokkr_core::dispatch::DispatchError::ManifestKeyUnsupportedByDispatchLineage(alloc::string::String)
+pub brokkr_core::dispatch::DispatchError::RecipeMismatch
+pub brokkr_core::dispatch::DispatchError::UnsafeBounds
+pub struct brokkr_core::dispatch::ActorBinding
+pub brokkr_core::dispatch::ActorBinding::accountable_operator_id: alloc::string::String
+pub brokkr_core::dispatch::ActorBinding::actor_id: alloc::string::String
+pub brokkr_core::dispatch::ActorBinding::actor_kind: alloc::string::String
+pub brokkr_core::dispatch::ActorBinding::authority_source: alloc::string::String
+pub brokkr_core::dispatch::ActorBinding::operating_profile: alloc::string::String
+pub brokkr_core::dispatch::ActorBinding::principal_id: alloc::string::String
+pub brokkr_core::dispatch::ActorBinding::principal_kind: alloc::string::String
+pub struct brokkr_core::dispatch::BudgetBinding
+pub brokkr_core::dispatch::BudgetBinding::ceiling_microunits: core::option::Option<u64>
+pub brokkr_core::dispatch::BudgetBinding::cost_state: alloc::string::String
+pub brokkr_core::dispatch::BudgetBinding::currency: core::option::Option<alloc::string::String>
+pub brokkr_core::dispatch::BudgetBinding::lane_tally_run_id: alloc::string::String
+pub brokkr_core::dispatch::BudgetBinding::reservation_id: core::option::Option<alloc::string::String>
+pub struct brokkr_core::dispatch::DispatchBounds
+pub brokkr_core::dispatch::DispatchBounds::cancellation: alloc::string::String
+pub brokkr_core::dispatch::DispatchBounds::max_attempts: u32
+pub brokkr_core::dispatch::DispatchBounds::max_event_bytes: u32
+pub brokkr_core::dispatch::DispatchBounds::max_events_per_ten_seconds: u32
+pub brokkr_core::dispatch::DispatchBounds::max_parallel_effects: u32
+pub brokkr_core::dispatch::DispatchBounds::replay_retention_seconds: u64
+pub brokkr_core::dispatch::DispatchBounds::safe_stop: alloc::string::String
+pub struct brokkr_core::dispatch::DispatchEnvelopeV2
+pub brokkr_core::dispatch::DispatchEnvelopeV2::actor: brokkr_core::dispatch::ActorBinding
+pub brokkr_core::dispatch::DispatchEnvelopeV2::allowed_effects: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::dispatch::DispatchEnvelopeV2::attestation_requirement: alloc::string::String
+pub brokkr_core::dispatch::DispatchEnvelopeV2::bounds: brokkr_core::dispatch::DispatchBounds
+pub brokkr_core::dispatch::DispatchEnvelopeV2::budget: brokkr_core::dispatch::BudgetBinding
+pub brokkr_core::dispatch::DispatchEnvelopeV2::canonical_digest: alloc::string::String
+pub brokkr_core::dispatch::DispatchEnvelopeV2::envelope_id: alloc::string::String
+pub brokkr_core::dispatch::DispatchEnvelopeV2::evidence_requirements: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::dispatch::DispatchEnvelopeV2::expires_at: alloc::string::String
+pub brokkr_core::dispatch::DispatchEnvelopeV2::forbidden_actions: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::dispatch::DispatchEnvelopeV2::forge_run_id: alloc::string::String
+pub brokkr_core::dispatch::DispatchEnvelopeV2::issued_at: alloc::string::String
+pub brokkr_core::dispatch::DispatchEnvelopeV2::looper: brokkr_core::dispatch::LooperBinding
+pub brokkr_core::dispatch::DispatchEnvelopeV2::producer: brokkr_core::dispatch::ProducerBinding
+pub brokkr_core::dispatch::DispatchEnvelopeV2::recipe: brokkr_core::dispatch::RecipeBinding
+pub brokkr_core::dispatch::DispatchEnvelopeV2::repository: brokkr_core::dispatch::RepositoryBinding
+pub brokkr_core::dispatch::DispatchEnvelopeV2::schema: alloc::string::String
+impl brokkr_core::dispatch::DispatchEnvelopeV2
+pub fn brokkr_core::dispatch::DispatchEnvelopeV2::compute_digest(&self) -> alloc::string::String
+pub fn brokkr_core::dispatch::DispatchEnvelopeV2::sealed(self) -> Self
+pub fn brokkr_core::dispatch::DispatchEnvelopeV2::verify(&self, time::offset_date_time::OffsetDateTime, &str) -> core::result::Result<(), brokkr_core::dispatch::DispatchError>
+pub struct brokkr_core::dispatch::LooperBinding
+pub brokkr_core::dispatch::LooperBinding::delivery_run_id: alloc::string::String
+pub brokkr_core::dispatch::LooperBinding::feature_path: alloc::string::String
+pub brokkr_core::dispatch::LooperBinding::immutable_inputs_sha256: alloc::string::String
+pub brokkr_core::dispatch::LooperBinding::organization_id: alloc::string::String
+pub brokkr_core::dispatch::LooperBinding::product_id: alloc::string::String
+pub brokkr_core::dispatch::LooperBinding::request_grant_id: alloc::string::String
+pub brokkr_core::dispatch::LooperBinding::story_id: alloc::string::String
+pub struct brokkr_core::dispatch::ProducerBinding
+pub brokkr_core::dispatch::ProducerBinding::accepting_service_id: alloc::string::String
+pub brokkr_core::dispatch::ProducerBinding::callback_audience: alloc::string::String
+pub brokkr_core::dispatch::ProducerBinding::producer_release: alloc::string::String
+pub brokkr_core::dispatch::ProducerBinding::protocol_version: u32
+pub brokkr_core::dispatch::ProducerBinding::registration_id: alloc::string::String
+pub brokkr_core::dispatch::ProducerBinding::runtime_id: alloc::string::String
+pub brokkr_core::dispatch::ProducerBinding::starting_cursor: u64
+pub brokkr_core::dispatch::ProducerBinding::token_reference: alloc::string::String
+pub struct brokkr_core::dispatch::RecipeBinding
+pub brokkr_core::dispatch::RecipeBinding::compiled_sha256: alloc::string::String
+pub brokkr_core::dispatch::RecipeBinding::name: alloc::string::String
+pub struct brokkr_core::dispatch::RepositoryBinding
+pub brokkr_core::dispatch::RepositoryBinding::base_sha: alloc::string::String
+pub brokkr_core::dispatch::RepositoryBinding::candidate_sha: core::option::Option<alloc::string::String>
+pub brokkr_core::dispatch::RepositoryBinding::name: alloc::string::String
+pub brokkr_core::dispatch::RepositoryBinding::owner: alloc::string::String
+pub brokkr_core::dispatch::RepositoryBinding::target_environment: alloc::string::String
+pub brokkr_core::dispatch::RepositoryBinding::workspace_class: alloc::string::String
+pub struct brokkr_core::dispatch::RunManifestV2
+pub brokkr_core::dispatch::RunManifestV2::bundle_name: alloc::string::String
+pub brokkr_core::dispatch::RunManifestV2::bundle_sha256: alloc::string::String
+pub brokkr_core::dispatch::RunManifestV2::database_schema: u32
+pub brokkr_core::dispatch::RunManifestV2::dispatch: brokkr_core::dispatch::DispatchEnvelopeV2
+pub brokkr_core::dispatch::RunManifestV2::dispatch_sha256: alloc::string::String
+pub brokkr_core::dispatch::RunManifestV2::driver_protocol: u32
+pub brokkr_core::dispatch::RunManifestV2::engine: alloc::string::String
+pub brokkr_core::dispatch::RunManifestV2::event_schema: u32
+pub brokkr_core::dispatch::RunManifestV2::files: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_core::dispatch::RunManifestV2::schema: alloc::string::String
+pub const brokkr_core::dispatch::DISPATCH_SCHEMA_V2: &str
+pub const brokkr_core::dispatch::PRODUCER_EFFECTS: [&str; 5]
+pub const brokkr_core::dispatch::REQUIRED_FORBIDDEN_ACTIONS: [&str; 5]
+pub const brokkr_core::dispatch::RUN_MANIFEST_SCHEMA_V2: &str
+pub fn brokkr_core::dispatch::build_run_manifest_v2(&serde_json::value::Value, brokkr_core::dispatch::DispatchEnvelopeV2) -> core::result::Result<serde_json::value::Value, brokkr_core::dispatch::DispatchError>
+pub fn brokkr_core::dispatch::bundle_manifest_from_run(&serde_json::value::Value) -> core::result::Result<serde_json::value::Value, brokkr_core::dispatch::DispatchError>
+pub fn brokkr_core::dispatch::dispatch_from_run(&serde_json::value::Value) -> core::result::Result<core::option::Option<brokkr_core::dispatch::DispatchEnvelopeV2>, brokkr_core::dispatch::DispatchError>
+pub mod brokkr_core::envelope
+pub enum brokkr_core::envelope::ChainError
+pub brokkr_core::envelope::ChainError::BadHash
+pub brokkr_core::envelope::ChainError::BadHash::seq: u64
+pub brokkr_core::envelope::ChainError::BadSchemaVersion
+pub brokkr_core::envelope::ChainError::BadSchemaVersion::found: u32
+pub brokkr_core::envelope::ChainError::BadSchemaVersion::seq: u64
+pub brokkr_core::envelope::ChainError::BrokenChain
+pub brokkr_core::envelope::ChainError::BrokenChain::prev_seq: u64
+pub brokkr_core::envelope::ChainError::BrokenChain::seq: u64
+pub brokkr_core::envelope::ChainError::ForeignRun
+pub brokkr_core::envelope::ChainError::ForeignRun::seq: u64
+pub brokkr_core::envelope::ChainError::SeqGap
+pub brokkr_core::envelope::ChainError::SeqGap::expected: u64
+pub brokkr_core::envelope::ChainError::SeqGap::seq: u64
+pub enum brokkr_core::envelope::EventType
+pub brokkr_core::envelope::EventType::EffectCheckpointed
+pub brokkr_core::envelope::EventType::EffectFailed
+pub brokkr_core::envelope::EventType::EffectIndeterminate
+pub brokkr_core::envelope::EventType::EffectRequested
+pub brokkr_core::envelope::EventType::EffectStarted
+pub brokkr_core::envelope::EventType::EffectSucceeded
+pub brokkr_core::envelope::EventType::OperatorAccepted
+pub brokkr_core::envelope::EventType::OperatorCommanded
+pub brokkr_core::envelope::EventType::OperatorRejected
+pub brokkr_core::envelope::EventType::PhaseEntered
+pub brokkr_core::envelope::EventType::RunCompleted
+pub brokkr_core::envelope::EventType::RunParked
+pub brokkr_core::envelope::EventType::RunStarted
+pub brokkr_core::envelope::EventType::RunStopped
+pub brokkr_core::envelope::EventType::TransitionDecided
+pub struct brokkr_core::envelope::EventEnvelope
+pub brokkr_core::envelope::EventEnvelope::attempt_id: core::option::Option<alloc::string::String>
+pub brokkr_core::envelope::EventEnvelope::causation_id: core::option::Option<alloc::string::String>
+pub brokkr_core::envelope::EventEnvelope::correlation_id: alloc::string::String
+pub brokkr_core::envelope::EventEnvelope::event_hash: alloc::string::String
+pub brokkr_core::envelope::EventEnvelope::event_id: alloc::string::String
+pub brokkr_core::envelope::EventEnvelope::event_schema_version: u32
+pub brokkr_core::envelope::EventEnvelope::event_type: brokkr_core::envelope::EventType
+pub brokkr_core::envelope::EventEnvelope::payload: serde_json::value::Value
+pub brokkr_core::envelope::EventEnvelope::previous_hash: alloc::string::String
+pub brokkr_core::envelope::EventEnvelope::recorded_at: alloc::string::String
+pub brokkr_core::envelope::EventEnvelope::run_id: alloc::string::String
+pub brokkr_core::envelope::EventEnvelope::seq: u64
+impl brokkr_core::envelope::EventEnvelope
+pub fn brokkr_core::envelope::EventEnvelope::compute_hash(&self) -> alloc::string::String
+pub fn brokkr_core::envelope::EventEnvelope::sealed(self) -> Self
+pub fn brokkr_core::envelope::verify_chain(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_core::envelope::ChainError>
+pub mod brokkr_core::fold
+pub enum brokkr_core::fold::Cursor
+pub brokkr_core::fold::Cursor::Decide
+pub brokkr_core::fold::Cursor::Decide::effect_id: alloc::string::String
+pub brokkr_core::fold::Cursor::Decide::result: serde_json::value::Value
+pub brokkr_core::fold::Cursor::EffectInFlight
+pub brokkr_core::fold::Cursor::EffectInFlight::attempt_id: alloc::string::String
+pub brokkr_core::fold::Cursor::EffectInFlight::effect_id: alloc::string::String
+pub brokkr_core::fold::Cursor::EffectInFlight::failed_attempts: u64
+pub brokkr_core::fold::Cursor::EffectInFlight::seat: alloc::string::String
+pub brokkr_core::fold::Cursor::EnterPhase
+pub brokkr_core::fold::Cursor::EnterPhase::phase: alloc::string::String
+pub brokkr_core::fold::Cursor::ExecuteEffect
+pub brokkr_core::fold::Cursor::ExecuteEffect::effect_id: alloc::string::String
+pub brokkr_core::fold::Cursor::ExecuteEffect::failed_attempts: u64
+pub brokkr_core::fold::Cursor::ExecuteEffect::seat: alloc::string::String
+pub brokkr_core::fold::Cursor::Idle
+pub brokkr_core::fold::Cursor::Park
+pub brokkr_core::fold::Cursor::Park::reason: alloc::string::String
+pub brokkr_core::fold::Cursor::RequestEffect
+pub brokkr_core::fold::Cursor::Start
+pub brokkr_core::fold::Cursor::Stop
+pub enum brokkr_core::fold::FoldError
+pub brokkr_core::fold::FoldError::AfterTerminal
+pub brokkr_core::fold::FoldError::AfterTerminal::seq: u64
+pub brokkr_core::fold::FoldError::BadPayload
+pub brokkr_core::fold::FoldError::BadPayload::field: alloc::string::String
+pub brokkr_core::fold::FoldError::BadPayload::seq: u64
+pub brokkr_core::fold::FoldError::Empty
+pub brokkr_core::fold::FoldError::FirstEventNotRunStarted
+pub brokkr_core::fold::FoldError::FirstEventNotRunStarted::seq: u64
+pub brokkr_core::fold::FoldError::NoMatchingCommand
+pub brokkr_core::fold::FoldError::NoMatchingCommand::seq: u64
+pub brokkr_core::fold::FoldError::OutOfPlace
+pub brokkr_core::fold::FoldError::OutOfPlace::cursor: alloc::string::String
+pub brokkr_core::fold::FoldError::OutOfPlace::event: alloc::string::String
+pub brokkr_core::fold::FoldError::OutOfPlace::seq: u64
+pub brokkr_core::fold::FoldError::UnknownCommand
+pub brokkr_core::fold::FoldError::UnknownCommand::command: alloc::string::String
+pub brokkr_core::fold::FoldError::UnknownCommand::seq: u64
+impl brokkr_core::fold::FoldError
+pub fn brokkr_core::fold::FoldError::seq(&self) -> u64
+pub enum brokkr_core::fold::Status
+pub brokkr_core::fold::Status::AwaitingOperator
+pub brokkr_core::fold::Status::Completed
+pub brokkr_core::fold::Status::Running
+pub brokkr_core::fold::Status::Stopped
+pub struct brokkr_core::fold::RunState
+pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_core::fold::RunState::cursor: brokkr_core::fold::Cursor
+pub brokkr_core::fold::RunState::feature: core::option::Option<alloc::string::String>
+pub brokkr_core::fold::RunState::last_decision: core::option::Option<serde_json::value::Value>
+pub brokkr_core::fold::RunState::last_hash: alloc::string::String
+pub brokkr_core::fold::RunState::last_result: core::option::Option<serde_json::value::Value>
+pub brokkr_core::fold::RunState::park_reason: core::option::Option<alloc::string::String>
+pub brokkr_core::fold::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
+pub brokkr_core::fold::RunState::phase: core::option::Option<alloc::string::String>
+pub brokkr_core::fold::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
+pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<serde_json::value::Value>
+pub brokkr_core::fold::RunState::riding_stop: bool
+pub brokkr_core::fold::RunState::run_id: alloc::string::String
+pub brokkr_core::fold::RunState::seq: u64
+pub brokkr_core::fold::RunState::status: brokkr_core::fold::Status
+pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
+pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub mod brokkr_core::keep_refs
+pub fn brokkr_core::keep_refs::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
+pub mod brokkr_core::policy
+pub enum brokkr_core::policy::Outcome
+pub brokkr_core::policy::Outcome::NoRule
+pub brokkr_core::policy::Outcome::NoRule::problem: core::option::Option<alloc::string::String>
+pub brokkr_core::policy::Outcome::Park
+pub brokkr_core::policy::Outcome::Park::reason: alloc::string::String
+pub brokkr_core::policy::Outcome::Park::rule_id: alloc::string::String
+pub brokkr_core::policy::Outcome::Ruling
+pub brokkr_core::policy::Outcome::Ruling::next_phase: alloc::string::String
+pub brokkr_core::policy::Outcome::Ruling::reason: alloc::string::String
+pub brokkr_core::policy::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::policy::Outcome::Ruling::rule_id: alloc::string::String
+pub brokkr_core::policy::Outcome::Ruling::severity: alloc::string::String
+pub struct brokkr_core::policy::Machine
+pub brokkr_core::policy::Machine::initial: alloc::string::String
+pub brokkr_core::policy::Machine::phases: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::policy::Machine::rules: alloc::vec::Vec<brokkr_core::policy::Rule>
+pub brokkr_core::policy::Machine::shippable_from: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::policy::Machine::terminal: alloc::vec::Vec<alloc::string::String>
+impl brokkr_core::policy::Machine
+pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
+pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
+pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
+pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_core::policy::PolicyError(pub alloc::string::String)
+pub struct brokkr_core::policy::Rule
+pub brokkr_core::policy::Rule::from: alloc::string::String
+pub brokkr_core::policy::Rule::id: alloc::string::String
+pub brokkr_core::policy::Rule::next: core::option::Option<alloc::string::String>
+pub brokkr_core::policy::Rule::reason: alloc::string::String
+pub brokkr_core::policy::Rule::requires_artifacts: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::policy::Rule::result: alloc::string::String
+pub brokkr_core::policy::Rule::severity: alloc::string::String
+pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
+pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
+pub const brokkr_core::policy::DRIFT_PHASES: [&str; 3]
+pub const brokkr_core::policy::IDENTIFIER_INPUTS: [&str; 1]
+pub const brokkr_core::policy::RULING_SEVERITIES: [&str; 3]
+pub const brokkr_core::policy::SEVERITY_INPUTS: [&str; 1]
+pub const brokkr_core::policy::SEVERITY_ORDER: [&str; 6]
+pub const brokkr_core::policy::STRATEGIES: [&str; 5]
+pub const brokkr_core::policy::TABLE_SCHEMA_V1: &str
+pub const brokkr_core::policy::TABLE_SCHEMA_V2: &str
+pub const brokkr_core::policy::VISIT_PREFIX: &str
+pub fn brokkr_core::policy::is_identifier(&str) -> bool
+pub mod brokkr_core::realms
+pub mod brokkr_core::realms::recorded_boundary
+pub fn brokkr_core::realms::recorded_boundary::deserialize<'de, D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<core::option::Option<brokkr_core::realms::Boundary>, <D as serde_core::de::Deserializer>::Error>
+pub fn brokkr_core::realms::recorded_boundary::serialize<S: serde_core::ser::Serializer>(&core::option::Option<brokkr_core::realms::Boundary>, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub enum brokkr_core::realms::Boundary
+pub brokkr_core::realms::Boundary::Container
+pub brokkr_core::realms::Boundary::Harness
+pub brokkr_core::realms::Boundary::Namespace
+pub brokkr_core::realms::Boundary::Open
+pub brokkr_core::realms::Boundary::Seatbelt
+impl brokkr_core::realms::Boundary
+pub fn brokkr_core::realms::Boundary::from_recorded(&str) -> core::option::Option<core::option::Option<brokkr_core::realms::Boundary>>
+pub fn brokkr_core::realms::Boundary::is_boxed(self) -> bool
+pub fn brokkr_core::realms::Boundary::recorded(core::option::Option<brokkr_core::realms::Boundary>) -> &'static str
+pub fn brokkr_core::realms::Boundary::word(self) -> &'static str
+impl core::fmt::Display for brokkr_core::realms::Boundary
+pub fn brokkr_core::realms::Boundary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::str::traits::FromStr for brokkr_core::realms::Boundary
+pub type brokkr_core::realms::Boundary::Err = brokkr_core::realms::BoundaryError
+pub fn brokkr_core::realms::Boundary::from_str(&str) -> core::result::Result<brokkr_core::realms::Boundary, brokkr_core::realms::BoundaryError>
+pub enum brokkr_core::realms::CrossingList<T>
+pub brokkr_core::realms::CrossingList::Absent
+pub brokkr_core::realms::CrossingList::List(alloc::vec::Vec<T>)
+pub brokkr_core::realms::CrossingList::Null
+impl<T> brokkr_core::realms::CrossingList<T>
+pub fn brokkr_core::realms::CrossingList<T>::entries(&self) -> &[T]
+pub fn brokkr_core::realms::CrossingList<T>::is_null(&self) -> bool
+pub fn brokkr_core::realms::CrossingList<T>::is_written(&self) -> bool
+impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::realms::CrossingList<T>
+pub fn brokkr_core::realms::CrossingList<T>::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::realms::RealmsError
+pub brokkr_core::realms::RealmsError::Invalid
+pub brokkr_core::realms::RealmsError::Invalid::path: alloc::string::String
+pub brokkr_core::realms::RealmsError::Invalid::problem: alloc::string::String
+pub brokkr_core::realms::RealmsError::Malformed
+pub brokkr_core::realms::RealmsError::Malformed::detail: alloc::string::String
+pub brokkr_core::realms::RealmsError::Malformed::path: alloc::string::String
+pub struct brokkr_core::realms::BoundaryError(pub alloc::string::String)
+pub struct brokkr_core::realms::ConsumedCrossing
+pub brokkr_core::realms::ConsumedCrossing::name: alloc::string::String
+pub brokkr_core::realms::ConsumedCrossing::realm: alloc::string::String
+pub brokkr_core::realms::ConsumedCrossing::sha256: alloc::string::String
+pub struct brokkr_core::realms::PublishedCrossing
+pub brokkr_core::realms::PublishedCrossing::name: alloc::string::String
+pub brokkr_core::realms::PublishedCrossing::path: alloc::string::String
+pub struct brokkr_core::realms::Realm
+pub brokkr_core::realms::Realm::boundary: core::option::Option<brokkr_core::realms::Boundary>
+pub brokkr_core::realms::Realm::consumes: brokkr_core::realms::CrossingList<brokkr_core::realms::ConsumedCrossing>
+pub brokkr_core::realms::Realm::default_branch: alloc::string::String
+pub brokkr_core::realms::Realm::dialect: core::option::Option<alloc::string::String>
+pub brokkr_core::realms::Realm::house: core::option::Option<alloc::string::String>
+pub brokkr_core::realms::Realm::journal: core::option::Option<alloc::string::String>
+pub brokkr_core::realms::Realm::name: alloc::string::String
+pub brokkr_core::realms::Realm::path: alloc::string::String
+pub brokkr_core::realms::Realm::publishes: brokkr_core::realms::CrossingList<brokkr_core::realms::PublishedCrossing>
+impl brokkr_core::realms::Realm
+pub fn brokkr_core::realms::Realm::boundary(&self) -> brokkr_core::realms::Boundary
+pub fn brokkr_core::realms::Realm::consumed(&self) -> &[brokkr_core::realms::ConsumedCrossing]
+pub fn brokkr_core::realms::Realm::published(&self) -> &[brokkr_core::realms::PublishedCrossing]
+pub struct brokkr_core::realms::RealmMap
+pub brokkr_core::realms::RealmMap::journal: alloc::string::String
+pub brokkr_core::realms::RealmMap::realms: alloc::vec::Vec<brokkr_core::realms::Realm>
+pub brokkr_core::realms::RealmMap::schema: alloc::string::String
+impl brokkr_core::realms::RealmMap
+pub fn brokkr_core::realms::RealmMap::journal_of<'a>(&'a self, &'a brokkr_core::realms::Realm) -> &'a str
+pub fn brokkr_core::realms::RealmMap::of(&str, serde_json::value::Value) -> core::result::Result<(brokkr_core::realms::RealmMap, serde_json::value::Value), brokkr_core::realms::RealmsError>
+pub fn brokkr_core::realms::RealmMap::parse(&str, &str) -> core::result::Result<(brokkr_core::realms::RealmMap, serde_json::value::Value), brokkr_core::realms::RealmsError>
+pub const brokkr_core::realms::BOUNDARIES: [brokkr_core::realms::Boundary; 5]
+pub const brokkr_core::realms::DEFAULT_MAP_FILE: &str
+pub const brokkr_core::realms::LEGACY_REALM_KEY: &str
+pub const brokkr_core::realms::NOT_APPLICABLE: &str
+pub const brokkr_core::realms::SCHEMAS: [&str; 5]
+pub const brokkr_core::realms::SCHEMA_V1: &str
+pub const brokkr_core::realms::SCHEMA_V2: &str
+pub const brokkr_core::realms::SCHEMA_V3: &str
+pub const brokkr_core::realms::SCHEMA_V4: &str
+pub const brokkr_core::realms::SCHEMA_V5: &str
+pub fn brokkr_core::realms::recorded_head<'a>(&'a serde_json::value::Value, core::option::Option<&str>) -> core::option::Option<&'a str>
+pub enum brokkr_core::Cursor
+pub brokkr_core::Cursor::Decide
+pub brokkr_core::Cursor::Decide::effect_id: alloc::string::String
+pub brokkr_core::Cursor::Decide::result: serde_json::value::Value
+pub brokkr_core::Cursor::EffectInFlight
+pub brokkr_core::Cursor::EffectInFlight::attempt_id: alloc::string::String
+pub brokkr_core::Cursor::EffectInFlight::effect_id: alloc::string::String
+pub brokkr_core::Cursor::EffectInFlight::failed_attempts: u64
+pub brokkr_core::Cursor::EffectInFlight::seat: alloc::string::String
+pub brokkr_core::Cursor::EnterPhase
+pub brokkr_core::Cursor::EnterPhase::phase: alloc::string::String
+pub brokkr_core::Cursor::ExecuteEffect
+pub brokkr_core::Cursor::ExecuteEffect::effect_id: alloc::string::String
+pub brokkr_core::Cursor::ExecuteEffect::failed_attempts: u64
+pub brokkr_core::Cursor::ExecuteEffect::seat: alloc::string::String
+pub brokkr_core::Cursor::Idle
+pub brokkr_core::Cursor::Park
+pub brokkr_core::Cursor::Park::reason: alloc::string::String
+pub brokkr_core::Cursor::RequestEffect
+pub brokkr_core::Cursor::Start
+pub brokkr_core::Cursor::Stop
+pub enum brokkr_core::EventType
+pub brokkr_core::EventType::EffectCheckpointed
+pub brokkr_core::EventType::EffectFailed
+pub brokkr_core::EventType::EffectIndeterminate
+pub brokkr_core::EventType::EffectRequested
+pub brokkr_core::EventType::EffectStarted
+pub brokkr_core::EventType::EffectSucceeded
+pub brokkr_core::EventType::OperatorAccepted
+pub brokkr_core::EventType::OperatorCommanded
+pub brokkr_core::EventType::OperatorRejected
+pub brokkr_core::EventType::PhaseEntered
+pub brokkr_core::EventType::RunCompleted
+pub brokkr_core::EventType::RunParked
+pub brokkr_core::EventType::RunStarted
+pub brokkr_core::EventType::RunStopped
+pub brokkr_core::EventType::TransitionDecided
+pub enum brokkr_core::FoldError
+pub brokkr_core::FoldError::AfterTerminal
+pub brokkr_core::FoldError::AfterTerminal::seq: u64
+pub brokkr_core::FoldError::BadPayload
+pub brokkr_core::FoldError::BadPayload::field: alloc::string::String
+pub brokkr_core::FoldError::BadPayload::seq: u64
+pub brokkr_core::FoldError::Empty
+pub brokkr_core::FoldError::FirstEventNotRunStarted
+pub brokkr_core::FoldError::FirstEventNotRunStarted::seq: u64
+pub brokkr_core::FoldError::NoMatchingCommand
+pub brokkr_core::FoldError::NoMatchingCommand::seq: u64
+pub brokkr_core::FoldError::OutOfPlace
+pub brokkr_core::FoldError::OutOfPlace::cursor: alloc::string::String
+pub brokkr_core::FoldError::OutOfPlace::event: alloc::string::String
+pub brokkr_core::FoldError::OutOfPlace::seq: u64
+pub brokkr_core::FoldError::UnknownCommand
+pub brokkr_core::FoldError::UnknownCommand::command: alloc::string::String
+pub brokkr_core::FoldError::UnknownCommand::seq: u64
+impl brokkr_core::fold::FoldError
+pub fn brokkr_core::fold::FoldError::seq(&self) -> u64
+pub enum brokkr_core::Outcome
+pub brokkr_core::Outcome::NoRule
+pub brokkr_core::Outcome::NoRule::problem: core::option::Option<alloc::string::String>
+pub brokkr_core::Outcome::Park
+pub brokkr_core::Outcome::Park::reason: alloc::string::String
+pub brokkr_core::Outcome::Park::rule_id: alloc::string::String
+pub brokkr_core::Outcome::Ruling
+pub brokkr_core::Outcome::Ruling::next_phase: alloc::string::String
+pub brokkr_core::Outcome::Ruling::reason: alloc::string::String
+pub brokkr_core::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::Outcome::Ruling::rule_id: alloc::string::String
+pub brokkr_core::Outcome::Ruling::severity: alloc::string::String
+pub enum brokkr_core::Status
+pub brokkr_core::Status::AwaitingOperator
+pub brokkr_core::Status::Completed
+pub brokkr_core::Status::Running
+pub brokkr_core::Status::Stopped
+pub struct brokkr_core::EventEnvelope
+pub brokkr_core::EventEnvelope::attempt_id: core::option::Option<alloc::string::String>
+pub brokkr_core::EventEnvelope::causation_id: core::option::Option<alloc::string::String>
+pub brokkr_core::EventEnvelope::correlation_id: alloc::string::String
+pub brokkr_core::EventEnvelope::event_hash: alloc::string::String
+pub brokkr_core::EventEnvelope::event_id: alloc::string::String
+pub brokkr_core::EventEnvelope::event_schema_version: u32
+pub brokkr_core::EventEnvelope::event_type: brokkr_core::envelope::EventType
+pub brokkr_core::EventEnvelope::payload: serde_json::value::Value
+pub brokkr_core::EventEnvelope::previous_hash: alloc::string::String
+pub brokkr_core::EventEnvelope::recorded_at: alloc::string::String
+pub brokkr_core::EventEnvelope::run_id: alloc::string::String
+pub brokkr_core::EventEnvelope::seq: u64
+impl brokkr_core::envelope::EventEnvelope
+pub fn brokkr_core::envelope::EventEnvelope::compute_hash(&self) -> alloc::string::String
+pub fn brokkr_core::envelope::EventEnvelope::sealed(self) -> Self
+pub struct brokkr_core::Machine
+pub brokkr_core::Machine::initial: alloc::string::String
+pub brokkr_core::Machine::phases: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::Machine::rules: alloc::vec::Vec<brokkr_core::policy::Rule>
+pub brokkr_core::Machine::shippable_from: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::Machine::terminal: alloc::vec::Vec<alloc::string::String>
+impl brokkr_core::policy::Machine
+pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
+pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
+pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
+pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_core::PolicyError(pub alloc::string::String)
+pub struct brokkr_core::RunState
+pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_core::RunState::cursor: brokkr_core::fold::Cursor
+pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>
+pub brokkr_core::RunState::last_decision: core::option::Option<serde_json::value::Value>
+pub brokkr_core::RunState::last_hash: alloc::string::String
+pub brokkr_core::RunState::last_result: core::option::Option<serde_json::value::Value>
+pub brokkr_core::RunState::park_reason: core::option::Option<alloc::string::String>
+pub brokkr_core::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
+pub brokkr_core::RunState::phase: core::option::Option<alloc::string::String>
+pub brokkr_core::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
+pub brokkr_core::RunState::reviewed_heads: core::option::Option<serde_json::value::Value>
+pub brokkr_core::RunState::riding_stop: bool
+pub brokkr_core::RunState::run_id: alloc::string::String
+pub brokkr_core::RunState::seq: u64
+pub brokkr_core::RunState::status: brokkr_core::fold::Status
+pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
+pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
+pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>

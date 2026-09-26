@@ -1265,6 +1265,7 @@ fn renovate_moves_every_digest_pinned_tool_and_its_script_finds_each_release() {
             ".github/actions/setup-actionlint/action.yml",
             BUBBLEWRAP_ACTION,
             CARGO_AUDIT_ACTION,
+            ".github/actions/setup-jscpd/action.yml",
             ".github/actions/setup-lychee/action.yml",
         ]
     );
@@ -1451,6 +1452,7 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "coverage",
             "license-compliance",
             "lint-non-rust",
+            "ratchets",
             "dependency-audit",
             "bootstrap-budgets",
             "bootstrap-budgets-macos",

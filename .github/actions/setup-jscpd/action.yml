@@ -1,0 +1,28 @@
+name: setup-jscpd
+description: >-
+  Install jscpd, the duplication ratchet's measuring tool, from its own
+  release, verified by digest.
+# jscpd is pinned by version AND digest and installed from kucherenko/jscpd's
+# own release: the digest is the one the release's checksums.txt publishes,
+# checked on the host before it was recorded here (issue #338). It must be the
+# version quality/ratchet.sh's baselines were measured with. Bumping the
+# version means bumping the digest and regenerating quality/jscpd-baseline-*.
+runs:
+  using: composite
+  steps:
+    - name: jscpd, pinned by version and digest
+      shell: bash
+      env:
+        JSCPD_VERSION: 5.3.2
+        JSCPD_SHA256: bfae3e3cfc18040a044d2dada4c9d99761a9953d08c509c41a2eb5bfafef8309
+      run: |
+        set -euo pipefail
+        asset="jscpd-linux-x64-musl"
+        tarball="${RUNNER_TEMP}/${asset}.tar.gz"
+        curl -sSfL --retry 3 -o "$tarball" \
+          "https://github.com/kucherenko/jscpd/releases/download/v${JSCPD_VERSION}/${asset}.tar.gz"
+        echo "${JSCPD_SHA256}  ${tarball}" | sha256sum -c -
+        mkdir -p "${RUNNER_TEMP}/jscpd"
+        tar xzf "$tarball" -C "${RUNNER_TEMP}/jscpd" jscpd
+        install -m 0755 "${RUNNER_TEMP}/jscpd/jscpd" "$HOME/.cargo/bin/jscpd"
+        jscpd --version

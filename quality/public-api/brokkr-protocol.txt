@@ -1,0 +1,289 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_protocol
+pub mod brokkr_protocol::adapters
+pub enum brokkr_protocol::adapters::AdapterKind
+pub brokkr_protocol::adapters::AdapterKind::Claude
+pub brokkr_protocol::adapters::AdapterKind::Codex
+pub brokkr_protocol::adapters::AdapterKind::Dsh
+pub brokkr_protocol::adapters::AdapterKind::Exec
+pub brokkr_protocol::adapters::AdapterKind::Lanetally
+impl brokkr_protocol::adapters::AdapterKind
+pub fn brokkr_protocol::adapters::AdapterKind::parse(&str) -> core::option::Option<brokkr_protocol::adapters::AdapterKind>
+pub enum brokkr_protocol::adapters::CompositeError
+pub brokkr_protocol::adapters::CompositeError::Component(&'static str, alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::Config(alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::NpmKey(alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::NpmLock(alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::Patch(&'static str, alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::PnpmLock(alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::Value
+pub brokkr_protocol::adapters::CompositeError::Value::component: &'static str
+pub brokkr_protocol::adapters::CompositeError::Value::reason: &'static str
+pub enum brokkr_protocol::adapters::DshUnprepared
+pub brokkr_protocol::adapters::DshUnprepared::Refused
+pub brokkr_protocol::adapters::DshUnprepared::Refused::cause: brokkr_protocol::adapters::CompositeError
+pub brokkr_protocol::adapters::DshUnprepared::Unlocated
+pub brokkr_protocol::adapters::DshUnprepared::Unlocated::cause: brokkr_protocol::adapters::CompositeError
+pub brokkr_protocol::adapters::DshUnprepared::Unlocated::invocation: brokkr_protocol::adapters::DshInvocation
+impl brokkr_protocol::adapters::DshUnprepared
+pub fn brokkr_protocol::adapters::DshUnprepared::cause(&self) -> &brokkr_protocol::adapters::CompositeError
+pub enum brokkr_protocol::adapters::StartRefusal
+pub brokkr_protocol::adapters::StartRefusal::MissingCorrelation(&'static str)
+pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter
+pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::error: alloc::string::String
+pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::path: alloc::string::String
+pub struct brokkr_protocol::adapters::DshComposite
+impl brokkr_protocol::adapters::DshComposite
+pub fn brokkr_protocol::adapters::DshComposite::canonical(&self) -> &str
+pub fn brokkr_protocol::adapters::DshComposite::plugin(&self) -> &str
+pub struct brokkr_protocol::adapters::DshInvocation
+pub brokkr_protocol::adapters::DshInvocation::argv0: std::ffi::os_str::OsString
+pub brokkr_protocol::adapters::DshInvocation::program: std::path::PathBuf
+impl brokkr_protocol::adapters::DshInvocation
+pub fn brokkr_protocol::adapters::DshInvocation::command(&self) -> std::process::Command
+pub fn brokkr_protocol::adapters::DshInvocation::of(impl core::convert::Into<std::path::PathBuf>) -> brokkr_protocol::adapters::DshInvocation
+pub struct brokkr_protocol::adapters::DshNode
+pub brokkr_protocol::adapters::DshNode::invocation: brokkr_protocol::adapters::DshInvocation
+pub brokkr_protocol::adapters::DshNode::path: std::path::PathBuf
+pub struct brokkr_protocol::adapters::DshPrepared
+impl brokkr_protocol::adapters::DshPrepared
+pub fn brokkr_protocol::adapters::DshPrepared::admit(brokkr_protocol::adapters::DshInvocation, brokkr_protocol::adapters::DshSeams) -> core::result::Result<brokkr_protocol::adapters::DshPrepared, brokkr_protocol::adapters::DshUnprepared>
+pub fn brokkr_protocol::adapters::DshPrepared::invocation(&self) -> &brokkr_protocol::adapters::DshInvocation
+pub fn brokkr_protocol::adapters::DshPrepared::seams(&self) -> &brokkr_protocol::adapters::DshSeams
+pub struct brokkr_protocol::adapters::DshSeams
+pub brokkr_protocol::adapters::DshSeams::executable: alloc::string::String
+pub brokkr_protocol::adapters::DshSeams::head: alloc::vec::Vec<u8>
+pub brokkr_protocol::adapters::DshSeams::home: std::path::PathBuf
+pub brokkr_protocol::adapters::DshSeams::node: core::option::Option<brokkr_protocol::adapters::DshNode>
+impl brokkr_protocol::adapters::DshSeams
+pub fn brokkr_protocol::adapters::DshSeams::resolve() -> core::result::Result<brokkr_protocol::adapters::DshSeams, brokkr_protocol::adapters::CompositeError>
+pub fn brokkr_protocol::adapters::DshSeams::selected() -> core::result::Result<brokkr_protocol::adapters::DshSelection, brokkr_protocol::adapters::DshUnselected>
+pub struct brokkr_protocol::adapters::DshSelection
+pub brokkr_protocol::adapters::DshSelection::admission: core::result::Result<brokkr_protocol::adapters::DshPrepared, brokkr_protocol::adapters::DshUnprepared>
+pub brokkr_protocol::adapters::DshSelection::executable: alloc::string::String
+pub struct brokkr_protocol::adapters::DshUnselected
+pub brokkr_protocol::adapters::DshUnselected::cause: brokkr_protocol::adapters::CompositeError
+pub brokkr_protocol::adapters::DshUnselected::declared: alloc::string::String
+pub struct brokkr_protocol::adapters::HandsNotice
+impl brokkr_protocol::adapters::HandsNotice
+pub const brokkr_protocol::adapters::HandsNotice::MEMBERS: [&'static str; 2]
+pub fn brokkr_protocol::adapters::HandsNotice::discovery_tool(&self) -> &str
+pub fn brokkr_protocol::adapters::HandsNotice::parse(&serde_json::value::Value) -> core::result::Result<brokkr_protocol::adapters::HandsNotice, alloc::string::String>
+pub fn brokkr_protocol::adapters::HandsNotice::to_value(&self) -> serde_json::value::Value
+pub fn brokkr_protocol::adapters::HandsNotice::workspace_tool(&self) -> &str
+pub const brokkr_protocol::adapters::DEFAULT_WORKSPACE_TOOL: &str
+pub const brokkr_protocol::adapters::EFFORT_NOT_APPLICABLE: &str
+pub const brokkr_protocol::adapters::EFFORT_NOT_REPORTED: &str
+pub const brokkr_protocol::adapters::MODEL_NOT_APPLICABLE: &str
+pub const brokkr_protocol::adapters::MODEL_NOT_REPORTED: &str
+pub const brokkr_protocol::adapters::TOOL_IDENTIFIER_LIMIT: usize
+pub fn brokkr_protocol::adapters::dsh_composite(&brokkr_protocol::adapters::DshSeams) -> core::result::Result<brokkr_protocol::adapters::DshComposite, brokkr_protocol::adapters::CompositeError>
+pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapters::DshPrepared) -> core::result::Result<brokkr_protocol::adapters::DshComposite, brokkr_protocol::adapters::CompositeError>
+pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
+pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>) -> core::io::error::Result<()>
+pub mod brokkr_protocol::dsh_sandbox
+pub struct brokkr_protocol::dsh_sandbox::GitScope
+pub brokkr_protocol::dsh_sandbox::GitScope::common_dir: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::GitScope::git_dir: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::GitScope::workspace: std::path::PathBuf
+pub struct brokkr_protocol::dsh_sandbox::Promotion
+pub brokkr_protocol::dsh_sandbox::Promotion::from: core::option::Option<alloc::string::String>
+pub brokkr_protocol::dsh_sandbox::Promotion::reference: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::Promotion::to: alloc::string::String
+impl brokkr_protocol::dsh_sandbox::Promotion
+pub fn brokkr_protocol::dsh_sandbox::Promotion::summary(&self) -> alloc::string::String
+pub struct brokkr_protocol::dsh_sandbox::SeatGitStore
+impl brokkr_protocol::dsh_sandbox::SeatGitStore
+pub fn brokkr_protocol::dsh_sandbox::SeatGitStore::baseline(&self) -> core::option::Option<&str>
+pub fn brokkr_protocol::dsh_sandbox::SeatGitStore::reference(&self) -> &str
+pub fn brokkr_protocol::dsh_sandbox::SeatGitStore::store_path(&self) -> &std::path::Path
+pub fn brokkr_protocol::dsh_sandbox::SeatGitStore::trusted_path(&self) -> &std::path::Path
+pub const brokkr_protocol::dsh_sandbox::RUNNER_FAILURE_SIGNATURE: &str
+pub const brokkr_protocol::dsh_sandbox::RUNNER_VERB: &str
+pub fn brokkr_protocol::dsh_sandbox::bwrap_usable(&std::path::Path) -> bool
+pub fn brokkr_protocol::dsh_sandbox::keep_store(brokkr_protocol::dsh_sandbox::SeatGitStore, impl core::fmt::Display) -> alloc::string::String
+pub fn brokkr_protocol::dsh_sandbox::promote_seat_commits(brokkr_protocol::dsh_sandbox::SeatGitStore, &brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<core::option::Option<brokkr_protocol::dsh_sandbox::Promotion>, alloc::string::String>
+pub fn brokkr_protocol::dsh_sandbox::require_usable_bwrap(&std::path::Path) -> core::result::Result<(), alloc::string::String>
+pub fn brokkr_protocol::dsh_sandbox::runner_argv(&[alloc::string::String]) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
+pub fn brokkr_protocol::dsh_sandbox::sandbox_row(&str, &std::path::Path, &brokkr_protocol::dsh_sandbox::SeatGitStore, &brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<alloc::string::String, alloc::string::String>
+pub fn brokkr_protocol::dsh_sandbox::scope_refusal(&brokkr_protocol::dsh_sandbox::GitScope) -> core::option::Option<alloc::string::String>
+pub fn brokkr_protocol::dsh_sandbox::stage_seat_store(&brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<brokkr_protocol::dsh_sandbox::SeatGitStore, alloc::string::String>
+pub mod brokkr_protocol::fake
+pub fn brokkr_protocol::fake::run_fake_driver(&std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&str>) -> core::io::error::Result<()>
+pub mod brokkr_protocol::hands
+pub enum brokkr_protocol::hands::BindMode
+pub brokkr_protocol::hands::BindMode::Overlay
+pub brokkr_protocol::hands::BindMode::Ro
+pub brokkr_protocol::hands::BindMode::Rw
+pub struct brokkr_protocol::hands::Bind
+pub brokkr_protocol::hands::Bind::mask: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::hands::Bind::mode: brokkr_protocol::hands::BindMode
+pub brokkr_protocol::hands::Bind::path: alloc::string::String
+pub struct brokkr_protocol::hands::Executed
+pub brokkr_protocol::hands::Executed::exit_code: i32
+pub brokkr_protocol::hands::Executed::stderr: alloc::string::String
+pub brokkr_protocol::hands::Executed::stdout: alloc::string::String
+pub brokkr_protocol::hands::Executed::timed_out: bool
+impl brokkr_protocol::hands::Executed
+pub fn brokkr_protocol::hands::Executed::render(&self) -> alloc::string::String
+pub struct brokkr_protocol::hands::GitFacts
+pub brokkr_protocol::hands::GitFacts::common_dir: core::option::Option<std::path::PathBuf>
+pub brokkr_protocol::hands::GitFacts::git_dir: core::option::Option<std::path::PathBuf>
+pub brokkr_protocol::hands::GitFacts::identity: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub struct brokkr_protocol::hands::HandsSpec
+pub brokkr_protocol::hands::HandsSpec::binds: alloc::vec::Vec<brokkr_protocol::hands::Bind>
+pub brokkr_protocol::hands::HandsSpec::network: bool
+impl brokkr_protocol::hands::HandsSpec
+pub fn brokkr_protocol::hands::HandsSpec::parse(&serde_json::value::Value) -> core::result::Result<brokkr_protocol::hands::HandsSpec, alloc::string::String>
+pub fn brokkr_protocol::hands::HandsSpec::to_value(&self) -> serde_json::value::Value
+pub const brokkr_protocol::hands::BOUNDARY_EVIDENCE_ENV: &str
+pub const brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS: &str
+pub const brokkr_protocol::hands::HANDS_BOX_ENV: &str
+pub const brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS: &[&str]
+pub const brokkr_protocol::hands::SANDBOX_BUNDLE: &str
+pub const brokkr_protocol::hands::SERVER_NAME: &str
+pub const brokkr_protocol::hands::TOOL_NAME: &str
+pub fn brokkr_protocol::hands::boundary_evidence_required() -> bool
+pub fn brokkr_protocol::hands::box_argv(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::io::error::Result<alloc::vec::Vec<alloc::string::String>>
+pub fn brokkr_protocol::hands::bwrap_on(&std::ffi::os_str::OsStr) -> core::result::Result<std::path::PathBuf, alloc::string::String>
+pub fn brokkr_protocol::hands::drain_bounded<R: alloc::io::read::Read>(R) -> (alloc::vec::Vec<u8>, bool)
+pub fn brokkr_protocol::hands::execute(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
+pub fn brokkr_protocol::hands::execute_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
+pub fn brokkr_protocol::hands::git_facts(&std::path::Path) -> brokkr_protocol::hands::GitFacts
+pub fn brokkr_protocol::hands::handle(&str, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &brokkr_protocol::hands::Executor) -> core::option::Option<serde_json::value::Value>
+pub fn brokkr_protocol::hands::home_dir(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>) -> std::path::PathBuf
+pub fn brokkr_protocol::hands::ids() -> (u32, u32)
+pub fn brokkr_protocol::hands::io_context<T>(core::io::error::Result<T>, &str) -> core::result::Result<T, alloc::string::String>
+pub fn brokkr_protocol::hands::mcp_config(&std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec) -> serde_json::value::Value
+pub fn brokkr_protocol::hands::namespace_join(&str, &std::path::Path) -> alloc::string::String
+pub fn brokkr_protocol::hands::network_prefix(u32, u32) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_protocol::hands::overlay_supported(&brokkr_protocol::hands::HandsSpec, &std::path::Path) -> core::result::Result<(), alloc::string::String>
+pub fn brokkr_protocol::hands::overlay_supported_by(&str, &std::path::Path) -> core::result::Result<(), alloc::string::String>
+pub fn brokkr_protocol::hands::parse_version(&str) -> core::option::Option<(u32, u32, u32)>
+pub fn brokkr_protocol::hands::probe_network_prefix(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, u32, u32) -> bool
+pub fn brokkr_protocol::hands::require_bwrap() -> core::result::Result<std::path::PathBuf, alloc::string::String>
+pub fn brokkr_protocol::hands::require_bwrap_for(&brokkr_protocol::hands::HandsSpec) -> core::result::Result<std::path::PathBuf, alloc::string::String>
+pub fn brokkr_protocol::hands::run_boxed(&brokkr_protocol::hands::HandsSpec, &std::path::Path, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
+pub fn brokkr_protocol::hands::run_boxed_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
+pub fn brokkr_protocol::hands::serve<R: alloc::io::buf_read::BufRead, W: core::io::write::Write>(R, W, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &brokkr_protocol::hands::Executor) -> core::io::error::Result<()>
+pub fn brokkr_protocol::hands::serve_args(&std::path::Path, &brokkr_protocol::hands::HandsSpec) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_protocol::hands::session_dir(&str) -> core::result::Result<std::path::PathBuf, alloc::string::String>
+pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
+pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
+pub fn brokkr_protocol::hands::unboxed_environment(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &[(alloc::string::String, alloc::string::String)], &std::path::Path, &std::path::Path) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub type brokkr_protocol::hands::Executor = dyn core::ops::function::Fn(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
+pub mod brokkr_protocol::legacy
+pub fn brokkr_protocol::legacy::env(&str, core::option::Option<&str>) -> core::option::Option<alloc::string::String>
+pub fn brokkr_protocol::legacy::say_once(&str, &str)
+pub mod brokkr_protocol::oneshot
+pub enum brokkr_protocol::oneshot::OneShot
+pub brokkr_protocol::oneshot::OneShot::Produced
+pub brokkr_protocol::oneshot::OneShot::Produced::checkpoints: alloc::vec::Vec<serde_json::value::Value>
+pub brokkr_protocol::oneshot::OneShot::Produced::result: serde_json::value::Value
+pub brokkr_protocol::oneshot::OneShot::Refused
+pub brokkr_protocol::oneshot::OneShot::Refused::reason: alloc::string::String
+pub fn brokkr_protocol::oneshot::run_once(&[alloc::string::String], &str, core::time::Duration, impl core::ops::function::FnOnce(&std::path::Path) -> serde_json::value::Value) -> brokkr_protocol::oneshot::OneShot
+pub mod brokkr_protocol::process
+pub enum brokkr_protocol::process::SpawnEnv
+pub brokkr_protocol::process::SpawnEnv::Exactly(alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>)
+pub brokkr_protocol::process::SpawnEnv::Inherit
+pub enum brokkr_protocol::process::SpawnError
+pub brokkr_protocol::process::SpawnError::EmptyCommand
+pub brokkr_protocol::process::SpawnError::Spawn
+pub brokkr_protocol::process::SpawnError::Spawn::command: alloc::string::String
+pub brokkr_protocol::process::SpawnError::Spawn::source: core::io::error::Error
+pub struct brokkr_protocol::process::DriverProcess
+impl brokkr_protocol::process::DriverProcess
+pub fn brokkr_protocol::process::DriverProcess::run_attempt(self, &str, &str, &str, &str, serde_json::value::Value, impl core::ops::function::FnMut(&serde_json::value::Value)) -> brokkr_protocol::AttemptReport
+pub fn brokkr_protocol::process::DriverProcess::run_attempt_resuming(self, &str, &str, &str, &str, serde_json::value::Value, core::option::Option<alloc::string::String>, impl core::ops::function::FnMut(&serde_json::value::Value)) -> brokkr_protocol::AttemptReport
+pub fn brokkr_protocol::process::DriverProcess::spawn(&[alloc::string::String], &std::path::Path, core::option::Option<core::time::Duration>, &brokkr_protocol::process::SpawnEnv) -> core::result::Result<Self, brokkr_protocol::process::SpawnError>
+pub mod brokkr_protocol::secret
+pub struct brokkr_protocol::secret::BoundSecret
+impl brokkr_protocol::secret::BoundSecret
+pub fn brokkr_protocol::secret::BoundSecret::name(&self) -> &str
+pub fn brokkr_protocol::secret::BoundSecret::secret(&self) -> &brokkr_protocol::secret::Secret
+pub struct brokkr_protocol::secret::Secret
+impl brokkr_protocol::secret::Secret
+pub fn brokkr_protocol::secret::Secret::expose_for_spawn(&self) -> &[u8]
+pub fn brokkr_protocol::secret::Secret::new(alloc::vec::Vec<u8>) -> brokkr_protocol::secret::Secret
+impl core::fmt::Debug for brokkr_protocol::secret::Secret
+pub fn brokkr_protocol::secret::Secret::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for brokkr_protocol::secret::Secret
+pub fn brokkr_protocol::secret::Secret::drop(&mut self)
+pub const brokkr_protocol::secret::DENYLIST: [&str; 4]
+pub const brokkr_protocol::secret::DENYLIST_PREFIXES: [&str; 2]
+pub const brokkr_protocol::secret::MIN_VALUE_BYTES: usize
+pub const brokkr_protocol::secret::NEEDLE_ENCODINGS: [(&str, brokkr_protocol::secret::Encoder); 9]
+pub const brokkr_protocol::secret::SHORT_VALUE_WARN_BYTES: usize
+pub fn brokkr_protocol::secret::denylisted(&str) -> bool
+pub fn brokkr_protocol::secret::mask_bytes(&[u8], &[brokkr_protocol::secret::BoundSecret]) -> alloc::vec::Vec<u8>
+pub fn brokkr_protocol::secret::mask_json(&mut serde_json::value::Value, &[brokkr_protocol::secret::BoundSecret])
+pub fn brokkr_protocol::secret::mask_projected(&str, &[brokkr_protocol::secret::BoundSecret]) -> alloc::string::String
+pub fn brokkr_protocol::secret::resolve_bindings(&std::path::Path, &[alloc::string::String]) -> core::result::Result<alloc::vec::Vec<brokkr_protocol::secret::BoundSecret>, alloc::string::String>
+pub fn brokkr_protocol::secret::scan_secret_refs(&str) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
+pub fn brokkr_protocol::secret::store_names(&std::path::Path) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
+pub fn brokkr_protocol::secret::store_remove(&std::path::Path, &str) -> core::result::Result<bool, alloc::string::String>
+pub fn brokkr_protocol::secret::store_set(&std::path::Path, &str, &str) -> core::result::Result<core::option::Option<alloc::string::String>, alloc::string::String>
+pub fn brokkr_protocol::secret::valid_name(&str) -> bool
+pub fn brokkr_protocol::secret::validate_name(&str) -> core::result::Result<(), alloc::string::String>
+pub fn brokkr_protocol::secret::validate_value(&str) -> core::result::Result<core::option::Option<alloc::string::String>, alloc::string::String>
+pub type brokkr_protocol::secret::Encoder = fn(&[u8]) -> alloc::vec::Vec<u8>
+pub enum brokkr_protocol::AttemptOutcome
+pub brokkr_protocol::AttemptOutcome::Failed
+pub brokkr_protocol::AttemptOutcome::Failed::error: alloc::string::String
+pub brokkr_protocol::AttemptOutcome::Indeterminate
+pub brokkr_protocol::AttemptOutcome::Indeterminate::reason: alloc::string::String
+pub brokkr_protocol::AttemptOutcome::Succeeded
+pub brokkr_protocol::AttemptOutcome::Succeeded::result: serde_json::value::Value
+pub enum brokkr_protocol::Body
+pub brokkr_protocol::Body::Accepted
+pub brokkr_protocol::Body::Accepted::attempt_id: alloc::string::String
+pub brokkr_protocol::Body::Accepted::effect_id: alloc::string::String
+pub brokkr_protocol::Body::Accepted::session_ref: core::option::Option<alloc::string::String>
+pub brokkr_protocol::Body::Cancel
+pub brokkr_protocol::Body::Cancel::effect_id: alloc::string::String
+pub brokkr_protocol::Body::Cancelled
+pub brokkr_protocol::Body::Cancelled::effect_id: alloc::string::String
+pub brokkr_protocol::Body::Capabilities
+pub brokkr_protocol::Body::Capabilities::driver: alloc::string::String
+pub brokkr_protocol::Body::Capabilities::supports: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::Body::Capabilities::version: alloc::string::String
+pub brokkr_protocol::Body::Checkpoint
+pub brokkr_protocol::Body::Checkpoint::attempt_id: alloc::string::String
+pub brokkr_protocol::Body::Checkpoint::data: serde_json::value::Value
+pub brokkr_protocol::Body::Checkpoint::effect_id: alloc::string::String
+pub brokkr_protocol::Body::Hello
+pub brokkr_protocol::Body::Hello::engine_version: alloc::string::String
+pub brokkr_protocol::Body::Result
+pub brokkr_protocol::Body::Result::attempt_id: alloc::string::String
+pub brokkr_protocol::Body::Result::effect_id: alloc::string::String
+pub brokkr_protocol::Body::Result::error: core::option::Option<alloc::string::String>
+pub brokkr_protocol::Body::Result::result: core::option::Option<serde_json::value::Value>
+pub brokkr_protocol::Body::Result::status: brokkr_protocol::ResultStatus
+pub brokkr_protocol::Body::Resume
+pub brokkr_protocol::Body::Resume::attempt_id: alloc::string::String
+pub brokkr_protocol::Body::Resume::effect_id: alloc::string::String
+pub brokkr_protocol::Body::Resume::session_ref: alloc::string::String
+pub brokkr_protocol::Body::Shutdown
+pub brokkr_protocol::Body::Start
+pub brokkr_protocol::Body::Start::attempt_id: alloc::string::String
+pub brokkr_protocol::Body::Start::effect_id: alloc::string::String
+pub brokkr_protocol::Body::Start::input: serde_json::value::Value
+pub brokkr_protocol::Body::Start::seat: alloc::string::String
+pub enum brokkr_protocol::ResultStatus
+pub brokkr_protocol::ResultStatus::Failed
+pub brokkr_protocol::ResultStatus::Succeeded
+pub struct brokkr_protocol::AttemptReport
+pub brokkr_protocol::AttemptReport::accepted: bool
+pub brokkr_protocol::AttemptReport::checkpoints: alloc::vec::Vec<serde_json::value::Value>
+pub brokkr_protocol::AttemptReport::deadline_killed: bool
+pub brokkr_protocol::AttemptReport::outcome: brokkr_protocol::AttemptOutcome
+pub brokkr_protocol::AttemptReport::session_ref: core::option::Option<alloc::string::String>
+pub brokkr_protocol::AttemptReport::stderr: alloc::string::String
+pub struct brokkr_protocol::Message
+pub brokkr_protocol::Message::body: brokkr_protocol::Body
+pub brokkr_protocol::Message::msg_id: alloc::string::String
+pub brokkr_protocol::Message::proto: alloc::string::String
+impl brokkr_protocol::Message
+pub fn brokkr_protocol::Message::new(brokkr_protocol::Body) -> brokkr_protocol::Message
+pub const brokkr_protocol::PROTO: &str

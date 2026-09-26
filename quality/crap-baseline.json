@@ -5,7 +5,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "Bridge::await_event_slot",
-      "line": 567,
+      "line": 569,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -13,7 +13,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "Bridge::into_transport",
-      "line": 724,
+      "line": 727,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -21,7 +21,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "Bridge::new",
-      "line": 560,
+      "line": 562,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -29,7 +29,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "Bridge::sync_once",
-      "line": 592,
+      "line": 595,
       "cyclomatic": 34.0,
       "coverage": 100.0,
       "crap": 34.0
@@ -37,7 +37,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "HttpTransport::acknowledge_command",
-      "line": 263,
+      "line": 265,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -45,7 +45,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "HttpTransport::commands",
-      "line": 250,
+      "line": 252,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -53,7 +53,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "HttpTransport::new",
-      "line": 166,
+      "line": 168,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -61,7 +61,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "HttpTransport::origin",
-      "line": 214,
+      "line": 216,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -69,7 +69,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "HttpTransport::register",
-      "line": 218,
+      "line": 220,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -77,7 +77,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "HttpTransport::request",
-      "line": 173,
+      "line": 175,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -85,7 +85,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "HttpTransport::submit",
-      "line": 232,
+      "line": 234,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -93,7 +93,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "audience_matches",
-      "line": 205,
+      "line": 207,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -101,7 +101,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "bounded",
-      "line": 281,
+      "line": 283,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -109,7 +109,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "data",
-      "line": 196,
+      "line": 198,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -117,7 +117,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "digest_string",
-      "line": 286,
+      "line": 288,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -125,7 +125,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "http_error",
-      "line": 189,
+      "line": 191,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -133,7 +133,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "normalize_event",
-      "line": 474,
+      "line": 476,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -141,7 +141,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "normalize_payload",
-      "line": 379,
+      "line": 381,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -149,7 +149,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "observed_usage",
-      "line": 456,
+      "line": 458,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -157,7 +157,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "safe_checkpoint",
-      "line": 296,
+      "line": 298,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -165,7 +165,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "selected",
-      "line": 349,
+      "line": 351,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -173,7 +173,7 @@
     {
       "file": "./crates/brokkr-bridge/src/lib.rs",
       "function": "semantic_type",
-      "line": 441,
+      "line": 443,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -229,7 +229,7 @@
     {
       "file": "./crates/brokkr-cli/src/boundary.rs",
       "function": "doctor_line",
-      "line": 133,
+      "line": 136,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -237,7 +237,7 @@
     {
       "file": "./crates/brokkr-cli/src/boundary.rs",
       "function": "hands_line",
-      "line": 164,
+      "line": 167,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -261,7 +261,7 @@
     {
       "file": "./crates/brokkr-cli/src/boundary.rs",
       "function": "readiness",
-      "line": 124,
+      "line": 127,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -277,7 +277,7 @@
     {
       "file": "./crates/brokkr-cli/src/compare.rs",
       "function": "compare",
-      "line": 490,
+      "line": 491,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -285,7 +285,7 @@
     {
       "file": "./crates/brokkr-cli/src/compare.rs",
       "function": "costs",
-      "line": 305,
+      "line": 306,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -293,7 +293,7 @@
     {
       "file": "./crates/brokkr-cli/src/compare.rs",
       "function": "first_divergence",
-      "line": 478,
+      "line": 479,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -301,7 +301,7 @@
     {
       "file": "./crates/brokkr-cli/src/compare.rs",
       "function": "resolution_divergence",
-      "line": 365,
+      "line": 366,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -309,7 +309,7 @@
     {
       "file": "./crates/brokkr-cli/src/compare.rs",
       "function": "resolution_of",
-      "line": 336,
+      "line": 337,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -317,7 +317,7 @@
     {
       "file": "./crates/brokkr-cli/src/compare.rs",
       "function": "run_facts",
-      "line": 386,
+      "line": 387,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -325,7 +325,7 @@
     {
       "file": "./crates/brokkr-cli/src/compare.rs",
       "function": "seat_costs",
-      "line": 22,
+      "line": 23,
       "cyclomatic": 25.0,
       "coverage": 100.0,
       "crap": 25.0
@@ -373,7 +373,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "ambient_variable",
-      "line": 654,
+      "line": 651,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -405,7 +405,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "doctor",
-      "line": 658,
+      "line": 655,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -413,7 +413,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "doctor_in",
-      "line": 958,
+      "line": 955,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -421,7 +421,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "doctor_with_probe",
-      "line": 934,
+      "line": 931,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -461,7 +461,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "no_composite",
-      "line": 921,
+      "line": 918,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -485,7 +485,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_agents",
-      "line": 618,
+      "line": 615,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -493,7 +493,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_ambient_credentials",
-      "line": 552,
+      "line": 549,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -501,7 +501,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_realm_crossings",
-      "line": 784,
+      "line": 781,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -509,7 +509,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_realm_dialects",
-      "line": 827,
+      "line": 824,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -517,7 +517,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_realm_house",
-      "line": 733,
+      "line": 730,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -525,7 +525,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_realm_house_for_world",
-      "line": 741,
+      "line": 738,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -533,7 +533,7 @@
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_realm_world",
-      "line": 711,
+      "line": 708,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -765,7 +765,7 @@
     {
       "file": "./crates/brokkr-cli/src/init.rs",
       "function": "init",
-      "line": 1598,
+      "line": 1599,
       "cyclomatic": 35.0,
       "coverage": 100.0,
       "crap": 35.0
@@ -989,7 +989,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "SourceStamp::of",
-      "line": 957,
+      "line": 958,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -997,7 +997,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "SourceStamp::same_subject",
-      "line": 974,
+      "line": 975,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -1037,7 +1037,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "contention",
-      "line": 839,
+      "line": 840,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1053,7 +1053,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "driver_extra_args",
-      "line": 794,
+      "line": 795,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1061,7 +1061,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "driver_payload",
-      "line": 814,
+      "line": 815,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1069,7 +1069,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "dsh_sandbox_runner",
-      "line": 914,
+      "line": 915,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1077,7 +1077,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "dsh_sandbox_runner_args",
-      "line": 902,
+      "line": 903,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1085,7 +1085,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "exec_bwrap",
-      "line": 926,
+      "line": 927,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1093,7 +1093,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "exec_bwrap",
-      "line": 935,
+      "line": 936,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1117,7 +1117,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "hands",
-      "line": 729,
+      "line": 730,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -1141,7 +1141,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "keep_ref_run",
-      "line": 643,
+      "line": 644,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -1149,7 +1149,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "keep_refs",
-      "line": 662,
+      "line": 663,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -1157,7 +1157,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "main",
-      "line": 892,
+      "line": 893,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -1173,7 +1173,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "newest_answer",
-      "line": 1212,
+      "line": 1213,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1197,7 +1197,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "participant_legacy_provenance",
-      "line": 1378,
+      "line": 1379,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -1205,7 +1205,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "refreshed_subject",
-      "line": 1042,
+      "line": 1043,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -1213,7 +1213,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "report",
-      "line": 858,
+      "line": 859,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1221,7 +1221,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "resolve_in_hearths",
-      "line": 1247,
+      "line": 1248,
       "cyclomatic": 20.0,
       "coverage": 100.0,
       "crap": 20.0
@@ -1229,7 +1229,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "resolve_subject",
-      "line": 992,
+      "line": 993,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -1237,7 +1237,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "resolve_transcript",
-      "line": 1027,
+      "line": 1028,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1245,7 +1245,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "run",
-      "line": 1364,
+      "line": 1365,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1253,7 +1253,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "run_tui",
-      "line": 1336,
+      "line": 1337,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1261,7 +1261,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "run_with",
-      "line": 1972,
+      "line": 1973,
       "cyclomatic": 195.0,
       "coverage": 100.0,
       "crap": 195.0
@@ -1269,7 +1269,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "safe_lines",
-      "line": 877,
+      "line": 878,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1285,7 +1285,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "select_transcript_participant",
-      "line": 1394,
+      "line": 1395,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -1293,7 +1293,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "select_transcript_turn",
-      "line": 1432,
+      "line": 1433,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -1341,7 +1341,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "transcript_document",
-      "line": 1467,
+      "line": 1468,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1349,7 +1349,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "tui_source",
-      "line": 1184,
+      "line": 1185,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1357,7 +1357,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "tui_views",
-      "line": 1064,
+      "line": 1065,
       "cyclomatic": 20.0,
       "coverage": 100.0,
       "crap": 20.0
@@ -1373,7 +1373,7 @@
     {
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "watch_loop",
-      "line": 574,
+      "line": 575,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -1429,7 +1429,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "array_field",
-      "line": 557,
+      "line": 562,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1437,7 +1437,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "citation",
-      "line": 574,
+      "line": 579,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -1445,7 +1445,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "cite",
-      "line": 626,
+      "line": 631,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -1453,7 +1453,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "cited_crossing",
-      "line": 827,
+      "line": 832,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -1461,7 +1461,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "cited_run",
-      "line": 816,
+      "line": 821,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1469,7 +1469,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "crossing_citation",
-      "line": 608,
+      "line": 613,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -1477,7 +1477,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "dossier_of",
-      "line": 229,
+      "line": 230,
       "cyclomatic": 18.0,
       "coverage": 100.0,
       "crap": 18.0
@@ -1485,7 +1485,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "entry",
-      "line": 745,
+      "line": 750,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1493,7 +1493,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "keyed",
-      "line": 467,
+      "line": 472,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1501,7 +1501,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "list",
-      "line": 1020,
+      "line": 1025,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -1509,7 +1509,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "number",
-      "line": 805,
+      "line": 810,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1517,7 +1517,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "render",
-      "line": 849,
+      "line": 854,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -1525,7 +1525,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "rows",
-      "line": 839,
+      "line": 844,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1533,7 +1533,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "run",
-      "line": 903,
+      "line": 908,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -1541,7 +1541,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "seat",
-      "line": 494,
+      "line": 499,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -1549,7 +1549,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "seat_input",
-      "line": 523,
+      "line": 528,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1557,7 +1557,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "string_field",
-      "line": 550,
+      "line": 555,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1565,7 +1565,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "text",
-      "line": 794,
+      "line": 799,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -1573,7 +1573,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "usage",
-      "line": 717,
+      "line": 722,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -1581,7 +1581,7 @@
     {
       "file": "./crates/brokkr-cli/src/muninn.rs",
       "function": "validate",
-      "line": 639,
+      "line": 644,
       "cyclomatic": 19.0,
       "coverage": 100.0,
       "crap": 19.0
@@ -2029,7 +2029,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "Guard::drop",
-      "line": 3311,
+      "line": 3313,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2037,7 +2037,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "Tui::assign_run",
-      "line": 306,
+      "line": 307,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2045,7 +2045,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "Tui::new",
-      "line": 259,
+      "line": 260,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2053,7 +2053,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "Tui::over",
-      "line": 271,
+      "line": 272,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2069,7 +2069,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "anchor_of",
-      "line": 2277,
+      "line": 2278,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2077,7 +2077,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "apply",
-      "line": 1149,
+      "line": 1150,
       "cyclomatic": 23.0,
       "coverage": 100.0,
       "crap": 23.0
@@ -2085,7 +2085,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "arc",
-      "line": 2712,
+      "line": 2713,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -2093,7 +2093,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "arrow",
-      "line": 905,
+      "line": 906,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2101,7 +2101,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "ascend",
-      "line": 1072,
+      "line": 1073,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2109,7 +2109,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "backspace",
-      "line": 1093,
+      "line": 1094,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -2117,7 +2117,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "brand",
-      "line": 1382,
+      "line": 1383,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2125,7 +2125,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "build",
-      "line": 2169,
+      "line": 2170,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2133,7 +2133,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "cell",
-      "line": 1332,
+      "line": 1333,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2141,7 +2141,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "centre_of",
-      "line": 2342,
+      "line": 2343,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2149,7 +2149,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "clamp",
-      "line": 1790,
+      "line": 1791,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -2157,7 +2157,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "class_for_node",
-      "line": 1754,
+      "line": 1755,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -2165,7 +2165,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "class_for_phase",
-      "line": 1742,
+      "line": 1743,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -2173,7 +2173,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "classify_refresh",
-      "line": 3385,
+      "line": 3387,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2181,7 +2181,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "column_label",
-      "line": 1853,
+      "line": 1854,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2189,7 +2189,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "compressed",
-      "line": 2241,
+      "line": 2242,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -2197,7 +2197,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "connector_of",
-      "line": 2290,
+      "line": 2291,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2205,7 +2205,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw",
-      "line": 1411,
+      "line": 1412,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2213,7 +2213,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_graph",
-      "line": 2855,
+      "line": 2856,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2221,7 +2221,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_help",
-      "line": 1487,
+      "line": 1488,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2229,7 +2229,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_participant",
-      "line": 3066,
+      "line": 3068,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2237,7 +2237,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_reader",
-      "line": 1456,
+      "line": 1457,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2245,7 +2245,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_run",
-      "line": 1587,
+      "line": 1588,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2253,7 +2253,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_runs",
-      "line": 1516,
+      "line": 1517,
       "cyclomatic": 13.0,
       "coverage": 100.0,
       "crap": 13.0
@@ -2261,7 +2261,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_seats",
-      "line": 2902,
+      "line": 2903,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2269,7 +2269,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_too_small",
-      "line": 1474,
+      "line": 1475,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2277,7 +2277,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "draw_trail",
-      "line": 3039,
+      "line": 3040,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2285,7 +2285,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "drive",
-      "line": 3397,
+      "line": 3399,
       "cyclomatic": 19.0,
       "coverage": 100.0,
       "crap": 19.0
@@ -2293,7 +2293,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "enter",
-      "line": 950,
+      "line": 951,
       "cyclomatic": 13.0,
       "coverage": 100.0,
       "crap": 13.0
@@ -2301,7 +2301,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "escape",
-      "line": 1040,
+      "line": 1041,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2309,7 +2309,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "estate",
-      "line": 1612,
+      "line": 1613,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2317,7 +2317,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "fleet_live",
-      "line": 366,
+      "line": 367,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2325,7 +2325,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "footer_for",
-      "line": 1192,
+      "line": 1193,
       "cyclomatic": 18.0,
       "coverage": 100.0,
       "crap": 18.0
@@ -2333,7 +2333,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "fork",
-      "line": 2723,
+      "line": 2724,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -2341,7 +2341,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "from_crossterm",
-      "line": 557,
+      "line": 558,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -2349,7 +2349,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "from_key",
-      "line": 572,
+      "line": 573,
       "cyclomatic": 17.0,
       "coverage": 100.0,
       "crap": 17.0
@@ -2357,7 +2357,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "graph_scope",
-      "line": 895,
+      "line": 896,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2365,7 +2365,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "header_style",
-      "line": 1348,
+      "line": 1349,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2373,7 +2373,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "in_graph",
-      "line": 856,
+      "line": 857,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -2381,7 +2381,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "index_of",
-      "line": 656,
+      "line": 657,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -2389,7 +2389,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "install_panic_hook",
-      "line": 3330,
+      "line": 3332,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2397,7 +2397,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "keys_for",
-      "line": 601,
+      "line": 602,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2405,7 +2405,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "label_span",
-      "line": 1863,
+      "line": 1864,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2413,7 +2413,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "labels_for",
-      "line": 610,
+      "line": 611,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2421,7 +2421,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "lane_keys",
-      "line": 863,
+      "line": 864,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2429,7 +2429,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "lane_member",
-      "line": 885,
+      "line": 886,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2437,7 +2437,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "lane_offset",
-      "line": 1891,
+      "line": 1892,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2453,7 +2453,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "legacy_provenance",
-      "line": 455,
+      "line": 456,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2461,7 +2461,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "lens_of",
-      "line": 404,
+      "line": 405,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2469,7 +2469,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "line",
-      "line": 1340,
+      "line": 1341,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2477,7 +2477,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "look",
-      "line": 1717,
+      "line": 1718,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2485,7 +2485,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "mode_for",
-      "line": 1916,
+      "line": 1917,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2493,7 +2493,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "move_to",
-      "line": 665,
+      "line": 666,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -2501,7 +2501,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "name_place",
-      "line": 2067,
+      "line": 2068,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2509,7 +2509,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "name_text",
-      "line": 1833,
+      "line": 1834,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2517,7 +2517,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "notices_text",
-      "line": 740,
+      "line": 741,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2525,7 +2525,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "offset_for",
-      "line": 3193,
+      "line": 3195,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2533,7 +2533,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "paint",
-      "line": 2773,
+      "line": 2774,
       "cyclomatic": 16.0,
       "coverage": 100.0,
       "crap": 16.0
@@ -2541,7 +2541,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "pane",
-      "line": 1400,
+      "line": 1401,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2549,7 +2549,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "panes_at",
-      "line": 374,
+      "line": 375,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2557,7 +2557,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "participant",
-      "line": 391,
+      "line": 392,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -2565,7 +2565,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "place_column",
-      "line": 2084,
+      "line": 2085,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -2573,7 +2573,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "plain",
-      "line": 1344,
+      "line": 1345,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2581,7 +2581,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "plan",
-      "line": 2395,
+      "line": 2396,
       "cyclomatic": 13.0,
       "coverage": 100.0,
       "crap": 13.0
@@ -2589,7 +2589,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "production_ops",
-      "line": 3291,
+      "line": 3293,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2597,7 +2597,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "pulse",
-      "line": 1770,
+      "line": 1771,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2605,7 +2605,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "put",
-      "line": 2559,
+      "line": 2560,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2613,7 +2613,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "rail_move",
-      "line": 922,
+      "line": 923,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -2621,7 +2621,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "refuse",
-      "line": 3341,
+      "line": 3343,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2629,7 +2629,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "refused_lines",
-      "line": 3241,
+      "line": 3243,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -2637,7 +2637,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "restore_stdout",
-      "line": 3322,
+      "line": 3324,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2645,7 +2645,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "returns_of",
-      "line": 2324,
+      "line": 2325,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2653,7 +2653,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "row_line",
-      "line": 2753,
+      "line": 2754,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2669,7 +2669,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "run_labels",
-      "line": 630,
+      "line": 631,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2677,7 +2677,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "safe",
-      "line": 1324,
+      "line": 1325,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2685,7 +2685,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "scoped_seat",
-      "line": 384,
+      "line": 385,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2693,7 +2693,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "seat_lines",
-      "line": 1626,
+      "line": 1627,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2701,7 +2701,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "seat_of",
-      "line": 446,
+      "line": 447,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2709,7 +2709,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "seat_texts",
-      "line": 3000,
+      "line": 3001,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2717,7 +2717,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "seat_widths",
-      "line": 3022,
+      "line": 3023,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2725,7 +2725,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "seed_cursor",
-      "line": 837,
+      "line": 838,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2733,7 +2733,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "selected",
-      "line": 939,
+      "line": 940,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2741,7 +2741,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "selected_style",
-      "line": 1352,
+      "line": 1353,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2749,7 +2749,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "selected_turn",
-      "line": 714,
+      "line": 715,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2757,7 +2757,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "selection_box",
-      "line": 2638,
+      "line": 2639,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -2765,7 +2765,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "settle",
-      "line": 415,
+      "line": 416,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2773,7 +2773,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "span",
-      "line": 1336,
+      "line": 1337,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2781,7 +2781,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "span_of",
-      "line": 2302,
+      "line": 2303,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2789,7 +2789,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "spine",
-      "line": 2596,
+      "line": 2597,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -2797,7 +2797,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "start",
-      "line": 3500,
+      "line": 3502,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2805,7 +2805,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "status_line",
-      "line": 1271,
+      "line": 1272,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2813,7 +2813,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "step",
-      "line": 803,
+      "line": 804,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2821,7 +2821,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "stream_len",
-      "line": 692,
+      "line": 693,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2829,7 +2829,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "subject_of",
-      "line": 472,
+      "line": 473,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2837,7 +2837,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "switch",
-      "line": 334,
+      "line": 335,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2845,7 +2845,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "tab_bar",
-      "line": 1496,
+      "line": 1497,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2853,7 +2853,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "tabbed",
-      "line": 325,
+      "line": 326,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2861,7 +2861,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "tone_style",
-      "line": 1361,
+      "line": 1362,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -2869,7 +2869,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "transcript_invalidates",
-      "line": 497,
+      "line": 498,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -2877,7 +2877,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "transcript_lines",
-      "line": 3207,
+      "line": 3209,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -2885,7 +2885,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "transcript_surfaces_for_test",
-      "line": 792,
+      "line": 793,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2893,7 +2893,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "transcript_text",
-      "line": 760,
+      "line": 761,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2901,7 +2901,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "turn_keys",
-      "line": 700,
+      "line": 701,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2909,7 +2909,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "turn_keys_of",
-      "line": 706,
+      "line": 707,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2917,7 +2917,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "turn_overlay_text",
-      "line": 747,
+      "line": 748,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2925,7 +2925,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "turn_text",
-      "line": 725,
+      "line": 726,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -2933,7 +2933,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "typed",
-      "line": 1104,
+      "line": 1105,
       "cyclomatic": 17.0,
       "coverage": 100.0,
       "crap": 17.0
@@ -2941,7 +2941,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "under",
-      "line": 2581,
+      "line": 2582,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2949,7 +2949,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "visits_text",
-      "line": 1822,
+      "line": 1823,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -2957,7 +2957,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "width_of",
-      "line": 1783,
+      "line": 1784,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2965,7 +2965,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "window",
-      "line": 2349,
+      "line": 2350,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -2973,7 +2973,7 @@
     {
       "file": "./crates/brokkr-cli/src/tui.rs",
       "function": "worst",
-      "line": 1873,
+      "line": 1874,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2981,7 +2981,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "Lookup::note_entry",
-      "line": 255,
+      "line": 256,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2989,7 +2989,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "Lookup::remaining",
-      "line": 250,
+      "line": 251,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -2997,7 +2997,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "Lookup::resolve",
-      "line": 259,
+      "line": 260,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -3005,7 +3005,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "acquisition_is_current",
-      "line": 372,
+      "line": 373,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3013,7 +3013,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "bounded_entries",
-      "line": 291,
+      "line": 292,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -3045,7 +3045,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "codex_filename_matches",
-      "line": 434,
+      "line": 435,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -3061,7 +3061,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "discover",
-      "line": 338,
+      "line": 339,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -3069,7 +3069,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "discover_claude",
-      "line": 389,
+      "line": 390,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -3077,7 +3077,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "discover_codex",
-      "line": 457,
+      "line": 458,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -3085,7 +3085,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "discover_dsh",
-      "line": 620,
+      "line": 621,
       "cyclomatic": 28.0,
       "coverage": 100.0,
       "crap": 28.0
@@ -3093,7 +3093,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "dsh_header",
-      "line": 549,
+      "line": 550,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -3101,7 +3101,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "dsh_step",
-      "line": 604,
+      "line": 605,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -3133,7 +3133,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "join_path",
-      "line": 385,
+      "line": 386,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3149,7 +3149,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "mask_secrets",
-      "line": 872,
+      "line": 873,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -3157,7 +3157,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "native_absolute_home",
-      "line": 319,
+      "line": 320,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3165,7 +3165,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "native_absolute_home",
-      "line": 324,
+      "line": 325,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -3221,7 +3221,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "read_local",
-      "line": 738,
+      "line": 739,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3237,7 +3237,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "read_with_home",
-      "line": 747,
+      "line": 748,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -3245,7 +3245,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "refused_source",
-      "line": 914,
+      "line": 915,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3261,7 +3261,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "root_error",
-      "line": 306,
+      "line": 307,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -3333,7 +3333,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "store_beside",
-      "line": 856,
+      "line": 857,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3341,7 +3341,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui.rs",
       "function": "walk_codex",
-      "line": 485,
+      "line": 486,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -3357,7 +3357,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "Dir::child",
-      "line": 81,
+      "line": 84,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -3365,7 +3365,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "Dir::child",
-      "line": 197,
+      "line": 200,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -3373,7 +3373,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "Dir::child",
-      "line": 479,
+      "line": 482,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -3389,7 +3389,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "Dir::entries_bounded",
-      "line": 179,
+      "line": 182,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -3397,7 +3397,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "Dir::entries_bounded",
-      "line": 436,
+      "line": 439,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -3413,7 +3413,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "Dir::open_root",
-      "line": 174,
+      "line": 177,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -3421,7 +3421,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "Dir::open_root",
-      "line": 410,
+      "line": 413,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -3429,7 +3429,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "File::identity",
-      "line": 230,
+      "line": 233,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3437,7 +3437,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "File::identity",
-      "line": 521,
+      "line": 524,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3445,7 +3445,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "File::len",
-      "line": 234,
+      "line": 237,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3453,7 +3453,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "File::len",
-      "line": 525,
+      "line": 528,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3461,7 +3461,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "File::read_bounded",
-      "line": 240,
+      "line": 243,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -3469,7 +3469,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "File::read_bounded",
-      "line": 529,
+      "line": 532,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -3477,7 +3477,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "OpenedFile::identity",
-      "line": 101,
+      "line": 104,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -3485,7 +3485,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "OpenedFile::len",
-      "line": 112,
+      "line": 115,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3493,7 +3493,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "OpenedFile::read_bounded",
-      "line": 119,
+      "line": 122,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -3501,7 +3501,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "absent",
-      "line": 169,
+      "line": 172,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3509,7 +3509,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "absent_status",
-      "line": 333,
+      "line": 336,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -3517,7 +3517,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "dir_flags",
-      "line": 161,
+      "line": 164,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3525,7 +3525,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "file_flags",
-      "line": 165,
+      "line": 168,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3533,7 +3533,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "handle_attributes",
-      "line": 320,
+      "line": 323,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -3541,7 +3541,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "handle_identity",
-      "line": 308,
+      "line": 311,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -3549,7 +3549,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "identity_of",
-      "line": 153,
+      "line": 156,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -3557,7 +3557,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "into_file",
-      "line": 404,
+      "line": 407,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3565,7 +3565,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "nt_open",
-      "line": 343,
+      "line": 346,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -3573,7 +3573,7 @@
     {
       "file": "./crates/brokkr-cli/src/ui/safe_fs.rs",
       "function": "nt_status",
-      "line": 329,
+      "line": 332,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3637,7 +3637,7 @@
     {
       "file": "./crates/brokkr-core/src/dispatch.rs",
       "function": "DispatchEnvelopeV2::verify",
-      "line": 240,
+      "line": 241,
       "cyclomatic": 46.0,
       "coverage": 100.0,
       "crap": 46.0
@@ -3645,7 +3645,7 @@
     {
       "file": "./crates/brokkr-core/src/dispatch.rs",
       "function": "build_run_manifest_v2",
-      "line": 391,
+      "line": 392,
       "cyclomatic": 17.0,
       "coverage": 100.0,
       "crap": 17.0
@@ -3653,7 +3653,7 @@
     {
       "file": "./crates/brokkr-core/src/dispatch.rs",
       "function": "bundle_manifest_from_run",
-      "line": 476,
+      "line": 477,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -3661,7 +3661,7 @@
     {
       "file": "./crates/brokkr-core/src/dispatch.rs",
       "function": "dispatch_from_run",
-      "line": 507,
+      "line": 508,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -3717,7 +3717,7 @@
     {
       "file": "./crates/brokkr-core/src/fold.rs",
       "function": "apply",
-      "line": 213,
+      "line": 214,
       "cyclomatic": 72.0,
       "coverage": 100.0,
       "crap": 72.0
@@ -3725,7 +3725,7 @@
     {
       "file": "./crates/brokkr-core/src/fold.rs",
       "function": "computed_inputs",
-      "line": 535,
+      "line": 536,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -3821,7 +3821,7 @@
     {
       "file": "./crates/brokkr-core/src/policy.rs",
       "function": "conditions_met",
-      "line": 557,
+      "line": 559,
       "cyclomatic": 36.0,
       "coverage": 100.0,
       "crap": 36.0
@@ -3837,7 +3837,7 @@
     {
       "file": "./crates/brokkr-core/src/policy.rs",
       "function": "parse_condition",
-      "line": 430,
+      "line": 432,
       "cyclomatic": 23.0,
       "coverage": 100.0,
       "crap": 23.0
@@ -3845,7 +3845,7 @@
     {
       "file": "./crates/brokkr-core/src/policy.rs",
       "function": "parse_rule",
-      "line": 303,
+      "line": 304,
       "cyclomatic": 34.0,
       "coverage": 100.0,
       "crap": 34.0
@@ -3973,7 +3973,7 @@
     {
       "file": "./crates/brokkr-core/src/realms.rs",
       "function": "RealmMap::journal_of",
-      "line": 686,
+      "line": 687,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -3981,7 +3981,7 @@
     {
       "file": "./crates/brokkr-core/src/realms.rs",
       "function": "RealmMap::of",
-      "line": 442,
+      "line": 443,
       "cyclomatic": 39.0,
       "coverage": 100.0,
       "crap": 39.0
@@ -4029,7 +4029,7 @@
     {
       "file": "./crates/brokkr-core/src/realms.rs",
       "function": "recorded_head",
-      "line": 702,
+      "line": 703,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4069,7 +4069,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "CodexThreadEcho::echo",
-      "line": 1700,
+      "line": 1701,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -4077,7 +4077,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "CodexThreadEcho::locate",
-      "line": 1659,
+      "line": 1660,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -4085,7 +4085,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "CodexThreadEcho::resolve",
-      "line": 1678,
+      "line": 1679,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -4093,7 +4093,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshLaunch::plan",
-      "line": 3666,
+      "line": 3672,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -4101,7 +4101,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::confirming",
-      "line": 4513,
+      "line": 4525,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4109,7 +4109,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::disposition",
-      "line": 4537,
+      "line": 4549,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -4117,7 +4117,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::may_fold",
-      "line": 4523,
+      "line": 4535,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -4125,7 +4125,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::named",
-      "line": 4569,
+      "line": 4581,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4133,7 +4133,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::new",
-      "line": 4478,
+      "line": 4490,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4141,7 +4141,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::record_locator",
-      "line": 4553,
+      "line": 4565,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4149,7 +4149,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::refuse",
-      "line": 4532,
+      "line": 4544,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4157,7 +4157,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::settle",
-      "line": 4613,
+      "line": 4625,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -4165,7 +4165,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshRootWatch::unread",
-      "line": 4599,
+      "line": 4611,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -4173,7 +4173,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "DshSeatOverlay::path",
-      "line": 5323,
+      "line": 5342,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4309,7 +4309,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "add_usage",
-      "line": 1937,
+      "line": 1938,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4325,7 +4325,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "applied_harness_effort",
-      "line": 1991,
+      "line": 1992,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -4333,7 +4333,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "begins_work",
-      "line": 5680,
+      "line": 5699,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4493,7 +4493,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_bwrap",
-      "line": 5419,
+      "line": 5438,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4501,7 +4501,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_bwrap",
-      "line": 5424,
+      "line": 5443,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4509,7 +4509,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_bwrap_on",
-      "line": 5406,
+      "line": 5425,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4517,7 +4517,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_census_within",
-      "line": 4735,
+      "line": 4747,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4549,7 +4549,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_echoed_effort",
-      "line": 2001,
+      "line": 2002,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4557,7 +4557,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_effort_settings_in",
-      "line": 5583,
+      "line": 5602,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -4565,7 +4565,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_failure_before_promotion",
-      "line": 4789,
+      "line": 4801,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4573,7 +4573,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_git_runner_scope",
-      "line": 5340,
+      "line": 5359,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -4581,7 +4581,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_input_boundaries",
-      "line": 5128,
+      "line": 5141,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -4589,7 +4589,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_launch",
-      "line": 3706,
+      "line": 3712,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4597,7 +4597,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_launch_resolving",
-      "line": 3719,
+      "line": 3725,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4605,7 +4605,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_launch_with",
-      "line": 3737,
+      "line": 3748,
       "cyclomatic": 39.0,
       "coverage": 100.0,
       "crap": 39.0
@@ -4613,7 +4613,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_model_overlay_in",
-      "line": 5197,
+      "line": 5210,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -4621,7 +4621,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_model_row",
-      "line": 5212,
+      "line": 5225,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -4629,7 +4629,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_only_header",
-      "line": 4719,
+      "line": 4731,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4637,7 +4637,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_read_offered_store",
-      "line": 4685,
+      "line": 4697,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -4645,7 +4645,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_runner_program",
-      "line": 5452,
+      "line": 5471,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4653,7 +4653,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_runner_program_from",
-      "line": 5439,
+      "line": 5458,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -4661,7 +4661,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_sandbox_row_for",
-      "line": 5378,
+      "line": 5397,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -4669,7 +4669,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_seat_overlay_in",
-      "line": 5510,
+      "line": 5529,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -4677,7 +4677,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_seat_overlay_with",
-      "line": 5462,
+      "line": 5481,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4725,7 +4725,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_settings_row",
-      "line": 5618,
+      "line": 5637,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4733,7 +4733,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_staging_calls",
-      "line": 5489,
+      "line": 5508,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4741,7 +4741,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_storage_context",
-      "line": 5241,
+      "line": 5254,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4765,7 +4765,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_transcript_root_in",
-      "line": 5255,
+      "line": 5268,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4773,7 +4773,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "dsh_transcript_row",
-      "line": 5277,
+      "line": 5290,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4805,7 +4805,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "find_codex_thread",
-      "line": 1766,
+      "line": 1767,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -4813,7 +4813,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "find_dsh_transcript",
-      "line": 2226,
+      "line": 2227,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -4821,7 +4821,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "finish_dsh",
-      "line": 4750,
+      "line": 4762,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4829,7 +4829,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "fold_codex_event",
-      "line": 1801,
+      "line": 1802,
       "cyclomatic": 19.0,
       "coverage": 100.0,
       "crap": 19.0
@@ -4837,7 +4837,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "fold_dsh_event",
-      "line": 2052,
+      "line": 2053,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -4845,7 +4845,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "fold_dsh_stream_event",
-      "line": 4316,
+      "line": 4327,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4853,7 +4853,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "fold_stream_event",
-      "line": 1468,
+      "line": 1469,
       "cyclomatic": 24.0,
       "coverage": 100.0,
       "crap": 24.0
@@ -4869,7 +4869,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "invoke",
-      "line": 4832,
+      "line": 4844,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4893,7 +4893,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "invoke_dsh_launch",
-      "line": 4028,
+      "line": 4039,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -4901,7 +4901,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "invoke_dsh_launch_observed",
-      "line": 4043,
+      "line": 4054,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -4909,7 +4909,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "invoke_dsh_shipped",
-      "line": 4182,
+      "line": 4193,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -4917,7 +4917,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "invoke_dsh_stream_json",
-      "line": 4219,
+      "line": 4230,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -4925,7 +4925,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "invoke_dsh_with",
-      "line": 4009,
+      "line": 4020,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -4941,7 +4941,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "invoke_with_stager",
-      "line": 4854,
+      "line": 4867,
       "cyclomatic": 24.0,
       "coverage": 100.0,
       "crap": 24.0
@@ -5005,7 +5005,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "names_codex_thread",
-      "line": 1755,
+      "line": 1756,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5013,7 +5013,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "names_the_seats_own_session",
-      "line": 2251,
+      "line": 2252,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5053,7 +5053,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "owned_dsh_root",
-      "line": 3954,
+      "line": 3965,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -5061,7 +5061,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "parse_dsh_model",
-      "line": 5051,
+      "line": 5064,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -5173,7 +5173,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "redact_dsh_reasoning",
-      "line": 4809,
+      "line": 4821,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -5197,7 +5197,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "reset_dsh_staging_calls",
-      "line": 5494,
+      "line": 5513,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5213,7 +5213,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "resolve_exec_part",
-      "line": 5647,
+      "line": 5666,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5237,7 +5237,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "run_seat",
-      "line": 5713,
+      "line": 5732,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5245,7 +5245,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "run_seat_with",
-      "line": 5731,
+      "line": 5751,
       "cyclomatic": 36.0,
       "coverage": 100.0,
       "crap": 36.0
@@ -5253,7 +5253,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "serve",
-      "line": 6345,
+      "line": 6365,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5261,7 +5261,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "serve_io",
-      "line": 6230,
+      "line": 6250,
       "cyclomatic": 26.0,
       "coverage": 100.0,
       "crap": 26.0
@@ -5269,7 +5269,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "spawn_dsh",
-      "line": 4145,
+      "line": 4156,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -5285,7 +5285,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "split_dsh_model",
-      "line": 5079,
+      "line": 5092,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -5293,7 +5293,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "split_dsh_patch",
-      "line": 5154,
+      "line": 5167,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -5325,7 +5325,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "stderr_tail_start",
-      "line": 5665,
+      "line": 5684,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5341,7 +5341,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters.rs",
       "function": "transcript_locator",
-      "line": 5692,
+      "line": 5711,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5357,7 +5357,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "Admitted::read",
-      "line": 1788,
+      "line": 1789,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5373,7 +5373,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshComposite::canonical",
-      "line": 2078,
+      "line": 2079,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5381,7 +5381,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshComposite::plugin",
-      "line": 2084,
+      "line": 2085,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5389,7 +5389,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshComposite::synthetic",
-      "line": 2094,
+      "line": 2095,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5397,7 +5397,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshInvocation::command",
-      "line": 2253,
+      "line": 2254,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5405,7 +5405,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshInvocation::of",
-      "line": 2243,
+      "line": 2244,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5413,7 +5413,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshPrepared::admit",
-      "line": 1829,
+      "line": 1830,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5421,7 +5421,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshPrepared::invocation",
-      "line": 1849,
+      "line": 1850,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5429,7 +5429,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshPrepared::seams",
-      "line": 1853,
+      "line": 1854,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5437,7 +5437,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::admitted",
-      "line": 1969,
+      "line": 1970,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5445,7 +5445,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::located",
-      "line": 1943,
+      "line": 1944,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5453,7 +5453,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::located_from",
-      "line": 1986,
+      "line": 1987,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5461,7 +5461,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::resolve",
-      "line": 1903,
+      "line": 1904,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5469,7 +5469,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::resolve_with",
-      "line": 2023,
+      "line": 2024,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5477,7 +5477,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::resolved",
-      "line": 1913,
+      "line": 1914,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5485,7 +5485,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::selected",
-      "line": 1938,
+      "line": 1939,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5493,7 +5493,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshSeams::selected_from",
-      "line": 1956,
+      "line": 1957,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5501,7 +5501,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "DshUnprepared::cause",
-      "line": 1875,
+      "line": 1876,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5533,7 +5533,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "Search::capture",
-      "line": 2994,
+      "line": 2995,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5541,7 +5541,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "Search::find",
-      "line": 3038,
+      "line": 3039,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -5549,7 +5549,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "Search::for_env",
-      "line": 3014,
+      "line": 3015,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5557,7 +5557,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "Search::refuse_working_directory",
-      "line": 3147,
+      "line": 3148,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5565,7 +5565,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "admit_program_name",
-      "line": 2404,
+      "line": 2405,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5573,7 +5573,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "admit_windows",
-      "line": 4122,
+      "line": 4123,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -5581,7 +5581,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "apple_walk",
-      "line": 2651,
+      "line": 2652,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -5589,7 +5589,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "canonical_composite",
-      "line": 1678,
+      "line": 1679,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5597,7 +5597,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "canonicalize",
-      "line": 2124,
+      "line": 2125,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5605,7 +5605,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "classify_in",
-      "line": 3318,
+      "line": 3319,
       "cyclomatic": 13.0,
       "coverage": 100.0,
       "crap": 13.0
@@ -5621,7 +5621,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "default_search_of",
-      "line": 3221,
+      "line": 3222,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -5629,7 +5629,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "default_search_path",
-      "line": 3247,
+      "line": 3248,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5637,7 +5637,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "default_search_path_for",
-      "line": 3258,
+      "line": 3259,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5645,7 +5645,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "default_search_path_from",
-      "line": 3291,
+      "line": 3292,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5653,7 +5653,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "dsh_composite",
-      "line": 4826,
+      "line": 4827,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5661,7 +5661,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "dsh_composite_admitted",
-      "line": 4711,
+      "line": 4712,
       "cyclomatic": 16.0,
       "coverage": 100.0,
       "crap": 16.0
@@ -5669,7 +5669,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "dsh_composite_observing",
-      "line": 4852,
+      "line": 4853,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5677,7 +5677,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "dsh_composite_prepared",
-      "line": 4834,
+      "line": 4835,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5685,7 +5685,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "dsh_composite_reading",
-      "line": 4695,
+      "line": 4696,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5693,7 +5693,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "dsh_composite_resolving",
-      "line": 4842,
+      "line": 4843,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5701,7 +5701,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "dsh_composite_with",
-      "line": 4671,
+      "line": 4672,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5709,7 +5709,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "effective_exec_access",
-      "line": 2184,
+      "line": 2185,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5717,7 +5717,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "env_dispatch",
-      "line": 3808,
+      "line": 3809,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -5725,7 +5725,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "env_program",
-      "line": 3719,
+      "line": 3720,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -5733,7 +5733,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "errno_of",
-      "line": 2810,
+      "line": 2811,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5741,7 +5741,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "first_line",
-      "line": 2158,
+      "line": 2159,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5757,7 +5757,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "glibc_walk",
-      "line": 2506,
+      "line": 2507,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -5765,7 +5765,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "global_folders",
-      "line": 4489,
+      "line": 4490,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5773,7 +5773,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "global_folders_in",
-      "line": 4499,
+      "line": 4500,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5781,7 +5781,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "home_patch",
-      "line": 4653,
+      "line": 4654,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -5797,7 +5797,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "is_env",
-      "line": 3581,
+      "line": 3582,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -5805,7 +5805,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "is_explicit_path",
-      "line": 2913,
+      "line": 2914,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5813,7 +5813,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "is_explicit_path",
-      "line": 2918,
+      "line": 2919,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -5821,7 +5821,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "loading_obstruction",
-      "line": 3430,
+      "line": 3431,
       "cyclomatic": 16.0,
       "coverage": 100.0,
       "crap": 16.0
@@ -5837,7 +5837,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "lookup_failure",
-      "line": 2834,
+      "line": 2835,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -5845,7 +5845,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "lookup_in",
-      "line": 3976,
+      "line": 3977,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -5861,7 +5861,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "musl_walk",
-      "line": 2582,
+      "line": 2583,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -5869,7 +5869,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "native_obstruction",
-      "line": 3844,
+      "line": 3845,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -5877,7 +5877,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "node_modules_paths",
-      "line": 4461,
+      "line": 4462,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5885,7 +5885,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "node_prefix",
-      "line": 4477,
+      "line": 4478,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5909,7 +5909,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "open_head",
-      "line": 3529,
+      "line": 3530,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -5917,7 +5917,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "patch_digest",
-      "line": 4639,
+      "line": 4640,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -5957,7 +5957,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "pnpm_dependencies",
-      "line": 1339,
+      "line": 1340,
       "cyclomatic": 64.0,
       "coverage": 100.0,
       "crap": 64.0
@@ -6029,7 +6029,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "read_json",
-      "line": 2119,
+      "line": 2120,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -6053,7 +6053,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "read_profile",
-      "line": 4421,
+      "line": 4422,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -6061,7 +6061,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "refuse_unspellable",
-      "line": 2926,
+      "line": 2927,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -6069,7 +6069,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "required_string",
-      "line": 2129,
+      "line": 2130,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -6077,7 +6077,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "resolve_bundle",
-      "line": 4527,
+      "line": 4528,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -6085,7 +6085,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "resolve_core",
-      "line": 4272,
+      "line": 4273,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -6093,7 +6093,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "resolve_core_reading",
-      "line": 4283,
+      "line": 4284,
       "cyclomatic": 25.0,
       "coverage": 100.0,
       "crap": 25.0
@@ -6101,7 +6101,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "resolve_executable",
-      "line": 3920,
+      "line": 3921,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -6109,7 +6109,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "resolve_executable_in",
-      "line": 3965,
+      "line": 3966,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -6117,7 +6117,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "same_bytes",
-      "line": 3621,
+      "line": 3622,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -6149,7 +6149,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "select",
-      "line": 3900,
+      "line": 3901,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -6157,7 +6157,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "select",
-      "line": 3913,
+      "line": 3914,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -6165,7 +6165,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "select_as",
-      "line": 3951,
+      "line": 3952,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -6173,7 +6173,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "select_in",
-      "line": 3943,
+      "line": 3944,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -6181,7 +6181,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "select_in",
-      "line": 4010,
+      "line": 4011,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -6189,7 +6189,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "selected_executable",
-      "line": 4222,
+      "line": 4223,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -6213,7 +6213,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "spawn_node_runtime",
-      "line": 4595,
+      "line": 4596,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -6221,7 +6221,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "spawn_node_runtime_at",
-      "line": 4613,
+      "line": 4614,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -6253,7 +6253,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "step",
-      "line": 2733,
+      "line": 2734,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -6261,7 +6261,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "stop_cause",
-      "line": 2892,
+      "line": 2893,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -6293,7 +6293,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "walk_search",
-      "line": 2699,
+      "line": 2700,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -6301,7 +6301,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "windows_binary_type",
-      "line": 4185,
+      "line": 4186,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -6309,7 +6309,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "windows_lookup",
-      "line": 4027,
+      "line": 4028,
       "cyclomatic": 13.0,
       "coverage": 100.0,
       "crap": 13.0
@@ -6317,7 +6317,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite.rs",
       "function": "windows_system_directories",
-      "line": 4087,
+      "line": 4088,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -6381,7 +6381,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite/image.rs",
       "function": "elf",
-      "line": 231,
+      "line": 232,
       "cyclomatic": 31.0,
       "coverage": 100.0,
       "crap": 31.0
@@ -6397,7 +6397,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite/image.rs",
       "function": "macho_fat",
-      "line": 370,
+      "line": 371,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -6405,7 +6405,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite/image.rs",
       "function": "macho_thin",
-      "line": 416,
+      "line": 417,
       "cyclomatic": 19.0,
       "coverage": 100.0,
       "crap": 19.0
@@ -6413,7 +6413,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite/image.rs",
       "function": "pe",
-      "line": 509,
+      "line": 510,
       "cyclomatic": 22.0,
       "coverage": 100.0,
       "crap": 22.0
@@ -6429,7 +6429,7 @@
     {
       "file": "./crates/brokkr-protocol/src/adapters/composite/image.rs",
       "function": "tests_cputype",
-      "line": 594,
+      "line": 595,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7085,7 +7085,7 @@
     {
       "file": "./crates/brokkr-protocol/src/fake.rs",
       "function": "run_fake_session",
-      "line": 73,
+      "line": 74,
       "cyclomatic": 30.0,
       "coverage": 100.0,
       "crap": 30.0
@@ -7109,7 +7109,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "Executed::render",
-      "line": 986,
+      "line": 987,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -7133,7 +7133,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "bootstrap",
-      "line": 816,
+      "line": 817,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -7157,7 +7157,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "box_argv",
-      "line": 416,
+      "line": 417,
       "cyclomatic": 26.0,
       "coverage": 100.0,
       "crap": 26.0
@@ -7165,7 +7165,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "bwrap_on",
-      "line": 948,
+      "line": 949,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7173,7 +7173,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "call_arguments",
-      "line": 1336,
+      "line": 1337,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -7181,7 +7181,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "drain_bounded",
-      "line": 1005,
+      "line": 1006,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -7189,7 +7189,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "execute",
-      "line": 1046,
+      "line": 1047,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7197,7 +7197,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "execute_in",
-      "line": 1066,
+      "line": 1067,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -7221,7 +7221,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "handle",
-      "line": 1276,
+      "line": 1277,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -7237,7 +7237,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "ids",
-      "line": 670,
+      "line": 671,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7245,7 +7245,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "ids",
-      "line": 677,
+      "line": 678,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7253,7 +7253,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "io_context",
-      "line": 963,
+      "line": 964,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7261,7 +7261,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "mcp_config",
-      "line": 1217,
+      "line": 1218,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7285,7 +7285,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "network_prefix",
-      "line": 843,
+      "line": 844,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7293,7 +7293,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "overlay_supported",
-      "line": 911,
+      "line": 912,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -7301,7 +7301,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "overlay_supported_by",
-      "line": 925,
+      "line": 926,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7317,7 +7317,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "parse_version",
-      "line": 937,
+      "line": 938,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -7325,7 +7325,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "probe_network_prefix",
-      "line": 863,
+      "line": 864,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7333,7 +7333,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "rendered",
-      "line": 1023,
+      "line": 1024,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -7341,7 +7341,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "require_bwrap",
-      "line": 897,
+      "line": 898,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7349,7 +7349,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "require_bwrap_for",
-      "line": 904,
+      "line": 905,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7357,7 +7357,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "rpc_error",
-      "line": 1267,
+      "line": 1268,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7365,7 +7365,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "rpc_result",
-      "line": 1271,
+      "line": 1272,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7373,7 +7373,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "run_boxed",
-      "line": 1127,
+      "line": 1128,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7381,7 +7381,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "run_boxed_in",
-      "line": 1152,
+      "line": 1153,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7389,7 +7389,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "serve",
-      "line": 1244,
+      "line": 1245,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -7397,7 +7397,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "serve_args",
-      "line": 1229,
+      "line": 1230,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7405,7 +7405,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "session_dir",
-      "line": 1033,
+      "line": 1034,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -7421,7 +7421,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "tool_definition",
-      "line": 1193,
+      "line": 1194,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7429,7 +7429,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "unboxed_environment",
-      "line": 733,
+      "line": 734,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7437,7 +7437,7 @@
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "unboxed_environment_on",
-      "line": 754,
+      "line": 755,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -7509,7 +7509,7 @@
     {
       "file": "./crates/brokkr-protocol/src/process.rs",
       "function": "DriverProcess::eof_outcome",
-      "line": 229,
+      "line": 231,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -7517,7 +7517,7 @@
     {
       "file": "./crates/brokkr-protocol/src/process.rs",
       "function": "DriverProcess::finish",
-      "line": 199,
+      "line": 201,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -7525,7 +7525,7 @@
     {
       "file": "./crates/brokkr-protocol/src/process.rs",
       "function": "DriverProcess::recv",
-      "line": 172,
+      "line": 174,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -7533,7 +7533,7 @@
     {
       "file": "./crates/brokkr-protocol/src/process.rs",
       "function": "DriverProcess::run_attempt",
-      "line": 250,
+      "line": 252,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7541,7 +7541,7 @@
     {
       "file": "./crates/brokkr-protocol/src/process.rs",
       "function": "DriverProcess::run_attempt_resuming",
-      "line": 278,
+      "line": 281,
       "cyclomatic": 25.0,
       "coverage": 100.0,
       "crap": 25.0
@@ -7549,7 +7549,7 @@
     {
       "file": "./crates/brokkr-protocol/src/process.rs",
       "function": "DriverProcess::send",
-      "line": 165,
+      "line": 166,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -7557,7 +7557,7 @@
     {
       "file": "./crates/brokkr-protocol/src/process.rs",
       "function": "DriverProcess::spawn",
-      "line": 109,
+      "line": 110,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -8181,7 +8181,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents.rs",
       "function": "compose",
-      "line": 724,
+      "line": 725,
       "cyclomatic": 21.0,
       "coverage": 100.0,
       "crap": 21.0
@@ -8189,7 +8189,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents.rs",
       "function": "entry_for",
-      "line": 911,
+      "line": 912,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -8197,7 +8197,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents.rs",
       "function": "report",
-      "line": 955,
+      "line": 956,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -8205,7 +8205,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents.rs",
       "function": "report_under",
-      "line": 972,
+      "line": 973,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -8213,7 +8213,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents.rs",
       "function": "resolve",
-      "line": 1003,
+      "line": 1004,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -8221,7 +8221,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents.rs",
       "function": "resolve_report",
-      "line": 1014,
+      "line": 1015,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -8341,7 +8341,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "bounded_reason",
-      "line": 1091,
+      "line": 1093,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -8389,7 +8389,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "hands_notice",
-      "line": 1203,
+      "line": 1205,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -8397,7 +8397,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "harness_hands",
-      "line": 1231,
+      "line": 1233,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -8413,7 +8413,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "is_lower_hex_64",
-      "line": 1147,
+      "line": 1149,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -8437,7 +8437,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "no_notice_without_workspace",
-      "line": 1191,
+      "line": 1193,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -8461,7 +8461,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "parse_adapter",
-      "line": 736,
+      "line": 737,
       "cyclomatic": 66.0,
       "coverage": 100.0,
       "crap": 66.0
@@ -8525,7 +8525,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "resume_assessment",
-      "line": 983,
+      "line": 985,
       "cyclomatic": 29.0,
       "coverage": 100.0,
       "crap": 29.0
@@ -8533,7 +8533,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "resume_evidence",
-      "line": 1154,
+      "line": 1156,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -8541,7 +8541,7 @@
     {
       "file": "./crates/brokkr-runtime/src/agents/load.rs",
       "function": "resume_identity",
-      "line": 1102,
+      "line": 1104,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -8693,7 +8693,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "Bundle::assemble",
-      "line": 1117,
+      "line": 1122,
       "cyclomatic": 103.0,
       "coverage": 100.0,
       "crap": 103.0
@@ -8733,7 +8733,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "Bundle::manifest_digest",
-      "line": 1744,
+      "line": 1749,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -8781,7 +8781,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "assert_phase_unavoidable",
-      "line": 1926,
+      "line": 1931,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -8789,7 +8789,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "body_manifest",
-      "line": 1880,
+      "line": 1885,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -8797,7 +8797,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "brokkr_executable",
-      "line": 3770,
+      "line": 3777,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -8813,7 +8813,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "claim_address",
-      "line": 3022,
+      "line": 3028,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -8829,7 +8829,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "command_parts",
-      "line": 3686,
+      "line": 3693,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -8861,7 +8861,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "declarable_input",
-      "line": 3777,
+      "line": 3784,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -8869,7 +8869,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "destination",
-      "line": 2398,
+      "line": 2403,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -8877,7 +8877,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "dialect_gate_hands",
-      "line": 2091,
+      "line": 2096,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -8885,7 +8885,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "dialect_gate_site",
-      "line": 2103,
+      "line": 2108,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -8901,7 +8901,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "dispatch_driver",
-      "line": 2387,
+      "line": 2392,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -8925,7 +8925,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "enforce_hands_boundary",
-      "line": 2683,
+      "line": 2689,
       "cyclomatic": 16.0,
       "coverage": 100.0,
       "crap": 16.0
@@ -8941,7 +8941,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "enforce_model_policy",
-      "line": 2451,
+      "line": 2457,
       "cyclomatic": 27.0,
       "coverage": 100.0,
       "crap": 27.0
@@ -8949,7 +8949,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "expand_command",
-      "line": 3751,
+      "line": 3758,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -8957,7 +8957,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "fold_driver_facts",
-      "line": 3826,
+      "line": 3833,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -8997,7 +8997,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "layer_drift",
-      "line": 2907,
+      "line": 2913,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -9005,7 +9005,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "lint_secret_refs",
-      "line": 3722,
+      "line": 3729,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -9021,7 +9021,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "manifest_for",
-      "line": 3848,
+      "line": 3855,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -9029,7 +9029,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "measured",
-      "line": 2777,
+      "line": 2783,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9061,7 +9061,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "owner_index",
-      "line": 1811,
+      "line": 1816,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -9069,7 +9069,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_class",
-      "line": 2247,
+      "line": 2252,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9077,7 +9077,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_command",
-      "line": 3699,
+      "line": 3706,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9085,7 +9085,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_egress_minimum",
-      "line": 2267,
+      "line": 2272,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9093,7 +9093,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_limits",
-      "line": 3040,
+      "line": 3046,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -9101,7 +9101,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_panel",
-      "line": 3272,
+      "line": 3278,
       "cyclomatic": 23.0,
       "coverage": 100.0,
       "crap": 23.0
@@ -9109,7 +9109,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_role",
-      "line": 3615,
+      "line": 3622,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9117,7 +9117,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_secrets",
-      "line": 3654,
+      "line": 3661,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -9125,7 +9125,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_select",
-      "line": 3172,
+      "line": 3178,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -9133,7 +9133,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_selected_body",
-      "line": 3077,
+      "line": 3083,
       "cyclomatic": 24.0,
       "coverage": 100.0,
       "crap": 24.0
@@ -9141,7 +9141,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "parse_sequence",
-      "line": 3385,
+      "line": 3392,
       "cyclomatic": 45.0,
       "coverage": 100.0,
       "crap": 45.0
@@ -9149,7 +9149,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "pinned_key",
-      "line": 2833,
+      "line": 2839,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9157,7 +9157,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "pinned_script",
-      "line": 2800,
+      "line": 2806,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -9165,7 +9165,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "record_hands",
-      "line": 2950,
+      "line": 2956,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9173,7 +9173,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "referenced_seat_inputs",
-      "line": 3787,
+      "line": 3794,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9181,7 +9181,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_aliasing_sites",
-      "line": 1765,
+      "line": 1770,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -9189,7 +9189,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_amendments",
-      "line": 1999,
+      "line": 2004,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -9197,7 +9197,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_boundary_key",
-      "line": 2046,
+      "line": 2051,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9205,7 +9205,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_class_without_a_driver",
-      "line": 2366,
+      "line": 2371,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9213,7 +9213,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_confine",
-      "line": 2029,
+      "line": 2034,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9221,7 +9221,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_crossing_keys",
-      "line": 2065,
+      "line": 2070,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9229,7 +9229,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_global_aliasing",
-      "line": 1874,
+      "line": 1879,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9237,7 +9237,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "refuse_unknown_keys",
-      "line": 2343,
+      "line": 2348,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9245,7 +9245,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "relocate_verify_facts",
-      "line": 3000,
+      "line": 3006,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -9253,7 +9253,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "resolve_reference",
-      "line": 2123,
+      "line": 2128,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -9285,7 +9285,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "site_facts",
-      "line": 2987,
+      "line": 2993,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9293,7 +9293,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "unpinned_top_level",
-      "line": 2896,
+      "line": 2902,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -9301,7 +9301,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "unreadable_destination",
-      "line": 2409,
+      "line": 2414,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9309,7 +9309,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle.rs",
       "function": "walk_files",
-      "line": 3931,
+      "line": 3938,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -9389,7 +9389,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle/compose.rs",
       "function": "merge_layer",
-      "line": 411,
+      "line": 416,
       "cyclomatic": 76.0,
       "coverage": 100.0,
       "crap": 76.0
@@ -9421,7 +9421,7 @@
     {
       "file": "./crates/brokkr-runtime/src/bundle/compose.rs",
       "function": "resolve",
-      "line": 804,
+      "line": 809,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9469,7 +9469,7 @@
     {
       "file": "./crates/brokkr-runtime/src/dialect.rs",
       "function": "Dialect::check",
-      "line": 315,
+      "line": 320,
       "cyclomatic": 38.0,
       "coverage": 100.0,
       "crap": 38.0
@@ -9477,7 +9477,7 @@
     {
       "file": "./crates/brokkr-runtime/src/dialect.rs",
       "function": "Dialect::instruction_paths",
-      "line": 459,
+      "line": 464,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9509,7 +9509,7 @@
     {
       "file": "./crates/brokkr-runtime/src/dialect.rs",
       "function": "Dialect::prompt_for",
-      "line": 504,
+      "line": 509,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -9525,7 +9525,7 @@
     {
       "file": "./crates/brokkr-runtime/src/dialect.rs",
       "function": "Dialect::render",
-      "line": 593,
+      "line": 598,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9533,7 +9533,7 @@
     {
       "file": "./crates/brokkr-runtime/src/dialect.rs",
       "function": "Dialect::validation",
-      "line": 486,
+      "line": 491,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -9557,7 +9557,7 @@
     {
       "file": "./crates/brokkr-runtime/src/dialect.rs",
       "function": "check_command_tokens",
-      "line": 604,
+      "line": 609,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -9565,7 +9565,7 @@
     {
       "file": "./crates/brokkr-runtime/src/dialect.rs",
       "function": "library_path",
-      "line": 631,
+      "line": 636,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9573,7 +9573,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::advance_running",
-      "line": 554,
+      "line": 556,
       "cyclomatic": 22.0,
       "coverage": 100.0,
       "crap": 22.0
@@ -9581,7 +9581,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::append",
-      "line": 668,
+      "line": 670,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -9589,7 +9589,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::append_raw",
-      "line": 717,
+      "line": 719,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -9597,7 +9597,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::append_succeeded",
-      "line": 1776,
+      "line": 1780,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -9605,7 +9605,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::boundary_entries",
-      "line": 1435,
+      "line": 1439,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9613,7 +9613,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::compose",
-      "line": 1476,
+      "line": 1480,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -9621,7 +9621,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::conclude_single",
-      "line": 1582,
+      "line": 1586,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -9629,7 +9629,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::decide",
-      "line": 2598,
+      "line": 2609,
       "cyclomatic": 31.0,
       "coverage": 100.0,
       "crap": 31.0
@@ -9637,7 +9637,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::drive",
-      "line": 468,
+      "line": 470,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -9645,7 +9645,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::drive_once",
-      "line": 480,
+      "line": 482,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9653,7 +9653,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::enter_phase",
-      "line": 269,
+      "line": 271,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -9661,7 +9661,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::execute",
-      "line": 992,
+      "line": 996,
       "cyclomatic": 22.0,
       "coverage": 100.0,
       "crap": 22.0
@@ -9669,7 +9669,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::execute_panel",
-      "line": 1809,
+      "line": 1813,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -9677,7 +9677,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::execute_sequence",
-      "line": 2170,
+      "line": 2180,
       "cyclomatic": 50.0,
       "coverage": 100.0,
       "crap": 50.0
@@ -9685,7 +9685,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::finish_gate_head_check",
-      "line": 689,
+      "line": 691,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -9693,7 +9693,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::fixes_docs_only",
-      "line": 4746,
+      "line": 4759,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9701,7 +9701,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::hands_for",
-      "line": 1311,
+      "line": 1315,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9709,7 +9709,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::has_hands",
-      "line": 1301,
+      "line": 1305,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9717,7 +9717,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::journal_panel_members",
-      "line": 2101,
+      "line": 2106,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9725,7 +9725,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::lawful_end_under_contention",
-      "line": 531,
+      "line": 533,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9733,7 +9733,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::mark_delivery",
-      "line": 1253,
+      "line": 1257,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -9741,7 +9741,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::mark_hands",
-      "line": 1219,
+      "line": 1223,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -9749,7 +9749,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::mark_hands_notice",
-      "line": 1276,
+      "line": 1280,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -9757,7 +9757,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::member_runs",
-      "line": 1887,
+      "line": 1891,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9765,7 +9765,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::network_narrowing",
-      "line": 1546,
+      "line": 1550,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9773,7 +9773,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::network_narrowing",
-      "line": 1554,
+      "line": 1558,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9781,7 +9781,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::phase_entered_payload",
-      "line": 4710,
+      "line": 4723,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -9789,7 +9789,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::request_or_finish",
-      "line": 734,
+      "line": 736,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -9797,7 +9797,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::resume",
-      "line": 417,
+      "line": 419,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -9805,7 +9805,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::run_driver",
-      "line": 1666,
+      "line": 1670,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -9813,7 +9813,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::run_panel",
-      "line": 1967,
+      "line": 1972,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -9821,7 +9821,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::runtime_hands",
-      "line": 1558,
+      "line": 1562,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -9829,7 +9829,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::seat_input",
-      "line": 775,
+      "line": 778,
       "cyclomatic": 19.0,
       "coverage": 100.0,
       "crap": 19.0
@@ -9837,7 +9837,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::secrets_store_path",
-      "line": 986,
+      "line": 989,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9845,7 +9845,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::site_boundary",
-      "line": 1422,
+      "line": 1426,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9853,7 +9853,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::site_plans",
-      "line": 1330,
+      "line": 1334,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -9861,7 +9861,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::start",
-      "line": 291,
+      "line": 293,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9869,7 +9869,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::start_in_world",
-      "line": 306,
+      "line": 308,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -9877,7 +9877,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::start_with_dispatch",
-      "line": 377,
+      "line": 379,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -9885,7 +9885,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::unboxed",
-      "line": 1518,
+      "line": 1522,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9893,7 +9893,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Engine::workdir",
-      "line": 980,
+      "line": 983,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9901,7 +9901,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "EngineError::contention",
-      "line": 163,
+      "line": 165,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9909,7 +9909,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Selection::contains_key",
-      "line": 3725,
+      "line": 3737,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9917,7 +9917,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Selection::get",
-      "line": 3717,
+      "line": 3729,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9925,7 +9925,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Selection::insert",
-      "line": 3721,
+      "line": 3733,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9933,7 +9933,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Selection::new",
-      "line": 3713,
+      "line": 3725,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9941,7 +9941,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "Selection::plan",
-      "line": 3731,
+      "line": 3743,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9949,7 +9949,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "SiteSpawn::inherit",
-      "line": 4146,
+      "line": 4158,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9957,7 +9957,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "aggregate_results",
-      "line": 4446,
+      "line": 4459,
       "cyclomatic": 14.0,
       "coverage": 100.0,
       "crap": 14.0
@@ -9965,7 +9965,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "apply_fenced_operator_command",
-      "line": 3495,
+      "line": 3506,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -9973,7 +9973,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "apply_fenced_racing",
-      "line": 3523,
+      "line": 3535,
       "cyclomatic": 25.0,
       "coverage": 100.0,
       "crap": 25.0
@@ -9981,7 +9981,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "argv_for",
-      "line": 3946,
+      "line": 3958,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -9989,7 +9989,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "arms_effect_gate_head",
-      "line": 4855,
+      "line": 4868,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -9997,7 +9997,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "artifact_failures",
-      "line": 4664,
+      "line": 4677,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -10005,7 +10005,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "artifact_problem",
-      "line": 4694,
+      "line": 4707,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10013,7 +10013,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "built_boundary",
-      "line": 131,
+      "line": 133,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -10021,7 +10021,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "chain_index",
-      "line": 3815,
+      "line": 3827,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10029,7 +10029,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "compose_site",
-      "line": 4303,
+      "line": 4315,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -10037,7 +10037,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "conclude",
-      "line": 3325,
+      "line": 3336,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10045,7 +10045,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "conclude_racing",
-      "line": 3338,
+      "line": 3349,
       "cyclomatic": 19.0,
       "coverage": 100.0,
       "crap": 19.0
@@ -10053,7 +10053,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "concluded_or_alive",
-      "line": 3437,
+      "line": 3448,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10061,7 +10061,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "copy_secret_binding_facts",
-      "line": 4380,
+      "line": 4392,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -10069,7 +10069,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "dialect_attempt_outcome",
-      "line": 53,
+      "line": 55,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10077,7 +10077,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "docs_class",
-      "line": 4798,
+      "line": 4811,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -10085,7 +10085,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "exec_spawn_on",
-      "line": 4205,
+      "line": 4217,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -10093,7 +10093,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "expand_dialect_argv",
-      "line": 47,
+      "line": 49,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10101,7 +10101,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "failed_to_start",
-      "line": 4054,
+      "line": 4066,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10109,7 +10109,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "gate_head_evidence",
-      "line": 4863,
+      "line": 4876,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10117,7 +10117,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "git_dirty",
-      "line": 4838,
+      "line": 4851,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10125,7 +10125,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "git_head",
-      "line": 4826,
+      "line": 4839,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10133,7 +10133,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "hands_command",
-      "line": 4542,
+      "line": 4555,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -10141,7 +10141,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "invocation_sites",
-      "line": 3776,
+      "line": 3788,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10149,7 +10149,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "is_commit_id",
-      "line": 4775,
+      "line": 4788,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -10157,7 +10157,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "is_exec_dispatch",
-      "line": 4176,
+      "line": 4188,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10165,7 +10165,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "manifest_diff",
-      "line": 4614,
+      "line": 4627,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -10173,7 +10173,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "nearest_change",
-      "line": 36,
+      "line": 38,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10181,7 +10181,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "network_prefix_if",
-      "line": 4167,
+      "line": 4179,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10189,7 +10189,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "offer_for_site",
-      "line": 3912,
+      "line": 3924,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10197,7 +10197,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "operated_repo",
-      "line": 4819,
+      "line": 4832,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10205,7 +10205,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "operator_command",
-      "line": 3027,
+      "line": 3038,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10213,7 +10213,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "operator_command_racing",
-      "line": 3045,
+      "line": 3056,
       "cyclomatic": 20.0,
       "coverage": 100.0,
       "crap": 20.0
@@ -10221,7 +10221,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "operator_stop_reason",
-      "line": 2861,
+      "line": 2872,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10229,7 +10229,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "operator_supersede",
-      "line": 3184,
+      "line": 3195,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10237,7 +10237,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "operator_supersede_racing",
-      "line": 3197,
+      "line": 3208,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -10245,7 +10245,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "ordinary_windows_component",
-      "line": 4257,
+      "line": 4269,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10253,7 +10253,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "panel_outcome",
-      "line": 4414,
+      "line": 4426,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -10261,7 +10261,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "pinned_bundle_holds",
-      "line": 3887,
+      "line": 3899,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10269,7 +10269,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "refusal_for",
-      "line": 2956,
+      "line": 2967,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -10277,7 +10277,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "refuse",
-      "line": 2976,
+      "line": 2987,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10285,7 +10285,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "refuse_unbuilt",
-      "line": 144,
+      "line": 146,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10293,7 +10293,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "refused_outcome",
-      "line": 3670,
+      "line": 3682,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10301,7 +10301,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "riding_attempt",
-      "line": 3457,
+      "line": 3468,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10309,7 +10309,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "route_overlay_binding",
-      "line": 3995,
+      "line": 4007,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -10317,7 +10317,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "script_argument",
-      "line": 4224,
+      "line": 4236,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -10325,7 +10325,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "script_directory",
-      "line": 4182,
+      "line": 4194,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10333,7 +10333,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "select_candidates",
-      "line": 3843,
+      "line": 3855,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10341,7 +10341,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "single_patch_value",
-      "line": 3959,
+      "line": 3971,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -10349,7 +10349,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "site_matches",
-      "line": 3833,
+      "line": 3845,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10357,7 +10357,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "spawn_site",
-      "line": 4110,
+      "line": 4122,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10365,7 +10365,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "stamp_boundary",
-      "line": 4360,
+      "line": 4372,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10373,7 +10373,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "start_failure_fields",
-      "line": 4073,
+      "line": 4085,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -10381,7 +10381,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "start_failure_sites",
-      "line": 4062,
+      "line": 4074,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10389,7 +10389,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "stderr_tail",
-      "line": 4399,
+      "line": 4411,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10397,7 +10397,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "tag_member",
-      "line": 4389,
+      "line": 4401,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10405,7 +10405,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "unbuilt_slice",
-      "line": 118,
+      "line": 120,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10413,7 +10413,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine.rs",
       "function": "verify_dispatch_bundle_bounds",
-      "line": 218,
+      "line": 220,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -10517,7 +10517,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "describe",
-      "line": 806,
+      "line": 805,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -10525,7 +10525,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "describe_pair",
-      "line": 802,
+      "line": 801,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10533,7 +10533,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "effects_of_seat",
-      "line": 541,
+      "line": 540,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10541,7 +10541,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "eligible_offer",
-      "line": 443,
+      "line": 442,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -10549,7 +10549,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "flat_address_collision",
-      "line": 785,
+      "line": 784,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -10557,7 +10557,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "in_effects",
-      "line": 556,
+      "line": 555,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10565,7 +10565,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "legacy_instance_holds",
-      "line": 625,
+      "line": 624,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10573,7 +10573,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "legacy_offer",
-      "line": 586,
+      "line": 585,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -10589,7 +10589,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "owner_sites",
-      "line": 724,
+      "line": 723,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -10605,7 +10605,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "start_context",
-      "line": 840,
+      "line": 839,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -10613,7 +10613,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "started_attempt",
-      "line": 564,
+      "line": 563,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -10621,7 +10621,7 @@
     {
       "file": "./crates/brokkr-runtime/src/engine/resume.rs",
       "function": "structural_sites",
-      "line": 655,
+      "line": 654,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -11093,7 +11093,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::append_next",
-      "line": 879,
+      "line": 880,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11101,7 +11101,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::append_next_if_head",
-      "line": 913,
+      "line": 914,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11117,7 +11117,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::create_run",
-      "line": 768,
+      "line": 769,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -11133,7 +11133,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::head",
-      "line": 850,
+      "line": 851,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11149,7 +11149,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::head_once",
-      "line": 854,
+      "line": 855,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -11165,7 +11165,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::list_runs",
-      "line": 840,
+      "line": 841,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -11189,7 +11189,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::manifest",
-      "line": 825,
+      "line": 826,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -11197,7 +11197,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::migrate",
-      "line": 690,
+      "line": 691,
       "cyclomatic": 20.0,
       "coverage": 100.0,
       "crap": 20.0
@@ -11205,7 +11205,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::open",
-      "line": 621,
+      "line": 622,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -11213,7 +11213,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::open_read_only",
-      "line": 735,
+      "line": 736,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -11221,7 +11221,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::path",
-      "line": 654,
+      "line": 655,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11229,7 +11229,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::set_patience",
-      "line": 646,
+      "line": 647,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -11237,7 +11237,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::started_here",
-      "line": 800,
+      "line": 801,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11245,7 +11245,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "Store::started_under",
-      "line": 807,
+      "line": 808,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -11253,7 +11253,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "StoreError::is_contention",
-      "line": 156,
+      "line": 158,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11261,7 +11261,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "account_home",
-      "line": 374,
+      "line": 376,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11269,7 +11269,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "adoptable",
-      "line": 237,
+      "line": 239,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11277,7 +11277,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "append_once",
-      "line": 507,
+      "line": 508,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -11285,7 +11285,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "create_run_once",
-      "line": 459,
+      "line": 461,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -11309,7 +11309,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "escaped",
-      "line": 247,
+      "line": 249,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11333,7 +11333,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "home_from",
-      "line": 379,
+      "line": 381,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11341,7 +11341,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "host_from",
-      "line": 357,
+      "line": 359,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11349,7 +11349,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "hostname_command",
-      "line": 404,
+      "line": 406,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11357,7 +11357,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "hostname_from",
-      "line": 410,
+      "line": 412,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11389,7 +11389,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "local_host",
-      "line": 419,
+      "line": 421,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11397,7 +11397,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "machine_name",
-      "line": 391,
+      "line": 393,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11405,7 +11405,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "migrate_sidecar_columns",
-      "line": 443,
+      "line": 445,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -11509,7 +11509,7 @@
     {
       "file": "./crates/brokkr-store/src/lib.rs",
       "function": "sidecar_columns_missing",
-      "line": 433,
+      "line": 435,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -11693,7 +11693,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "activity_for",
-      "line": 1525,
+      "line": 1528,
       "cyclomatic": 23.0,
       "coverage": 100.0,
       "crap": 23.0
@@ -11701,7 +11701,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "add_token",
-      "line": 1773,
+      "line": 1776,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -11709,7 +11709,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "age",
-      "line": 643,
+      "line": 645,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11717,7 +11717,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "boundary_entries",
-      "line": 1319,
+      "line": 1322,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11725,7 +11725,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "bucket",
-      "line": 2268,
+      "line": 2272,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -11733,7 +11733,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "cell_of",
-      "line": 493,
+      "line": 495,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11741,7 +11741,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "checkpoint_rows",
-      "line": 1624,
+      "line": 1627,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -11749,7 +11749,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "cited",
-      "line": 737,
+      "line": 739,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11757,7 +11757,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "clamp",
-      "line": 669,
+      "line": 671,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11765,7 +11765,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "display_or_mark",
-      "line": 2609,
+      "line": 2614,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11773,7 +11773,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "ensure",
-      "line": 1057,
+      "line": 1059,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -11781,7 +11781,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "field",
-      "line": 508,
+      "line": 510,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11789,7 +11789,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "finish_usage",
-      "line": 1779,
+      "line": 1782,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -11797,7 +11797,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "fleet_rows",
-      "line": 976,
+      "line": 978,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11805,7 +11805,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "fmt_dur",
-      "line": 623,
+      "line": 625,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -11813,7 +11813,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "fmt_tokens",
-      "line": 1883,
+      "line": 1886,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11821,7 +11821,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "inner_columns",
-      "line": 2354,
+      "line": 2359,
       "cyclomatic": 22.0,
       "coverage": 100.0,
       "crap": 22.0
@@ -11829,7 +11829,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "joined",
-      "line": 1356,
+      "line": 1359,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -11837,7 +11837,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "journal_rows",
-      "line": 2650,
+      "line": 2656,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -11845,7 +11845,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "label_of",
-      "line": 2616,
+      "line": 2621,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -11853,7 +11853,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "last_attempt_cost",
-      "line": 1740,
+      "line": 1743,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11861,7 +11861,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "live_lines",
-      "line": 2172,
+      "line": 2176,
       "cyclomatic": 25.0,
       "coverage": 100.0,
       "crap": 25.0
@@ -11869,7 +11869,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "make_node",
-      "line": 2324,
+      "line": 2328,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11877,7 +11877,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "node_state",
-      "line": 2308,
+      "line": 2312,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -11885,7 +11885,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "operator_commands",
-      "line": 701,
+      "line": 703,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11893,7 +11893,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "outcome_state",
-      "line": 589,
+      "line": 591,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -11901,7 +11901,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "outcome_status",
-      "line": 578,
+      "line": 580,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -11909,7 +11909,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "own_boundary",
-      "line": 1368,
+      "line": 1371,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11917,7 +11917,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "own_or_members",
-      "line": 1747,
+      "line": 1750,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -11925,7 +11925,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "participants",
-      "line": 1897,
+      "line": 1901,
       "cyclomatic": 21.0,
       "coverage": 100.0,
       "crap": 21.0
@@ -11933,7 +11933,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "phase_rail",
-      "line": 2433,
+      "line": 2438,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -11941,7 +11941,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "provenance_of",
-      "line": 2080,
+      "line": 2084,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11949,7 +11949,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "quarantine_finding",
-      "line": 909,
+      "line": 911,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11957,7 +11957,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "reported_cost",
-      "line": 1723,
+      "line": 1726,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11965,7 +11965,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "residual_findings",
-      "line": 858,
+      "line": 860,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -11973,7 +11973,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "residual_value",
-      "line": 821,
+      "line": 823,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -11981,7 +11981,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "result_token",
-      "line": 613,
+      "line": 615,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11989,7 +11989,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "row_boundary",
-      "line": 1392,
+      "line": 1395,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -11997,7 +11997,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "ruling_of",
-      "line": 2748,
+      "line": 2754,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -12005,7 +12005,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "run_boundary",
-      "line": 1433,
+      "line": 1436,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -12013,7 +12013,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "run_notices",
-      "line": 2115,
+      "line": 2119,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -12021,7 +12021,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "run_row",
-      "line": 928,
+      "line": 930,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12029,7 +12029,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "run_rows",
-      "line": 951,
+      "line": 953,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12037,7 +12037,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "run_view",
-      "line": 2780,
+      "line": 2786,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12045,7 +12045,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "scan_participants",
-      "line": 1095,
+      "line": 1098,
       "cyclomatic": 39.0,
       "coverage": 100.0,
       "crap": 39.0
@@ -12053,7 +12053,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "session_usage",
-      "line": 1832,
+      "line": 1835,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12061,7 +12061,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "severity_class",
-      "line": 603,
+      "line": 605,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12069,7 +12069,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "short_target",
-      "line": 649,
+      "line": 651,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12077,7 +12077,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "site_boundary",
-      "line": 1375,
+      "line": 1378,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12085,7 +12085,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "spent",
-      "line": 1728,
+      "line": 1731,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12093,7 +12093,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "stamp_of",
-      "line": 1347,
+      "line": 1350,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12101,7 +12101,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "status_str",
-      "line": 523,
+      "line": 525,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -12109,7 +12109,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "summary_of",
-      "line": 2733,
+      "line": 2739,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12117,7 +12117,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "supersede_of",
-      "line": 748,
+      "line": 750,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -12125,7 +12125,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "supersedes",
-      "line": 781,
+      "line": 783,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12133,7 +12133,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "target_cells",
-      "line": 1510,
+      "line": 1513,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12141,7 +12141,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "terminal_line",
-      "line": 1683,
+      "line": 1686,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -12149,7 +12149,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "terminal_status",
-      "line": 564,
+      "line": 566,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -12157,7 +12157,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "token_usage",
-      "line": 1803,
+      "line": 1806,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -12165,7 +12165,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "transcript_cell",
-      "line": 1487,
+      "line": 1490,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -12173,7 +12173,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "transcript_of",
-      "line": 1476,
+      "line": 1479,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12181,7 +12181,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "truthy",
-      "line": 513,
+      "line": 515,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -12189,7 +12189,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "type_str",
-      "line": 532,
+      "line": 534,
       "cyclomatic": 16.0,
       "coverage": 100.0,
       "crap": 16.0
@@ -12197,7 +12197,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "type_tail",
-      "line": 555,
+      "line": 557,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12205,7 +12205,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "usage_text",
-      "line": 1855,
+      "line": 1858,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -12213,7 +12213,7 @@
     {
       "file": "./crates/brokkr-view/src/lib.rs",
       "function": "what_of",
-      "line": 2512,
+      "line": 2517,
       "cyclomatic": 20.0,
       "coverage": 100.0,
       "crap": 20.0
@@ -12269,7 +12269,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "CitationCoverage::latest_ordinal",
-      "line": 2327,
+      "line": 2332,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12277,7 +12277,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "CitationCoverage::new",
-      "line": 2274,
+      "line": 2279,
       "cyclomatic": 13.0,
       "coverage": 100.0,
       "crap": 13.0
@@ -12301,7 +12301,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "DshBlock::plain",
-      "line": 2955,
+      "line": 2974,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12309,7 +12309,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "DshCollector::admit",
-      "line": 2392,
+      "line": 2397,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12317,7 +12317,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "DshCollector::new",
-      "line": 2383,
+      "line": 2388,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12325,7 +12325,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "Position::parse",
-      "line": 2982,
+      "line": 3001,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -12405,7 +12405,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "UniqueSegments::is_unique",
-      "line": 2246,
+      "line": 2250,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -12413,7 +12413,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "UniqueSegments::new",
-      "line": 2209,
+      "line": 2213,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -12445,7 +12445,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "block_text_bytes",
-      "line": 2567,
+      "line": 2585,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12469,7 +12469,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "codex_command_output",
-      "line": 1623,
+      "line": 1625,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12477,7 +12477,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "codex_completed_item",
-      "line": 1643,
+      "line": 1646,
       "cyclomatic": 29.0,
       "coverage": 100.0,
       "crap": 29.0
@@ -12485,7 +12485,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "codex_event_msg",
-      "line": 1473,
+      "line": 1475,
       "cyclomatic": 19.0,
       "coverage": 100.0,
       "crap": 19.0
@@ -12517,7 +12517,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "codex_response_item",
-      "line": 1307,
+      "line": 1308,
       "cyclomatic": 30.0,
       "coverage": 100.0,
       "crap": 30.0
@@ -12541,7 +12541,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "collect_ordinary_facts",
-      "line": 2733,
+      "line": 2752,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -12573,7 +12573,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "digit_signature",
-      "line": 2036,
+      "line": 2039,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -12597,7 +12597,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_citations",
-      "line": 3130,
+      "line": 3149,
       "cyclomatic": 16.0,
       "coverage": 100.0,
       "crap": 16.0
@@ -12605,7 +12605,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_header",
-      "line": 2093,
+      "line": 2096,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -12613,7 +12613,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_ignorable",
-      "line": 2960,
+      "line": 2979,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12621,7 +12621,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_message_blocks",
-      "line": 3066,
+      "line": 3085,
       "cyclomatic": 16.0,
       "coverage": 100.0,
       "crap": 16.0
@@ -12629,7 +12629,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_millis",
-      "line": 3041,
+      "line": 3060,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -12637,7 +12637,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_millis_exact",
-      "line": 2064,
+      "line": 2067,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -12645,7 +12645,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_quiet_event",
-      "line": 1939,
+      "line": 1942,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12653,7 +12653,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_row",
-      "line": 3182,
+      "line": 3202,
       "cyclomatic": 28.0,
       "coverage": 100.0,
       "crap": 28.0
@@ -12661,7 +12661,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_seq",
-      "line": 3175,
+      "line": 3194,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12669,7 +12669,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_suppressed",
-      "line": 2354,
+      "line": 2359,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -12677,7 +12677,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "dsh_time",
-      "line": 3057,
+      "line": 3076,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -12685,7 +12685,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "emit_ordinary",
-      "line": 2900,
+      "line": 2919,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -12693,7 +12693,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "emit_packed",
-      "line": 2789,
+      "line": 2808,
       "cyclomatic": 10.0,
       "coverage": 100.0,
       "crap": 10.0
@@ -12701,7 +12701,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "exact_keys",
-      "line": 3385,
+      "line": 3405,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12717,7 +12717,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "first_physical_row",
-      "line": 2134,
+      "line": 2137,
       "cyclomatic": 9.0,
       "coverage": 100.0,
       "crap": 9.0
@@ -12725,7 +12725,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "flush_run",
-      "line": 2858,
+      "line": 2877,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12773,7 +12773,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "observe_singleton",
-      "line": 2182,
+      "line": 2185,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -12781,7 +12781,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "packed_facts",
-      "line": 2717,
+      "line": 2736,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -12829,7 +12829,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "project_dsh",
-      "line": 2571,
+      "line": 2590,
       "cyclomatic": 8.0,
       "coverage": 100.0,
       "crap": 8.0
@@ -12837,7 +12837,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "raw_top_level_token",
-      "line": 1969,
+      "line": 1972,
       "cyclomatic": 26.0,
       "coverage": 100.0,
       "crap": 26.0
@@ -12845,7 +12845,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "retain_ordinary_events",
-      "line": 2163,
+      "line": 2166,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12917,7 +12917,7 @@
     {
       "file": "./crates/brokkr-view/src/transcript.rs",
       "function": "validate_packed",
-      "line": 3417,
+      "line": 3437,
       "cyclomatic": 28.0,
       "coverage": 100.0,
       "crap": 28.0
@@ -12935,5 +12935,10 @@
       "count": 0,
       "examples": []
     }
+  },
+  "producedBy": {
+    "tool": "cargo-crap 0.5.0",
+    "command": "quality/measure.sh",
+    "host": "linux"
   }
 }

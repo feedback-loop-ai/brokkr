@@ -135,9 +135,11 @@ that began. Rulings 3 and 4 pay that price.
    - nesting depth 5, as clippy's `excessive_nesting` counts it (`impl`
      and `mod` levels included);
    - 7 parameters;
-   - cyclomatic complexity 15 for a new function, as `cargo-crap` counts
-     it, and no rise for an existing one against the committed baseline
-     (at 100% coverage CRAP equals CC);
+   - cyclomatic complexity 15, as `cargo-crap` counts it (at 100% coverage
+     CRAP equals CC). The operator ruled the semantics on 2026-09-26: a
+     function may reach the higher of 15 and its committed baseline. A
+     new function stays within 15. An existing function within 15 may
+     change freely up to 15. A function already over 15 may only shrink;
    - 800 lines per production file and 2,000 per test file, and a file
      already over its ceiling may not grow past its baseline;
    - no new clone in production code, test code or data, as `jscpd`

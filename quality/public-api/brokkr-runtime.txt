@@ -1,0 +1,930 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_runtime
+pub mod brokkr_runtime::agents
+pub use brokkr_runtime::agents::HandsNotice
+pub enum brokkr_runtime::agents::EgressClass
+pub brokkr_runtime::agents::EgressClass::Contracted
+pub brokkr_runtime::agents::EgressClass::Local
+pub brokkr_runtime::agents::EgressClass::Uncontracted
+impl brokkr_runtime::agents::EgressClass
+pub const brokkr_runtime::agents::EgressClass::VOCABULARY: &'static str
+pub fn brokkr_runtime::agents::EgressClass::name(&self) -> &'static str
+pub fn brokkr_runtime::agents::EgressClass::parse(&str) -> core::option::Option<brokkr_runtime::agents::EgressClass>
+pub enum brokkr_runtime::agents::LibraryError
+pub brokkr_runtime::agents::LibraryError::Invalid(alloc::string::String)
+pub brokkr_runtime::agents::LibraryError::Io(core::io::error::Error)
+pub enum brokkr_runtime::agents::Presence
+pub brokkr_runtime::agents::Presence::Available
+pub brokkr_runtime::agents::Presence::Unavailable
+pub brokkr_runtime::agents::Presence::Unknown
+pub enum brokkr_runtime::agents::ResolveError
+pub brokkr_runtime::agents::ResolveError::Capability
+pub brokkr_runtime::agents::ResolveError::Capability::agent: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::Capability::capability: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::Capability::model: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::Capability::provider: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::NoneAvailable
+pub brokkr_runtime::agents::ResolveError::NoneAvailable::agent: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::NoneAvailable::chain: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::UnknownAgent
+pub brokkr_runtime::agents::ResolveError::UnknownAgent::known: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::UnknownAgent::name: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::UnmappedModel
+pub brokkr_runtime::agents::ResolveError::UnmappedModel::agent: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::UnmappedModel::files: alloc::string::String
+pub brokkr_runtime::agents::ResolveError::UnmappedModel::model: alloc::string::String
+pub enum brokkr_runtime::agents::ResultDoor
+pub brokkr_runtime::agents::ResultDoor::File
+pub brokkr_runtime::agents::ResultDoor::LastMessage
+impl brokkr_runtime::agents::ResultDoor
+pub fn brokkr_runtime::agents::ResultDoor::word(self) -> &'static str
+pub enum brokkr_runtime::agents::ResumeIdentity
+pub brokkr_runtime::agents::ResumeIdentity::Measured
+pub brokkr_runtime::agents::ResumeIdentity::Measured::applies_to: alloc::string::String
+pub brokkr_runtime::agents::ResumeIdentity::Measured::version: alloc::string::String
+pub brokkr_runtime::agents::ResumeIdentity::Measured::wrapper_digest: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::ResumeIdentity::Unknown
+pub brokkr_runtime::agents::ResumeIdentity::Unknown::reason: alloc::string::String
+pub enum brokkr_runtime::agents::ResumeStatus
+pub brokkr_runtime::agents::ResumeStatus::Supported
+pub brokkr_runtime::agents::ResumeStatus::Unmeasured
+pub brokkr_runtime::agents::ResumeStatus::Unsupported
+impl brokkr_runtime::agents::ResumeStatus
+pub fn brokkr_runtime::agents::ResumeStatus::word(self) -> &'static str
+pub enum brokkr_runtime::agents::TrustTier
+pub brokkr_runtime::agents::TrustTier::Trusted
+pub brokkr_runtime::agents::TrustTier::Untrusted
+impl brokkr_runtime::agents::TrustTier
+pub fn brokkr_runtime::agents::TrustTier::parse(&str) -> core::option::Option<brokkr_runtime::agents::TrustTier>
+pub struct brokkr_runtime::agents::Adapter
+pub brokkr_runtime::agents::Adapter::binary: alloc::string::String
+pub brokkr_runtime::agents::Adapter::credentials: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::agents::Adapter::digest: alloc::string::String
+pub brokkr_runtime::agents::Adapter::driver: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::effort_flag: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::effortless_routes: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::agents::Adapter::efforts: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::egress: brokkr_runtime::agents::EgressClass
+pub brokkr_runtime::agents::Adapter::hands: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::agents::Adapter::hands_gap: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::hands_notice: core::option::Option<brokkr_protocol::adapters::HandsNotice>
+pub brokkr_runtime::agents::Adapter::harness: brokkr_runtime::agents::HarnessHands
+pub brokkr_runtime::agents::Adapter::hint: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::judges: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::mcp: core::option::Option<brokkr_runtime::agents::McpSupport>
+pub brokkr_runtime::agents::Adapter::model_flag: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::models: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::agents::Adapter::provider: alloc::string::String
+pub brokkr_runtime::agents::Adapter::resume: brokkr_runtime::agents::ResumeAssessment
+pub brokkr_runtime::agents::Adapter::routes: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::agents::EgressClass>
+pub brokkr_runtime::agents::Adapter::tool_permissions: core::option::Option<brokkr_runtime::agents::ToolPermissions>
+pub brokkr_runtime::agents::Adapter::tool_permissions_gap: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::Adapter::trust_tier: brokkr_runtime::agents::TrustTier
+pub struct brokkr_runtime::agents::Adapters
+impl brokkr_runtime::Adapters
+pub fn brokkr_runtime::Adapters::adapter(&self, &str) -> core::option::Option<&brokkr_runtime::agents::Adapter>
+pub fn brokkr_runtime::Adapters::digest(&self, &str) -> core::option::Option<&str>
+pub fn brokkr_runtime::Adapters::files(&self) -> &[alloc::string::String]
+pub fn brokkr_runtime::Adapters::load(&std::path::Path) -> core::result::Result<brokkr_runtime::Adapters, brokkr_runtime::LibraryError>
+pub fn brokkr_runtime::Adapters::providers(&self) -> impl core::iter::traits::iterator::Iterator<Item = &brokkr_runtime::agents::Adapter>
+pub fn brokkr_runtime::Adapters::serving(&self, &str) -> core::option::Option<(&brokkr_runtime::agents::Adapter, &str)>
+pub struct brokkr_runtime::agents::Agent
+pub brokkr_runtime::agents::Agent::allow: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::agents::Agent::charter: std::path::PathBuf
+pub brokkr_runtime::agents::Agent::charter_digest: alloc::string::String
+pub brokkr_runtime::agents::Agent::description: alloc::string::String
+pub brokkr_runtime::agents::Agent::digest: alloc::string::String
+pub brokkr_runtime::agents::Agent::efforts: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::agents::Agent::hands: core::option::Option<brokkr_protocol::hands::HandsSpec>
+pub brokkr_runtime::agents::Agent::inputs: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::agents::Agent::limits: core::option::Option<brokkr_runtime::bundle::Limits>
+pub brokkr_runtime::agents::Agent::mcp: alloc::vec::Vec<brokkr_runtime::agents::McpNeed>
+pub brokkr_runtime::agents::Agent::models: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::Agent::name: alloc::string::String
+pub brokkr_runtime::agents::Agent::source: serde_json::value::Value
+pub struct brokkr_runtime::agents::Availability(_)
+impl brokkr_runtime::agents::Availability
+pub fn brokkr_runtime::agents::Availability::presence(&self, &str) -> brokkr_runtime::agents::Presence
+pub fn brokkr_runtime::agents::Availability::record(&mut self, &str, brokkr_runtime::agents::Presence)
+pub fn brokkr_runtime::agents::Availability::unspecified() -> brokkr_runtime::agents::Availability
+pub struct brokkr_runtime::agents::Candidate
+pub brokkr_runtime::agents::Candidate::agent: alloc::string::String
+pub brokkr_runtime::agents::Candidate::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::Candidate::effort: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::Candidate::hands_fragment: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::Candidate::hands_notice: core::option::Option<brokkr_protocol::adapters::HandsNotice>
+pub brokkr_runtime::agents::Candidate::harness: brokkr_runtime::agents::HarnessHands
+pub brokkr_runtime::agents::Candidate::model: alloc::string::String
+pub brokkr_runtime::agents::Candidate::provider: alloc::string::String
+pub brokkr_runtime::agents::Candidate::resume: brokkr_runtime::agents::ResumeAssessment
+pub struct brokkr_runtime::agents::ChainEntry
+pub brokkr_runtime::agents::ChainEntry::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::ChainEntry::effort: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::ChainEntry::gap: core::option::Option<brokkr_runtime::agents::ResolveError>
+pub brokkr_runtime::agents::ChainEntry::hands_fragment: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::ChainEntry::harness: brokkr_runtime::agents::HarnessHands
+pub brokkr_runtime::agents::ChainEntry::model: alloc::string::String
+pub brokkr_runtime::agents::ChainEntry::notices: alloc::vec::Vec<brokkr_runtime::agents::Notice>
+pub brokkr_runtime::agents::ChainEntry::presence: brokkr_runtime::agents::Presence
+pub brokkr_runtime::agents::ChainEntry::provider: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::agents::HarnessHands
+pub brokkr_runtime::agents::HarnessHands::gate: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::agents::HarnessHands::gate_gap: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::HarnessHands::result: brokkr_runtime::agents::ResultDoor
+pub brokkr_runtime::agents::HarnessHands::work: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::agents::HarnessHands::work_gap: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::agents::Library
+impl brokkr_runtime::Library
+pub fn brokkr_runtime::Library::agent(&self, &str) -> core::option::Option<&brokkr_runtime::agents::Agent>
+pub fn brokkr_runtime::Library::agents(&self) -> impl core::iter::traits::iterator::Iterator<Item = &brokkr_runtime::agents::Agent>
+pub fn brokkr_runtime::Library::load(&std::path::Path) -> core::result::Result<brokkr_runtime::Library, brokkr_runtime::LibraryError>
+pub fn brokkr_runtime::Library::names(&self) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_runtime::Library::scan(&std::path::Path) -> core::result::Result<(brokkr_runtime::Library, alloc::vec::Vec<alloc::string::String>), brokkr_runtime::LibraryError>
+pub struct brokkr_runtime::agents::McpNeed
+pub brokkr_runtime::agents::McpNeed::optional: bool
+pub brokkr_runtime::agents::McpNeed::server: alloc::string::String
+pub struct brokkr_runtime::agents::McpSupport
+pub brokkr_runtime::agents::McpSupport::flag: alloc::string::String
+pub brokkr_runtime::agents::McpSupport::servers: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub struct brokkr_runtime::agents::Notice
+pub brokkr_runtime::agents::Notice::agent: alloc::string::String
+pub brokkr_runtime::agents::Notice::capability: alloc::string::String
+pub brokkr_runtime::agents::Notice::item: alloc::string::String
+pub brokkr_runtime::agents::Notice::message: alloc::string::String
+pub brokkr_runtime::agents::Notice::model: alloc::string::String
+pub brokkr_runtime::agents::Notice::provider: alloc::string::String
+impl brokkr_runtime::agents::Notice
+pub fn brokkr_runtime::agents::Notice::value(&self) -> serde_json::value::Value
+pub struct brokkr_runtime::agents::Report
+pub brokkr_runtime::agents::Report::agent: brokkr_runtime::agents::Agent
+pub brokkr_runtime::agents::Report::chosen: core::option::Option<usize>
+pub brokkr_runtime::agents::Report::entries: alloc::vec::Vec<brokkr_runtime::agents::ChainEntry>
+pub struct brokkr_runtime::agents::Resolution
+pub brokkr_runtime::agents::Resolution::agent: alloc::string::String
+pub brokkr_runtime::agents::Resolution::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::agents::Resolution::charter: std::path::PathBuf
+pub brokkr_runtime::agents::Resolution::hands: core::option::Option<brokkr_protocol::hands::HandsSpec>
+pub brokkr_runtime::agents::Resolution::inputs: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::agents::Resolution::limits: core::option::Option<brokkr_runtime::bundle::Limits>
+pub brokkr_runtime::agents::Resolution::notices: alloc::vec::Vec<brokkr_runtime::agents::Notice>
+pub brokkr_runtime::agents::Resolution::record: serde_json::value::Value
+pub struct brokkr_runtime::agents::ResumeAssessment(_)
+impl brokkr_runtime::agents::ResumeAssessment
+pub fn brokkr_runtime::agents::ResumeAssessment::is_empty(&self) -> bool
+pub fn brokkr_runtime::agents::ResumeAssessment::new(alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::agents::ResumeShape>) -> brokkr_runtime::agents::ResumeAssessment
+pub fn brokkr_runtime::agents::ResumeAssessment::shape(&self, &str) -> core::option::Option<&brokkr_runtime::agents::ResumeShape>
+pub fn brokkr_runtime::agents::ResumeAssessment::value(&self) -> serde_json::value::Value
+pub struct brokkr_runtime::agents::ResumeEvidence
+pub brokkr_runtime::agents::ResumeEvidence::accounting: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::ResumeEvidence::interface: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::ResumeEvidence::restrictions: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::ResumeEvidence::root: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::agents::ResumeShape
+pub brokkr_runtime::agents::ResumeShape::boundaries: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::ResumeShape::classes: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::ResumeShape::evidence: brokkr_runtime::agents::ResumeEvidence
+pub brokkr_runtime::agents::ResumeShape::hands: alloc::string::String
+pub brokkr_runtime::agents::ResumeShape::identity: brokkr_runtime::agents::ResumeIdentity
+pub brokkr_runtime::agents::ResumeShape::limitations: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::agents::ResumeShape::reason: core::option::Option<alloc::string::String>
+pub brokkr_runtime::agents::ResumeShape::status: brokkr_runtime::agents::ResumeStatus
+pub struct brokkr_runtime::agents::ToolPermissions
+pub brokkr_runtime::agents::ToolPermissions::flag: alloc::string::String
+pub brokkr_runtime::agents::ToolPermissions::names: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::agents::ToolPermissions::separator: alloc::string::String
+pub const brokkr_runtime::agents::NAME_GRAMMAR: &str
+pub fn brokkr_runtime::agents::report(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Report, brokkr_runtime::agents::ResolveError>
+pub fn brokkr_runtime::agents::resolve(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Resolution, brokkr_runtime::agents::ResolveError>
+pub fn brokkr_runtime::agents::resolve_route<'a>(&brokkr_runtime::agents::Adapter, &'a str) -> (core::option::Option<&'a str>, brokkr_runtime::agents::EgressClass)
+pub fn brokkr_runtime::agents::valid_name(&str) -> bool
+pub mod brokkr_runtime::anchor
+pub enum brokkr_runtime::anchor::AnchorError
+pub brokkr_runtime::anchor::AnchorError::Git
+pub brokkr_runtime::anchor::AnchorError::Git::detail: alloc::string::String
+pub brokkr_runtime::anchor::AnchorError::Git::verb: &'static str
+pub brokkr_runtime::anchor::AnchorError::Mismatch(alloc::string::String)
+pub brokkr_runtime::anchor::AnchorError::NoAnchor(alloc::string::String)
+pub brokkr_runtime::anchor::AnchorError::Store(brokkr_store::StoreError)
+pub fn brokkr_runtime::anchor::anchor(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<alloc::string::String, brokkr_runtime::anchor::AnchorError>
+pub fn brokkr_runtime::anchor::verify(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<serde_json::value::Value, brokkr_runtime::anchor::AnchorError>
+pub mod brokkr_runtime::bundle
+pub mod brokkr_runtime::bundle::compose
+pub struct brokkr_runtime::bundle::compose::Ancestor
+pub brokkr_runtime::bundle::compose::Ancestor::digest: alloc::string::String
+pub brokkr_runtime::bundle::compose::Ancestor::dir: std::path::PathBuf
+pub brokkr_runtime::bundle::compose::Ancestor::files: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_runtime::bundle::compose::Ancestor::name: alloc::string::String
+pub brokkr_runtime::bundle::compose::Ancestor::reached_as: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::bundle::compose::Resolved
+pub brokkr_runtime::bundle::compose::Resolved::case_origin: alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>
+pub brokkr_runtime::bundle::compose::Resolved::chain: alloc::vec::Vec<brokkr_runtime::bundle::compose::Ancestor>
+pub brokkr_runtime::bundle::compose::Resolved::document: serde_json::value::Value
+pub brokkr_runtime::bundle::compose::Resolved::name: alloc::string::String
+pub brokkr_runtime::bundle::compose::Resolved::roots: alloc::vec::Vec<std::path::PathBuf>
+pub brokkr_runtime::bundle::compose::Resolved::seat_origin: alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>
+pub brokkr_runtime::bundle::compose::Resolved::seats: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_runtime::bundle::compose::Resolved::table: serde_json::value::Value
+impl brokkr_runtime::bundle::compose::Resolved
+pub fn brokkr_runtime::bundle::compose::Resolved::chain_note(&self) -> core::option::Option<alloc::string::String>
+pub const brokkr_runtime::bundle::compose::COMPOSE_PREFIX: &str
+pub fn brokkr_runtime::bundle::compose::resolve(&std::path::Path) -> core::result::Result<brokkr_runtime::bundle::compose::Resolved, brokkr_runtime::bundle::CompileError>
+pub enum brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::bundle::Aggregate::ReviewPanel
+pub brokkr_runtime::bundle::Aggregate::UnanimousPass
+pub enum brokkr_runtime::bundle::CompileError
+pub brokkr_runtime::bundle::CompileError::Invalid(alloc::string::String)
+pub brokkr_runtime::bundle::CompileError::Io(core::io::error::Error)
+pub brokkr_runtime::bundle::CompileError::Json(serde_json::error::Error)
+pub brokkr_runtime::bundle::CompileError::Policy(brokkr_core::policy::PolicyError)
+pub enum brokkr_runtime::bundle::ExecutableBody<'a>
+pub brokkr_runtime::bundle::ExecutableBody::Panel
+pub brokkr_runtime::bundle::ExecutableBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::bundle::ExecutableBody::Panel::members: &'a [brokkr_runtime::bundle::PanelMember]
+pub brokkr_runtime::bundle::ExecutableBody::Sequence
+pub brokkr_runtime::bundle::ExecutableBody::Sequence::steps: &'a [brokkr_runtime::bundle::SequenceStep]
+pub brokkr_runtime::bundle::ExecutableBody::Single
+pub brokkr_runtime::bundle::ExecutableBody::Single::candidates: &'a [brokkr_runtime::agents::Candidate]
+pub brokkr_runtime::bundle::ExecutableBody::Single::command: &'a [alloc::string::String]
+pub brokkr_runtime::bundle::ExecutableBody::Single::role_path: &'a std::path::Path
+pub enum brokkr_runtime::bundle::HandsState
+pub brokkr_runtime::bundle::HandsState::Hands(brokkr_protocol::hands::HandsSpec)
+pub brokkr_runtime::bundle::HandsState::NoHands
+pub brokkr_runtime::bundle::HandsState::Unknown
+pub enum brokkr_runtime::bundle::SeatBody
+pub brokkr_runtime::bundle::SeatBody::Panel
+pub brokkr_runtime::bundle::SeatBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::bundle::SeatBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
+pub brokkr_runtime::bundle::SeatBody::Select
+pub brokkr_runtime::bundle::SeatBody::Select::case_gates: alloc::collections::btree::map::BTreeMap<alloc::string::String, bool>
+pub brokkr_runtime::bundle::SeatBody::Select::cases: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SeatBody>
+pub brokkr_runtime::bundle::SeatBody::Select::default: core::option::Option<alloc::boxed::Box<brokkr_runtime::bundle::SeatBody>>
+pub brokkr_runtime::bundle::SeatBody::Select::default_gate: bool
+pub brokkr_runtime::bundle::SeatBody::Sequence
+pub brokkr_runtime::bundle::SeatBody::Sequence::steps: alloc::vec::Vec<brokkr_runtime::bundle::SequenceStep>
+pub brokkr_runtime::bundle::SeatBody::Single
+pub brokkr_runtime::bundle::SeatBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::bundle::SeatBody::Single::command: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::SeatBody::Single::role_path: std::path::PathBuf
+impl brokkr_runtime::bundle::SeatBody
+pub fn brokkr_runtime::bundle::SeatBody::selected<'a>(&'a self, core::option::Option<&str>) -> core::option::Option<(brokkr_runtime::bundle::ExecutableBody<'a>, core::option::Option<&'a str>)>
+pub fn brokkr_runtime::bundle::SeatBody::selected_is_gate(&self, core::option::Option<&str>, bool) -> bool
+pub enum brokkr_runtime::bundle::SeatClass
+pub brokkr_runtime::bundle::SeatClass::Gate
+pub brokkr_runtime::bundle::SeatClass::Work
+pub enum brokkr_runtime::bundle::StepBody
+pub brokkr_runtime::bundle::StepBody::Dialect
+pub brokkr_runtime::bundle::StepBody::Dialect::execution: brokkr_runtime::bundle::DialectExecution
+pub brokkr_runtime::bundle::StepBody::Panel
+pub brokkr_runtime::bundle::StepBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::bundle::StepBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
+pub brokkr_runtime::bundle::StepBody::Single
+pub brokkr_runtime::bundle::StepBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::bundle::StepBody::Single::command: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::StepBody::Single::role_path: std::path::PathBuf
+pub struct brokkr_runtime::bundle::Bundle
+pub brokkr_runtime::bundle::Bundle::boundary: brokkr_core::realms::Boundary
+pub brokkr_runtime::bundle::Bundle::chain: alloc::vec::Vec<brokkr_runtime::bundle::compose::Ancestor>
+pub brokkr_runtime::bundle::Bundle::cost: alloc::string::String
+pub brokkr_runtime::bundle::Bundle::description: alloc::string::String
+pub brokkr_runtime::bundle::Bundle::dialect_prompts: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::bundle::Bundle::dir: std::path::PathBuf
+pub brokkr_runtime::bundle::Bundle::hands: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_protocol::hands::HandsSpec>
+pub brokkr_runtime::bundle::Bundle::inline_resume: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
+pub brokkr_runtime::bundle::Bundle::machine: brokkr_core::policy::Machine
+pub brokkr_runtime::bundle::Bundle::manifest: serde_json::value::Value
+pub brokkr_runtime::bundle::Bundle::name: alloc::string::String
+pub brokkr_runtime::bundle::Bundle::protected_phase: alloc::string::String
+pub brokkr_runtime::bundle::Bundle::roots: alloc::vec::Vec<std::path::PathBuf>
+pub brokkr_runtime::bundle::Bundle::seats: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::Seat>
+pub brokkr_runtime::bundle::Bundle::sites: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SiteFacts>
+impl brokkr_runtime::bundle::Bundle
+pub fn brokkr_runtime::bundle::Bundle::compile(&std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_under(&std::path::Path, &std::path::Path, &std::path::Path, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_with(&std::path::Path, &std::path::Path, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_with_realm(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::manifest_digest(&self) -> alloc::string::String
+pub struct brokkr_runtime::bundle::DialectExecution
+pub brokkr_runtime::bundle::DialectExecution::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::DialectExecution::state: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub struct brokkr_runtime::bundle::Limits
+pub brokkr_runtime::bundle::Limits::max_attempts: u64
+pub brokkr_runtime::bundle::Limits::timeout_seconds: u64
+impl core::default::Default for brokkr_runtime::bundle::Limits
+pub fn brokkr_runtime::bundle::Limits::default() -> brokkr_runtime::bundle::Limits
+pub struct brokkr_runtime::bundle::PanelMember
+pub brokkr_runtime::bundle::PanelMember::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::bundle::PanelMember::command: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::PanelMember::name: alloc::string::String
+pub brokkr_runtime::bundle::PanelMember::role_path: std::path::PathBuf
+pub struct brokkr_runtime::bundle::Seat
+pub brokkr_runtime::bundle::Seat::body: brokkr_runtime::bundle::SeatBody
+pub brokkr_runtime::bundle::Seat::has_gate: bool
+pub brokkr_runtime::bundle::Seat::inputs: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::Seat::limits: brokkr_runtime::bundle::Limits
+pub brokkr_runtime::bundle::Seat::results: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::Seat::secrets: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_runtime::bundle::SequenceStep
+pub brokkr_runtime::bundle::SequenceStep::body: brokkr_runtime::bundle::StepBody
+pub brokkr_runtime::bundle::SequenceStep::class: brokkr_runtime::bundle::SeatClass
+pub brokkr_runtime::bundle::SequenceStep::name: alloc::string::String
+pub brokkr_runtime::bundle::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_runtime::bundle::SiteFacts
+pub brokkr_runtime::bundle::SiteFacts::driver: core::option::Option<brokkr_runtime::bundle::DriverDigests>
+pub brokkr_runtime::bundle::SiteFacts::hands: brokkr_runtime::bundle::HandsState
+pub brokkr_runtime::bundle::SiteFacts::inline_hands_notice: core::option::Option<brokkr_protocol::adapters::HandsNotice>
+pub brokkr_runtime::bundle::SiteFacts::inline_resume: core::option::Option<serde_json::value::Value>
+pub brokkr_runtime::bundle::SiteFacts::pin_drivers: core::option::Option<brokkr_runtime::bundle::DriverDigests>
+pub brokkr_runtime::bundle::SiteFacts::record: core::option::Option<serde_json::value::Value>
+impl brokkr_runtime::bundle::SiteFacts
+pub fn brokkr_runtime::bundle::SiteFacts::hands_spec(&self) -> core::option::Option<&brokkr_protocol::hands::HandsSpec>
+pub const brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR: &str
+pub const brokkr_runtime::bundle::DEFAULT_AGENTS_DIR: &str
+pub const brokkr_runtime::bundle::DRIVER_PROTOCOL: u32
+pub const brokkr_runtime::bundle::ENGINE_OWNED_INPUTS: [&str; 7]
+pub const brokkr_runtime::bundle::ENGINE_VERSION: &str
+pub const brokkr_runtime::bundle::ENUM_INPUTS: [&str; 1]
+pub const brokkr_runtime::bundle::EVENT_SCHEMA: u32
+pub const brokkr_runtime::bundle::REALM_FACTS: &str
+pub const brokkr_runtime::bundle::SELECT_STRATEGIES: [&str; 4]
+pub fn brokkr_runtime::bundle::dialect_gate_hands() -> brokkr_protocol::hands::HandsSpec
+pub fn brokkr_runtime::bundle::expand_command(&std::path::Path, &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_runtime::bundle::is_engine_owned(&str) -> bool
+pub fn brokkr_runtime::bundle::layer_drift(&brokkr_runtime::bundle::Bundle, &std::path::Path) -> core::option::Option<(alloc::string::String, alloc::string::String)>
+pub type brokkr_runtime::bundle::DriverDigests = serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub mod brokkr_runtime::dialect
+pub enum brokkr_runtime::dialect::ArchiveOrUnsupported
+pub brokkr_runtime::dialect::ArchiveOrUnsupported::Command(brokkr_runtime::dialect::ArchiveCommand)
+pub brokkr_runtime::dialect::ArchiveOrUnsupported::Unsupported(brokkr_runtime::dialect::Unsupported)
+pub enum brokkr_runtime::dialect::CommandOrUnsupported
+pub brokkr_runtime::dialect::CommandOrUnsupported::Command(brokkr_runtime::dialect::Command)
+pub brokkr_runtime::dialect::CommandOrUnsupported::Unsupported(brokkr_runtime::dialect::Unsupported)
+pub enum brokkr_runtime::dialect::DialectError
+pub brokkr_runtime::dialect::DialectError::Invalid
+pub brokkr_runtime::dialect::DialectError::Invalid::path: alloc::string::String
+pub brokkr_runtime::dialect::DialectError::Invalid::problem: alloc::string::String
+pub brokkr_runtime::dialect::DialectError::Malformed
+pub brokkr_runtime::dialect::DialectError::Malformed::detail: alloc::string::String
+pub brokkr_runtime::dialect::DialectError::Malformed::path: alloc::string::String
+pub brokkr_runtime::dialect::DialectError::Unreadable
+pub brokkr_runtime::dialect::DialectError::Unreadable::path: alloc::string::String
+pub brokkr_runtime::dialect::DialectError::Unreadable::source: core::io::error::Error
+pub brokkr_runtime::dialect::DialectError::UnreadableInstruction
+pub brokkr_runtime::dialect::DialectError::UnreadableInstruction::path: alloc::string::String
+pub brokkr_runtime::dialect::DialectError::UnreadableInstruction::source: core::io::error::Error
+pub enum brokkr_runtime::dialect::Manager
+pub brokkr_runtime::dialect::Manager::Npm
+pub brokkr_runtime::dialect::Manager::Uv
+pub enum brokkr_runtime::dialect::Office
+pub brokkr_runtime::dialect::Office::Check
+pub brokkr_runtime::dialect::Office::Chief
+pub brokkr_runtime::dialect::Office::Council
+pub brokkr_runtime::dialect::Office::Smith
+pub enum brokkr_runtime::dialect::PathOrUnsupported
+pub brokkr_runtime::dialect::PathOrUnsupported::Path(alloc::string::String)
+pub brokkr_runtime::dialect::PathOrUnsupported::Unsupported(brokkr_runtime::dialect::Unsupported)
+pub struct brokkr_runtime::dialect::ArchiveCommand
+pub brokkr_runtime::dialect::ArchiveCommand::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::dialect::ArchiveCommand::instructions: core::option::Option<alloc::string::String>
+pub brokkr_runtime::dialect::ArchiveCommand::state: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub struct brokkr_runtime::dialect::ArtifactPhase
+pub brokkr_runtime::dialect::ArtifactPhase::steps: alloc::vec::Vec<brokkr_runtime::dialect::ArtifactStep>
+pub brokkr_runtime::dialect::ArtifactPhase::validate: brokkr_runtime::dialect::CommandOrUnsupported
+pub struct brokkr_runtime::dialect::ArtifactStep
+pub brokkr_runtime::dialect::ArtifactStep::artifacts: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::dialect::ArtifactStep::instructions: alloc::string::String
+pub brokkr_runtime::dialect::ArtifactStep::name: alloc::string::String
+pub brokkr_runtime::dialect::ArtifactStep::office: brokkr_runtime::dialect::Office
+pub brokkr_runtime::dialect::ArtifactStep::optional: bool
+pub brokkr_runtime::dialect::ArtifactStep::return_instructions: alloc::string::String
+pub struct brokkr_runtime::dialect::Command
+pub brokkr_runtime::dialect::Command::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::dialect::Command::state: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub struct brokkr_runtime::dialect::DecisionLocation
+pub brokkr_runtime::dialect::DecisionLocation::artifact: alloc::string::String
+pub brokkr_runtime::dialect::DecisionLocation::section: alloc::string::String
+pub struct brokkr_runtime::dialect::Dependency
+pub brokkr_runtime::dialect::Dependency::after: alloc::string::String
+pub brokkr_runtime::dialect::Dependency::before: alloc::string::String
+pub struct brokkr_runtime::dialect::Dialect
+pub brokkr_runtime::dialect::Dialect::archive: brokkr_runtime::dialect::ArchiveOrUnsupported
+pub brokkr_runtime::dialect::Dialect::change: alloc::string::String
+pub brokkr_runtime::dialect::Dialect::decisions: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::dialect::DecisionLocation>
+pub brokkr_runtime::dialect::Dialect::house: brokkr_runtime::dialect::PathOrUnsupported
+pub brokkr_runtime::dialect::Dialect::name: alloc::string::String
+pub brokkr_runtime::dialect::Dialect::order: alloc::vec::Vec<brokkr_runtime::dialect::Dependency>
+pub brokkr_runtime::dialect::Dialect::phases: brokkr_runtime::dialect::Phases
+pub brokkr_runtime::dialect::Dialect::rendered: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::dialect::Dialect::requires: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::dialect::Dialect::schema: alloc::string::String
+pub brokkr_runtime::dialect::Dialect::tool: brokkr_runtime::dialect::Tool
+pub brokkr_runtime::dialect::Dialect::truth: brokkr_runtime::dialect::PathOrUnsupported
+pub brokkr_runtime::dialect::Dialect::verify: brokkr_runtime::dialect::CommandOrUnsupported
+impl brokkr_runtime::dialect::Dialect
+pub fn brokkr_runtime::dialect::Dialect::load(&std::path::Path) -> core::result::Result<(Self, serde_json::value::Value), brokkr_runtime::dialect::DialectError>
+pub fn brokkr_runtime::dialect::Dialect::parse(&str, &str) -> core::result::Result<(Self, serde_json::value::Value), brokkr_runtime::dialect::DialectError>
+pub fn brokkr_runtime::dialect::Dialect::parse_pinned(&str, &str) -> core::result::Result<(Self, serde_json::value::Value), brokkr_runtime::dialect::DialectError>
+pub fn brokkr_runtime::dialect::Dialect::prompt_for(&self, &std::path::Path, &str) -> core::result::Result<alloc::string::String, brokkr_runtime::dialect::DialectError>
+pub fn brokkr_runtime::dialect::Dialect::render(&mut self, &std::path::Path) -> core::result::Result<(), brokkr_runtime::dialect::DialectError>
+pub fn brokkr_runtime::dialect::Dialect::validation(&self, &str) -> core::option::Option<&brokkr_runtime::dialect::Command>
+pub struct brokkr_runtime::dialect::Install
+pub brokkr_runtime::dialect::Install::manager: brokkr_runtime::dialect::Manager
+pub brokkr_runtime::dialect::Install::package: alloc::string::String
+pub brokkr_runtime::dialect::Install::source: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::dialect::LoopPhase
+pub brokkr_runtime::dialect::LoopPhase::check: brokkr_runtime::dialect::CommandOrUnsupported
+pub brokkr_runtime::dialect::LoopPhase::taxonomy: alloc::string::String
+pub struct brokkr_runtime::dialect::Phases
+pub brokkr_runtime::dialect::Phases::analyze: brokkr_runtime::dialect::LoopPhase
+pub brokkr_runtime::dialect::Phases::clarify: brokkr_runtime::dialect::LoopPhase
+pub brokkr_runtime::dialect::Phases::design: brokkr_runtime::dialect::ArtifactPhase
+pub brokkr_runtime::dialect::Phases::specify: brokkr_runtime::dialect::ArtifactPhase
+pub brokkr_runtime::dialect::Phases::tasks: brokkr_runtime::dialect::ArtifactPhase
+impl brokkr_runtime::dialect::Phases
+pub fn brokkr_runtime::dialect::Phases::artifact(&self, &str) -> core::option::Option<&brokkr_runtime::dialect::ArtifactPhase>
+pub fn brokkr_runtime::dialect::Phases::loop_phase(&self, &str) -> core::option::Option<&brokkr_runtime::dialect::LoopPhase>
+pub struct brokkr_runtime::dialect::Tool
+pub brokkr_runtime::dialect::Tool::binary: alloc::string::String
+pub brokkr_runtime::dialect::Tool::install: core::option::Option<brokkr_runtime::dialect::Install>
+pub brokkr_runtime::dialect::Tool::version: alloc::string::String
+pub struct brokkr_runtime::dialect::Unsupported
+pub brokkr_runtime::dialect::Unsupported::unsupported: alloc::string::String
+pub const brokkr_runtime::dialect::ARTIFACT_PHASES: [&str; 3]
+pub const brokkr_runtime::dialect::DIALECT_PHASES: [&str; 5]
+pub const brokkr_runtime::dialect::SCHEMAS: [&str; 3]
+pub const brokkr_runtime::dialect::SCHEMA_V1: &str
+pub const brokkr_runtime::dialect::SCHEMA_V2: &str
+pub const brokkr_runtime::dialect::SCHEMA_V3: &str
+pub fn brokkr_runtime::dialect::library_path(&std::path::Path, &str, &std::path::Path) -> std::path::PathBuf
+pub mod brokkr_runtime::engine
+pub enum brokkr_runtime::engine::BuiltBoundary
+pub brokkr_runtime::engine::BuiltBoundary::Harness
+pub brokkr_runtime::engine::BuiltBoundary::Namespace
+pub brokkr_runtime::engine::BuiltBoundary::Open
+pub enum brokkr_runtime::engine::EngineError
+pub brokkr_runtime::engine::EngineError::AlreadyConcluded
+pub brokkr_runtime::engine::EngineError::AlreadyConcluded::run_id: alloc::string::String
+pub brokkr_runtime::engine::EngineError::AlreadyConcluded::status: alloc::string::String
+pub brokkr_runtime::engine::EngineError::BoundaryMismatch
+pub brokkr_runtime::engine::EngineError::BoundaryMismatch::compiled: brokkr_core::realms::Boundary
+pub brokkr_runtime::engine::EngineError::BoundaryMismatch::world: brokkr_core::realms::Boundary
+pub brokkr_runtime::engine::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
+pub brokkr_runtime::engine::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::engine::EngineError::ManifestMismatch
+pub brokkr_runtime::engine::EngineError::ManifestMismatch::detail: alloc::string::String
+pub brokkr_runtime::engine::EngineError::ManifestMismatch::run_id: alloc::string::String
+pub brokkr_runtime::engine::EngineError::Other(alloc::string::String)
+pub brokkr_runtime::engine::EngineError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::engine::EngineError::SupersedeRefused(alloc::string::String)
+pub brokkr_runtime::engine::EngineError::UnbuiltBoundary
+pub brokkr_runtime::engine::EngineError::UnbuiltBoundary::boundary: brokkr_core::realms::Boundary
+pub brokkr_runtime::engine::EngineError::UnbuiltBoundary::seats: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::engine::EngineError::UnbuiltBoundary::slice: &'static str
+pub brokkr_runtime::engine::EngineError::World(brokkr_runtime::realms::WorldError)
+impl brokkr_runtime::engine::EngineError
+pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>
+pub enum brokkr_runtime::engine::FencedCommandOutcome
+pub brokkr_runtime::engine::FencedCommandOutcome::Accepted
+pub brokkr_runtime::engine::FencedCommandOutcome::Accepted::head_hash: alloc::string::String
+pub brokkr_runtime::engine::FencedCommandOutcome::Accepted::head_seq: u64
+pub brokkr_runtime::engine::FencedCommandOutcome::Rejected
+pub brokkr_runtime::engine::FencedCommandOutcome::Rejected::head_hash: alloc::string::String
+pub brokkr_runtime::engine::FencedCommandOutcome::Rejected::head_seq: u64
+pub brokkr_runtime::engine::FencedCommandOutcome::Rejected::reason: alloc::string::String
+pub struct brokkr_runtime::engine::DriveEnd
+pub brokkr_runtime::engine::DriveEnd::state: brokkr_core::fold::RunState
+pub struct brokkr_runtime::engine::Engine
+pub brokkr_runtime::engine::Engine::boundary: brokkr_core::realms::Boundary
+pub brokkr_runtime::engine::Engine::bundle: brokkr_runtime::bundle::Bundle
+pub brokkr_runtime::engine::Engine::feature: alloc::string::String
+pub brokkr_runtime::engine::Engine::repo: std::path::PathBuf
+pub brokkr_runtime::engine::Engine::run_id: alloc::string::String
+pub brokkr_runtime::engine::Engine::secrets_file: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::engine::Engine::store: brokkr_store::Store
+pub brokkr_runtime::engine::Engine::world: core::option::Option<brokkr_runtime::realms::World>
+impl brokkr_runtime::engine::Engine
+pub fn brokkr_runtime::engine::Engine::drive(&mut self) -> core::result::Result<brokkr_runtime::engine::DriveEnd, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::resume(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start_in_world(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start_with_dispatch(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, brokkr_core::dispatch::DispatchEnvelopeV2) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub struct brokkr_runtime::engine::SiteSpawn
+pub brokkr_runtime::engine::SiteSpawn::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::engine::SiteSpawn::env: brokkr_protocol::process::SpawnEnv
+pub brokkr_runtime::engine::SiteSpawn::refusal: core::option::Option<alloc::string::String>
+pub brokkr_runtime::engine::SiteSpawn::rewalk: core::option::Option<std::path::PathBuf>
+impl brokkr_runtime::engine::SiteSpawn
+pub fn brokkr_runtime::engine::SiteSpawn::inherit(alloc::vec::Vec<alloc::string::String>) -> brokkr_runtime::engine::SiteSpawn
+pub struct brokkr_runtime::engine::Supersede<'a>
+pub brokkr_runtime::engine::Supersede::by_realm: core::option::Option<&'a str>
+pub brokkr_runtime::engine::Supersede::by_run: &'a str
+pub brokkr_runtime::engine::Supersede::by_seq: u64
+pub brokkr_runtime::engine::Supersede::findings: &'a [u64]
+pub brokkr_runtime::engine::Supersede::operator: &'a str
+pub brokkr_runtime::engine::Supersede::reason: &'a str
+pub struct brokkr_runtime::engine::Unboxed
+pub brokkr_runtime::engine::Unboxed::env: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::engine::Unboxed::prefix: alloc::vec::Vec<alloc::string::String>
+pub const brokkr_runtime::engine::LOST_FENCE: &str
+pub const brokkr_runtime::engine::OPERATOR_STOP_RULE: &str
+pub fn brokkr_runtime::engine::apply_fenced_operator_command(&mut brokkr_store::Store, &str, &str, &str, &str, &str, u64, &str) -> core::result::Result<brokkr_runtime::engine::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::compose_site(brokkr_runtime::engine::BuiltBoundary, brokkr_runtime::bundle::SeatClass, alloc::vec::Vec<alloc::string::String>, core::option::Option<&brokkr_protocol::hands::HandsSpec>, core::option::Option<&brokkr_runtime::agents::Candidate>, &std::path::Path, &[std::path::PathBuf], &str, core::option::Option<&brokkr_runtime::engine::Unboxed>) -> brokkr_runtime::engine::SiteSpawn
+pub fn brokkr_runtime::engine::conclude(&mut brokkr_store::Store, &str, &str, &str) -> core::result::Result<brokkr_core::fold::RunState, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::git_head(&std::path::Path) -> core::option::Option<alloc::string::String>
+pub fn brokkr_runtime::engine::hands_command(alloc::vec::Vec<alloc::string::String>, core::option::Option<&brokkr_protocol::hands::HandsSpec>, &std::path::Path, &[std::path::PathBuf]) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_runtime::engine::network_prefix_if(bool, u32, u32) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_runtime::engine::operator_command(&mut brokkr_store::Store, &str, &str, &str, &str) -> core::result::Result<brokkr_runtime::engine::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::engine::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::stamp_boundary(serde_json::value::Value, core::option::Option<brokkr_core::realms::Boundary>) -> serde_json::value::Value
+pub fn brokkr_runtime::engine::unbuilt_slice(brokkr_core::realms::Boundary) -> core::option::Option<&'static str>
+pub mod brokkr_runtime::keep_refs
+pub enum brokkr_runtime::keep_refs::KeepRefsError
+pub brokkr_runtime::keep_refs::KeepRefsError::Git
+pub brokkr_runtime::keep_refs::KeepRefsError::Git::detail: alloc::string::String
+pub brokkr_runtime::keep_refs::KeepRefsError::Git::verb: &'static str
+pub brokkr_runtime::keep_refs::KeepRefsError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::keep_refs::KeepRefsError::UnusableRunId(alloc::string::String)
+pub struct brokkr_runtime::keep_refs::Planted
+pub brokkr_runtime::keep_refs::Planted::absent: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::keep_refs::Planted::kept: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::keep_refs::Planted::run_id: alloc::string::String
+pub const brokkr_runtime::keep_refs::KEEP_PREFIX: &str
+pub fn brokkr_runtime::keep_refs::delete(&std::path::Path, &str) -> core::result::Result<u64, brokkr_runtime::keep_refs::KeepRefsError>
+pub fn brokkr_runtime::keep_refs::list(&std::path::Path) -> core::result::Result<alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<alloc::string::String>>, brokkr_runtime::keep_refs::KeepRefsError>
+pub fn brokkr_runtime::keep_refs::plant(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<brokkr_runtime::keep_refs::Planted, brokkr_runtime::keep_refs::KeepRefsError>
+pub fn brokkr_runtime::keep_refs::plant_or_report(&brokkr_store::Store, &std::path::Path, &str) -> core::option::Option<alloc::string::String>
+pub mod brokkr_runtime::realms
+pub enum brokkr_runtime::realms::WorldError
+pub brokkr_runtime::realms::WorldError::Crossing
+pub brokkr_runtime::realms::WorldError::Crossing::crossing: alloc::string::String
+pub brokkr_runtime::realms::WorldError::Crossing::detail: alloc::string::String
+pub brokkr_runtime::realms::WorldError::Crossing::path: alloc::string::String
+pub brokkr_runtime::realms::WorldError::Crossing::realm: alloc::string::String
+pub brokkr_runtime::realms::WorldError::CrossingMoved(alloc::boxed::Box<brokkr_runtime::realms::MovedCrossing>)
+pub brokkr_runtime::realms::WorldError::Map(brokkr_core::realms::RealmsError)
+pub brokkr_runtime::realms::WorldError::Missing(alloc::string::String)
+pub brokkr_runtime::realms::WorldError::RealmDialect
+pub brokkr_runtime::realms::WorldError::RealmDialect::detail: alloc::string::String
+pub brokkr_runtime::realms::WorldError::RealmDialect::realm: alloc::string::String
+pub brokkr_runtime::realms::WorldError::RealmText
+pub brokkr_runtime::realms::WorldError::RealmText::detail: alloc::string::String
+pub brokkr_runtime::realms::WorldError::RealmText::kind: &'static str
+pub brokkr_runtime::realms::WorldError::RealmText::path: alloc::string::String
+pub brokkr_runtime::realms::WorldError::RealmText::realm: alloc::string::String
+pub brokkr_runtime::realms::WorldError::Unpinned(alloc::string::String)
+pub brokkr_runtime::realms::WorldError::Unreadable
+pub brokkr_runtime::realms::WorldError::Unreadable::path: alloc::string::String
+pub brokkr_runtime::realms::WorldError::Unreadable::source: core::io::error::Error
+pub struct brokkr_runtime::realms::CrossingFailure
+impl brokkr_runtime::realms::CrossingFailure
+pub fn brokkr_runtime::realms::CrossingFailure::crossing(&self) -> &str
+pub fn brokkr_runtime::realms::CrossingFailure::error(&self) -> brokkr_runtime::realms::WorldError
+pub fn brokkr_runtime::realms::CrossingFailure::moved(&self) -> bool
+pub fn brokkr_runtime::realms::CrossingFailure::publisher(&self) -> core::option::Option<&str>
+pub fn brokkr_runtime::realms::CrossingFailure::realm(&self) -> &str
+pub struct brokkr_runtime::realms::CrossingReport
+pub brokkr_runtime::realms::CrossingReport::consumed: usize
+pub brokkr_runtime::realms::CrossingReport::failures: alloc::vec::Vec<brokkr_runtime::realms::CrossingFailure>
+pub brokkr_runtime::realms::CrossingReport::published: usize
+pub brokkr_runtime::realms::CrossingReport::realm: alloc::string::String
+pub brokkr_runtime::realms::CrossingReport::unchecked: alloc::vec::Vec<brokkr_runtime::realms::UncheckedPin>
+pub struct brokkr_runtime::realms::Hearth
+pub brokkr_runtime::realms::Hearth::journal: std::path::PathBuf
+pub brokkr_runtime::realms::Hearth::realms: alloc::vec::Vec<alloc::string::String>
+impl brokkr_runtime::realms::Hearth
+pub fn brokkr_runtime::realms::Hearth::label(&self) -> alloc::string::String
+pub struct brokkr_runtime::realms::MovedCrossing
+pub brokkr_runtime::realms::MovedCrossing::crossing: alloc::string::String
+pub brokkr_runtime::realms::MovedCrossing::observed: alloc::string::String
+pub brokkr_runtime::realms::MovedCrossing::path: alloc::string::String
+pub brokkr_runtime::realms::MovedCrossing::pinned: alloc::string::String
+pub brokkr_runtime::realms::MovedCrossing::publisher: alloc::string::String
+pub brokkr_runtime::realms::MovedCrossing::realm: alloc::string::String
+pub struct brokkr_runtime::realms::ResolvedCrossing
+pub brokkr_runtime::realms::ResolvedCrossing::declared: alloc::string::String
+pub brokkr_runtime::realms::ResolvedCrossing::sha256: alloc::string::String
+pub brokkr_runtime::realms::ResolvedCrossing::source: alloc::string::String
+pub struct brokkr_runtime::realms::UncheckedPin
+pub brokkr_runtime::realms::UncheckedPin::crossing: alloc::string::String
+pub brokkr_runtime::realms::UncheckedPin::publisher: alloc::string::String
+impl core::fmt::Display for brokkr_runtime::realms::UncheckedPin
+pub fn brokkr_runtime::realms::UncheckedPin::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_runtime::realms::World
+pub brokkr_runtime::realms::World::content: serde_json::value::Value
+pub brokkr_runtime::realms::World::map: brokkr_core::realms::RealmMap
+pub brokkr_runtime::realms::World::sha256: alloc::string::String
+pub brokkr_runtime::realms::World::source: std::path::PathBuf
+impl brokkr_runtime::realms::World
+pub fn brokkr_runtime::realms::World::boundary_for(&self, &std::path::Path) -> brokkr_core::realms::Boundary
+pub fn brokkr_runtime::realms::World::crossing(&self, &str, &str) -> core::option::Option<&brokkr_runtime::realms::ResolvedCrossing>
+pub fn brokkr_runtime::realms::World::crossings_report(&self) -> &[brokkr_runtime::realms::CrossingReport]
+pub fn brokkr_runtime::realms::World::dialect_for(&self, &std::path::Path) -> core::result::Result<core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::dialect_for_realm(&self, &brokkr_core::realms::Realm) -> core::result::Result<core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::discover(&std::path::Path, core::option::Option<&std::path::Path>) -> core::result::Result<core::option::Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::from_manifest(&serde_json::value::Value) -> core::result::Result<core::option::Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::hearths(&self) -> alloc::vec::Vec<brokkr_runtime::realms::Hearth>
+pub fn brokkr_runtime::realms::World::house_for(&self, &std::path::Path) -> core::result::Result<core::option::Option<&str>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::house_for_realm(&self, &brokkr_core::realms::Realm) -> core::result::Result<core::option::Option<&str>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::inspect(&std::path::Path, core::option::Option<&std::path::Path>) -> core::result::Result<core::option::Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::journal(&self) -> std::path::PathBuf
+pub fn brokkr_runtime::realms::World::journal_of(&self, &brokkr_core::realms::Realm) -> std::path::PathBuf
+pub fn brokkr_runtime::realms::World::load(&std::path::Path) -> core::result::Result<brokkr_runtime::realms::World, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::path_of(&self, &brokkr_core::realms::Realm) -> std::path::PathBuf
+pub fn brokkr_runtime::realms::World::pin(&self, core::option::Option<&std::path::Path>) -> core::result::Result<serde_json::value::Value, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::pinned(&self, &serde_json::value::Value, core::option::Option<&std::path::Path>) -> core::result::Result<serde_json::value::Value, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::realm_for(&self, &std::path::Path) -> core::option::Option<&brokkr_core::realms::Realm>
+pub fn brokkr_runtime::realms::World::verify_crossings(&self, &std::path::Path) -> core::result::Result<(), brokkr_runtime::realms::WorldError>
+pub enum brokkr_runtime::Aggregate
+pub brokkr_runtime::Aggregate::ReviewPanel
+pub brokkr_runtime::Aggregate::UnanimousPass
+pub enum brokkr_runtime::AnchorError
+pub brokkr_runtime::AnchorError::Git
+pub brokkr_runtime::AnchorError::Git::detail: alloc::string::String
+pub brokkr_runtime::AnchorError::Git::verb: &'static str
+pub brokkr_runtime::AnchorError::Mismatch(alloc::string::String)
+pub brokkr_runtime::AnchorError::NoAnchor(alloc::string::String)
+pub brokkr_runtime::AnchorError::Store(brokkr_store::StoreError)
+pub enum brokkr_runtime::CompileError
+pub brokkr_runtime::CompileError::Invalid(alloc::string::String)
+pub brokkr_runtime::CompileError::Io(core::io::error::Error)
+pub brokkr_runtime::CompileError::Json(serde_json::error::Error)
+pub brokkr_runtime::CompileError::Policy(brokkr_core::policy::PolicyError)
+pub enum brokkr_runtime::EgressClass
+pub brokkr_runtime::EgressClass::Contracted
+pub brokkr_runtime::EgressClass::Local
+pub brokkr_runtime::EgressClass::Uncontracted
+impl brokkr_runtime::agents::EgressClass
+pub const brokkr_runtime::agents::EgressClass::VOCABULARY: &'static str
+pub fn brokkr_runtime::agents::EgressClass::name(&self) -> &'static str
+pub fn brokkr_runtime::agents::EgressClass::parse(&str) -> core::option::Option<brokkr_runtime::agents::EgressClass>
+pub enum brokkr_runtime::EngineError
+pub brokkr_runtime::EngineError::AlreadyConcluded
+pub brokkr_runtime::EngineError::AlreadyConcluded::run_id: alloc::string::String
+pub brokkr_runtime::EngineError::AlreadyConcluded::status: alloc::string::String
+pub brokkr_runtime::EngineError::BoundaryMismatch
+pub brokkr_runtime::EngineError::BoundaryMismatch::compiled: brokkr_core::realms::Boundary
+pub brokkr_runtime::EngineError::BoundaryMismatch::world: brokkr_core::realms::Boundary
+pub brokkr_runtime::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
+pub brokkr_runtime::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::EngineError::ManifestMismatch
+pub brokkr_runtime::EngineError::ManifestMismatch::detail: alloc::string::String
+pub brokkr_runtime::EngineError::ManifestMismatch::run_id: alloc::string::String
+pub brokkr_runtime::EngineError::Other(alloc::string::String)
+pub brokkr_runtime::EngineError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::EngineError::SupersedeRefused(alloc::string::String)
+pub brokkr_runtime::EngineError::UnbuiltBoundary
+pub brokkr_runtime::EngineError::UnbuiltBoundary::boundary: brokkr_core::realms::Boundary
+pub brokkr_runtime::EngineError::UnbuiltBoundary::seats: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::EngineError::UnbuiltBoundary::slice: &'static str
+pub brokkr_runtime::EngineError::World(brokkr_runtime::realms::WorldError)
+impl brokkr_runtime::engine::EngineError
+pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>
+pub enum brokkr_runtime::FencedCommandOutcome
+pub brokkr_runtime::FencedCommandOutcome::Accepted
+pub brokkr_runtime::FencedCommandOutcome::Accepted::head_hash: alloc::string::String
+pub brokkr_runtime::FencedCommandOutcome::Accepted::head_seq: u64
+pub brokkr_runtime::FencedCommandOutcome::Rejected
+pub brokkr_runtime::FencedCommandOutcome::Rejected::head_hash: alloc::string::String
+pub brokkr_runtime::FencedCommandOutcome::Rejected::head_seq: u64
+pub brokkr_runtime::FencedCommandOutcome::Rejected::reason: alloc::string::String
+pub enum brokkr_runtime::KeepRefsError
+pub brokkr_runtime::KeepRefsError::Git
+pub brokkr_runtime::KeepRefsError::Git::detail: alloc::string::String
+pub brokkr_runtime::KeepRefsError::Git::verb: &'static str
+pub brokkr_runtime::KeepRefsError::Store(brokkr_store::StoreError)
+pub brokkr_runtime::KeepRefsError::UnusableRunId(alloc::string::String)
+pub enum brokkr_runtime::LibraryError
+pub brokkr_runtime::LibraryError::Invalid(alloc::string::String)
+pub brokkr_runtime::LibraryError::Io(core::io::error::Error)
+pub enum brokkr_runtime::Presence
+pub brokkr_runtime::Presence::Available
+pub brokkr_runtime::Presence::Unavailable
+pub brokkr_runtime::Presence::Unknown
+pub enum brokkr_runtime::ResolveError
+pub brokkr_runtime::ResolveError::Capability
+pub brokkr_runtime::ResolveError::Capability::agent: alloc::string::String
+pub brokkr_runtime::ResolveError::Capability::capability: alloc::string::String
+pub brokkr_runtime::ResolveError::Capability::model: alloc::string::String
+pub brokkr_runtime::ResolveError::Capability::provider: alloc::string::String
+pub brokkr_runtime::ResolveError::NoneAvailable
+pub brokkr_runtime::ResolveError::NoneAvailable::agent: alloc::string::String
+pub brokkr_runtime::ResolveError::NoneAvailable::chain: alloc::string::String
+pub brokkr_runtime::ResolveError::UnknownAgent
+pub brokkr_runtime::ResolveError::UnknownAgent::known: alloc::string::String
+pub brokkr_runtime::ResolveError::UnknownAgent::name: alloc::string::String
+pub brokkr_runtime::ResolveError::UnmappedModel
+pub brokkr_runtime::ResolveError::UnmappedModel::agent: alloc::string::String
+pub brokkr_runtime::ResolveError::UnmappedModel::files: alloc::string::String
+pub brokkr_runtime::ResolveError::UnmappedModel::model: alloc::string::String
+pub enum brokkr_runtime::ResultDoor
+pub brokkr_runtime::ResultDoor::File
+pub brokkr_runtime::ResultDoor::LastMessage
+impl brokkr_runtime::agents::ResultDoor
+pub fn brokkr_runtime::agents::ResultDoor::word(self) -> &'static str
+pub enum brokkr_runtime::SeatBody
+pub brokkr_runtime::SeatBody::Panel
+pub brokkr_runtime::SeatBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::SeatBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
+pub brokkr_runtime::SeatBody::Select
+pub brokkr_runtime::SeatBody::Select::case_gates: alloc::collections::btree::map::BTreeMap<alloc::string::String, bool>
+pub brokkr_runtime::SeatBody::Select::cases: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SeatBody>
+pub brokkr_runtime::SeatBody::Select::default: core::option::Option<alloc::boxed::Box<brokkr_runtime::bundle::SeatBody>>
+pub brokkr_runtime::SeatBody::Select::default_gate: bool
+pub brokkr_runtime::SeatBody::Sequence
+pub brokkr_runtime::SeatBody::Sequence::steps: alloc::vec::Vec<brokkr_runtime::bundle::SequenceStep>
+pub brokkr_runtime::SeatBody::Single
+pub brokkr_runtime::SeatBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::SeatBody::Single::command: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::SeatBody::Single::role_path: std::path::PathBuf
+impl brokkr_runtime::bundle::SeatBody
+pub fn brokkr_runtime::bundle::SeatBody::selected<'a>(&'a self, core::option::Option<&str>) -> core::option::Option<(brokkr_runtime::bundle::ExecutableBody<'a>, core::option::Option<&'a str>)>
+pub fn brokkr_runtime::bundle::SeatBody::selected_is_gate(&self, core::option::Option<&str>, bool) -> bool
+pub enum brokkr_runtime::SeatClass
+pub brokkr_runtime::SeatClass::Gate
+pub brokkr_runtime::SeatClass::Work
+pub enum brokkr_runtime::StepBody
+pub brokkr_runtime::StepBody::Dialect
+pub brokkr_runtime::StepBody::Dialect::execution: brokkr_runtime::bundle::DialectExecution
+pub brokkr_runtime::StepBody::Panel
+pub brokkr_runtime::StepBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::StepBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
+pub brokkr_runtime::StepBody::Single
+pub brokkr_runtime::StepBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::StepBody::Single::command: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::StepBody::Single::role_path: std::path::PathBuf
+pub enum brokkr_runtime::TrustTier
+pub brokkr_runtime::TrustTier::Trusted
+pub brokkr_runtime::TrustTier::Untrusted
+impl brokkr_runtime::agents::TrustTier
+pub fn brokkr_runtime::agents::TrustTier::parse(&str) -> core::option::Option<brokkr_runtime::agents::TrustTier>
+pub enum brokkr_runtime::WorldError
+pub brokkr_runtime::WorldError::Crossing
+pub brokkr_runtime::WorldError::Crossing::crossing: alloc::string::String
+pub brokkr_runtime::WorldError::Crossing::detail: alloc::string::String
+pub brokkr_runtime::WorldError::Crossing::path: alloc::string::String
+pub brokkr_runtime::WorldError::Crossing::realm: alloc::string::String
+pub brokkr_runtime::WorldError::CrossingMoved(alloc::boxed::Box<brokkr_runtime::realms::MovedCrossing>)
+pub brokkr_runtime::WorldError::Map(brokkr_core::realms::RealmsError)
+pub brokkr_runtime::WorldError::Missing(alloc::string::String)
+pub brokkr_runtime::WorldError::RealmDialect
+pub brokkr_runtime::WorldError::RealmDialect::detail: alloc::string::String
+pub brokkr_runtime::WorldError::RealmDialect::realm: alloc::string::String
+pub brokkr_runtime::WorldError::RealmText
+pub brokkr_runtime::WorldError::RealmText::detail: alloc::string::String
+pub brokkr_runtime::WorldError::RealmText::kind: &'static str
+pub brokkr_runtime::WorldError::RealmText::path: alloc::string::String
+pub brokkr_runtime::WorldError::RealmText::realm: alloc::string::String
+pub brokkr_runtime::WorldError::Unpinned(alloc::string::String)
+pub brokkr_runtime::WorldError::Unreadable
+pub brokkr_runtime::WorldError::Unreadable::path: alloc::string::String
+pub brokkr_runtime::WorldError::Unreadable::source: core::io::error::Error
+pub struct brokkr_runtime::Adapters
+impl brokkr_runtime::Adapters
+pub fn brokkr_runtime::Adapters::adapter(&self, &str) -> core::option::Option<&brokkr_runtime::agents::Adapter>
+pub fn brokkr_runtime::Adapters::digest(&self, &str) -> core::option::Option<&str>
+pub fn brokkr_runtime::Adapters::files(&self) -> &[alloc::string::String]
+pub fn brokkr_runtime::Adapters::load(&std::path::Path) -> core::result::Result<brokkr_runtime::Adapters, brokkr_runtime::LibraryError>
+pub fn brokkr_runtime::Adapters::providers(&self) -> impl core::iter::traits::iterator::Iterator<Item = &brokkr_runtime::agents::Adapter>
+pub fn brokkr_runtime::Adapters::serving(&self, &str) -> core::option::Option<(&brokkr_runtime::agents::Adapter, &str)>
+pub struct brokkr_runtime::Ancestor
+pub brokkr_runtime::Ancestor::digest: alloc::string::String
+pub brokkr_runtime::Ancestor::dir: std::path::PathBuf
+pub brokkr_runtime::Ancestor::files: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub brokkr_runtime::Ancestor::name: alloc::string::String
+pub brokkr_runtime::Ancestor::reached_as: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::Availability(_)
+impl brokkr_runtime::agents::Availability
+pub fn brokkr_runtime::agents::Availability::presence(&self, &str) -> brokkr_runtime::agents::Presence
+pub fn brokkr_runtime::agents::Availability::record(&mut self, &str, brokkr_runtime::agents::Presence)
+pub fn brokkr_runtime::agents::Availability::unspecified() -> brokkr_runtime::agents::Availability
+pub struct brokkr_runtime::Bundle
+pub brokkr_runtime::Bundle::boundary: brokkr_core::realms::Boundary
+pub brokkr_runtime::Bundle::chain: alloc::vec::Vec<brokkr_runtime::bundle::compose::Ancestor>
+pub brokkr_runtime::Bundle::cost: alloc::string::String
+pub brokkr_runtime::Bundle::description: alloc::string::String
+pub brokkr_runtime::Bundle::dialect_prompts: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub brokkr_runtime::Bundle::dir: std::path::PathBuf
+pub brokkr_runtime::Bundle::hands: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_protocol::hands::HandsSpec>
+pub brokkr_runtime::Bundle::inline_resume: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
+pub brokkr_runtime::Bundle::machine: brokkr_core::policy::Machine
+pub brokkr_runtime::Bundle::manifest: serde_json::value::Value
+pub brokkr_runtime::Bundle::name: alloc::string::String
+pub brokkr_runtime::Bundle::protected_phase: alloc::string::String
+pub brokkr_runtime::Bundle::roots: alloc::vec::Vec<std::path::PathBuf>
+pub brokkr_runtime::Bundle::seats: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::Seat>
+pub brokkr_runtime::Bundle::sites: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SiteFacts>
+impl brokkr_runtime::bundle::Bundle
+pub fn brokkr_runtime::bundle::Bundle::compile(&std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_under(&std::path::Path, &std::path::Path, &std::path::Path, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_with(&std::path::Path, &std::path::Path, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::compile_with_realm(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
+pub fn brokkr_runtime::bundle::Bundle::manifest_digest(&self) -> alloc::string::String
+pub struct brokkr_runtime::Candidate
+pub brokkr_runtime::Candidate::agent: alloc::string::String
+pub brokkr_runtime::Candidate::argv: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::Candidate::effort: core::option::Option<alloc::string::String>
+pub brokkr_runtime::Candidate::hands_fragment: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::Candidate::hands_notice: core::option::Option<brokkr_protocol::adapters::HandsNotice>
+pub brokkr_runtime::Candidate::harness: brokkr_runtime::agents::HarnessHands
+pub brokkr_runtime::Candidate::model: alloc::string::String
+pub brokkr_runtime::Candidate::provider: alloc::string::String
+pub brokkr_runtime::Candidate::resume: brokkr_runtime::agents::ResumeAssessment
+pub struct brokkr_runtime::DriveEnd
+pub brokkr_runtime::DriveEnd::state: brokkr_core::fold::RunState
+pub struct brokkr_runtime::Engine
+pub brokkr_runtime::Engine::boundary: brokkr_core::realms::Boundary
+pub brokkr_runtime::Engine::bundle: brokkr_runtime::bundle::Bundle
+pub brokkr_runtime::Engine::feature: alloc::string::String
+pub brokkr_runtime::Engine::repo: std::path::PathBuf
+pub brokkr_runtime::Engine::run_id: alloc::string::String
+pub brokkr_runtime::Engine::secrets_file: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::Engine::store: brokkr_store::Store
+pub brokkr_runtime::Engine::world: core::option::Option<brokkr_runtime::realms::World>
+impl brokkr_runtime::engine::Engine
+pub fn brokkr_runtime::engine::Engine::drive(&mut self) -> core::result::Result<brokkr_runtime::engine::DriveEnd, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::resume(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start_in_world(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start_with_dispatch(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, brokkr_core::dispatch::DispatchEnvelopeV2) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub struct brokkr_runtime::HarnessHands
+pub brokkr_runtime::HarnessHands::gate: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::HarnessHands::gate_gap: core::option::Option<alloc::string::String>
+pub brokkr_runtime::HarnessHands::result: brokkr_runtime::agents::ResultDoor
+pub brokkr_runtime::HarnessHands::work: core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub brokkr_runtime::HarnessHands::work_gap: core::option::Option<alloc::string::String>
+pub struct brokkr_runtime::Library
+impl brokkr_runtime::Library
+pub fn brokkr_runtime::Library::agent(&self, &str) -> core::option::Option<&brokkr_runtime::agents::Agent>
+pub fn brokkr_runtime::Library::agents(&self) -> impl core::iter::traits::iterator::Iterator<Item = &brokkr_runtime::agents::Agent>
+pub fn brokkr_runtime::Library::load(&std::path::Path) -> core::result::Result<brokkr_runtime::Library, brokkr_runtime::LibraryError>
+pub fn brokkr_runtime::Library::names(&self) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_runtime::Library::scan(&std::path::Path) -> core::result::Result<(brokkr_runtime::Library, alloc::vec::Vec<alloc::string::String>), brokkr_runtime::LibraryError>
+pub struct brokkr_runtime::PanelMember
+pub brokkr_runtime::PanelMember::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::PanelMember::command: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::PanelMember::name: alloc::string::String
+pub brokkr_runtime::PanelMember::role_path: std::path::PathBuf
+pub struct brokkr_runtime::Planted
+pub brokkr_runtime::Planted::absent: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::Planted::kept: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::Planted::run_id: alloc::string::String
+pub struct brokkr_runtime::Seat
+pub brokkr_runtime::Seat::body: brokkr_runtime::bundle::SeatBody
+pub brokkr_runtime::Seat::has_gate: bool
+pub brokkr_runtime::Seat::inputs: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::Seat::limits: brokkr_runtime::bundle::Limits
+pub brokkr_runtime::Seat::results: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::Seat::secrets: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_runtime::SequenceStep
+pub brokkr_runtime::SequenceStep::body: brokkr_runtime::bundle::StepBody
+pub brokkr_runtime::SequenceStep::class: brokkr_runtime::bundle::SeatClass
+pub brokkr_runtime::SequenceStep::name: alloc::string::String
+pub brokkr_runtime::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_runtime::Supersede<'a>
+pub brokkr_runtime::Supersede::by_realm: core::option::Option<&'a str>
+pub brokkr_runtime::Supersede::by_run: &'a str
+pub brokkr_runtime::Supersede::by_seq: u64
+pub brokkr_runtime::Supersede::findings: &'a [u64]
+pub brokkr_runtime::Supersede::operator: &'a str
+pub brokkr_runtime::Supersede::reason: &'a str
+pub struct brokkr_runtime::World
+pub brokkr_runtime::World::content: serde_json::value::Value
+pub brokkr_runtime::World::map: brokkr_core::realms::RealmMap
+pub brokkr_runtime::World::sha256: alloc::string::String
+pub brokkr_runtime::World::source: std::path::PathBuf
+impl brokkr_runtime::realms::World
+pub fn brokkr_runtime::realms::World::boundary_for(&self, &std::path::Path) -> brokkr_core::realms::Boundary
+pub fn brokkr_runtime::realms::World::crossing(&self, &str, &str) -> core::option::Option<&brokkr_runtime::realms::ResolvedCrossing>
+pub fn brokkr_runtime::realms::World::crossings_report(&self) -> &[brokkr_runtime::realms::CrossingReport]
+pub fn brokkr_runtime::realms::World::dialect_for(&self, &std::path::Path) -> core::result::Result<core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::dialect_for_realm(&self, &brokkr_core::realms::Realm) -> core::result::Result<core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::discover(&std::path::Path, core::option::Option<&std::path::Path>) -> core::result::Result<core::option::Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::from_manifest(&serde_json::value::Value) -> core::result::Result<core::option::Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::hearths(&self) -> alloc::vec::Vec<brokkr_runtime::realms::Hearth>
+pub fn brokkr_runtime::realms::World::house_for(&self, &std::path::Path) -> core::result::Result<core::option::Option<&str>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::house_for_realm(&self, &brokkr_core::realms::Realm) -> core::result::Result<core::option::Option<&str>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::inspect(&std::path::Path, core::option::Option<&std::path::Path>) -> core::result::Result<core::option::Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::journal(&self) -> std::path::PathBuf
+pub fn brokkr_runtime::realms::World::journal_of(&self, &brokkr_core::realms::Realm) -> std::path::PathBuf
+pub fn brokkr_runtime::realms::World::load(&std::path::Path) -> core::result::Result<brokkr_runtime::realms::World, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::path_of(&self, &brokkr_core::realms::Realm) -> std::path::PathBuf
+pub fn brokkr_runtime::realms::World::pin(&self, core::option::Option<&std::path::Path>) -> core::result::Result<serde_json::value::Value, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::pinned(&self, &serde_json::value::Value, core::option::Option<&std::path::Path>) -> core::result::Result<serde_json::value::Value, brokkr_runtime::realms::WorldError>
+pub fn brokkr_runtime::realms::World::realm_for(&self, &std::path::Path) -> core::option::Option<&brokkr_core::realms::Realm>
+pub fn brokkr_runtime::realms::World::verify_crossings(&self, &std::path::Path) -> core::result::Result<(), brokkr_runtime::realms::WorldError>
+pub const brokkr_runtime::ENGINE_VERSION: &str
+pub const brokkr_runtime::LOST_FENCE: &str
+pub fn brokkr_runtime::anchor(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<alloc::string::String, brokkr_runtime::anchor::AnchorError>
+pub fn brokkr_runtime::apply_fenced_operator_command(&mut brokkr_store::Store, &str, &str, &str, &str, &str, u64, &str) -> core::result::Result<brokkr_runtime::engine::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::conclude(&mut brokkr_store::Store, &str, &str, &str) -> core::result::Result<brokkr_core::fold::RunState, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::delete_keep_refs(&std::path::Path, &str) -> core::result::Result<u64, brokkr_runtime::keep_refs::KeepRefsError>
+pub fn brokkr_runtime::git_head(&std::path::Path) -> core::option::Option<alloc::string::String>
+pub fn brokkr_runtime::layer_drift(&brokkr_runtime::bundle::Bundle, &std::path::Path) -> core::option::Option<(alloc::string::String, alloc::string::String)>
+pub fn brokkr_runtime::list_keep_refs(&std::path::Path) -> core::result::Result<alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<alloc::string::String>>, brokkr_runtime::keep_refs::KeepRefsError>
+pub fn brokkr_runtime::operator_command(&mut brokkr_store::Store, &str, &str, &str, &str) -> core::result::Result<brokkr_runtime::engine::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::engine::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::plant_keep_refs(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<brokkr_runtime::keep_refs::Planted, brokkr_runtime::keep_refs::KeepRefsError>
+pub fn brokkr_runtime::plant_or_report(&brokkr_store::Store, &std::path::Path, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_runtime::report_agent(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Report, brokkr_runtime::agents::ResolveError>
+pub fn brokkr_runtime::resolve_agent(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Resolution, brokkr_runtime::agents::ResolveError>
+pub fn brokkr_runtime::resolve_route<'a>(&brokkr_runtime::agents::Adapter, &'a str) -> (core::option::Option<&'a str>, brokkr_runtime::agents::EgressClass)
+pub fn brokkr_runtime::verify_anchor(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<serde_json::value::Value, brokkr_runtime::anchor::AnchorError>

@@ -60,12 +60,14 @@
         'nfpm',
         '@mermaid-js/mermaid-cli',
         'ghcr.io/renovatebot/renovate',
+        'jscpd',
+        'cargo-public-api',
       ],
       groupName: 'CI tools',
     },
     {
       description: "A tool pinned by version and digest: after the bump, the script re-downloads the release and rewrites its sha256, and fails closed. Its own group, so the post-upgrade task belongs to every upgrade in the branch rather than depending on which one Renovate reads the branch's config from.",
-      matchDepNames: ['bubblewrap', 'cargo-audit', 'actionlint', 'lychee'],
+      matchDepNames: ['bubblewrap', 'cargo-audit', 'actionlint', 'lychee', 'jscpd'],
       groupName: 'CI tools pinned by digest',
       postUpgradeTasks: {
         commands: ['bash scripts/refresh-pin-checksums.sh'],
@@ -80,6 +82,24 @@
     },
   ],
   customManagers: [
+    {
+      customType: 'regex',
+      description: "jscpd, from kucherenko/jscpd's own release. A bump also needs quality/measure.sh rerun, since the duplication baselines were measured with it (issue #338).",
+      managerFilePatterns: ['/^\\.github/actions/setup-jscpd/action\\.yml$/'],
+      matchStrings: ['JSCPD_VERSION: (?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'jscpd',
+      datasourceTemplate: 'github-releases',
+      packageNameTemplate: 'kucherenko/jscpd',
+      extractVersionTemplate: '^v(?<version>.+)$',
+    },
+    {
+      customType: 'regex',
+      description: 'cargo-public-api, which the coverage job builds with cargo install (issue #338). A bump also needs quality/public-api/ regenerated.',
+      managerFilePatterns: ['/^\\.github/workflows/[^/]+\\.ya?ml$/'],
+      matchStrings: ['cargo install --locked cargo-public-api --version (?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'cargo-public-api',
+      datasourceTemplate: 'crate',
+    },
     {
       customType: 'regex',
       description: "rust-toolchain.toml's stable channel",

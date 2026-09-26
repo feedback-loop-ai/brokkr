@@ -1,0 +1,347 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_view
+pub mod brokkr_view::js
+pub fn brokkr_view::js::len(&str) -> usize
+pub fn brokkr_view::js::parse_millis(&str) -> core::option::Option<i64>
+pub fn brokkr_view::js::round_half_up(f64) -> i64
+pub fn brokkr_view::js::slice(&str, usize, usize) -> alloc::string::String
+pub fn brokkr_view::js::to_display(core::option::Option<&serde_json::value::Value>) -> alloc::string::String
+pub fn brokkr_view::js::to_fixed_4(f64) -> alloc::string::String
+pub mod brokkr_view::transcript
+pub enum brokkr_view::transcript::BlockKind
+pub brokkr_view::transcript::BlockKind::Omitted
+pub brokkr_view::transcript::BlockKind::Reasoning
+pub brokkr_view::transcript::BlockKind::Text
+pub brokkr_view::transcript::BlockKind::Tool
+pub brokkr_view::transcript::BlockKind::ToolResult
+impl brokkr_view::transcript::BlockKind
+pub fn brokkr_view::transcript::BlockKind::as_str(self) -> &'static str
+pub enum brokkr_view::transcript::LegacyProvenance
+pub brokkr_view::transcript::LegacyProvenance::Absent
+pub brokkr_view::transcript::LegacyProvenance::Claude
+pub brokkr_view::transcript::LegacyProvenance::LaneTally
+pub brokkr_view::transcript::LegacyProvenance::Other
+pub enum brokkr_view::transcript::TranscriptKind
+pub brokkr_view::transcript::TranscriptKind::ClaudeSession
+pub brokkr_view::transcript::TranscriptKind::CodexThread
+pub brokkr_view::transcript::TranscriptKind::DshSession
+pub brokkr_view::transcript::TranscriptKind::None
+impl brokkr_view::transcript::TranscriptKind
+pub fn brokkr_view::transcript::TranscriptKind::as_str(self) -> &'static str
+pub fn brokkr_view::transcript::TranscriptKind::parse(&str) -> core::option::Option<brokkr_view::transcript::TranscriptKind>
+pub enum brokkr_view::transcript::Unavailable
+pub brokkr_view::transcript::Unavailable::AmbiguousSource
+pub brokkr_view::transcript::Unavailable::DiscoveryLimit
+pub brokkr_view::transcript::Unavailable::InvalidReference
+pub brokkr_view::transcript::Unavailable::MissingHome
+pub brokkr_view::transcript::Unavailable::NoReference
+pub brokkr_view::transcript::Unavailable::None
+pub brokkr_view::transcript::Unavailable::NotFound
+pub brokkr_view::transcript::Unavailable::TurnNotRetained
+pub brokkr_view::transcript::Unavailable::Unannounced
+pub brokkr_view::transcript::Unavailable::Unreadable
+pub brokkr_view::transcript::Unavailable::UnsafePath
+pub brokkr_view::transcript::Unavailable::UnsupportedFormat
+pub brokkr_view::transcript::Unavailable::UnsupportedKind
+impl brokkr_view::transcript::Unavailable
+pub fn brokkr_view::transcript::Unavailable::as_str(self) -> &'static str
+pub struct brokkr_view::transcript::Admitted<'a>
+pub brokkr_view::transcript::Admitted::overflow: bool
+pub brokkr_view::transcript::Admitted::text: &'a str
+pub struct brokkr_view::transcript::Block
+pub brokkr_view::transcript::Block::kind: brokkr_view::transcript::BlockKind
+pub brokkr_view::transcript::Block::text: alloc::string::String
+impl brokkr_view::transcript::Block
+pub fn brokkr_view::transcript::Block::omitted(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
+pub fn brokkr_view::transcript::Block::reasoning(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
+pub fn brokkr_view::transcript::Block::text(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
+pub fn brokkr_view::transcript::Block::tool(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
+pub fn brokkr_view::transcript::Block::tool_result(impl core::convert::Into<alloc::string::String>) -> brokkr_view::transcript::Block
+pub struct brokkr_view::transcript::Projection
+pub brokkr_view::transcript::Projection::skipped_lines: u64
+pub brokkr_view::transcript::Projection::truncated: bool
+pub brokkr_view::transcript::Projection::turns: alloc::vec::Vec<brokkr_view::transcript::Turn>
+pub brokkr_view::transcript::Projection::unavailable: core::option::Option<brokkr_view::transcript::Unavailable>
+pub brokkr_view::transcript::Projection::unrecognized_records: u64
+pub struct brokkr_view::transcript::Row
+pub brokkr_view::transcript::Row::final_fragment: bool
+pub brokkr_view::transcript::Row::newline_terminated: bool
+pub brokkr_view::transcript::Row::text: alloc::string::String
+pub struct brokkr_view::transcript::Selection
+pub brokkr_view::transcript::Selection::legacy: bool
+pub brokkr_view::transcript::Selection::outcome: core::result::Result<brokkr_view::transcript::ValidReference, brokkr_view::transcript::Unavailable>
+pub brokkr_view::transcript::Selection::reference: core::option::Option<brokkr_view::Transcript>
+impl brokkr_view::transcript::Selection
+pub fn brokkr_view::transcript::Selection::kind(&self) -> core::option::Option<brokkr_view::transcript::TranscriptKind>
+pub struct brokkr_view::transcript::Snapshot<'a>
+pub brokkr_view::transcript::Snapshot::bytes: &'a [u8]
+pub brokkr_view::transcript::Snapshot::eof: bool
+pub brokkr_view::transcript::Snapshot::overflow: bool
+pub struct brokkr_view::transcript::SourceIdentity
+pub brokkr_view::transcript::SourceIdentity::device: i128
+pub brokkr_view::transcript::SourceIdentity::inode: i128
+pub struct brokkr_view::transcript::TranscriptRead
+pub brokkr_view::transcript::TranscriptRead::explanation: core::option::Option<alloc::string::String>
+pub brokkr_view::transcript::TranscriptRead::full_session: core::option::Option<alloc::string::String>
+pub brokkr_view::transcript::TranscriptRead::kind: core::option::Option<brokkr_view::transcript::TranscriptKind>
+pub brokkr_view::transcript::TranscriptRead::legacy: bool
+pub brokkr_view::transcript::TranscriptRead::notices: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::transcript::TranscriptRead::path: core::option::Option<alloc::string::String>
+pub brokkr_view::transcript::TranscriptRead::reference: core::option::Option<brokkr_view::Transcript>
+pub brokkr_view::transcript::TranscriptRead::skipped_lines: u64
+pub brokkr_view::transcript::TranscriptRead::source_identity: core::option::Option<brokkr_view::transcript::SourceIdentity>
+pub brokkr_view::transcript::TranscriptRead::truncated: bool
+pub brokkr_view::transcript::TranscriptRead::turns: alloc::vec::Vec<brokkr_view::transcript::Turn>
+pub brokkr_view::transcript::TranscriptRead::unavailable: core::option::Option<brokkr_view::transcript::Unavailable>
+pub brokkr_view::transcript::TranscriptRead::unrecognized_records: u64
+impl brokkr_view::transcript::TranscriptRead
+pub fn brokkr_view::transcript::TranscriptRead::from_selection(&brokkr_view::transcript::Selection) -> brokkr_view::transcript::TranscriptRead
+pub fn brokkr_view::transcript::TranscriptRead::is_readable(&self) -> bool
+pub fn brokkr_view::transcript::TranscriptRead::readable(core::option::Option<brokkr_view::Transcript>, bool, brokkr_view::transcript::TranscriptKind, core::option::Option<alloc::string::String>, alloc::vec::Vec<brokkr_view::transcript::Turn>, bool, u64, u64) -> brokkr_view::transcript::TranscriptRead
+pub fn brokkr_view::transcript::TranscriptRead::refused(core::option::Option<brokkr_view::Transcript>, bool, brokkr_view::transcript::Unavailable, impl core::convert::Into<alloc::string::String>, core::option::Option<alloc::string::String>, bool, u64, u64, core::option::Option<alloc::string::String>) -> brokkr_view::transcript::TranscriptRead
+pub struct brokkr_view::transcript::Turn
+pub brokkr_view::transcript::Turn::blocks: alloc::vec::Vec<brokkr_view::transcript::Block>
+pub brokkr_view::transcript::Turn::role: alloc::string::String
+pub brokkr_view::transcript::Turn::ts: alloc::string::String
+pub struct brokkr_view::transcript::ValidReference
+pub brokkr_view::transcript::ValidReference::home: alloc::string::String
+pub brokkr_view::transcript::ValidReference::kind: brokkr_view::transcript::TranscriptKind
+pub brokkr_view::transcript::ValidReference::locator: alloc::string::String
+pub const brokkr_view::transcript::DISCOVERY_LIMIT: usize
+pub const brokkr_view::transcript::DISPLAY_CAP: usize
+pub const brokkr_view::transcript::DISPLAY_EVENT_COST: usize
+pub const brokkr_view::transcript::DSH_HEADER_CAP: usize
+pub const brokkr_view::transcript::SOURCE_CAP: u64
+pub const brokkr_view::transcript::TRANSCRIPT_SCHEMA: &str
+pub fn brokkr_view::transcript::admit<'a>(&brokkr_view::transcript::Snapshot<'a>) -> core::result::Result<brokkr_view::transcript::Admitted<'a>, brokkr_view::transcript::Unavailable>
+pub fn brokkr_view::transcript::explanation_for(brokkr_view::transcript::Unavailable) -> alloc::string::String
+pub fn brokkr_view::transcript::full_session(&brokkr_view::transcript::ValidReference, core::option::Option<&str>) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::transcript::notices(bool, u64, u64) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_view::transcript::portable_display_literal(&str) -> alloc::string::String
+pub fn brokkr_view::transcript::project(brokkr_view::transcript::TranscriptKind, &brokkr_view::transcript::Snapshot<'_>) -> brokkr_view::transcript::Projection
+pub fn brokkr_view::transcript::rows(&brokkr_view::transcript::Admitted<'_>) -> alloc::vec::Vec<brokkr_view::transcript::Row>
+pub fn brokkr_view::transcript::select_reference(core::option::Option<&brokkr_view::Transcript>, brokkr_view::transcript::LegacyProvenance, core::option::Option<&str>, core::option::Option<&str>) -> brokkr_view::transcript::Selection
+pub fn brokkr_view::transcript::valid_claude_id(&str) -> bool
+pub fn brokkr_view::transcript::valid_codex_id(&str) -> bool
+pub fn brokkr_view::transcript::valid_dsh_locator(&str) -> bool
+pub fn brokkr_view::transcript::validate_common(&brokkr_view::Transcript) -> core::result::Result<brokkr_view::transcript::ValidReference, brokkr_view::transcript::Unavailable>
+pub struct brokkr_view::Activity
+pub brokkr_view::Activity::absent: bool
+pub brokkr_view::Activity::note: core::option::Option<alloc::string::String>
+pub brokkr_view::Activity::target_full: core::option::Option<alloc::string::String>
+pub brokkr_view::Activity::target_short: core::option::Option<alloc::string::String>
+pub brokkr_view::Activity::text: alloc::string::String
+pub brokkr_view::Activity::tool: core::option::Option<alloc::string::String>
+pub struct brokkr_view::Cell
+pub brokkr_view::Cell::absent: bool
+pub brokkr_view::Cell::note: core::option::Option<alloc::string::String>
+pub brokkr_view::Cell::text: alloc::string::String
+pub struct brokkr_view::CheckpointRow
+pub brokkr_view::CheckpointRow::effort: brokkr_view::Cell
+pub brokkr_view::CheckpointRow::recorded_at: alloc::string::String
+pub brokkr_view::CheckpointRow::served: brokkr_view::ModelAtBoundary
+pub brokkr_view::CheckpointRow::step: alloc::string::String
+pub brokkr_view::CheckpointRow::target: brokkr_view::Cell
+pub brokkr_view::CheckpointRow::target_full: core::option::Option<alloc::string::String>
+pub brokkr_view::CheckpointRow::turn: brokkr_view::Cell
+pub brokkr_view::CheckpointRow::usage: brokkr_view::Cell
+pub struct brokkr_view::Column
+pub brokkr_view::Column::label: core::option::Option<alloc::string::String>
+pub brokkr_view::Column::nodes: alloc::vec::Vec<brokkr_view::Node>
+pub struct brokkr_view::FleetView
+pub brokkr_view::FleetView::count: usize
+pub brokkr_view::FleetView::realms: alloc::vec::Vec<brokkr_view::RealmRuns>
+pub brokkr_view::FleetView::view_version: u32
+pub struct brokkr_view::HearthEntries<'a>
+pub brokkr_view::HearthEntries::detail: core::option::Option<&'a str>
+pub brokkr_view::HearthEntries::entries: &'a [brokkr_view::RunEntry<'a>]
+pub brokkr_view::HearthEntries::journal: &'a str
+pub brokkr_view::HearthEntries::realm: &'a str
+pub struct brokkr_view::JournalRow
+pub brokkr_view::JournalRow::causation_seq: core::option::Option<u64>
+pub brokkr_view::JournalRow::event_type: alloc::string::String
+pub brokkr_view::JournalRow::in_trail: bool
+pub brokkr_view::JournalRow::label: brokkr_view::Cell
+pub brokkr_view::JournalRow::payload_json: alloc::string::String
+pub brokkr_view::JournalRow::phases: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::JournalRow::recorded_at: alloc::string::String
+pub brokkr_view::JournalRow::seq: u64
+pub brokkr_view::JournalRow::served: brokkr_view::ModelAtBoundary
+pub brokkr_view::JournalRow::what: brokkr_view::What
+pub struct brokkr_view::LiveLine
+pub brokkr_view::LiveLine::label: alloc::string::String
+pub brokkr_view::LiveLine::text: alloc::string::String
+pub struct brokkr_view::ModelAtBoundary
+pub brokkr_view::ModelAtBoundary::boundary: brokkr_view::Cell
+pub brokkr_view::ModelAtBoundary::model: brokkr_view::Cell
+pub struct brokkr_view::Node
+pub brokkr_view::Node::key: alloc::string::String
+pub brokkr_view::Node::label: alloc::string::String
+pub brokkr_view::Node::served: brokkr_view::ModelAtBoundary
+pub brokkr_view::Node::state: alloc::string::String
+pub brokkr_view::Node::state_class: alloc::string::String
+pub struct brokkr_view::Participant
+pub brokkr_view::Participant::activity: brokkr_view::Activity
+pub brokkr_view::Participant::attempts: u64
+pub brokkr_view::Participant::checkpoints: alloc::vec::Vec<brokkr_view::CheckpointRow>
+pub brokkr_view::Participant::cost: core::option::Option<f64>
+pub brokkr_view::Participant::cost_aggregated: bool
+pub brokkr_view::Participant::cost_cell: brokkr_view::Cell
+pub brokkr_view::Participant::effort: brokkr_view::Cell
+pub brokkr_view::Participant::effort_pin: brokkr_view::Cell
+pub brokkr_view::Participant::key: alloc::string::String
+pub brokkr_view::Participant::label: alloc::string::String
+pub brokkr_view::Participant::last_attempt_cost: core::option::Option<f64>
+pub brokkr_view::Participant::member: core::option::Option<alloc::string::String>
+pub brokkr_view::Participant::member_count: usize
+pub brokkr_view::Participant::phase: core::option::Option<alloc::string::String>
+pub brokkr_view::Participant::provenance: core::option::Option<brokkr_view::Provenance>
+pub brokkr_view::Participant::served: brokkr_view::ModelAtBoundary
+pub brokkr_view::Participant::session_id: core::option::Option<alloc::string::String>
+pub brokkr_view::Participant::status: alloc::string::String
+pub brokkr_view::Participant::status_class: alloc::string::String
+pub brokkr_view::Participant::terminal_line: brokkr_view::Cell
+pub brokkr_view::Participant::transcript: core::option::Option<brokkr_view::Transcript>
+pub brokkr_view::Participant::transcript_cell: brokkr_view::Cell
+pub brokkr_view::Participant::turns: core::option::Option<u64>
+pub brokkr_view::Participant::turns_aggregated: bool
+pub brokkr_view::Participant::turns_cell: brokkr_view::Cell
+pub brokkr_view::Participant::usage: core::option::Option<brokkr_view::TokenUsage>
+pub brokkr_view::Participant::usage_aggregated: bool
+pub brokkr_view::Participant::usage_cell: brokkr_view::Cell
+pub struct brokkr_view::Phase
+pub brokkr_view::Phase::columns: alloc::vec::Vec<brokkr_view::Column>
+pub brokkr_view::Phase::current: bool
+pub brokkr_view::Phase::name: alloc::string::String
+pub brokkr_view::Phase::plain: bool
+pub brokkr_view::Phase::returns: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::Phase::strategy: core::option::Option<alloc::string::String>
+pub brokkr_view::Phase::visits: u64
+pub struct brokkr_view::Provenance
+pub brokkr_view::Provenance::agent: alloc::string::String
+pub brokkr_view::Provenance::chain_index: u64
+pub brokkr_view::Provenance::effort: core::option::Option<alloc::string::String>
+pub brokkr_view::Provenance::fallback: bool
+pub brokkr_view::Provenance::line: alloc::string::String
+pub brokkr_view::Provenance::model: alloc::string::String
+pub brokkr_view::Provenance::provider: alloc::string::String
+pub struct brokkr_view::RealmRuns
+pub brokkr_view::RealmRuns::count: usize
+pub brokkr_view::RealmRuns::detail: core::option::Option<alloc::string::String>
+pub brokkr_view::RealmRuns::journal: alloc::string::String
+pub brokkr_view::RealmRuns::realm: alloc::string::String
+pub brokkr_view::RealmRuns::runs: alloc::vec::Vec<brokkr_view::RunRow>
+pub struct brokkr_view::ResidualFinding
+pub brokkr_view::ResidualFinding::input: alloc::string::String
+pub brokkr_view::ResidualFinding::line: alloc::string::String
+pub brokkr_view::ResidualFinding::phase: alloc::string::String
+pub brokkr_view::ResidualFinding::rule_id: alloc::string::String
+pub brokkr_view::ResidualFinding::run_id: alloc::string::String
+pub brokkr_view::ResidualFinding::seq: u64
+pub brokkr_view::ResidualFinding::superseded: core::option::Option<brokkr_view::Superseded>
+pub brokkr_view::ResidualFinding::value: alloc::string::String
+pub struct brokkr_view::Ruling
+pub brokkr_view::Ruling::from: alloc::string::String
+pub brokkr_view::Ruling::inputs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub brokkr_view::Ruling::next: alloc::string::String
+pub brokkr_view::Ruling::problem: core::option::Option<alloc::string::String>
+pub brokkr_view::Ruling::result: core::option::Option<alloc::string::String>
+pub brokkr_view::Ruling::rule_id: alloc::string::String
+pub brokkr_view::Ruling::severity_class: alloc::string::String
+pub brokkr_view::Ruling::superseded: core::option::Option<brokkr_view::Superseded>
+pub struct brokkr_view::RunBoundary
+pub brokkr_view::RunBoundary::text: alloc::string::String
+pub brokkr_view::RunBoundary::unboxed: bool
+pub brokkr_view::RunBoundary::word: brokkr_view::Cell
+pub struct brokkr_view::RunEntry<'a>
+pub brokkr_view::RunEntry::created_at: &'a str
+pub brokkr_view::RunEntry::detail: core::option::Option<&'a str>
+pub brokkr_view::RunEntry::feature: &'a str
+pub brokkr_view::RunEntry::residuals: &'a [brokkr_view::ResidualFinding]
+pub brokkr_view::RunEntry::run_id: &'a str
+pub brokkr_view::RunEntry::state: core::option::Option<&'a brokkr_core::fold::RunState>
+pub struct brokkr_view::RunNotice
+pub brokkr_view::RunNotice::kind: alloc::string::String
+pub brokkr_view::RunNotice::text: alloc::string::String
+pub struct brokkr_view::RunRow
+pub brokkr_view::RunRow::created_at: alloc::string::String
+pub brokkr_view::RunRow::detail: core::option::Option<alloc::string::String>
+pub brokkr_view::RunRow::feature: alloc::string::String
+pub brokkr_view::RunRow::phase: core::option::Option<alloc::string::String>
+pub brokkr_view::RunRow::residuals: alloc::vec::Vec<brokkr_view::ResidualFinding>
+pub brokkr_view::RunRow::run_id: alloc::string::String
+pub brokkr_view::RunRow::seq: core::option::Option<u64>
+pub brokkr_view::RunRow::status: core::option::Option<alloc::string::String>
+pub brokkr_view::RunRow::status_known: bool
+pub struct brokkr_view::RunView
+pub brokkr_view::RunView::boundary: brokkr_view::RunBoundary
+pub brokkr_view::RunView::event_count: usize
+pub brokkr_view::RunView::journal: alloc::vec::Vec<brokkr_view::JournalRow>
+pub brokkr_view::RunView::live: alloc::vec::Vec<brokkr_view::LiveLine>
+pub brokkr_view::RunView::notices: alloc::vec::Vec<brokkr_view::RunNotice>
+pub brokkr_view::RunView::participants: alloc::vec::Vec<brokkr_view::Participant>
+pub brokkr_view::RunView::phases: alloc::vec::Vec<brokkr_view::Phase>
+pub brokkr_view::RunView::ruling: core::option::Option<brokkr_view::Ruling>
+pub brokkr_view::RunView::summary: core::option::Option<brokkr_view::Summary>
+pub brokkr_view::RunView::view_version: u32
+pub struct brokkr_view::RunsView
+pub brokkr_view::RunsView::count: usize
+pub brokkr_view::RunsView::runs: alloc::vec::Vec<brokkr_view::RunRow>
+pub brokkr_view::RunsView::view_version: u32
+pub struct brokkr_view::Summary
+pub brokkr_view::Summary::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_view::Summary::cursor: alloc::string::String
+pub brokkr_view::Summary::feature: core::option::Option<alloc::string::String>
+pub brokkr_view::Summary::last_decision: core::option::Option<serde_json::value::Value>
+pub brokkr_view::Summary::park_reason: core::option::Option<alloc::string::String>
+pub brokkr_view::Summary::phase: core::option::Option<alloc::string::String>
+pub brokkr_view::Summary::run_id: alloc::string::String
+pub brokkr_view::Summary::seq: u64
+pub brokkr_view::Summary::status: alloc::string::String
+pub brokkr_view::Summary::strategy: core::option::Option<alloc::string::String>
+pub struct brokkr_view::Superseded
+pub brokkr_view::Superseded::by: brokkr_view::SupersededBy
+pub brokkr_view::Superseded::operator: alloc::string::String
+pub brokkr_view::Superseded::reason: alloc::string::String
+pub brokkr_view::Superseded::recorded_at: alloc::string::String
+pub brokkr_view::Superseded::seq: u64
+pub struct brokkr_view::SupersededBy
+pub brokkr_view::SupersededBy::realm: core::option::Option<alloc::string::String>
+pub brokkr_view::SupersededBy::run_id: alloc::string::String
+pub brokkr_view::SupersededBy::seq: u64
+pub struct brokkr_view::TokenUsage
+pub brokkr_view::TokenUsage::cache_read_tokens: core::option::Option<u64>
+pub brokkr_view::TokenUsage::cache_write_tokens: core::option::Option<u64>
+pub brokkr_view::TokenUsage::input_tokens: core::option::Option<u64>
+pub brokkr_view::TokenUsage::output_tokens: core::option::Option<u64>
+pub brokkr_view::TokenUsage::reasoning_output_tokens: core::option::Option<u64>
+pub brokkr_view::TokenUsage::total_tokens: core::option::Option<u64>
+pub struct brokkr_view::Transcript
+pub brokkr_view::Transcript::home: alloc::string::String
+pub brokkr_view::Transcript::kind: alloc::string::String
+pub brokkr_view::Transcript::locator: alloc::string::String
+pub struct brokkr_view::What
+pub brokkr_view::What::arrow: core::option::Option<alloc::string::String>
+pub brokkr_view::What::badge: core::option::Option<alloc::string::String>
+pub brokkr_view::What::badge_class: core::option::Option<alloc::string::String>
+pub brokkr_view::What::problem: core::option::Option<alloc::string::String>
+pub brokkr_view::What::text: alloc::string::String
+pub const brokkr_view::ABSENT: &str
+pub const brokkr_view::NO_BOUNDARY: &str
+pub const brokkr_view::OPERATOR_COMMANDS: [&str; 2]
+pub const brokkr_view::RESIDUAL_PHASES: [&str; 2]
+pub const brokkr_view::SUPERSEDE: &str
+pub const brokkr_view::VIEW_VERSION: u32
+pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
+pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
+pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
+pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::operator_commands(&str) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
+pub fn brokkr_view::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
+pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
+pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
+pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
+pub fn brokkr_view::short_target(&str) -> alloc::string::String
+pub fn brokkr_view::status_str(&brokkr_core::fold::Status) -> &'static str

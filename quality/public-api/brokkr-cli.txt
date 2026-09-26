@@ -1,0 +1,15 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_cli
+pub enum brokkr_cli::HandsCommand
+pub brokkr_cli::HandsCommand::Exec
+pub brokkr_cli::HandsCommand::Exec::bundle_root: core::option::Option<std::path::PathBuf>
+pub brokkr_cli::HandsCommand::Exec::command: alloc::vec::Vec<alloc::string::String>
+pub brokkr_cli::HandsCommand::Exec::spec: alloc::string::String
+pub brokkr_cli::HandsCommand::Exec::workdir: std::path::PathBuf
+pub brokkr_cli::HandsCommand::Serve
+pub brokkr_cli::HandsCommand::Serve::spec: alloc::string::String
+pub brokkr_cli::HandsCommand::Serve::workdir: std::path::PathBuf
+pub const brokkr_cli::CONTENDED_EXIT: u8
+pub const brokkr_cli::DEFAULT_DB: &str
+pub const brokkr_cli::DEFAULT_SECRETS: &str
+pub fn brokkr_cli::main() -> std::process::ExitCode

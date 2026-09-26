@@ -77,5 +77,10 @@
     "ee5b4702aed7082d": 1,
     "ee6f2bd933079763": 1,
     "fe02d248857496fb": 1
+  },
+  "producedBy": {
+    "tool": "jscpd 5.3.2",
+    "command": "quality/measure.sh",
+    "host": "linux"
   }
 }

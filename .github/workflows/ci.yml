@@ -316,6 +316,18 @@ jobs:
           # this job must run the boundary proofs for real too
           # (decision 0054 ruling 9).
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+      # Issue #338: the complexity ratchet reads the LCOV the gate just
+      # wrote, and the public-API ratchet runs on the same pinned nightly.
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-crap@0.5.0
+          fallback: none
+      - name: complexity ratchet (quality/crap-baseline.json)
+        run: quality/ratchet.sh crap
+      - name: cargo-public-api 0.52.0, pinned
+        run: cargo install --locked cargo-public-api --version 0.52.0
+      - name: public-API ratchet (quality/public-api/)
+        run: quality/ratchet.sh api
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -400,6 +412,49 @@ jobs:
           }
           validate --no-global .github/renovate.json5
           validate .github/renovate-global.json5
+
+  # The committed baselines under quality/ may only shrink (issue #338):
+  # file size, duplication, unused dependencies, and a raised baseline that
+  # names its ruling. Complexity and the public API ride the coverage job,
+  # which has the LCOV and the pinned nightly. NOT a required check until the
+  # operator adds "baseline ratchets" to branch protection.
+  ratchets:
+    name: baseline ratchets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      # The pull request's merge commit, and its first parent: the base a
+      # raised baseline is judged against.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: ./.github/actions/setup-jscpd
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-shear@1.14.0
+          fallback: none
+      - name: file-size ratchet (quality/file-lines.txt)
+        run: quality/ratchet.sh files
+      - name: duplication ratchet (quality/jscpd-baseline-*.json)
+        run: quality/ratchet.sh clones
+      - name: no unused dependency (cargo-shear)
+        run: cargo shear --deny-warnings --locked
+      - name: a raised baseline names its ruling (quality/)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          git rev-parse --verify --quiet 'HEAD^2' > /dev/null || {
+            echo "ratchet refusal: the checkout is not the pull request's merge commit" >&2
+            exit 1
+          }
+          quality/ratchet.sh baselines 'HEAD^1'
 
   dependency-audit:
     name: RustSec dependency audit

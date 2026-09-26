@@ -13,6 +13,9 @@ extend-exclude = [
   # insta snapshots of the TUI: rendered cells, cut at the frame's width
   # ("? hel" is "? help" at 80 columns), never prose.
   "crates/brokkr-cli/src/tui/snapshots/",
+  # cargo-public-api's snapshots: generated signatures (`serde_core::ser`),
+  # never prose (issue #338).
+  "quality/public-api/",
 ]
 
 [default]
