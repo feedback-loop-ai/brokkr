@@ -2,7 +2,8 @@
 //! ruled on #289: a pull request that adds a miss to brokkr-core fails.
 //! Each case runs the real script against a stub `cargo` that plays
 //! cargo-mutants, and a planted allow-list, so the verdict is pinned
-//! without a mutation run.
+//! without a mutation run. The last case holds the workflow's required job
+//! to that gate.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -311,4 +312,53 @@ fn an_empty_committed_list_still_fails_a_fresh_miss() {
 fn a_base_git_cannot_resolve_fails_the_gate() {
     let output = Gate::new().run(&["gate", "no-such-base-ref", "brokkr-core"], &[]);
     assert!(!output.status.success(), "{}", text(&output.stdout));
+}
+
+/// The body of mutants.yml's job `id`: its lines indented under the id.
+fn job(workflow: &str, id: &str) -> String {
+    let (_, rest) = workflow
+        .split_once(&format!("\n  {id}:\n"))
+        .unwrap_or_else(|| panic!("mutants.yml has no {id} job"));
+    rest.lines()
+        .take_while(|line| line.is_empty() || line.starts_with("    "))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+/// The check branch protection names runs the gate, whole and unsoftened,
+/// under the name the guide gives it; the protocol job only reports. The
+/// #420 landing found that turning the run line to `in-diff` left every
+/// test green while the required check stopped failing anything.
+#[test]
+fn the_required_job_runs_the_gate_and_protocol_only_reports() {
+    let workflow = std::fs::read_to_string(workspace().join(".github/workflows/mutants.yml"))
+        .expect("mutants.yml");
+    let core = job(&workflow, "core-gate");
+    for line in [
+        "    name: 'mutants in the diff: brokkr-core'\n",
+        "          BASE: ${{ github.event.pull_request.base.sha }}\n",
+        "        run: bash scripts/mutants.sh gate \"$BASE\" brokkr-core\n",
+    ] {
+        assert!(core.contains(line), "core-gate lacks {line:?}:\n{core}");
+    }
+    assert!(!core.contains("continue-on-error"), "{core}");
+    assert_eq!(workflow.matches("scripts/mutants.sh gate ").count(), 1);
+    let protocol = job(&workflow, "in-diff");
+    for line in [
+        "    name: 'mutants in the diff: brokkr-protocol (report only)'\n",
+        "        run: bash scripts/mutants.sh in-diff \"$BASE\" brokkr-protocol\n",
+    ] {
+        assert!(
+            protocol.contains(line),
+            "in-diff lacks {line:?}:\n{protocol}"
+        );
+    }
+    let guide = std::fs::read_to_string(workspace().join("docs/guides/contributing-by-hand.md"))
+        .expect("the contributing guide");
+    for named in [
+        "`mutants in the diff: brokkr-core`",
+        "`bash scripts/mutants.sh gate origin/main brokkr-core`",
+    ] {
+        assert!(guide.contains(named), "the guide does not name {named}");
+    }
 }
