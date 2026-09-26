@@ -1265,6 +1265,7 @@ fn renovate_moves_every_digest_pinned_tool_and_its_script_finds_each_release() {
             ".github/actions/setup-actionlint/action.yml",
             BUBBLEWRAP_ACTION,
             CARGO_AUDIT_ACTION,
+            ".github/actions/setup-jscpd/action.yml",
             ".github/actions/setup-lychee/action.yml",
         ]
     );
@@ -1371,6 +1372,13 @@ fn the_lint_tools_are_installed_from_releases_verified_by_digest() {
             vec![(".github/workflows/ci.yml", 1)],
         ),
         (
+            ".github/actions/setup-jscpd/action.yml",
+            "JSCPD_SHA256",
+            "kucherenko/jscpd/releases/download",
+            r#"tar xzf "$tarball""#,
+            vec![(".github/workflows/ci.yml", 1)],
+        ),
+        (
             ".github/actions/setup-lychee/action.yml",
             "LYCHEE_SHA256",
             "lycheeverse/lychee/releases/download",
@@ -1451,6 +1459,7 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "coverage",
             "license-compliance",
             "lint-non-rust",
+            "ratchets",
             "dependency-audit",
             "bootstrap-budgets",
             "bootstrap-budgets-macos",

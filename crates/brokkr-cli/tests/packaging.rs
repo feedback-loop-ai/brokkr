@@ -22,19 +22,9 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 
 /// This file lives at `crates/brokkr-cli/tests/`.
-fn workspace() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/")
-        .parent()
-        .expect("workspace root")
-        .to_path_buf()
-}
-
-fn read(relative: &str) -> String {
-    let path = workspace().join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
+#[path = "support/workspace.rs"]
+mod workspace_root;
+use workspace_root::{read, workspace};
 
 fn tools_are_required() -> bool {
     std::env::var("BROKKR_PACKAGING_TOOLS").as_deref() == Ok("required")

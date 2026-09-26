@@ -1,0 +1,101 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_bridge
+pub enum brokkr_bridge::BridgeError
+pub brokkr_bridge::BridgeError::AudienceMismatch
+pub brokkr_bridge::BridgeError::AuthorityInactive(alloc::string::String)
+pub brokkr_bridge::BridgeError::Dispatch(brokkr_core::dispatch::DispatchError)
+pub brokkr_bridge::BridgeError::EffectNotAllowed
+pub brokkr_bridge::BridgeError::EventTooLarge
+pub brokkr_bridge::BridgeError::RegistrationMismatch
+pub brokkr_bridge::BridgeError::Runtime(brokkr_runtime::engine::EngineError)
+pub brokkr_bridge::BridgeError::Store(brokkr_store::StoreError)
+pub brokkr_bridge::BridgeError::Transport(alloc::string::String)
+pub brokkr_bridge::BridgeError::UnboundRun
+pub struct brokkr_bridge::Bridge<T>
+impl<T: brokkr_bridge::ProducerTransport> brokkr_bridge::Bridge<T>
+pub fn brokkr_bridge::Bridge<T>::into_transport(self) -> T
+pub fn brokkr_bridge::Bridge<T>::new(T) -> Self
+pub fn brokkr_bridge::Bridge<T>::sync_once(&mut self, &mut brokkr_store::Store, &str, time::offset_date_time::OffsetDateTime, u64) -> core::result::Result<brokkr_bridge::SyncReport, brokkr_bridge::BridgeError>
+pub struct brokkr_bridge::CanonicalCost
+pub brokkr_bridge::CanonicalCost::amount_microunits: core::option::Option<u64>
+pub brokkr_bridge::CanonicalCost::authority: alloc::string::String
+pub brokkr_bridge::CanonicalCost::coverage: alloc::string::String
+pub brokkr_bridge::CanonicalCost::currency: core::option::Option<alloc::string::String>
+pub brokkr_bridge::CanonicalCost::lane_tally_run_id: alloc::string::String
+pub brokkr_bridge::CanonicalCost::observed_usage: serde_json::value::Value
+pub brokkr_bridge::CanonicalCost::payer: alloc::string::String
+pub brokkr_bridge::CanonicalCost::reconciliation: alloc::string::String
+pub brokkr_bridge::CanonicalCost::state: alloc::string::String
+pub struct brokkr_bridge::CommandReceipt
+pub brokkr_bridge::CommandReceipt::command_id: alloc::string::String
+pub brokkr_bridge::CommandReceipt::event_hash: alloc::string::String
+pub brokkr_bridge::CommandReceipt::forge_sequence: u64
+pub brokkr_bridge::CommandReceipt::outcome: alloc::string::String
+pub brokkr_bridge::CommandReceipt::reason: core::option::Option<alloc::string::String>
+pub struct brokkr_bridge::HttpTransport
+impl brokkr_bridge::HttpTransport
+pub fn brokkr_bridge::HttpTransport::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+impl brokkr_bridge::ProducerTransport for brokkr_bridge::HttpTransport
+pub fn brokkr_bridge::HttpTransport::acknowledge_command(&mut self, &str, &brokkr_bridge::CommandReceipt) -> core::result::Result<(), brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::HttpTransport::commands(&mut self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_bridge::ProducerCommand>, brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::HttpTransport::origin(&self) -> &str
+pub fn brokkr_bridge::HttpTransport::register(&mut self, &brokkr_core::dispatch::DispatchEnvelopeV2, &serde_json::value::Value) -> core::result::Result<brokkr_bridge::RegistrationState, brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::HttpTransport::submit(&mut self, &brokkr_bridge::ProducerEvent) -> core::result::Result<bool, brokkr_bridge::BridgeError>
+pub struct brokkr_bridge::ProducerCommand
+pub brokkr_bridge::ProducerCommand::actor: alloc::string::String
+pub brokkr_bridge::ProducerCommand::command: alloc::string::String
+pub brokkr_bridge::ProducerCommand::cursor: u64
+pub brokkr_bridge::ProducerCommand::expected_event_hash: alloc::string::String
+pub brokkr_bridge::ProducerCommand::expected_forge_sequence: u64
+pub brokkr_bridge::ProducerCommand::id: alloc::string::String
+pub brokkr_bridge::ProducerCommand::reason: alloc::string::String
+pub struct brokkr_bridge::ProducerEvent
+pub brokkr_bridge::ProducerEvent::attempt_id: core::option::Option<alloc::string::String>
+pub brokkr_bridge::ProducerEvent::attestation: alloc::string::String
+pub brokkr_bridge::ProducerEvent::causation_id: core::option::Option<alloc::string::String>
+pub brokkr_bridge::ProducerEvent::correlation_id: alloc::string::String
+pub brokkr_bridge::ProducerEvent::cost: brokkr_bridge::CanonicalCost
+pub brokkr_bridge::ProducerEvent::event_hash: alloc::string::String
+pub brokkr_bridge::ProducerEvent::event_id: alloc::string::String
+pub brokkr_bridge::ProducerEvent::forge_event_schema: u32
+pub brokkr_bridge::ProducerEvent::forge_run_id: alloc::string::String
+pub brokkr_bridge::ProducerEvent::forge_sequence: u64
+pub brokkr_bridge::ProducerEvent::looper_delivery_run_id: alloc::string::String
+pub brokkr_bridge::ProducerEvent::payload: serde_json::value::Value
+pub brokkr_bridge::ProducerEvent::payload_digest: alloc::string::String
+pub brokkr_bridge::ProducerEvent::payload_version: u32
+pub brokkr_bridge::ProducerEvent::previous_hash: alloc::string::String
+pub brokkr_bridge::ProducerEvent::producer_release: alloc::string::String
+pub brokkr_bridge::ProducerEvent::recorded_at: alloc::string::String
+pub brokkr_bridge::ProducerEvent::registration_id: alloc::string::String
+pub brokkr_bridge::ProducerEvent::request_grant_id: alloc::string::String
+pub brokkr_bridge::ProducerEvent::runtime_id: alloc::string::String
+pub brokkr_bridge::ProducerEvent::schema: alloc::string::String
+pub brokkr_bridge::ProducerEvent::semantic_type: alloc::string::String
+pub brokkr_bridge::ProducerEvent::terminal_identity: core::option::Option<alloc::string::String>
+pub struct brokkr_bridge::RegistrationState
+pub brokkr_bridge::RegistrationState::last_event_hash: alloc::string::String
+pub brokkr_bridge::RegistrationState::last_forge_sequence: u64
+pub brokkr_bridge::RegistrationState::registration_id: alloc::string::String
+pub brokkr_bridge::RegistrationState::status: alloc::string::String
+pub struct brokkr_bridge::SyncReport
+pub brokkr_bridge::SyncReport::commands: usize
+pub brokkr_bridge::SyncReport::last_command_cursor: u64
+pub brokkr_bridge::SyncReport::last_forge_sequence: u64
+pub brokkr_bridge::SyncReport::registered: bool
+pub brokkr_bridge::SyncReport::replayed: usize
+pub brokkr_bridge::SyncReport::submitted: usize
+pub const brokkr_bridge::PRODUCER_EVENT_SCHEMA: &str
+pub trait brokkr_bridge::ProducerTransport
+pub fn brokkr_bridge::ProducerTransport::acknowledge_command(&mut self, &str, &brokkr_bridge::CommandReceipt) -> core::result::Result<(), brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::ProducerTransport::commands(&mut self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_bridge::ProducerCommand>, brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::ProducerTransport::origin(&self) -> &str
+pub fn brokkr_bridge::ProducerTransport::register(&mut self, &brokkr_core::dispatch::DispatchEnvelopeV2, &serde_json::value::Value) -> core::result::Result<brokkr_bridge::RegistrationState, brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::ProducerTransport::submit(&mut self, &brokkr_bridge::ProducerEvent) -> core::result::Result<bool, brokkr_bridge::BridgeError>
+impl brokkr_bridge::ProducerTransport for brokkr_bridge::HttpTransport
+pub fn brokkr_bridge::HttpTransport::acknowledge_command(&mut self, &str, &brokkr_bridge::CommandReceipt) -> core::result::Result<(), brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::HttpTransport::commands(&mut self, &str, u64) -> core::result::Result<alloc::vec::Vec<brokkr_bridge::ProducerCommand>, brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::HttpTransport::origin(&self) -> &str
+pub fn brokkr_bridge::HttpTransport::register(&mut self, &brokkr_core::dispatch::DispatchEnvelopeV2, &serde_json::value::Value) -> core::result::Result<brokkr_bridge::RegistrationState, brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::HttpTransport::submit(&mut self, &brokkr_bridge::ProducerEvent) -> core::result::Result<bool, brokkr_bridge::BridgeError>
+pub fn brokkr_bridge::normalize_event(&brokkr_core::dispatch::DispatchEnvelopeV2, &brokkr_core::envelope::EventEnvelope) -> core::result::Result<brokkr_bridge::ProducerEvent, brokkr_bridge::BridgeError>

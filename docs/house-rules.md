@@ -47,8 +47,10 @@ the authority, and a finding it would catch is the gate's.
   out by string key. Never put `format!("{:?}")` in anything digested or
   journaled. A doubly-optional field or a string vocabulary is a missing enum.
 - **Small functions (ruling 4).** New and changed functions stay within 100
-  lines, nesting depth 5 and 7 parameters. A new function stays within
-  cyclomatic complexity 15, and an existing one never grows more complex.
+  lines, nesting depth 5 and 7 parameters. Cyclomatic complexity follows
+  the operator's 2026-09-26 ruling: a function may reach the higher of 15
+  and its baseline, so a new function stays within 15, an existing one may
+  change freely up to 15, and one already over 15 may only shrink.
   Production files stay within 800 lines and test files within 2,000, and a
   file already over may not grow. Add no new `jscpd` clone in production
   code, test code or data. `quality/` holds the measured baseline. Today's

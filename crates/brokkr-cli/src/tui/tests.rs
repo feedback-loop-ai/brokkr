@@ -1124,14 +1124,14 @@ fn every_startup_refusal_names_both_of_the_other_readouts() {
 
 // ------------------------------------------- AC-12: the terminal lifecycle
 
-/// `set_hook`/`take_hook` and the recorders below are process-global, so
-/// every test that touches them takes this first.
+/// `set_hook`/`take_hook` and the recorders below are process-global, so every
+/// test that touches them takes this first; hook counters are per panicking thread.
 static TERMINAL: Mutex<()> = Mutex::new(());
 static SCRIPT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 static ENTERED: AtomicUsize = AtomicUsize::new(0);
 static LEFT: AtomicUsize = AtomicUsize::new(0);
-static RESTORED: AtomicUsize = AtomicUsize::new(0);
-static CHAINED: AtomicUsize = AtomicUsize::new(0);
+thread_local!(static RESTORED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
+thread_local!(static CHAINED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
 
 fn script(keys: &[Key]) {
     let mut script = SCRIPT.lock().unwrap();
@@ -1182,7 +1182,7 @@ fn fixed_size() -> std::io::Result<(u16, u16)> {
 }
 
 fn record_restore() {
-    RESTORED.fetch_add(1, Ordering::SeqCst);
+    RESTORED.set(RESTORED.get() + 1);
 }
 
 fn test_ops() -> TerminalOps {
@@ -1328,21 +1328,21 @@ fn the_panic_hook_restores_first_chains_second_and_is_put_back_after() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
     let saved = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {
-        CHAINED.fetch_add(1, Ordering::SeqCst);
+        CHAINED.set(CHAINED.get() + 1);
     }));
 
-    let restored = RESTORED.load(Ordering::SeqCst);
-    let chained = CHAINED.load(Ordering::SeqCst);
+    let restored = RESTORED.get();
+    let chained = CHAINED.get();
     install_panic_hook(record_restore);
     let panicked = std::panic::catch_unwind(|| panic!("a deliberate panic"));
     assert!(panicked.is_err());
     assert_eq!(
-        RESTORED.load(Ordering::SeqCst),
+        RESTORED.get(),
         restored + 1,
         "the terminal is restored first"
     );
     assert_eq!(
-        CHAINED.load(Ordering::SeqCst),
+        CHAINED.get(),
         chained + 1,
         "and the previous hook still ran"
     );
@@ -1351,7 +1351,7 @@ fn the_panic_hook_restores_first_chains_second_and_is_put_back_after() {
     install_panic_hook(record_restore);
     let panicked = std::panic::catch_unwind(|| panic!("again"));
     assert!(panicked.is_err());
-    assert_eq!(RESTORED.load(Ordering::SeqCst), restored + 3);
+    assert_eq!(RESTORED.get(), restored + 3);
 
     let _ = std::panic::take_hook();
     std::panic::set_hook(saved);

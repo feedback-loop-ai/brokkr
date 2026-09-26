@@ -1,0 +1,82 @@
+# produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
+pub mod brokkr_store
+pub enum brokkr_store::ImportError
+pub brokkr_store::ImportError::Collision(alloc::string::String)
+pub brokkr_store::ImportError::Redacted(alloc::string::String)
+pub brokkr_store::ImportError::Store(brokkr_store::StoreError)
+pub brokkr_store::ImportError::UnadoptableRunId(alloc::string::String)
+pub brokkr_store::ImportError::Unattested
+pub brokkr_store::ImportError::Unattested::field: &'static str
+pub brokkr_store::ImportError::Verify(brokkr_store::VerifyError)
+pub enum brokkr_store::SeatRecordVersion
+pub brokkr_store::SeatRecordVersion::V1
+pub brokkr_store::SeatRecordVersion::V2
+pub brokkr_store::SeatRecordVersion::V3
+pub brokkr_store::SeatRecordVersion::V4
+pub brokkr_store::SeatRecordVersion::V5
+impl brokkr_store::SeatRecordVersion
+pub fn brokkr_store::SeatRecordVersion::contract(self) -> &'static str
+pub fn brokkr_store::SeatRecordVersion::of_engine(&str) -> brokkr_store::SeatRecordVersion
+pub enum brokkr_store::StoreError
+pub brokkr_store::StoreError::AppendConflict
+pub brokkr_store::StoreError::AppendConflict::seq: u64
+pub brokkr_store::StoreError::Chain(brokkr_core::envelope::ChainError)
+pub brokkr_store::StoreError::Contended
+pub brokkr_store::StoreError::Contended::operation: &'static str
+pub brokkr_store::StoreError::Contended::waited_ms: u128
+pub brokkr_store::StoreError::HeadMoved
+pub brokkr_store::StoreError::HeadMoved::expected_seq: u64
+pub brokkr_store::StoreError::HeadMoved::found_seq: u64
+pub brokkr_store::StoreError::Json(serde_json::error::Error)
+pub brokkr_store::StoreError::RunExists(alloc::string::String)
+pub brokkr_store::StoreError::RunNotFound(alloc::string::String)
+pub brokkr_store::StoreError::SchemaMismatch
+pub brokkr_store::StoreError::SchemaMismatch::found: u32
+pub brokkr_store::StoreError::SeatRecord(brokkr_store::SeatRecordError)
+pub brokkr_store::StoreError::Sqlite(rusqlite::error::Error)
+impl brokkr_store::StoreError
+pub fn brokkr_store::StoreError::is_contention(&self) -> bool
+pub enum brokkr_store::VerifyError
+pub brokkr_store::VerifyError::Chain(brokkr_core::envelope::ChainError)
+pub brokkr_store::VerifyError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_store::VerifyError::Parse(serde_json::error::Error)
+pub brokkr_store::VerifyError::SeatRecord(brokkr_store::SeatRecordError)
+pub struct brokkr_store::Adoption
+pub brokkr_store::Adoption::arrival: brokkr_store::Arrival
+pub brokkr_store::Adoption::events: usize
+pub brokkr_store::Adoption::head_hash: alloc::string::String
+pub brokkr_store::Adoption::run_id: alloc::string::String
+pub struct brokkr_store::Arrival
+pub brokkr_store::Arrival::imported_at: alloc::string::String
+pub brokkr_store::Arrival::imported_from: alloc::string::String
+pub struct brokkr_store::Redactor
+impl brokkr_store::Redactor
+pub fn brokkr_store::Redactor::document(&mut self, &serde_json::value::Value) -> serde_json::value::Value
+pub fn brokkr_store::Redactor::journal(&mut self, &str) -> core::result::Result<alloc::string::String, serde_json::error::Error>
+pub fn brokkr_store::Redactor::learn(&[&str]) -> brokkr_store::Redactor
+pub struct brokkr_store::SeatRecordError
+pub brokkr_store::SeatRecordError::contract: &'static str
+pub brokkr_store::SeatRecordError::path: alloc::string::String
+pub brokkr_store::SeatRecordError::seq: u64
+pub struct brokkr_store::Store
+impl brokkr_store::Store
+pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+pub fn brokkr_store::Store::arrival(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Arrival>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::create_run(&mut self, &str, &str, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::export_ndjson(&self, &str) -> core::result::Result<alloc::string::String, brokkr_store::StoreError>
+pub fn brokkr_store::Store::head_hash(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>
+pub fn brokkr_store::Store::import_run(&mut self, &str, &serde_json::value::Value, &std::path::Path) -> core::result::Result<brokkr_store::Adoption, brokkr_store::ImportError>
+pub fn brokkr_store::Store::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::load(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::StoreError>
+pub fn brokkr_store::Store::open(&std::path::Path) -> core::result::Result<brokkr_store::Store, brokkr_store::StoreError>
+pub fn brokkr_store::Store::open_read_only(&std::path::Path) -> core::result::Result<brokkr_store::Store, brokkr_store::StoreError>
+pub fn brokkr_store::Store::path(&self) -> &std::path::Path
+pub fn brokkr_store::Store::set_patience(&mut self, core::time::Duration) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::started_here(&self, &str) -> core::result::Result<bool, brokkr_store::StoreError>
+pub const brokkr_store::DATABASE_SCHEMA: u32
+pub fn brokkr_store::redact_export(&str) -> core::result::Result<alloc::string::String, serde_json::error::Error>
+pub fn brokkr_store::validate_seat_record(&serde_json::value::Value, u64, brokkr_store::SeatRecordVersion) -> core::result::Result<(), brokkr_store::SeatRecordError>
+pub fn brokkr_store::verified_events(&str) -> core::result::Result<(alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_core::fold::RunState), brokkr_store::VerifyError>
+pub fn brokkr_store::verify_export(&str) -> core::result::Result<brokkr_core::fold::RunState, brokkr_store::VerifyError>
