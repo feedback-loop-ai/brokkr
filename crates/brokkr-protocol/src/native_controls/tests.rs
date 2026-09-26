@@ -3271,6 +3271,44 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
         &format!("native capability 'c{}…'", "a".repeat(64)),
     );
     assert_eq!(full.chars().count(), 478);
+    // The exclusion's clause — the dropped holding's note the seat and the
+    // manifest carry — renders its tool through the same function.
+    for (held_tool, named) in [
+        (
+            format!("Bash(/private/{SENTINEL}:*)"),
+            "tool 'Bash'".to_string(),
+        ),
+        (payload.clone(), format!("tool '{tool}'")),
+    ] {
+        let plan = json!({
+            "inventory": "known", "provider": "claude", "harness": "claude",
+            "on": ["web-fetch"], "off": ["web-search"],
+            "admits": {"web-fetch": [held_tool]}, "argv": [],
+            "selection": {"include": [], "allow": [], "deny": [], "flags": {
+                "include": {"flag": "--tools", "separator": ","},
+                "allow": {"flag": "--allowedTools", "separator": ","},
+                "deny": {"flag": "--disallowedTools", "separator": ","}
+            }},
+            "guards": []
+        });
+        let controls = managed(&json!({"native_controls": plan})).unwrap().unwrap();
+        let Err(Failure::Excluded(exclusion)) =
+            compose_or_exclude("claude", &argv(&["--tools", "Read"]), &[], &controls)
+        else {
+            panic!("an excluded holding: {plan}");
+        };
+        assert_eq!(
+            exclusion.clause,
+            format!(
+                "the adapter template's explicit '--tools' restriction for provider 'claude' \
+                 (naming Read) does not name its {named}"
+            )
+        );
+        assert_eq!(
+            exclusion.refusal.cause,
+            excluded(&named, "native capability 'web-fetch'")
+        );
+    }
 }
 
 /// Rebuild unit 11 (design D6: "Invalid Codex managed arguments have no

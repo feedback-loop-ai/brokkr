@@ -11374,11 +11374,14 @@ Production is `crates/brokkr-protocol/src/native_controls.rs` only.
   `carried_tool` are deleted, since their work is now `refused`'s. Every
   existing sentence is unchanged word for word. So is every existing
   expectation: no test outside the two new ones moved.
-- `Exclusion.clause` is not a refusal (it is the dropped-holding note the
-  manifest and the seat's prompt carry), and it keeps its old rendering.
-  See the follow-ups.
+- `Exclusion.clause`, the dropped-holding note that the manifest and the
+  seat's prompt carry, is `Conflict::Excluded` rendered too. It now goes
+  through `refused` as well: the engine's words, then `Piece::Tool`. See
+  "Second visit" below.
 
-Assumption, flagged for review: D6's 512 covers the option/cause portion.
+Assumption, flagged for review: D6's 512 covers the option/cause portion
+(spec `realm-capability-grants`: "The option/cause portion SHALL be at
+most 512 Unicode scalar values").
 Here the bound is the complete driver refusal (a fixed 34-scalar prefix
 plus the cause, at most 512) and the compile refusal's cause portion (at
 most 478). The compiler's own site label (`bundle: seat '…' (office '…') in
@@ -11493,9 +11496,43 @@ move, so unit 11's handoff stays closed.
 **Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
 the box), macOS, remote CI and the full engine council.
 
-- Follow-ups, not changed here:
-  - `Exclusion.clause` still spells the excluded tool unbounded, as `its
-    tool '<tool>'`. It is the dropped-holding note, not a refusal. Its tool
-    is adapter data, which is plain by load in compiled bundles.
-  - The compiler's site label is outside the bounded cause portion (see
-    the assumption above).
+- Follow-up, not changed here: the compiler's site label is outside the
+  bounded cause portion (see the assumption above).
+
+### Second visit — the exclusion clause through the same renderer
+
+The same run's first visit committed `2632093f` but wrote no result. This
+second visit, based on `2632093f`, audited that commit against the
+framing. It found one rendering of `Conflict::Excluded` still outside
+`refused`: `Exclusion.clause` spelled the held tool raw as `its tool
+'<tool>'`. The first visit had left that as a follow-up, and the chief
+rejects follow-ups as a reason to defer these diagnostics.
+
+- Production (`native_controls.rs`, `conflicting`): the clause is
+  `refused([Words("<restriction> does not name its "), Tool(tool)]).cause`.
+  For a plain tool the text is unchanged, so the existing clause
+  expectations (`native_controls/tests.rs:2309`,
+  `capability_launch.rs:6522`) did not move.
+- Test: `every_composition_conflict_is_refused_in_bounded_identities`
+  gains two `compose_or_exclude` rows. A holding `web-fetch` admits
+  `Bash(/private/REVIEW_SENTINEL:*)` (and then the longest pattern), under
+  a template `--tools Read`. Each row asserts the exact clause, `... (naming
+  Read) does not name its tool 'Bash'` (then `tool 'Taaa…'`, 128
+  scalars), and the exact refusal cause.
+- Baseline red on `2632093f` (test added first, production untouched):
+  FAILED at `tests.rs:3297`, left `... does not name its tool
+  'Bash(/private/REVIEW_SENTINEL:*)'`, right `... its tool 'Bash'`.
+- M7, the clause spells `tool '{tool}'` as words: it compiled, and the
+  test failed at `tests.rs:3297` with the same left. Restored, and 44/44
+  `native_controls` tests passed.
+- Gates on the result: `cargo fmt --all -- --check` clean, `git diff
+  --check` clean, clippy (`--workspace --all-targets --all-features
+  --locked -D warnings`) finished with no warning. `cargo test -p
+  brokkr-protocol -p brokkr-runtime --all-features --locked` gave 28 `ok`
+  summaries and no FAILED or panic: protocol lib 496, runtime lib 565,
+  `capability_launch` 50. `openspec validate --all --strict` gave 18
+  passed, 0 failed. `bundles/self` compiles. Standing-admission lines:
+  none.
+- Not re-run on this visit: the workspace-wide test and the lib-only
+  llvm-cov diagnostic. The new clause lines are executed by the test that
+  M7 turned red. External exact coverage stays **pending**.

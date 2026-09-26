@@ -1904,6 +1904,10 @@ pattern) and SC-2 (`Excluded` had no total bound). Both are **repaired**
   Their rows are SC-1's sentinel and longest pattern, SC-2's 200/128
   pair, and the carried sibling.
 - Red on `fd1dd905`. Six mutations were caught and restored.
+- Second visit, based on `2632093f`: `Exclusion.clause` (the
+  dropped-holding note) now renders its tool through `refused` too. It was
+  red on `2632093f` with the sentinel path spelled, and mutation M7 was
+  caught and restored.
 - Standing-admission lines: none. 12.1 and 12.2 stay ticked. 15.2 is
   advanced and stays open.
 - Assumption: the 512 bound covers the complete driver refusal and the

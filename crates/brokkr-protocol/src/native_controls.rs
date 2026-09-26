@@ -1986,10 +1986,14 @@ fn conflicting(
             tool,
             limit,
         } => Failure::Excluded(Exclusion {
-            clause: format!(
-                "{} does not name its tool '{tool}'",
-                restriction(provider, &limits[limit])
-            ),
+            clause: refused(vec![
+                Piece::Words(format!(
+                    "{} does not name its ",
+                    restriction(provider, &limits[limit])
+                )),
+                Piece::Tool(&tool),
+            ])
+            .cause,
             refusal: refused(vec![
                 limited(limit),
                 Piece::Tool(&tool),
