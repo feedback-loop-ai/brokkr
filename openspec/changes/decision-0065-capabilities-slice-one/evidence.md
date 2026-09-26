@@ -9828,3 +9828,116 @@ not accepted.
 - **Standing-admission lines:** none this visit.
 - **Pending:** exact coverage (`scripts/coverage-exact.sh` outside the
   box), macOS and remote CI.
+
+## Unit 12 — F2 closed by deferral; e416d64b re-verified, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-3a53001e`, third implement visit, on
+`e416d64b` with a clean tree. The operator ruled F2 option (a) on
+2026-09-26. No production or test byte moved in this visit.
+
+### Step 0 (docs, committed alone)
+
+- **`b663e689`** appends the ruling verbatim to
+  `operator-ruling-2026-09-23.md` as "Addendum, 2026-09-26: the
+  panel-member rejoin positive is deferred".
+- The positive now sits unticked under "Deferred to typed sandbox lowering
+  at members", in `tasks.md` and in the owning delta
+  (`specs/native-capability-controls/spec.md`). Each file points to the
+  other.
+- The delta's "H1 through H3 cover every serving path" scenario gains one
+  line: a no-hands Codex panel member's rows bind the fail-closed
+  `sandbox-unavailable` cold retry, and its rejoin positive is deferred.
+- The ruling names decision 0072's follow-up. No 0072 document exists on
+  this branch (`docs/decisions` has none), so the pointer names the later
+  slice, not a file.
+
+### F2, closed by deferral
+
+The accepted panel-member proof is the pair of re-planted rows at
+`driver_conformance.rs:3253-3269`
+(`the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root`,
+`NoHandsMember`, wrapped and unwrapped). They assert three things:
+
+- the last retry row is `cold` with `resume_refusal` `sandbox-unavailable`;
+- no retry row is `resumed`;
+- the provider log has no `exec resume`.
+
+They are unchanged since `b33de51f` and pass in this visit's suite
+(`driver_conformance` 24 passed). The rejoin positive is not claimed. It
+moves to the later slice, never ticked.
+
+### e416d64b's claims, re-verified
+
+- **Test locations.** `native_controls/tests.rs:1612`
+  (`an_explicit_include_list_is_a_hard_limit_that_no_admission_widens`)
+  and `:1750` (`an_authored_refusal_stays_bounded_wherever_the_option_stands`),
+  plus `capability_launch.rs:6050`
+  (`an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant`).
+  All three are where the report says.
+- **Mutations.** Each mutation was applied alone to the committed tree, with
+  `native_controls.rs` saved first. Each compiled, failed as stated, and
+  was restored from the saved copy. `git status` was clean after each
+  restore, and the protocol lib then passed 490 and `capability_launch` 45.
+  - M1 (the limit check never fires,
+    `plan.lists(Include).next().filter(|_| false)`): the protocol test fails
+    at `tests.rs:1734`, row `["--tools", "Read"]`. Left
+    `Ok(["--tools", "Read", "--allowedTools", "WebFetch"])`, right the
+    `restricted` refusal naming `WebFetch` and `web-fetch`.
+  - M1 against the compiled test: it fails at `capability_launch.rs:6121`,
+    left `launched [… "--tools", "Read", "--allowedTools", "WebFetch"]`.
+  - M2 (`0 if explicit.is_some() && false`): it fails at the compatible
+    held row `Read,WebFetch`, left `--tools WebFetch,Read`.
+  - M3 (`explicit.filter(|_| false)` in the boxed-widen check): it fails at
+    the boxed `Read` row. Left `Ok(["--tools", "Read", "--strict-mcp-config",
+    …, "--disallowedTools", "WebFetch"])`, right the refusal "names tool
+    'Read', which the seat's own '--tools' list does not carry and no held
+    capability admits".
+  - M4 (`.chain(&controls.selection.allow[..0])`): it fails at the
+    allow-only row (`tests.rs:1712`), left `Ok(["--tools", "Read",
+    "--allowedTools", "WebFetch"])`.
+  - M5 (the `b33de51f` prose restored in both `native_controls.rs:347` and
+    the test helper `authored_refused`): the bound test fails with `505: :
+    its arguments carry '--config' (argument 101), …`. This is the 505 the
+    report measured.
+- **Gates, on this tree:**
+  - `cargo fmt --all -- --check`: no output.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: finished, no warning.
+  - `cargo test --workspace --all-features --locked`: exit 0, every `test
+    result` line `ok`, none `FAILED`. Protocol lib 490, runtime lib 565,
+    `capability_launch` 45, CLI lib 481, `driver_conformance` 24, matching
+    the report exactly.
+  - `bundles/self` and `bundles/verify` compile with exit 0.
+  - `openspec validate --all --strict --no-interactive`: 18 passed, 0
+    failed. `git diff --check`: clean.
+- **Coverage diagnostic.** `cargo +nightly-2026-09-05 llvm-cov clean
+  --workspace`, then `llvm-cov -p brokkr-protocol -p brokkr-runtime
+  --all-features --locked --branch --lcov` gave 26 `test result: ok` lines
+  and 0 `FAILED`. The lcov was read with `grep -x` for `DA:…,0` and zero or
+  `-` `BRDA`:
+  - `native_controls.rs`: none. The report's claim holds in the combined
+    run, which also instruments the opaque path and the load reader that
+    the second visit's protocol-only run left at zero.
+  - `bundle.rs`: DA 1295, 1413, 1671–1674, 1877, 2644, 2646, 2649, 2783 and
+    5241–5244. BRDA 1670, 2629, 2645, 2648, 3457, 4262 and 5240. This set is
+    identical to the second visit's `u12c-bundle-rs-final.lcov`.
+  - Against unit 11's `u11f-bundle-rs.lcov`, only DA:3376 and DA:3403–3408
+    are gone. Every other zero is the same line, shifted by the deletion
+    (5247–5250 → 5241–5244; BRDA 3469/4274/5246 → 3457/4262/5240).
+  - `bundle.rs:3366-3405` now carries only the `Written` text in both
+    refusals.
+  - **Unit 11's pending item ("exact coverage pending: deletion owned by
+    unit 12") is closed.** The arms are deleted and no `bundle.rs` record is
+    left newly unhit.
+  - `capabilities.rs`: 47 zero records, the same count as
+    `u12c-caps-final.lcov` (838–888 and 1579–1583). There are no zero
+    `BRDA`.
+
+### Result
+
+- F1 and F3 are fixed (`e416d64b`), F2 is closed by deferral under the
+  2026-09-26 ruling, and F4 stays with units 13–15 under 15.2.
+- 12.1 and 12.2 stay ticked, and 15.2 is advanced, not closed.
+- **Standing-admission lines:** none. **Fixture migrations:** none new.
+- **Pending:** exact coverage (`scripts/coverage-exact.sh` outside the
+  box), macOS and remote CI.

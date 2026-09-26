@@ -1646,6 +1646,26 @@ evidence.md, "Unit 12 — the review's return"):
 - **Pending:** exact coverage, macOS and remote CI. **The unit is not
   complete until F2 is ruled.**
 
+Closed 2026-09-26 on the third visit, run
+`0065-rebuild-unit-12-see-the-uni-3a53001e` (evidence.md, "Unit 12 — F2
+closed by deferral; e416d64b re-verified"):
+
+- **F2 is closed by deferral.** The operator ruled option (a) on
+  2026-09-26. The re-planted `NoHandsMember` rows are slice one's
+  panel-member proof. The rejoin positive is under "Deferred to typed
+  sandbox lowering at members" below, unticked, and in the owning delta.
+  The ruling addendum is committed alone (`b663e689`).
+- **Re-verified:** e416d64b's test locations, M1–M5 (M1 also against the
+  compiled test), the workspace suite (protocol lib 490, runtime lib 565,
+  `capability_launch` 45, CLI lib 481, `driver_conformance` 24), clippy,
+  fmt, both bundle compiles, strict openspec and `git diff --check`.
+- **Unit 11's pending coverage item is closed.** In `llvm-cov` with
+  branches, DA:3376 and DA:3403–3408 are gone and no `bundle.rs` record is
+  newly unhit. `native_controls.rs` has no zero line or branch.
+- **No production or test byte moved.** Standing-admission lines: none.
+  Fixture migrations: none new.
+- **Pending:** exact coverage outside the box, macOS and remote CI.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
