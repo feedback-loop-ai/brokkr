@@ -180,6 +180,178 @@ fn contention_where_a_park_is_unlawful_returns_the_type_and_writes_nothing() {
     fold(&engine.store.load(&run_id).unwrap()).expect("an untouched journal folds");
 }
 
+/// A seat that hands over three checkpoints and then succeeds, echoing
+/// whatever effect and attempt the engine started it on.
+const THREE_CHECKPOINTS: &str = r#"
+read -r hello
+printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}\n' "$effect_id" "$attempt_id"
+for step in 1 2 3; do
+  printf '{"proto":"forge-driver/v1","msg_id":"c%s","type":"checkpoint","effect_id":"%s","attempt_id":"%s","data":{"step":"%s"}}\n' "$step" "$effect_id" "$attempt_id" "$step"
+done
+printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"complete"},"error":null}\n' "$effect_id" "$attempt_id"
+read -r done
+"#;
+
+/// #394, the reproduction: a peer takes the journal's write lock just as
+/// the seat's first checkpoint tries it, and holds it past the whole
+/// patience. Before the fix the engine ended there with the typed
+/// contention, the seat died with it, and the next resume could only
+/// call the attempt indeterminate. Now the rows wait in the attempt's
+/// buffer: the seat runs to its result, every checkpoint lands once the
+/// peer lets go — none before — and the attempt concludes as the seat
+/// said, with no `effect/indeterminate` anywhere.
+#[test]
+fn a_lock_held_past_the_patience_while_a_seat_works_delays_its_checkpoints_and_never_the_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("work")).unwrap();
+    let db = dir.path().join("realm.db");
+    let command = vec!["sh".into(), "-c".into(), THREE_CHECKPOINTS.into()];
+    let mut engine = Engine::start(
+        Store::open(&db).unwrap(),
+        bundle(dir.path(), single_body(command)),
+        "Feature: contention",
+        Some(dir.path().join("work")),
+    )
+    .unwrap();
+    let run_id = engine.run_id.clone();
+    engine
+        .store
+        .set_patience(std::time::Duration::from_millis(150))
+        .unwrap();
+
+    // The fenced-race seam: the first try takes the peer's lock, the
+    // next lets it go, after counting what the journal held meanwhile.
+    let landed_while_held = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let seen = landed_while_held.clone();
+    let mut holder: Option<rusqlite::Connection> = None;
+    let mut tries = 0;
+    engine.checkpoint_between = Box::new(move |_| {
+        tries += 1;
+        match tries {
+            1 => holder = Some(write_lock_on(&db)),
+            2 => {
+                let peer = holder.take().expect("the lock was taken");
+                let checkpoints: i64 = peer
+                    .query_row(
+                        "SELECT count(*) FROM events WHERE instr(envelope, 'effect/checkpointed') > 0",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                *seen.lock().unwrap() = Some(checkpoints);
+                peer.execute_batch("ROLLBACK").unwrap();
+            }
+            _ => {}
+        }
+    });
+
+    engine
+        .drive()
+        .expect("contention on a checkpoint is no ending");
+
+    assert_eq!(
+        *landed_while_held.lock().unwrap(),
+        Some(0),
+        "the seam never released the lock, or a row landed through it"
+    );
+    let events = engine.store.load(&run_id).unwrap();
+    let steps: Vec<Value> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .map(|event| event.payload["checkpoint"]["step"].clone())
+        .collect();
+    assert_eq!(steps, vec!["1", "2", "3"]);
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == EventType::EffectIndeterminate),
+        "the attempt was thrown away: {events:#?}"
+    );
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == EventType::EffectSucceeded)
+        .expect("the attempt concluded as the seat said");
+    assert_eq!(succeeded.payload["result"]["result"], "complete");
+    let last_checkpoint = events
+        .iter()
+        .rfind(|event| event.event_type == EventType::EffectCheckpointed)
+        .unwrap();
+    assert_eq!(
+        succeeded.causation_id.as_deref(),
+        Some(last_checkpoint.event_id.as_str()),
+        "the conclusion names the last buffered row as its cause"
+    );
+    fold(&events).expect("the journal folds");
+}
+
+/// The attempt's conclusion is the one row that must land, and when a
+/// peer's lock outlasts the patience for it too, the attempt is SETTLED
+/// in the engine's own words — `effect/indeterminate` naming the lock —
+/// and the run parks on it. What the next resume finds is a park an
+/// operator can answer, never an attempt still in flight that it has to
+/// call indeterminate on the engine's behalf.
+#[test]
+fn contention_on_an_attempt_in_flight_settles_it_and_parks_with_the_lock_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = started(dir.path());
+    let run_id = engine.run_id.clone();
+    for (event_type, payload) in [
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "effect-1", "seat": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "effect-1", "attempt_id": "attempt-1"}),
+        ),
+    ] {
+        engine
+            .store
+            .append_next(&run_id, event_type, payload, None, None)
+            .unwrap();
+    }
+
+    let end = engine
+        .lawful_end_under_contention(contended("append"))
+        .expect("a settled attempt is an ending, not an error");
+    assert_eq!(end.state.status, Status::AwaitingOperator);
+    let lock = "journal contention: contended: a peer still held the journal's write lock \
+                after 30000ms of append; nothing was written";
+    assert_eq!(
+        end.state.park_reason.as_deref(),
+        Some(
+            format!(
+                "effect effect-1 indeterminate: {lock}; the attempt's seats had ended, \
+                 and it is settled here rather than left in flight"
+            )
+            .as_str()
+        )
+    );
+
+    let events = engine.store.load(&run_id).unwrap();
+    let tail: Vec<EventType> = events[events.len() - 2..]
+        .iter()
+        .map(|event| event.event_type)
+        .collect();
+    assert_eq!(
+        tail,
+        vec![EventType::EffectIndeterminate, EventType::RunParked]
+    );
+    let settled = &events[events.len() - 2];
+    assert_eq!(settled.payload["attempt_id"], "attempt-1");
+    assert_eq!(settled.attempt_id.as_deref(), Some("attempt-1"));
+
+    // The next resume finds the park, and writes nothing of its own.
+    let again = engine.drive().unwrap();
+    assert_eq!(again.state.status, Status::AwaitingOperator);
+    assert_eq!(engine.store.load(&run_id).unwrap().len(), events.len());
+}
+
 /// Everything that is not contention leaves exactly as it arrived —
 /// including the fenced-append refusal that lives next door. A
 /// `HeadMoved` is a verdict about content: a peer legitimately moved the

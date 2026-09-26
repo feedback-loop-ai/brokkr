@@ -2301,7 +2301,7 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
 /// running and the seat is still journaling under it. The state a burn
 /// spends most of its life in, and the one where an operator's command
 /// meets a concurrently-appending engine.
-fn in_flight_store(path: &Path, run_id: &str) -> Store {
+pub(super) fn in_flight_store(path: &Path, run_id: &str) -> Store {
     let mut store = Store::open(path).unwrap();
     store
         .create_run(run_id, "feature", "test", &json!({"files":{}}))
