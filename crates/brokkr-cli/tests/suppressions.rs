@@ -124,7 +124,8 @@ fn skip_comment(s: &[char], at: usize) -> Result<usize, String> {
     }
 }
 
-/// Every attribute's inner text (`expect(..)` of `#[expect(..)]`).
+/// Every attribute's inner text (`expect(..)` of `#[expect(..)]`), with
+/// each comment inside it read as a space.
 fn attributes(source: &str) -> Result<Vec<String>, String> {
     let s: Vec<char> = source.chars().collect();
     let (mut out, mut i) = (Vec::new(), 0);
@@ -139,14 +140,21 @@ fn attributes(source: &str) -> Result<Vec<String>, String> {
             i += 1;
             continue;
         }
-        let (start, mut depth, mut j) = (i + 2 + bang, 1, i + 2 + bang);
+        let (mut text, mut depth, mut j) = (String::new(), 1, i + 2 + bang);
         while depth > 0 {
             if j >= s.len() {
                 return Err("an unterminated attribute".into());
             }
-            let after = skip_literal(&s, skip_comment(&s, j)?)?;
-            if after != j {
-                j = after;
+            let past_comment = skip_comment(&s, j)?;
+            if past_comment != j {
+                text.push(' ');
+                j = past_comment;
+                continue;
+            }
+            let past_literal = skip_literal(&s, j)?;
+            if past_literal != j {
+                text.extend(&s[j..past_literal]);
+                j = past_literal;
                 continue;
             }
             depth += match s[j] {
@@ -154,9 +162,11 @@ fn attributes(source: &str) -> Result<Vec<String>, String> {
                 ']' => -1,
                 _ => 0,
             };
+            text.push(s[j]);
             j += 1;
         }
-        out.push(s[start..j - 1].iter().collect());
+        text.pop();
+        out.push(text);
         i = j;
     }
     Ok(out)
@@ -190,11 +200,32 @@ fn top_level(text: &str) -> Result<Vec<String>, String> {
     Ok(parts)
 }
 
-/// `name(args)` split into its name and argument text.
-fn call(attribute: &str) -> Option<(&str, &str)> {
-    let open = attribute.find('(')?;
-    let args = attribute[open + 1..].trim_end().strip_suffix(')')?;
-    Some((attribute[..open].trim(), args))
+/// An `expect`, `allow` or `cfg_attr` attribute split into its name and
+/// argument text, `None` for any other attribute, and refused when one of
+/// those three is not `name(args)`.
+fn call(attribute: &str) -> Result<Option<(&str, &str)>, String> {
+    let attribute = attribute.trim();
+    let end = attribute
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == ':'))
+        .unwrap_or(attribute.len());
+    let name = &attribute[..end];
+    if level_of(name).is_none() && name != "cfg_attr" {
+        return Ok(None);
+    }
+    let args = attribute[end..]
+        .trim_start()
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+        .ok_or_else(|| format!("an unreadable {name} attribute"))?;
+    Ok(Some((name, args)))
+}
+
+/// A lint is a path of identifiers (`dead_code`, `clippy::todo`).
+fn is_lint_path(lint: &str) -> bool {
+    lint.split("::").all(|part| {
+        part.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
 }
 
 fn suppression(
@@ -208,7 +239,13 @@ fn suppression(
             Some(rest) if rest.starts_with('=') => {
                 reason = Some(rest[1..].trim().trim_matches('"').to_string())
             }
-            _ if !arg.is_empty() => lints.push(arg.split_whitespace().collect::<String>()),
+            _ if !arg.is_empty() => {
+                let lint = arg.split_whitespace().collect::<String>();
+                if !is_lint_path(&lint) {
+                    return Err(format!("an unreadable lint name {lint}"));
+                }
+                lints.push(lint);
+            }
             _ => {}
         }
     }
@@ -229,32 +266,43 @@ fn level_of(name: &str) -> Option<&'static str> {
     }
 }
 
-/// The suppressions inside one `cfg_attr(predicate, attr, ..)`.
+/// The suppressions inside one `cfg_attr(predicate, attr, ..)`; a nested
+/// `cfg_attr` holds under both predicates.
 fn cfg_attr_suppressions(args: &str) -> Result<Vec<Suppression>, String> {
     let parts = top_level(args)?;
     let predicate = parts.first().ok_or("an empty cfg_attr")?.clone();
     let mut out = Vec::new();
     for inner in &parts[1..] {
-        let (name, inner_args) = call(inner).ok_or("an unreadable cfg_attr")?;
-        if let Some(level) = level_of(name) {
-            out.push(suppression(level, inner_args, Some(predicate.clone()))?);
-        }
+        out.extend(attribute_suppressions(inner, Some(&predicate))?);
     }
     Ok(out)
+}
+
+/// The suppressions one attribute carries under `predicate`.
+fn attribute_suppressions(
+    attribute: &str,
+    predicate: Option<&str>,
+) -> Result<Vec<Suppression>, String> {
+    let Some((name, args)) = call(attribute)? else {
+        return Ok(Vec::new());
+    };
+    if let Some(level) = level_of(name) {
+        return Ok(vec![suppression(level, args, predicate.map(Into::into))?]);
+    }
+    let mut nested = cfg_attr_suppressions(args)?;
+    if let Some(outer) = predicate {
+        for found in &mut nested {
+            found.predicate = found.predicate.take().map(|p| format!("all({outer}, {p})"));
+        }
+    }
+    Ok(nested)
 }
 
 /// Every `expect` and `allow` in a source, `cfg_attr` ones included.
 fn suppressions(source: &str) -> Result<Vec<Suppression>, String> {
     let mut out = Vec::new();
     for attribute in attributes(source)? {
-        let Some((name, args)) = call(&attribute) else {
-            continue;
-        };
-        if let Some(level) = level_of(name) {
-            out.push(suppression(level, args, None)?);
-        } else if name == "cfg_attr" {
-            out.extend(cfg_attr_suppressions(args)?);
-        }
+        out.extend(attribute_suppressions(&attribute, None)?);
     }
     Ok(out)
 }
@@ -476,12 +524,54 @@ fn the_lexer_reads_every_spelling_and_nothing_inside_literals() {
             "let c = '#'; fn f<'a>(x: &'a str) {} #[expect(clippy::todo, reason = \"a ] in it\")]",
             vec![expect(&["clippy::todo"], "a ] in it", None)],
         ),
+        (
+            "#[expect(clippy::too_many_lines, reason = \"r\") /* later */]",
+            vec![expect(&["clippy::too_many_lines"], "r", None)],
+        ),
+        (
+            "#[expect(clippy::too_many_lines, reason = \"r\") // c\n]",
+            vec![expect(&["clippy::too_many_lines"], "r", None)],
+        ),
+        (
+            "#[expect(clippy::too_many_lines /* why */, reason = \"r\")]",
+            vec![expect(&["clippy::too_many_lines"], "r", None)],
+        ),
+        (
+            "#[cfg_attr(not(test), /* debt */ expect(clippy::todo, reason = \"r\"))]",
+            vec![expect(&["clippy::todo"], "r", Some("not(test)"))],
+        ),
+        (
+            "#[cfg_attr(\n    unix,\n    // debt\n    expect(clippy::todo, reason = \"r\")\n)]",
+            vec![expect(&["clippy::todo"], "r", Some("unix"))],
+        ),
+        (
+            "#[cfg_attr(unix, cfg_attr(not(test), expect(clippy::todo, reason = \"r\")))]",
+            vec![expect(&["clippy::todo"], "r", Some("all(unix, not(test))"))],
+        ),
+        (
+            "#[derive(Debug)] #[doc = \"a (b\"] #[rustfmt::skip] #[cfg_attr(unix, path = \"u.rs\")]",
+            vec![],
+        ),
     ];
     for (source, want) in cases {
         assert_eq!(suppressions(source).as_ref(), Ok(want), "{source}");
     }
-    for broken in ["#[expect(clippy::todo", "let s = \"open", "/* open"] {
-        assert!(suppressions(broken).is_err(), "{broken} was read");
+    for (broken, why) in [
+        ("#[expect(clippy::todo", "an unterminated attribute"),
+        ("let s = \"open", "an unterminated string"),
+        ("/* open", "an unterminated block comment"),
+        ("#[expect]", "an unreadable expect attribute"),
+        ("#[allow(dead_code) junk]", "an unreadable allow attribute"),
+        (
+            "#[cfg_attr(unix, expect = \"x\")]",
+            "an unreadable expect attribute",
+        ),
+        (
+            "#[expect(clippy::todo!, reason = \"r\")]",
+            "an unreadable lint name clippy::todo!",
+        ),
+    ] {
+        assert_eq!(suppressions(broken), Err(why.to_string()), "{broken}");
     }
 }
 
