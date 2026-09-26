@@ -245,6 +245,19 @@ fn lists_in(tokens: &[String]) -> Vec<String> {
     found
 }
 
+/// The harness a list item or table row leads with, past its marker: a
+/// row's `|`, an ordered item's number or a `+` bullet, which [`tokens`]
+/// keeps (`-` and `*` are already separators).
+fn leading_name(tokens: &[String]) -> Option<&'static str> {
+    let marker = tokens
+        .iter()
+        .take_while(|token| {
+            *token == "|" || *token == "+" || token.chars().all(|c| c.is_ascii_digit())
+        })
+        .count();
+    harness(tokens, marker).map(|(name, _)| name)
+}
+
 /// Every list of harnesses in `text` that names claude and codex, leaves
 /// dsh out, and sits where dsh is never named: in one unit, or across a run
 /// of adjacent list items or rows that each lead with a name. Its line and
@@ -275,7 +288,7 @@ fn lists_without_dsh(text: &str) -> Vec<(usize, String)> {
         let leading: Vec<&str> = items
             .clone()
             .filter(|&at| units[at].item)
-            .filter_map(|at| harness(&tokens[at], 0).map(|(name, _)| name))
+            .filter_map(|at| leading_name(&tokens[at]))
             .collect();
         let refused = found
             .iter()
@@ -330,8 +343,8 @@ fn every_list_of_agent_clis_names_dsh() {
 
 /// The rule bites however the list is written: case, emphasis, code spans,
 /// a line break, a slash, `&`, `+`, `;`, `nor`, a table row, one word
-/// between a joiner and a name, adjacent bullets, the product's own name,
-/// either order. It passes a list that names dsh, a paragraph that names
+/// between a joiner and a name, adjacent bullets, adjacent table rows,
+/// ordered items or `+` bullets, the product's own name, either order. It passes a list that names dsh, a paragraph that names
 /// dsh beside the two, adjacent bullets one of which names dsh, and fenced
 /// code; a later paragraph naming dsh does not excuse an earlier one.
 #[test]
@@ -384,6 +397,17 @@ Any of claude, gemini or codex.
 - dsh reads it last.
 
 Claude is the default. The codex tooling differs.
+
+| Harness | Vendor |
+|---|---|
+| claude | Anthropic |
+| codex | OpenAI |
+
+1. claude
+2. codex
+
++ claude
++ codex
 ";
     assert_eq!(
         lists_without_dsh(planted),
@@ -404,6 +428,9 @@ Claude is the default. The codex tooling differs.
             (36, "claude codex".to_string()),
             (38, "claude codex".to_string()),
             (40, "claude codex".to_string()),
+            (49, "claude codex".to_string()),
+            (54, "claude codex".to_string()),
+            (57, "claude codex".to_string()),
         ]
     );
 }
