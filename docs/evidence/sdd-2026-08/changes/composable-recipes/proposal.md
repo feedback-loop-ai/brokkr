@@ -1,8 +1,8 @@
 # Change Proposal: composable-recipes
 
-**Spec**: [../../../specs/composable-recipes/spec.md](../../../specs/composable-recipes/spec.md)
-**Plan**: [../../../specs/composable-recipes/plan.md](../../../specs/composable-recipes/plan.md)
-**Tasks**: [../../../specs/composable-recipes/tasks.md](../../../specs/composable-recipes/tasks.md)
+**Spec**: [../../../specs/composable-recipes/spec.md](../../features/composable-recipes/spec.md)
+**Plan**: [../../../specs/composable-recipes/plan.md](../../features/composable-recipes/plan.md)
+**Tasks**: [../../../specs/composable-recipes/tasks.md](../../features/composable-recipes/tasks.md)
 
 ## Why
 
@@ -142,4 +142,4 @@ a composed recipe inherits its base's workdir assumptions along with its
 seats; and the case-insensitive-filesystem check is declined because its
 error arm is unreachable on the Linux CI that enforces literal 100%
 coverage. Each is recorded with its reasoning in
-[plan.md](../../../specs/composable-recipes/plan.md).
+[plan.md](../../features/composable-recipes/plan.md).

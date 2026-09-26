@@ -57,8 +57,9 @@ jscpd_run tests --format rust --pattern "$test_glob" crates
 # are their in-crate twins that tests pin byte for byte to them: the
 # embedded seat-record schemas (seat_record.rs, against contracts/) and the
 # dialect library brokkr-cli scaffolds (tests/packaging.rs, against dialects/).
+# .github/lint/ holds the lint tools' generated npm lockfile, which no one writes.
 jscpd_run data --format json,markdown \
-  --ignore 'contracts/**,reference/**,fixtures/**,quality/**,crates/brokkr-store/src/seat-record.v*.schema.json,crates/brokkr-cli/dialects/**' .
+  --ignore 'contracts/**,reference/**,fixtures/**,quality/**,crates/brokkr-store/src/seat-record.v*.schema.json,crates/brokkr-cli/dialects/**,.github/lint/**' .
 
 # 4. Functions over clippy's default 100 lines. `--force-warn` reaches the
 # ones an `#[allow]` silences, so the list is complete.

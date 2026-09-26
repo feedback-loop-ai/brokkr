@@ -8,7 +8,7 @@ The measurements every code-moving story in epic #330 is judged against (#335). 
 | `file-lines.txt` | Lines per Rust file, production and test apart, sorted by path |
 | `jscpd-baseline-prod.json` | Clone fingerprints in production Rust |
 | `jscpd-baseline-tests.json` | Clone fingerprints in test Rust |
-| `jscpd-baseline-data.json` | Clone fingerprints in JSON and Markdown. `contracts/`, `reference/` and `fixtures/` are left out because they are deliberately frozen copies, and so are their in-crate twins that tests pin byte for byte to them: `crates/brokkr-store/src/seat-record.v*.schema.json` and `crates/brokkr-cli/dialects/` |
+| `jscpd-baseline-data.json` | Clone fingerprints in JSON and Markdown. `contracts/`, `reference/` and `fixtures/` are left out because they are deliberately frozen copies, and so are their in-crate twins that tests pin byte for byte to them: `crates/brokkr-store/src/seat-record.v*.schema.json` and `crates/brokkr-cli/dialects/`. `.github/lint/`, the lint tools' generated npm lockfile, is left out too |
 | `too-many-lines.txt` | Every function over clippy's default 100 lines, production and test apart, with its line count and location |
 | `measure.sh` | The exact commands that produce all of the above |
 

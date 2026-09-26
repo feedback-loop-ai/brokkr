@@ -1,8 +1,8 @@
 # Change Proposal: agent-library
 
-**Spec**: [`specs/agent-library/spec.md`](../../../specs/agent-library/spec.md)
-· **Plan**: [`specs/agent-library/plan.md`](../../../specs/agent-library/plan.md)
-· **Tasks**: [`specs/agent-library/tasks.md`](../../../specs/agent-library/tasks.md)
+**Spec**: [`specs/agent-library/spec.md`](../../features/agent-library/spec.md)
+· **Plan**: [`specs/agent-library/plan.md`](../../features/agent-library/plan.md)
+· **Tasks**: [`specs/agent-library/tasks.md`](../../features/agent-library/tasks.md)
 
 ## Why
 

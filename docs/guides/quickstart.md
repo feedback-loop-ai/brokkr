@@ -621,7 +621,7 @@ the map names, else `.forge/forge.db`; `--realms` names the map.
 Be clear-eyed about this:
 
 - **A run spawns real, billed agent sessions.** Every seat is a Claude
-  Code or Codex session against your account. A five-phase recipe with
+  Code, Codex or dsh session against your account. A five-phase recipe with
   retries is five or more sessions on a repository the agent is reading
   and editing.
 - **Cost is only as complete as the harness reports.** A provider whose

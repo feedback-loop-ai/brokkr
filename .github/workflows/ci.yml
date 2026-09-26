@@ -17,6 +17,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every job reads the repository and nothing more unless it names what else
+# it needs itself; no checkout keeps the token in .git/config (zizmor's
+# excessive-permissions and artipacked, issue #339).
+permissions:
+  contents: read
+
 # Every action is pinned by commit SHA, its release in the trailing
 # comment, and every Rust toolchain by exact version: the stable one is
 # rust-toolchain.toml's channel. A tag or a branch can move under a
@@ -36,11 +42,13 @@ jobs:
       # judge.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha }}
           path: base-verifier
       # The head under judgment, with the history its merge-base needs.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -90,9 +98,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
-          toolchain: 1.88.0
+          toolchain: 1.88.0 # the MSRV, Cargo.toml's rust-version: moved by hand, never by Renovate
       # The README's claim, enforced: the badge says 1.88+, so 1.88
       # must check the locked tree — an untested MSRV is prose, and
       # this one was found stale (it said 1.85; darling requires 1.88).
@@ -107,6 +117,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
@@ -131,6 +143,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
@@ -207,6 +221,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
@@ -241,6 +257,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # The exact gate demands literal 100%, so its compiler is pinned like
       # every other tool CI installs: a nightly release changes the
       # instrumented line, branch and function set, and an unpinned one
@@ -263,6 +281,9 @@ jobs:
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+          # A version the pinned manifest lacks fails here rather than
+          # installing through cargo-binstall, unchecked (#339).
+          fallback: none
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # The instrumented dependency build and the production check, kept
       # warm between runs (issue #341). coverage-exact.sh keys its own
@@ -298,11 +319,76 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # The action's image carries cargo-deny 0.20.2, so pinning the action
       # by SHA pins the tool that rules on the licences.
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check licenses bans sources
+
+  # The non-Rust half of the tree, linted (issue #339): the workflows and
+  # their scripts, workflow security, shell, spelling, links and anchors,
+  # and the diagrams. Every tool is pinned by version and verified by
+  # digest. NOT a required check until the operator adds it to branch
+  # protection.
+  lint-non-rust:
+    name: non-Rust lints
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: actionlint, pinned by digest
+        uses: ./.github/actions/setup-actionlint
+      - name: lychee, pinned by digest
+        uses: ./.github/actions/setup-lychee
+      # install-action checks each release against the digest its manifest
+      # records at the pinned commit before it installs it.
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: shellcheck@0.11.0,typos@1.50.2,zizmor@1.30.1
+          # A version the pinned manifest lacks fails here rather than
+          # installing through cargo-binstall, unchecked (#339).
+          fallback: none
+      - name: the workflows and their run scripts (actionlint with shellcheck)
+        env:
+          SHELLCHECK_OPTS: -S warning
+        run: actionlint
+      - name: workflow security (zizmor, offline, .github/zizmor.yml's policy)
+        run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline
+      - name: shell scripts (shellcheck)
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
+      - name: the composite actions' scripts (shellcheck)
+        run: bash scripts/shellcheck-actions.sh
+      # --hidden: typos skips dot-directories by default, and .github is
+      # where this job's own workflows live.
+      - name: spelling (typos, _typos.toml)
+        run: typos --hidden
+      - name: links and their anchors (lychee, offline)
+        run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.3
+      - name: the diagrams render (mermaid-cli, from .github/lint's lockfile)
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: '1'
+        run: |
+          npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund
+          bash scripts/lint-diagrams.sh
+      # The validator runs from the very image the Renovate workflow runs,
+      # pinned once in .github/renovate-image.txt, so the config is judged
+      # by the Renovate that will read it.
+      - name: Renovate's configuration is valid (renovate-config-validator, the pinned image)
+        run: |
+          image="$(tr -d '[:space:]' < .github/renovate-image.txt)"
+          validate() {
+            docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app \
+              --entrypoint renovate-config-validator "$image" --strict "$@"
+          }
+          validate --no-global .github/renovate.json5
+          validate .github/renovate-global.json5
 
   dependency-audit:
     name: RustSec dependency audit
@@ -314,6 +400,8 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # cargo-audit is pinned by version AND digest in the one composite
       # step both this job and the release admission use; left to
       # itself, audit-check builds the latest cargo-audit from source.
@@ -350,6 +438,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # The benchmark runs the boxed gates from the real init scaffold.
       # Decision 0043 never simulates their bubblewrap boundary.
       - name: bubblewrap for the boxed gates
@@ -369,6 +459,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
@@ -389,13 +481,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: stable
+          go-version: 1.27.1
       - name: repository tooling
         run: |
           sudo apt-get update
@@ -415,7 +509,8 @@ jobs:
           BROKKR_PKG_ARCH: amd64
           BROKKR_PKG_BINARY: target/release/brokkr
         run: |
-          export BROKKR_PKG_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
+          BROKKR_PKG_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
+          export BROKKR_PKG_VERSION
           mkdir -p target/packaging
           # nfpm's env interpolation does not reach every field (the
           # contents src glob saw the literal ${BROKKR_PKG_BINARY}), so
@@ -446,6 +541,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
         with:
           extra_nix_config: |
@@ -458,6 +555,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0

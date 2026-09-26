@@ -1,2 +1,5 @@
 /target/
 /.forge/
+
+# The diagram renderer the non-Rust lints job installs from its lockfile.
+/.github/lint/node_modules/

@@ -337,15 +337,8 @@ fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
         );
     }
 
-    let tool = read("cargo-llvm-cov-version.txt");
-    let parts: Vec<&str> = tool.trim().split('.').collect();
-    assert_eq!(parts.len(), 3, "{tool} is not MAJOR.MINOR.PATCH");
-    for part in parts {
-        assert!(
-            !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()),
-            "{tool} is not MAJOR.MINOR.PATCH"
-        );
-    }
+    // The measuring tool's pin is an exact release: workflow_pins.rs judges
+    // it by the one rule that says what an exact release is.
 
     let script = read("scripts/coverage-exact.sh");
     assert!(
@@ -362,18 +355,8 @@ fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
 
 #[test]
 fn the_packaging_tool_is_pinned_and_both_workflows_read_one_pin() {
-    let pin = read("packaging/nfpm-version.txt");
-    let pin = pin.trim();
-    let digits = pin.strip_prefix("v2.").expect("a pinned nfpm v2 release");
-    let parts: Vec<&str> = digits.split('.').collect();
-    assert_eq!(parts.len(), 2, "{pin} is not vMAJOR.MINOR.PATCH");
-    for part in parts {
-        assert!(
-            !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()),
-            "{pin} is not vMAJOR.MINOR.PATCH"
-        );
-    }
-
+    // The pin itself is a v2 exact release; workflow_pins.rs judges it by
+    // the one rule that says what an exact release is.
     for workflow in [".github/workflows/release.yml", ".github/workflows/ci.yml"] {
         let text = read(workflow);
         assert!(

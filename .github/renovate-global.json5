@@ -1,0 +1,15 @@
+// Self-hosted Renovate's global configuration (issue #339, operator ruling
+// 2026-09-26). .github/workflows/renovate.yml runs Renovate with this file,
+// as the org's GitHub App, against this repository alone; what it updates
+// and how is .github/renovate.json5.
+{
+  platform: 'github',
+  onboarding: false,
+  requireConfig: 'required',
+  // Renovate cannot compute a release tarball's digest. After it bumps a
+  // tool pinned by version and digest, this one script re-downloads the
+  // release and rewrites the digest, and fails closed.
+  allowedCommands: ['^bash scripts/refresh-pin-checksums\\.sh$'],
+  // Lock files are regenerated with the tools they need (cargo, npm).
+  binarySource: 'install',
+}

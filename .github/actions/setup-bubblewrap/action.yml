@@ -16,7 +16,7 @@ description: >-
 runs:
   using: composite
   steps:
-    - name: bubblewrap 0.11.0, pinned by digest
+    - name: bubblewrap, pinned by version and digest
       shell: bash
       env:
         BWRAP_VERSION: 0.11.0

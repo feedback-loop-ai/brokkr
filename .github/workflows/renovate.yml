@@ -1,0 +1,62 @@
+# Self-hosted Renovate moves every pin this repository keeps (operator
+# ruling 2026-09-26, issue #339): the actions by commit, the toolchain, and
+# the CI tools, from .github/renovate.json5. It runs as an org-owned GitHub
+# App, because a pull request opened with GITHUB_TOKEN triggers no CI and
+# would land unchecked; without the App's credentials it fails loudly
+# rather than skipping.
+name: renovate
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    name: Renovate, self-hosted
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: the App's credentials are granted, or nothing runs
+        env:
+          RENOVATE_APP_ID: ${{ secrets.RENOVATE_APP_ID }}
+          RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+        run: |
+          for key in RENOVATE_APP_ID RENOVATE_APP_PRIVATE_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is not set; Renovate runs only as the org's GitHub App, never on GITHUB_TOKEN (see .github/renovate.json5)"
+              exit 1
+            fi
+          done
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: mint the Renovate token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          # Branches, pull requests and the workflow files a bump edits;
+          # nothing else the installation could grant.
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+      # The image by exact version and digest, from its one home, which
+      # ci.yml's config validation reads too: the action's default floats a
+      # major.
+      - name: the pinned Renovate image
+        id: renovate-image
+        run: |
+          echo "ref=$(tr -d '[:space:]' < .github/renovate-image.txt)" >> "$GITHUB_OUTPUT"
+      - uses: renovatebot/github-action@f3a31a786096ba6b40d0f0ffe11a494ef73bfa7c # v46.3.4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          configurationFile: .github/renovate-global.json5
+          renovate-image: ${{ steps.renovate-image.outputs.ref }}
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          LOG_LEVEL: info

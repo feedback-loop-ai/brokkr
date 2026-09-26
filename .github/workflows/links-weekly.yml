@@ -1,0 +1,29 @@
+# The online half of issue #339's link check: weekly, and report-only. An
+# outside site going down is not a regression here, so this never gates;
+# the offline check in ci.yml's non-Rust lints job does.
+name: links weekly
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    name: every link, online (report only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: lychee, pinned by digest
+        uses: ./.github/actions/setup-lychee
+      - name: every link and anchor, online
+        run: |
+          if ! git ls-files -z '*.md' | xargs -0 lychee --include-fragments --no-progress; then
+            echo "::warning::lychee found links it could not reach; this weekly check reports and never gates"
+          fi
