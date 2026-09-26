@@ -312,6 +312,11 @@ impl Dialect {
         Ok((dialect, value))
     }
 
+    #[expect(
+        clippy::excessive_nesting,
+        clippy::too_many_lines,
+        reason = "baseline 2026-09, #288"
+    )]
     fn check(&self, path: &str) -> Result<(), DialectError> {
         let invalid = |problem| DialectError::Invalid {
             path: path.to_string(),

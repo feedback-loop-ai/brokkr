@@ -14,13 +14,13 @@ use brokkr_store::Store;
 use crate::render::Safe;
 
 /// The selector that means "the run I started most recently".
-pub const LATEST: &str = "latest";
+pub(crate) const LATEST: &str = "latest";
 
 /// What selection needs to know about a run: its identity and when it
 /// was created. Nothing else bears on the choice, so nothing else is
 /// asked for — the rules stay testable without a database.
 #[derive(Debug, Clone, Copy)]
-pub struct RunRef<'a> {
+pub(crate) struct RunRef<'a> {
     pub run_id: &'a str,
     pub created_at: &'a str,
 }
@@ -29,7 +29,7 @@ pub struct RunRef<'a> {
 /// must keep an ambiguous prefix visible even when another hearth
 /// answers uniquely, so the refusal remembers its kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Refusal {
+pub(crate) enum Refusal {
     /// The hearth records no runs at all.
     Empty,
     /// No run in this hearth matched the requested selector.
@@ -54,7 +54,7 @@ impl std::fmt::Display for RefusalError {
 impl std::error::Error for RefusalError {}
 
 /// The refusal kind an error carries, when it is a selector refusal.
-pub fn refusal_kind(error: &anyhow::Error) -> Option<Refusal> {
+pub(crate) fn refusal_kind(error: &anyhow::Error) -> Option<Refusal> {
     error.downcast_ref::<RefusalError>().map(|error| error.kind)
 }
 
@@ -65,7 +65,7 @@ pub fn refusal_kind(error: &anyhow::Error) -> Option<Refusal> {
 /// exactly one run: matching several is an error that names the
 /// candidates, because picking one for the operator would be a guess
 /// about which run they meant.
-pub fn resolve(runs: &[RunRef<'_>], requested: &str) -> Result<String> {
+pub(crate) fn resolve(runs: &[RunRef<'_>], requested: &str) -> Result<String> {
     if requested == LATEST {
         // Ordering by the recorded stamp rather than trusting the
         // query's ORDER BY: "newest" is a property of the runs, not of
@@ -123,7 +123,7 @@ fn refusal(kind: Refusal, message: String) -> anyhow::Error {
 
 /// The store-facing form every command that takes `--run` calls: read
 /// the run table, apply the rules above. Read-only.
-pub fn resolve_run(store: &Store, requested: &str) -> Result<String> {
+pub(crate) fn resolve_run(store: &Store, requested: &str) -> Result<String> {
     let runs = store.list_runs()?;
     let refs: Vec<RunRef<'_>> = runs
         .iter()

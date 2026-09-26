@@ -2454,6 +2454,7 @@ fn recorded_invocation_version(invocation: &DshInvocation) -> Option<String> {
 /// production seam is platform-correct; only this fixture is not.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
     const CASE: &str = "BROKKR_DOCTOR_SEAM_CASE";
     const CHOSEN: &str = "BROKKR_DOCTOR_SEAM_CHOSEN";

@@ -70,6 +70,7 @@ pub fn run_fake_driver(
     )
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_fake_session(
     script: &Value,
     state_dir: &Path,

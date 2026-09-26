@@ -92,6 +92,7 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     if !can_create_namespace() {
         return;

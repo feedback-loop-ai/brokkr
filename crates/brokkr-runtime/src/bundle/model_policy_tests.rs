@@ -1211,6 +1211,7 @@ fn a_route_named_on_the_adapters_own_flag_is_the_route_that_is_read() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_value_attached_to_a_short_flag_is_the_pin_that_flag_carries() {
     // Decision 0040 ruling 2, on the shape that has three spellings.
     // A SHORT flag is one dash and one character, and the getopt
@@ -2914,6 +2915,7 @@ fn pinned_script_components_reject_ambiguity_and_directories() {
 /// This does not exercise Windows' native command line, MSYS startup or
 /// PowerShell command parsing, and claims no execution guarantee (0049).
 #[test]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn pinned_script_startup_metacharacters_are_refused_at_compile_on_every_host() {
     let fixture = Fixture::new();
     fixture.write_adapter(adapter("exec", Some("untrusted"), Some(true)));
@@ -3243,6 +3245,7 @@ fn a_dialect_step_under_an_unboxed_boundary_is_refused_until_a_decision_admits_i
 /// pinned; and a work seat under `harness` without a `work` fragment is
 /// a capability gap.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_gate_law_reads_the_boundary_for_sites_that_declare_hands() {
     let fixture = Fixture::new();
     fixture.write_boxed_agent(
@@ -3433,6 +3436,7 @@ fn a_gate_without_hands_is_untouched_and_an_inline_model_site_with_hands_is_refu
 /// workspace capability gap: namespace refuses the untrusted tier;
 /// harness refuses the absent gate fragment, naming the provider and link.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
     let fixture = Fixture::new();
     fixture.write_agent_file(
@@ -3926,6 +3930,7 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 /// And under `namespace` every shipped bundle is exactly today: the
 /// manifest `compile_with` produces, every `boundary` entry `namespace`.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured() {
     let root = workspace();
     let dialect = Dialect::load(&root.join("dialects/openspec.json"))

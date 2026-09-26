@@ -570,7 +570,8 @@ pub(crate) fn open_journal(db: &std::path::Path, access: Access) -> Result<Store
 /// Poll the journal head and redraw when it moves, comparing **both**
 /// seq and hash: a rewritten journal at equal seq is the tamper case
 /// `anchor` exists for, and `watch` should redraw rather than sit blind.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn watch_loop(
     db: &std::path::Path,
     run: &str,
@@ -1486,7 +1487,6 @@ fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Optio
 /// `brokkr transcript`: resolve the run read-only, select exactly one
 /// participant, run the shared local derivation and render it. Nothing
 /// is launched, written or resumed.
-#[allow(clippy::too_many_arguments)]
 fn transcript_command(
     workspace: &std::path::Path,
     realms: Option<PathBuf>,
@@ -1969,6 +1969,7 @@ fn compile_from_manifest(
     )?)
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_with(
     cli: Cli,
     // The directory `realms.json`, `agents/` and `adapters/` are

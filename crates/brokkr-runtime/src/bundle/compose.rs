@@ -408,6 +408,11 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
 }
 
 /// Merge one layer over everything resolved beneath it.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
 fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<(), CompileError> {
     let layer = &layers[index];
     let markers = Markers::read(layer)?;

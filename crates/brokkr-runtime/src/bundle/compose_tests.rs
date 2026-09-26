@@ -164,6 +164,7 @@ fn resolution_is_pure_and_walks_the_chain_to_arbitrary_depth() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
     let library = Library::new();
     let body = |driver: &str| json!({"role":"roles/role.md", "driver":{"command":[driver]}});
@@ -608,6 +609,7 @@ fn bundle_members_and_marker_shapes_are_checked_by_name() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn policy_is_per_layer_and_tables_merge_by_name() {
     let library = Library::new();
     library.recipe("base", &base_bundle(), Some(&base_policy()));

@@ -201,6 +201,7 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
 /// that the network was off under `harness` or `open`, and the decision
 /// carries its one-line erratum under a heading of its own.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_boundary_guides_keep_every_section_and_gained_the_rows() {
     let root = workspace();
     // (page, kept, gained) — matched on whitespace-collapsed text so a

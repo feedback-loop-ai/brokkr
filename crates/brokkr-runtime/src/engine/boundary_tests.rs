@@ -291,6 +291,7 @@ fn a_boundary_this_engine_does_not_build_refuses_at_every_entry_before_any_row()
 // ────────────────────────────── gate-boundary-policy: argv composition
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compose_site_follows_the_boundary_and_the_class() {
     let workdir = Path::new("/work");
     let roots = vec![PathBuf::from("/bundle")];
@@ -939,6 +940,7 @@ fn pinned_layer(dir: &Path) -> (PathBuf, Bundle) {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
         // A nested box cannot open the namespace this proof needs. A host
@@ -1140,6 +1142,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
 // ───────────────────────────────── boundary-record: effect/started
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn effect_started_carries_the_boundary_beside_provenance() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     // A plain bundle: no site has hands, no key.
@@ -1301,6 +1304,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
 // ─────────────────────────────── boundary-record: the stamp beside model
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_stamp_rides_beside_the_model_and_replaces_a_drivers_word() {
     // The rule itself.
     assert_eq!(
@@ -1433,6 +1437,7 @@ fn site_boundary_of(spec: &HandsSpec) -> Option<()> {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     // Panel members under `harness`: each member's checkpoints and the
     // engine's own `panel-member-finished` marker carry the member's
@@ -1560,6 +1565,7 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
 // ───────────────────────────── boundary-record: the seat input's word
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     let codex = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
@@ -1693,6 +1699,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
 /// negative, with its full MCP-bearing fragment, and is not covered by
 /// the narrowed declaration.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()

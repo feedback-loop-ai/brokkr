@@ -21,7 +21,7 @@ use brokkr_store::Store;
 use crate::boundary;
 use crate::render::Safe;
 
-pub struct Report {
+pub(crate) struct Report {
     pub healthy: bool,
     lines: Vec<String>,
 }
@@ -37,7 +37,7 @@ impl Report {
         self.healthy = false;
         self.lines.push(format!("MISSING  {what}: {detail}"));
     }
-    pub fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         self.lines.join("\n")
     }
 }
@@ -652,7 +652,7 @@ fn ambient_variable(name: &str) -> bool {
     std::env::var_os(name).is_some()
 }
 
-pub fn doctor(
+pub(crate) fn doctor(
     bundle: Option<&Path>,
     db: Option<&Path>,
     secrets_store: &Path,
@@ -951,7 +951,7 @@ fn doctor_with_probe(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn doctor_in(
     bundle: Option<&Path>,
     db: &Path,

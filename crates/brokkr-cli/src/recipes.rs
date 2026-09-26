@@ -26,7 +26,7 @@ const BUILTINS: [&str; 2] = ["bundles/self", "bundles/verify"];
 
 /// Resolve the run/resume bundle directory from the exactly-one-of
 /// `--bundle` / `--recipe` pair (clap's arg group enforces the arity).
-pub fn resolve(
+pub(crate) fn resolve(
     bundle: Option<PathBuf>,
     recipe: Option<String>,
     recipes_dir: &Path,
@@ -121,7 +121,7 @@ fn seat_summary(bundle: &Bundle) -> String {
 
 /// One line per recipe that compiles; a warning line per one that does
 /// not. Nothing aborts the listing: a broken recipe is information.
-pub fn list(workspace: &Path, dir: &Path) -> Result<()> {
+pub(crate) fn list(workspace: &Path, dir: &Path) -> Result<()> {
     let mut candidates: Vec<(String, PathBuf)> = Vec::new();
     match std::fs::read_dir(dir) {
         Ok(entries) => {
@@ -236,7 +236,7 @@ fn copy_into(from: &Path, dest: &Path) -> Result<()> {
 /// Install a recipe: clone or copy into `<dir>/<name>`, then
 /// compile-verify the copy. A copy that fails to compile is removed —
 /// the library only ever holds recipes the compiler accepted or nothing.
-pub fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
+pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
     let dest = dir.join(name);
     if dest.exists() {
         bail!(

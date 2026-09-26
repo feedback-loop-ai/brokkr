@@ -1,0 +1,6 @@
+# Decision 0071 ruling 4's ceilings, ruled from #335's baseline (#406).
+# A crate-level clippy.toml replaces this file rather than merging with it,
+# so any crate that has one repeats these three lines exactly.
+too-many-lines-threshold = 100
+excessive-nesting-threshold = 5
+too-many-arguments-threshold = 7

@@ -24,8 +24,10 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-#[allow(unused_imports)]
-use crate::agents::{Candidate, HarnessHands, ResultDoor};
+use crate::agents::{Candidate, ResultDoor};
+// The test modules reach `HarnessHands` through `use super::*`.
+#[cfg(test)]
+use crate::agents::HarnessHands;
 use crate::bundle::{
     dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState, PanelMember, Seat,
     SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
@@ -772,6 +774,7 @@ impl Engine {
     /// Seat input is a pure function of (journal, pinned bundle, feature):
     /// recovery rebuilds it and the digest recorded at request time must
     /// match, or the run parks instead of running something else.
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn seat_input(
         &self,
         state: &RunState,
@@ -989,6 +992,7 @@ impl Engine {
             .unwrap_or_else(|| self.workdir().join(".forge/secrets.env"))
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn execute(
         &mut self,
         events: &[EventEnvelope],
@@ -1326,7 +1330,7 @@ impl Engine {
     /// settled before anything spawns. Composite dispatch then reads the
     /// answers rather than re-deriving them on a worker thread that
     /// holds no journal.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn site_plans(
         &self,
         events: &[EventEnvelope],
@@ -1662,7 +1666,7 @@ impl Engine {
     /// is ever confirmed on them. `None` only for a dialect step, which
     /// spawns no driver and is stamped with neither. Appends NO terminal
     /// effect event: the caller owns the attempt's conclusion.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn run_driver(
         &mut self,
         effect_id: &str,
@@ -1805,7 +1809,7 @@ impl Engine {
     /// the outer machine sees. Any indeterminate member makes the whole
     /// attempt indeterminate (park); otherwise any failed member fails
     /// the attempt (retryable under 0006).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn execute_panel(
         &mut self,
         effect_id: &str,
@@ -1883,7 +1887,7 @@ impl Engine {
     /// role/result paths, `driver_seat_prefix` is the seat name (or
     /// `<seat>:<step>` inside a sequence), and `context` already carries
     /// any accumulated prior step results.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn member_runs(
         &mut self,
         attempt_id: &str,
@@ -1964,6 +1968,7 @@ impl Engine {
     /// declared order. Appends NO terminal effect event. `tag_prefix` is
     /// empty for a seat-level panel and `<step>:` inside a sequence, so
     /// the journaled member tag reads `<member>` or `<step>:<member>`.
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     fn run_panel(
         &mut self,
         effect_id: &str,
@@ -2166,7 +2171,12 @@ impl Engine {
     /// (0006-retryable — a retry restarts from step 1); an indeterminate
     /// step parks it. The FINAL step's result object is the effect's
     /// single typed result — decide() validates it exactly as today.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+    #[expect(
+        clippy::excessive_nesting,
+        clippy::too_many_lines,
+        reason = "baseline 2026-09, #288"
+    )]
     fn execute_sequence(
         &mut self,
         effect_id: &str,
@@ -2595,6 +2605,7 @@ impl Engine {
         Ok(())
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn decide(
         &mut self,
         state: &RunState,
@@ -3491,7 +3502,7 @@ pub enum FencedCommandOutcome {
 /// instead of slipping under it.
 // The arguments intentionally keep each security-relevant wire field explicit
 // at this narrow trust boundary rather than hiding them in an unvalidated bag.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn apply_fenced_operator_command(
     store: &mut Store,
     run_id: &str,
@@ -3519,7 +3530,8 @@ pub fn apply_fenced_operator_command(
 /// runs after `operator/commanded` lands and before the acceptance is
 /// written against it — the instant [`Store::append_next_if_head`]'s
 /// fence exists for. Production passes a no-op; tests pass a peer.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn apply_fenced_racing(
     store: &mut Store,
     run_id: &str,
@@ -4299,7 +4311,7 @@ fn ordinary_windows_component(component: &str) -> bool {
 ///   operator's keys;
 /// - under `open`, a model site: the base driver argv and nothing of
 ///   Brokkr's.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn compose_site(
     boundary: BuiltBoundary,
     class: SeatClass,
@@ -4443,6 +4455,7 @@ fn panel_outcome(aggregate: Aggregate, reports: Vec<(String, AttemptReport)>) ->
 /// member evidence attached — never coerced (law 0001). A member result
 /// outside the vocabulary ranks WORST and flows to decide(), whose
 /// declared-results check parks it with evidence.
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value {
     let mut notes = Map::new();
     let mut verdicts = Map::new();

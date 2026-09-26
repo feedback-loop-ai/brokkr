@@ -959,7 +959,7 @@ fn the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta() {
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn composite(
     core: &str,
     node: &str,
@@ -989,6 +989,7 @@ fn composite(
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_canonical_composite_orders_lines_and_moves_with_its_inputs() {
     let npm = vec!["debug 4.4.3 sha512-D".to_string()];
     let pnpm = vec![
@@ -1048,7 +1049,10 @@ fn the_canonical_composite_orders_lines_and_moves_with_its_inputs() {
         "debug 4.4.3 sha512-D".to_string(),
         "zzz 1.0.0 sha512-Y".to_string(),
     ];
-    #[allow(clippy::type_complexity)]
+    #[expect(
+        clippy::type_complexity,
+        reason = "one table of rows reads plainer inline than behind a type alias"
+    )]
     let rows: [(
         &str,
         &str,
@@ -2708,6 +2712,7 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
 /// combinations are driven below; the real child control reproduces the
 /// commissioned environment.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // This test READS the process `DSH_HOME` and asserts what it read;
     // the planner suite beside it sets a temporary one. Without the
@@ -3050,6 +3055,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
 /// invocation, and not the canonical target, is what runs.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
     let dir = tempfile::tempdir().unwrap();
     let a = dir.path().join("a");
@@ -3226,6 +3232,7 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
 /// alone, and a probe that rewrites the admitted files changes nothing
 /// the composite reads.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained() {
     let install = Synthetic::new();
     let profile = install.profile();
@@ -4307,6 +4314,7 @@ fn pnpm_with_resolution(resolution: &str) -> String {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() {
     let install = Synthetic::new();
     // The properly separated control is readable and is the identity
@@ -5618,6 +5626,7 @@ fn removing_only_the_plugin_manifest_names_the_drifted_file() {
 /// 2026-09-20, finding 2). Each arm is asserted by its reason.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -6455,6 +6464,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
 /// kernel spells it, so the obstruction is a refusal before any probe.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     use std::os::unix::fs::PermissionsExt;
     use std::process::{Command, Stdio};
@@ -7106,6 +7116,7 @@ fn an_env_invocation_needs_the_file_that_runs() {
 /// third hold, R3).
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn env_identity_is_the_file_and_never_a_name() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -7237,6 +7248,7 @@ fn env_identity_is_the_file_and_never_a_name() {
 /// evidence for any platform this suite does not run on.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     use rustix::io::Errno;
 
@@ -8166,6 +8178,7 @@ fn the_apple_arm_answers_an_oversized_component_by_its_construction_bound() {
 /// unrecognized executable actually takes.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -8405,6 +8418,7 @@ fn each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm() {
 /// (review 2026-09-20, R6).
 #[cfg(all(unix, not(target_vendor = "apple")))]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_native_images_loader_is_read_as_the_kernel_reads_it() {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
@@ -9035,6 +9049,7 @@ fn npm_locks_reject_unparseable_and_incomplete_entries() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn pnpm_locks_reject_every_unrecognized_construct() {
     let blank = "\nlockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n";
     assert_eq!(

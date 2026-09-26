@@ -228,6 +228,7 @@ pub(super) fn inspect(source: &mut (impl Read + Seek), len: u64) -> Result<Nativ
 /// The ELF rule, as `load_elf_binary` applies it: header identity, type,
 /// machine, a bounded program-header table inside the file, every load
 /// segment's sizes consistent, and at most one well-formed `PT_INTERP`.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn elf(source: &mut (impl Read + Seek), len: u64) -> Result<Native, String> {
     let header = read_range(source, len, 0, 64, "an ELF header")?;
     let header = Bytes(&header);

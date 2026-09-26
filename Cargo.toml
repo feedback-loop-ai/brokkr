@@ -24,6 +24,20 @@ repository = "https://github.com/feedback-loop-ai/brokkr"
 
 [workspace.lints.rust]
 unexpected_cfgs = "warn"
+unreachable_pub = "warn"
+
+# Decision 0071 ruling 4, ratcheted (#337): the ceilings are clippy.toml's,
+# and today's offenders carry #[expect(.., reason)], which
+# unfulfilled_lint_expectations forces out as each is fixed.
+[workspace.lints.clippy]
+too_many_lines = "warn"
+excessive_nesting = "warn"
+struct_excessive_bools = "warn"
+fn_params_excessive_bools = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+todo = "warn"
 
 [workspace.dependencies]
 regex = "1.13"

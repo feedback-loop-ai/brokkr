@@ -412,7 +412,8 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 /// call's generated identity files and private home and tmp; `session`
 /// holds what outlives a call — the upper layers of overlay binds — and
 /// is the seat's to remove when it ends.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 pub fn box_argv(
     spec: &HandsSpec,
     workdir: &Path,
@@ -1062,7 +1063,7 @@ pub fn execute(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn execute_in(
     bwrap: &Path,
     spec: &HandsSpec,
@@ -1148,7 +1149,7 @@ pub fn run_boxed(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn run_boxed_in(
     bwrap: &Path,
     spec: &HandsSpec,

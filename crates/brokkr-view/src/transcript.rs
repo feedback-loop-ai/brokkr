@@ -516,7 +516,7 @@ impl TranscriptRead {
     }
 
     /// A readable projection, possibly zero-turn.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub fn readable(
         reference: Option<Transcript>,
         legacy: bool,
@@ -557,7 +557,7 @@ impl TranscriptRead {
     }
     /// A refused result. `path`, counts, truncation and the hint are
     /// supplied only where the failure-stage matrix establishes them.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub fn refused(
         reference: Option<Transcript>,
         legacy: bool,
@@ -1304,6 +1304,7 @@ fn codex_row(value: &Value) -> CodexRecord {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
     let Some(kind) = payload.get("type").and_then(Value::as_str) else {
         return (Vec::new(), String::new(), true);
@@ -1470,6 +1471,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
     let Some(kind) = payload.get("type").and_then(Value::as_str) else {
         return (Vec::new(), String::new(), true);
@@ -1640,6 +1642,7 @@ fn codex_command_output(payload: &Value) -> String {
         .to_string()
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
     let Some(kind) = item.get("type").and_then(Value::as_str) else {
         return (Vec::new(), String::new(), true);
@@ -2206,6 +2209,7 @@ struct UniqueSegments {
 }
 
 impl UniqueSegments {
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     fn new(spans: &[(i64, i64)]) -> UniqueSegments {
         // Half-open endpoint deltas over `i128`: a span ending at
         // `i64::MAX` still has a representable exclusive endpoint, and an
@@ -2271,6 +2275,7 @@ struct CitationCoverage {
 }
 
 impl CitationCoverage {
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     fn new(assemblies: &[AssemblyFact]) -> CitationCoverage {
         let mut grouped: BTreeMap<StepKey, Vec<CoverageEdge>> = BTreeMap::new();
         for assembly in assemblies {
@@ -2581,6 +2586,7 @@ fn block_text_bytes(blocks: &[DshBlock]) -> usize {
     blocks.iter().map(|block| block.block.text.len()).sum()
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // Format admission precedes every projection allocation: a refused
     // opening header returns before any later physical row is decoded,
@@ -3192,6 +3198,7 @@ fn dsh_seq(value: &Value) -> Option<i64> {
         .and_then(Value::as_i64)
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
     let Some(object) = value.as_object() else {
         return DshRow::Unrecognized;

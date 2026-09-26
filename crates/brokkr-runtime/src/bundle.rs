@@ -1114,6 +1114,11 @@ impl Bundle {
     /// The agent roots ride through: composition resolves the bundle,
     /// then agent references inside the RESOLVED seats resolve against
     /// the library and adapters (decisions 0016 and 0017 layered).
+    #[expect(
+        clippy::excessive_nesting,
+        clippy::too_many_lines,
+        reason = "baseline 2026-09, #288"
+    )]
     fn assemble(
         dir: &Path,
         resolved: compose::Resolved,
@@ -2119,7 +2124,7 @@ fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileErr
 
 /// Resolve `"agent": "<name>"` into an ordinary seat body, and record
 /// the resolution under this invocation site.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn resolve_reference(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
@@ -2448,6 +2453,7 @@ fn unreadable_destination(flags: &[String]) -> String {
 /// bundle's identity carries what let it judge. An agent site needs no
 /// entry here — its resolution record already pins every adapter its
 /// chain consulted.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn enforce_model_policy(
     what: &str,
     raw: &Value,
@@ -3268,7 +3274,7 @@ fn parse_select(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn parse_panel(
     dir: &Path,
     what: &str,
@@ -3382,6 +3388,7 @@ fn parse_panel(
 /// Parse a sequence body: named steps, each a single driver or a panel,
 /// run serially inside one effect. At least two steps (a one-step
 /// sequence is a single seat); names unique case-insensitively.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_sequence(
     dir: &Path,
     phase: &str,
@@ -3844,7 +3851,7 @@ fn fold_driver_facts(drivers: &mut Map<String, Value>, sites: &BTreeMap<String, 
 /// everything derived from it — and so the chain survives the dispatch
 /// manifest round-trip, which copies `files` verbatim. `agents` is the
 /// resolution record (decision 0016), pinned for the same reason.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn manifest_for(
     dir: &Path,
     bundle_name: &str,

@@ -199,6 +199,7 @@ fn runner_args_for(
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     let layout = Layout::linked();
     let argv = layout.argv(&["bash", "-lc", "git add -A"]).unwrap();
@@ -490,6 +491,7 @@ fn a_bind_whose_source_is_not_its_destination_is_not_the_workspace_grant() {
 /// entry is exercised here, and an option outside the table refuses the
 /// command rather than being skipped.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
     let none: &[&str] = &[];
     /// One row of the table under test: the option, how many arguments
@@ -2608,6 +2610,7 @@ fn the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place() {
 /// skipping, so this proof cannot report `ok` without running.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     use crate::hands::{boundary_evidence_required, skip_boundary_proof};
     let required = boundary_evidence_required();

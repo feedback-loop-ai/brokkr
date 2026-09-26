@@ -348,6 +348,7 @@ struct Findings {
     unruled: Vec<(String, String, Map<String, Value>)>,
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn sweep(t: &Table) -> Findings {
     let mut findings = Findings::default();
     let mut groups: BTreeMap<(String, String), Vec<&Value>> = BTreeMap::new();

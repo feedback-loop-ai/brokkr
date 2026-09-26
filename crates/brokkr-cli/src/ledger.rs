@@ -105,7 +105,7 @@ fn is_commit_id(value: &str) -> bool {
 /// the v1 journal has no run-start Git head, so the bounded range is the
 /// repository's commits timestamped after the first journal event, augmented by
 /// any commit IDs a newer result records explicitly.
-pub fn render(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Result<String> {
+pub(crate) fn render(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Result<String> {
     let feature = events
         .first()
         .and_then(|event| event.payload.get("feature"))
@@ -160,7 +160,11 @@ pub fn render(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Result<Str
     Ok(ledger)
 }
 
-pub fn write(run_id: &str, events: &[EventEnvelope], repo: &Path) -> Result<std::path::PathBuf> {
+pub(crate) fn write(
+    run_id: &str,
+    events: &[EventEnvelope],
+    repo: &Path,
+) -> Result<std::path::PathBuf> {
     let ledger = render(run_id, events, repo)?;
     let path = repo.join(".forge/ledger").join(format!("{run_id}.md"));
     std::fs::create_dir_all(path.parent().expect("ledger path has a parent"))

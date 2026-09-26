@@ -62,7 +62,7 @@ fn status_str(status: &Status) -> &'static str {
 /// DNS-rebinding guard: a remote page can make the victim's browser
 /// resolve an attacker domain to 127.0.0.1 and read journals unless the
 /// Host header is pinned to loopback names. Reject everything else.
-pub fn request_allowed(method: &str, host: Option<&str>) -> bool {
+pub(crate) fn request_allowed(method: &str, host: Option<&str>) -> bool {
     if method != "GET" {
         return false;
     }
@@ -236,6 +236,7 @@ pub(crate) enum Discovery {
 /// One lookup's collected facts, resolved after the bounded scope is
 /// exhausted so iterator order never chooses the explanation.
 #[derive(Default)]
+#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
 struct Lookup {
     candidates: Vec<AdmittedSource>,
     examined: usize,
@@ -932,7 +933,6 @@ fn refused_source(
 /// One safely discovered Claude source by flat id: the journal-independent
 /// lookup the API, SSE and browser routes share. Each call revalidates
 /// unique safe discovery rather than trusting an earlier spelling.
-#[allow(dead_code)] // consumed by the SSE/watch and browser routes as they land
 pub(crate) fn claude_source(id: &str, home: Option<&str>) -> Discovery {
     // The projects home arrives as a parameter, the same split
     // `read_local`/`read_with_home` already uses, so the missing-home arm is
@@ -1314,7 +1314,7 @@ fn serve_listener(
 
 /// Bind loopback and serve until killed. Returns the bound port (0 in
 /// `port` picks an ephemeral one).
-pub fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
+pub(crate) fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     serve_listener(db, listener, open_browser, None, open_system_browser)
 }

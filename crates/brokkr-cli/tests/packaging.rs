@@ -1310,6 +1310,7 @@ fn the_crate_carries_the_dialect_library_it_scaffolds_byte_for_byte() {
 /// own directory: such a file is absent from the published tarball and
 /// the crate fails to verify at `cargo publish`.
 #[test]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn no_crate_includes_a_file_from_outside_itself() {
     let crates = workspace().join("crates");
     let mut offenders = Vec::new();

@@ -10,6 +10,8 @@ The measurements every code-moving story in epic #330 is judged against (#335). 
 | `jscpd-baseline-tests.json` | Clone fingerprints in test Rust |
 | `jscpd-baseline-data.json` | Clone fingerprints in JSON and Markdown. `contracts/`, `reference/` and `fixtures/` are left out because they are deliberately frozen copies, and so are their in-crate twins that tests pin byte for byte to them: `crates/brokkr-store/src/seat-record.v*.schema.json` and `crates/brokkr-cli/dialects/`. `.github/lint/`, the lint tools' generated npm lockfile, is left out too |
 | `too-many-lines.txt` | Every function over clippy's default 100 lines, production and test apart, with its line count and location |
+| `suppressions.txt` | Every `#[expect]` and `#[allow]` in the Rust sources, by lint, production and test apart. The suppressions test (`crates/brokkr-cli/tests/suppressions.rs`) holds the tree to it exactly, so a count moves only by an edit of this file (#337) |
+| `duplicate-skips.txt` | Every duplicate crate version `deny.toml`'s `[bans]` skips, as `name@version`. The layering test (`crates/brokkr-cli/tests/layering/`) holds the skip list to it exactly, so a new skip needs an edit of this file (#337) |
 | `measure.sh` | The exact commands that produce all of the above |
 
 ## Refresh

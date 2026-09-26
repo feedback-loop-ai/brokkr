@@ -1223,7 +1223,10 @@ fn a_wal_conversion_refused_for_a_reason_other_than_busy_fails_at_once() {
     let refused = Store::open(&path).err().map(|error| error.to_string());
     assert!(refused.is_some(), "a sealed file opened anyway");
     let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-    #[allow(clippy::permissions_set_readonly_false)]
+    #[expect(
+        clippy::permissions_set_readonly_false,
+        reason = "the test restores write access so its temp dir can be removed"
+    )]
     permissions.set_readonly(false);
     std::fs::set_permissions(&path, permissions).unwrap();
 }

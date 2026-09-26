@@ -2010,6 +2010,7 @@ fn scope_tags_are_precomputed_so_no_surface_implements_the_predicate() {
 // ----------------------------------------------------- AC-11, AC-12
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_trail_classifies_every_event_type_it_knows() {
     let events = vec![
         ev(1, EventType::RunStarted, json!({"feature": "hello"}), T0),

@@ -89,6 +89,7 @@ fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     assert_eq!(AdapterKind::parse("claude"), Some(AdapterKind::Claude));
     assert_eq!(
@@ -275,6 +276,7 @@ fn served_model_evidence_is_strict_and_dsh_reads_nested_usage_chunks() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     let mut env = EnvGuard::lock();
     struct BrokenWriter;
@@ -896,6 +898,7 @@ fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -2336,6 +2339,7 @@ fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
 /// accounting (2026-09-16 live proof) requires.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -2574,6 +2578,7 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
 /// checkpoint saying why.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -2943,6 +2948,7 @@ fn the_sandbox_declaration_is_read_in_both_of_its_spellings() {
 /// spellings of a value flag are the same declaration, and a value is
 /// never read as a part in its own right.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
     let blocker = |parts: &[&str]| {
         let passthrough: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
@@ -3347,6 +3353,7 @@ fn a_codex_whose_version_cannot_be_read_declines_the_offer() {
 /// into a different valid-looking identifier, and a version nobody can
 /// compare is treated as no version at all.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_launch_hold_bounds_its_facts_and_publishes_exactly_once() {
     for (id, ok) in [
         ("019c4b7e-0000-7000-8000-000000000001", true),
@@ -3643,6 +3650,7 @@ fn qualify_refuses_a_current_version_stale_origin() {
 /// also carry.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_claude_resume_is_the_cold_argv_plus_exactly_one_owned_selector() {
     const CLAUDE_VERSION: &str = "2.1.266";
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -3878,6 +3886,7 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
 // `executable`/`version_preamble` are Unix-only helpers.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_lanetally_wrapper_resumes_on_its_own_shape_and_its_own_binary() {
     const WRAPPER_VERSION: &str = "2.1.266";
     let dir = tempfile::tempdir().unwrap();
@@ -5125,6 +5134,7 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
 /// drives the plan's own `first_seq` through `drain_dsh_transcript`.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -6577,6 +6587,7 @@ fn dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids() {
 /// still lets the store behind it confirm.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body() {
     let cases = [
         DshLatchCase {
@@ -6895,6 +6906,7 @@ fn dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement() {
 /// `a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement`.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing() {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
@@ -7450,6 +7462,7 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
 /// actually came back on the wire.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_miscorrelated_duplicate_or_unnegotiated_offer_launches_nothing() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -8434,6 +8447,7 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
 /// runner would, and commits through it.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -10092,6 +10106,7 @@ fn dsh_recording_version_shim(
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -10244,6 +10259,7 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -10582,6 +10598,7 @@ enum DshAdmission {
 /// (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
     use DshAdmission::{Control, Field};
     // A plain identifier, so it is also a VALID model id: the control
@@ -11199,6 +11216,7 @@ fn assert_shipped_cold_command(command: &[String], bin: &str) {
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -11624,6 +11642,7 @@ fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     let dir = tempfile::tempdir().unwrap();
     let canonical = dir.path().canonicalize().unwrap();
@@ -11960,6 +11979,7 @@ fn the_planned_locator_is_bounded_before_anything_is_staged() {
 
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -12353,6 +12373,7 @@ fn assert_dsh_planner_overlay(launch: &DshLaunch, stream: bool) {
 /// identity mismatch with an offer.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
@@ -12504,6 +12525,7 @@ fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() 
 /// producer call or the version probe, and names no value.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
     use sha2::{Digest, Sha256};
 
@@ -12801,6 +12823,7 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
 /// refuse pre-staging; the digest check runs before the shape check.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
     use sha2::{Digest, Sha256};
 
@@ -13453,7 +13476,10 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
 /// because it is the same producer that reads it.
 #[cfg(unix)]
 struct DshInstall {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "held for its Drop: the install's temp dir lives as long as the install"
+    )]
     dir: tempfile::TempDir,
     root: std::path::PathBuf,
     home: std::path::PathBuf,
@@ -13639,6 +13665,7 @@ fn dsh_logging_version_shim(
 /// safety / AS1, evidence / LE2).
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
     let mut env = EnvGuard::lock();
 
@@ -13869,6 +13896,7 @@ fn dsh_plan_probed(
 /// confirmed launch row keeps its `root_session` and `transcript`.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_journal() {
     use sha2::{Digest, Sha256};
 

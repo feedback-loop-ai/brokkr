@@ -340,6 +340,7 @@ fn every_execution_bound_and_callback_origin_is_validated() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn manifest_conversion_refuses_every_malformed_boundary() {
     let valid = bundle();
     let bundle_sha = canonical::sha256_hex(&valid);

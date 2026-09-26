@@ -18,7 +18,7 @@ static ENVIRONMENT: Mutex<()> = Mutex::new(());
 
 /// Exclusive use of the process environment until drop, with every
 /// variable it changed put back.
-pub struct EnvGuard {
+pub(crate) struct EnvGuard {
     saved: Vec<(OsString, Option<OsString>)>,
     _lock: MutexGuard<'static, ()>,
 }
@@ -26,19 +26,19 @@ pub struct EnvGuard {
 impl EnvGuard {
     /// Wait for the environment. A reader that changes nothing holds the
     /// guard as well, so it never observes another test's value.
-    pub fn lock() -> Self {
+    pub(crate) fn lock() -> Self {
         Self {
             saved: Vec::new(),
             _lock: ENVIRONMENT.lock().unwrap_or_else(PoisonError::into_inner),
         }
     }
 
-    pub fn set(&mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
+    pub(crate) fn set(&mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
         self.save(key.as_ref());
         write(key.as_ref(), Some(value.as_ref()));
     }
 
-    pub fn remove(&mut self, key: impl AsRef<OsStr>) {
+    pub(crate) fn remove(&mut self, key: impl AsRef<OsStr>) {
         self.save(key.as_ref());
         write(key.as_ref(), None);
     }

@@ -18,20 +18,21 @@ use super::StartupNegativeAllowance;
 use brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS;
 
 /// The typed placeholder replacing the concrete cell root in normalized units.
-pub const PLACEHOLDER_CELL_ROOT: &str = "<cell-root>";
+pub(crate) const PLACEHOLDER_CELL_ROOT: &str = "<cell-root>";
 /// The typed placeholder replacing the concrete payload root.
-pub const PLACEHOLDER_PAYLOAD_ROOT: &str = "<payload-root>";
+pub(crate) const PLACEHOLDER_PAYLOAD_ROOT: &str = "<payload-root>";
 /// The typed placeholder replacing the concrete helper path.
-pub const PLACEHOLDER_HELPER: &str = "<helper>";
+pub(crate) const PLACEHOLDER_HELPER: &str = "<helper>";
 
 /// The five toolchain binds whose programs a boxed `bash -lc` may execute.
 /// Each must be a source in [`HOST_TOOLCHAIN_BINDS`]; the check confirms that,
 /// and a `process-exec` toolchain unit on any other bind fails by name.
-pub const PROGRAM_BINDS: [&str; 5] = ["/usr/bin", "/usr/libexec", "/usr/local", "/bin", "/sbin"];
+pub(crate) const PROGRAM_BINDS: [&str; 5] =
+    ["/usr/bin", "/usr/libexec", "/usr/local", "/bin", "/sbin"];
 
 /// One `allow` form with one operation and at most one simple filter.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuleUnit {
+pub(crate) struct RuleUnit {
     pub operation: String,
     pub filter: Option<RuleFilter>,
 }
@@ -39,7 +40,7 @@ pub struct RuleUnit {
 /// One simple filter: a filter name and exactly one argument, a string or the
 /// symbol `self`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuleFilter {
+pub(crate) struct RuleFilter {
     pub name: String,
     pub target: String,
 }
@@ -70,7 +71,7 @@ impl RuleFilter {
 
 impl RuleUnit {
     /// Render this unit as one normalized or concrete `allow` form.
-    pub fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         match &self.filter {
             None => format!("(allow {})", self.operation),
             Some(filter) if filter.is_self() => {
@@ -92,7 +93,7 @@ impl RuleUnit {
 
 /// The closed set of hands elements a baseline entry may name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HandsElement {
+pub(crate) enum HandsElement {
     Toolchain,
     SystemLibrary,
     WritableWorktree,
@@ -102,7 +103,7 @@ pub enum HandsElement {
 
 /// The recorded justification kind of a baseline entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BaselineKind {
+pub(crate) enum BaselineKind {
     HandsElement(HandsElement),
     ExecutionInput,
     ProbeHarnessNeed,
@@ -112,7 +113,7 @@ pub enum BaselineKind {
 /// native denial evidence showed its read refused under another resolved
 /// spelling. It keeps the same justification and records the evidence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SystemLibraryCorrection {
+pub(crate) struct SystemLibraryCorrection {
     pub replaces: String,
     pub resolved: String,
     pub evidence: String,
@@ -120,7 +121,7 @@ pub struct SystemLibraryCorrection {
 
 /// The baseline half's justification.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Baseline {
+pub(crate) struct Baseline {
     pub kind: BaselineKind,
     pub justification: String,
     pub correction: Option<SystemLibraryCorrection>,
@@ -128,7 +129,7 @@ pub struct Baseline {
 
 /// The diagnosis-admitted half's recorded evidence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiagnosisAdmission {
+pub(crate) struct DiagnosisAdmission {
     pub process: String,
     pub consumer: String,
     pub evidence: String,
@@ -137,21 +138,21 @@ pub struct DiagnosisAdmission {
 
 /// Every unit carries exactly one class.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LedgerClass {
+pub(crate) enum LedgerClass {
     Baseline(Baseline),
     DiagnosisAdmitted(DiagnosisAdmission),
 }
 
 /// One ledger entry: a rule unit and its single class.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LedgerEntry {
+pub(crate) struct LedgerEntry {
     pub unit: RuleUnit,
     pub class: LedgerClass,
 }
 
 /// A typed concrete input the check validates before any normalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CheckInputs {
+pub(crate) struct CheckInputs {
     pub cell_root: String,
     pub payload_root: String,
     pub inputs_dir: String,
@@ -163,7 +164,7 @@ pub struct CheckInputs {
 /// it; [`std::fmt::Display`] renders the human reason. The check collects
 /// these in a fixed order instead of stopping at the first one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CheckRefusal {
+pub(crate) enum CheckRefusal {
     /// Stage 1: a concrete input failed one validation rule before any rewrite.
     Input {
         rule: &'static str,
@@ -371,7 +372,7 @@ fn input_refusal(
 
 /// Render an ordered refusal list as one human string. The check returns every
 /// refusal it finds, so the report and the native cell name all of them.
-pub fn render_refusals(refusals: &[CheckRefusal]) -> String {
+pub(crate) fn render_refusals(refusals: &[CheckRefusal]) -> String {
     refusals
         .iter()
         .map(CheckRefusal::to_string)
@@ -390,7 +391,7 @@ fn filter(name: &str, target: &str) -> Option<RuleFilter> {
     })
 }
 
-pub fn unit(operation: &str, name: &str, target: &str) -> RuleUnit {
+pub(crate) fn unit(operation: &str, name: &str, target: &str) -> RuleUnit {
     RuleUnit {
         operation: operation.to_string(),
         filter: filter(name, target),
@@ -404,7 +405,7 @@ fn unfiltered(operation: &str) -> RuleUnit {
     }
 }
 
-pub fn entry(unit: RuleUnit, element: HandsElement, justification: &str) -> LedgerEntry {
+pub(crate) fn entry(unit: RuleUnit, element: HandsElement, justification: &str) -> LedgerEntry {
     LedgerEntry {
         unit,
         class: LedgerClass::Baseline(Baseline {
@@ -455,6 +456,7 @@ fn diagnosis(
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn build_ledger() -> Vec<LedgerEntry> {
     let mut ledger =
         vec![
@@ -618,7 +620,7 @@ fn build_ledger() -> Vec<LedgerEntry> {
 
 /// The one committed, typed startup-rule ledger. It lives beside the removal
 /// set and is the only source of the candidate's authority.
-pub static STARTUP_RULE_LEDGER: LazyLock<Vec<LedgerEntry>> = LazyLock::new(build_ledger);
+pub(crate) static STARTUP_RULE_LEDGER: LazyLock<Vec<LedgerEntry>> = LazyLock::new(build_ledger);
 
 // ---------------------------------------------------------------------------
 // The fa7 disposition table
@@ -626,7 +628,7 @@ pub static STARTUP_RULE_LEDGER: LazyLock<Vec<LedgerEntry>> = LazyLock::new(build
 
 /// How a measured fa7 template unit is disposed of in the candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fa7Disposition {
+pub(crate) enum Fa7Disposition {
     /// The unit is carried by the ledger unchanged.
     Carried,
     /// The unit carries no authority in the candidate.
@@ -637,7 +639,7 @@ pub enum Fa7Disposition {
 
 /// One fa7 unit's recorded disposition and reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Fa7Record {
+pub(crate) struct Fa7Record {
     pub unit: RuleUnit,
     pub disposition: Fa7Disposition,
     pub reason: &'static str,
@@ -646,7 +648,7 @@ pub struct Fa7Record {
 /// The measured `fa7ece5` `sandbox_profile` template, normalized so its
 /// controller-generated root, payload root and helper take the typed
 /// placeholders. It is the probe's test data, kept verbatim otherwise.
-pub const FA7_TEMPLATE: &str = "\
+pub(crate) const FA7_TEMPLATE: &str = "\
 (version 1)\n\
 (deny default)\n\
 (allow process*)\n\
@@ -658,7 +660,7 @@ pub const FA7_TEMPLATE: &str = "\
 (allow ipc-posix-shm)\n";
 
 /// The fa7 unit dispositions, one per normalized unit of [`FA7_TEMPLATE`].
-pub static FA7_RECORDS: LazyLock<Vec<Fa7Record>> = LazyLock::new(|| {
+pub(crate) static FA7_RECORDS: LazyLock<Vec<Fa7Record>> = LazyLock::new(|| {
     let records = vec![
         Fa7Record {
             unit: unfiltered("process*"),
@@ -775,7 +777,7 @@ pub static FA7_RECORDS: LazyLock<Vec<Fa7Record>> = LazyLock::new(|| {
 
 /// The historical targets of withdrawn or narrowed fa7 units. A system-library
 /// correction SHALL NOT equal or contain one of these.
-pub const FA7_HISTORICAL_TARGETS: [&str; 6] = [
+pub(crate) const FA7_HISTORICAL_TARGETS: [&str; 6] = [
     "/usr",
     "/System",
     "/Library",
@@ -786,7 +788,7 @@ pub const FA7_HISTORICAL_TARGETS: [&str; 6] = [
 
 /// Parse the retained fa7 template and require a disposition for every unit,
 /// including the four `8c53dce` additions.
-pub fn check_fa7_dispositions() -> Result<(), CheckRefusal> {
+pub(crate) fn check_fa7_dispositions() -> Result<(), CheckRefusal> {
     let parsed = parse_template(FA7_TEMPLATE)?;
     let records = &*FA7_RECORDS;
     for unit in &parsed.units {
@@ -854,14 +856,14 @@ pub fn check_fa7_dispositions() -> Result<(), CheckRefusal> {
 /// withdrew or narrowed, so none is a ledger entry and the check refuses any
 /// profile that carries one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Fa7Restoration {
+pub(crate) struct Fa7Restoration {
     pub unit: RuleUnit,
     pub reason: &'static str,
 }
 
 /// Every withdrawn or narrowed fa7 unit, in disposition order. The seven
 /// one-class differentials are kept separate and are not part of this set.
-pub static FA7_RESTORATIONS: LazyLock<Vec<Fa7Restoration>> = LazyLock::new(|| {
+pub(crate) static FA7_RESTORATIONS: LazyLock<Vec<Fa7Restoration>> = LazyLock::new(|| {
     FA7_RECORDS
         .iter()
         .filter(|record| {
@@ -882,7 +884,7 @@ pub static FA7_RESTORATIONS: LazyLock<Vec<Fa7Restoration>> = LazyLock::new(|| {
 /// and helper substituted for their placeholders. It is diagnostic text only,
 /// never a candidate; the caller records it and the check refuses any profile
 /// that carries a restored unit because none is a ledger entry.
-pub fn render_restoration_profile(
+pub(crate) fn render_restoration_profile(
     candidate: &str,
     restored: &[RuleUnit],
     inputs: &CheckInputs,
@@ -1026,7 +1028,7 @@ impl<'a> Parser<'a> {
 }
 
 /// The parsed template: the closed grammar's units, in order.
-pub struct ParsedTemplate {
+pub(crate) struct ParsedTemplate {
     pub units: Vec<RuleUnit>,
 }
 
@@ -1034,7 +1036,8 @@ pub struct ParsedTemplate {
 /// It refuses everything the closed normalization refuses, naming what it
 /// found; it never keeps a first operation, skips a form or unescapes a
 /// string.
-pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+pub(crate) fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
     let tokens = tokenize(text)?;
     let mut parser = Parser {
         tokens: &tokens,
@@ -1395,7 +1398,7 @@ fn spelling_set(source: &str) -> Vec<String> {
 /// The non-direct resolved spellings of a host-toolchain source: its
 /// `/private` spelling where one exists and its `/System/Volumes/Data`
 /// spelling. A denial event on one of these is a respelling, never a grant.
-pub fn toolchain_respelled_spellings(source: &str) -> Vec<String> {
+pub(crate) fn toolchain_respelled_spellings(source: &str) -> Vec<String> {
     let mut spellings = Vec::new();
     if let Some(private) = private_spelling(source) {
         spellings.push(private);
@@ -1424,7 +1427,7 @@ fn device_set_literals() -> Vec<String> {
 
 /// The path-valued denial-control targets, in direct and `/private` spelling
 /// where one exists, plus the data-volume control.
-pub fn path_denial_control_targets() -> Vec<String> {
+pub(crate) fn path_denial_control_targets() -> Vec<String> {
     let mut targets = Vec::new();
     for target in CREDENTIAL_READ_DENIAL_TARGETS {
         targets.push(target.to_string());
@@ -1493,7 +1496,7 @@ fn concretize_unit(unit: &RuleUnit, validated: &ValidatedInputs) -> RuleUnit {
 /// Confirm every listed program bind is a host-toolchain source. The pure
 /// sub-function takes both lists as parameters, so a falsification test can
 /// exercise the refusal the real five-entry constant can never trigger.
-pub fn confirm_program_binds(
+pub(crate) fn confirm_program_binds(
     program_binds: &[&str],
     host_toolchain: &[&str],
 ) -> Result<(), CheckRefusal> {
@@ -1513,7 +1516,8 @@ pub fn confirm_program_binds(
 /// pure function; it collects every refusal in a fixed order instead of
 /// stopping at the first, so a unit that fails both its anchor and the process
 /// rule is named under both.
-pub fn check_startup_candidate(
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+pub(crate) fn check_startup_candidate(
     profile: &str,
     ledger: &[LedgerEntry],
     removal_set: &[StartupNegativeAllowance],
@@ -1869,6 +1873,7 @@ fn anchor_target(kind: &'static str, unit: &RuleUnit, target: &str, detail: &str
 /// A baseline entry's two-part anchor: its operation is one the element or kind
 /// admits, matched by exact name, and its target passes that element's or
 /// kind's target test.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn check_baseline_anchor(entry: &LedgerEntry, refusals: &mut Vec<CheckRefusal>) {
     let baseline = match &entry.class {
         LedgerClass::Baseline(baseline) => baseline,
@@ -2111,7 +2116,7 @@ fn check_baseline_anchor(entry: &LedgerEntry, refusals: &mut Vec<CheckRefusal>) 
 /// Render the candidate profile: exactly the two-form frame, then one `allow`
 /// form per ledger entry in ledger order, with the validated concrete values
 /// substituted for the placeholders.
-pub fn render_candidate_profile(ledger: &[LedgerEntry], inputs: &CheckInputs) -> String {
+pub(crate) fn render_candidate_profile(ledger: &[LedgerEntry], inputs: &CheckInputs) -> String {
     let concrete = CheckInputs {
         cell_root: inputs.cell_root.clone(),
         payload_root: inputs.payload_root.clone(),
@@ -2126,7 +2131,7 @@ pub fn render_candidate_profile(ledger: &[LedgerEntry], inputs: &CheckInputs) ->
     profile
 }
 
-pub fn render_concrete_unit(unit: &RuleUnit, inputs: &CheckInputs) -> String {
+pub(crate) fn render_concrete_unit(unit: &RuleUnit, inputs: &CheckInputs) -> String {
     let mut unit = unit.clone();
     if let Some(filter) = unit.filter.as_mut() {
         if !filter.is_self() {

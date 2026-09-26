@@ -1379,6 +1379,7 @@ fn the_shipped_cold_transcript_name_keeps_its_seat_telemetry() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn conformance_across_all_builtin_adapters() {
     for case in ["obedient", "silent"] {
         let dir = tempfile::tempdir().unwrap();
@@ -2295,6 +2296,7 @@ fn a_resumed_mismatch_is_never_an_accepted_success() {
 /// first gate decline with `unsupported-resume` and this test fails, so
 /// it proves behavior rather than reading a declaration back.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -2479,6 +2481,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
 /// status to `unmeasured` — or dropping `not applicable` from the declared
 /// boundaries — makes the retry cold and fails this test.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()

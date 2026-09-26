@@ -1336,6 +1336,7 @@ struct PnpmEntry {
 /// kin) are skipped by design: nothing under them can reach a triple,
 /// because only an indent-0 key opens a section and only `packages`
 /// admits a record.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, CompositeError> {
     let bad = |why: &str| CompositeError::PnpmLock(why.to_string());
     if lock.contains('\t') {
@@ -1674,7 +1675,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
 /// the source it was read from, so the separators it introduces — the
 /// spaces inside a `core` or `dependency` value, the NUL and the newline
 /// between them — are the only ones in the stream.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn canonical_composite(
     core: &str,
     node: &str,

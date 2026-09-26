@@ -20,7 +20,7 @@ use brokkr_core::realms::{Boundary, BOUNDARIES};
 
 /// What this machine says about one boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Offer {
+pub(crate) enum Offer {
     /// A run may start under it; the detail names what was found
     /// (`bwrap`'s path or version) or that nothing was needed.
     Offered(String),
@@ -38,7 +38,7 @@ pub enum Offer {
 /// The table, from one lookup: `look(tool)` answers with a detail when
 /// the tool is available (its path on a search path, its version under
 /// `doctor`'s probe) and `None` when it is not.
-pub fn offered(look: &dyn Fn(&str) -> Option<String>) -> BTreeMap<Boundary, Offer> {
+pub(crate) fn offered(look: &dyn Fn(&str) -> Option<String>) -> BTreeMap<Boundary, Offer> {
     BOUNDARIES
         .into_iter()
         .map(|boundary| {
@@ -70,7 +70,7 @@ pub fn offered(look: &dyn Fn(&str) -> Option<String>) -> BTreeMap<Boundary, Offe
 
 /// A lookup over one search path: the tool's path when a regular file of
 /// that name is on it.
-pub fn on_path(path: &OsStr) -> impl Fn(&str) -> Option<String> + '_ {
+pub(crate) fn on_path(path: &OsStr) -> impl Fn(&str) -> Option<String> + '_ {
     move |tool: &str| {
         std::env::split_paths(path)
             .map(|dir| dir.join(tool))
@@ -84,7 +84,10 @@ pub fn on_path(path: &OsStr) -> impl Fn(&str) -> Option<String> + '_ {
 /// boundary, what it needs and what was found, and the seats — before
 /// any journal row is written or a seat spawned. A bundle that boxes
 /// nothing asks nothing of the machine.
-pub fn refuse_unboxable(bundle: &brokkr_runtime::Bundle, path: &OsStr) -> anyhow::Result<()> {
+pub(crate) fn refuse_unboxable(
+    bundle: &brokkr_runtime::Bundle,
+    path: &OsStr,
+) -> anyhow::Result<()> {
     if bundle.hands.is_empty() {
         return Ok(());
     }
@@ -130,7 +133,7 @@ fn readiness(needs: &str, found: Option<&str>) -> String {
 
 /// `doctor`'s one line: the boundaries a run can start under here, and
 /// for each it does not offer, why.
-pub fn doctor_line(offers: &BTreeMap<Boundary, Offer>) -> String {
+pub(crate) fn doctor_line(offers: &BTreeMap<Boundary, Offer>) -> String {
     let mut offered = Vec::new();
     let mut withheld = Vec::new();
     for (boundary, offer) in offers {
@@ -161,7 +164,7 @@ pub fn doctor_line(offers: &BTreeMap<Boundary, Offer>) -> String {
 /// warning under `namespace` without bubblewrap, a warning under an
 /// unbuilt boundary naming its slice. Returns whether the line is
 /// healthy and its text.
-pub fn hands_line(boundary: Boundary, offer: &Offer, hands: &[&str]) -> (bool, String) {
+pub(crate) fn hands_line(boundary: Boundary, offer: &Offer, hands: &[&str]) -> (bool, String) {
     let seats = if hands.is_empty() {
         "boxed seats".to_string()
     } else {

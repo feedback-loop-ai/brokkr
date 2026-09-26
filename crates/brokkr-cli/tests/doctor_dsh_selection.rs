@@ -440,6 +440,7 @@ fn unix_backslash_names_follow_native_lookup_before_doctor_probe() {
 /// test fails at the selected-identity assertion while the native
 /// positive still executes (recorded in the delivery account).
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn absent_path_default_search_matches_native_dsh_and_node() {
     let workspace = shipped_workspace();
     let cwd = workspace.path();
@@ -682,6 +683,7 @@ fn absent_path_default_search_matches_native_dsh_and_node() {
 /// refuses by that cause without executing B. An ordinary
 /// non-executable A is the positive control: both walk on to B.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
     let workspace = shipped_workspace();
     let cwd = workspace.path();
@@ -861,6 +863,7 @@ fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
 /// refuses at A's obstruction before any probe.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     let workspace = shipped_workspace();
     let cwd = workspace.path();
@@ -1217,6 +1220,11 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
 /// the 256/300/4095 no-marker assertion (recorded in the delivery
 /// account).
 #[test]
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
 fn terminal_path_lengths_refuse_before_doctor_probe() {
     // The re-entered oracle child: `Command::new("dsh")` with the
     // environment the parent staged, unchanged — production's own form.
@@ -2253,6 +2261,7 @@ const HEADING_KEY_REFUSAL: &str =
 /// all reached the control's digest, because an ignored field was not
 /// read and so was never admitted as syntax either.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
     let workspace = shipped_workspace();
     let cwd = workspace.path();
@@ -2768,6 +2777,7 @@ fn bounded(
 /// launcher that prints the path it was run by shows the selected
 /// candidate, and not its canonical target, is what doctor runs.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected() {
     const ENV: &str = "/usr/bin/env";
     let workspace = shipped_workspace();

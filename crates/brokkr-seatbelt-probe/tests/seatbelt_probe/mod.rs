@@ -28,16 +28,16 @@
 // The adapter is type-checked on every host so a macOS-only compile error
 // cannot hide in code this Linux controller cannot run. Its required test is
 // macOS-only, and on other hosts its dead code is allowed on purpose.
-pub mod native;
+pub(crate) mod native;
 
 // The audited startup-rule ledger, the pure check and the one source of the
 // startup denial-control targets (design D3). They are the shared model's
 // host-independent half; the native observer runs the same check.
-pub mod controls;
-pub mod fa7_launchd_samples;
-pub mod ledger;
+pub(crate) mod controls;
+pub(crate) mod fa7_launchd_samples;
+pub(crate) mod ledger;
 
-pub use ledger::*;
+pub(crate) use ledger::*;
 
 use brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS;
 use std::fmt;
@@ -45,7 +45,7 @@ use std::fmt;
 /// The adversarial families the R3 probe must exercise. The list is the
 /// checked obligation matrix: a candidate that runs a subset fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Case {
+pub(crate) enum Case {
     /// The positive control: an ordinary child runs and completes.
     OrdinaryChild,
     /// A `setsid` descendant races a workspace deadline.
@@ -74,7 +74,7 @@ pub enum Case {
 
 impl Case {
     /// Every case, in the order the probe reports them.
-    pub const ALL: [Case; 12] = [
+    pub(crate) const ALL: [Case; 12] = [
         Case::OrdinaryChild,
         Case::Timeout,
         Case::Cancellation,
@@ -89,7 +89,7 @@ impl Case {
         Case::GroupKillNegativeControl,
     ];
 
-    pub fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Case::OrdinaryChild => "ordinary-child",
             Case::Timeout => "timeout",
@@ -107,7 +107,7 @@ impl Case {
     }
 
     /// What a pass requires of this case's observation.
-    pub fn expectation(self) -> Expectation {
+    pub(crate) fn expectation(self) -> Expectation {
         use Case::*;
         match self {
             OrdinaryChild => Expectation::OrdinaryCompletion,
@@ -120,7 +120,7 @@ impl Case {
 
     /// The one real, case-specific trigger this case must perform. Naming a
     /// shared detach routine for several cases is a measurement defect.
-    pub fn required_trigger(self) -> TriggerKind {
+    pub(crate) fn required_trigger(self) -> TriggerKind {
         use Case::*;
         match self {
             OrdinaryChild => TriggerKind::OrdinaryCompletion,
@@ -140,7 +140,7 @@ impl Case {
 
     /// The complete lifecycle a completed case must record, matched exactly:
     /// an intended-event prefix is not a pass.
-    pub fn expected_lifecycle(self) -> Vec<Event> {
+    pub(crate) fn expected_lifecycle(self) -> Vec<Event> {
         if self == Case::GroupKillNegativeControl {
             // The negative control is independent of the guard and liveness
             // channel, so it never registers or unregisters a guard.
@@ -158,7 +158,7 @@ impl Case {
 
     /// Whether this case observes a registered guard before releasing
     /// cleanup (everything except the independent negative control).
-    pub fn observes_guard(self) -> bool {
+    pub(crate) fn observes_guard(self) -> bool {
         self != Case::GroupKillNegativeControl
     }
 }
@@ -171,7 +171,7 @@ impl fmt::Display for Case {
 
 /// The success shape of a case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Expectation {
+pub(crate) enum Expectation {
     /// The ordinary payload completed and its positive control fired.
     OrdinaryCompletion,
     /// The payload left no surviving descendant, moving heartbeat or label.
@@ -186,7 +186,7 @@ pub enum Expectation {
 
 /// The distinct real trigger each lifetime case performs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TriggerKind {
+pub(crate) enum TriggerKind {
     OrdinaryCompletion,
     Timeout,
     Cancellation,
@@ -204,7 +204,7 @@ pub enum TriggerKind {
 /// The ordered lifecycle the design requires. A missing, repeated or
 /// reordered event is a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Event {
+pub(crate) enum Event {
     Prepared,
     GuardRegistered,
     PayloadStarted,
@@ -215,7 +215,7 @@ pub enum Event {
 }
 
 /// The required lifecycle order (design D2).
-pub const LIFECYCLE: [Event; 7] = [
+pub(crate) const LIFECYCLE: [Event; 7] = [
     Event::Prepared,
     Event::GuardRegistered,
     Event::PayloadStarted,
@@ -227,7 +227,7 @@ pub const LIFECYCLE: [Event; 7] = [
 
 /// A public prerequisite outside the probe's control.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Precondition {
+pub(crate) enum Precondition {
     /// The literal trusted `/usr/bin/sandbox-exec` is absent.
     LauncherMissing,
     /// No public per-user `launchctl` is available.
@@ -239,7 +239,7 @@ pub enum Precondition {
 }
 
 impl Precondition {
-    pub fn describe(&self) -> String {
+    pub(crate) fn describe(&self) -> String {
         match self {
             Precondition::LauncherMissing => {
                 "the literal /usr/bin/sandbox-exec is absent".to_string()
@@ -259,7 +259,8 @@ impl Precondition {
 /// observation, never a source-reasoning claim; the injected tests forge one
 /// at a time and demand a failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepairFacts {
+#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
+pub(crate) struct RepairFacts {
     /// The real trigger this case performed; must equal the case's requirement.
     pub trigger: TriggerKind,
     /// A denial case durably recorded the attempted attack before observing
@@ -287,7 +288,7 @@ pub struct RepairFacts {
 
 impl RepairFacts {
     /// The passing facts for a case, so tests vary exactly one.
-    pub fn passing(case: Case) -> RepairFacts {
+    pub(crate) fn passing(case: Case) -> RepairFacts {
         RepairFacts {
             trigger: case.required_trigger(),
             attack_recorded_before_observation: case.expectation() == Expectation::PayloadDenied,
@@ -306,7 +307,8 @@ impl RepairFacts {
 /// One case's observation. Every field is a fact the outside observer or the
 /// guard recorded; none may be inferred from source reasoning.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CaseResult {
+#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
+pub(crate) struct CaseResult {
     pub case: Case,
     /// The case actually ran to the trigger and observation.
     pub ran: bool,
@@ -336,7 +338,7 @@ pub struct CaseResult {
 
 impl CaseResult {
     /// A result that did not run, for `skip` reasons.
-    pub fn skipped(case: Case, reason: &str) -> CaseResult {
+    pub(crate) fn skipped(case: Case, reason: &str) -> CaseResult {
         CaseResult {
             case,
             ran: false,
@@ -358,24 +360,24 @@ impl CaseResult {
 /// The probe's verdict: `Pass` only when every selected case's expectation
 /// holds. Any `Fail` names every unmet obligation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Verdict {
+pub(crate) enum Verdict {
     Pass,
     Fail(Vec<String>),
 }
 
 impl Verdict {
-    pub fn is_pass(&self) -> bool {
+    pub(crate) fn is_pass(&self) -> bool {
         matches!(self, Verdict::Pass)
     }
 
-    pub fn reasons(&self) -> &[String] {
+    pub(crate) fn reasons(&self) -> &[String] {
         match self {
             Verdict::Pass => &[],
             Verdict::Fail(reasons) => reasons,
         }
     }
 
-    pub fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         match self {
             Verdict::Pass => "PASS".to_string(),
             Verdict::Fail(reasons) => {
@@ -394,7 +396,7 @@ impl Verdict {
 /// case failed early? A repeated, reordered or unknown event is a failure,
 /// so cleanup can never precede quiescence and the guard always unregisters
 /// last. Exact per-case equality is enforced by [`evaluate_case`].
-pub fn events_are_ordered(events: &[Event]) -> bool {
+pub(crate) fn events_are_ordered(events: &[Event]) -> bool {
     let mut next = 0;
     for event in events {
         let Some(position) = LIFECYCLE[next..].iter().position(|step| step == event) else {
@@ -407,7 +409,7 @@ pub fn events_are_ordered(events: &[Event]) -> bool {
 
 /// Evaluate the probe's observations. Pure, so every failure arm is a unit
 /// test rather than a native run.
-pub fn evaluate(
+pub(crate) fn evaluate(
     selected: &[Case],
     results: &[CaseResult],
     precondition: Option<&Precondition>,
@@ -585,7 +587,7 @@ fn evaluate_repairs(result: &CaseResult, reasons: &mut Vec<String>) {
 /// The operations the shared probe driver needs from a host. The macOS
 /// adapter performs them with public launchd facilities; tests supply
 /// scripted facts.
-pub trait ProbeHost {
+pub(crate) trait ProbeHost {
     /// The first failed public prerequisite, or `None` when the host can run
     /// the probe. Checked before any payload executes.
     fn precondition(&mut self) -> Option<Precondition>;
@@ -599,7 +601,7 @@ pub trait ProbeHost {
 
 /// One probe run's selection, observations and verdict.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProbeReport {
+pub(crate) struct ProbeReport {
     pub selected: Vec<Case>,
     pub results: Vec<CaseResult>,
     pub verdict: Verdict,
@@ -607,7 +609,7 @@ pub struct ProbeReport {
 
 /// Drive the lifetime matrix: check the precondition, run every selected
 /// case, then evaluate. A failed precondition runs no case.
-pub fn run_probe(host: &mut dyn ProbeHost, selected: &[Case]) -> ProbeReport {
+pub(crate) fn run_probe(host: &mut dyn ProbeHost, selected: &[Case]) -> ProbeReport {
     let precondition = host.precondition();
     let mut results = Vec::new();
     if precondition.is_none() && !selected.is_empty() {
@@ -630,7 +632,7 @@ pub fn run_probe(host: &mut dyn ProbeHost, selected: &[Case]) -> ProbeReport {
 /// The four startup cells: launch ownership (direct observer vs. transient
 /// launchd payload job) crossed with the candidate Seatbelt profile (off/on).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum StartupCell {
+pub(crate) enum StartupCell {
     /// Outside observer, no Seatbelt.
     S0DirectUnboxed,
     /// Outside observer, exact candidate profile.
@@ -642,14 +644,14 @@ pub enum StartupCell {
 }
 
 impl StartupCell {
-    pub const ALL: [StartupCell; 4] = [
+    pub(crate) const ALL: [StartupCell; 4] = [
         StartupCell::S0DirectUnboxed,
         StartupCell::S1DirectSeatbelt,
         StartupCell::S2LaunchdUnboxed,
         StartupCell::S3LaunchdSeatbelt,
     ];
 
-    pub fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             StartupCell::S0DirectUnboxed => "S0-direct-unboxed",
             StartupCell::S1DirectSeatbelt => "S1-direct-seatbelt",
@@ -659,7 +661,7 @@ impl StartupCell {
     }
 
     /// Whether the helper is launched by a transient launchd job.
-    pub fn launchd(self) -> bool {
+    pub(crate) fn launchd(self) -> bool {
         matches!(
             self,
             StartupCell::S2LaunchdUnboxed | StartupCell::S3LaunchdSeatbelt
@@ -667,7 +669,7 @@ impl StartupCell {
     }
 
     /// Whether the exact candidate Seatbelt profile is applied.
-    pub fn seatbelt(self) -> bool {
+    pub(crate) fn seatbelt(self) -> bool {
         matches!(
             self,
             StartupCell::S1DirectSeatbelt | StartupCell::S3LaunchdSeatbelt
@@ -683,7 +685,7 @@ impl fmt::Display for StartupCell {
 
 /// How the helper process ended in a startup cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HelperExit {
+pub(crate) enum HelperExit {
     /// Exited zero before an outer timeout.
     Clean,
     /// Exited nonzero with this code.
@@ -695,11 +697,11 @@ pub enum HelperExit {
 }
 
 impl HelperExit {
-    pub fn is_clean(self) -> bool {
+    pub(crate) fn is_clean(self) -> bool {
         matches!(self, HelperExit::Clean)
     }
 
-    pub fn describe(self) -> String {
+    pub(crate) fn describe(self) -> String {
         match self {
             HelperExit::Clean => "exit 0".to_string(),
             HelperExit::NonZero(code) => format!("exit {code}"),
@@ -713,14 +715,14 @@ impl HelperExit {
 /// The four startup cells must share helper bytes, executable, mode and argv
 /// structure but are allowed distinct private roots; the evaluator treats the
 /// root as an explicit typed variable rather than drift.
-pub const ROOT_TOKEN: &str = "<cell-root>";
+pub(crate) const ROOT_TOKEN: &str = "<cell-root>";
 
 /// The exact bounded startup stage sequence the helper records between entry
 /// and clean return. A passing cell must show all of them in order; an abort
 /// localizes to the last stage reached rather than an opaque signal. The
 /// ordinary-child spawn is split into `child-spawn` (stream setup and spawn or
 /// exec) and `child-observed` so a refusal names its sub-stage.
-pub const STARTUP_STAGES: [&str; 7] = [
+pub(crate) const STARTUP_STAGES: [&str; 7] = [
     "entry",
     "payload-dir",
     "executable",
@@ -735,7 +737,7 @@ pub const STARTUP_STAGES: [&str; 7] = [
 /// only to name the authority the restrictive profile withheld, and it never
 /// enters the candidate profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DiagnosticAllowance {
+pub(crate) struct DiagnosticAllowance {
     pub name: &'static str,
     pub operation: &'static str,
     pub target: &'static str,
@@ -746,7 +748,7 @@ pub struct DiagnosticAllowance {
 /// The complete bounded diagnostic set. Each entry is applied alone, on top of
 /// the unchanged candidate profile, and is recorded as a labelled non-passing
 /// diagnostic.
-pub const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 8] = [
+pub(crate) const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 8] = [
     DiagnosticAllowance {
         name: "tmp-realpath-read",
         operation: "file-read*",
@@ -817,7 +819,7 @@ pub const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 8] = [
 /// CI `34449331270` measured that pre-stage `SIGABRT`; the rule was the one
 /// authority no one-at-a-time allowance supplied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StartupNegativeAllowance {
+pub(crate) struct StartupNegativeAllowance {
     pub name: &'static str,
     /// The exact SBPL fragment removed from the candidate for this control.
     pub removed_rule: &'static str,
@@ -826,7 +828,7 @@ pub struct StartupNegativeAllowance {
 
 /// The complete bounded removal set. Every entry must be observed blocking the
 /// exact payload before a Seatbelt startup cell may pass.
-pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 3] = [
+pub(crate) const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 3] = [
     StartupNegativeAllowance {
         name: "root-inode-read",
         removed_rule: "(allow file-read* (literal \"/\"))",
@@ -852,7 +854,7 @@ pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 3] = [
 /// stripped replay of a profile that never admitted the payload proves
 /// nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RemovalStatus {
+pub(crate) enum RemovalStatus {
     /// The cell reached no authenticated `READY`, so this removal is not owed.
     NotDue,
     /// The stripped replay was observed and reached no authenticated `READY`
@@ -869,7 +871,7 @@ pub enum RemovalStatus {
 /// own bounded denial-event collection and residual, so a respelled toolchain
 /// bind this replay produced fails the cell on its own facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartupNegativeControl {
+pub(crate) struct StartupNegativeControl {
     pub name: String,
     pub removed_rule: String,
     pub consumer: String,
@@ -884,14 +886,14 @@ pub struct StartupNegativeControl {
 impl StartupNegativeControl {
     /// A control is satisfied only when the removal was observed and blocked
     /// the payload.
-    pub fn satisfied(&self) -> bool {
+    pub(crate) fn satisfied(&self) -> bool {
         self.status == RemovalStatus::ObservedBlocking
     }
 }
 
 /// Construct a satisfied removal control for a named rule, so tests vary
 /// exactly one fact.
-pub fn satisfied_startup_negative_control(name: &str) -> StartupNegativeControl {
+pub(crate) fn satisfied_startup_negative_control(name: &str) -> StartupNegativeControl {
     let allowance = STARTUP_NEGATIVE_ALLOWANCES
         .iter()
         .find(|allowance| allowance.name == name);
@@ -920,7 +922,7 @@ pub fn satisfied_startup_negative_control(name: &str) -> StartupNegativeControl 
 /// advanced the cell's progress, and `denial_log`/`residual` carry the native
 /// evidence so a respelled toolchain or helper bind fails the cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProfileDiagnostic {
+pub(crate) struct ProfileDiagnostic {
     pub name: String,
     pub operation: String,
     pub target: String,
@@ -939,14 +941,14 @@ pub struct ProfileDiagnostic {
 impl ProfileDiagnostic {
     /// A diagnostic that reached READY and exited cleanly narrows the missing
     /// authority, but it still cannot pass a startup cell or enter a profile.
-    pub fn reached_ready(&self) -> bool {
+    pub(crate) fn reached_ready(&self) -> bool {
         self.ready && self.exit.is_clean()
     }
 
     /// Whether this diagnostic advanced past the failing cell's stage prefix.
     /// An advance names the withheld authority that this one restored unit
     /// supplies; it is evidence and never an admission.
-    pub fn advanced_beyond(&self, cell_stages: &[String]) -> bool {
+    pub(crate) fn advanced_beyond(&self, cell_stages: &[String]) -> bool {
         self.stages.len() > cell_stages.len()
     }
 }
@@ -956,7 +958,7 @@ impl ProfileDiagnostic {
 /// denied. It corroborates that diagnosis did not widen the boundary; like the
 /// allowances it is recorded, never admitted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DenialControl {
+pub(crate) struct DenialControl {
     pub name: String,
     pub operation: String,
     pub target: String,
@@ -972,7 +974,7 @@ pub struct DenialControl {
 
 impl DenialControl {
     /// A control is satisfied only when it was observed and denied.
-    pub fn satisfied(&self) -> bool {
+    pub(crate) fn satisfied(&self) -> bool {
         self.observed && self.denied
     }
 }
@@ -981,7 +983,7 @@ impl DenialControl {
 /// credential bytes unreadable in both their direct and `/System/Volumes/Data`
 /// spelling, host writes refused, and loopback binding refused, with the
 /// payload still reaching READY.
-pub const STARTUP_DENIAL_CONTROLS: [&str; 4] = [
+pub(crate) const STARTUP_DENIAL_CONTROLS: [&str; 4] = [
     "credential-read",
     "data-volume-credential-read",
     "host-write",
@@ -990,7 +992,7 @@ pub const STARTUP_DENIAL_CONTROLS: [&str; 4] = [
 
 /// Construct a satisfied startup denial control for a named control, so tests
 /// vary exactly one fact.
-pub fn satisfied_startup_denial(name: &str) -> DenialControl {
+pub(crate) fn satisfied_startup_denial(name: &str) -> DenialControl {
     let (operation, target, consumer) = match name {
         "credential-read" => ("file-read*", "/etc/passwd", "host credential bytes"),
         "data-volume-credential-read" => (
@@ -1022,7 +1024,7 @@ pub fn satisfied_startup_denial(name: &str) -> DenialControl {
 /// `active count` are optional. An unknown field never erases another, and a
 /// duplicated top-level key is unknown rather than a manufactured fact.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LaunchdFacts {
+pub(crate) struct LaunchdFacts {
     pub state: Option<String>,
     /// The launchd-owned payload's `pid` while it is running, when present.
     /// It is the responsible process ID the bounded `log show` filter names.
@@ -1046,7 +1048,7 @@ pub struct LaunchdFacts {
 /// evidence under their block path. A missing block or an unbalanced brace is
 /// an error; a missing or duplicated required field is `None`, never a
 /// synthesized default.
-pub fn parse_launchd_print(text: &str) -> Result<LaunchdFacts, String> {
+pub(crate) fn parse_launchd_print(text: &str) -> Result<LaunchdFacts, String> {
     let bytes = text.as_bytes();
     let start = text
         .find('{')
@@ -1176,7 +1178,7 @@ fn set_launchd_field(facts: &mut LaunchdFacts, key: &str, value: &str) {
 /// non-terminal or unknown state, or a terminal state without a parsed
 /// `last exit code`, yields [`HelperExit::NotRun`]. An absent crash counter is
 /// never read as clean.
-pub fn classify_launchd_exit(facts: &LaunchdFacts) -> HelperExit {
+pub(crate) fn classify_launchd_exit(facts: &LaunchdFacts) -> HelperExit {
     if facts.state.as_deref() != Some("not running") {
         return HelperExit::NotRun;
     }
@@ -1190,7 +1192,7 @@ pub fn classify_launchd_exit(facts: &LaunchdFacts) -> HelperExit {
 /// One bounded native Sandbox denial event the unprivileged observer read: the
 /// operation and the path the kernel named.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DenialEvent {
+pub(crate) struct DenialEvent {
     pub operation: String,
     pub path: String,
 }
@@ -1198,7 +1200,7 @@ pub struct DenialEvent {
 /// A named startup residual: native denial evidence the candidate does not
 /// absorb. It fails the cell on its own startup facts and admits nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StartupResidual {
+pub(crate) enum StartupResidual {
     /// A denial event named an operation on a host-toolchain source, or a path
     /// under one, under another resolved spelling.
     ToolchainRespelling { events: Vec<DenialEvent> },
@@ -1207,7 +1209,7 @@ pub enum StartupResidual {
 }
 
 impl StartupResidual {
-    pub fn name(&self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             StartupResidual::ToolchainRespelling { .. } => {
                 "SEATBELT-R3-STARTUP-toolchain-respelling"
@@ -1216,7 +1218,7 @@ impl StartupResidual {
         }
     }
 
-    pub fn events(&self) -> &[DenialEvent] {
+    pub(crate) fn events(&self) -> &[DenialEvent] {
         match self {
             StartupResidual::ToolchainRespelling { events }
             | StartupResidual::HelperRespelling { events } => events,
@@ -1228,7 +1230,7 @@ impl StartupResidual {
 /// or a path under one, in a spelling other than its direct one. Such evidence
 /// is recorded as the toolchain-respelling residual; it admits nothing in
 /// either half and never changes a toolchain unit.
-pub fn detect_toolchain_respelling(events: &[DenialEvent]) -> Vec<DenialEvent> {
+pub(crate) fn detect_toolchain_respelling(events: &[DenialEvent]) -> Vec<DenialEvent> {
     events
         .iter()
         .filter(|event| {
@@ -1254,7 +1256,7 @@ pub fn detect_toolchain_respelling(events: &[DenialEvent]) -> Vec<DenialEvent> {
 /// An unavailable or empty collection is recorded as such and is never read as
 /// a positive control or as proof that an operation was allowed.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DenialLog {
+pub(crate) struct DenialLog {
     /// The invocation was made and returned output.
     pub available: bool,
     /// The invocation's exit status, or the reason it could not be made.
@@ -1267,7 +1269,7 @@ pub struct DenialLog {
 
 impl DenialLog {
     /// A collection that could not be made (missing tool or spawn failure).
-    pub fn unavailable(reason: &str) -> DenialLog {
+    pub(crate) fn unavailable(reason: &str) -> DenialLog {
         DenialLog {
             available: false,
             status: reason.to_string(),
@@ -1277,7 +1279,7 @@ impl DenialLog {
     }
 
     /// A collection that was made and held no event.
-    pub fn empty(status: &str) -> DenialLog {
+    pub(crate) fn empty(status: &str) -> DenialLog {
         DenialLog {
             available: true,
             status: status.to_string(),
@@ -1287,11 +1289,11 @@ impl DenialLog {
     }
 
     /// An unavailable or empty collection proves nothing and names no event.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.events.is_empty()
     }
 
-    pub fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         format!(
             "available={} status={} events={} raw={}",
             self.available,
@@ -1305,7 +1307,7 @@ impl DenialLog {
 /// Parse native `log show` output into bounded Sandbox denial events. Only
 /// lines that name a `deny(<n>)` operation and a path are kept; everything
 /// else is ignored and never inferred into an allowed or a denied operation.
-pub fn parse_sandbox_denials(text: &str) -> Vec<DenialEvent> {
+pub(crate) fn parse_sandbox_denials(text: &str) -> Vec<DenialEvent> {
     let mut events = Vec::new();
     for line in text.lines() {
         let Some(position) = line.find("deny(") else {
@@ -1337,7 +1339,7 @@ pub fn parse_sandbox_denials(text: &str) -> Vec<DenialEvent> {
 /// another resolved spelling. A helper staged as a single-link file has no
 /// second hard-link spelling, so any other resolved spelling lies on or under
 /// the data volume.
-pub fn detect_helper_respelling(events: &[DenialEvent], helper: &str) -> Vec<DenialEvent> {
+pub(crate) fn detect_helper_respelling(events: &[DenialEvent], helper: &str) -> Vec<DenialEvent> {
     if helper.is_empty() {
         return Vec::new();
     }
@@ -1357,7 +1359,7 @@ pub fn detect_helper_respelling(events: &[DenialEvent], helper: &str) -> Vec<Den
 /// any. A respelled host-toolchain source takes precedence; otherwise a
 /// respelled helper is recorded. Either residual admits nothing in either half
 /// of the ledger.
-pub fn detect_residual(events: &[DenialEvent], helper: &str) -> Option<StartupResidual> {
+pub(crate) fn detect_residual(events: &[DenialEvent], helper: &str) -> Option<StartupResidual> {
     let toolchain = detect_toolchain_respelling(events);
     if !toolchain.is_empty() {
         return Some(StartupResidual::ToolchainRespelling { events: toolchain });
@@ -1377,7 +1379,7 @@ pub fn detect_residual(events: &[DenialEvent], helper: &str) -> Option<StartupRe
 /// and `exit` are the external observations. `helper_root` is the typed,
 /// controller-generated private root and may differ per cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartupObservation {
+pub(crate) struct StartupObservation {
     pub cell: StartupCell,
     pub ran: bool,
     pub skip: Option<String>,
@@ -1447,7 +1449,7 @@ pub struct StartupObservation {
 
 impl StartupObservation {
     /// A cell that did not run, for `skip` reasons.
-    pub fn skipped(cell: StartupCell, reason: &str) -> StartupObservation {
+    pub(crate) fn skipped(cell: StartupCell, reason: &str) -> StartupObservation {
         StartupObservation {
             cell,
             ran: false,
@@ -1482,7 +1484,7 @@ impl StartupObservation {
     }
 
     /// Mark this observation as a labelled diagnostic. It can never pass.
-    pub fn labelled_diagnostic(mut self, label: &str) -> StartupObservation {
+    pub(crate) fn labelled_diagnostic(mut self, label: &str) -> StartupObservation {
         self.diagnostic = Some(label.to_string());
         self
     }
@@ -1490,7 +1492,7 @@ impl StartupObservation {
 
 /// The Gate A report: selected cells, observations and typed verdict.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartupReport {
+pub(crate) struct StartupReport {
     pub selected: Vec<StartupCell>,
     pub cells: Vec<StartupObservation>,
     pub verdict: Verdict,
@@ -1502,7 +1504,7 @@ pub struct StartupReport {
 /// bytes and structural argv (the controller-generated cell root is an
 /// explicit typed variable, not drift) and the same profile bytes where the
 /// profile applies. Any single cell's failure is named separately.
-pub fn evaluate_startup(selected: &[StartupCell], cells: &[StartupObservation]) -> Verdict {
+pub(crate) fn evaluate_startup(selected: &[StartupCell], cells: &[StartupObservation]) -> Verdict {
     let mut reasons = Vec::new();
     if selected.is_empty() {
         reasons.push("zero startup cells selected: admission cannot be proven".to_string());
@@ -1603,6 +1605,7 @@ fn residual_reason(name: &str, context: &str, residual: &StartupResidual) -> Str
     )
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<String>) {
     let name = observation.cell.name();
     if let Some(label) = &observation.diagnostic {
@@ -1754,7 +1757,7 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
 }
 
 /// Run the selected startup cells.
-pub fn run_startup(host: &mut dyn ProbeHost, selected: &[StartupCell]) -> StartupReport {
+pub(crate) fn run_startup(host: &mut dyn ProbeHost, selected: &[StartupCell]) -> StartupReport {
     let precondition = host.precondition();
     let mut cells = Vec::new();
     if precondition.is_none() && !selected.is_empty() {
@@ -1784,7 +1787,7 @@ pub fn run_startup(host: &mut dyn ProbeHost, selected: &[StartupCell]) -> Startu
 /// passed. A `None` lifetime report means the lifetime matrix was not run,
 /// which is a failure, never a pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GatedReport {
+pub(crate) struct GatedReport {
     pub startup: StartupReport,
     pub lifetime: Option<ProbeReport>,
     pub verdict: Verdict,
@@ -1792,7 +1795,7 @@ pub struct GatedReport {
 
 /// Run Gate A, then Gate B only if Gate A passed. The overall verdict names a
 /// startup failure separately from a lifetime failure.
-pub fn run_gated_probe(
+pub(crate) fn run_gated_probe(
     host: &mut dyn ProbeHost,
     startup_selected: &[StartupCell],
     lifetime_selected: &[Case],
@@ -1817,7 +1820,7 @@ pub fn run_gated_probe(
 }
 
 /// Construct a passing result for a case, so tests can vary exactly one fact.
-pub fn passing_result(case: Case) -> CaseResult {
+pub(crate) fn passing_result(case: Case) -> CaseResult {
     let (survivors_after, heartbeat_moved, cleanup) = match case.expectation() {
         // The negative control passes only because a survivor *remains*.
         Expectation::GroupKillLeavesSurvivor => (1, false, true),
@@ -1842,7 +1845,7 @@ pub fn passing_result(case: Case) -> CaseResult {
 
 /// Construct a passing startup observation for a cell, so tests vary exactly
 /// one fact.
-pub fn passing_startup(cell: StartupCell) -> StartupObservation {
+pub(crate) fn passing_startup(cell: StartupCell) -> StartupObservation {
     StartupObservation {
         cell,
         ran: true,

@@ -343,7 +343,7 @@ fn credentials(
 /// of decision 0036 makes class assignment operator DATA, and data that
 /// cannot be written is not data. [`NAME_GRAMMAR`] stays exactly what it
 /// is for agents, adapters and abstract model names.
-pub const ROUTE_GRAMMAR: &str = "^[A-Za-z0-9._:-]+$";
+pub(super) const ROUTE_GRAMMAR: &str = "^[A-Za-z0-9._:-]+$";
 
 /// `true` when `name` matches [`ROUTE_GRAMMAR`].
 fn route_name(name: &str) -> bool {
@@ -356,7 +356,7 @@ fn route_name(name: &str) -> bool {
 /// The grammar decision 0012 gives a bindable name, quoted verbatim in
 /// the refusal above: a credential a route names is the same variable a
 /// binding would carry.
-pub const SECRET_NAME_GRAMMAR: &str = "^[A-Z][A-Z0-9_]*$";
+pub(super) const SECRET_NAME_GRAMMAR: &str = "^[A-Z][A-Z0-9_]*$";
 
 fn secret_name(name: &str) -> bool {
     let mut characters = name.chars();
@@ -733,6 +733,7 @@ impl Adapters {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     let what = format!("adapter '{name}' ({})", path.display());
     if !valid_name(name) {
@@ -980,6 +981,7 @@ const RESUME_TEXT_LIMIT: usize = 400;
 /// entry is not malformed: it IS the honest declaration, and refusing it
 /// would make the preparatory declarations of an unmeasured shape
 /// unwritable. Neither outcome ever enables resume.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn resume_assessment(
     map: &Map<String, Value>,
     what: &str,

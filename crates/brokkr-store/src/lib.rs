@@ -505,7 +505,6 @@ fn create_run_once(
 /// [`StoreError::AppendConflict`], leave here untouched. They are not
 /// busy errors, so [`patiently`] does not look at them — which is what
 /// keeps a fence a fence.
-#[allow(clippy::too_many_arguments)]
 fn append_once(
     conn: &mut Connection,
     run_id: &str,
@@ -911,7 +910,7 @@ impl Store {
     /// sends the caller back to re-read and decide again. `expected_seq`
     /// of 0 with [`ZERO_HASH`] fences an append onto an empty run.
     // Two of these arguments are the fence; the rest are `append_next`'s.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub fn append_next_if_head(
         &mut self,
         run_id: &str,
@@ -932,7 +931,6 @@ impl Store {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn append(
         &mut self,
         run_id: &str,
