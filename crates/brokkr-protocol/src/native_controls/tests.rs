@@ -1713,6 +1713,67 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
             &[],
             Err(limit_refusal("Read", fetch)),
         ),
+        // Third review F1: a holding the selection does not carry is held
+        // as much — an ON switch in the plan's own argv, and a measured
+        // default ON that writes nothing — unless a managed denial removes
+        // its tool.
+        (
+            plan(
+                &["--tools", "Read", "--allowedTools", "WebFetch"],
+                &["web-fetch"],
+                &[],
+                &[],
+            ),
+            &[],
+            Err(limit_refusal("Read", fetch)),
+        ),
+        (
+            plan(&["--tools", "Read"], &["web-fetch"], &[], &[]),
+            &[],
+            Err(limit_refusal("Read", fetch)),
+        ),
+        (
+            plan(
+                &["--tools", "Read,WebFetch", "--allowedTools", "WebFetch"],
+                &["web-fetch"],
+                &[],
+                &[],
+            ),
+            &[],
+            Ok(argv(&[
+                "--tools",
+                "Read,WebFetch",
+                "--allowedTools",
+                "WebFetch",
+            ])),
+        ),
+        (
+            plan(&["--tools", "Read,WebFetch"], &["web-fetch"], &[], &[]),
+            &[],
+            Ok(argv(&["--tools", "Read,WebFetch"])),
+        ),
+        (
+            plan(
+                &["--tools", "Read", "--disallowedTools", "WebFetch"],
+                &["web-fetch"],
+                &[],
+                &[],
+            ),
+            &[],
+            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+        ),
+        (
+            Controls {
+                selection: Selection {
+                    deny: argv(&["WebFetch"]),
+                    flags: claude_flags(),
+                    ..Selection::default()
+                },
+                ..plan(&["--tools", "Read"], &["web-fetch"], &[], &[])
+            },
+            &[],
+            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+        ),
         // Boxed: the empty limit leaves the hands' own list as it stands;
         // a nonempty one would widen it with a tool nothing holds.
         (

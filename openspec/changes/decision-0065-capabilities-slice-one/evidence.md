@@ -9941,3 +9941,106 @@ moves to the later slice, never ticked.
 - **Standing-admission lines:** none. **Fixture migrations:** none new.
 - **Pending:** exact coverage (`scripts/coverage-exact.sh` outside the
   box), macOS and remote CI.
+
+## Unit 12 — the third review's return: every held admission meets the limit, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-3a53001e`, fourth implement visit,
+on `5fbd87d0` with a clean tree. The review (HIGH F1, spec-compliance,
+confirmed by the chief) found that `e416d64b`'s hard-limit check read only
+`selection.include` and `selection.allow`. A held capability whose ON is an
+argv switch (`["--allowedTools", "WebFetch"]`) or a measured default
+(`{"default": …}`, which writes nothing) put no name in either list, so
+`--tools Read` beside a granted fetch launched instead of refusing. The
+review's LOW panel-integrity finding needs no change here.
+
+### What changed (`native_controls.rs`, `compose_for_provider`)
+
+- The admissions an explicit include limit is held against are now the
+  selection's include and allow, **plus every tool of every held
+  capability** (its guard's `tools`, as the plan carries them), less any
+  tool a managed denial removes. Managed denials are the selection's deny
+  plus the plan argv's own deny lists.
+- The selection's own admissions are not filtered by denial. That keeps
+  `e416d64b`'s behaviour for them unchanged.
+- The boxed-widen check reads the same list. A limit may now bring a held
+  default-ON capability's tool into the hands' empty list, as it already
+  could for a selection admission.
+- Refusal text is unchanged: "does not name tool '…', which the plan admits
+  for native capability '…'".
+- `capabilities.rs` and `bundle.rs` did not move. The guard list the check
+  reads is already sealed into the plan from typed adapter data.
+
+### Tests (rows in the existing tables, no new function)
+
+- `native_controls/tests.rs`,
+  `an_explicit_include_list_is_a_hard_limit_that_no_admission_widens`
+  (rows from line 1716), with web-fetch held and the selection empty:
+  - argv switch `--tools Read --allowedTools WebFetch` refuses;
+  - default `--tools Read` refuses;
+  - compatible `--tools Read,WebFetch --allowedTools WebFetch` and
+    `--tools Read,WebFetch` reach their literal commands;
+  - a plan-argv denial (`--disallowedTools WebFetch`) and a selection
+    denial of WebFetch each leave `--tools Read` admissible, with the
+    denial in the command.
+- `capability_launch.rs`,
+  `an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant`
+  (rows from line 6092). The copied Claude adapter's `web-fetch.on` is
+  replaced by the argv switch or by `{"default": …}`, with a realm-granted
+  fetch:
+  - `--tools Read` refuses with the full compile refusal, under both ONs;
+  - `--tools Read,WebFetch` launches `[…, "--tools", "Read,WebFetch",
+    "--allowedTools", "WebFetch"]` under the switch and `[…, "--tools",
+    "Read,WebFetch"]` under the default.
+
+### Baseline reds (HEAD `5fbd87d0` production, the tests above in place)
+
+- The compiled test fails at the argv-switch row. Left: `launched [...,
+  "--tools", "Read", "--allowedTools", "WebFetch"]`. Right: the full
+  `restricted` refusal naming `Read`, `WebFetch` and `web-fetch`. This is
+  the review's first reproduction.
+- With the default row ordered first (a temporary swap, since restored),
+  it fails there. Left: `launched [..., "--tools", "Read"]`. This is the
+  review's second reproduction.
+
+### Mutations (each alone, compiled, failed as stated, then restored)
+
+After each mutation, `native_controls.rs` was restored from the saved fix
+and `cmp` reported it identical.
+
+- **M6**: held tools dropped (`false && controls.held.contains(…)`). The
+  protocol test fails at the row `["--tools", "Read", "--allowedTools",
+  "WebFetch"]`, left `Ok([…"--allowedTools", "WebFetch"])`, right the
+  refusal.
+- **M7**: plan-argv denials ignored (`plan.lists(Deny).take(0)`). It fails
+  at the row `["--tools", "Read", "--disallowedTools", "WebFetch"]`, left
+  the refusal, right `Ok(["--tools", "Read", "--disallowedTools",
+  "WebFetch"])`.
+- **M8**: selection denials ignored (`deny.iter().take(0)`). It fails at
+  the selection-deny row (plan `["--tools", "Read"]`), left the refusal,
+  right `Ok(["--tools", "Read", "--disallowedTools", "WebFetch"])`.
+
+### Gates (final tree)
+
+- `cargo fmt --all -- --check`: clean after `cargo fmt` wrapped two test
+  rows. The production file was byte-identical to the saved fix.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warning.
+- `cargo test --workspace --all-features --locked`: 77 `test result: ok`
+  lines, none `FAILED`. That includes protocol lib 490, runtime lib 565,
+  `capability_launch` 45 and CLI lib 481.
+- `bundles/self` and `bundles/verify` compile.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+- **Coverage diagnostic:** `cargo +nightly llvm-cov --branch -p
+  brokkr-protocol -p brokkr-runtime --lcov`, 0 `FAILED`. In the
+  `native_controls.rs` record, `grep -x` finds no `DA:…,0` and no zero or
+  `-` `BRDA`. The record's summary lines read LF 1114/LH 1113 and BRF
+  128/BRH 126. No per-line record accounts for that gap, and it is not
+  interpreted here. Exact coverage stays pending.
+
+### Result
+
+- F1 is fixed, and 12.2 stays ticked on this evidence. F2 stays closed by
+  deferral, and F4 stays with units 13–15 under 15.2.
+- **Standing-admission lines:** none. **Fixture migrations:** none new.
+- **Pending:** exact coverage outside the box, macOS and remote CI.

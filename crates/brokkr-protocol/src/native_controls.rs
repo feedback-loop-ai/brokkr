@@ -1627,19 +1627,37 @@ pub fn compose_for_provider(
             // An explicit include list the plan carries — empty or not — is
             // a hard limit (design D6): no admission widens it, so a held
             // tool it does not name refuses the whole conflict rather than
-            // being unioned in past it.
-            let admissions: Vec<&String> = controls
+            // being unioned in past it. What a held capability admits is
+            // not only its selection: an ON switch in the plan's argv, or a
+            // measured default ON that writes nothing, admits the
+            // capability's tools as well, unless a managed denial removes
+            // them (third review F1).
+            let denied: Vec<&str> = controls
+                .selection
+                .deny
+                .iter()
+                .map(String::as_str)
+                .chain(plan.lists(ListKind::Deny).flat_map(grammar::node_patterns))
+                .collect();
+            let admissions: Vec<&str> = controls
                 .selection
                 .include
                 .iter()
                 .chain(&controls.selection.allow)
+                .map(String::as_str)
+                .chain(
+                    controls
+                        .guards
+                        .iter()
+                        .filter(|guard| controls.held.contains(&guard.capability))
+                        .flat_map(|guard| &guard.tools)
+                        .map(String::as_str)
+                        .filter(|tool| !denied.contains(tool)),
+                )
                 .collect();
             if let Some(limit) = plan.lists(ListKind::Include).next() {
                 let named = grammar::node_patterns(limit);
-                if let Some(tool) = admissions
-                    .iter()
-                    .find(|tool| !named.contains(&tool.as_str()))
-                {
+                if let Some(tool) = admissions.iter().find(|tool| !named.contains(tool)) {
                     return Err(restricted(
                         provider,
                         limit.name(),
@@ -1693,7 +1711,10 @@ pub fn compose_for_provider(
                 // limit may bring into it only what a held capability
                 // admits, and one limit never widens the other.
                 if let (0, Some(own), Some(limit)) = (slot, node, explicit) {
-                    if let Some(tool) = names.iter().find(|tool| !admissions.contains(tool)) {
+                    if let Some(tool) = names
+                        .iter()
+                        .find(|tool| !admissions.contains(&tool.as_str()))
+                    {
                         return Err(restricted(
                             provider,
                             limit.name(),

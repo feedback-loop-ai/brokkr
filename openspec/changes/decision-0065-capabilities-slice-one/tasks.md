@@ -1666,6 +1666,20 @@ closed by deferral; e416d64b re-verified"):
   Fixture migrations: none new.
 - **Pending:** exact coverage outside the box, macOS and remote CI.
 
+Returned by the third review on 2026-09-26 (same run, fourth implement
+visit; evidence.md, "Unit 12 — the third review's return"):
+
+- **F1: the hard limit read only the selection.** A held fetch whose ON is
+  an argv switch or a measured default launched past `--tools Read`. Now
+  every tool of every held capability counts as an admission, unless a
+  managed denial removes it, and a limit that does not name it refuses the
+  whole conflict. Compatible limits reach their literal commands.
+- This is bound by protocol and compiled rows, the review's two
+  reproductions as baseline reds at `5fbd87d0`, and M6–M8. 12.2 stays
+  ticked on that evidence.
+- Standing-admission lines: none. Fixture migrations: none new.
+- **Pending:** exact coverage outside the box, macOS and remote CI.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

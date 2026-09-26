@@ -6089,30 +6089,64 @@ fn an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant() {
     write(operator.root(), dialect, &body);
     let nothing = operator.context(json!({}));
     let fetch = operator.context(json!({"web-fetch": {"dialect": "claude-native-fetch"}}));
-    let rows: Vec<(Value, &CapabilityContext, String)> = vec![
+    // Third review F1: fetch ON declared as an argv switch, or as a
+    // measured default that writes nothing, is held all the same.
+    let switch = json!({"argv": ["--allowedTools", "WebFetch"]});
+    let default = json!({"default": "fetch is on unless a list removes it"});
+    let rows: Vec<(Value, Option<&Value>, &CapabilityContext, String)> = vec![
         (
             json!(["--tools", "Read"]),
+            None,
             &nothing,
             launched(&["--tools", "Read", "--disallowedTools", "WebFetch"]),
         ),
         (
             json!(["--tools="]),
+            None,
             &nothing,
             launched(&["--tools", "", "--disallowedTools", "WebFetch"]),
         ),
-        (json!(["--tools", "Read"]), &fetch, refused("Read")),
-        (json!(["--tools="]), &fetch, refused("no tool")),
+        (json!(["--tools", "Read"]), None, &fetch, refused("Read")),
+        (json!(["--tools="]), None, &fetch, refused("no tool")),
         (
             json!(["--tools", "Read,WebFetch"]),
+            None,
             &fetch,
             launched(&["--tools", "Read,WebFetch", "--allowedTools", "WebFetch"]),
         ),
+        (
+            json!(["--tools", "Read"]),
+            Some(&switch),
+            &fetch,
+            refused("Read"),
+        ),
+        (
+            json!(["--tools", "Read"]),
+            Some(&default),
+            &fetch,
+            refused("Read"),
+        ),
+        (
+            json!(["--tools", "Read,WebFetch"]),
+            Some(&switch),
+            &fetch,
+            launched(&["--tools", "Read,WebFetch", "--allowedTools", "WebFetch"]),
+        ),
+        (
+            json!(["--tools", "Read,WebFetch"]),
+            Some(&default),
+            &fetch,
+            launched(&["--tools", "Read,WebFetch"]),
+        ),
     ];
-    for (off, context, expected) in rows {
+    for (off, on, context, expected) in rows {
         let adapters = copied_adapters();
         edit_adapter(adapters.path(), "claude", |adapter| {
-            adapter["native_capabilities"]["known"]["web-search"]["off"] =
-                json!({"argv": off.clone()});
+            let known = &mut adapter["native_capabilities"]["known"];
+            known["web-search"]["off"] = json!({"argv": off.clone()});
+            if let Some(on) = on {
+                known["web-fetch"]["on"] = on.clone();
+            }
         });
         let path = operator.root().join("solo/bundle.json");
         let mut bundle: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
