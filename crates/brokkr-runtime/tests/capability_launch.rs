@@ -293,6 +293,37 @@ fn sealed(
     (spawn, input)
 }
 
+/// [`try_launch`] through the dispatch door (rebuild unit 12-fix-c, C3):
+/// the site's spawn sealed and its record verified ([`sealed`]), then the
+/// driver handed the input dispatch writes — the plan, the argv's
+/// provenance and the sealed record — and the actual command builder run on
+/// the sealed spawn's own argv.
+fn sealed_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<String>, String> {
+    let (spawn, mut input) = sealed(bundle, label, candidate);
+    let outcome = &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate];
+    input["workdir"] = json!("/w");
+    input["seat"] = json!(label);
+    input["native_controls"] = outcome.controls();
+    input["launch_arguments"] = spawn.launch_arguments();
+    let argv = &spawn.argv;
+    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
+    match outcome.provider.as_str() {
+        "codex" => brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input),
+        _ => brokkr_protocol::adapters::claude_command("claude", extra, None, &input),
+    }
+}
+
+/// [`solo`], launched through [`sealed_launch`].
+fn solo_sealed(operator: &Operator, adapters: &Path, context: &CapabilityContext) -> String {
+    match solo_bundle(operator, adapters, context) {
+        Ok(bundle) => match sealed_launch(&bundle, "work", 0) {
+            Ok(argv) => format!("launched {argv:?}"),
+            Err(refusal) => format!("compiled, and the driver said: {refusal}"),
+        },
+        Err(refusal) => refusal,
+    }
+}
+
 /// [`sealed`] over `facts` — the site's own, or a copy a test has moved —
 /// with what the seal said: the expected state is filled from those facts
 /// and the spawn composed from them, through the engine's own functions.
@@ -6213,7 +6244,9 @@ fn fetch_dialect(operator: &Operator, name: &str, tools: Value) {
 /// entry's include list alone is only a limit, and the box's hands are
 /// the base a limit bounds: the held fetch fills the hands' empty list,
 /// and no tool the limit names but nothing holds enters the box. A limit
-/// that excludes the wanted fetch drops it, its denial composed.
+/// that excludes the wanted fetch drops it, its denial composed. The hands
+/// tool is bounded like every allowance (rebuild unit 12-fix-c, I1): a
+/// limit that does not name it refuses the whole conflict, at compile.
 #[test]
 fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit() {
     let operator = Operator::new();
@@ -6246,7 +6279,7 @@ fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
         edit_adapter(adapters.path(), "claude", edit);
         operator
             .compile_against(adapters.path(), &fetch, Boundary::Namespace, None, None)
-            .and_then(|bundle| try_launch(&bundle, "chain", 0))
+            .and_then(|bundle| sealed_launch(&bundle, "chain", 0))
             .map(|argv| {
                 // The hands server's document names this test binary.
                 let mut tail =
@@ -6254,6 +6287,15 @@ fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
                 tail[4] = "<hands>".into();
                 tail
             })
+    };
+    let outside = |names: &str| {
+        Err(format!(
+            "bundle: seat 'chain' (office 'fallback') in realm 'private': the capability plan's \
+             explicit '--tools' restriction for provider 'claude' (naming {names}) does not name \
+             tool 'mcp__brokkr__workspace', which the site's typed hands admit; an explicit tool \
+             list is a hard limit that nothing widens, so the conflict is refused whole rather \
+             than unioned (design D6)"
+        ))
     };
     let tail = |tools: &str, allow: &str, deny: &[&str]| {
         Ok([
@@ -6290,6 +6332,13 @@ fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
     );
     assert_eq!(
         boxed(&second(json!(["--tools", "Bash,WebFetch"]))),
+        outside("Bash, WebFetch")
+    );
+    assert_eq!(
+        boxed(&second(json!([
+            "--tools",
+            "Bash,WebFetch,mcp__brokkr__workspace"
+        ]))),
         tail(
             "WebFetch",
             "mcp__brokkr__workspace,WebFetch",
@@ -6298,10 +6347,25 @@ fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
     );
     assert_eq!(
         boxed(&search_off(json!(["--tools", "Read,WebFetch"]))),
-        tail("WebFetch", "mcp__brokkr__workspace,WebFetch", &[])
+        outside("Read, WebFetch")
     );
     assert_eq!(
+        boxed(&search_off(json!([
+            "--tools",
+            "Read,WebFetch,mcp__brokkr__workspace"
+        ]))),
+        tail("WebFetch", "mcp__brokkr__workspace,WebFetch", &[])
+    );
+    // The wanted fetch drops first; the hands tool is still outside.
+    assert_eq!(
         boxed(&search_off(json!(["--tools", "Read"]))),
+        outside("Read")
+    );
+    assert_eq!(
+        boxed(&search_off(json!([
+            "--tools",
+            "Read,mcp__brokkr__workspace"
+        ]))),
         tail(
             "",
             "mcp__brokkr__workspace",
@@ -6469,7 +6533,10 @@ fn a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened() {
 /// and a wanted one drops with its denial and leaves the list empty. R3:
 /// in the box a held fetch fills the hands' list from the holding, whether
 /// its ON is an argv with its own list, an allow-only argv or a measured
-/// default beside a compatible limit — never `--tools ""`.
+/// default beside a compatible limit — never `--tools ""`. A limit is
+/// compatible only where it names the hands tool too (rebuild unit
+/// 12-fix-c, I1); one that does not refuses at compile. Every launch goes
+/// through the seal and `verify_record` to the command builder (C3).
 #[test]
 fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
     let operator = Operator::new();
@@ -6499,7 +6566,7 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
         edit_adapter(adapters.path(), "claude", |adapter| {
             adapter["native_capabilities"]["known"]["web-fetch"][fetch_entry] = value;
         });
-        solo(&operator, adapters.path(), context)
+        solo_sealed(&operator, adapters.path(), context)
     };
     let pins = ["--model", "claude-opus-5", "--effort", "high"];
     assert_eq!(
@@ -6550,7 +6617,7 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
                 "capabilities": {"web-fetch": strength},
             }),
         );
-        solo(&operator, managed.path(), &fetch)
+        solo_sealed(&operator, managed.path(), &fetch)
     };
     assert_eq!(
         handed("requires"),
@@ -6594,7 +6661,7 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
         });
         operator
             .compile_against(adapters.path(), &fetch, Boundary::Namespace, None, None)
-            .and_then(|bundle| try_launch(&bundle, "chain", 0))
+            .and_then(|bundle| sealed_launch(&bundle, "chain", 0))
             .map(|argv| {
                 // The hands server's document names this test binary.
                 let mut tail =
@@ -6602,6 +6669,15 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
                 tail[4] = "<hands>".into();
                 tail
             })
+    };
+    let outside = |names: &str| {
+        Err(format!(
+            "bundle: seat 'chain' (office 'fallback') in realm 'private': the capability plan's \
+             explicit '--tools' restriction for provider 'claude' (naming {names}) does not name \
+             tool 'mcp__brokkr__workspace', which the site's typed hands admit; an explicit tool \
+             list is a hard limit that nothing widens, so the conflict is refused whole rather \
+             than unioned (design D6)"
+        ))
     };
     let tail = |allow: &str, deny: &[&str]| {
         Ok([
@@ -6622,9 +6698,17 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
         .collect::<Vec<_>>())
     };
     let both = "mcp__brokkr__workspace,WebFetch";
+    let bounded = "WebFetch,mcp__brokkr__workspace";
     assert_eq!(
         boxed(
             json!({"argv": ["--tools", "WebFetch", "--allowedTools", "WebFetch"]}),
+            None
+        ),
+        outside("WebFetch")
+    );
+    assert_eq!(
+        boxed(
+            json!({"argv": ["--tools", bounded, "--allowedTools", "WebFetch"]}),
             None
         ),
         tail(both, &["--disallowedTools", "WebSearch"])
@@ -6634,6 +6718,13 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
             json!({"argv": ["--allowedTools", "WebFetch"]}),
             Some(json!(["--tools", "WebFetch"]))
         ),
+        outside("WebFetch")
+    );
+    assert_eq!(
+        boxed(
+            json!({"argv": ["--allowedTools", "WebFetch"]}),
+            Some(json!(["--tools", bounded]))
+        ),
         tail(both, &[])
     );
     assert_eq!(
@@ -6641,7 +6732,165 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
             json!({"default": "fetch is on unless a list removes it"}),
             Some(json!(["--tools", "WebFetch"]))
         ),
+        outside("WebFetch")
+    );
+    assert_eq!(
+        boxed(
+            json!({"default": "fetch is on unless a list removes it"}),
+            Some(json!(["--tools", bounded]))
+        ),
         tail("mcp__brokkr__workspace", &[])
+    );
+}
+
+/// Rebuild unit 12-fix-c, the four review positions' reproductions compiled
+/// and launched (design D6). Provenance is the engine's typed record, never
+/// argv text. Under `harness` an adapter's managed `hands.harness.work` that
+/// names the hands tool is still a limit, and the hands tool it allows is
+/// refused by name, required or wanted, where it was once taken for the
+/// box's hands and widened to `--tools WebFetch` (S1, C1, SC-2). A managed
+/// allow list no typed contribution made is refused, alone or beside a
+/// limit (S2). A template's `Bash(ls:*)` the site's typed allow did not
+/// lower is refused (SC-1); lowered, it is admitted, and still bounded by
+/// the template's limit. Accepted launches go through the seal.
+#[test]
+fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() {
+    let operator = Operator::new();
+    fetch_dialect(&operator, "claude-native-fetch", json!(["WebFetch"]));
+    let nothing = operator.context(json!({}));
+    let fetch = operator.context(json!({"web-fetch": {"dialect": "claude-native-fetch"}}));
+    one_inline_seat(&operator, &["driver"]);
+    let seat = |office: &str| {
+        write(
+            operator.root(),
+            "solo/bundle.json",
+            &json!({"name": "solo", "policy": "policy.json", "seats": {
+                "work": {"results": ["complete"], "agent": office},
+                "review": {"results": ["clean"], "role": "roles/role.md",
+                           "driver": {"command": ["driver"]}}}}),
+        );
+    };
+    let refused = |office: &str, cause: &str| {
+        format!("bundle: seat 'work' (office '{office}') in realm 'private': {cause}")
+    };
+    let untyped = |owner: &str, tool: &str| {
+        format!(
+            "{owner} '--allowedTools' allow list names tool '{tool}' for provider 'claude', \
+             which no realm holding admits, the site's typed hands do not carry and its typed \
+             'tools.allow' did not lower; an allowance is admitted by the typed contribution \
+             that made it, never by its spelling or by the list it stands in (design D6)"
+        )
+    };
+    let managed = "the adapter's managed boundary fragment's";
+    // The hands office under `harness`, with the adapter's work fragment.
+    seat("handed");
+    let handed = |fragment: Value, asks: Value, context: &CapabilityContext| {
+        write(
+            operator.root(),
+            "agents/handed.json",
+            &json!({
+                "description": "an office with hands",
+                "charter": "charters/searcher.md",
+                "models": ["opus"],
+                "efforts": {"opus": "high"},
+                "hands": {"kind": "workspace", "network": false, "binds": []},
+                "capabilities": asks,
+            }),
+        );
+        let adapters = copied_adapters();
+        edit_adapter(adapters.path(), "claude", |adapter| {
+            adapter["hands"]["harness"] = json!({"work": fragment});
+        });
+        solo_sealed(&operator, adapters.path(), context)
+    };
+    let counterfeit = json!([
+        "--tools",
+        "Read,Bash",
+        "--allowedTools",
+        "mcp__brokkr__workspace"
+    ]);
+    for strength in ["requires", "wants"] {
+        assert_eq!(
+            handed(counterfeit.clone(), json!({"web-fetch": strength}), &fetch),
+            refused("handed", &untyped(managed, "mcp__brokkr__workspace")),
+            "{strength}"
+        );
+    }
+    assert_eq!(
+        handed(json!(["--allowedTools", "Bash"]), json!({}), &nothing),
+        refused("handed", &untyped(managed, "Bash"))
+    );
+    assert_eq!(
+        handed(
+            json!(["--tools", "Read", "--allowedTools", "Bash"]),
+            json!({}),
+            &nothing
+        ),
+        refused("handed", &untyped(managed, "Bash"))
+    );
+    // A template's allowance, and the site's typed allow beside a limit.
+    seat("templated");
+    let templated = |template: &[&str], allow: Option<Value>| {
+        let mut office = json!({
+            "description": "an office with one local command",
+            "charter": "charters/searcher.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"},
+        });
+        if let Some(allow) = allow {
+            office["tools"] = json!({"allow": allow});
+        }
+        write(operator.root(), "agents/templated.json", &office);
+        let adapters = copied_adapters();
+        edit_adapter(adapters.path(), "claude", |adapter| {
+            let mut driver = json!([
+                "{brokkr}",
+                "driver",
+                "claude",
+                "--",
+                "--permission-mode",
+                "acceptEdits"
+            ]);
+            for part in template {
+                driver.as_array_mut().unwrap().push(json!(part));
+            }
+            adapter["driver"] = driver;
+        });
+        solo_sealed(&operator, adapters.path(), &nothing)
+    };
+    assert_eq!(
+        templated(&["--allowedTools", "Bash(ls:*)"], None),
+        refused(
+            "templated",
+            &untyped("the adapter template's", "Bash(ls:*)")
+        )
+    );
+    assert_eq!(
+        templated(&["--tools", "Read"], Some(json!(["ls"]))),
+        refused(
+            "templated",
+            "the adapter template's explicit '--tools' restriction for provider 'claude' \
+             (naming Read) does not name tool 'Bash', which the local permissions of the site's \
+             typed 'tools.allow' admit; an explicit tool list is a hard limit that nothing \
+             widens, so the conflict is refused whole rather than unioned (design D6)"
+        )
+    );
+    assert_eq!(
+        templated(&["--tools", "Read,Bash"], Some(json!(["ls"]))),
+        launched_as(&[&[
+            "--permission-mode",
+            "acceptEdits",
+            "--tools",
+            "",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+            "--allowedTools",
+            "Bash(ls:*)",
+            "--disallowedTools",
+            "WebFetch,WebSearch"
+        ]])
     );
 }
 

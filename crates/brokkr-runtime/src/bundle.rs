@@ -4565,6 +4565,7 @@ fn record_hands(
 /// driver an inline site dispatches. A command that dispatches no built-in
 /// driver is an opaque custom one: no adapter answers for it, so its
 /// native inventory is unmeasured and it can hold nothing.
+#[allow(clippy::too_many_arguments)]
 fn site_capabilities(
     authority: &crate::capabilities::Authority,
     adapters: CapabilityAdapters<'_>,
@@ -4573,7 +4574,9 @@ fn site_capabilities(
     managed: &[Vec<String>],
     inline_driver: Option<&str>,
     inline_argv: &[String],
+    inline_local: &[String],
 ) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
+    use brokkr_protocol::native_controls::{Application, Provenance};
     let native = |provider: &str| {
         adapters
             .adapters
@@ -4609,6 +4612,28 @@ fn site_capabilities(
             [candidate.parts().1, managed].concat()
         })
         .collect();
+    // What admits a tool without a holding, by type (rebuild unit
+    // 12-fix-c): the box's hands `compose` recorded from the agent's typed
+    // hands, which open the fragment, and the limits its typed allow lowered
+    // to — never read back from the argv. An inline site's typed allow is
+    // lowered where its facts were recorded, and it has no hands fragment.
+    let provenances: Vec<Provenance> = chain
+        .iter()
+        .map(|candidate| Provenance {
+            hands: candidate.hands_fragment.len(),
+            local: match &candidate.lowering {
+                crate::agents::Lowering::Composed(crate::agents::Composition {
+                    application: Application::Direct(limits),
+                    ..
+                }) => limits.clone(),
+                _ => Vec::new(),
+            },
+        })
+        .collect();
+    let inline_provenance = Provenance {
+        hands: 0,
+        local: inline_local.to_vec(),
+    };
     let servings: Vec<crate::capabilities::Serving<'_>> = match chain.is_empty() {
         true => vec![crate::capabilities::Serving {
             provider: inline,
@@ -4618,13 +4643,15 @@ fn site_capabilities(
             unloaded: adapters.unloaded,
             authored: inline_argv,
             fragment: &[],
+            provenance: &inline_provenance,
             written: inline_argv,
         }],
         false => chain
             .iter()
             .zip(&harnesses)
             .zip(&fragments)
-            .map(|((candidate, harness), fragment)| {
+            .zip(&provenances)
+            .map(|(((candidate, harness), fragment), provenance)| {
                 let (authored, _) = candidate.parts();
                 crate::capabilities::Serving {
                     provider: &candidate.provider,
@@ -4634,6 +4661,7 @@ fn site_capabilities(
                     unloaded: adapters.unloaded,
                     authored,
                     fragment,
+                    provenance,
                     // An agent reference is total (AC-21): the seat writes
                     // no argv, and its composition is the adapter's
                     // template, the engine's local permissions and hands
@@ -4698,7 +4726,7 @@ fn record_capabilities(
                 fragment.unwrap_or_default().to_vec()
             })
             .collect();
-        let site = site_capabilities(authority, adapters, asks, &chain, &managed, None, &[])?;
+        let site = site_capabilities(authority, adapters, asks, &chain, &managed, None, &[], &[])?;
         let facts = site_facts(sites, what);
         // The EFFECTIVE class, an inherited office class included, as the
         // local admission recorded it (design D5.6).
@@ -4735,6 +4763,11 @@ fn record_capabilities(
             .map_err(CompileError::Invalid)?;
         let parts = command_parts(raw);
         let driver = dispatch_driver(&parts);
+        let local = site_facts(sites, what)
+            .inline_local
+            .as_ref()
+            .map(|lowered| lowered.limits.clone())
+            .unwrap_or_default();
         let site = site_capabilities(
             authority,
             adapters,
@@ -4743,6 +4776,7 @@ fn record_capabilities(
             &[],
             driver.as_deref(),
             &parts,
+            &local,
         )?;
         let facts = site_facts(sites, what);
         // Rebuild unit 5d-fix-b: an inline class the engine lowered is
@@ -4771,7 +4805,8 @@ fn record_capabilities(
                 office: what.to_string(),
                 ..Default::default()
             };
-            let site = site_capabilities(authority, adapters, asks, &[], &[], Some("exec"), &[])?;
+            let site =
+                site_capabilities(authority, adapters, asks, &[], &[], Some("exec"), &[], &[])?;
             site_facts(sites, what).capabilities = Some(site);
         }
         return Ok(());

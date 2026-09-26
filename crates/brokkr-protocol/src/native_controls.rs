@@ -112,6 +112,34 @@ pub struct Controls {
     pub argv: Vec<String>,
     pub selection: Selection,
     pub guards: Vec<Guard>,
+    /// What the engine composed from the site's own typed declarations
+    /// (rebuild unit 12-fix-c).
+    pub provenance: Provenance,
+}
+
+/// The provenance of the engine contributions that admit a tool without a
+/// holding (rebuild unit 12-fix-c; design D6), carried from where the engine
+/// made them and never inferred from argv text: no spelling of the hands
+/// tool makes a fragment the box's hands, and no permission's shape makes
+/// it the site's own. A plan that carries none types nothing, so every
+/// fragment is a limit and every carried allowance needs a holding.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Provenance {
+    /// How many leading arguments of the engine's fragment are the box's
+    /// hands, composed from the site's typed hands declaration under the
+    /// box; zero where the site has no hands or runs unboxed.
+    pub hands: usize,
+    /// The local permissions the engine lowered from the site's own typed
+    /// `tools.allow`, in the adapter's concrete spelling.
+    pub local: Vec<String>,
+}
+
+impl Provenance {
+    /// What a site with no typed hands and no typed allow carries.
+    pub const NONE: &'static Provenance = &Provenance {
+        hands: 0,
+        local: Vec::new(),
+    };
 }
 
 /// The native powers a built-in HARNESS is KNOWN to carry, whatever its
@@ -250,6 +278,16 @@ fn decode(plan: &Value) -> Result<Controls, String> {
             );
         }
     }
+    // Absent, the plan types nothing (see [`Provenance`]); present in the
+    // wrong shape, it is refused like everything else.
+    let hands = match plan.get("hands") {
+        None => 0,
+        Some(count) => count
+            .as_u64()
+            .and_then(|count| usize::try_from(count).ok())
+            .ok_or("'hands' is not a count of arguments")?,
+    };
+    let local = strings(plan.get("local"), "local")?.unwrap_or_default();
     Ok(Controls {
         provider: text(plan.get("provider"), "provider")?,
         harness: text(plan.get("harness"), "harness")?,
@@ -260,6 +298,7 @@ fn decode(plan: &Value) -> Result<Controls, String> {
         argv: required(plan, "argv", "argv")?,
         selection,
         guards,
+        provenance: Provenance { hands, local },
     })
 }
 
@@ -1515,8 +1554,9 @@ fn unconsumed(provider: &str, form: &str) -> Refusal {
     }
 }
 
-/// Which engine contribution carries one explicit include limit (rebuild
-/// unit 12-fix; design D6). The recipe's own words carry none: compilation
+/// Which engine contribution carries one explicit tool list (rebuild unit
+/// 12-fix; design D6), by the position the engine recorded for it and never
+/// by what the list names. The recipe's own words carry none: compilation
 /// refused every authored list by origin ([`authored_refusal`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LimitOrigin {
@@ -1528,7 +1568,12 @@ pub enum LimitOrigin {
     Plan,
     /// The fragment the engine appended for the boundary that is not the
     /// box's hands: the adapter's `hands.harness.*` (unit 12-fix-b, R2).
+    /// Always a limit, whatever its allow list names (unit 12-fix-c).
     Managed,
+    /// The box's hands, as many arguments as the plan's [`Provenance`]
+    /// types: their include list is the base the holdings fill, never a
+    /// limit.
+    Hands,
 }
 
 impl LimitOrigin {
@@ -1537,8 +1582,19 @@ impl LimitOrigin {
             LimitOrigin::Template => "the adapter template's",
             LimitOrigin::Plan => "the capability plan's",
             LimitOrigin::Managed => "the adapter's managed boundary fragment's",
+            LimitOrigin::Hands => "the box's hands'",
         }
     }
+}
+
+/// Which typed contribution of the site admits an allowance that no
+/// holding admits (rebuild unit 12-fix-c).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Typed {
+    /// The site's typed hands, under the box: the hands tool.
+    Hands,
+    /// The local permissions lowered from the site's typed `tools.allow`.
+    Local,
 }
 
 /// One explicit include list an engine contribution carries: a hard limit
@@ -1568,14 +1624,17 @@ pub struct Sources<'a> {
     pub include: &'a [String],
     pub allow: &'a [String],
     /// The allow list the seat's argv already carries: the adapter
-    /// template's or the engine's local permissions before the hands, or
-    /// the hands' own, which names the hands tool.
+    /// template's or the engine's local permissions before the hands, the
+    /// hands' own, or the managed fragment's. Where it stands admits none
+    /// of it: each name is authorised by a holding or a typed contribution
+    /// below, or refused.
     pub carried: &'a [String],
-    /// Every tool a native power of the provider governs, held or not. A
-    /// carried name among them is admitted by a holding or not at all; the
-    /// engine's local permissions never name one (a typed allow entry
-    /// mapped onto a native tool is refused where it is lowered).
-    pub governed: &'a [String],
+    /// W: what the site's typed hands admit — the box's hands tool, and
+    /// nothing where the plan types no hands ([`Provenance::hands`]).
+    pub hands: &'a [String],
+    /// T: the local permissions the engine lowered from the site's own
+    /// typed `tools.allow` ([`Provenance::local`]).
+    pub local: &'a [String],
 }
 
 /// Why no final tool set exists.
@@ -1583,8 +1642,17 @@ pub struct Sources<'a> {
 pub enum Conflict {
     /// The plan admits a tool that no holding's admissions name.
     Unheld(String),
-    /// The seat's own allow list names a native tool no holding admits.
+    /// The seat's own allow list names a tool that no holding admits, the
+    /// site's typed hands do not carry and its typed `tools.allow` did not
+    /// lower.
     Carried(String),
+    /// A limit does not name the tool of an allowance a typed contribution
+    /// admits; it cannot drop, so it refuses.
+    Outside {
+        tool: String,
+        by: Typed,
+        limit: usize,
+    },
     /// A limit does not name a tool a held capability admits. The one
     /// conflict resolution can answer by dropping a wanted holding (CQ1).
     Excluded {
@@ -1613,14 +1681,19 @@ fn distinct<S: AsRef<str>>(names: impl IntoIterator<Item = S>) -> Vec<String> {
 /// is merged into its answer afterwards. Compilation and launch both reach
 /// it through [`compose_for_provider`].
 ///
-/// - I1: every name it returns is held, the hands tool the hands carry, or
-///   an engine local permission on a tool no native power governs. A name
-///   that only a limit, a template or the plan's argv supplies is never
-///   returned: the include list is filled from the holdings alone.
+/// - I1: every name it returns is in H ∪ W ∪ T — held, the hands tool the
+///   site's typed hands carry, or a local permission the engine lowered
+///   from the site's typed `tools.allow` — by the typed contribution that
+///   made it and never by its spelling (unit 12-fix-c); and the tool of
+///   every one is inside every limit. A name that only a limit, a template,
+///   a fragment or the plan's argv supplies is never returned: the include
+///   list is filled from the holdings alone.
 /// - I2: every held tool is inside every limit, or the conflict is a
 ///   [`Conflict::Excluded`] naming the limit and the tool, for a wanted
-///   holding to drop with OFF and a required one to refuse (CQ1). Where an
-///   include list is written it names every held tool.
+///   holding to drop with OFF and a required one to refuse (CQ1); a typed
+///   hands or local allowance outside a limit cannot drop and refuses
+///   ([`Conflict::Outside`]). Where an include list is written it names
+///   every held tool.
 /// - I3: with the box's hands, or under any limit, the include list is the
 ///   held tools; the hands tool rides the hands' own allow list. A managed
 ///   boundary fragment's list is one of the limits, never a base.
@@ -1640,6 +1713,17 @@ pub fn final_tools(
     {
         return Err(Conflict::Unheld(tool.clone()));
     }
+    let typed = |name: &String| match sources.hands.contains(name) {
+        true => Some(Typed::Hands),
+        false => sources.local.contains(name).then_some(Typed::Local),
+    };
+    if let Some(tool) = sources
+        .carried
+        .iter()
+        .find(|name| !admitted(name) && typed(name).is_none())
+    {
+        return Err(Conflict::Carried(tool.clone()));
+    }
     for (index, limit) in limits.iter().enumerate() {
         for (capability, tools) in admits {
             if let Some(tool) = tools.iter().find(|tool| !limit.names.contains(tool)) {
@@ -1651,14 +1735,19 @@ pub fn final_tools(
             }
         }
     }
-    if let Some(tool) = sources.carried.iter().find(|name| {
-        !admitted(name)
-            && sources
-                .governed
-                .iter()
-                .any(|tool| tool == grammar::tool_name(name))
-    }) {
-        return Err(Conflict::Carried(tool.clone()));
+    // A held allowance's tool is inside every limit (above); what a typed
+    // contribution admits must be too.
+    for (index, limit) in limits.iter().enumerate() {
+        for name in sources.carried.iter().filter(|name| !admitted(name)) {
+            let tool = grammar::tool_name(name);
+            if !limit.names.iter().any(|named| named == tool) {
+                return Err(Conflict::Outside {
+                    tool: tool.to_string(),
+                    by: typed(name).expect("an unheld carried name is typed (above)"),
+                    limit: index,
+                });
+            }
+        }
     }
     // Every name the selection includes is held (above), so it only orders
     // the held tools.
@@ -1728,8 +1817,15 @@ fn restriction(provider: &str, limit: &Limit) -> String {
     )
 }
 
-/// The failure one [`Conflict`] is, in the provider's words.
-fn conflicting(provider: &str, limits: &[Limit], conflict: Conflict) -> Failure {
+/// The failure one [`Conflict`] is, in the provider's words. `carrier` is
+/// the contribution whose allow list the seat's argv carries, by where the
+/// engine placed it.
+fn conflicting(
+    provider: &str,
+    limits: &[Limit],
+    carrier: (LimitOrigin, &str),
+    conflict: Conflict,
+) -> Failure {
     match conflict {
         Conflict::Unheld(tool) => Failure::Refused(Refusal {
             authored: false,
@@ -1742,11 +1838,25 @@ fn conflicting(provider: &str, limits: &[Limit], conflict: Conflict) -> Failure 
         Conflict::Carried(tool) => Failure::Refused(Refusal {
             authored: false,
             cause: format!(
-                "the seat's own allow list names native tool '{tool}' for provider \
-                 '{provider}', which no realm holding admits; a native tool is admitted only \
-                 through the one adapter entry a holding binds, narrowed by its grant (design D6)"
+                "{} '{}' allow list names tool '{tool}' for provider '{provider}', which no \
+                 realm holding admits, the site's typed hands do not carry and its typed \
+                 'tools.allow' did not lower; an allowance is admitted by the typed contribution \
+                 that made it, never by its spelling or by the list it stands in (design D6)",
+                carrier.0.owner(),
+                carrier.1
             ),
         }),
+        Conflict::Outside { tool, by, limit } => Failure::Refused(restricted(
+            provider,
+            &limits[limit],
+            &format!(
+                "does not name tool '{tool}', which {} admit",
+                match by {
+                    Typed::Hands => "the site's typed hands",
+                    Typed::Local => "the local permissions of the site's typed 'tools.allow'",
+                }
+            ),
+        )),
         Conflict::Excluded {
             capability,
             tool,
@@ -1824,11 +1934,29 @@ pub fn compose_or_exclude(
     // sees only what follows it, and both parse the same tail.
     let head = &authored[..authored.len() - harness_arguments(authored).len()];
     let authored = harness_arguments(authored);
+    // The box's hands are as many leading arguments of the engine's fragment
+    // as the plan types, and the rest is the managed boundary fragment; a
+    // count the fragment cannot hold types nothing and refuses.
+    let typed_hands = controls.provenance.hands;
+    if typed_hands > fragment.len() {
+        return Err(Refusal {
+            authored: false,
+            cause: format!(
+                "the capability plan for provider '{provider}' types {typed_hands} arguments of \
+                 the engine's fragment as the box's hands, but the fragment carries {}; \
+                 provenance is a carried fact that must fit the argv it types, so the launch is \
+                 refused rather than composed on a guess (design D6)",
+                fragment.len()
+            ),
+        }
+        .into());
+    }
     // Every origin is parsed to completion and SEPARATELY, so a dangling
     // value or terminator in one cannot reach across and consume another
     // origin's control (decision 0066 ruling 6).
     parse_origin(provider, authored, true)?;
-    parse_origin(provider, fragment, false)?;
+    parse_origin(provider, &fragment[..typed_hands], false)?;
+    parse_origin(provider, &fragment[typed_hands..], false)?;
     for capability in known_powers(provider) {
         if let Inventory::Unmeasured(reason) = &controls.inventory {
             return Err(unready(
@@ -1923,42 +2051,45 @@ pub fn compose_or_exclude(
                 )
                 .into());
             }
-            // The box's hands are the fragment that carries the hands tool;
-            // their include list is the base the holdings fill. Every other
-            // explicit include list an engine contribution carries is a
-            // limit (design D6): the template's own, in the part before the
-            // hands, each one the plan's argv names, and the adapter's
-            // managed boundary fragment (unit 12-fix-b, R2). The seat's argv
-            // holds one include and one allow list at most: a duplicate
-            // across its two origins refused above.
+            // Which contribution carries a list is where the engine placed
+            // it (unit 12-fix-c), never what the list names: the part
+            // before the fragment is the template's and the local
+            // permissions', the typed hands follow, and the rest is the
+            // managed boundary fragment. The typed hands' include list is
+            // the base the holdings fill. Every other explicit include list
+            // an engine contribution carries is a limit (design D6): the
+            // template's own, each one the plan's argv names, and the
+            // managed fragment's, whatever its allow list names (unit
+            // 12-fix-b, R2). The seat's argv holds one include and one allow
+            // list at most: a duplicate across its origins refused above.
             let split = authored.len();
-            let own = seat.lists(ListKind::Include).next();
-            let patterns = |node: &grammar::Node| -> Vec<String> {
-                grammar::node_patterns(node)
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect()
+            let origin = |node: &grammar::Node| match node.at {
+                at if at < split => LimitOrigin::Template,
+                at if at < split + typed_hands => LimitOrigin::Hands,
+                _ => LimitOrigin::Managed,
             };
-            let carried: Vec<String> = seat
-                .lists(ListKind::Allow)
-                .next()
-                .map(patterns)
-                .unwrap_or_default();
-            let hands_tool = format!(
-                "mcp__{}__{}",
-                crate::hands::SERVER_NAME,
-                crate::hands::TOOL_NAME
-            );
-            let boxed = seat
-                .lists(ListKind::Allow)
-                .any(|node| node.at >= split && patterns(node).contains(&hands_tool));
+            let own = seat.lists(ListKind::Include).next();
+            let allowed = seat.lists(ListKind::Allow).next();
+            let carried: Vec<String> = allowed
+                .map(grammar::node_patterns)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            // W is the site's typed hands' own tool, and nothing without
+            // them; T is what the engine lowered from its typed allow.
+            let hands_tools: Vec<String> = match typed_hands {
+                0 => Vec::new(),
+                _ => vec![format!(
+                    "mcp__{}__{}",
+                    crate::hands::SERVER_NAME,
+                    crate::hands::TOOL_NAME
+                )],
+            };
             let limits: Vec<Limit> = seat
                 .lists(ListKind::Include)
-                .filter_map(|node| match (node.at < split, boxed) {
-                    (true, _) => Some((LimitOrigin::Template, node)),
-                    (false, false) => Some((LimitOrigin::Managed, node)),
-                    (false, true) => None,
-                })
+                .map(|node| (origin(node), node))
+                .filter(|(origin, _)| *origin != LimitOrigin::Hands)
                 .chain(
                     plan.lists(ListKind::Include)
                         .map(|node| (LimitOrigin::Plan, node)),
@@ -1969,7 +2100,7 @@ pub fn compose_or_exclude(
                     names: distinct(grammar::node_patterns(node)),
                 })
                 .collect();
-            let hands = boxed && own.is_some_and(|node| node.at >= split);
+            let hands = own.is_some_and(|node| origin(node) == LimitOrigin::Hands);
             let named = |kind: ListKind| -> Vec<String> {
                 plan.lists(kind)
                     .flat_map(grammar::node_patterns)
@@ -1984,23 +2115,22 @@ pub fn compose_or_exclude(
                 .cloned()
                 .chain(named(ListKind::Allow))
                 .collect();
-            let governed: Vec<String> = controls
-                .guards
-                .iter()
-                .flat_map(|guard| guard.tools.iter().cloned())
-                .collect();
+            let carrier = allowed.map_or((LimitOrigin::Template, ""), |node| {
+                (origin(node), node.name())
+            });
             let tools = final_tools(
                 &controls.admits,
                 Sources {
                     include: &controls.selection.include,
                     allow: &allow,
                     carried: &carried,
-                    governed: &governed,
+                    hands: &hands_tools,
+                    local: &controls.provenance.local,
                 },
                 &limits,
                 hands,
             )
-            .map_err(|conflict| conflicting(provider, &limits, conflict))?;
+            .map_err(|conflict| conflicting(provider, &limits, carrier, conflict))?;
             // The include list is written only where it is not already the
             // seat's own, spelled as it stands; the allow list gains what
             // the seat does not carry.

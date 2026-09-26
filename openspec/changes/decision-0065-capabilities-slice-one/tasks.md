@@ -1825,6 +1825,29 @@ Unit 12-fix-c (2026-09-26, run `0065-rebuild-unit-12-see-the-uni-c0c83ac6`):
 - **Pending:** the ruling, exact coverage outside the box, macOS, remote
   CI and the council.
 
+Second visit (2026-09-27, run `0065-rebuild-unit-12-see-the-uni-167a4539`),
+under the operator's admission riding the standing 2026-09-26 option-A
+ruling: **landed** (evidence.md, "Unit 12-fix-c, second visit — landed").
+
+- `full.patch` applied as saved, except the `adapters/tests.rs` row
+  "every list joined, in aliases, nothing held": its input keeps
+  `--tools=Read` and its expectation is now the exact refusal (the typed
+  local `Bash(git:*)` outside the template's limit, S2's second shape).
+  Red on `add73ee2`, which launched `--tools=` beside it.
+- Fixture lines under the standing admission, no assertion changed:
+  `adapters/tests.rs:14933` (`claude_plan`'s `"local"`) and `:15282`,
+  `:15287` (`claude_admits_…` sets `plan["hands"]`); one `provenance` line
+  each in `agents/tests.rs:4753`, `capabilities/tests.rs:121` and
+  `engine/capability_tests.rs:34`.
+- Mutations re-taken this visit, each caught and restored: hands inferred
+  from the fragment's text, an untyped carried allowance admitted as
+  local, and a typed local permission exempt from limits.
+- 12.1 and 12.2 stay ticked; 15.2 is advanced and stays open.
+- Assumption carried from the first visit: W is bounded by every plan
+  list (NCT's "empty built-in list" read as the hands' own base).
+- **Pending:** exact coverage outside the box, macOS, remote CI and the
+  council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

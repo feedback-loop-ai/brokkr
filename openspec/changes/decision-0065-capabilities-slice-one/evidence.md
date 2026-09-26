@@ -10975,3 +10975,126 @@ with the row's other form, lands the unit.
 
 **Pending:** the ruling, external exact coverage, macOS, remote CI and the
 full engine council.
+
+## Unit 12-fix-c, second visit — landed, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-167a4539`, on `98e6948c` (whose
+`crates/` equal `add73ee2`'s: `git diff --quiet add73ee2 HEAD -- crates/`).
+The operator's admission rides the standing 2026-09-26 option-A ruling: the
+row "every list joined, in aliases, nothing held" was admitted "whose
+expectations change as I1 requires", and the restated I1 (H ∪ W ∪ T, under
+every limit) makes it refuse as S2's second shape. The two fixture lines
+change no assertion and are recorded under the standing admission.
+
+### What landed
+
+`full.patch` (`57582b50…`) applied clean on `98e6948c`. One difference
+from it: the row does not take the proposed re-plant. Its input keeps
+`--tools=Read`, it leaves the `Ok` table of
+`a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag`,
+and it is asserted after that loop as the exact refusal:
+
+> refusing to invoke the agent CLI: the adapter template's explicit
+> '--tools' restriction for provider 'claude' (naming Read) does not name
+> tool 'Bash', which the local permissions of the site's typed
+> 'tools.allow' admit; an explicit tool list is a hard limit that nothing
+> widens, so the conflict is refused whole rather than unioned (design D6)
+
+Production is `full.patch`'s, byte for byte: `native_controls.rs`,
+`capabilities.rs` and `bundle.rs` only. The description under "Unit
+12-fix-c — oversized on one test row" stands as the record of the repair.
+
+### Lines outside the unit's files
+
+- Admitted row (operator admission above): `adapters/tests.rs` 15529–15550,
+  moved from the table at HEAD `:15516`–`:15534`. Input unchanged; the
+  expectation changed from a launch to the refusal above.
+- Standing admission, no assertion added, removed or changed:
+  - `adapters/tests.rs:14933`, `"local": ["Bash(git:*)"]` in `claude_plan`:
+    the rows that carry `Bash(git:*)` reach the typed-local check, and the
+    plan now types it as the engine would;
+  - `adapters/tests.rs:15282` and `:15287`, `claude_admits_…` sets
+    `plan["hands"]` to the hands count it already passes to
+    `engine_input`: hands are typed, never read from text;
+  - one `provenance: Provenance::NONE` line in each `Serving` literal:
+    `agents/tests.rs:4753`, `capabilities/tests.rs:121`,
+    `engine/capability_tests.rs:34` (a new field every literal must name).
+
+### Baseline red on `add73ee2`
+
+With `native_controls.rs` and `native_controls/tests.rs` checked out from
+HEAD, and the row as landed, `cargo test -p brokkr-protocol --lib
+a_local_claude_permission_is_kept` failed at `adapters/tests.rs:15532`:
+
+    left: Ok([..., "--permission-mode=acceptEdits", "--tools=",
+      "--allowed-tools=Bash(git:*)",
+      "--disallowed-tools=Bash(rm:*),WebSearch,WebFetch"])
+
+That is S2's second shape: a local permission emitted outside the limit.
+The two files were restored by copy, and `git diff` matched the saved tree
+(`cmp` against `.forge/unit-12-fix-c/visit2.patch`).
+
+### Mutations re-taken this visit
+
+Each one compiled and was caught. Each was restored by copy, and
+`git diff` was compared with `cmp` against the saved tree.
+
+- **MA**, hands inferred from text: `typed_hands` is the whole fragment
+  when any argument contains `mcp__brokkr__workspace`. Protocol lib 490/3.
+  Property `:2832` failed with "the hands' bytes untyped, requires: I1
+  --allowedTools mcp__brokkr__workspace". `capability_launch` 48/1: S1's
+  row `:6813` "requires" launched `--tools WebFetch --allowedTools
+  mcp__brokkr__workspace,WebFetch --disallowedTools WebSearch`, the chief
+  reproduction.
+- **MB**, an untyped carried name typed as local (`typed` returns
+  `Local` for every name). Protocol lib 489/4, the property among them
+  ("an untyped allowance … I1 --allowedTools Bash(ls:*)").
+  `capability_launch` 48/1 on S1's row. With S1's loop skipped in a
+  throwaway copy, S2's row `:6819` launched `--allowedTools Bash
+  --disallowedTools WebFetch,WebSearch`. The copy was then restored.
+- **MC**, a typed local permission exempt from limits (`sources.local`
+  filtered out of the `Outside` loop). Protocol lib 490/3:
+  - the admitted row `adapters/tests.rs:15532` launched add73ee2's exact
+    output;
+  - `authority_…` `:2365` returned `Ok(Toolset { include: Some([]),
+    allow: ["Bash(ls:*)"] })`;
+  - the property failed "typed local permission … I1 Bash(ls:*) inside
+    the adapter template's limit".
+
+  `capability_launch` 48/1: `:6868` launched `--tools "" …
+  --allowedTools Bash(ls:*)`.
+
+### Gates on the final tree
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-protocol -p brokkr-runtime --all-features
+  --locked`: every result line ok (protocol lib 493, runtime lib 565,
+  `capability_launch` 49).
+- `cargo test --workspace --all-features --locked --no-fail-fast`: exit 0,
+  77 `test result: ok` lines, no FAILED or panic.
+- `bundles/self` and `bundles/verify` compile. Their output is
+  byte-identical to the first visit's and to HEAD's (`cmp`).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+
+### Coverage diagnostic, and unit 11's handoff
+
+`cargo +nightly-2026-09-05 llvm-cov clean --workspace` ran first, then
+`cargo +nightly-2026-09-05 --config 'env.TMPDIR="/var/tmp"' llvm-cov
+--branch -p brokkr-protocol -p brokkr-runtime -p brokkr-cli
+--all-features --locked --lcov`. It gave 58 `test result: ok` lines and
+no FAILED. Checked with `grep -n -x -E` for `DA:…,0` and for zero or `-`
+`BRDA`, placed by the `SF:` and `end_of_record` line ranges:
+
+- `native_controls.rs` and `capabilities.rs`: none.
+- `bundle.rs`: DA 1880, 2647, 2649, 2652, 2786 and BRDA 2632, 2648, 2651,
+  3460. That is the first visit's set and the 12-fix-b set. None falls in
+  `expressed_sandbox` (3288–3420), so unit 11's handoff stays closed.
+
+The row's move changed no unhit production record.
+
+**Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
+the box), macOS, remote CI and the full engine council. The first visit's
+NCT reading (W bounded by every plan list) is still an assumption
+for review.

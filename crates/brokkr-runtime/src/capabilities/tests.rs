@@ -118,6 +118,7 @@ fn serving(native: &NativeInventory) -> Serving<'_> {
         unloaded: None,
         authored: &[],
         fragment: &[],
+        provenance: brokkr_protocol::native_controls::Provenance::NONE,
         written: &[],
     }
 }

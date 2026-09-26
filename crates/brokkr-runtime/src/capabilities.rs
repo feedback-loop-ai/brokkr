@@ -881,6 +881,7 @@ impl NativeCapability {
             argv,
             selection,
             guards: Vec::new(),
+            provenance: launch::Provenance::default(),
         };
         match launch::compose_for_provider(harness, &[], &[], &controls) {
             Ok(_) => declared,
@@ -1113,6 +1114,11 @@ pub struct Serving<'a> {
     /// The fragment the ENGINE appended for the boundary — the adapter's
     /// workspace hands. Composed with, never judged as authored.
     pub fragment: &'a [String],
+    /// What of that argv the engine composed from the site's own typed
+    /// declarations — how much of `fragment` is the box's hands, and the
+    /// local permissions its typed allow lowered to — carried from where
+    /// the candidate was composed into the plan (rebuild unit 12-fix-c).
+    pub provenance: &'a launch::Provenance,
     /// What the RECIPE itself wrote, by origin (design D5.7): an inline
     /// site's whole command; nothing for an agent candidate, whose
     /// composition is the adapter's and the engine's alone.
@@ -1200,6 +1206,7 @@ impl NativeContribution {
                 argv: self.argv.clone(),
                 selection: self.selection.clone(),
                 guards: Vec::new(),
+                provenance: launch::Provenance::default(),
             },
         )
     }
@@ -2085,6 +2092,10 @@ impl Authority {
             "off": capabilities(&off),
             "admits": expected.admits(),
             "argv": argv,
+            // The provenance of what admits a tool without a holding
+            // (rebuild unit 12-fix-c), carried to the driver as typed data.
+            "hands": serving.provenance.hands,
+            "local": serving.provenance.local,
             "guards": guards.iter().map(|guard| json!({
                 "capability": guard.capability,
                 "flags": guard.flags,

@@ -142,6 +142,19 @@ fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
     .unwrap()
     .unwrap();
     assert_eq!(sparse.selection, Selection::default());
+    // A plan that types nothing types no hands and no local permission;
+    // one that does is read exactly (rebuild unit 12-fix-c).
+    assert_eq!(controls.provenance, Provenance::default());
+    let mut typed_plan = plan["native_controls"].clone();
+    typed_plan["hands"] = json!(7);
+    typed_plan["local"] = json!(["Bash(ls:*)"]);
+    assert_eq!(
+        managed(&json!({"native_controls": typed_plan}))
+            .unwrap()
+            .unwrap()
+            .provenance,
+        typed(7, &["Bash(ls:*)"])
+    );
     assert_eq!(
         sparse.guards,
         vec![Guard {
@@ -199,6 +212,18 @@ fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
         (
             &|plan: &mut Value| plan["admits"]["web-search"] = json!("WebSearch"),
             "'admits.web-search' is not an array of strings",
+        ),
+        (
+            &|plan: &mut Value| plan["hands"] = json!(-1),
+            "'hands' is not a count of arguments",
+        ),
+        (
+            &|plan: &mut Value| plan["hands"] = json!("7"),
+            "'hands' is not a count of arguments",
+        ),
+        (
+            &|plan: &mut Value| plan["local"] = json!("Bash(ls:*)"),
+            "'local' is not an array of strings",
         ),
         (&without("guards"), "'guards' is missing"),
         (
@@ -451,6 +476,7 @@ fn claude_controls(selection: Selection, managed: &[&str]) -> Controls {
         argv: argv(managed),
         selection,
         guards: Vec::new(),
+        provenance: Provenance::default(),
     }
 }
 
@@ -460,6 +486,16 @@ fn admits(held: &[(&str, &[&str])]) -> std::collections::BTreeMap<String, Vec<St
     held.iter()
         .map(|(capability, tools)| (capability.to_string(), argv(tools)))
         .collect()
+}
+
+/// What a plan types (rebuild unit 12-fix-c): how many leading arguments of
+/// the fragment are the box's hands, and the local permissions lowered
+/// from the site's typed allow.
+fn typed(hands: usize, local: &[&str]) -> Provenance {
+    Provenance {
+        hands,
+        local: argv(local),
+    }
 }
 
 /// The composed seat argv, through the one production composer.
@@ -497,7 +533,10 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
                 "--allowedTools",
                 "mcp__brokkr__workspace"
             ],
-            &controls
+            &Controls {
+                provenance: typed(5, &[]),
+                ..controls.clone()
+            }
         ),
         argv(&[
             "--tools",
@@ -512,7 +551,14 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
     // Unboxed with a local restriction: no tool list is invented, so the
     // harness's other built-ins are not restored or removed.
     assert_eq!(
-        composed(&["--allowedTools", "Bash(git:*)"], &[], &controls),
+        composed(
+            &["--allowedTools", "Bash(git:*)"],
+            &[],
+            &Controls {
+                provenance: typed(0, &["Bash(git:*)"]),
+                ..controls
+            }
+        ),
         argv(&[
             "--allowedTools",
             "Bash(git:*),WebSearch",
@@ -575,7 +621,10 @@ fn a_selection_folds_into_an_aliased_or_joined_list_where_it_stands() {
         deny: argv(&["WebFetch"]),
         flags: claude_flags(),
     };
-    let controls = claude_controls(selection, &[]);
+    let controls = Controls {
+        provenance: typed(0, &["Bash(git:*)", "Read"]),
+        ..claude_controls(selection, &[])
+    };
     for (authored, folded) in [
         // The joined canonical spelling, every list at once. The seat's
         // own nonempty include list is a limit the engine may not widen,
@@ -973,12 +1022,36 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
             );
             continue;
         }
+        // Nor does it take an allowance on its word (rebuild unit 12-fix-c):
+        // the first name no holding admits and no typed contribution made
+        // refuses, the site's own words or not.
+        let untyped = authored
+            .iter()
+            .enumerate()
+            .find_map(|(at, part)| match part.as_str() {
+                "--allowedTools" => authored.get(at + 1).cloned(),
+                joined => joined.strip_prefix("--allowed-tools=").map(str::to_string),
+            })
+            .map(|value| value.split(',').next().unwrap().to_string());
+        if let Some(tool) = untyped {
+            assert_eq!(
+                composed.map(|composed| composed.extra),
+                Err(carried_refusal(provider, "the adapter template's", &tool)),
+                "{authored:?}"
+            );
+            continue;
+        }
         let composed = composed.unwrap_or_else(|refusal| panic!("{authored:?}: {refusal:?}"));
         assert_eq!(&composed.extra[..authored.len()], authored, "{authored:?}");
     }
     // Inert: a value is a value whatever it spells, and another key is
     // another key. An option-looking value reaches the command through the
-    // joined spelling, which the grammar preserves as one token.
+    // joined spelling, which the grammar preserves as one token. A local
+    // permission is the site's typed allow's (rebuild unit 12-fix-c).
+    let claude_local = Controls {
+        provenance: typed(0, &["Bash(mcp__not_a_tool:*)"]),
+        ..claude.clone()
+    };
     for (provider, controls, authored) in [
         (
             "codex",
@@ -1005,7 +1078,7 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
         ),
         (
             "claude",
-            &claude,
+            &claude_local,
             argv(&["--allowedTools", "Bash(mcp__not_a_tool:*)"]),
         ),
     ] {
@@ -1374,10 +1447,15 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         "mcp__brokkr__workspace",
     ]);
     let seat = argv(&["--permission-mode", "acceptEdits"]);
+    // The plan of a site whose typed hands the box carries.
+    let boxed = |plan: &Controls| Controls {
+        provenance: typed(hands.len(), &[]),
+        ..plan.clone()
+    };
     // The reproduction, boxed and unboxed.
     let mixed = claude(&["--disallowedTools", "WebSearch"], &[], &[], &["WebFetch"]);
     assert_eq!(
-        compose_for_provider("claude", &seat, &hands, &mixed)
+        compose_for_provider("claude", &seat, &hands, &boxed(&mixed))
             .unwrap()
             .extra,
         [
@@ -1412,8 +1490,10 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         argv(&["--disallowed-tools", "Bash(rm:*),WebSearch,WebFetch"])
     );
     // Search held as ARGV lists beside fetch denied by selection: the held
-    // tool joins the boxed tool list and the allow list, fetch is denied,
-    // and a name both representations carry appears once.
+    // tool joins the tool list and the allow list, fetch is denied, and a
+    // name both representations carry appears once. Boxed, the ON's own
+    // list is a limit that does not name the hands tool, so it refuses
+    // (rebuild unit 12-fix-c, I1); unboxed, it composes.
     let held = Controls {
         admits: admits(&[("web-search", &["WebSearch"])]),
         ..claude(
@@ -1429,7 +1509,14 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
         ..held
     };
     assert_eq!(
-        compose_for_provider("claude", &seat, &hands, &held)
+        compose_for_provider("claude", &seat, &hands, &boxed(&held)),
+        Err(limit_refusal(
+            "WebSearch",
+            "does not name tool 'mcp__brokkr__workspace', which the site's typed hands admit"
+        ))
+    );
+    assert_eq!(
+        compose_for_provider("claude", &seat, &[], &held)
             .unwrap()
             .extra,
         [
@@ -1437,11 +1524,8 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             argv(&[
                 "--tools",
                 "WebSearch",
-                "--strict-mcp-config",
-                "--mcp-config",
-                "/run/hands.json",
                 "--allowedTools",
-                "mcp__brokkr__workspace,WebSearch",
+                "WebSearch",
                 "--disallowedTools",
                 "WebFetch"
             ])
@@ -1659,6 +1743,21 @@ fn limit_refusal(limit: &str, conflict: &str) -> Refusal {
     }
 }
 
+/// The refusal of a carried allowance that no holding admits and no typed
+/// contribution of the site made, in the list `owner` carries (rebuild
+/// unit 12-fix-c).
+fn carried_refusal(provider: &str, owner: &str, tool: &str) -> Refusal {
+    Refusal {
+        authored: false,
+        cause: format!(
+            "{owner} '--allowedTools' allow list names tool '{tool}' for provider '{provider}', \
+             which no realm holding admits, the site's typed hands do not carry and its typed \
+             'tools.allow' did not lower; an allowance is admitted by the typed contribution \
+             that made it, never by its spelling or by the list it stands in (design D6)"
+        ),
+    }
+}
+
 /// Rebuild unit 12, second review F1 (design D6; NCT "Admission and
 /// restriction cannot erase each other"; task 12.2): an explicit include
 /// list the plan carries is a hard limit. Empty or not, it reaches the
@@ -1828,18 +1927,51 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
             &[],
             Err(limit_refusal("Read", fetch)),
         ),
-        // Boxed: the hands' own list is the base and a limit only bounds
-        // it, so neither the empty limit nor a nonempty one adds a tool
-        // to the box (unit 12-fix: a limit never widens anything).
+        // Boxed: the hands' own empty list is the base and a limit only
+        // bounds it (unit 12-fix: a limit never widens anything). The hands
+        // tool is an allowance like any other (unit 12-fix-c, I1): a limit
+        // that does not name it is an incompatible restriction, refused
+        // rather than weakened (NCT, second H4); one that names it holds.
         (
-            plan(&["--tools", ""], &[], &[], &[]),
+            Controls {
+                provenance: typed(hands.len(), &[]),
+                ..plan(&["--tools", ""], &[], &[], &[])
+            },
+            &hands,
+            Err(limit_refusal(
+                "no tool",
+                "does not name tool 'mcp__brokkr__workspace', which the site's typed hands admit",
+            )),
+        ),
+        (
+            Controls {
+                provenance: typed(hands.len(), &[]),
+                ..plan(&["--tools", "Read"], &[], &[], &[])
+            },
+            &hands,
+            Err(limit_refusal(
+                "Read",
+                "does not name tool 'mcp__brokkr__workspace', which the site's typed hands admit",
+            )),
+        ),
+        (
+            Controls {
+                provenance: typed(hands.len(), &[]),
+                ..plan(&["--tools", "Read,mcp__brokkr__workspace"], &[], &[], &[])
+            },
             &hands,
             Ok([hands.clone(), argv(&["--disallowedTools", "WebFetch"])].concat()),
         ),
+        // Untyped, the same fragment is no box: its include list is a
+        // managed limit, and the hands tool it allows is refused by name.
         (
-            plan(&["--tools", "Read"], &[], &[], &[]),
+            plan(&["--tools", "Read,mcp__brokkr__workspace"], &[], &[], &[]),
             &hands,
-            Ok([hands.clone(), argv(&["--disallowedTools", "WebFetch"])].concat()),
+            Err(carried_refusal(
+                "claude",
+                "the adapter's managed boundary fragment's",
+                "mcp__brokkr__workspace",
+            )),
         ),
     ];
     for (controls, fragment, expected) in rows {
@@ -1924,6 +2056,22 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
              composed on an inferred admission (design D6)"
         ),
     };
+    // The plan of a site whose typed hands are the first `count` arguments
+    // of the fragment, and one whose typed allow lowered to `local`.
+    let in_box = |count: usize, plan: Controls| Controls {
+        provenance: typed(count, &[]),
+        ..plan
+    };
+    let lowered = |local: &[&str], plan: Controls| Controls {
+        provenance: typed(0, local),
+        ..plan
+    };
+    let outside_hands = |limit: &str| {
+        limit_refusal(
+            limit,
+            "does not name tool 'mcp__brokkr__workspace', which the site's typed hands admit",
+        )
+    };
     type Row = (
         Vec<String>,
         Vec<String>,
@@ -1935,18 +2083,38 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
         (
             Vec::new(),
             hands.clone(),
-            fetch(
-                &["--tools", "Bash,WebFetch", "--allowedTools", "Bash"],
-                &["WebSearch"],
+            in_box(
+                hands.len(),
+                fetch(
+                    &["--tools", "Bash,WebFetch", "--allowedTools", "Bash"],
+                    &["WebSearch"],
+                ),
             ),
             Err(unheld),
         ),
-        // R1's include list alone: the hands' base takes the held fetch
-        // and nothing the limit names beside it.
+        // R1's include list alone bounds the hands' base, which takes the
+        // held fetch and nothing the limit names beside it — and the hands
+        // tool, which the limit does not name, refuses the whole conflict
+        // (unit 12-fix-c, I1: W is subject to every limit).
         (
             Vec::new(),
             hands.clone(),
-            fetch(&["--tools", "Bash,WebFetch"], &["WebSearch"]),
+            in_box(
+                hands.len(),
+                fetch(&["--tools", "Bash,WebFetch"], &["WebSearch"]),
+            ),
+            Err(outside_hands("Bash, WebFetch")),
+        ),
+        (
+            Vec::new(),
+            hands.clone(),
+            in_box(
+                hands.len(),
+                fetch(
+                    &["--tools", "Bash,WebFetch,mcp__brokkr__workspace"],
+                    &["WebSearch"],
+                ),
+            ),
             Ok(boxed(
                 "WebFetch",
                 "mcp__brokkr__workspace,WebFetch",
@@ -1975,11 +2143,12 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
                 "Read",
             ])),
         ),
-        // R3: the template's limit excludes the held fetch.
+        // R3: the template's limit excludes the held fetch; the local
+        // permission beside it is the site's typed allow's.
         (
             argv(&["--tools", "Read,Bash", "--allowedTools", "Bash(ls:*)"]),
             Vec::new(),
-            fetch(&[], &["WebSearch"]),
+            lowered(&["Bash(ls:*)"], fetch(&[], &["WebSearch"])),
             Err(Refusal {
                 authored: false,
                 cause: "the adapter template's explicit '--tools' restriction for provider \
@@ -2001,12 +2170,22 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
             Ok(argv(&["--tools=WebFetch", "--allowedTools", "WebFetch"])),
         ),
         // The hands fill the limit with the held fetch; Read, which the
-        // limit names and nothing holds, never enters the box.
+        // limit names and nothing holds, never enters the box; a limit that
+        // does not name the hands tool refuses.
         (
             Vec::new(),
             hands.clone(),
-            fetch(&["--tools", "Read,WebFetch"], &[]),
+            in_box(
+                hands.len(),
+                fetch(&["--tools", "Read,WebFetch,mcp__brokkr__workspace"], &[]),
+            ),
             Ok(boxed("WebFetch", "mcp__brokkr__workspace,WebFetch", &[])),
+        ),
+        (
+            Vec::new(),
+            hands.clone(),
+            in_box(hands.len(), fetch(&["--tools", "Read,WebFetch"], &[])),
+            Err(outside_hands("Read, WebFetch")),
         ),
         // The hands' own list is filled from the holding alone: a name it
         // carries that nothing holds is not written (unit 12-fix-b, I3).
@@ -2018,13 +2197,58 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
                 "--allowedTools",
                 "mcp__brokkr__workspace",
             ]),
-            fetch(&["--tools", "WebFetch"], &[]),
+            in_box(4, fetch(&[], &[])),
             Ok(argv(&[
                 "--tools",
                 "WebFetch",
                 "--allowedTools",
                 "mcp__brokkr__workspace,WebFetch",
             ])),
+        ),
+        // The same bytes the plan does not type as hands are the managed
+        // fragment (unit 12-fix-c, the positions' shared HIGH): its list is
+        // a limit, and the hands tool it allows is refused by name.
+        (
+            Vec::new(),
+            argv(&[
+                "--tools",
+                "Read",
+                "--allowedTools",
+                "mcp__brokkr__workspace",
+            ]),
+            fetch(&[], &[]),
+            Err(carried_refusal(
+                "claude",
+                "the adapter's managed boundary fragment's",
+                "mcp__brokkr__workspace",
+            )),
+        ),
+        // The typed hands admit their own tool and nothing else: another
+        // name their allow list carries is adapter bytes, refused as theirs.
+        (
+            Vec::new(),
+            argv(&[
+                "--tools",
+                "",
+                "--allowedTools",
+                "mcp__brokkr__workspace,Bash",
+            ]),
+            in_box(4, fetch(&[], &[])),
+            Err(carried_refusal("claude", "the box's hands'", "Bash")),
+        ),
+        // A count the fragment cannot hold types nothing, and refuses.
+        (
+            Vec::new(),
+            argv(&["--tools", "Read"]),
+            in_box(7, fetch(&[], &[])),
+            Err(Refusal {
+                authored: false,
+                cause: "the capability plan for provider 'claude' types 7 arguments of the \
+                        engine's fragment as the box's hands, but the fragment carries 2; \
+                        provenance is a carried fact that must fit the argv it types, so the \
+                        launch is refused rather than composed on a guess (design D6)"
+                    .into(),
+            }),
         ),
         // Holdings and admissions answer for each other.
         (
@@ -2081,19 +2305,27 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
             .unwrap_err(),
         }))
     );
-    // The pure function: an admission no holding makes, a carried native
-    // tool no holding admits, a held tool a limit excludes, and the final
-    // include and allow lists from the holdings and every allowance.
+    // The pure function: an admission no holding makes, a carried name no
+    // holding admits and no typed contribution made, a held tool a limit
+    // excludes, a typed allowance outside a limit, and the final include
+    // and allow lists from the holdings and every allowance. `sources` are
+    // the plan's include and allow, the carried list, the typed hands' W
+    // and the typed local permissions T.
     let limit = |names: &[&str]| Limit {
         origin: LimitOrigin::Plan,
         flag: "--tools".into(),
         names: argv(names),
     };
     let held = admits(&[("web-fetch", &["WebFetch"])]);
+    type Pure = [Vec<String>; 5];
+    let typed_sources =
+        |include: &[&str], allow: &[&str], carried: &[&str], w: &[&str], t: &[&str]| -> Pure {
+            [argv(include), argv(allow), argv(carried), argv(w), argv(t)]
+        };
     let sources = |include: &[&str], allow: &[&str], carried: &[&str]| {
-        (argv(include), argv(allow), argv(carried))
+        typed_sources(include, allow, carried, &[], &[])
     };
-    let pure = |(include, allow, carried): (Vec<String>, Vec<String>, Vec<String>),
+    let pure = |[include, allow, carried, w, t]: Pure,
                 admits: &BTreeMap<String, Vec<String>>,
                 limits: &[Limit],
                 hands: bool| {
@@ -2103,7 +2335,8 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
                 include: &include,
                 allow: &allow,
                 carried: &carried,
-                governed: &argv(&["WebFetch", "WebSearch"]),
+                hands: &w,
+                local: &t,
             },
             limits,
             hands,
@@ -2116,6 +2349,60 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
     assert_eq!(
         pure(sources(&[], &[], &["WebSearch"]), &held, &[], false),
         Err(Conflict::Carried("WebSearch".into()))
+    );
+    // SC-1's pure reproduction: an allowance no typed contribution made is
+    // refused, whatever its shape; the same one lowered from the typed
+    // allow is admitted, and stays inside every limit or refuses.
+    assert_eq!(
+        pure(
+            sources(&[], &[], &["Bash(ls:*)"]),
+            &BTreeMap::new(),
+            &[limit(&["Read"])],
+            false
+        ),
+        Err(Conflict::Carried("Bash(ls:*)".into()))
+    );
+    assert_eq!(
+        pure(
+            typed_sources(&[], &[], &["Bash(ls:*)"], &[], &["Bash(ls:*)"]),
+            &BTreeMap::new(),
+            &[limit(&["Read"])],
+            false
+        ),
+        Err(Conflict::Outside {
+            tool: "Bash".into(),
+            by: Typed::Local,
+            limit: 0,
+        })
+    );
+    // The hands tool is admitted by typed hands alone, and bounded too.
+    assert_eq!(
+        pure(
+            sources(&[], &[], &["mcp__brokkr__workspace"]),
+            &held,
+            &[],
+            true
+        ),
+        Err(Conflict::Carried("mcp__brokkr__workspace".into()))
+    );
+    assert_eq!(
+        pure(
+            typed_sources(
+                &[],
+                &[],
+                &["mcp__brokkr__workspace"],
+                &["mcp__brokkr__workspace"],
+                &[]
+            ),
+            &held,
+            &[limit(&["WebFetch"])],
+            true
+        ),
+        Err(Conflict::Outside {
+            tool: "mcp__brokkr__workspace".into(),
+            by: Typed::Hands,
+            limit: 0,
+        })
     );
     assert_eq!(
         pure(
@@ -2145,15 +2432,17 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
     );
     assert_eq!(
         pure(
-            sources(
+            typed_sources(
                 &["WebFetch"],
                 &["WebFetch(domain:example.org)"],
+                &["Bash(ls:*)"],
+                &[],
                 &["Bash(ls:*)"]
             ),
             &held,
             &[
                 limit(&["Read", "WebFetch", "Bash"]),
-                limit(&["WebFetch", "Read"])
+                limit(&["WebFetch", "Bash"])
             ],
             false
         ),
@@ -2165,7 +2454,13 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
     // The box's hands fill from the holding alone, beside the hands tool.
     assert_eq!(
         pure(
-            sources(&[], &[], &["mcp__brokkr__workspace"]),
+            typed_sources(
+                &[],
+                &[],
+                &["mcp__brokkr__workspace"],
+                &["mcp__brokkr__workspace"],
+                &[]
+            ),
             &held,
             &[],
             true
@@ -2202,21 +2497,27 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
     );
 }
 
-/// Rebuild unit 12-fix-b (chief R1-R4; design D6; CQ1): the one computation
-/// of the final lists holds three invariants over EVERY combination of its
-/// inputs, composed through the production composer. H is what the selected
-/// holdings admit, W the box's hands tool, L every restrictive list: the
-/// template's, the plan argv's and the adapter's managed boundary fragment.
+/// Rebuild unit 12-fix-c (the four positions' shared HIGHs; chief R1-R4 of
+/// unit 12-fix-b; design D6; CQ1): the one computation of the final lists
+/// holds the commission's restated invariants over EVERY combination of its
+/// inputs, provenance included, composed through the production composer. H
+/// is what the selected holdings admit, W the hands tool where the plan
+/// types the box's hands, T the local permissions the plan types as lowered
+/// from the site's own allow, and L every restrictive list: the template's,
+/// the plan argv's and the managed fragment's, whatever that fragment's
+/// allow list names.
 ///
-/// - I1: every name the final `--tools` and `--allowedTools` carry is in H,
-///   is the box's W, or is the engine's local permission on a tool no
-///   native power governs; and every held tool is inside every limit.
+/// - I1: every name the final `--tools` and `--allowedTools` carry is in
+///   H ∪ W ∪ T, and its tool is inside every limit.
 /// - I2: a required held tool is written wherever an include list is, or
 ///   the launch refuses, naming the limit's origin, flag and tool; a wanted
 ///   one a limit excludes drops, and the launch composes with it OFF.
-/// - I3: under the box or any limit the include list is exactly the held
-///   tools, filled from the holding, and the box keeps W; a managed list
-///   bounds and is never the base.
+/// - I3: under typed hands or any limit the include list is exactly the
+///   held tools, filled from the holding; W is allowed exactly where the
+///   hands are typed, and a managed list bounds and is never the base.
+///
+/// The oracle reads the axes a row was built from — which lists are limits,
+/// what is typed — and never the composer's answer.
 #[test]
 fn the_final_lists_hold_their_invariants_over_every_combination() {
     const W: &str = "mcp__brokkr__workspace";
@@ -2242,9 +2543,10 @@ fn the_final_lists_hold_their_invariants_over_every_combination() {
     ];
     // The plan's representation: its argv, whether its selection carries
     // the ON, and whether the argv IS the ON (gone once a wanted holding
-    // drops) rather than a restriction the adapter declares beside it.
+    // drops) rather than a restriction the adapter declares beside it. The
+    // last counterfeits the hands tool in the plan's own argv.
     type Plan<'a> = (&'a str, &'a [&'a str], bool, bool);
-    let plans: [Plan; 5] = [
+    let plans: [Plan; 6] = [
         ("no plan argv (a measured default ON)", &[], false, false),
         ("a selection ON", &[], true, false),
         ("a plan limit", &["--tools", "Read,WebFetch"], true, false),
@@ -2260,58 +2562,97 @@ fn the_final_lists_hold_their_invariants_over_every_combination() {
             false,
             true,
         ),
+        (
+            "a plan allowing the hands tool",
+            &["--allowedTools", W],
+            true,
+            false,
+        ),
     ];
     let templates: [&[&str]; 3] = [
         &[],
         &["--tools", "Read"],
         &["--tools", "Read,WebFetch,Bash"],
     ];
-    let controls = |held: bool, extra: &[&str], plan: &[&str], selection: bool| {
-        let mut guards = vec![
-            claude_guard(),
-            Guard {
-                capability: "web-search".into(),
-                tools: argv(&["WebSearch"]),
-                ..Guard::default()
-            },
-        ];
-        if !extra.is_empty() {
-            guards.push(Guard {
-                capability: "web-fetch".into(),
-                tools: argv(extra),
-                ..Guard::default()
-            });
-        }
-        let on = match held && selection {
-            true => argv(&["WebFetch"]),
-            false => Vec::new(),
+    // The allow list before the fragment, and whether the plan types it as
+    // lowered from the site's own allow: a typed local permission, the same
+    // bytes untyped, and a template counterfeiting the hands tool.
+    type Allowance<'a> = (&'a str, &'a [&'a str], bool);
+    let allowances: [Allowance; 4] = [
+        ("no allow list", &[], false),
+        ("a typed local permission", &["--allowedTools", LOCAL], true),
+        ("an untyped allowance", &["--allowedTools", LOCAL], false),
+        (
+            "a template naming the hands tool",
+            &["--allowedTools", W],
+            false,
+        ),
+    ];
+    // The engine's fragment and how many of its leading arguments the plan
+    // types as the box's hands. The hands' own bytes untyped, and a managed
+    // limit whose allow list names the hands tool, are counterfeits; typed
+    // hands beside a managed list are a list written twice, so the
+    // counterfeit managed row stands alone to be reached.
+    type Fragment<'a> = (&'a str, Vec<String>, usize);
+    let fragments: [Fragment; 5] = [
+        ("no fragment", Vec::new(), 0),
+        ("typed hands", box_hands.clone(), box_hands.len()),
+        ("the hands' bytes untyped", box_hands.clone(), 0),
+        ("a managed limit", argv(&["--tools", "Read,Bash"]), 0),
+        (
+            "a managed limit naming the hands tool",
+            argv(&["--tools", "Read,Bash", "--allowedTools", W]),
+            0,
+        ),
+    ];
+    let controls =
+        |held: bool, extra: &[&str], plan: &[&str], selection: bool, typed: &Provenance| {
+            let mut guards = vec![
+                claude_guard(),
+                Guard {
+                    capability: "web-search".into(),
+                    tools: argv(&["WebSearch"]),
+                    ..Guard::default()
+                },
+            ];
+            if !extra.is_empty() {
+                guards.push(Guard {
+                    capability: "web-fetch".into(),
+                    tools: argv(extra),
+                    ..Guard::default()
+                });
+            }
+            let on = match held && selection {
+                true => argv(&["WebFetch"]),
+                false => Vec::new(),
+            };
+            let (base, admitted, deny) = match held {
+                true => (
+                    ready("claude", &["web-fetch"], &["web-search"]),
+                    admits(&[("web-fetch", &["WebFetch"])]),
+                    argv(&["WebSearch"]),
+                ),
+                false => (
+                    ready("claude", &[], &["web-search", "web-fetch"]),
+                    BTreeMap::new(),
+                    argv(&["WebSearch", "WebFetch"]),
+                ),
+            };
+            Controls {
+                argv: argv(plan),
+                admits: admitted,
+                selection: Selection {
+                    include: on.clone(),
+                    allow: on,
+                    deny,
+                    flags: claude_flags(),
+                },
+                guards,
+                provenance: typed.clone(),
+                ..base
+            }
         };
-        let (base, admitted, deny) = match held {
-            true => (
-                ready("claude", &["web-fetch"], &["web-search"]),
-                admits(&[("web-fetch", &["WebFetch"])]),
-                argv(&["WebSearch"]),
-            ),
-            false => (
-                ready("claude", &[], &["web-search", "web-fetch"]),
-                BTreeMap::new(),
-                argv(&["WebSearch", "WebFetch"]),
-            ),
-        };
-        Controls {
-            argv: argv(plan),
-            admits: admitted,
-            selection: Selection {
-                include: on.clone(),
-                allow: on,
-                deny,
-                flags: claude_flags(),
-            },
-            guards,
-            ..base
-        }
-    };
-    // One final list as the command carries it, split or joined.
+    // One list's names as written, split or joined; `None` where absent.
     let list = |extra: &[String], flag: &str| -> Option<Vec<String>> {
         let joined = format!("{flag}=");
         let found: Vec<usize> = (0..extra.len())
@@ -2325,44 +2666,80 @@ fn the_final_lists_hold_their_invariants_over_every_combination() {
         };
         Some(distinct(value.split(',')))
     };
-    let owner = |template: &[&str]| match template {
-        ["--tools", "Read"] => ("the adapter template's", "Read"),
-        _ => ("the adapter's managed boundary fragment's", "Read, Bash"),
-    };
     let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
     for (holding, held, extra) in holdings {
         for (plan_name, plan_argv, selection, on_argv) in plans {
             for template in templates {
-                for managed in [false, true] {
-                    for hands in [false, true] {
+                for (allowance, allow_argv, local_typed) in allowances {
+                    for (fragment_name, fragment, typed_hands) in &fragments {
                         for strength in ["requires", "wants"] {
                             let label = format!(
-                                "{holding}, {plan_name}, template {template:?}, managed \
-                                 {managed}, hands {hands}, {strength}"
+                                "{holding}, {plan_name}, template {template:?}, {allowance}, \
+                                 {fragment_name}, {strength}"
                             );
-                            // The local permission beside hands is dormant.
-                            let mut authored = argv(template);
-                            if !hands {
-                                authored.extend(argv(&["--allowedTools", LOCAL]));
-                            }
-                            let mut fragment = Vec::new();
-                            if hands {
-                                fragment.extend(box_hands.clone());
-                            }
-                            if managed {
-                                fragment.extend(argv(&["--tools", "Read,Bash"]));
-                            }
-                            let mut plan = controls(held, extra, plan_argv, selection);
+                            let authored = [argv(template), argv(allow_argv)].concat();
+                            let typed = Provenance {
+                                hands: *typed_hands,
+                                local: match local_typed {
+                                    true => argv(&[LOCAL]),
+                                    false => Vec::new(),
+                                },
+                            };
+                            // The oracle's sets, from the axes alone: W and
+                            // T as typed, and every limit with its owner —
+                            // the template's, the fragment's wherever it is
+                            // not typed hands, then the plan's.
+                            let hands_typed = *typed_hands > 0;
+                            let limits_for = |plan_argv: &[&str]| {
+                                let mut limits: Vec<(&str, Vec<String>)> = Vec::new();
+                                if let [_, names] = template {
+                                    limits.push((
+                                        "the adapter template's",
+                                        distinct(names.split(',')),
+                                    ));
+                                }
+                                if !hands_typed {
+                                    if let Some(names) = list(fragment, "--tools") {
+                                        limits.push((
+                                            "the adapter's managed boundary fragment's",
+                                            names,
+                                        ));
+                                    }
+                                }
+                                if let Some(names) = list(&argv(plan_argv), "--tools") {
+                                    limits.push(("the capability plan's", names));
+                                }
+                                limits
+                            };
+                            let mut limits = limits_for(plan_argv);
+                            let authorised = |name: &String, held_tools: &[String]| {
+                                held_tools
+                                    .iter()
+                                    .any(|held| held == grammar::tool_name(name))
+                                    || (hands_typed && name == W)
+                                    || typed.local.contains(name)
+                            };
+                            let mut plan = controls(held, extra, plan_argv, selection, &typed);
                             let mut outcome =
-                                compose_or_exclude("claude", &authored, &fragment, &plan);
+                                compose_or_exclude("claude", &authored, fragment, &plan);
                             let mut dropped = false;
                             if let Err(Failure::Excluded(exclusion)) = &outcome {
-                                // I2: the limit's origin, flag and tool.
-                                let (origin, names) = owner(template);
+                                // I2: the first limit that does not name the
+                                // held fetch, by origin, flag and names.
+                                let (owner, names) = limits
+                                    .iter()
+                                    .find(|(_, names)| !names.contains(&"WebFetch".to_string()))
+                                    .unwrap_or_else(|| {
+                                        panic!("{label}: an exclusion with no limit")
+                                    });
+                                let names = match names.as_slice() {
+                                    [] => "no tool".to_string(),
+                                    names => names.join(", "),
+                                };
                                 assert_eq!(
                                     exclusion.refusal.cause,
                                     format!(
-                                        "{origin} explicit '--tools' restriction for provider \
+                                        "{owner} explicit '--tools' restriction for provider \
                                          'claude' (naming {names}) does not name tool \
                                          'WebFetch', which the plan admits for native \
                                          capability 'web-fetch'; an explicit tool list is a \
@@ -2378,20 +2755,55 @@ fn the_final_lists_hold_their_invariants_over_every_combination() {
                                 }
                                 // CQ1: the wanted holding drops, its ON with it.
                                 let kept: &[&str] = if on_argv { &[] } else { plan_argv };
-                                plan = controls(false, extra, kept, false);
-                                outcome = compose_or_exclude("claude", &authored, &fragment, &plan);
+                                plan = controls(false, extra, kept, false, &typed);
+                                limits = limits_for(kept);
+                                outcome = compose_or_exclude("claude", &authored, fragment, &plan);
                                 dropped = true;
                             }
+                            let held_tools: Vec<String> =
+                                plan.admits.values().flatten().cloned().collect();
                             let extra_ = match outcome {
                                 Ok(composed) => composed.extra,
                                 Err(failure) => {
                                     let cause = failure.refusal().cause;
+                                    let named = |at: &str| {
+                                        cause
+                                            .split(at)
+                                            .nth(1)
+                                            .and_then(|rest| rest.split('\'').next())
+                                            .map(str::to_string)
+                                    };
                                     let kind = if cause.starts_with("the capability plan admits") {
                                         "refused, an unheld plan admission"
-                                    } else if cause.starts_with("the seat's own allow list names") {
-                                        "refused, a carried native tool"
-                                    } else if cause.contains("it repeats option '--tools'") {
+                                    } else if cause.contains("it repeats option") {
                                         "refused, a list written twice"
+                                    } else if cause.contains("allow list names tool '") {
+                                        // I1: the refused name is carried and
+                                        // outside H ∪ W ∪ T.
+                                        let tool = named("allow list names tool '").unwrap();
+                                        assert!(
+                                            [W, LOCAL].contains(&tool.as_str())
+                                                && !authorised(&tool, &held_tools),
+                                            "{label}: refused an authorised {tool}"
+                                        );
+                                        // By where the engine placed the list:
+                                        // the counterfeit managed rows are
+                                        // reached, not masked by a duplicate.
+                                        match cause.starts_with(
+                                            "the adapter's managed boundary fragment's",
+                                        ) {
+                                            true => "refused, an untyped managed allowance",
+                                            false => "refused, an untyped template allowance",
+                                        }
+                                    } else if cause.contains("does not name tool '") {
+                                        // I1: a typed allowance whose tool a
+                                        // limit does not name.
+                                        let tool = named("does not name tool '").unwrap();
+                                        assert!(
+                                            limits.iter().any(|(_, names)| !names.contains(&tool)),
+                                            "{label}: {tool} refused inside every limit"
+                                        );
+                                        "refused, a typed allowance outside a limit"
                                     } else {
                                         panic!("{label}: unexpected refusal: {cause}")
                                     };
@@ -2410,49 +2822,36 @@ fn the_final_lists_hold_their_invariants_over_every_combination() {
                                     .entry("composed, a wanted holding dropped with OFF")
                                     .or_default() += 1;
                             }
-                            let held_tools: Vec<String> =
-                                plan.admits.values().flatten().cloned().collect();
-                            let governed: Vec<String> = plan
-                                .guards
-                                .iter()
-                                .flat_map(|guard| guard.tools.clone())
-                                .collect();
-                            let mut limits: Vec<Vec<String>> = Vec::new();
-                            if let [_, names] = template {
-                                limits.push(distinct(names.split(',')));
-                            }
-                            if managed {
-                                limits.push(argv(&["Read", "Bash"]));
-                            }
-                            if let Some(names) = list(&plan.argv, "--tools") {
-                                limits.push(names);
-                            }
                             let include = list(&extra_, "--tools");
                             let allow = list(&extra_, "--allowedTools").unwrap_or_default();
-                            // I1.
+                            // I1: H ∪ W ∪ T, and inside every limit.
                             for name in include.iter().flatten() {
                                 assert!(held_tools.contains(name), "{label}: I1 --tools {name}");
                             }
                             for name in &allow {
-                                let tool = grammar::tool_name(name);
                                 assert!(
-                                    held_tools.iter().any(|held| held == tool)
-                                        || (hands && name == W)
-                                        || (name == LOCAL && !governed.iter().any(|g| g == tool)),
+                                    authorised(name, &held_tools),
                                     "{label}: I1 --allowedTools {name}"
                                 );
                             }
-                            for tool in &held_tools {
-                                for limit in &limits {
-                                    assert!(limit.contains(tool), "{label}: I1 {tool} in L");
+                            for name in include.iter().flatten().chain(&allow) {
+                                for (owner, names) in &limits {
+                                    assert!(
+                                        names.iter().any(|named| named == grammar::tool_name(name)),
+                                        "{label}: I1 {name} inside {owner} limit"
+                                    );
                                 }
                             }
                             // I2 and I3.
                             match &include {
                                 Some(names) => assert_eq!(names, &held_tools, "{label}: I2/I3"),
-                                None => assert!(!hands && limits.is_empty(), "{label}: I3"),
+                                None => assert!(!hands_typed && limits.is_empty(), "{label}: I3"),
                             }
-                            assert_eq!(allow.contains(&W.to_string()), hands, "{label}: I3 W");
+                            assert_eq!(
+                                allow.contains(&W.to_string()),
+                                hands_typed,
+                                "{label}: I3 W"
+                            );
                         }
                     }
                 }
@@ -2461,17 +2860,21 @@ fn the_final_lists_hold_their_invariants_over_every_combination() {
     }
     assert_eq!(
         tally,
-        // 480 combinations. A seat's argv carries one include list, so a
-        // template or managed list beside another is refused as written
-        // twice; a local Bash permission beside an entry declaring Bash is a
-        // native tool no holding admits.
+        // 2880 combinations. A seat's argv carries one include and one
+        // allow list, so a second of either is refused as written twice.
+        // The untyped managed allowances are the counterfeit hands tool in
+        // the managed fragment — the hands' bytes untyped, or a managed
+        // limit naming it — reached with nothing written twice: 96 rows,
+        // less 24 the plan's own unheld admission refuses first.
         BTreeMap::from([
-            ("composed", 120),
-            ("composed, a wanted holding dropped with OFF", 20),
-            ("refused, a carried native tool", 30),
-            ("refused, a list written twice", 280),
-            ("refused, an unheld plan admission", 20),
-            ("required, refused by its limit", 30),
+            ("composed", 196),
+            ("composed, a wanted holding dropped with OFF", 42),
+            ("refused, a list written twice", 1968),
+            ("refused, a typed allowance outside a limit", 68),
+            ("refused, an unheld plan admission", 228),
+            ("refused, an untyped managed allowance", 72),
+            ("refused, an untyped template allowance", 288),
+            ("required, refused by its limit", 60),
         ])
     );
 }

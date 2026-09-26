@@ -31,6 +31,7 @@ fn two_candidates() -> SiteCapabilities {
         unloaded: None,
         authored: &[],
         fragment: &[],
+        provenance: brokkr_protocol::native_controls::Provenance::NONE,
         written: &[],
     };
     let outcomes = vec![

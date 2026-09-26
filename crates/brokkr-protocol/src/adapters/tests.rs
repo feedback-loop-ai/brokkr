@@ -14930,6 +14930,7 @@ fn claude_plan(include: &[&str], allow: &[&str], deny: &[&str]) -> Value {
         "off": answered(true),
         "admits": powers.iter().filter(|(_, tool)| include.contains(tool) || allow.contains(tool)).map(|(capability, tool)| (capability.to_string(), json!([tool]))).collect::<serde_json::Map<_, _>>(),
         "argv": [],
+        "local": ["Bash(git:*)"],
         "selection": {
             "include": include, "allow": allow, "deny": deny,
             "flags": {
@@ -15278,11 +15279,12 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     // Boxed, everything after the permission mode is the adapter's hands
     // fragment — the engine's, recorded as such (decision 0066 ruling 4);
     // unboxed, the whole argv is the agent's own.
-    let launch = |extra: &[String], plan: Value| {
+    let launch = |extra: &[String], mut plan: Value| {
         let managed = match extra == boxed.as_slice() {
             true => boxed.len() - 2,
             false => 0,
         };
+        plan["hands"] = json!(managed);
         let input = engine_input(json!({"workdir": "/w"}), plan, extra, managed);
         claude_launch("claude", extra, None, &input, CLAUDE_SHAPE, None)
             .unwrap()
@@ -15513,25 +15515,6 @@ fn a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag() {
                 "WebFetch",
             ],
         ),
-        // Nothing held (rebuild unit 12-fix): a list before the hands is a
-        // hard limit, so it keeps its joined spelling and gains nothing;
-        // filled from no holding, it is written empty (unit 12-fix-b, I1).
-        (
-            "every list joined, in aliases, nothing held",
-            vec![
-                "--permission-mode=acceptEdits",
-                "--tools=Read",
-                "--allowed-tools=Bash(git:*)",
-                "--disallowed-tools=Bash(rm:*)",
-            ],
-            denied(),
-            vec![
-                "--permission-mode=acceptEdits",
-                "--tools=",
-                "--allowed-tools=Bash(git:*)",
-                "--disallowed-tools=Bash(rm:*),WebSearch,WebFetch",
-            ],
-        ),
     ] {
         assert_eq!(
             claude_composed(&extra, plan),
@@ -15543,6 +15526,28 @@ fn a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag() {
             "{case}"
         );
     }
+    // Nothing held, every list joined in aliases (rebuild unit 12-fix-c,
+    // operator admission): the typed local permission is subject to the
+    // template's hard limit, which does not name it, so it refuses whole.
+    assert_eq!(
+        claude_composed(
+            &[
+                "--permission-mode=acceptEdits",
+                "--tools=Read",
+                "--allowed-tools=Bash(git:*)",
+                "--disallowed-tools=Bash(rm:*)",
+            ],
+            denied()
+        ),
+        Err(
+            "refusing to invoke the agent CLI: the adapter template's explicit '--tools' \
+             restriction for provider 'claude' (naming Read) does not name tool 'Bash', which \
+             the local permissions of the site's typed 'tools.allow' admit; an explicit tool \
+             list is a hard limit that nothing widens, so the conflict is refused whole rather \
+             than unioned (design D6)"
+                .to_string()
+        )
+    );
     // A list the SEAT wrote twice is still the seat's duplicate: folding
     // joins the engine's names to the first and does not hide the second.
     assert_eq!(
