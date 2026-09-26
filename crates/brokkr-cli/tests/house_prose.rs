@@ -8,7 +8,11 @@
 //! [`RECORDS`], whose words are fixed when they are written. Each paragraph
 //! and each list item is one unit: lowercased, with its emphasis and code
 //! marks dropped and its line breaks joined, so neither a line break nor
-//! `**` nor a code span can hide a list. Fenced code is not prose.
+//! `**` nor a code span can hide a list. A list joins its names with `,`,
+//! `/`, `&`, `+`, `;`, `|`, `and`, `or` or `nor`, and a name may follow its
+//! joiner after one other word (`or the Codex CLI`, `claude, gemini or
+//! codex`). Adjacent list items and table rows that each lead with a name
+//! are one list too. Fenced code is not prose.
 
 use std::path::PathBuf;
 
@@ -81,37 +85,63 @@ fn opens_a_unit(trimmed: &str) -> bool {
             .any(|marker| trimmed.starts_with(marker))
 }
 
-/// The paragraphs and list items of a Markdown text, outside fenced code,
-/// each with the line it starts on.
-fn units(text: &str) -> Vec<(usize, String)> {
-    let mut units: Vec<(usize, String)> = Vec::new();
-    let mut open = false;
-    let mut fenced = false;
+/// Whether a line opens a list item or a table row.
+fn is_item(trimmed: &str) -> bool {
+    opens_a_unit(trimmed) && !trimmed.starts_with(['#', '>'])
+}
+
+/// A paragraph, list item or table row.
+struct Unit {
+    /// The line it starts on.
+    line: usize,
+    text: String,
+    /// Whether it is a list item or a table row.
+    item: bool,
+    /// Units share a run when they are list items or rows with no blank
+    /// line and nothing else between them.
+    run: usize,
+}
+
+/// The units of a Markdown text, outside fenced code.
+fn units(text: &str) -> Vec<Unit> {
+    let mut units: Vec<Unit> = Vec::new();
+    let (mut open, mut fenced, mut run) = (false, false, 0);
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            fenced = !fenced;
-            open = false;
+            (fenced, open, run) = (!fenced, false, run + 1);
             continue;
         }
         if fenced || trimmed.is_empty() {
-            open = false;
+            (open, run) = (false, run + 1);
             continue;
         }
         if open && !opens_a_unit(trimmed) {
-            let (_, unit) = units.last_mut().expect("an open unit");
-            unit.push(' ');
-            unit.push_str(trimmed);
-        } else {
-            units.push((index + 1, trimmed.to_string()));
-            open = true;
+            let unit = units.last_mut().expect("an open unit");
+            unit.text.push(' ');
+            unit.text.push_str(trimmed);
+            continue;
         }
+        let item = is_item(trimmed);
+        if !item || units.last().is_some_and(|last| !last.item) {
+            run += 1;
+        }
+        units.push(Unit {
+            line: index + 1,
+            text: trimmed.to_string(),
+            item,
+            run,
+        });
+        open = true;
     }
     units
 }
 
-/// A unit's words, lowercased, with `,` and `/` kept as tokens of their
-/// own and every other mark (emphasis, code, dashes) a separator.
+/// The marks that join a list, kept as tokens of their own.
+const JOINING_MARKS: [char; 6] = [',', '/', '&', '+', ';', '|'];
+
+/// A unit's words, lowercased, with [`JOINING_MARKS`] kept as tokens of
+/// their own and every other mark (emphasis, code, dashes) a separator.
 fn tokens(unit: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut word = String::new();
@@ -123,7 +153,7 @@ fn tokens(unit: &str) -> Vec<String> {
         if !word.is_empty() {
             tokens.push(std::mem::take(&mut word));
         }
-        if matches!(c, ',' | '/') {
+        if JOINING_MARKS.contains(&c) {
             tokens.push(c.to_string());
         }
     }
@@ -145,45 +175,117 @@ fn harness(tokens: &[String], at: usize) -> Option<(&'static str, usize)> {
     Some((name, at + 1 + usize::from(suffix)))
 }
 
-/// Where the next name begins after a list's joining word at `at`: `,`,
-/// `/`, `and`, `or`, `, and` or `, or`.
+/// The words that join a list.
+const JOINING_WORDS: [&str; 3] = ["and", "or", "nor"];
+
+fn is_joiner(token: &str) -> bool {
+    JOINING_WORDS.contains(&token) || token.chars().all(|c| JOINING_MARKS.contains(&c))
+}
+
+/// Where the next item begins after a list's joiner at `at`: a mark, a
+/// word, or a mark then a word (`, and`, `, or`).
 fn joined(tokens: &[String], at: usize) -> Option<usize> {
     let word = |offset: usize| tokens.get(at + offset).map(String::as_str);
     match (word(0)?, word(1)) {
-        (",", Some("and" | "or")) => Some(at + 2),
-        ("," | "/" | "and" | "or", _) => Some(at + 1),
+        (first, Some(second))
+            if JOINING_MARKS.iter().any(|mark| first == mark.to_string())
+                && JOINING_WORDS.contains(&second) =>
+        {
+            Some(at + 2)
+        }
+        (first, _) if is_joiner(first) => Some(at + 1),
         _ => None,
     }
 }
 
-/// Every list of harnesses in `text` that names claude and codex, leaves
-/// dsh out, and sits in a unit that never names dsh: its line and names.
-fn lists_without_dsh(text: &str) -> Vec<(usize, String)> {
-    let mut found = Vec::new();
-    for (line, unit) in units(text) {
-        let tokens = tokens(&unit);
-        if tokens.iter().any(|token| token == "dsh") {
+/// The names of the list that starts with the name at `at`, and where it
+/// ends. After each joiner comes a name, one other word and a name, or one
+/// other word that is itself an item because another joiner follows it.
+fn list_from(tokens: &[String], at: usize) -> Option<(Vec<&'static str>, usize)> {
+    let (first, mut next) = harness(tokens, at)?;
+    let mut names = vec![first];
+    while let Some(item) = joined(tokens, next) {
+        if let Some((name, after)) = harness(tokens, item) {
+            names.push(name);
+            next = after;
             continue;
         }
-        let mut at = 0;
-        while at < tokens.len() {
-            let Some((first, mut next)) = harness(&tokens, at) else {
-                at += 1;
-                continue;
-            };
-            let mut names = vec![first];
-            while let Some((name, after)) =
-                joined(&tokens, next).and_then(|at| harness(&tokens, at))
-            {
-                names.push(name);
-                next = after;
-            }
-            if names.contains(&"claude") && names.contains(&"codex") {
-                found.push((line, names.join(" ")));
-            }
-            at = next;
+        let word = tokens.get(item).filter(|token| !is_joiner(token));
+        if let Some((name, after)) = word.and_then(|_| harness(tokens, item + 1)) {
+            names.push(name);
+            next = after;
+        } else if word.is_some() && joined(tokens, item + 1).is_some() {
+            next = item + 1;
+        } else {
+            break;
         }
     }
+    Some((names, next))
+}
+
+fn claude_and_codex(names: &[&str]) -> bool {
+    names.contains(&"claude") && names.contains(&"codex")
+}
+
+/// The lists in one unit that name claude and codex, as their names.
+fn lists_in(tokens: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < tokens.len() {
+        match list_from(tokens, at) {
+            Some((names, next)) => {
+                if claude_and_codex(&names) {
+                    found.push(names.join(" "));
+                }
+                at = next;
+            }
+            None => at += 1,
+        }
+    }
+    found
+}
+
+/// Every list of harnesses in `text` that names claude and codex, leaves
+/// dsh out, and sits where dsh is never named: in one unit, or across a run
+/// of adjacent list items or rows that each lead with a name. Its line and
+/// names.
+fn lists_without_dsh(text: &str) -> Vec<(usize, String)> {
+    let units = units(text);
+    let tokens: Vec<Vec<String>> = units.iter().map(|unit| tokens(&unit.text)).collect();
+    let names_dsh = |at: usize| tokens[at].iter().any(|token| token == "dsh");
+    let mut found = Vec::new();
+    for (at, unit) in units.iter().enumerate() {
+        if !names_dsh(at) {
+            found.extend(
+                lists_in(&tokens[at])
+                    .into_iter()
+                    .map(|names| (unit.line, names)),
+            );
+        }
+    }
+    let mut start = 0;
+    while start < units.len() {
+        let run = units[start].run;
+        let end = start
+            + units[start..]
+                .iter()
+                .take_while(|unit| unit.run == run)
+                .count();
+        let items = start..end;
+        let leading: Vec<&str> = items
+            .clone()
+            .filter(|&at| units[at].item)
+            .filter_map(|at| harness(&tokens[at], 0).map(|(name, _)| name))
+            .collect();
+        let refused = found
+            .iter()
+            .any(|(line, _)| items.clone().any(|at| units[at].line == *line));
+        if claude_and_codex(&leading) && !refused && !items.clone().any(names_dsh) {
+            found.push((units[start].line, leading.join(" ")));
+        }
+        start = end;
+    }
+    found.sort();
     found
 }
 
@@ -227,9 +329,11 @@ fn every_list_of_agent_clis_names_dsh() {
 }
 
 /// The rule bites however the list is written: case, emphasis, code spans,
-/// a line break, a slash, the product's own name, either order. It passes a
-/// list that names dsh, a paragraph that names dsh beside the two, and
-/// fenced code; a later paragraph naming dsh does not excuse an earlier one.
+/// a line break, a slash, `&`, `+`, `;`, `nor`, a table row, one word
+/// between a joiner and a name, adjacent bullets, the product's own name,
+/// either order. It passes a list that names dsh, a paragraph that names
+/// dsh beside the two, adjacent bullets one of which names dsh, and fenced
+/// code; a later paragraph naming dsh does not excuse an earlier one.
 #[test]
 fn a_list_that_leaves_dsh_out_is_refused_however_it_is_written() {
     let planted = "\
@@ -257,6 +361,29 @@ claude or codex
 The claude and codex transcripts differ.
 
 dsh keeps its own session file.
+
+Pair claude & codex.
+
+Pair claude + codex.
+
+Pair claude; codex.
+
+Neither claude nor codex.
+
+| claude | codex |
+
+Claude Code or the Codex CLI.
+
+Any of claude, gemini or codex.
+
+- **claude**: the Anthropic CLI.
+- **codex**: the OpenAI CLI.
+
+- claude reads the house.
+- codex reads it too.
+- dsh reads it last.
+
+Claude is the default. The codex tooling differs.
 ";
     assert_eq!(
         lists_without_dsh(planted),
@@ -269,6 +396,14 @@ dsh keeps its own session file.
             (11, "codex claude".to_string()),
             (12, "claude codex".to_string()),
             (22, "claude codex".to_string()),
+            (26, "claude codex".to_string()),
+            (28, "claude codex".to_string()),
+            (30, "claude codex".to_string()),
+            (32, "claude codex".to_string()),
+            (34, "claude codex".to_string()),
+            (36, "claude codex".to_string()),
+            (38, "claude codex".to_string()),
+            (40, "claude codex".to_string()),
         ]
     );
 }

@@ -15,7 +15,7 @@ rules:
       # The crates job's `cargo publish` uses the registry token the
       # operator ruled on 2026-09-05. Trusted publishing needs the
       # operator's crates.io configuration first.
-      - release.yml:244
+      - release.yml:247
   adhoc-packages:
     ignore:
       # The weekly sweep installs the exact dsh release the dsh adapter

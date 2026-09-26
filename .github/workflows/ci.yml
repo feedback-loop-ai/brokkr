@@ -281,6 +281,9 @@ jobs:
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+          # A version the pinned manifest lacks fails here rather than
+          # installing through cargo-binstall, unchecked (#339).
+          fallback: none
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: bubblewrap for the hands tests
         uses: ./.github/actions/setup-bubblewrap
@@ -335,6 +338,9 @@ jobs:
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
           tool: shellcheck@0.11.0,typos@1.50.2,zizmor@1.30.1
+          # A version the pinned manifest lacks fails here rather than
+          # installing through cargo-binstall, unchecked (#339).
+          fallback: none
       - name: the workflows and their run scripts (actionlint with shellcheck)
         env:
           SHELLCHECK_OPTS: -S warning
@@ -343,8 +349,12 @@ jobs:
         run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline
       - name: shell scripts (shellcheck)
         run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
+      - name: the composite actions' scripts (shellcheck)
+        run: bash scripts/shellcheck-actions.sh
+      # --hidden: typos skips dot-directories by default, and .github is
+      # where this job's own workflows live.
       - name: spelling (typos, _typos.toml)
-        run: typos
+        run: typos --hidden
       - name: links and their anchors (lychee, offline)
         run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

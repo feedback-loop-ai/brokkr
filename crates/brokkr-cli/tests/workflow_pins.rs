@@ -5,7 +5,7 @@
 //! turn `main` red, and `taiki-e/install-action@cargo-llvm-cov` let the
 //! measuring tool of the exact gate change its own ignore regex. So every
 //! `uses:` names a commit, with its release in a trailing comment for the
-//! reviewer and for Dependabot, and every Rust toolchain a workflow
+//! reviewer and for Renovate, and every Rust toolchain a workflow
 //! installs is an exact version this repository records once. This rides
 //! the required `test` checks, so it needs no job of its own.
 //!
@@ -189,6 +189,10 @@ enum Unpinned {
     /// `renovatebot/github-action` step that names none and so runs the
     /// action's floating default.
     Image(String),
+    /// A `taiki-e/install-action` step without `fallback: none`: a tool
+    /// version missing from the action's manifest would then install
+    /// through cargo-binstall, with no manifest checksum at all.
+    Fallback(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -367,11 +371,21 @@ fn is_flow(mut text: &str) -> bool {
     text.starts_with(['{', '['])
 }
 
-/// Whether a flow collection could hide a pin: it names `uses` or a
-/// `tool` in any case, or escapes a character that could spell one.
+/// The keys whose value is a map of a step's inputs or environment. A flow
+/// collection under one is never read pair by pair, so it is refused
+/// whatever it holds: `with: { node-version: 22 }` would otherwise hide a
+/// floating runtime from the judged keys below.
+const INPUT_MAPS: [&str; 2] = ["with", "env"];
+
+/// Whether a flow collection could hide a pin: it names `uses`, a `tool`,
+/// a `version`, a `renovate` input or a `fallback` in any case, or escapes
+/// a character that could spell one.
 fn hides_a_pin(flow: &str) -> bool {
     let lower = flow.to_ascii_lowercase();
-    lower.contains("uses") || lower.contains("tool") || flow.contains('\\')
+    ["uses", "tool", "version", "renovate", "fallback"]
+        .iter()
+        .any(|word| lower.contains(word))
+        || flow.contains('\\')
 }
 
 fn read_entry(rest: &str) -> Entry<'_> {
@@ -399,10 +413,11 @@ fn read_entry(rest: &str) -> Entry<'_> {
     if !is_plain_key(key) || value.starts_with('*') {
         return Entry::Unread;
     }
-    if is_flow(value) && hides_a_pin(value) {
+    let key = key.to_ascii_lowercase();
+    if is_flow(value) && (hides_a_pin(value) || INPUT_MAPS.contains(&key.as_str())) {
         return Entry::Flow;
     }
-    Entry::Pair(key.to_ascii_lowercase(), value)
+    Entry::Pair(key, value)
 }
 
 /// A block scalar's header, `|` or `>` with its indicators.
@@ -520,11 +535,11 @@ impl Scan<'_> {
             && (0..before).any(|other| self.scopes[other] == job && self.is_step(other, step))
     }
 
-    /// Whether the step whose `uses:` is the node at `at` passes the input
-    /// `input`. The step's nodes are the ones indented at least as deep as
-    /// that key; its keys sit exactly at it, and the input counts only
-    /// under the `with:` key, not under `env:` or any other.
-    fn step_has_input(&self, at: usize, input: &str) -> bool {
+    /// The value the step whose `uses:` is the node at `at` passes as its
+    /// input `input`. The step's nodes are the ones indented at least as
+    /// deep as that key; its keys sit exactly at it, and the input counts
+    /// only under the `with:` key, not under `env:` or any other.
+    fn step_input(&self, at: usize, input: &str) -> Option<&str> {
         let column = self.nodes[at].column;
         let step = self.nodes[at + 1..]
             .iter()
@@ -533,11 +548,17 @@ impl Scan<'_> {
         for node in step {
             if node.indent == column {
                 in_with = node.key() == Some("with");
-            } else if in_with && node.key() == Some(input) {
-                return true;
+            } else if let (true, Entry::Pair(key, value)) = (in_with, &node.entry) {
+                if key == input {
+                    return Some(scalar(value));
+                }
             }
         }
-        false
+        None
+    }
+
+    fn step_has_input(&self, at: usize, input: &str) -> bool {
+        self.step_input(at, input).is_some()
     }
 
     fn judge_uses(&self, at: usize, value: &str) -> Option<Unpinned> {
@@ -548,12 +569,17 @@ impl Scan<'_> {
             && !self.step_has_input(at, "renovate-image");
         let audit_unpinned = action.starts_with("rustsec/audit-check@")
             && !self.job_has_step(at, &SETUP_CARGO_AUDIT, at);
+        let falls_back = action.starts_with("taiki-e/install-action@")
+            && self.step_input(at, "fallback") != Some("none");
         judge_uses(self.root, value)
             .or_else(|| toolchain_missing.then_some(Unpinned::ToolchainMissing))
             .or_else(|| {
                 image_missing.then(|| Unpinned::Image(format!("{action} with no renovate-image")))
             })
             .or_else(|| audit_unpinned.then_some(Unpinned::CargoAuditMissing))
+            .or_else(|| {
+                falls_back.then(|| Unpinned::Fallback(format!("{action} without fallback: none")))
+            })
     }
 
     /// Every unpinned tool the node at `at` names.
@@ -585,7 +611,9 @@ impl Scan<'_> {
         if judged && folded {
             return vec![Unpinned::Unread(line)];
         }
-        let reads_the_pins = || self.job_has_step(at, &NIGHTLY, self.nodes.len());
+        // The reading step must run first: an output read before its step
+        // is empty, and the action behind it falls to its own default.
+        let reads_the_pins = || self.job_has_step(at, &NIGHTLY, at);
         match key {
             "uses" => self.judge_uses(at, value).into_iter().collect(),
             "toolchain" => {
@@ -613,8 +641,8 @@ impl Scan<'_> {
             }
             "renovate-image" => {
                 let image = scalar(value);
-                let from_home = image == RENOVATE_IMAGE_INPUT
-                    && self.job_has_step(at, &RENOVATE_IMAGE, self.nodes.len());
+                let from_home =
+                    image == RENOVATE_IMAGE_INPUT && self.job_has_step(at, &RENOVATE_IMAGE, at);
                 (!from_home)
                     .then(|| Unpinned::Image(image.to_string()))
                     .into_iter()
@@ -735,6 +763,7 @@ fn a_floating_action_or_toolchain_is_refused_by_name() {
 "
     );
     let at = |line, what| Offense { line, what };
+    let fallback = format!("taiki-e/install-action@{sha} without fallback: none");
     assert_eq!(
         offenses_in(&root, &planted),
         [
@@ -753,13 +782,19 @@ fn a_floating_action_or_toolchain_is_refused_by_name() {
                 Unpinned::LocalAction("./.github/actions/not-there".into())
             ),
             at(9, Unpinned::Toolchain("nightly".into())),
+            // None of these install-action steps sets `fallback: none`.
+            at(10, Unpinned::Fallback(fallback.clone())),
             at(12, Unpinned::Tool("cargo-llvm-cov".into())),
             // No step here reads the pin files, so their outputs are
             // no pin at all.
             at(17, Unpinned::Toolchain(NIGHTLY_INPUT.into())),
+            at(18, Unpinned::Fallback(fallback.clone())),
             at(20, Unpinned::Tool("cargo-llvm-cov@latest".into())),
+            at(21, Unpinned::Fallback(fallback.clone())),
             at(23, Unpinned::Tool("cargo-llvm-cov@stable".into())),
+            at(24, Unpinned::Fallback(fallback.clone())),
             at(26, Unpinned::Tool("cargo-nextest".into())),
+            at(27, Unpinned::Fallback(fallback)),
             at(
                 29,
                 Unpinned::Tool(format!("cargo-llvm-cov@{LLVM_COV_INPUT}"))
@@ -800,17 +835,29 @@ fn a_line_the_scanner_cannot_read_plainly_is_refused() {
           uses: actions/checkout@v4
           awk '{{ print }}'
       - uses: ./.github/actions/setup-cargo-audit
+      - uses: actions/setup-node@{sha} # v4.4.0
+        with: {{ node-version: 22 }}
+      - uses: actions/setup-go@{sha} # v5.6.0
+        with: {{ go-version: stable }}
+      - uses: actions/setup-node@{sha} # v4.4.0
+        with: {{ node-version-file: .nvmrc }}
+      - uses: actions/setup-go@{sha} # v5.6.0
+        env: {{ GOTOOLCHAIN: local }}
+        with: [cache]
 "
     );
     let at = |line, what| Offense { line, what };
     let unread = |line: &str| Unpinned::Unread(line.into());
     let flow = |line: &str| Unpinned::Flow(line.into());
+    let fallback = format!("taiki-e/install-action@{sha} without fallback: none");
     assert_eq!(
         offenses_in(&root, &planted),
         [
             at(1, Unpinned::Reference("actions/checkout@v4".into())),
             at(2, flow("- {uses: actions/checkout@v4}")),
             at(3, unread("- \"uses\": actions/checkout@v4")),
+            // A flow `with:` is never read, so no `fallback: none` is seen.
+            at(4, Unpinned::Fallback(fallback.clone())),
             at(5, flow("with: {tool: cargo-llvm-cov}")),
             at(8, Unpinned::Toolchain("stable".into())),
             at(9, unread("- &step uses: actions/checkout@v4")),
@@ -818,8 +865,15 @@ fn a_line_the_scanner_cannot_read_plainly_is_refused() {
             at(11, unread("- ? uses")),
             at(12, unread(": actions/checkout@v4")),
             at(13, unread("- *step")),
+            at(14, Unpinned::Fallback(fallback)),
             at(16, unread("tool: cargo-llvm-cov@0.9.1")),
             at(18, flow("- name: &pinned { uses: actions/checkout@v4 }")),
+            // A flow under `with:` or `env:` is refused whatever it holds.
+            at(25, flow("with: { node-version: 22 }")),
+            at(27, flow("with: { go-version: stable }")),
+            at(29, flow("with: { node-version-file: .nvmrc }")),
+            at(31, flow("env: { GOTOOLCHAIN: local }")),
+            at(32, flow("with: [cache]")),
         ]
     );
 }
@@ -855,6 +909,7 @@ jobs:
       - uses: taiki-e/install-action@{sha} # v2.87.20
         with:
           tool: cargo-llvm-cov@{LLVM_COV_INPUT}
+          fallback: none
 {audit}      - uses: rustsec/audit-check@{sha} # v2.0.0
   extended:
     steps:
@@ -871,20 +926,29 @@ jobs:
       - uses: taiki-e/install-action@{sha} # v2.87.20
         with:
           tool: cargo-llvm-cov@{LLVM_COV_INPUT}
+          fallback: none
       - uses: rustsec/audit-check@{sha} # v2.0.0
-{audit}"
+{audit}  forward:
+    steps:
+      - uses: dtolnay/rust-toolchain@{sha} # master
+        with:
+          toolchain: {NIGHTLY_INPUT}
+{nightly}"
     );
     let at = |line, what| Offense { line, what };
     assert_eq!(
         offenses_in(&root, &planted),
         [
-            at(30, Unpinned::Toolchain(NIGHTLY_INPUT.into())),
-            at(34, Unpinned::CargoAuditMissing),
+            at(31, Unpinned::Toolchain(NIGHTLY_INPUT.into())),
+            at(35, Unpinned::CargoAuditMissing),
             at(
-                39,
+                40,
                 Unpinned::Tool(format!("cargo-llvm-cov@{LLVM_COV_INPUT}"))
             ),
-            at(40, Unpinned::CargoAuditMissing),
+            at(42, Unpinned::CargoAuditMissing),
+            // The pins are read after the step that uses them: its output
+            // is still empty when the toolchain installs.
+            at(49, Unpinned::Toolchain(NIGHTLY_INPUT.into())),
         ]
     );
 }
@@ -1008,7 +1072,12 @@ fn the_renovate_image_has_one_home_pinned_by_release_and_digest() {
         with:
           renovate-image: {RENOVATE_IMAGE_INPUT}
           renovate-version: 44.115.9
-",
+  forward:
+    steps:
+      - uses: renovatebot/github-action@{sha} # v46.3.4
+        with:
+          renovate-image: {RENOVATE_IMAGE_INPUT}
+{reads}",
         reads = step_text(&RENOVATE_IMAGE)
     );
     let at = |line, what| Offense { line, what };
@@ -1030,7 +1099,48 @@ fn the_renovate_image_has_one_home_pinned_by_release_and_digest() {
             // No step in this job reads the home, so its output is no pin.
             at(21, Unpinned::Image(RENOVATE_IMAGE_INPUT.into())),
             at(22, Unpinned::Image("renovate-version: 44.115.9".into())),
+            // The home is read after the step that needs it: the output is
+            // still empty there, and the action would run its default.
+            at(27, Unpinned::Image(RENOVATE_IMAGE_INPUT.into())),
         ]
+    );
+}
+
+/// Every install-action step disables its fallback: a tool version missing
+/// from the pinned manifest must fail, not install through cargo-binstall
+/// with no checksum. Only `fallback: none` under `with:` counts.
+#[test]
+fn an_install_action_step_without_fallback_none_is_refused() {
+    let root = workspace();
+    let sha = "9983c65e42da123ff25d1f78505eb6de315aa172";
+    let planted = format!(
+        "      - uses: taiki-e/install-action@{sha} # v2.87.20
+        with:
+          tool: typos@1.50.2
+          fallback: none
+      - uses: taiki-e/install-action@{sha} # v2.87.20
+        with:
+          tool: typos@1.50.2
+          fallback: cargo-binstall
+      - uses: taiki-e/install-action@{sha} # v2.87.20
+        env:
+          fallback: none
+        with:
+          tool: typos@1.50.2
+      - uses: taiki-e/install-action@{sha} # v2.87.20
+        with:
+          tool: typos@1.50.2
+"
+    );
+    let at = |line, what| Offense { line, what };
+    let open = || {
+        Unpinned::Fallback(format!(
+            "taiki-e/install-action@{sha} without fallback: none"
+        ))
+    };
+    assert_eq!(
+        offenses_in(&root, &planted),
+        [at(5, open()), at(9, open()), at(14, open())]
     );
 }
 
@@ -1338,11 +1448,12 @@ fn the_non_rust_lints_job_runs_every_check() {
     for step in [
         "uses: ./.github/actions/setup-actionlint\n",
         "uses: ./.github/actions/setup-lychee\n",
-        "tool: shellcheck@0.11.0,typos@1.50.2,zizmor@1.30.1\n",
+        "fallback: none\n",
         "SHELLCHECK_OPTS: -S warning\n        run: actionlint\n",
         "run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline\n",
         "run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning\n",
-        "run: typos\n",
+        "run: typos --hidden\n",
+        "run: bash scripts/shellcheck-actions.sh\n",
         "run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress\n",
         "npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund\n",
         "bash scripts/lint-diagrams.sh\n",
@@ -1353,14 +1464,27 @@ fn the_non_rust_lints_job_runs_every_check() {
         assert!(job.contains(step), "lint-non-rust does not run {step:?}");
     }
     assert!(!job.contains("continue-on-error"), "lint-non-rust");
+    // The versions have their homes (the tool: line, the lockfile) and
+    // Renovate moves them there; this holds the shape, so a bump never
+    // reddens it. The pin scan holds each tool: entry to an exact release.
+    let tools: Vec<&str> = job
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("tool: "))
+        .expect("an install-action tool: line")
+        .split(',')
+        .map(|entry| entry.split_once('@').map_or(entry, |(name, _)| name))
+        .collect();
+    assert_eq!(tools, ["shellcheck", "typos", "zizmor"]);
     let lock = read(".github/lint/package-lock.json");
-    assert!(
-        lock.contains(
+    let mermaid = lock
+        .split_once(
             r#""node_modules/@mermaid-js/mermaid-cli": {
-      "version": "12.0.0","#
-        ),
-        "the lockfile does not pin mermaid-cli 12.0.0"
-    );
+      "version": ""#,
+        )
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(version, _)| version)
+        .expect("the lockfile pins mermaid-cli");
+    assert!(is_release(mermaid), "mermaid-cli {mermaid} is not exact");
     // Renovate runs from its pinned image, never from this install.
     assert!(
         !lock.contains("node_modules/renovate"),

@@ -40,6 +40,9 @@ mis = "mis"
 seh = "seh"
 # A real word typos does not know.
 compilability = "compilability"
+# gpg's --with-colons fingerprint record, which release.yml's signing step
+# reads the key from.
+fpr = "fpr"
 
 [default.extend-identifiers]
 # SQL's INSERT, pluralised in prose.
