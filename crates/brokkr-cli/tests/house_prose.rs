@@ -140,9 +140,77 @@ fn units(text: &str) -> Vec<Unit> {
 /// The marks that join a list, kept as tokens of their own.
 const JOINING_MARKS: [char; 6] = [',', '/', '&', '+', ';', '|'];
 
-/// A unit's words, lowercased, with [`JOINING_MARKS`] kept as tokens of
-/// their own and every other mark (emphasis, code, dashes) a separator.
+/// A unit's text as its reader sees it: a link's target and a reference's
+/// label are dropped (`[Claude](…)` reads `Claude`), a possessive `'s` is
+/// dropped, and a parenthetical that names no harness is dropped, so
+/// `Claude (Anthropic) or Codex` reads as the list it is. A parenthetical
+/// that names one keeps its words, since it may be the list itself.
+fn prose(unit: &str) -> String {
+    let chars: Vec<char> = unit.chars().collect();
+    let mut out = String::new();
+    let mut at = 0;
+    while at < chars.len() {
+        let c = chars[at];
+        let possessive = matches!(c, '\'' | '’')
+            && chars
+                .get(at + 1)
+                .is_some_and(|&next| next == 's' || next == 'S')
+            && chars.get(at + 2).is_none_or(|next| !next.is_alphanumeric());
+        if possessive {
+            at += 2;
+            continue;
+        }
+        let target = c == ']' && matches!(chars.get(at + 1), Some('(' | '['));
+        let group = if target { at + 1 } else { at };
+        if target || c == '(' {
+            if let Some(close) = closing(&chars, group) {
+                let inner: String = chars[group + 1..close].iter().collect();
+                let names_one = tokens_of(&inner)
+                    .iter()
+                    .any(|token| HARNESSES.contains(&token.as_str()));
+                out.push(' ');
+                if !target && names_one {
+                    out.push_str(&prose(&inner));
+                    out.push(' ');
+                }
+                at = close + 1;
+                continue;
+            }
+        }
+        out.push(c);
+        at += 1;
+    }
+    out
+}
+
+/// The index of the bracket that closes the one at `open`.
+fn closing(chars: &[char], open: usize) -> Option<usize> {
+    let (opening, closer) = match chars[open] {
+        '(' => ('(', ')'),
+        _ => ('[', ']'),
+    };
+    let mut depth = 0;
+    for (at, &c) in chars.iter().enumerate().skip(open) {
+        if c == opening {
+            depth += 1;
+        } else if c == closer {
+            depth -= 1;
+            if depth == 0 {
+                return Some(at);
+            }
+        }
+    }
+    None
+}
+
+/// A unit's words as its reader sees them ([`prose`]).
 fn tokens(unit: &str) -> Vec<String> {
+    tokens_of(&prose(unit))
+}
+
+/// Words, lowercased, with [`JOINING_MARKS`] kept as tokens of their own
+/// and every other mark (emphasis, code, dashes) a separator.
+fn tokens_of(unit: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut word = String::new();
     for c in unit.chars().flat_map(char::to_lowercase) {
@@ -176,26 +244,20 @@ fn harness(tokens: &[String], at: usize) -> Option<(&'static str, usize)> {
 }
 
 /// The words that join a list.
-const JOINING_WORDS: [&str; 3] = ["and", "or", "nor"];
+const JOINING_WORDS: [&str; 5] = ["and", "or", "nor", "vs", "versus"];
 
 fn is_joiner(token: &str) -> bool {
     JOINING_WORDS.contains(&token) || token.chars().all(|c| JOINING_MARKS.contains(&c))
 }
 
-/// Where the next item begins after a list's joiner at `at`: a mark, a
-/// word, or a mark then a word (`, and`, `, or`).
+/// Where the next item begins after a list's joiner at `at`: a run of
+/// joining marks and words (`,`, `, and`, `and/or`).
 fn joined(tokens: &[String], at: usize) -> Option<usize> {
-    let word = |offset: usize| tokens.get(at + offset).map(String::as_str);
-    match (word(0)?, word(1)) {
-        (first, Some(second))
-            if JOINING_MARKS.iter().any(|mark| first == mark.to_string())
-                && JOINING_WORDS.contains(&second) =>
-        {
-            Some(at + 2)
-        }
-        (first, _) if is_joiner(first) => Some(at + 1),
-        _ => None,
-    }
+    let run = tokens[at.min(tokens.len())..]
+        .iter()
+        .take_while(|token| is_joiner(token))
+        .count();
+    (run > 0).then_some(at + run)
 }
 
 /// The names of the list that starts with the name at `at`, and where it
@@ -245,9 +307,9 @@ fn lists_in(tokens: &[String]) -> Vec<String> {
     found
 }
 
-/// The harness a list item or table row leads with, past its marker: a
+/// The harness a list item or table row leads with, past its marker (a
 /// row's `|`, an ordered item's number or a `+` bullet, which [`tokens`]
-/// keeps (`-` and `*` are already separators).
+/// keeps; `-` and `*` are already separators) and past an article.
 fn leading_name(tokens: &[String]) -> Option<&'static str> {
     let marker = tokens
         .iter()
@@ -255,7 +317,10 @@ fn leading_name(tokens: &[String]) -> Option<&'static str> {
             *token == "|" || *token == "+" || token.chars().all(|c| c.is_ascii_digit())
         })
         .count();
-    harness(tokens, marker).map(|(name, _)| name)
+    let article = tokens
+        .get(marker)
+        .is_some_and(|token| ["the", "a", "an"].contains(&token.as_str()));
+    harness(tokens, marker + usize::from(article)).map(|(name, _)| name)
 }
 
 /// Every list of harnesses in `text` that names claude and codex, leaves
@@ -342,11 +407,14 @@ fn every_list_of_agent_clis_names_dsh() {
 }
 
 /// The rule bites however the list is written: case, emphasis, code spans,
-/// a line break, a slash, `&`, `+`, `;`, `nor`, a table row, one word
-/// between a joiner and a name, adjacent bullets, adjacent table rows,
-/// ordered items or `+` bullets, the product's own name, either order. It passes a list that names dsh, a paragraph that names
-/// dsh beside the two, adjacent bullets one of which names dsh, and fenced
-/// code; a later paragraph naming dsh does not excuse an earlier one.
+/// a line break, a slash, `&`, `+`, `;`, `nor`, `vs`, `and/or`, a table
+/// row, one word between a joiner and a name, a parenthetical after a name,
+/// a link or a reference on each name, a possessive, adjacent bullets
+/// (after an article too), adjacent table rows, ordered items or `+`
+/// bullets, the product's own name, either order. It passes a list that
+/// names dsh, a paragraph that names dsh beside the two, adjacent bullets
+/// one of which names dsh, and fenced code; a later paragraph naming dsh
+/// does not excuse an earlier one.
 #[test]
 fn a_list_that_leaves_dsh_out_is_refused_however_it_is_written() {
     let planted = "\
@@ -408,6 +476,25 @@ Claude is the default. The codex tooling differs.
 
 + claude
 + codex
+
+Claude (Anthropic) or Codex (OpenAI) will do.
+
+[Claude](https://example.invalid/a) or [Codex](https://example.invalid/b).
+
+[claude][c] and [codex][x] run the seats.
+
+Claude's and Codex's adapters differ.
+
+It is claude vs codex.
+
+Use claude and/or codex.
+
+- the claude CLI
+- the codex CLI
+
+A seat (claude, codex) reviews it.
+
+(claude) or (codex) will do.
 ";
     assert_eq!(
         lists_without_dsh(planted),
@@ -431,6 +518,15 @@ Claude is the default. The codex tooling differs.
             (49, "claude codex".to_string()),
             (54, "claude codex".to_string()),
             (57, "claude codex".to_string()),
+            (60, "claude codex".to_string()),
+            (62, "claude codex".to_string()),
+            (64, "claude codex".to_string()),
+            (66, "claude codex".to_string()),
+            (68, "claude codex".to_string()),
+            (70, "claude codex".to_string()),
+            (72, "claude codex".to_string()),
+            (75, "claude codex".to_string()),
+            (77, "claude codex".to_string()),
         ]
     );
 }

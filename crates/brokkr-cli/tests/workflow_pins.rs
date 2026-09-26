@@ -410,12 +410,19 @@ fn read_entry(rest: &str) -> Entry<'_> {
         return Entry::Scalar(rest);
     };
     let (key, value) = (rest[..at].trim_end(), rest[at + 1..].trim());
-    if !is_plain_key(key) || value.starts_with('*') {
+    if !is_plain_key(key) {
         return Entry::Unread;
     }
     let key = key.to_ascii_lowercase();
     if is_flow(value) && (hides_a_pin(value) || INPUT_MAPS.contains(&key.as_str())) {
         return Entry::Flow;
+    }
+    // A value behind an anchor (`&a`) or a tag (`!!str`) is not the text
+    // the per-action rules match, and an alias (`*a`) is text read from
+    // elsewhere: none is read, all are refused. (A flow collection behind
+    // either is judged as the flow it is, above.)
+    if value.starts_with(['*', '&', '!']) {
+        return Entry::Unread;
     }
     Entry::Pair(key, value)
 }
@@ -571,6 +578,17 @@ impl Scan<'_> {
             && !self.job_has_step(at, &SETUP_CARGO_AUDIT, at);
         let falls_back = action.starts_with("taiki-e/install-action@")
             && self.step_input(at, "fallback") != Some("none");
+        // A setup action with no version input installs the runner image's
+        // own runtime, which floats with the image. (A *-version-file is
+        // refused where it is named.)
+        let runtime_missing = [("actions/setup-node@", "node"), ("actions/setup-go@", "go")]
+            .into_iter()
+            .find(|(prefix, _)| action.starts_with(prefix))
+            .filter(|(_, runtime)| {
+                !self.step_has_input(at, &format!("{runtime}-version"))
+                    && !self.step_has_input(at, &format!("{runtime}-version-file"))
+            })
+            .map(|(_, runtime)| Unpinned::Runtime(format!("{action} with no {runtime}-version")));
         judge_uses(self.root, value)
             .or_else(|| toolchain_missing.then_some(Unpinned::ToolchainMissing))
             .or_else(|| {
@@ -580,6 +598,7 @@ impl Scan<'_> {
             .or_else(|| {
                 falls_back.then(|| Unpinned::Fallback(format!("{action} without fallback: none")))
             })
+            .or(runtime_missing)
     }
 
     /// Every unpinned tool the node at `at` names.
@@ -844,12 +863,22 @@ fn a_line_the_scanner_cannot_read_plainly_is_refused() {
       - uses: actions/setup-go@{sha} # v5.6.0
         env: {{ GOTOOLCHAIN: local }}
         with: [cache]
+      - uses: &x taiki-e/install-action@{sha} # v2.87.20
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - uses: !!str actions/checkout@{sha} # v4.4.0
+      - uses: *x
 "
     );
     let at = |line, what| Offense { line, what };
     let unread = |line: &str| Unpinned::Unread(line.into());
     let flow = |line: &str| Unpinned::Flow(line.into());
     let fallback = format!("taiki-e/install-action@{sha} without fallback: none");
+    let no_version = |runtime: &str| {
+        Unpinned::Runtime(format!(
+            "actions/setup-{runtime}@{sha} with no {runtime}-version"
+        ))
+    };
     assert_eq!(
         offenses_in(&root, &planted),
         [
@@ -868,12 +897,30 @@ fn a_line_the_scanner_cannot_read_plainly_is_refused() {
             at(14, Unpinned::Fallback(fallback)),
             at(16, unread("tool: cargo-llvm-cov@0.9.1")),
             at(18, flow("- name: &pinned { uses: actions/checkout@v4 }")),
-            // A flow under `with:` or `env:` is refused whatever it holds.
+            // A flow under `with:` or `env:` is refused whatever it holds,
+            // and the version it hides is never seen by its step.
+            at(24, no_version("node")),
             at(25, flow("with: { node-version: 22 }")),
+            at(26, no_version("go")),
             at(27, flow("with: { go-version: stable }")),
+            at(28, no_version("node")),
             at(29, flow("with: { node-version-file: .nvmrc }")),
+            at(30, no_version("go")),
             at(31, flow("env: { GOTOOLCHAIN: local }")),
             at(32, flow("with: [cache]")),
+            // An anchored, tagged or aliased value is never read: the
+            // anchored install-action step's own rules never ran on it.
+            at(
+                33,
+                unread(&format!(
+                    "- uses: &x taiki-e/install-action@{sha} # v2.87.20"
+                ))
+            ),
+            at(
+                36,
+                unread(&format!("- uses: !!str actions/checkout@{sha} # v4.4.0"))
+            ),
+            at(37, unread("- uses: *x")),
         ]
     );
 }
@@ -992,6 +1039,10 @@ fn a_loose_label_a_floating_runtime_or_a_stray_local_action_is_refused() {
       - uses: actions/setup-node@{sha} # v4.4.0
         with:
           node-version-file: .nvmrc
+      - uses: actions/setup-node@{sha} # v4.4.0
+      - uses: actions/setup-go@{sha} # v5.6.0
+        with:
+          cache: false
 "
     );
     let offenses = offenses_in(&root, &planted);
@@ -1016,6 +1067,15 @@ fn a_loose_label_a_floating_runtime_or_a_stray_local_action_is_refused() {
             at(11, Unpinned::Runtime("stable".into())),
             at(14, Unpinned::Runtime("22".into())),
             at(18, Unpinned::Runtime(".nvmrc".into())),
+            // No version input at all: the runner image's own runtime.
+            at(
+                19,
+                Unpinned::Runtime(format!("actions/setup-node@{sha} with no node-version"))
+            ),
+            at(
+                20,
+                Unpinned::Runtime(format!("actions/setup-go@{sha} with no go-version"))
+            ),
         ]
     );
 }

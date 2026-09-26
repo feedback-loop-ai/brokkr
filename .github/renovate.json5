@@ -32,6 +32,12 @@
       groupName: 'actions',
     },
     {
+      description: "The github-actions manager also reads the runtimes a setup step installs and the expressions a step passes. The regex managers below own node, go and the stable Rust, and they skip the MSRV line, which moves by hand; an expression is no version. A dry run on 2026-09-26 showed both, extracted twice.",
+      matchManagers: ['github-actions'],
+      matchDepNames: ['rust', 'node', 'go', '/^\\$\\{\\{/'],
+      enabled: false,
+    },
+    {
       description: "Cargo.toml's requirements move by hand; only the lock file is maintained.",
       matchManagers: ['cargo'],
       matchUpdateTypes: ['major', 'minor', 'patch', 'pin', 'digest', 'pinDigest'],
@@ -49,10 +55,6 @@
         'shellcheck',
         'typos',
         'zizmor',
-        'bubblewrap',
-        'cargo-audit',
-        'actionlint',
-        'lychee',
         'node',
         'go',
         'nfpm',
@@ -62,8 +64,9 @@
       groupName: 'CI tools',
     },
     {
-      description: 'A tool pinned by version and digest: after the bump, the script re-downloads the release and rewrites its sha256, and fails closed.',
+      description: "A tool pinned by version and digest: after the bump, the script re-downloads the release and rewrites its sha256, and fails closed. Its own group, so the post-upgrade task belongs to every upgrade in the branch rather than depending on which one Renovate reads the branch's config from.",
       matchDepNames: ['bubblewrap', 'cargo-audit', 'actionlint', 'lychee'],
+      groupName: 'CI tools pinned by digest',
       postUpgradeTasks: {
         commands: ['bash scripts/refresh-pin-checksums.sh'],
         fileFilters: ['.github/actions/*/action.yml'],

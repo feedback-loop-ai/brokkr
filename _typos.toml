@@ -5,7 +5,12 @@
 [files]
 # The diagram renderer's npm lockfile: registry URLs and integrity hashes,
 # generated, never prose.
-extend-exclude = [".github/lint/package-lock.json"]
+extend-exclude = [
+  ".github/lint/package-lock.json",
+  # --hidden reaches dot-directories; a fresh CI clone's .git holds commit
+  # messages and refs, which are not the tree.
+  ".git/",
+]
 
 [default]
 extend-ignore-re = [
