@@ -1055,6 +1055,35 @@ fn no_manifest_or_config_lowers_the_purity_gates() {
     );
 }
 
+/// Every manifest line under a `[profile…]` table, header included, and
+/// any other line that names a profile, such as a dotted
+/// `profile.dev.debug` key.
+fn profile_lines(manifest: &str) -> Vec<&str> {
+    let (lines, _) = manifest_lines(manifest);
+    lines
+        .into_iter()
+        .filter(|(_, section, line)| section.starts_with("[profile") || line.contains("profile"))
+        .map(|(_, _, line)| line)
+        .collect()
+}
+
+/// Debug builds keep line tables only and dependencies no debug info
+/// (#423): full DWARF made each worktree's target 9-28 GB. The root
+/// manifest's profiles are exactly those two tables, so the release and
+/// bench profiles stay Cargo's defaults.
+#[test]
+fn debug_builds_keep_line_tables_and_dependencies_no_debug_info() {
+    assert_eq!(
+        profile_lines(&read("Cargo.toml")),
+        [
+            "[profile.dev]",
+            "debug = \"line-tables-only\"",
+            "[profile.dev.package.\"*\"]",
+            "debug = false",
+        ]
+    );
+}
+
 /// The threshold lines of a clippy config: every top-level key but the
 /// crate-local disallowed lists.
 fn thresholds(config: &str) -> BTreeSet<String> {
