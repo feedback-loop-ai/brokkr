@@ -91,7 +91,7 @@ fn a_box_killed_by_a_signal_reports_minus_one() {
 
 /// `run_boxed` finds bwrap on PATH and returns the box's own code.
 #[test]
-fn run_boxed_returns_the_boxs_own_code() {
+fn run_boxed_returns_the_exit_code_of_the_box() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     env.set("PATH", stand_ins(dir.path(), 1));
