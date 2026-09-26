@@ -33,10 +33,12 @@ done > "$scratch/heap"
 
 # The harness writes a test's name before its first printed line, on the
 # same line, so each record is matched wherever it starts. A site key holds
-# no space; `-o` takes the record alone.
-grep -oP '[^\t ]+\t[0-9]+ bytes\t[0-9]+ o200k tokens$' "$scratch/runtime" > "$scratch/prompts" || true
-grep -oP '\bpackages\t[0-9]+$' "$scratch/runtime" > "$scratch/packages" || true
-grep -oP '\bheap\t[a-z-]+\t[0-9]+$' "$scratch/heap" > "$scratch/peaks" || true
+# no space; `-o` takes the record alone. The patterns are POSIX extended,
+# with a literal tab, so the default grep of both supported hosts reads them.
+tab=$'\t'
+grep -oE "[^${tab} ]+${tab}[0-9]+ bytes${tab}[0-9]+ o200k tokens\$" "$scratch/runtime" > "$scratch/prompts" || true
+grep -oE "packages${tab}[0-9]+\$" "$scratch/runtime" > "$scratch/packages" || true
+grep -oE "heap${tab}[a-z-]+${tab}[0-9]+\$" "$scratch/heap" > "$scratch/peaks" || true
 
 [[ -s "$scratch/prompts" ]] || { printf 'measure-budgets: the prompt test reported no site\n' >&2; exit 1; }
 [[ "$(wc -l < "$scratch/packages")" -eq 1 ]] || { printf 'measure-budgets: the crate count was not reported once\n' >&2; exit 1; }
@@ -45,7 +47,7 @@ grep -oP '\bheap\t[a-z-]+\t[0-9]+$' "$scratch/heap" > "$scratch/peaks" || true
 jq -Rn --arg date "$(date -u +%F)" '
   [inputs | split("\t") | {key: .[0], value: (.[1] | split(" ")[0] | tonumber)}] | from_entries
   | {schema: "brokkr.prompt-budgets/v1",
-     note: ("Bytes of the prompt each model site is handed, rendered by the driver'"'"'s render_prompt over the input the engine composes (office text, the self realm'"'"'s house rules, the phase'"'"'s dialect instructions outside review). Measured " + $date + " by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which holds every site at or under its budget and refuses a site with no budget or a budget with no site. Raise a budget only in the pull request that grows the prompt, and say why."),
+     note: ("Bytes of the prompt each model site is handed, rendered by the driver'"'"'s render_prompt over the input the engine composes through its own SiteMarks (office text, the self realm'"'"'s house rules, the dialect prose each seat and panel member reads, and the hands, door and notice marks), the largest over every link that may serve the site; the run context and paths stand at fixed placeholders. Measured " + $date + " by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which holds every site at or under its budget and refuses a site with no budget or a budget with no site. Raise a budget only in the pull request that grows the prompt, and say why."),
      budgets: .}' < "$scratch/prompts" > quality/prompt-bytes.json
 
 jq -Rn --arg date "$(date -u +%F)" '

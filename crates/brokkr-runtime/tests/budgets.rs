@@ -9,72 +9,135 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::adapters::{render_prompt, AdapterKind};
-use brokkr_runtime::bundle::{SeatBody, StepBody};
+use brokkr_runtime::bundle::{PanelMember, SeatBody, StepBody};
 use brokkr_runtime::dialect::Dialect;
-use brokkr_runtime::Bundle;
+use brokkr_runtime::engine::SiteMarks;
+use brokkr_runtime::{Bundle, Candidate, Seat, SeatClass};
 use serde_json::{json, Value};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// One model-facing site: its label, the text that stands for its office,
-/// and the results its contract allows.
+/// One model-facing site: its budget key, the label the engine marks it
+/// by, the text that stands for its office, the results its contract
+/// allows, whether it is a gate, the panel member it is (which decides
+/// its dialect prose), and the links that may serve it.
 struct Site {
-    label: String,
+    key: String,
+    at: String,
     role_path: PathBuf,
     results: Vec<String>,
+    gate: bool,
+    member: Option<String>,
+    links: Vec<Candidate>,
 }
 
-fn site(sites: &mut Vec<Site>, label: String, role_path: &Path, results: &[String]) {
-    // An exec site's charter compiles to an empty path: a script reads no
-    // prose, so it has no prompt to budget (see `render_prompt`).
-    if !role_path.as_os_str().is_empty() {
-        sites.push(Site {
-            label,
+/// Where one body sits: its budget key, its engine label, the results its
+/// final site allows and whether it is a gate.
+struct At<'a> {
+    key: String,
+    at: String,
+    results: &'a [String],
+    gate: bool,
+}
+
+impl At<'_> {
+    fn site(&self, role_path: &Path, member: Option<&str>, links: &[Candidate]) -> Option<Site> {
+        // An exec site's charter compiles to an empty path: a script reads
+        // no prose, so it has no prompt to budget (see `render_prompt`).
+        (!role_path.as_os_str().is_empty()).then(|| Site {
+            key: self.key.clone(),
+            at: self.at.clone(),
             role_path: role_path.to_path_buf(),
-            results: results.to_vec(),
-        });
+            results: self.results.to_vec(),
+            gate: self.gate,
+            member: member.map(str::to_string),
+            links: links.to_vec(),
+        })
+    }
+
+    fn inner<'b>(&self, name: &str, results: &'b [String], gate: bool) -> At<'b> {
+        At {
+            key: format!("{}:{name}", self.key),
+            at: format!("{}:{name}", self.at),
+            results,
+            gate,
+        }
     }
 }
 
-/// Every model-facing site of one seat body, labelled as the manifest keys
-/// hands: `seat`, `seat:member`, `seat:step` and `seat:step:member`, with
-/// a strategy case in brackets.
-fn walk(sites: &mut Vec<Site>, label: &str, body: &SeatBody, results: &[String]) {
+fn members(sites: &mut Vec<Site>, at: &At<'_>, members: &[PanelMember]) {
+    for member in members {
+        let inner = at.inner(&member.name, at.results, at.gate);
+        let site = inner.site(&member.role_path, Some(&member.name), &member.candidates);
+        sites.extend(site);
+    }
+}
+
+/// Every model-facing site of one executable body, keyed as the manifest
+/// keys hands (`seat`, `seat:member`, `seat:step`, `seat:step:member`,
+/// with a strategy case in brackets) and labelled as the engine labels
+/// the driver seat, a strategy case after a colon. A sequence's final
+/// step answers with the seat's vocabulary, as the engine hands it.
+fn walk(sites: &mut Vec<Site>, at: &At<'_>, body: &SeatBody) {
     match body {
-        SeatBody::Single { role_path, .. } => site(sites, label.to_string(), role_path, results),
-        SeatBody::Panel { members, .. } => {
-            for member in members {
-                let at = format!("{label}:{}", member.name);
-                site(sites, at, &member.role_path, results);
-            }
-        }
+        SeatBody::Single {
+            role_path,
+            candidates,
+            ..
+        } => sites.extend(at.site(role_path, None, candidates)),
+        SeatBody::Panel { members: panel, .. } => members(sites, at, panel),
         SeatBody::Sequence { steps } => {
-            for step in steps {
-                let at = format!("{label}:{}", step.name);
+            for (index, step) in steps.iter().enumerate() {
+                let results = if index + 1 == steps.len() {
+                    at.results
+                } else {
+                    &step.results
+                };
+                let inner = at.inner(&step.name, results, step.class == SeatClass::Gate);
                 match &step.body {
-                    StepBody::Single { role_path, .. } => site(sites, at, role_path, &step.results),
-                    StepBody::Panel { members, .. } => {
-                        for member in members {
-                            let at = format!("{at}:{}", member.name);
-                            site(sites, at, &member.role_path, &step.results);
-                        }
-                    }
+                    StepBody::Single {
+                        role_path,
+                        candidates,
+                        ..
+                    } => sites.extend(inner.site(role_path, None, candidates)),
+                    StepBody::Panel { members: panel, .. } => members(sites, &inner, panel),
                     // A dialect step is a validator the engine runs itself.
                     StepBody::Dialect { .. } => {}
                 }
             }
         }
+        // `Seat::sites` resolves a selector before it walks.
+        SeatBody::Select { .. } => unreachable!("a strategy case never nests a selector"),
+    }
+}
+
+/// Every model-facing site of one seat, each strategy case walked as the
+/// body the engine would select for it.
+fn seat_sites(phase: &str, seat: &Seat) -> Vec<Site> {
+    let mut sites = Vec::new();
+    let at = |key: String, at: String, strategy: Option<&str>| At {
+        key,
+        at,
+        results: &seat.results,
+        gate: seat.body.selected_is_gate(strategy, seat.has_gate),
+    };
+    match &seat.body {
         SeatBody::Select { cases, default, .. } => {
             for (strategy, case) in cases {
-                walk(sites, &format!("{label}[{strategy}]"), case, results);
+                let key = format!("{phase}[{strategy}]");
+                let label = format!("{phase}:{strategy}");
+                walk(&mut sites, &at(key, label, Some(strategy)), case);
             }
             if let Some(case) = default {
-                walk(sites, &format!("{label}[default]"), case, results);
+                let key = format!("{phase}[default]");
+                walk(&mut sites, &at(key, format!("{phase}:default"), None), case);
             }
         }
+        body => walk(&mut sites, &at(phase.into(), phase.into(), None), body),
     }
+    sites
 }
 
 /// Every shipped recipe and bundle, compiled in the self realm as
@@ -110,41 +173,72 @@ fn shipped() -> Vec<(String, Bundle)> {
     bundles
 }
 
-/// The input the engine composes for one model site: the office's text,
-/// the realm's house rules and, outside review, the dialect's instructions
-/// for the phase, the largest input the engine composes for that site.
-fn seat_input(site: &Site, phase: &str, house: &str, dialect: Option<&String>) -> Value {
+/// The input the engine composes for one model site served by `link`:
+/// the office's text, the realm's house rules, the dialect prose and the
+/// hands, door and notice marks, each written by the engine's own
+/// [`SiteMarks`]. Implement is composed as it is once a change is named,
+/// its larger input. The run context and the run's paths are journal
+/// facts no budget can bound, so they stand at fixed placeholders.
+fn site_input(
+    marks: SiteMarks<'_>,
+    phase: &str,
+    house: &str,
+    site: &Site,
+    link: Option<&Candidate>,
+) -> Value {
+    let mut seat = json!({"phase": phase});
+    marks.seat_dialect(phase, true, &mut seat);
     let mut input = json!({
-        "role_path": site.role_path.to_string_lossy(),
         "feature": "the feature under delivery",
         "phase": phase,
+        "seat": site.at,
+        "role_path": site.role_path.to_string_lossy(),
         "workdir": "/repo",
-        "allowed_results": site.results,
-        "context": {},
         "result_path": "/repo/.forge/results/effect.json",
+        "allowed_results": site.results,
         "house_rules": house,
+        "context": {},
     });
-    if let Some(dialect) = dialect.filter(|_| phase != "review") {
-        input["spec_dialect"] = json!(dialect);
+    match &site.member {
+        Some(member) => marks.member_dialect(member, &seat, &mut input),
+        None if !seat["spec_dialect"].is_null() => {
+            input["spec_dialect"] = seat["spec_dialect"].clone();
+        }
+        None => {}
     }
+    marks.site(&site.at, site.gate, link, &mut input);
     input
 }
 
 /// The prompt every model site is handed, rendered by the driver's own
-/// function over the input the engine composes (see [`seat_input`]).
+/// function over the input the engine composes (see [`site_input`]): the
+/// largest over every link that may serve it, since a chain fallback
+/// moves the notice a boxed site hears.
 fn prompts() -> BTreeMap<String, String> {
     let house =
         std::fs::read_to_string(root().join("docs/house-rules.md")).expect("the house reads");
     let mut prompts = BTreeMap::new();
     for (name, bundle) in shipped() {
+        let marks = SiteMarks {
+            bundle: &bundle,
+            boundary: bundle.boundary,
+        };
         for (phase, seat) in &bundle.seats {
-            let mut sites = Vec::new();
-            walk(&mut sites, phase, &seat.body, &seat.results);
-            for site in sites {
-                let input = seat_input(&site, phase, &house, bundle.dialect_prompts.get(phase));
-                let prompt = render_prompt(&input, AdapterKind::Claude)
-                    .unwrap_or_else(|error| panic!("{name}/{}: {error}", site.label));
-                prompts.insert(format!("{name}/{}", site.label), prompt);
+            for site in seat_sites(phase, seat) {
+                let links: Vec<Option<&Candidate>> = match site.links.as_slice() {
+                    [] => vec![None],
+                    links => links.iter().map(Some).collect(),
+                };
+                let prompt = links
+                    .into_iter()
+                    .map(|link| {
+                        let input = site_input(marks, phase, &house, &site, link);
+                        render_prompt(&input, AdapterKind::Claude)
+                            .unwrap_or_else(|error| panic!("{name}/{}: {error}", site.key))
+                    })
+                    .max_by_key(String::len)
+                    .expect("every site has a link or none");
+                prompts.insert(format!("{name}/{}", site.key), prompt);
             }
         }
     }

@@ -78,7 +78,8 @@ fn source(kind: TranscriptKind) -> Vec<u8> {
     let (header, row): (&str, fn(usize) -> String) = match kind {
         TranscriptKind::ClaudeSession => ("", claude_row),
         TranscriptKind::CodexThread => ("", codex_row),
-        _ => ("{\"type\":\"session\",\"version\":0}\n", dsh_row),
+        TranscriptKind::DshSession => ("{\"type\":\"session\",\"version\":0}\n", dsh_row),
+        TranscriptKind::None => panic!("the `None` kind names no transcript to measure"),
     };
     let cap = usize::try_from(SOURCE_CAP).expect("the cap fits in memory");
     let mut text = String::with_capacity(cap);

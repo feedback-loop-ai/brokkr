@@ -1578,7 +1578,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
         engine.boundary = boundary;
         let mut input = json!({});
         engine.mark_hands("work", &mut input);
-        engine.mark_delivery("work", true, Some(&codex), &mut input);
+        engine.marks().door("work", true, Some(&codex), &mut input);
         assert_eq!(input, json!({"boundary": null, "hands": null}));
     }
     // A registered, resolved no-hands site names both fields
@@ -1611,7 +1611,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
         engine.boundary = boundary;
         let mut input = json!({});
         engine.mark_hands("work", &mut input);
-        engine.mark_delivery("work", true, Some(&codex), &mut input);
+        engine.marks().door("work", true, Some(&codex), &mut input);
         assert_eq!(
             input,
             json!({"hands": "boxed", "boundary": boundary.word()})
@@ -1622,28 +1622,28 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     engine.boundary = Boundary::Harness;
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&codex), &mut input);
+    engine.marks().door("work", true, Some(&codex), &mut input);
     assert_eq!(
         input,
         json!({"boundary": "harness", "hands": "none", "result_delivery": "last-message"})
     );
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&filed), &mut input);
+    engine.marks().door("work", true, Some(&filed), &mut input);
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", false, Some(&codex), &mut input);
+    engine.marks().door("work", false, Some(&codex), &mut input);
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, None, &mut input);
+    engine.marks().door("work", true, None, &mut input);
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     // `open`: the word and nothing else.
     engine.boundary = Boundary::Open;
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&codex), &mut input);
+    engine.marks().door("work", true, Some(&codex), &mut input);
     assert_eq!(input, json!({"boundary": "open", "hands": "none"}));
 
     // The requested input carries the word through `seat_input`, and a
@@ -1904,7 +1904,7 @@ fn a_harness_gate_on_a_last_message_door_names_its_result_path() {
     assert_eq!(spawn.env, SpawnEnv::Inherit);
     let mut input = json!({"result_path": "/r/p.json"});
     engine.mark_hands("work", &mut input);
-    engine.mark_delivery("work", true, Some(&codex), &mut input);
+    engine.marks().door("work", true, Some(&codex), &mut input);
     assert_eq!(input["result_delivery"], "last-message");
 }
 
