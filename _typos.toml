@@ -34,6 +34,8 @@ extend-ignore-re = [
 ]
 
 [default.extend-words]
+# Extensible Data Notation: the real .edn extension in SwarmForge source receipts.
+edn = "edn"
 # The TUI crate (decision 0014).
 ratatui = "ratatui"
 # A standard spelling of "unparsable", in refusal text tests assert on.

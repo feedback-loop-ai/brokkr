@@ -91,3 +91,4 @@ is not by itself evidence that its capability has been implemented.
 | [0016](0016-extracting-architectural-decisions.md) | Can LLMs Extract Architectural Design Decisions from Source Code Commits? A Preliminary Exploratory Study | [arXiv 2609.03721](https://arxiv.org/abs/2609.03721) | 4 | proposed |
 | [0017](0017-scx-router.md) | SCX Router: Streaming Zero-Shot Model Selection with a Decoder-KV Classifier and a Real-World Task Ontology | [arXiv 2609.02292](https://arxiv.org/abs/2609.02292) | 4 | proposed |
 | [0018](0018-github-graph-agent-charter-comparison.md) | GitHub peers for Brokkr's graphs, agents and charters | [GitHub repositories](https://github.com/microsoft/amplifier-foundation) | 8 | proposed |
+| [0019](0019-github-peer-implementation-investigations.md) | GitHub peers: implementation, failure handling and setup | [GitHub repositories](https://github.com/microsoft/amplifier-bundle-recipes) | 6 | proposed |

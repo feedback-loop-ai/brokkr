@@ -11,6 +11,8 @@ Research date: 2026-09-26. Assessment of architectural similarity, not a perform
 
 Scope updated 2026-09-27: Spec Kit is part of Brokkr's existing toolchain and is excluded from this peer comparison.
 
+Follow-up: [0019 — implementation investigations](0019-github-peer-implementation-investigations.md) adds 21 source-level dossiers and refines the scheduling, enforcement, provenance and recovery comparisons below. Read it alongside this dated overview.
+
 ## Summary
 
 Yes. Several repositories implement substantial parts of this approach, and a few combine enough of them to be direct architectural peers. The strongest shortlist is:
