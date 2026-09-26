@@ -66,3 +66,14 @@ url = "2"
 # own re-export: a second manifest line could resolve a different
 # crossterm than `ratatui-crossterm` links.
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+
+# Debug builds keep file-and-line tables for backtraces and nothing more:
+# full DWARF made every test binary 150-270 MB and each worktree's target
+# 9-28 GB (2026-09-26). Dependencies carry no debug info at all; a
+# backtrace through them still names their functions from the symbol
+# table. The release profile is untouched.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
