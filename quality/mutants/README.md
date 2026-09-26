@@ -9,7 +9,7 @@ This directory is the committed baseline, measured on `main` at `155aa5f0` (2026
 | `brokkr-core.missed.txt` | Every missed mutant in brokkr-core, as cargo-mutants writes them |
 | `brokkr-protocol.missed.txt` | Every missed mutant in brokkr-protocol's measured scope |
 
-`scripts/mutants.sh` holds the scope and compares a run's misses with these files. A miss's identity is its file and mutation, without the line and column, so an unrelated edit above it does not make it new. `.github/workflows/mutants.yml` runs it on pull requests (only what the diff touched) and weekly in eight shards. A tool error, a red unmutated tree, a bad diff, a run that tested nothing, or a missing allow-list, shard or output fails every job, because its verdict or report would not be true.
+`scripts/mutants.sh` holds the scope and compares a run's misses with these files. A miss's identity is its file and mutation, without the line and column, so an unrelated edit above it does not make it new. `.github/workflows/mutants.yml` runs it on pull requests (only what the diff touched) and weekly in eight shards. A tool error, a red unmutated tree, a diff that does not carry every change in the scope as a hunk, a run that tested nothing, an output jq cannot parse as one, or a missing allow-list, shard or output fails every job, because its verdict or report would not be true.
 
 Because the identity has no line, only a run over the whole scope subtracts the committed misses outright, and it counts them: a second miss of a committed file and mutation is new. brokkr-protocol's pull-request report mutates only its diff, so it names every miss and marks the ones that share a committed miss's file and mutation, for a reader to check the line. A weekly shard mutates an eighth of the scope, so no shard subtracts; the week's report joins all eight shards and compares once. A new miss is hidden only when a committed miss of the same file and mutation is fixed in the same week. Timeouts are listed beside the misses, because a timeout can hide one.
 
@@ -18,9 +18,10 @@ Because the identity has no line, only a run over the whole scope subtracts the 
 The operator ruled on #289 (2026-09-26):
 
 - **brokkr-core is gated.** The pull-request job `mutants in the diff: brokkr-core` runs `scripts/mutants.sh gate <base> brokkr-core`. It fails, naming each one, on any miss in the diff whose file and mutation occur more often than in `brokkr-core.missed.txt`. A committed miss at a moved line is accounted for once; a second miss of the same file and mutation fails. A diff that touches no brokkr-core mutant passes without a run. The job is required once branch protection names it.
+- **The diff is rendered for cargo-mutants, which lists nothing for a change it cannot read.** Every file is rendered as text, with no external diff or textconv, no colour, the `a/` and `b/` prefixes, and no rename detection. A NUL byte in a comment, or a `-diff` attribute, otherwise made git print `Binary files ... differ` and no hunk, and the gate passed (the #420 landing's first hold). A marker git still prints in place of a hunk is refused. So is every path in the scope whose content changed and no hunk heads, before anything is listed. A mode change, or an empty file added or deleted, has nothing to mutate and needs no hunk.
 - **brokkr-protocol reports only**, in its own pull-request job and in the weekly shards, until three things hold: its hung mutants are reaped promptly, `hands.rs` is also measured against brokkr-cli's `hands` suite, and two weekly cycles come back clean.
 
-`crates/brokkr-cli/tests/mutants_gate.rs` runs the real script against a stub `cargo` and a planted allow-list (`MUTANTS_ALLOW`), so the gate's verdict is pinned without a mutation run: a new miss fails, a moved committed miss passes, a second occurrence fails, an empty diff passes, and every failure to measure fails, an output the gate cannot read included: exit 2 with no miss in missed.txt, and a mutants.json that is not a list of at least one mutant.
+`crates/brokkr-cli/tests/mutants_gate.rs` runs the real script against a stub `cargo` and a planted allow-list (`MUTANTS_ALLOW`), so the gate's verdict is pinned without a mutation run: a new miss fails, a moved committed miss passes, a second occurrence fails, an empty diff passes, and every failure to measure fails, an output the gate cannot read included: exit 2 with no miss in missed.txt, and a mutants.json that jq does not parse, as one document, into a non-empty array of objects (`[{bad}]` passed a bracket check, the landing's second hold). Scratch repositories hold the render: each git setting that would drop a hunk is planted and the change is still measured, and a planted render with a marker, or without a scoped path's hunk, is refused before listing.
 
 A diff mutates only part of the scope, so the gate cannot tell a new miss from a committed one of the same file and mutation that the diff did not reach; that miss passes the gate, and the weekly report over the whole scope names it.
 
@@ -39,7 +40,7 @@ git diff quality/mutants/
 
 ## Tools
 
-cargo-mutants 27.1.0 with `.cargo/mutants.toml`: test paths excluded, `timeout_multiplier = 3.0`. Rust 1.98.0.
+cargo-mutants 27.1.0 with `.cargo/mutants.toml`: test paths excluded, `timeout_multiplier = 3.0`. Rust 1.98.0. `jq`, which reads mutants.json; the script refuses to start without it.
 
 ## Scope and results
 

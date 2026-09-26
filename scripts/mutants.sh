@@ -19,10 +19,15 @@
 # a pull request that adds a miss there fails. Every other mode reports a
 # miss and never fails on it. Anything that stops a verdict or a report
 # from being true fails in every mode: a tool error, a failing unmutated
-# tree, an unreadable diff, a run that tested nothing, a missing
+# tree, a diff that does not carry every change in the scope as a hunk, a
+# run that tested nothing, an output jq cannot read as one, a missing
 # allow-list, shard or output.
 set -euo pipefail
 export LC_ALL=C
+command -v jq > /dev/null 2>&1 || {
+  printf 'mutants: jq is required to read what cargo-mutants wrote\n' >&2
+  exit 1
+}
 cd "$(git rev-parse --show-toplevel)"
 
 allow="${MUTANTS_ALLOW:-quality/mutants}"
@@ -75,11 +80,12 @@ measure() {
 
 # Refuse an output that does not say what the run measured, exit $1's.
 # What is accepted is named, not what is refused: exit 2 (misses) needs a
-# missed.txt with a miss in it, and mutants.json must be a list of at
-# least one mutant, `[{...}]` once its whitespace is gone. A 0-byte,
-# truncated or foreign file is none of these, and fails.
+# missed.txt with a miss in it, and mutants.json must parse, as one JSON
+# document, into a non-empty array of objects, one per mutant. jq reads
+# it, so a 0-byte, truncated, foreign or well-bracketed but unparseable
+# file (`[{bad}]`) is none of these, and fails.
 readable() {
-  local written
+  local written shape
   for written in missed.txt mutants.json; do
     [ -f "$out/mutants.out/$written" ] || {
       printf 'mutants: %s/mutants.out/%s is missing\n' "$out" "$written" >&2
@@ -90,9 +96,12 @@ readable() {
     printf 'mutants: cargo mutants exited 2, but %s/mutants.out/missed.txt names no miss\n' "$out" >&2
     return 1
   }
-  case "$(tr -d '[:space:]' < "$out/mutants.out/mutants.json")" in
-    '[{'*'}]') ;;
-    '[]') printf 'mutants: the run found no mutant to test\n' >&2 && return 1 ;;
+  shape="$(jq -r 'if type == "array" and length > 0 and all(.[]; type == "object") then "mutants"
+    elif . == [] then "none" else "other" end' "$out/mutants.out/mutants.json" 2> /dev/null)" ||
+    shape=unparsed
+  case "$shape" in
+    mutants) ;;
+    none) printf 'mutants: the run found no mutant to test\n' >&2 && return 1 ;;
     *) printf 'mutants: %s/mutants.out/mutants.json is not a list of mutants\n' "$out" >&2 && return 1 ;;
   esac
 }
@@ -170,13 +179,84 @@ timeouts() {
 # that measured nothing. Listing first names that case: only an empty list,
 # from a clean exit, means zero; any other list must be measured. A diff
 # that does not apply to the tree exits non-zero and ends the script.
+#
+# cargo-mutants lists nothing for a change it cannot read, so the diff is
+# rendered for it, whatever git is configured to do: every file as text (a
+# NUL byte in a comment, or a `-diff` attribute, would otherwise print
+# `Binary files ... differ` and no hunk), no external diff or textconv, no
+# colour, the a/ and b/ prefixes, and a renamed file as the deletion and
+# the addition it is (a pure rename has no hunk). hunks_cover() then
+# refuses, before anything is listed, whatever that still leaves out.
 diff_mutants() {
   local base="$1"
   shift
   mkdir -p "$out"
-  git diff "$base...HEAD" > "$out/branch.diff"
+  git -c core.quotePath=false diff --text --no-ext-diff --no-textconv --no-color \
+    --no-renames --src-prefix=a/ --dst-prefix=b/ "$base...HEAD" > "$out/branch.diff"
   scope_args "$@"
+  hunks_cover "$base"
   cargo mutants --list --in-diff "$out/branch.diff" "${args[@]}" > "$out/listed.txt"
+}
+
+# Refuse a diff that does not carry, as a hunk, every change in the scope
+# `args` names. A marker git prints in place of a hunk is refused wherever
+# it appears. Then every path under a `--file` glob whose content changed
+# since $1 must head a hunk, as `--- a/` or `+++ b/`: a path that drops out
+# of the diff any other way is refused by name. A path whose content did
+# not change (a mode change), or that is empty on both sides (an empty
+# file added or deleted), has nothing to mutate and needs no hunk. Only an
+# addition, deletion, modification or type change is read: any other
+# status (a rename carries two paths) is refused, not misread.
+hunks_cover() {
+  local status=0 previous="" arg meta path old new change empty
+  local globs=()
+  grep -E '^(Binary files |GIT binary patch$)' "$out/branch.diff" > "$out/markers.txt" || status=$?
+  case "$status" in
+    0)
+      printf 'mutants: the diff shows no hunk where git printed:\n' >&2
+      sed 's/^/  /' "$out/markers.txt" >&2
+      return 1
+      ;;
+    1) ;;
+    *) return "$status" ;;
+  esac
+  awk '
+    /^diff --git / { header = 1; old = ""; new = ""; next }
+    header && /^--- / { old = substr($0, 5); next }
+    header && /^\+\+\+ / { new = substr($0, 5); next }
+    header && /^@@ / {
+      header = 0
+      sub(/\t$/, "", old); sub(/\t$/, "", new)
+      if (old ~ /^a\//) print substr(old, 3)
+      if (new ~ /^b\//) print substr(new, 3)
+    }
+  ' "$out/branch.diff" > "$out/carried.txt"
+  for arg in "${args[@]}"; do
+    [ "$previous" != --file ] || globs+=(":(glob)$arg")
+    previous="$arg"
+  done
+  empty="$(git hash-object -t blob --stdin < /dev/null)"
+  git diff --raw -z --no-renames --no-abbrev --no-color "$base...HEAD" -- ${globs[@]+"${globs[@]}"} \
+    > "$out/changed.raw"
+  : > "$out/uncarried.txt"
+  while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+    read -r _ _ old new change <<< "$meta"
+    case "$change" in
+      A | D | M | T) ;;
+      *) printf '%s (status %s)\n' "$path" "$change" >> "$out/uncarried.txt" && continue ;;
+    esac
+    [ "$old" != "$new" ] || continue
+    if { [ -z "${old//0/}" ] || [ "$old" = "$empty" ]; } &&
+      { [ -z "${new//0/}" ] || [ "$new" = "$empty" ]; }; then
+      continue
+    fi
+    grep -qxF -e "$path" "$out/carried.txt" || printf '%s\n' "$path" >> "$out/uncarried.txt"
+  done < "$out/changed.raw"
+  [ ! -s "$out/uncarried.txt" ] || {
+    printf 'mutants: the diff carries no hunk for these changes in the scope:\n' >&2
+    sed 's/^/  /' "$out/uncarried.txt" >&2
+    return 1
+  }
 }
 
 # The gate's verdict: print, and fail on, each miss in $2 whose file and

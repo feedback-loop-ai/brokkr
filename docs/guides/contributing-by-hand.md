@@ -37,7 +37,7 @@ a stable toolchain.
 | Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
 | The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
 | `cargo-llvm-cov` at the pinned version | the coverage gate | `cargo llvm-cov --version` |
-| `jq` | the coverage gate (the script refuses without it) | `jq --version` |
+| `jq` | the coverage gate and the mutants gate (both scripts refuse without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain

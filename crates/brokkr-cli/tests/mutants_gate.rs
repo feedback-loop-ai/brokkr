@@ -15,6 +15,14 @@ const KNOWN_AGAIN: &str = "crates/brokkr-core/src/fold.rs:512:9: replace == with
 /// A miss no committed one accounts for.
 const FRESH: &str = "crates/brokkr-core/src/policy.rs:700:5: replace < with <= in planted";
 
+/// The file a scratch branch plants in brokkr-core, its source, and its
+/// hunk as git renders it.
+const PLANTED: &str = "crates/brokkr-core/src/planted.rs";
+const SOURCE: &[u8] = b"pub fn planted() {}\n";
+const PLANTED_HUNK: &str = "diff --git a/crates/brokkr-core/src/planted.rs \
+b/crates/brokkr-core/src/planted.rs\nnew file mode 100644\n--- /dev/null\n\
++++ b/crates/brokkr-core/src/planted.rs\n@@ -0,0 +1 @@\n+pub fn planted() {}\n";
+
 /// Stands in for `cargo mutants`. Each call appends its arguments as one
 /// line to `STUB_ARGV`. `--list` prints `STUB_LISTED` (only if the
 /// `--in-diff` file names `STUB_LIST_NAMING`, when that is set) and exits
@@ -29,7 +37,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ -n "$list" ]; then
-  [ -z "${STUB_LIST_NAMING:-}" ] || grep -qF -e "$STUB_LIST_NAMING" "$diff" || exit "${STUB_LIST_STATUS:-0}"
+  [ -z "${STUB_LIST_NAMING:-}" ] || grep -qaF -e "$STUB_LIST_NAMING" "$diff" || exit "${STUB_LIST_STATUS:-0}"
   printf '%s' "${STUB_LISTED:-}"; exit "${STUB_LIST_STATUS:-0}"
 fi
 mkdir -p "$out/mutants.out"
@@ -37,6 +45,19 @@ mkdir -p "$out/mutants.out"
 json='[{"name":"planted"}]'; [ -z "${STUB_JSON+set}" ] || json="$STUB_JSON"
 [ "${STUB_OMIT:-}" = mutants.json ] || printf '%s' "$json" > "$out/mutants.out/mutants.json"
 exit "${STUB_STATUS:-0}"
+"#;
+
+/// Stands in for `git`, passing every call to the host's git, except that
+/// the rendered diff (the one call with `--src-prefix=a/`) prints
+/// `STUB_RENDER` when that is set, empty included: a diff git might one day
+/// render without a hunk, planted.
+const RENDER_GIT: &str = r#"#!/usr/bin/env bash
+if [ -n "${STUB_RENDER+set}" ]; then
+  for arg in "$@"; do
+    [ "$arg" != --src-prefix=a/ ] || { printf '%s' "$STUB_RENDER"; exit 0; }
+  done
+fi
+PATH="$STUB_PATH" exec git "$@"
 "#;
 
 /// Stands in for `wc`, padding the host's count as macOS's `wc` does, so
@@ -56,7 +77,7 @@ impl Gate {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("bin")).unwrap();
         std::fs::create_dir_all(dir.path().join("allow")).unwrap();
-        for (name, body) in [("cargo", STUB), ("wc", PADDING_WC)] {
+        for (name, body) in [("cargo", STUB), ("wc", PADDING_WC), ("git", RENDER_GIT)] {
             let stub = dir.path().join("bin").join(name);
             std::fs::write(&stub, body).unwrap();
             let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
@@ -123,16 +144,56 @@ impl Gate {
 
     /// A scratch repository of two commits, the second planting `file`.
     fn branch(&self, file: &str) -> PathBuf {
+        self.scratch(&Scratch {
+            branch: &[(file, SOURCE)],
+            ..Scratch::default()
+        })
+    }
+
+    /// A scratch repository of two commits made as `scratch` says, with
+    /// its settings written last, where only the gate's own git reads them.
+    fn scratch(&self, scratch: &Scratch) -> PathBuf {
         let repo = self.path("repo");
-        std::fs::create_dir_all(repo.join(Path::new(file).parent().unwrap())).unwrap();
-        std::fs::write(repo.join("README.md"), "base\n").unwrap();
+        std::fs::create_dir_all(&repo).unwrap();
         git(&repo, &["init", "--quiet"]);
-        git(&repo, &["add", "README.md"]);
+        write(&repo, &[("README.md", b"base\n")]);
+        write(&repo, scratch.base);
+        git(&repo, &["add", "--all"]);
         git(&repo, &["commit", "--quiet", "-m", "base"]);
-        std::fs::write(repo.join(file), "pub fn planted() {}\n").unwrap();
-        git(&repo, &["add", file]);
+        write(&repo, scratch.branch);
+        if let Some((from, to)) = scratch.rename {
+            git(&repo, &["mv", from, to]);
+        }
+        if let Some(file) = scratch.chmod {
+            let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+            std::fs::set_permissions(repo.join(file), mode).unwrap();
+        }
+        git(&repo, &["add", "--all"]);
         git(&repo, &["commit", "--quiet", "-m", "branch"]);
+        for (key, value) in scratch.config {
+            git(&repo, &["config", key, value]);
+        }
         repo
+    }
+}
+
+/// How a scratch repository's two commits are made: the files the base
+/// holds, the files the branch writes, a path it renames and one it marks
+/// executable, and the settings git then reads from the repository.
+#[derive(Default)]
+struct Scratch<'a> {
+    base: &'a [(&'a str, &'a [u8])],
+    branch: &'a [(&'a str, &'a [u8])],
+    rename: Option<(&'a str, &'a str)>,
+    chmod: Option<&'a str>,
+    config: &'a [(&'a str, &'a str)],
+}
+
+fn write(repo: &Path, files: &[(&str, &[u8])]) {
+    for (file, bytes) in files {
+        let path = repo.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
     }
 }
 
@@ -220,7 +281,6 @@ fn the_gate_lists_and_measures_brokkr_core_over_the_diff() {
 /// so a gate that wrote an empty diff would list nothing and pass.
 #[test]
 fn the_gate_measures_the_changes_the_branch_carries() {
-    const PLANTED: &str = "crates/brokkr-core/src/planted.rs";
     let gate = Gate::new();
     let repo = gate.branch(PLANTED);
     let missed = lines(&[FRESH]);
@@ -242,6 +302,195 @@ fn the_gate_measures_the_changes_the_branch_carries() {
     );
 }
 
+/// The gate over a scratch branch whose planted hunk the stub lists, so
+/// the gate measures the change only when the diff carries it as a hunk.
+fn measured(gate: &Gate, repo: &Path, env: &[(&str, &str)]) -> Output {
+    let mut env = env.to_vec();
+    env.extend([
+        ("STUB_LIST_NAMING", "+pub fn planted() {}"),
+        ("STUB_LISTED", "a listed mutant\n"),
+    ]);
+    gate.run_in(repo, &["gate", "HEAD~1", "brokkr-core"], &env)
+}
+
+/// The #420 landing's first hold: a NUL byte in a core comment, or a
+/// `-diff` attribute, made git print `Binary files ... differ` in place of
+/// a hunk, cargo-mutants listed nothing, and the gate passed. Every setting
+/// that would render a change as anything but a hunk is overridden, so the
+/// change is measured whatever git is configured to do.
+#[test]
+fn the_diff_is_a_hunk_whatever_git_is_configured_to_do() {
+    const OLD: &str = "crates/brokkr-core/src/old.rs";
+    let planted: &[(&str, &[u8])] = &[(PLANTED, SOURCE)];
+    let cases: [(&str, Scratch); 7] = [
+        (
+            "a NUL byte in a comment",
+            Scratch {
+                branch: &[(PLANTED, b"pub fn planted() {} // \0\n")],
+                ..Scratch::default()
+            },
+        ),
+        (
+            "a -diff attribute",
+            Scratch {
+                base: &[(".gitattributes", b"crates/brokkr-core/** -diff\n")],
+                branch: planted,
+                ..Scratch::default()
+            },
+        ),
+        (
+            "a textconv",
+            Scratch {
+                base: &[(".gitattributes", b"*.rs diff=convert\n")],
+                branch: planted,
+                config: &[("diff.convert.textconv", "sed s/planted/converted/")],
+                ..Scratch::default()
+            },
+        ),
+        (
+            "an external diff",
+            Scratch {
+                branch: planted,
+                config: &[("diff.external", "true")],
+                ..Scratch::default()
+            },
+        ),
+        (
+            "colour",
+            Scratch {
+                branch: planted,
+                config: &[("color.diff", "always")],
+                ..Scratch::default()
+            },
+        ),
+        (
+            "no prefixes",
+            Scratch {
+                branch: planted,
+                config: &[("diff.noprefix", "true")],
+                ..Scratch::default()
+            },
+        ),
+        (
+            "a pure rename",
+            Scratch {
+                base: &[(OLD, SOURCE)],
+                rename: Some((OLD, PLANTED)),
+                ..Scratch::default()
+            },
+        ),
+    ];
+    for (case, scratch) in cases {
+        let gate = Gate::new();
+        let output = measured(&gate, &gate.scratch(&scratch), &[]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{case}: {}",
+            text(&output.stderr)
+        );
+        let stdout = text(&output.stdout);
+        assert!(
+            stdout.contains("misses this diff adds: 0 (0 missed,"),
+            "{case}: {stdout}"
+        );
+    }
+}
+
+/// What git still leaves out of the diff is refused before anything is
+/// listed: a binary marker by its line, and a changed scope path no hunk
+/// heads by its name (no diff, another file's hunk, or headers with no
+/// hunk under them). Each planted render would otherwise list a mutant and
+/// pass.
+#[test]
+fn a_change_the_diff_does_not_carry_as_a_hunk_is_refused_before_listing() {
+    let header = "diff --git a/crates/brokkr-core/src/planted.rs \
+        b/crates/brokkr-core/src/planted.rs\nnew file mode 100644\n";
+    let marker = "Binary files /dev/null and b/crates/brokkr-core/src/planted.rs differ";
+    let other = PLANTED_HUNK.replace("planted.rs", "other.rs");
+    let headers_only = format!("{header}--- /dev/null\n+++ b/{PLANTED}\n");
+    let uncarried = format!("carries no hunk for these changes in the scope:\n  {PLANTED}\n");
+    let cases = [
+        (
+            format!("{header}index 0000000..1111111\n{marker}\n"),
+            marker.to_string(),
+        ),
+        (
+            format!("{header}GIT binary patch\nliteral 20\nbcmZ?wbhEHb00000\n\n"),
+            "\n  GIT binary patch\n".to_string(),
+        ),
+        (String::new(), uncarried.clone()),
+        (other, uncarried.clone()),
+        (headers_only, uncarried),
+    ];
+    for (render, reason) in cases {
+        let gate = Gate::new();
+        let repo = gate.branch(PLANTED);
+        let output = measured(&gate, &repo, &[("STUB_RENDER", &render)]);
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{render:?}: {stderr}");
+        assert!(stderr.contains(&reason), "{render:?}: {stderr}");
+        assert!(!gate.path("argv").exists(), "{render:?} was listed");
+    }
+}
+
+/// Only the scope's changes must head a hunk: a change the gate does not
+/// measure is left to the diff as git renders it, so it never fails the
+/// required check.
+#[test]
+fn a_change_outside_the_scope_needs_no_hunk() {
+    let gate = Gate::new();
+    let repo = gate.scratch(&Scratch {
+        branch: &[("README.md", b"changed\n"), (PLANTED, SOURCE)],
+        ..Scratch::default()
+    });
+    let output = measured(&gate, &repo, &[("STUB_RENDER", PLANTED_HUNK)]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(text(&output.stdout).contains("misses this diff adds: 0 (0 missed,"));
+}
+
+/// A change with nothing to mutate needs no hunk: a file whose mode alone
+/// changed, and an empty file added. Both pass with nothing listed.
+#[test]
+fn a_change_with_nothing_to_mutate_needs_no_hunk() {
+    let cases: [(&str, Scratch); 2] = [
+        (
+            "a mode change",
+            Scratch {
+                base: &[(PLANTED, SOURCE)],
+                chmod: Some(PLANTED),
+                ..Scratch::default()
+            },
+        ),
+        (
+            "an empty file",
+            Scratch {
+                branch: &[("crates/brokkr-core/src/empty.rs", b"")],
+                ..Scratch::default()
+            },
+        ),
+    ];
+    for (case, scratch) in cases {
+        let gate = Gate::new();
+        let repo = gate.scratch(&scratch);
+        let output = gate.run_in(
+            &repo,
+            &["gate", "HEAD~1", "brokkr-core"],
+            &[("STUB_STATUS", "99")],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{case}: {}",
+            text(&output.stderr)
+        );
+        assert!(
+            text(&output.stdout).contains("brokkr-core mutants in this diff: 0"),
+            "{case}"
+        );
+    }
+}
+
 #[test]
 fn a_diff_with_no_brokkr_core_mutant_passes_without_a_run() {
     // A run would exit 99 and fail the gate: only the empty list may pass.
@@ -261,7 +510,18 @@ fn every_failure_to_measure_fails_the_gate() {
     let misses = ("STUB_STATUS", "2");
     let no_miss = "cargo mutants exited 2, but";
     let not_a_list = "mutants.out/mutants.json is not a list of mutants";
-    let cases: [Failure; 10] = [
+    // The #420 landing's second hold: `[{bad}]` passed a check that read
+    // only the brackets. jq now parses the file whole.
+    let cases: [Failure; 15] = [
+        (&[listed, ("STUB_JSON", "[{bad}]")], 1, not_a_list),
+        (
+            &[listed, ("STUB_JSON", "[{\"name\":broken}]")],
+            1,
+            not_a_list,
+        ),
+        (&[listed, ("STUB_JSON", "[1]")], 1, not_a_list),
+        (&[listed, ("STUB_JSON", "{\"a\":{}}")], 1, not_a_list),
+        (&[listed, ("STUB_JSON", "[{}] [{}]")], 1, not_a_list),
         (&[listed, ("STUB_STATUS", "4")], 4, "cargo mutants exited 4"),
         (&[listed, misses], 1, no_miss),
         (&[listed, misses, ("STUB_MISSED", " \n\n")], 1, no_miss),
@@ -351,6 +611,27 @@ fn an_empty_committed_list_still_fails_a_fresh_miss() {
     );
 }
 
+/// Without jq the gate cannot read mutants.json, so it fails before it
+/// calls anything: here nothing but bash is reachable, and git's absence
+/// would otherwise surface later as 127.
+#[test]
+fn a_host_without_jq_fails_before_anything_runs() {
+    let gate = Gate::new();
+    let bash = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join("bash"))
+        .find(|path| path.is_file())
+        .expect("bash on PATH");
+    let output = Command::new(bash)
+        .arg(workspace().join("scripts/mutants.sh"))
+        .args(["gate", "HEAD", "brokkr-core"])
+        .current_dir(workspace())
+        .env("PATH", gate.path("allow"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    assert!(text(&output.stderr).contains("jq is required"));
+}
+
 /// A base the gate cannot diff against measures nothing, so it fails with
 /// git's own code, before cargo-mutants is called at all.
 #[test]
@@ -359,6 +640,36 @@ fn a_base_git_cannot_resolve_fails_the_gate() {
     let output = gate.run(&["gate", "no-such-base-ref", "brokkr-core"], &[]);
     assert_eq!(output.status.code(), Some(128), "{}", text(&output.stderr));
     assert!(!gate.path("argv").exists());
+}
+
+/// The conditions in a job's body, each as `if: <value>`, read at every
+/// depth: a step's leading `- ` is dropped, and a key is read without its
+/// spacing or quotes, so `if :` and `'if':` count. A flow collection or a
+/// merge key could carry a condition this reading does not see, so either
+/// one fails.
+fn conditions(job: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for line in job.lines() {
+        let line = line.trim_start();
+        let line = line.strip_prefix("- ").unwrap_or(line).trim_start();
+        assert!(
+            !line.starts_with(['{', '[']),
+            "a flow collection in the job: {line}"
+        );
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let (key, value) = (key.trim().trim_matches(['"', '\'']), value.trim());
+        assert_ne!(key, "<<", "a merge key in the job: {line}");
+        assert!(
+            !value.starts_with(['{', '[']),
+            "a flow collection in the job: {line}"
+        );
+        if key == "if" {
+            found.push(format!("if: {value}"));
+        }
+    }
+    found
 }
 
 /// The body of mutants.yml's job `id`: its lines indented under the id.
@@ -388,14 +699,8 @@ fn the_required_job_runs_the_gate_and_protocol_only_reports() {
     // exactly the event it gates, and its only other condition is the
     // artifact upload's. Conditions are read at every depth, a step's
     // leading `- if:` included.
-    let conditions: Vec<&str> = core
-        .lines()
-        .map(str::trim_start)
-        .map(|line| line.strip_prefix("- ").unwrap_or(line))
-        .filter(|line| line.starts_with("if:"))
-        .collect();
     assert_eq!(
-        conditions,
+        conditions(&core),
         ["if: github.event_name == 'pull_request'", "if: always()"],
         "core-gate's conditions must be the pull-request event and the upload's:\n{core}"
     );
