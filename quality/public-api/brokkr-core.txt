@@ -199,6 +199,24 @@ pub brokkr_core::fold::FoldError::UnknownCommand::command: alloc::string::String
 pub brokkr_core::fold::FoldError::UnknownCommand::seq: u64
 impl brokkr_core::fold::FoldError
 pub fn brokkr_core::fold::FoldError::seq(&self) -> u64
+pub enum brokkr_core::fold::OperatorCommand
+pub brokkr_core::fold::OperatorCommand::Retry
+pub brokkr_core::fold::OperatorCommand::Stop
+impl brokkr_core::fold::OperatorCommand
+pub const brokkr_core::fold::OperatorCommand::ALL: [brokkr_core::fold::OperatorCommand; 2]
+pub const fn brokkr_core::fold::OperatorCommand::as_str(self) -> &'static str
+pub fn brokkr_core::fold::OperatorCommand::parse(&str) -> core::option::Option<brokkr_core::fold::OperatorCommand>
+pub enum brokkr_core::fold::Refusal
+pub brokkr_core::fold::Refusal::AfterTerminal
+pub brokkr_core::fold::Refusal::CommandNotAllowed
+pub brokkr_core::fold::Refusal::IncompleteCommandReplay
+pub brokkr_core::fold::Refusal::LostFence
+pub brokkr_core::fold::Refusal::NoPhaseToRetry
+pub brokkr_core::fold::Refusal::PreviouslyRejected
+pub brokkr_core::fold::Refusal::RunNotAwaitingOperator
+pub brokkr_core::fold::Refusal::StaleCursor
+impl brokkr_core::fold::Refusal
+pub const fn brokkr_core::fold::Refusal::word(self) -> &'static str
 pub enum brokkr_core::fold::Status
 pub brokkr_core::fold::Status::AwaitingOperator
 pub brokkr_core::fold::Status::Completed
@@ -223,6 +241,7 @@ pub brokkr_core::fold::RunState::status: brokkr_core::fold::Status
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
+pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub mod brokkr_core::keep_refs

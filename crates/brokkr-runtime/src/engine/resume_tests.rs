@@ -519,7 +519,7 @@ fn a_journal_that_moved_is_offered_nothing_and_one_that_stayed_still_is() {
         }
 
         let mut store = engine.store;
-        operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+        operator_command(&mut store, &run_id, Retry, "operator", "once more").unwrap();
         Engine::resume(store, bundle, &run_id, Some(dir.join("work")))
             .unwrap()
             .drive()
@@ -888,7 +888,7 @@ fn a_fresh_process_derives_the_same_offers_from_the_same_journal() {
     let first = offers(&received(dir.path(), "alpha"));
 
     // A second process, with nothing of the first in memory.
-    operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+    operator_command(&mut store, &run_id, Retry, "operator", "once more").unwrap();
     Engine::resume(store, bundle, &run_id, Some(dir.path().join("work")))
         .unwrap()
         .drive()
@@ -3955,7 +3955,7 @@ fn an_edited_inline_resume_declaration_moves_identity_and_refuses_the_old_root()
     let same_dir = scratch.path().join("same");
     let same = run_bundle(&same_dir, &before);
     let (mut store, run_id) = park(&same_dir, same.clone());
-    operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+    operator_command(&mut store, &run_id, Retry, "operator", "once more").unwrap();
     Engine::resume(store, same, &run_id, Some(same_dir.clone()))
         .unwrap()
         .drive()
