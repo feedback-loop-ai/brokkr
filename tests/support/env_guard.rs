@@ -101,16 +101,42 @@ fn a_panic_under_the_guard_restores_the_environment_and_does_not_cascade() {
 /// (the crates and this support tree) and refuses the two writers by
 /// name wherever they appear, including in comments, `use` aliases and
 /// calls split across lines. A file it cannot read as text is refused.
+///
+/// An empty offender list proves nothing on its own: a walk that read no
+/// files, or a matcher that sees no writer, passes it on any tree. So the
+/// walk must first show it read the tree (at least `READ_FLOOR` Rust files,
+/// Rust files only, two known ones among them), and the matcher must find
+/// this file's own writes (#413's landing, #289).
 #[test]
 fn nothing_but_the_guard_writes_the_process_environment() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
         .expect("a crate sits at crates/<name>");
-    let mut offenders = Vec::new();
+    let (mut offenders, mut read) = (Vec::new(), Vec::new());
     for tree in ["crates", "tests"] {
-        writers_under(root, std::path::Path::new(tree), &mut offenders);
+        writers_under(root, std::path::Path::new(tree), &mut offenders, &mut read);
     }
+    assert!(
+        read.len() >= READ_FLOOR,
+        "the walk read {} Rust files, under its floor of {READ_FLOOR}",
+        read.len()
+    );
+    for path in &read {
+        assert_eq!(path.extension(), Some("rs".as_ref()), "{}", path.display());
+    }
+    for known in ["crates/brokkr-core/src/lib.rs", "tests/support/envelope.rs"] {
+        assert!(
+            read.iter().any(|path| path == std::path::Path::new(known)),
+            "{known} unread"
+        );
+    }
+    let mut own = Vec::new();
+    writers_in(root, std::path::Path::new(GUARD), &mut own);
+    assert!(
+        own.len() >= 2,
+        "the matcher misses the guard's own writes: {own:?}"
+    );
     assert_eq!(
         offenders,
         Vec::<String>::new(),
@@ -118,9 +144,22 @@ fn nothing_but_the_guard_writes_the_process_environment() {
     );
 }
 
+/// This file, the one place allowed to write the environment.
+const GUARD: &str = "tests/support/env_guard.rs";
+
+/// The workspace held 183 Rust files outside this one on 2026-09-26. The
+/// floor sits far enough below that growth never trips it, and far above
+/// what a walk that skips a directory arm could read.
+const READ_FLOOR: usize = 120;
+
 /// Walk `relative` under `root`, naming each offender by its path from
 /// the workspace root.
-fn writers_under(root: &std::path::Path, relative: &std::path::Path, offenders: &mut Vec<String>) {
+fn writers_under(
+    root: &std::path::Path,
+    relative: &std::path::Path,
+    offenders: &mut Vec<String>,
+    read: &mut Vec<std::path::PathBuf>,
+) {
     let dir = root.join(relative);
     for entry in
         std::fs::read_dir(&dir).unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
@@ -130,16 +169,17 @@ fn writers_under(root: &std::path::Path, relative: &std::path::Path, offenders: 
             .expect("metadata")
             .file_type();
         if kind.is_dir() {
-            writers_under(root, &name, offenders);
+            writers_under(root, &name, offenders, read);
         } else if kind.is_symlink() {
             offenders.push(format!(
                 "{}: a link the walk will not follow",
                 name.display()
             ));
         } else if name.extension().is_some_and(|extension| extension == "rs")
-            && name != std::path::Path::new("tests/support/env_guard.rs")
+            && name != std::path::Path::new(GUARD)
         {
             writers_in(root, &name, offenders);
+            read.push(name);
         }
     }
 }

@@ -1,0 +1,94 @@
+name: mutants
+
+# Mutation testing (#289), report only: no job here is a required check.
+# The exact coverage gate proves every production line runs; a surviving
+# mutant is a line no test checks. scripts/mutants.sh holds the scope and
+# compares each run's misses with the committed ones in quality/mutants/,
+# so a report names only the misses nobody has seen. The operator rules a
+# gate from that baseline.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  in-diff:
+    name: mutants in the diff (report only)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Decision 0043: the hands tests build a real namespace; a skipped
+      # boundary proof would let every hands.rs mutant survive unseen.
+      - name: bubblewrap for the hands tests
+        uses: ./.github/actions/setup-bubblewrap
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-mutants@27.1.0
+      - name: mutants in what this pull request changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+        run: bash scripts/mutants.sh in-diff "$BASE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mutants-in-diff
+          path: target/mutants/mutants.out/
+
+  weekly:
+    name: mutants, weekly shard ${{ matrix.shard }} of 8 (report only)
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: bubblewrap for the hands tests
+        uses: ./.github/actions/setup-bubblewrap
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-mutants@27.1.0
+      # A shard skips cargo-mutants' own unmutated run, so the tree is
+      # proved green here first; a red tree would make every mutant look
+      # caught.
+      - name: the unmutated scope is green
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+        run: cargo test --locked -p brokkr-core -p brokkr-protocol
+      - name: this shard's mutants
+        env:
+          SHARD: ${{ matrix.shard }}
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+        run: bash scripts/mutants.sh shard "$SHARD"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: target/mutants/mutants.out/
