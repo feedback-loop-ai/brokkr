@@ -10,6 +10,9 @@ extend-exclude = [
   # --hidden reaches dot-directories; a fresh CI clone's .git holds commit
   # messages and refs, which are not the tree.
   ".git/",
+  # insta snapshots of the TUI: rendered cells, cut at the frame's width
+  # ("? hel" is "? help" at 80 columns), never prose.
+  "crates/brokkr-cli/src/tui/snapshots/",
 ]
 
 [default]
