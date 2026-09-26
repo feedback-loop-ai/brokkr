@@ -10539,3 +10539,27 @@ was compiled out for the protocol run, because it uses the new API.
   both trees.
 
 Standing-admission lines: none. The tree is restored to `1ecd3304`.
+
+### Second return, same run, 2026-09-26
+
+After this record (`0a2593e6`), triage re-ruled chore with a fresh framing.
+The framing admits `adapters/tests.rs` only under the 2026-09-26 fixture
+admission. No operator addendum after `0a2593e6` rules on split (A) or (B).
+
+Re-observed in this visit:
+
+- On `0a2593e6`, `git apply --check` passes for both saved patches. Their
+  sha256s match the ones recorded above.
+- With `in-scope.patch` applied, `cargo test -p brokkr-protocol --lib
+  --locked` gives 490 passed and 2 failed:
+  - `an_explicitly_restrictive_managed_tool_list_reaches_the_final_command`
+    (`:15147`) yields `--tools ""` where the test expects `--tools Read`.
+  - `a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag`
+    (`:15533`) yields `--tools=` where the test expects `--tools=Read`.
+- The first failure's fixture is the plan's own OFF argv. It is not an
+  inline authored option, so the 2026-09-26 admission does not reach it,
+  and a re-plant cannot keep `--tools Read`: I1 forbids writing an unheld
+  tool.
+- The patch was reversed, and `git status --short` is empty.
+
+The unit is still oversized, on the same split. Nothing else moved.

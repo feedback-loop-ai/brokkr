@@ -1743,6 +1743,12 @@ The patches are saved under `.forge/unit-12-fix-b/`. Standing-admission
 lines: none landed. 12.2 stays ticked on the prior evidence; R1–R5 remain
 open.
 
+Second return in the same run: triage re-framed it as chore, but no
+operator ruling on (A) or (B) exists. The same two `adapters/tests.rs`
+failures were re-observed with the saved in-scope patch (evidence.md,
+"Second return, same run"). The unit is still oversized, and it waits on
+that ruling.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
