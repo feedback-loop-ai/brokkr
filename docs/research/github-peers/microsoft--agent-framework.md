@@ -55,8 +55,6 @@ The most informative experiments are: fail one branch while another queues a del
 
 ## Source evidence ledger
 
-The following are immutable source links. Tests establish the cases maintainers encode; their presence does not establish a passing run in this investigation.
-
 | ID | Source and inspection purpose |
 |---|---|
 | S1 | [python/packages/core/agent_framework/_workflows/_workflow_builder.py](https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/agent_framework/_workflows/_workflow_builder.py) — typed workflow and agent composition |

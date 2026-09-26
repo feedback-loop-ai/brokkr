@@ -2,7 +2,7 @@
 
 Research date: 2026-09-27 (Europe/Sofia). Live metadata retrieved 2026-09-26T22:00:45.886971+00:00. Default branch: `main`. Revision: [`fb57a55ed97372a27ac90102f436947e29f48426`](https://github.com/strongdm/attractor/tree/fb57a55ed97372a27ac90102f436947e29f48426); commit date: 2026-03-17T21:33:04Z. Repository license: [Apache-2.0](https://github.com/strongdm/attractor/blob/fb57a55ed97372a27ac90102f436947e29f48426/LICENSE), recorded without a legal interpretation.
 
-Method: read-only inspection of a complete archive fetched by this exact SHA from GitHub, plus live repository metadata. No downloaded code, tests, installation commands, or provider workloads were executed. Tests below are inspected test assertions, not independently observed passes. This is an architectural comparison, not a numerical quality or security rating.
+[Inspection method and limits](../0019-github-peer-implementation-investigations.md#method-and-limits) apply to this dossier.
 
 ## Scope and architecture
 

@@ -57,8 +57,6 @@ Prioritize three controlled experiments: carry a stale write across cancellation
 
 ## Source evidence ledger
 
-The following are immutable source links. Tests establish the cases maintainers encode; their presence does not establish a passing run in this investigation.
-
 | ID | Source and inspection purpose |
 |---|---|
 | S1 | [libs/langgraph/langgraph/graph/state.py](https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/graph/state.py) — graph schema, validation, compilation and serializer allowlist |

@@ -2,7 +2,7 @@
 
 Research date: 2026-09-27 (Europe/Sofia). Live metadata retrieved 2026-09-26T22:00:45.852986+00:00. Default branch: `main`. Revision: [`89575c3482e3e8afe5a03df72e723cf815fa1f6c`](https://github.com/microsoft/amplifier-foundation/tree/89575c3482e3e8afe5a03df72e723cf815fa1f6c); commit date: 2026-09-25T13:00:29Z. Repository license: [MIT](https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/LICENSE), recorded without a legal interpretation.
 
-Method: read-only inspection of a complete archive fetched by this exact SHA from GitHub, plus live repository metadata. No downloaded code, tests, installation commands, or provider workloads were executed. Tests below are inspected test assertions, not independently observed passes. This is an architectural comparison, not a numerical quality or security rating.
+[Inspection method and limits](../0019-github-peer-implementation-investigations.md#method-and-limits) apply to this dossier.
 
 ## What the project establishes
 

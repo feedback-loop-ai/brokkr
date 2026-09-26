@@ -61,8 +61,6 @@ Prioritize fake-backend experiments: skip the requested self-audit and repeat th
 
 ## Source evidence ledger
 
-The following are immutable source links. Tests establish the cases maintainers encode; their presence does not establish a passing run in this investigation.
-
 | ID | Source and inspection purpose |
 |---|---|
 | S1 | [README.md](https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/README.md) — main/product distinction, composition ownership and setup |

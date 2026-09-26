@@ -2,7 +2,7 @@
 
 Research date: 2026-09-27 (Europe/Sofia). Live metadata retrieved 2026-09-26T22:00:45.928939+00:00. Default branch: `main`. Revision: [`f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63`](https://github.com/microsoft/amplifier-bundle-recipes/tree/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63); commit date: 2026-09-21T10:24:47Z. Repository license: [MIT](https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/LICENSE), recorded without a legal interpretation.
 
-Method: read-only inspection of a complete archive fetched by this exact SHA from GitHub, plus live repository metadata. No downloaded code, tests, installation commands, or provider workloads were executed. Tests below are inspected test assertions, not independently observed passes. This is an architectural comparison, not a numerical quality or security rating.
+[Inspection method and limits](../0019-github-peer-implementation-investigations.md#method-and-limits) apply to this dossier.
 
 ## What the project establishes
 

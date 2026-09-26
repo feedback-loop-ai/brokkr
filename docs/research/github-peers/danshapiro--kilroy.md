@@ -2,7 +2,7 @@
 
 Research date: 2026-09-27 (Europe/Sofia). Live metadata retrieved 2026-09-26T22:00:46.409395+00:00. Default branch: `main`. Revision: [`b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f`](https://github.com/danshapiro/kilroy/tree/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f); commit date: 2026-04-27T17:57:05Z. Repository license: [MIT](https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/LICENSE), recorded without a legal interpretation.
 
-Method: read-only inspection of a complete archive fetched by this exact SHA from GitHub, plus live repository metadata. No downloaded code, tests, installation commands, or provider workloads were executed. Tests below are inspected test assertions, not independently observed passes. This is an architectural comparison, not a numerical quality or security rating.
+[Inspection method and limits](../0019-github-peer-implementation-investigations.md#method-and-limits) apply to this dossier.
 
 ## What the project establishes
 

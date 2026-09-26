@@ -58,8 +58,6 @@ A focused comparison should fail an automatic checkpoint write and ask whether a
 
 ## Source evidence ledger
 
-The following are immutable source links. Tests establish the cases maintainers encode; their presence does not establish a passing run in this investigation.
-
 | ID | Source and inspection purpose |
 |---|---|
 | S1 | [lib/crewai/src/crewai/flow/flow.py](https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/flow/flow.py) — compatibility surface and runtime decomposition |

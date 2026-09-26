@@ -49,8 +49,6 @@ Three ideas deserve small controlled experiments. First, submit syntactically va
 
 ## Source evidence ledger
 
-The following are immutable source links. Tests establish the cases maintainers encode; their presence does not establish a passing run in this investigation.
-
 | ID | Source and inspection purpose |
 |---|---|
 | S1 | [constitution/base_agent.py](https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/constitution/base_agent.py) — prompt construction, adapter-before-hook order, post-call accounting and trace |

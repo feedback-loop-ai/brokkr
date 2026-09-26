@@ -51,8 +51,6 @@ A useful qualification experiment should keep mocked transports first. Introduce
 
 ## Source evidence ledger
 
-The following are immutable source links. Tests establish the cases maintainers encode; their presence does not establish a passing run in this investigation.
-
 | ID | Source and inspection purpose |
 |---|---|
 | S1 | [interagents/core/runner_v1.py](https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/runner_v1.py) — canonical loop, stop precedence and runner-owned state |
