@@ -213,9 +213,10 @@ pub struct Engine {
     /// engine process at the first unboxed exec dispatch and remembered
     /// (decision 0046 ruling 4; design DD15). Never journaled.
     network_prefix: Option<bool>,
-    /// The fenced-race `between` seam at every live checkpoint append
-    /// (#394); a no-op outside the tests that hold a peer's lock there.
-    checkpoint_between: checkpoints::Between,
+    /// The seams at every append of an attempt in flight (#394): racing
+    /// nothing and sleeping for real outside the tests that hold a
+    /// peer's lock there.
+    journal_seams: checkpoints::Seams,
 }
 
 fn verify_dispatch_bundle_bounds(
@@ -371,7 +372,7 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
-            checkpoint_between: checkpoints::unraced(),
+            journal_seams: checkpoints::Seams::unraced(),
         })
     }
 
@@ -414,7 +415,7 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
-            checkpoint_between: checkpoints::unraced(),
+            journal_seams: checkpoints::Seams::unraced(),
         })
     }
 
@@ -462,7 +463,7 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
-            checkpoint_between: checkpoints::unraced(),
+            journal_seams: checkpoints::Seams::unraced(),
         })
     }
 
@@ -538,11 +539,14 @@ impl Engine {
     ///
     /// The third cursor is an attempt in flight (#394). Its seats have
     /// ended by the time contention reaches here — a checkpoint's own
-    /// contention waits in the attempt's buffer while they work — so it
-    /// is their conclusion that could not land. The attempt is settled
-    /// here as indeterminate, naming the lock, and the drive goes on to
-    /// the park that follows: never left in flight for the next resume
-    /// to find with no engine to answer for it.
+    /// contention waits in the attempt's buffer while they work — so
+    /// what could not land is a row after them: the seats' last rows or
+    /// the engine's markers, once every landing try was spent, or the
+    /// attempt's conclusion. The attempt is settled here as
+    /// indeterminate, naming the lock, with the same landing tries, and
+    /// the drive goes on to the park that follows: never left in flight
+    /// for the next resume to find with no engine to answer for it,
+    /// unless the journal stays locked through the settle's tries too.
     fn lawful_end_under_contention(&mut self, error: EngineError) -> Result<DriveEnd, EngineError> {
         let EngineError::Store(store_error) = &error else {
             return Err(error);
@@ -569,7 +573,7 @@ impl Engine {
                          rather than left in flight"
                     ),
                 });
-                self.append(EventType::EffectIndeterminate, settled, Some(attempt_id))?;
+                self.settle_patiently(settled, attempt_id)?;
                 return self.drive();
             }
             Cursor::Start
@@ -583,6 +587,26 @@ impl Engine {
         self.append(EventType::RunParked, parked, None)?;
         let state = fold(&self.store.load(&self.run_id)?)?;
         Ok(DriveEnd { state })
+    }
+
+    /// Settle an attempt in flight as indeterminate, waiting a peer's
+    /// lock out for the landing tries its rows had (#394).
+    fn settle_patiently(&mut self, settled: Value, attempt_id: String) -> Result<(), EngineError> {
+        let attempt = Some(attempt_id);
+        for pause in checkpoints::landing_pauses() {
+            match self.append(
+                EventType::EffectIndeterminate,
+                settled.clone(),
+                attempt.clone(),
+            ) {
+                Err(EngineError::Store(error)) if error.is_contention() => {
+                    (self.journal_seams.wait)(pause);
+                }
+                landed => return landed.map(drop),
+            }
+        }
+        self.append(EventType::EffectIndeterminate, settled, attempt)
+            .map(drop)
     }
 
     fn advance_running(
@@ -1736,7 +1760,7 @@ impl Engine {
         };
         let store = &mut self.store;
         let current_cause = &mut self.current_cause;
-        let between = &mut self.checkpoint_between;
+        let seams = &mut self.journal_seams;
         let run_id = self.run_id.clone();
         // A peer's lock delays a row and never the attempt (#394). A
         // row the journal refused under the seat-record fence (decision
@@ -1769,19 +1793,13 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                let row = (String::new(), checkpoint);
-                journal.offer(
-                    store,
-                    current_cause,
-                    between,
-                    row,
-                    std::time::Instant::now(),
-                );
+                let row = (None, checkpoint);
+                journal.offer(store, current_cause, seams, row, std::time::Instant::now());
             },
         );
         // The seat has ended: what it handed over lands before its
         // conclusion can.
-        if let Some((_, refusal)) = journal.finish(store, current_cause, between)? {
+        if let Some((_, refusal)) = journal.finish(store, current_cause, seams)? {
             report.outcome = refused_outcome(report.outcome, &refusal);
         }
         Ok(DriverRun::Ran(report))
@@ -1998,7 +2016,7 @@ impl Engine {
         let bundle = &self.bundle;
         let store = &mut self.store;
         let current_cause = &mut self.current_cause;
-        let between = &mut self.checkpoint_between;
+        let seams = &mut self.journal_seams;
         let run_id = self.run_id.clone();
         // The same buffer a single driver carries (#394). A refusal
         // under the fence (decision 0034, ruling 6) comes back keyed by
@@ -2073,27 +2091,21 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                let row = (member, checkpoint);
-                journal.offer(
-                    store,
-                    current_cause,
-                    between,
-                    row,
-                    std::time::Instant::now(),
-                );
+                let row = (Some(member), checkpoint);
+                journal.offer(store, current_cause, seams, row, std::time::Instant::now());
             }
             handles
                 .into_iter()
                 .map(|h| h.join().expect("panel member thread"))
                 .collect()
         });
-        let Some((refused, refusal)) = journal.finish(store, current_cause, between)? else {
+        let Some((refused, refusal)) = journal.finish(store, current_cause, seams)? else {
             return Ok(reports);
         };
         Ok(reports
             .into_iter()
             .map(|(name, mut report)| {
-                if format!("{tag_prefix}{name}") == refused {
+                if refused.as_deref() == Some(format!("{tag_prefix}{name}").as_str()) {
                     report.outcome = refused_outcome(report.outcome, &refusal);
                 }
                 (name, report)
@@ -2111,6 +2123,7 @@ impl Engine {
         runs: &[MemberRun],
         tag_prefix: &str,
     ) -> Result<(), EngineError> {
+        let mut markers = Vec::with_capacity(reports.len());
         for (name, report) in reports {
             let boundary = runs
                 .iter()
@@ -2139,7 +2152,7 @@ impl Engine {
             .unwrap_or_else(|| "not reported".to_string());
             // The engine's own marker names the member's model, so it
             // carries the member's boundary beside it (design DD19).
-            let marker = stamp_boundary(
+            markers.push(stamp_boundary(
                 json!({
                     "step": "panel-member-finished",
                     "member": format!("{tag_prefix}{name}"),
@@ -2149,18 +2162,36 @@ impl Engine {
                     "inner_checkpoints": report.checkpoints.len(),
                 }),
                 boundary,
-            );
-            self.append(
-                EventType::EffectCheckpointed,
-                json!({
-                    "effect_id": effect_id,
-                    "attempt_id": attempt_id,
-                    "checkpoint": marker,
-                }),
-                Some(attempt_id.to_string()),
-            )?;
+            ));
         }
-        Ok(())
+        self.land_markers(effect_id, attempt_id, markers)
+    }
+
+    /// Land the engine's own checkpoint markers for an attempt whose
+    /// seats have ended, through the attempt's buffer (#394): a peer's
+    /// lock is waited out exactly as it is for the seats' rows, so a
+    /// finished seat's work is not thrown away over a marker. A fence
+    /// refusal comes back as the store error it is.
+    fn land_markers(
+        &mut self,
+        effect_id: &str,
+        attempt_id: &str,
+        markers: Vec<Value>,
+    ) -> Result<(), EngineError> {
+        let run_id = self.run_id.clone();
+        let mut journal = checkpoints::CheckpointJournal::new(&run_id, effect_id, attempt_id);
+        for marker in markers {
+            journal.hold((None, marker));
+        }
+        let landed = journal.finish(
+            &mut self.store,
+            &mut self.current_cause,
+            &mut self.journal_seams,
+        )?;
+        match landed {
+            None => Ok(()),
+            Some((_, refusal)) => Err(StoreError::SeatRecord(refusal).into()),
+        }
     }
 
     /// Run named steps one after another INSIDE one attempt (decision
@@ -2574,16 +2605,8 @@ impl Engine {
                     }),
                     step_boundary,
                 );
-                match self.append(
-                    EventType::EffectCheckpointed,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "checkpoint": marker,
-                    }),
-                    Some(attempt_id.to_string()),
-                ) {
-                    Ok(_) => {}
+                match self.land_markers(effect_id, attempt_id, vec![marker]) {
+                    Ok(()) => {}
                     Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
                         self.append(
                             EventType::EffectFailed,
