@@ -199,18 +199,31 @@ refusal. There is no threshold to lower. This one has its own section:
 [the coverage gate, practically](#the-coverage-gate-practically).
 
 One operational note before you run it. The script builds a second,
-instrumented copy of the workspace under a temporary directory:
+instrumented copy of the workspace, and a checked copy of its production
+targets, and keeps both warm between runs in a directory it owns:
 
 ```
-forge_coverage_dir="$(mktemp -d "${TMPDIR:-/tmp}/forge-coverage.XXXXXX")"
+${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}}/brokkr-coverage-cache
 ```
 
-— `scripts/coverage-exact.sh:17`. On a machine where `/tmp` is a tmpfs
-(RAM-backed, and commonly a few gigabytes), that instrumented target
-directory can fill it and the run dies with `ENOSPC` partway through a
-link step. This project has hit exactly that. If your `/tmp` is small or
-RAM-backed, point `TMPDIR` at a disk-backed scratch directory outside any Git
-worktree before running:
+The build directory is keyed by the pinned nightly, the lockfile and the
+workspace's target set, so the dependency build is reused until one of
+them changes. When a new key is made, the script prunes old keys: only
+directories inside `brokkr-coverage-cache` whose names have the key's exact
+shape, so nothing else under the root you give it is ever touched. Every
+workspace artifact and profile is still dropped before the run
+(`cargo llvm-cov clean --workspace`), so the report is always this
+checkout's. Only one run holds the cache at a time: a second run on the
+same host says it is waiting, waits up to an hour for the first, and then
+refuses, because two runs sharing a target would merge each other's
+profiles. The instrumented copy takes several
+gigabytes, so point `BROKKR_COVERAGE_CACHE` at a disk-backed directory if
+your cache home is small or RAM-backed.
+
+The tests themselves still create ordinary temporary directories under
+`TMPDIR`, and so does the script's report scratch. On a machine where
+`/tmp` is a small tmpfs, point `TMPDIR` at a disk-backed directory outside
+any Git worktree:
 
 ```
 TMPDIR=/var/tmp bash scripts/coverage-exact.sh
@@ -218,7 +231,6 @@ TMPDIR=/var/tmp bash scripts/coverage-exact.sh
 
 The directory must be outside a Git worktree: tests that create ordinary
 temporary directories expect Git discovery to find no parent repository.
-The script deletes its own temporary build directory on exit.
 
 ### Dependency licences
 
@@ -437,17 +449,19 @@ start line under your file's `SF:` heading whose every `FNDA` record
 reads `0`. Either a test calls it, or it should not exist yet. This
 repository does not carry code ahead of its use.
 
-**Test-harness source in the production report.** The script checks for
-this before it checks coverage
-(`scripts/coverage-exact.sh:43-50`):
+**Test-harness source in the production report.** The script has one
+test-path vocabulary, and hands `cargo-llvm-cov` exactly that, with the
+tool's own default switched off: a file under a `tests/`, `examples/` or
+`benches/` directory, or named `tests.rs`, `*_tests.rs` or `*-tests.rs`.
+Such a file leaves the report. After the run, every file the report counts
+must be a production source under `crates/`, or the script names it and
+refuses:
 
 ```
-coverage refusal: test harness source leaked into the production report
+coverage refusal: the report counts a file that is not a production source of this workspace
 ```
 
-The check reads the report's filenames and refuses any that match
-`tests.rs`, `*_tests.rs`, or a `tests/` directory component — the paths
-`cargo-llvm-cov` treats as harness. Test modules in this workspace
+Test modules in this workspace
 therefore sit in a sibling file, declared from the production file as
 `#[cfg(test)] mod tests;` or `#[cfg(test)] mod foo_tests;`, or under
 `crates/<crate>/tests/` — never as an inline `#[cfg(test)] mod tests {
@@ -455,13 +469,93 @@ therefore sit in a sibling file, declared from the production file as
 the two the crate you are editing already uses; every crate here uses
 one of them.
 
-**A `coverage(off)` attribute.** Forbidden outright. The script greps
-for it before it runs anything
-(`scripts/coverage-exact.sh:9-14`) and refuses:
+**A `coverage(off)` attribute or a `cfg(coverage)` switch.** Forbidden
+outright, in every spelling: `#[coverage(off)]`, and any `cfg`, `cfg_attr`
+or `cfg!` predicate that names `coverage` or `coverage_nightly`, however it
+is spaced, nested, split across lines or broken up by comments. The script
+reads every Rust file under each member, through symbolic links, as tokens
+with comments and literals blanked, and again every source the production
+check's dep-info names, whatever its file name. It names each file and line
+it finds, and refuses:
 
 ```
-coverage refusal: attribute-based source exclusions are forbidden
+coverage refusal: attribute and cfg(coverage) source exclusions are forbidden
 ```
+
+The same scan refuses any lint level on `unexpected_cfgs`, and any allow of
+every warning. Those would silence the compiler's refusal of an undeclared
+cfg: the script checks every production target with that lint forbidden,
+so a cfg that names `coverage` fails there however a macro built it. A
+manifest may not declare the cfg (`check-cfg`, or a key spelled through a
+TOML escape), and the workspace has no build script that could:
+
+```
+coverage refusal: a production target does not compile with every undeclared cfg forbidden
+coverage refusal: a manifest declares a cfg, changes the unexpected_cfgs lint or sets rustflags
+```
+
+**A member, a dependency or a config the scans cannot see.** Every scan
+reads the workspace's shape from `cargo metadata`, so the shape itself is
+fixed: each member's manifest is `crates/<name>/Cargo.toml`, a path
+dependency that is not a member may not be compiled at all, and the
+repository carries no `.cargo/config` or `.cargo/config.toml`, which could
+set rustflags or a compiler wrapper for the measured build. And after the
+run, every member with library or binary code must have at least one file
+in the report:
+
+```
+coverage refusal: a workspace member sits outside crates/<name>/
+coverage refusal: the product compiles local code that no member measures
+coverage refusal: a repository cargo config could set rustflags or a compiler wrapper for the measured build
+a counted member contributes no file to the report: <name>
+coverage refusal: a member with production code is missing from the report
+```
+
+**A dep-info file the gate cannot read whole.** The dep-info is read
+strictly: every line must be blank, a comment, a rule for one of rustc's
+outputs, or one source path, and the rule must name as many sources as the
+file lists. A path with a newline in it breaks that and is refused, never
+skipped:
+
+```
+coverage refusal: a dep-info file the gate cannot read whole
+```
+
+**A build or a profile from another run.** The cache is shared by every
+checkout on a host. Every member is cleaned out of the production check's
+target before the check, and every member artifact the check reports must
+be one it built. Every profile this run writes carries the run's own name,
+and a merge that read any other profile, such as one a process from an
+earlier run wrote after this run's clean, is refused:
+
+```
+coverage refusal: the production check reused a build it did not make
+coverage refusal: the merge read a profile from another run
+```
+
+**A production target or source the report would drop.** A `[[bin]]` or
+`[lib]` whose source sits at a test path, or any source a production target
+compiles (through a `mod foo_tests;` without `#[cfg(test)]`, a `#[path]`
+or an `include!`) that the report would leave out, would compile into the
+product unmeasured. The script reads every target from `cargo metadata`,
+and every source file each production target compiles from the compiler's
+dep-info, and checks each against the whole ignore set: the test
+vocabulary, the named exclusions, and the standard library, registry,
+toolchain and build-output anchors. The gate drops only what it names:
+
+```
+<package>: bin target <name> sits at test path <path>
+coverage refusal: a production target escapes the denominator, or an exclusion is not what it claims
+a counted production target compiles <path>, which the report would drop
+coverage refusal: a production source sits where the report drops it
+```
+
+The only way out of the denominator is a package named in the script's
+`coverage_exclusions`, with its reason, and it must be `publish = false`.
+Today that is one package, `brokkr-seatbelt-probe`: the Seatbelt probe and
+its helper executable, whose Gate B roles run only inside a macOS
+`sandbox-exec` cell under launchd, so no Linux run can reach most of it. Its
+tests still run, so the production code they reach is still measured.
 
 There is no discussion to have here: production code may not shrink its
 own denominator. If a line is genuinely unreachable, the fix is to make

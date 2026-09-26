@@ -44,10 +44,11 @@ audit above, whose inspected revision predates this record.
 - **Design and tasks: DONE.** `design.md` and `tasks.md` exist and encode the
   pre-implementation R3 native-proof gate (design D1–D14, tasks 1.1–1.5).
 - **Bounded R3 probe: REPAIRED AGAIN, NATIVE RUN PENDING.** The probe lives in
-  `crates/brokkr-protocol/tests/seatbelt_lifetime_probe.rs` and its
-  `seatbelt_probe` module. The interpreted payload has been replaced by one
-  committed Rust test-support executable
-  (`tests/seatbelt_probe/helper.rs`, the `seatbelt-probe-helper` bin) serving
+  `crates/brokkr-seatbelt-probe/tests/seatbelt_lifetime_probe.rs` and its
+  `seatbelt_probe` module (moved out of `brokkr-protocol` by issue #341). The
+  interpreted payload has been replaced by one committed Rust test-support
+  executable (`crates/brokkr-seatbelt-probe/src/main.rs`, the
+  `seatbelt-probe-helper` bin) serving
   payload, descendant, guard, supervisor and startup roles. The shared model
   implements the four-cell S0–S3 startup matrix and gates the lifetime matrix
   on a passing startup verdict; the measurement findings (real per-case

@@ -8,6 +8,7 @@ members = [
     "crates/brokkr-view",
     "crates/brokkr-bridge",
     "crates/brokkr-cli",
+    "crates/brokkr-seatbelt-probe",
 ]
 
 [workspace.package]
@@ -22,7 +23,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/feedback-loop-ai/brokkr"
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
+unexpected_cfgs = "warn"
 
 [workspace.dependencies]
 regex = "1.13"

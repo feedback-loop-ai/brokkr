@@ -624,7 +624,9 @@ pub(crate) mod fault {
         /// once per plan, so a matching entry can never already be fired.
         /// Guarding on `!fired` would add a branch no input can reach, which
         /// the exact-coverage gate forbids (spec: unreachable handling is
-        /// removed with its proof). An already-fired entry's action is
+        /// removed with its proof, which is
+        /// `every_visit_to_a_timed_point_is_a_new_occurrence` in
+        /// `ui/tests.rs`). An already-fired entry's action is
         /// `None`, so `action.take()` still yields `None` if it were ever
         /// revisited, and a duplicate entry at one occurrence still never
         /// fires because `find_map` stops at the first match and the guard's

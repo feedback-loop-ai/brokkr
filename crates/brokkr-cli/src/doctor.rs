@@ -502,10 +502,7 @@ fn probe_providers(
 /// is only wording, but the wording is the whole of the second half of
 /// ruling 4: doctor says what it checked, so it must not tell an
 /// operator holding a broken bundle that they passed none.
-///
-/// Passed and matched by reference throughout: a derived `Clone` nobody
-/// calls is a function the exact-coverage gate counts and no test can
-/// reach.
+#[derive(Clone, Copy)]
 enum Seats<'a> {
     /// Every name declared in some seat's `secrets`, through the
     /// composed bundle.
@@ -553,7 +550,7 @@ fn report_ambient_credentials(
     report: &mut Report,
     adapters_root: &Path,
     secrets_store: &Path,
-    seats: &Seats<'_>,
+    seats: Seats<'_>,
     ambient: fn(&str) -> bool,
 ) {
     // An unreadable adapters tree is already a warning of its own from
@@ -565,7 +562,7 @@ fn report_ambient_credentials(
     let in_store = |variable: &String| held.contains(variable);
     for adapter in adapters.providers() {
         for (route, variable) in &adapter.credentials {
-            let covered = match *seats {
+            let covered = match seats {
                 // A binding is both halves at once: a seat that names
                 // the variable, and a store that can answer for it.
                 Seats::Declared(declared) => declared.contains(variable) && in_store(variable),
@@ -574,7 +571,7 @@ fn report_ambient_credentials(
             if covered || !ambient(variable) {
                 continue;
             }
-            let checked = match *seats {
+            let checked = match seats {
                 Seats::Declared(declared) if declared.contains(variable) => format!(
                     "the seat declaring it can be handed nothing the bindings \
                      store at {} does not hold (decision 0040 ruling 4 — store \
@@ -1066,7 +1063,7 @@ fn doctor_in(
         (Some(_), None) => Seats::BundleDidNotCompile,
         (None, None) => Seats::NoBundleGiven,
     };
-    report_ambient_credentials(&mut report, adapters_root, secrets_store, &seats, ambient);
+    report_ambient_credentials(&mut report, adapters_root, secrets_store, seats, ambient);
 
     // Deliberately read-write, unlike every reading verb (#375): the
     // probe asks whether a run could write here, so it opens the way

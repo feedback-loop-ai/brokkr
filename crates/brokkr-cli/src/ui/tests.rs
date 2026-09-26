@@ -4371,6 +4371,28 @@ fn a_change_entry_that_never_fires_names_itself() {
     let _guard = Plan::new().change(ChangeAt::Child, 1, || {}).install();
 }
 
+/// The proof `take_change_action` leans on when it leaves `!fired` out of
+/// its guard: every visit to a timed point is a new occurrence, so no
+/// `(target, occurrence)` is visited twice and a matching entry is never
+/// already fired. A counter that stopped advancing would fire occurrence 1
+/// on every visit and leave occurrences 2 and 3 unfired.
+#[test]
+fn every_visit_to_a_timed_point_is_a_new_occurrence() {
+    let order = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let plan = (1..=3).fold(Plan::new(), |plan, occurrence| {
+        let order = std::rc::Rc::clone(&order);
+        plan.change(ChangeAt::Child, occurrence, move || {
+            order.borrow_mut().push(occurrence);
+        })
+    });
+    let guard = plan.install();
+    for _ in 0..3 {
+        safe_fs::fault::point(ChangeAt::Child);
+    }
+    drop(guard);
+    assert_eq!(*order.borrow(), vec![1, 2, 3]);
+}
+
 #[test]
 #[should_panic(expected = "a fault plan is already installed on this thread")]
 fn a_nested_install_is_refused_and_its_unwinding_clears_the_plan() {

@@ -78,7 +78,10 @@ the authority, and a finding it would catch is the gate's.
   `is_err()` alone. Show that every new test binds: a compiling mutation that
   removes the behaviour must make it fail. Restore the behaviour and record
   the failing test. Share fixtures through builders. Never change the process
-  environment without a guard that restores it on unwind.
+  environment without a guard that restores it on unwind. A production guard
+  left out because the exact-coverage gate would count it unreachable carries
+  a removal-control test for the invariant that makes it unreachable, and the
+  comment explaining the omission names that test.
 - **The house's patterns (ruling 10).**
   - A harness is a module behind `AdapterKind`. This is the target form;
     today all five kinds share one module, and #347 and #348 build the

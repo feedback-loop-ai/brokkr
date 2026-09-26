@@ -391,6 +391,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "brokkr-seatbelt-probe"
+version = "0.11.0"
+dependencies = [
+ "brokkr-protocol",
+]
+
+[[package]]
 name = "brokkr-store"
 version = "0.11.0"
 dependencies = [

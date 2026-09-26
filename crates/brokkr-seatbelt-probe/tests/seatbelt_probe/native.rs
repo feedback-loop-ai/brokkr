@@ -1,7 +1,7 @@
 //! macOS adapter for the bounded R3 probe (decision 0046 slice II, design D3).
 //!
 //! This is an experiment, not production enforcement. One committed
-//! test-support executable (see `helper.rs`) provides every role so the
+//! test-support executable (see `src/main.rs`) provides every role so the
 //! native path has no interpreter dependency and so Gate A can admit the exact
 //! payload before Gate B measures it:
 //!
