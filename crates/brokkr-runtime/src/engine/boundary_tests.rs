@@ -35,6 +35,15 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
     }
 }
 
+/// The seat input for `work` after `mark_hands` and the result-door mark,
+/// under the engine's current boundary.
+fn marked(engine: &Engine, gate: bool, door: Option<&Candidate>) -> Value {
+    let mut input = json!({});
+    engine.mark_hands("work", &mut input);
+    engine.marks().door("work", gate, door, &mut input);
+    input
+}
+
 fn codex_harness() -> HarnessHands {
     HarnessHands {
         gate: Some(vec![
@@ -1565,7 +1574,6 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
 // ───────────────────────────── boundary-record: the seat input's word
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     let codex = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
@@ -1576,9 +1584,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     // Unknown confinement: no affirmative marker, under any boundary.
     for boundary in brokkr_core::realms::BOUNDARIES {
         engine.boundary = boundary;
-        let mut input = json!({});
-        engine.mark_hands("work", &mut input);
-        engine.marks().door("work", true, Some(&codex), &mut input);
+        let input = marked(&engine, true, Some(&codex));
         assert_eq!(input, json!({"boundary": null, "hands": null}));
     }
     // A registered, resolved no-hands site names both fields
@@ -1609,9 +1615,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     for boundary in [Boundary::Namespace, Boundary::Seatbelt, Boundary::Container] {
         engine.boundary = boundary;
-        let mut input = json!({});
-        engine.mark_hands("work", &mut input);
-        engine.marks().door("work", true, Some(&codex), &mut input);
+        let input = marked(&engine, true, Some(&codex));
         assert_eq!(
             input,
             json!({"hands": "boxed", "boundary": boundary.word()})
@@ -1620,30 +1624,20 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     // `harness`: the word, no marker; the door only for a gate whose
     // link captures the final message.
     engine.boundary = Boundary::Harness;
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.marks().door("work", true, Some(&codex), &mut input);
+    let input = marked(&engine, true, Some(&codex));
     assert_eq!(
         input,
         json!({"boundary": "harness", "hands": "none", "result_delivery": "last-message"})
     );
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.marks().door("work", true, Some(&filed), &mut input);
+    let input = marked(&engine, true, Some(&filed));
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.marks().door("work", false, Some(&codex), &mut input);
+    let input = marked(&engine, false, Some(&codex));
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.marks().door("work", true, None, &mut input);
+    let input = marked(&engine, true, None);
     assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     // `open`: the word and nothing else.
     engine.boundary = Boundary::Open;
-    let mut input = json!({});
-    engine.mark_hands("work", &mut input);
-    engine.marks().door("work", true, Some(&codex), &mut input);
+    let input = marked(&engine, true, Some(&codex));
     assert_eq!(input, json!({"boundary": "open", "hands": "none"}));
 
     // The requested input carries the word through `seat_input`, and a
