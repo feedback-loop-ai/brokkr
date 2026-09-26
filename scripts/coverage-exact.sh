@@ -118,10 +118,11 @@ scan_rust_sources() {
   END { exit($refused ? 1 : 0) }
 '
 }
-# Every Rust file under every member's directory, ignored or not; the files a
-# production target compiles from anywhere else are scanned after the
-# production check below, from its dep-info.
-find "${member_dirs[@]}" -name '*.rs' -type f -print0 | scan_rust_sources ||
+# Every Rust file under every member's directory, ignored or not, through
+# symbolic links; every source a production target compiles, whatever its
+# name or place, is scanned again after the production check below, from
+# its dep-info.
+find -L "${member_dirs[@]}" -name '*.rs' -type f -print0 | scan_rust_sources ||
   refuse 'attribute and cfg(coverage) source exclusions are forbidden'
 
 # A cfg is declared, and so escapes the compiler check below, only through
@@ -263,13 +264,30 @@ report_flags=(--no-default-ignore-filename-regex --ignore-filename-regex "$ignor
 # Every production target, checked by the compiler with every undeclared cfg
 # forbidden: `coverage` is declared nowhere, so a cfg that names it fails
 # here however it was written, macro expansion included.
+# Its target is warm for dependencies only: every member is cleaned out of it
+# first, under the lock, as the instrumented target is, so no other tree's
+# build of a member can read as fresh here.
+check_target="$cache_dir/$key/check"
+clean_flags=()
+while IFS= read -r member; do clean_flags+=(-p "$member"); done < <(jq -r '.[].name' <<<"$members")
+cargo "+$nightly" clean --quiet --target-dir "$check_target" "${clean_flags[@]}" 9>&-
 check_messages="$forge_coverage_dir/check.json"
-if ! CARGO_ENCODED_RUSTFLAGS='-Funexpected_cfgs' CARGO_TARGET_DIR="$cache_dir/$key/check" \
+if ! CARGO_ENCODED_RUSTFLAGS='-Funexpected_cfgs' CARGO_TARGET_DIR="$check_target" \
   cargo "+$nightly" check --workspace --all-features --locked --lib --bins \
   --message-format=json 9>&- >"$check_messages"; then
   jq -r 'select(.reason == "compiler-message" and .message.level == "error") | .message.rendered' \
     "$check_messages" >&2
   refuse 'a production target does not compile with every undeclared cfg forbidden'
+fi
+
+# Every member artifact the check reports was built by this run.
+reused="$(jq -r --argjson members "$(jq -c '[.[].manifest_path]' <<<"$members")" '
+  select(.reason == "compiler-artifact" and .fresh)
+  | select(.manifest_path as $manifest | $members | any(. == $manifest))
+  | "\(.target.kind | join(",")) \(.target.name) of \(.manifest_path)"' "$check_messages")"
+if [[ -n "$reused" ]]; then
+  printf 'the production check reused %s\n' "$reused" >&2
+  refuse 'the production check reused a build it did not make'
 fi
 
 # Only the members compile as local code: a path dependency that is not a
@@ -296,28 +314,58 @@ depinfo="$(jq -r --argjson excluded "$excluded_manifests" --argjson members "$me
 while IFS= read -r file; do
   [[ "$file" == *.d && -f "$file" ]] || refuse "dep-info $file is not a .d file that exists"
 done <<<"$depinfo"
-# Each path is named twice, as rustc wrote it and with `.` and `..` resolved,
-# so an anchor matches it whichever spelling the report sees.
-compiled="$(printf '%s\n' "$depinfo" | tr '\n' '\0' | ROOT="$root" xargs -0 perl -ne '
-  next unless /^((?:[^:\\\s]|\\.)+):\s*$/;
-  (my $path = $1) =~ s/\\(.)/$1/g;
-  $path = "$ENV{ROOT}/$path" unless $path =~ m{^/};
-  my @parts;
-  for my $part (split m{/+}, $path) {
-    next if $part eq "" || $part eq ".";
-    if ($part eq "..") { pop @parts } else { push @parts, $part }
+# The dep-info is read strictly. Every line is blank, a `#` comment, a rule
+# for one of rustc's outputs beside it, or one source path; any other line,
+# a path with a newline in it included, is refused rather than skipped. Each
+# path is named twice, as rustc wrote it and with `.` and `..` resolved, so
+# an anchor matches it whichever spelling the report sees.
+sources_file="$forge_coverage_dir/sources"
+compiled="$(printf '%s\n' "$depinfo" | tr '\n' '\0' | ROOT="$root" SOURCES="$sources_file" xargs -0 perl -e '
+  open(my $sources, ">", $ENV{SOURCES}) or die "sources: $!\n";
+  my $unread = 0;
+  for my $file (@ARGV) {
+    open(my $in, "<", $file) or die "$file: $!\n";
+    (my $dir = $file) =~ s{/[^/]*$}{};
+    (my $escaped = $dir) =~ s/ /\\ /g;
+    my ($rule_deps, $paths) = (undef, 0);
+    while (my $line = <$in>) {
+      chomp $line;
+      next if $line =~ /^\s*$/ || $line =~ /^#/;
+      if ($line =~ /^\Q$escaped\E\/[^\/\s]+\.(?:d|rmeta):(?: (.*))?$/) {
+        my @deps = grep { length } split /(?<!\\) /, ($1 // "");
+        $rule_deps //= scalar @deps;
+        next;
+      }
+      if ($line =~ /^(.+):\s*$/) {
+        (my $path = $1) =~ s/\\ / /g;
+        $path = "$ENV{ROOT}/$path" unless $path =~ m{^/};
+        my @parts;
+        for my $part (split m{/+}, $path) {
+          next if $part eq "" || $part eq ".";
+          if ($part eq "..") { pop @parts } else { push @parts, $part }
+        }
+        my $normal = "/" . join("/", @parts);
+        print "$path\n$normal\n";
+        print $sources "$normal\0";
+        $paths++;
+        next;
+      }
+      print STDERR "$file:$.: a dep-info line the gate cannot read: $line\n";
+      $unread = 1;
+    }
+    if (!defined $rule_deps || $rule_deps != $paths) {
+      printf STDERR "%s: its rule names %s sources and it lists %d\n", $file, $rule_deps // "no", $paths;
+      $unread = 1;
+    }
   }
-  print "$path\n", "/", join("/", @parts), "\n";
-' | sort -u)"
+  exit $unread;
+' | sort -u)" || refuse 'a dep-info file the gate cannot read whole'
 [[ -n "$compiled" ]] || refuse 'the production dep-info names no source file'
 
-# A compiled source outside every member's directory was not scanned above.
-member_dirs_regex="$(jq -r "$jq_defs"' "^(" + ([.[].dir | re_escape + "/"] | join("|")) + ")"' <<<"$members")"
-outside="$(printf '%s\n' "$compiled" | grep -v -E -- "$member_dirs_regex" || true)"
-if [[ -n "$outside" ]]; then
-  printf '%s\n' "$outside" | tr '\n' '\0' | scan_rust_sources ||
-    refuse 'attribute and cfg(coverage) source exclusions are forbidden'
-fi
+# Every source a production target compiles, followed through links and
+# whatever its name, is scanned as the member files were.
+sort -zu "$sources_file" | scan_rust_sources ||
+  refuse 'attribute and cfg(coverage) source exclusions are forbidden'
 
 # No source a counted production target compiles may be one the report
 # drops, for any reason the ignore set names.
@@ -328,9 +376,28 @@ if [[ -n "$dropped" ]]; then
 fi
 
 # A report is candidate-bound only when no instrumented executable or profile
-# from an earlier source graph can participate in the merge.
+# from an earlier source graph can participate in the merge. The clean drops
+# every earlier profile; a profile that lands later, from a process another
+# run left behind, carries that run's name, not this one's, and is refused
+# below if the merge read it.
 cargo "+$nightly" llvm-cov clean --workspace 9>&-
+run_name="$(basename "$forge_coverage_dir")"
+export LLVM_PROFILE_FILE_NAME="$run_name-%p-%m.profraw"
+# cargo-llvm-cov writes the list of profiles it merged to
+# <target>/<workspace directory name>-profraw-list on every merge. It is
+# removed before each step, so the one read after it is that step's.
+profile_list="$CARGO_LLVM_COV_TARGET_DIR/$(basename "$root")-profraw-list"
+merged_only_this_run() {
+  [[ -f "$profile_list" ]] || refuse "cargo-llvm-cov wrote no profile list at $profile_list"
+  local foreign_profiles
+  foreign_profiles="$(grep -v -x -E -- "$(re_escape "$CARGO_LLVM_COV_TARGET_DIR")/$(re_escape "$run_name")-[^/]*\.profraw" "$profile_list" || true)"
+  if [[ -n "$foreign_profiles" ]]; then
+    printf 'a profile this run did not write: %s\n' $foreign_profiles >&2
+    refuse 'the merge read a profile from another run'
+  fi
+}
 
+rm -f "$profile_list"
 cargo "+$nightly" llvm-cov \
   --workspace \
   "${report_flags[@]}" \
@@ -339,13 +406,16 @@ cargo "+$nightly" llvm-cov \
   --branch \
   --json \
   --output-path "$forge_coverage_dir/coverage.json" 9>&-
+merged_only_this_run
 
 # Preserve the complete report before evaluating the threshold. A red exact
 # gate must still leave operators enough evidence to see and burn down every
 # missing region instead of returning only an opaque non-zero exit.
 cp "$forge_coverage_dir/coverage.json" target/coverage/coverage-exact.json
+rm -f "$profile_list"
 cargo "+$nightly" llvm-cov report "${report_flags[@]}" --branch --lcov \
   --output-path target/coverage/lcov.info 9>&-
+merged_only_this_run
 
 # Every file the report counts is a production source of this workspace: a
 # test file, or a source from anywhere else, is refused by name.

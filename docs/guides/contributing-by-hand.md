@@ -473,9 +473,10 @@ one of them.
 outright, in every spelling: `#[coverage(off)]`, and any `cfg`, `cfg_attr`
 or `cfg!` predicate that names `coverage` or `coverage_nightly`, however it
 is spaced, nested, split across lines or broken up by comments. The script
-reads every Rust file under `crates/` as tokens, with comments and literals
-blanked, before it builds anything, names each file and line it finds, and
-refuses:
+reads every Rust file under each member, through symbolic links, as tokens
+with comments and literals blanked, and again every source the production
+check's dep-info names, whatever its file name. It names each file and line
+it finds, and refuses:
 
 ```
 coverage refusal: attribute and cfg(coverage) source exclusions are forbidden
@@ -508,6 +509,28 @@ coverage refusal: the product compiles local code that no member measures
 coverage refusal: a repository cargo config could set rustflags or a compiler wrapper for the measured build
 a counted member contributes no file to the report: <name>
 coverage refusal: a member with production code is missing from the report
+```
+
+**A dep-info file the gate cannot read whole.** The dep-info is read
+strictly: every line must be blank, a comment, a rule for one of rustc's
+outputs, or one source path, and the rule must name as many sources as the
+file lists. A path with a newline in it breaks that and is refused, never
+skipped:
+
+```
+coverage refusal: a dep-info file the gate cannot read whole
+```
+
+**A build or a profile from another run.** The cache is shared by every
+checkout on a host. Every member is cleaned out of the production check's
+target before the check, and every member artifact the check reports must
+be one it built. Every profile this run writes carries the run's own name,
+and a merge that read any other profile, such as one a process from an
+earlier run wrote after this run's clean, is refused:
+
+```
+coverage refusal: the production check reused a build it did not make
+coverage refusal: the merge read a profile from another run
 ```
 
 **A production target or source the report would drop.** A `[[bin]]` or
