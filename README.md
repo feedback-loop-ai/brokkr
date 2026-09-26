@@ -94,6 +94,7 @@ The [full quickstart](docs/guides/quickstart.md) covers `init` per stack, parks,
 
 - [Guides](docs/guides/README.md) — the task map: first run, recipes, agents, adapters, secrets, journals and repository anatomy.
 - [Decision record](docs/decisions/README.md) — the constitution: every semantic rule, its status and its enforcement binding.
+- [Research registry](docs/research/README.md) — source-backed findings and comparisons, including GitHub peers for graphs, agents and charters.
 - [Essays](docs/essays/README.md) — the paradigm argued against the repository's own history and evidence.
 - [Lore](docs/lore/README.md) — why Brokkr works the bellows, and why story is commentary rather than specification.
 - [Evidence shelf](docs/evidence/README.md) — redacted journal exports that let the project's claims be inspected.
