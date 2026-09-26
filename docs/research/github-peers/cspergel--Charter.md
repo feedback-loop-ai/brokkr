@@ -14,9 +14,9 @@ The operating flow is design prose → optional LLM annotation → human-reviewe
 
 An assertion is a repository-authored shell command expected to exit zero on compliance. A tripwire is a separate must-succeed probe showing that its detection mechanism can recognize a known violation. `check` fails when an assertion or tripwire fails or times out. This directly addresses the “green by omission” problem where a typoed path makes a grep always pass. Other enforcement rungs are weaker: a type/test/lint target is checked for file or token presence, not automatically executed as a test. Dotted symbols may resolve to their final member token. These are liveness checks on evidence references, not proof of semantic coverage. [Enforcer implementation][C5].
 
-`check` refuses unapproved or changed charter content; it does not execute smuggled asserts while the approval stamp is invalid. Supervision-only decisions with neither code citations nor watched paths fail by default, while broad watch scopes, uncited governed files, bare test-file references and trivial always-true tripwires are warnings. That severity distinction matters: the existence of a tripwire field is not mandatory universal proof. Tests explicitly check unapproved content, tampering, vacuous asserts, blind supervision and coverage-blind targets. [Check path][C6], [regression tests][C7].
+`check` refuses unapproved or changed charter content; it does not execute smuggled asserts while the approval stamp is invalid. Supervision-only decisions with neither code citations nor watched paths fail by default, while broad watch scopes, uncited governed files, bare test-file references and trivial always-true tripwires are warnings. That severity distinction matters: the existence of a tripwire field is not mandatory universal proof. Tests explicitly check unapproved content, tampering, vacuous asserts, blind supervision and coverage-blind targets. [Check path][C6], [regression tests][C22].
 
-The edit hook can temporarily apply proposed content and block an edit when an assert fails with the edit but passes without it, avoiding blame for pre-existing failures. The inspected tests distinguish a violating change from a compliant one and require silence when the charter is untrusted/tampered. That is a targeted in-loop refusal mechanism. Its coverage depends on the host calling the hook for the supported tool payload, not on a filesystem-level write barrier. [Edit hook][C8], [hook tests][C7].
+The edit hook can temporarily apply proposed content and block an edit when an assert fails with the edit but passes without it, avoiding blame for pre-existing failures. The inspected tests distinguish a violating change from a compliant one and require silence when the charter is untrusted/tampered. That is a targeted in-loop refusal mechanism. Its coverage depends on the host calling the hook for the supported tool payload, not on a filesystem-level write barrier. [Edit hook][C8], [hook tests][C23].
 
 ## Local trust, arbitrary commands and secrets
 
@@ -24,7 +24,7 @@ The security document is unusually explicit about its trust boundary. A committe
 
 This is intentional local approval, not sandboxing. Assert commands run through a POSIX shell in the repository, with the process's ambient authority/environment. The 30-second subprocess timeout does not show owned process-group teardown; Python's direct process handling alone does not establish descendant settlement. `capture_output` buffers output, and slicing error messages or LLM responses afterward is not a pre-capture memory bound. The custom LLM command uses `shell=True` and a five-minute timeout; direct HTTP uses a three-minute timeout. These surfaces require the operator's reviewed command policy. [Shell and LLM implementation][C12].
 
-Only annotate/audit require LLM content transfer; audit sends governed file contents and annotate sends design input. Security documentation acknowledges secrets can leave and that model prompt-injection resistance is imperfect. Audit has bounded parsing, depth/candidate limits and per-decision file caps; invalid/unavailable backend results degrade to AMBIGUOUS, while backend nonzero exit discards its output. An AMBIGUOUS verdict is advisory and does not itself increment the violation exit count. A CI caller must not interpret exit zero from advisory audit as established compliance for every decision. [Security scope][C9], [audit implementation][C13], [backend/parser tests][C7].
+Only annotate/audit require LLM content transfer; audit sends governed file contents and annotate sends design input. Security documentation acknowledges secrets can leave and that model prompt-injection resistance is imperfect. Audit has bounded parsing, depth/candidate limits and per-decision file caps; invalid/unavailable backend results degrade to AMBIGUOUS, while backend nonzero exit discards its output. An AMBIGUOUS verdict is advisory and does not itself increment the violation exit count. A CI caller must not interpret exit zero from advisory audit as established compliance for every decision. [Security scope][C9], [audit implementation][C13], [backend/parser tests][C24].
 
 ## Adversarial verification and its limits
 
@@ -69,6 +69,9 @@ For Brokkr #429/#435–439, copy the negative-control method: pair each claimed 
 | C19 | [charter.py](https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/charter.py#L1334) | History rewrite on digest mark |
 | C20 | [.github/workflows/ci.yml](https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/.github/workflows/ci.yml#L1) | Cross-platform tests and self-check |
 | C21 | [.github/workflows/workflow.yml](https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/.github/workflows/workflow.yml#L1) | OIDC publication configuration |
+| C22 | [tests/test_charter.py](https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/tests/test_charter.py#L331) | Unapproved content, assertion and supervision tests |
+| C23 | [tests/test_charter.py](https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/tests/test_charter.py#L215) | Violating/compliant edit-hook tests |
+| C24 | [tests/test_charter.py](https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/tests/test_charter.py#L417) | Unavailable/failing backend tests |
 
 [C1]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/README.md#L1
 [C2]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/pyproject.toml#L1
@@ -91,3 +94,7 @@ For Brokkr #429/#435–439, copy the negative-control method: pair each claimed 
 [C19]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/charter.py#L1334
 [C20]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/.github/workflows/ci.yml#L1
 [C21]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/.github/workflows/workflow.yml#L1
+
+[C22]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/tests/test_charter.py#L331
+[C23]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/tests/test_charter.py#L215
+[C24]: https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/tests/test_charter.py#L417

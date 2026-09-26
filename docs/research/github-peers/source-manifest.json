@@ -2837,6 +2837,14 @@
     },
     {
       "repository": "unclebob/swarm-forge",
+      "revision": "04662cf96ca83fb45783b4d73cd1daf0acefc0b8",
+      "path": "swarmforge/swarmforge.conf",
+      "url": "https://github.com/unclebob/swarm-forge/blob/04662cf96ca83fb45783b4d73cd1daf0acefc0b8/swarmforge/swarmforge.conf",
+      "bytes": 672,
+      "sha256": "95d3699e71242507282b8ba6a7c5addcea239d41fe301d962766f714aebbdf36"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
       "revision": "066a62ffa6cbc8c859262536dc579fecf8535ebb",
       "path": "swarmforge/roles/QA.prompt",
       "url": "https://github.com/unclebob/swarm-forge/blob/066a62ffa6cbc8c859262536dc579fecf8535ebb/swarmforge/roles/QA.prompt",
@@ -2866,6 +2874,22 @@
       "url": "https://github.com/unclebob/swarm-forge/blob/23653942488281a3c6d9a60b7e9378be0a1ca1c2/README.md",
       "bytes": 14279,
       "sha256": "8cdd6e9de318ad2ba4d408097e2dd48840cd155e853b1c0ef1cd13042a1418ef"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "2cc1795fbd1f5cedefd0c371aa1835464d1b4a15",
+      "path": "README.md",
+      "url": "https://github.com/unclebob/swarm-forge/blob/2cc1795fbd1f5cedefd0c371aa1835464d1b4a15/README.md",
+      "bytes": 9713,
+      "sha256": "d7dbb36662db5d7185101b5fdbd49d4db4ff53c19422770e5b225787b39d9b8e"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "b75d16062b619e6eab06e03995e344676bc755cd",
+      "path": "swarmforge/swarmforge.conf",
+      "url": "https://github.com/unclebob/swarm-forge/blob/b75d16062b619e6eab06e03995e344676bc755cd/swarmforge/swarmforge.conf",
+      "bytes": 569,
+      "sha256": "bfb304c11b467f79128f05763ea1c09410edfdc047cac46c89ef31104edd663f"
     },
     {
       "repository": "unclebob/swarm-forge",

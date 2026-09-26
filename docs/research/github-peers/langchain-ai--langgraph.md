@@ -27,7 +27,7 @@ The timed-attempt scope is especially relevant to Brokkr #403/#434. It wraps gra
 
 `test_arun_with_retry_timeout_discards_stale_executor_writes` delays a thread's first-attempt write, times that attempt out, succeeds on a second attempt, then releases the old thread. Only the fresh write is retained. Separate tests discard pre-timeout buffered writes and ensure timeout is not swallowed by node cancellation handling. These are concrete, adversarial lifecycle cases worth adapting to a Rust effect supervisor. [S4]
 
-The same test file explicitly records the limitation: `test_sync_sleep_in_async_node_bypasses_timeout_and_emits_finish_success` blocks the event loop with synchronous sleep and demonstrates that the in-process watchdog cannot fire in time. Sync node timeout policies are rejected in relevant compilation paths. The synchronous background executor cancels only tasks that have not started and waits for running threads to finish. Thus neither async timeout nor thread-future cancellation is universal process termination. The implementation makes this boundary visible; a hostile or blocked external process needs a separate owner and kill/settlement strategy. [S4], [S5]
+The same test file explicitly records the limitation: `test_sync_sleep_in_async_node_bypasses_timeout_and_emits_finish_success` blocks the event loop with synchronous sleep and asserts that the in-process watchdog cannot fire in time. Sync node timeout policies are rejected in relevant compilation paths. The synchronous background executor cancels only tasks that have not started and waits for running threads to finish. Thus neither async timeout nor thread-future cancellation is universal process termination. The implementation makes this boundary visible; a hostile or blocked external process needs a separate owner and kill/settlement strategy. [S4], [S5]
 
 ## Checkpoint, interrupt and uncertain-effect semantics
 
@@ -47,7 +47,7 @@ The inspected `langgraph` package is version 1.2.12, MIT, Python 3.10+, with exp
 
 CI's graph job uses frozen uv dependency resolution, tests Python 3.10 through 3.14 and runs a strict MessagePack Pregel pass on one matrix version. A separate checkpoint conformance package offers reusable tests for blob round trips, metadata, namespace isolation, incremental channels and optional deletion/pruning/history capabilities. This is a concrete operational lesson: test the storage interface against every backend instead of assuming the abstract protocol guarantees equivalent behavior. Presence of that suite does not establish that an arbitrary third-party saver passed it. [S12], [S13]
 
-The project has extensive source tests for interrupts, retries, time travel and state, with a recent pinned head. This investigation did not execute those tests, deploy its server, inspect every saver, or evaluate provider outputs. Marketing statements about production resilience are therefore kept separate from the demonstrated mechanisms above.
+The project has extensive source tests for interrupts, retries, time travel and state, with a recent pinned head. This investigation did not execute those tests, deploy its server, inspect every saver, or evaluate provider outputs. Marketing statements about production resilience are therefore kept separate from the source-established mechanisms above.
 
 ## Brokkr comparison and experiments
 
