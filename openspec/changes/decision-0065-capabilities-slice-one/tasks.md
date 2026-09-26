@@ -1848,6 +1848,22 @@ ruling: **landed** (evidence.md, "Unit 12-fix-c, second visit — landed").
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
 
+The review's return (2026-09-27, same run, reviewed head `aee4faab`), one
+MEDIUM: an untyped carried allowance's refusal spelled its whole
+permission pattern, past D6's redaction and 512-scalar bound. **Repaired**
+(evidence.md, "Unit 12-fix-c, the review's return").
+
+- `native_controls.rs` only: the refusal names the tool alone when it is a
+  plain name, and a fixed label otherwise. It never names the specifier.
+- New protocol test `a_carried_refusal_names_its_tool_and_never_its_permission_payload`
+  (compose and driver). `capability_launch`'s template row now names
+  `Bash`, and the longest grammar-valid pattern is refused at compile.
+- Red on `aee4faab`. Two mutations caught and restored.
+- Standing-admission lines: none. 12.1 and 12.2 stay ticked. 15.2 stays
+  open.
+- **Pending:** exact coverage outside the box, macOS, remote CI and the
+  council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

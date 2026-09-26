@@ -6858,12 +6858,21 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
         });
         solo_sealed(&operator, adapters.path(), &nothing)
     };
+    // Named by its tool alone, never its permission payload, inside the
+    // 512 scalar values D6 bounds the cause to — here the longest
+    // grammar-valid pattern, once spelled whole (the returned review's
+    // finding).
+    let longest = format!("B{}", "a".repeat(127));
+    let secret = format!("{longest}(/{}/REVIEW_SENTINEL:*)", "s".repeat(230));
+    let cause = untyped("the adapter template's", &longest);
+    assert_eq!(
+        templated(&["--allowedTools", &secret], None),
+        refused("templated", &cause)
+    );
+    assert!(cause.chars().count() <= 512, "{cause}");
     assert_eq!(
         templated(&["--allowedTools", "Bash(ls:*)"], None),
-        refused(
-            "templated",
-            &untyped("the adapter template's", "Bash(ls:*)")
-        )
+        refused("templated", &untyped("the adapter template's", "Bash"))
     );
     assert_eq!(
         templated(&["--tools", "Read"], Some(json!(["ls"]))),

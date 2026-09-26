@@ -1817,6 +1817,19 @@ fn restriction(provider: &str, limit: &Limit) -> String {
     )
 }
 
+/// A carried allowance's bounded identity in a refusal (design D6): its
+/// tool name alone, where that is a plain name the managed grammar reads
+/// ([`grammar::managed_patterns`]: at most 128 bytes), and otherwise a fixed
+/// label. Its permission payload — `Bash(/secret/…:*)`'s specifier — is
+/// never spelled, and an unplain name is never cut short and spelled.
+fn carried_tool(pattern: &str) -> String {
+    let name = grammar::tool_name(pattern);
+    match grammar::managed_patterns(name).is_ok_and(|patterns| patterns == [name]) {
+        true => format!("tool '{name}'"),
+        false => "a tool whose name is not plain".to_string(),
+    }
+}
+
 /// The failure one [`Conflict`] is, in the provider's words. `carrier` is
 /// the contribution whose allow list the seat's argv carries, by where the
 /// engine placed it.
@@ -1838,12 +1851,13 @@ fn conflicting(
         Conflict::Carried(tool) => Failure::Refused(Refusal {
             authored: false,
             cause: format!(
-                "{} '{}' allow list names tool '{tool}' for provider '{provider}', which no \
+                "{} '{}' allow list names {} for provider '{provider}', which no \
                  realm holding admits, the site's typed hands do not carry and its typed \
                  'tools.allow' did not lower; an allowance is admitted by the typed contribution \
                  that made it, never by its spelling or by the list it stands in (design D6)",
                 carrier.0.owner(),
-                carrier.1
+                carrier.1,
+                carried_tool(&tool)
             ),
         }),
         Conflict::Outside { tool, by, limit } => Failure::Refused(restricted(

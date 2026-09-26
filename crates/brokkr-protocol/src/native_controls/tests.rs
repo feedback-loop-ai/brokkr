@@ -1024,7 +1024,7 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
         }
         // Nor does it take an allowance on its word (rebuild unit 12-fix-c):
         // the first name no holding admits and no typed contribution made
-        // refuses, the site's own words or not.
+        // refuses, the site's own words or not, named by its tool alone.
         let untyped = authored
             .iter()
             .enumerate()
@@ -1032,11 +1032,16 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
                 "--allowedTools" => authored.get(at + 1).cloned(),
                 joined => joined.strip_prefix("--allowed-tools=").map(str::to_string),
             })
-            .map(|value| value.split(',').next().unwrap().to_string());
+            .map(|value| grammar::tool_name(value.split(',').next().unwrap()).to_string());
         if let Some(tool) = untyped {
             assert_eq!(
                 composed.map(|composed| composed.extra),
-                Err(carried_refusal(provider, "the adapter template's", &tool)),
+                Err(
+                    match tool.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                        true => carried_refusal(provider, "the adapter template's", &tool),
+                        false => carried_named(provider, "the adapter template's", UNPLAIN_TOOL),
+                    }
+                ),
                 "{authored:?}"
             );
             continue;
@@ -1747,16 +1752,24 @@ fn limit_refusal(limit: &str, conflict: &str) -> Refusal {
 /// contribution of the site made, in the list `owner` carries (rebuild
 /// unit 12-fix-c).
 fn carried_refusal(provider: &str, owner: &str, tool: &str) -> Refusal {
+    carried_named(provider, owner, &format!("tool '{tool}'"))
+}
+
+/// [`carried_refusal`], naming the allowance as `named` does: its tool, or
+/// the fixed label of a name that is not plain ([`UNPLAIN_TOOL`]).
+fn carried_named(provider: &str, owner: &str, named: &str) -> Refusal {
     Refusal {
         authored: false,
         cause: format!(
-            "{owner} '--allowedTools' allow list names tool '{tool}' for provider '{provider}', \
-             which no realm holding admits, the site's typed hands do not carry and its typed \
+            "{owner} '--allowedTools' allow list names {named} for provider '{provider}', which \
+             no realm holding admits, the site's typed hands do not carry and its typed \
              'tools.allow' did not lower; an allowance is admitted by the typed contribution \
              that made it, never by its spelling or by the list it stands in (design D6)"
         ),
     }
 }
+
+const UNPLAIN_TOOL: &str = "a tool whose name is not plain";
 
 /// Rebuild unit 12, second review F1 (design D6; NCT "Admission and
 /// restriction cannot erase each other"; task 12.2): an explicit include
@@ -2779,11 +2792,17 @@ fn the_final_lists_hold_their_invariants_over_every_combination() {
                                         "refused, a list written twice"
                                     } else if cause.contains("allow list names tool '") {
                                         // I1: the refused name is carried and
-                                        // outside H ∪ W ∪ T.
+                                        // outside H ∪ W ∪ T. The refusal names
+                                        // the tool alone, never its payload, and
+                                        // LOCAL is the matrix's one Bash pattern.
                                         let tool = named("allow list names tool '").unwrap();
+                                        let carried = match tool.as_str() {
+                                            W => W,
+                                            _ => LOCAL,
+                                        };
                                         assert!(
-                                            [W, LOCAL].contains(&tool.as_str())
-                                                && !authorised(&tool, &held_tools),
+                                            grammar::tool_name(carried) == tool
+                                                && !authorised(&carried.to_string(), &held_tools),
                                             "{label}: refused an authorised {tool}"
                                         );
                                         // By where the engine placed the list:
@@ -2946,6 +2965,70 @@ fn an_authored_refusal_stays_bounded_wherever_the_option_stands() {
     let rendered = refusal.at_compile("");
     let scalars = rendered.chars().count();
     assert!(scalars + 17 <= 512, "{scalars}: {rendered}");
+}
+
+/// Rebuild unit 12-fix-c, the returned review's finding (design D6: a
+/// diagnostic never echoes a raw value and bounds its cause to 512 scalar
+/// values): a carried allowance no typed contribution made is refused
+/// naming its tool alone, never its permission payload, and a name that is
+/// not plain is refused by a fixed label, never cut short and spelled. The
+/// longest grammar-valid pattern — a 128-byte name and a 249-byte specifier
+/// — was spelled whole before this fix. The same refusal reaches
+/// the driver's command builder in the words the launch boundary uses.
+#[test]
+fn a_carried_refusal_names_its_tool_and_never_its_permission_payload() {
+    const SENTINEL: &str = "REVIEW_SENTINEL";
+    let longest = format!("B{}", "a".repeat(127));
+    let rows = [
+        (
+            format!("Bash(/secret/{SENTINEL}:*)"),
+            "tool 'Bash'".to_string(),
+        ),
+        (
+            format!("{longest}(/{}/{SENTINEL}:*)", "s".repeat(230)),
+            format!("tool '{longest}'"),
+        ),
+        (format!("/secret/{SENTINEL}"), UNPLAIN_TOOL.to_string()),
+        (format!("{longest}a{SENTINEL}"), UNPLAIN_TOOL.to_string()),
+    ];
+    let controls = ready("claude", &[], &["web-search", "web-fetch"]);
+    let plan = json!({
+        "inventory": "known", "provider": "claude", "harness": "claude",
+        "on": [], "off": ["web-search", "web-fetch"], "admits": {}, "argv": [],
+        "selection": {"include": [], "allow": [], "deny": [], "flags": {
+            "include": {"flag": "--tools", "separator": ","},
+            "allow": {"flag": "--allowedTools", "separator": ","},
+            "deny": {"flag": "--disallowedTools", "separator": ","}
+        }},
+        "guards": []
+    });
+    for (pattern, named) in rows {
+        let authored = argv(&["--allowedTools", &pattern]);
+        let refusal = compose_for_provider("claude", &authored, &[], &controls)
+            .expect_err("an untyped carried allowance");
+        assert_eq!(
+            refusal,
+            carried_named("claude", "the adapter template's", &named),
+            "{pattern}"
+        );
+        let cause = &refusal.cause;
+        let input = json!({"seat": "work", "native_controls": plan,
+                           "launch_arguments": {"authored": authored, "managed": []}});
+        let launched = crate::adapters::claude_command("claude", &authored, None, &input);
+        assert_eq!(
+            launched,
+            Err(format!("refusing to invoke the agent CLI: {cause}")),
+            "{pattern}"
+        );
+        // Both renderings, with no site: the portion D6 bounds, with room
+        // for the longest owner (the managed fragment's, 19 scalar values
+        // longer than the template's).
+        for rendered in [refusal.at_compile(""), launched.unwrap_err()] {
+            let scalars = rendered.chars().count();
+            assert!(!rendered.contains(SENTINEL), "{rendered}");
+            assert!(scalars + 19 <= 512, "{scalars}: {rendered}");
+        }
+    }
 }
 
 /// Rebuild unit 11 (design D6: "Invalid Codex managed arguments have no

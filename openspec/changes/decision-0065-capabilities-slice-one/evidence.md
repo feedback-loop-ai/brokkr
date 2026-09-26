@@ -11098,3 +11098,114 @@ The row's move changed no unhit production record.
 the box), macOS, remote CI and the full engine council. The first visit's
 NCT reading (W bounded by every plan list) is still an assumption
 for review.
+
+## Unit 12-fix-c, the review's return — a carried refusal names its tool alone, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-167a4539`, returned from review of
+`aee4faab`. The review found one MEDIUM (spec-compliance SC-1, correctness
+C1): `Conflict::Carried` spelled the whole permission pattern into its
+refusal, and `at_compile`/`at_launch` forwarded it unchanged. That broke
+design D6's "never echo raw values" and its 512-scalar bound. The review
+confirmed the earlier HIGH authority findings closed.
+
+### What changed
+
+Production is `crates/brokkr-protocol/src/native_controls.rs` only. The
+new `carried_tool` renders the allowance as `tool '<name>'` when its tool
+name is a plain name the managed grammar reads (`managed_patterns`: at
+most 128 bytes). Otherwise it renders the fixed label `a tool whose name
+is not plain`. The specifier is never spelled, and an unplain name is
+never cut short and spelled. The owner, option and provider are kept.
+
+### Tests
+
+- New: `native_controls/tests.rs`
+  `a_carried_refusal_names_its_tool_and_never_its_permission_payload`.
+  Four template allowances carry `REVIEW_SENTINEL`:
+  - `Bash(/secret/…:*)`;
+  - the longest grammar-valid pattern (a 128-byte name, a 249-byte
+    specifier);
+  - an unplain `/secret/…`;
+  - a 129-byte-plus name.
+
+  Each is asserted as the exact refusal from `compose_for_provider`. Each
+  is also asserted as the exact `refusing to invoke the agent CLI: …` from
+  `adapters::claude_command`, given the engine's input. Both renderings
+  must hold no sentinel and must fit in 512 with room for the managed
+  owner's 19 extra scalars. A temporary `eprintln!` probe, since removed,
+  measured 330/454/349/349 at compile (no site) and 362/486/381/381 at
+  launch.
+- `capability_launch.rs` `every_position_reproduction_…`, compiled rows:
+  - the template's `Bash(ls:*)` row now expects `tool 'Bash'`;
+  - a new row, placed first, compiles the longest pattern and expects
+    the exact refusal naming the 128-byte name, with its cause at most 512.
+- Expectations that follow the new rendering, with no assertion added or
+  removed:
+  - `an_authored_capability_server_…` expects the first pattern's tool
+    name, or the fixed label for `*`;
+  - the property test maps the refused tool back to `W` or `LOCAL`, the
+    matrix's one `Bash` pattern, before its unchanged not-authorised
+    check.
+
+### Baseline reds on `aee4faab`
+
+`native_controls.rs` was checked out from HEAD with the tests as landed.
+Protocol `native_controls`: 39 passed, 3 failed.
+- The new test failed at `:3004`: `names tool
+  'Bash(/secret/REVIEW_SENTINEL:*)'`.
+- `an_authored_capability_server_…` failed at `:1037`: `names tool
+  'Bash(git:*)'`.
+- The property test failed: `refused an authorised Bash(ls:*)`.
+
+`capability_launch` failed at `:6868`: the compile refusal spelled the
+whole long pattern. The fix was restored with `git apply` of the saved
+patch.
+
+### Mutations (each compiled, was caught, then restored)
+
+- **R1**: the plain arm spells the whole pattern (`tool '{pattern}'`).
+  - Protocol `native_controls` 39/3: the new test `:3004`, `:1037` and
+    the property `:2801`.
+  - `capability_launch` 0/1 at `:6868`.
+- **R2**: the unplain arm spells the name (`tool '{name}'`). Protocol
+  `native_controls` 40/2:
+  - the new test `:3004` got `names tool '/secret/REVIEW_SENTINEL'`;
+  - `:1037` got `names tool '*'`.
+
+After restoring, `git diff` of `native_controls.rs` matched the saved
+patch (`diff` empty).
+
+### Gates
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean, no warning or error lines in the log.
+- `cargo test -p brokkr-protocol --all-features --locked`: 3 `test result:
+  ok` lines (lib 494), no FAILED.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 `ok` lines
+  (lib 565, `capability_launch` 49), no FAILED.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77 `ok`
+  lines, no FAILED or panic.
+- `bundles/self` and `bundles/verify` compile, with no error or refusal in
+  either output.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- Coverage diagnostic, protocol-scoped: `llvm-cov clean --workspace`, then
+  `cargo +nightly-2026-09-05 --config 'env.TMPDIR="/var/tmp"' llvm-cov
+  --branch -p brokkr-protocol --all-features --locked --lcov`, which gave
+  2 `ok` lines. In the `native_controls.rs` record, `carried_tool`
+  (1825–1831) is fully hit: the plain arm 371 times, the fixed label 6.
+  The only unhit records in that record fall in functions this change did
+  not touch, which the runtime and CLI suites reach: `authored_conflict`
+  (357–358), `opaque_conflict` (430–447), `pin_fault` (1372) and
+  `declared_values` (1422–1460). The previous visit's three-crate run
+  showed none. `bundle.rs` did not move, so unit 11's handoff stays
+  closed.
+
+**Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
+the box), macOS, remote CI and the full engine council.
+- Follow-up, not changed here (outside the finding):
+  - `Conflict::Unheld` still spells the plan's pattern;
+  - `restriction` still lists every limit's patterns.
+
+  Both are engine and adapter data, not authored, but D6's redaction
+  reading may reach them too.
