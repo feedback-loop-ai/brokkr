@@ -95,31 +95,12 @@ const BUILTIN_MACROS: [&str; 56] = [
     "writeln",
 ];
 
-/// The lint names an `allow`, `expect` or `warn` in a pure crate may not
-/// lower: the crate-local purity lints under their current and renamed
-/// names, the clippy groups that hold them, `warnings`, and
-/// `renamed_and_removed_lints`, which would silence a renamed one. [`admitted_exemption`] names the one exception.
-const PURITY_LINTS: [&str; 9] = [
-    "warnings",
-    "clippy::all",
-    "clippy::style",
-    "clippy::disallowed_macros",
-    "clippy::disallowed_methods",
-    "clippy::disallowed_types",
-    "clippy::disallowed_method",
-    "clippy::disallowed_type",
-    "renamed_and_removed_lints",
-];
-
-/// Clock and randomness sources from the crates the pure crates may use,
-/// refused wherever they are named.
-const SOURCES: [&str; 12] = [
+/// Clock and randomness sources named apart from the effect table: std's
+/// clock and hasher types and uuid's generators, refused wherever they are
+/// named. The time crate's clock functions have their home in `EFFECTS`.
+const SOURCES: [&str; 8] = [
     "SystemTime",
     "Instant",
-    "now_utc",
-    "now_local",
-    "current_local_offset",
-    "local_offset_at",
     "new_v4",
     "new_v7",
     "now_v1",
@@ -431,34 +412,12 @@ fn std_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
     found
 }
 
-/// Whether the `mod` at `at` is declared directly under `#[cfg(test)]`.
-fn under_cfg_test(tokens: &[Token], at: usize) -> bool {
-    let attribute = ["#", "[", "cfg", "(", "test", ")", "]"];
-    at >= attribute.len()
-        && tokens[at - attribute.len()..at]
-            .iter()
-            .map(|(_, token)| token.as_str())
-            .eq(attribute)
-}
-
 /// Whether the attribute opening at `at` sets a `path`, which could make
 /// a module read a file this scan never lists.
 fn sets_a_path(tokens: &[Token], at: usize) -> bool {
-    let open = at + 1 + usize::from(tokens.get(at + 1).is_some_and(|(_, t)| t == "!"));
-    if tokens.get(open).is_none_or(|(_, token)| token != "[") {
-        return false;
-    }
-    let mut depth = 0;
-    for (index, (_, token)) in tokens.iter().enumerate().skip(open) {
-        match token.as_str() {
-            "[" => depth += 1,
-            "]" if depth == 1 => return false,
-            "]" => depth -= 1,
-            "path" if tokens.get(index + 1).is_some_and(|(_, t)| t == "=") => return true,
-            _ => {}
-        }
-    }
-    false
+    attribute_end(tokens, at).is_some_and(|end| {
+        (at..end).any(|index| text(tokens, index) == "path" && text(tokens, index + 1) == "=")
+    })
 }
 
 /// Where each token sits among the brace blocks: `at[i]` is the `{` of
@@ -616,7 +575,7 @@ fn admitted_exemption(tokens: &[Token], blocks: &Blocks, at: usize, end: usize) 
         open >= 2
             && text(tokens, open - 2) == "mod"
             && is_ident(text(tokens, open - 1))
-            && under_cfg_test(tokens, open - 2)
+            && cfg_test_gated(tokens, open - 2)
     });
     let open = end + head.len();
     let Some(close) = (open + 1..tokens.len())
@@ -703,6 +662,12 @@ fn gated_by_cfg_test(tokens: &[Token], attributes: &[(usize, usize)]) -> bool {
         .any(|&(from, to)| (from..=to).map(|index| text(tokens, index)).eq(exact))
 }
 
+/// Whether the item or attribute at `at` sits under exactly
+/// `#[cfg(test)]`, among the outer attributes written before it.
+fn cfg_test_gated(tokens: &[Token], at: usize) -> bool {
+    gated_by_cfg_test(tokens, &outer_attributes(tokens, at))
+}
+
 /// One lexed source file of a pure crate, and where it sits in the
 /// workspace, which a `#[path]` resolves against and names the crate.
 struct Scanned<'a> {
@@ -748,24 +713,31 @@ fn resolve(dir: &Path, relative: &str) -> Option<PathBuf> {
 /// the path a plain string that resolves, from the file's directory, to a
 /// gate test path inside the workspace.
 fn test_path_module(scan: &Scanned, at: usize) -> bool {
-    let shape = ["#", "[", "path", "=", LITERAL, "]", "mod", "<name>", ";"];
-    let fits = shape.iter().enumerate().all(|(offset, want)| {
-        let got = text(scan.tokens, at + offset);
-        if *want == "<name>" {
-            is_ident(got)
-        } else {
-            got == *want
-        }
-    });
-    let target = scan
-        .literals
-        .get(&(at + 4))
+    let Some(end) = attribute_end(scan.tokens, at) else {
+        return false;
+    };
+    let declares = text(scan.tokens, end + 1) == "mod"
+        && is_ident(text(scan.tokens, end + 2))
+        && text(scan.tokens, end + 3) == ";";
+    let target = plain_path(scan, at, end).and_then(|path| resolve(scan.file.parent()?, path));
+    declares
+        && scan.blocks.at[at].is_none()
+        && cfg_test_gated(scan.tokens, at)
+        && target.is_some_and(|target| is_gate_test_path(&target))
+}
+
+/// The string an attribute spanning `from..=to` sets as a module's path,
+/// when the attribute is exactly `#[path = "…"]` and the string is plain,
+/// with no raw prefix and no escape; `None` for any other form.
+fn plain_path<'a>(scan: &Scanned<'a>, from: usize, to: usize) -> Option<&'a str> {
+    let shape = ["#", "[", "path", "=", LITERAL, "]"];
+    (from..=to)
+        .map(|index| text(scan.tokens, index))
+        .eq(shape)
+        .then(|| scan.literals.get(&(from + 4)))
+        .flatten()
         .and_then(|literal| literal.strip_prefix('"')?.strip_suffix('"'))
         .filter(|path| !path.contains(['\\', '"']))
-        .and_then(|path| resolve(scan.file.parent()?, path));
-    fits && scan.blocks.at[at].is_none()
-        && under_cfg_test(scan.tokens, at)
-        && target.is_some_and(|target| is_gate_test_path(&target))
 }
 
 /// Whether the `extern` at `at` is the one `extern crate` test code may
@@ -778,7 +750,7 @@ fn test_self_alias(scan: &Scanned, at: usize) -> bool {
         .ok()
         .and_then(|rest| rest.iter().next()?.to_str())
         .map(|name| name.replace('-', "_"));
-    under_cfg_test(scan.tokens, at)
+    cfg_test_gated(scan.tokens, at)
         && text(scan.tokens, at + 2) == "self"
         && text(scan.tokens, at + 3) == "as"
         && own.is_some_and(|own| text(scan.tokens, at + 4) == own)
@@ -799,7 +771,7 @@ fn form_refusals(scan: &Scanned) -> Vec<(usize, String)> {
     for (at, (line, token)) in tokens.iter().enumerate() {
         let what = match (token.as_str(), text(tokens, at + 1), text(tokens, at + 2)) {
             ("extern", "crate", _) if !test_self_alias(scan, at) => "an extern crate".to_string(),
-            ("mod", _, ";" | "{") if bodies.iter().any(|(from, to)| (*from..*to).contains(&at)) => {
+            ("mod", _, _) if bodies.iter().any(|(from, to)| (*from..*to).contains(&at)) => {
                 "a `mod` inside a macro_rules! body".to_string()
             }
             ("mod", "tests", ";" | "{")
@@ -1027,7 +999,7 @@ fn impurities(source: &str, file: &Path) -> Vec<String> {
 /// The scanner's cases: a source, and exactly what it refuses there, by
 /// line. Every form the allowlists do not name is refused; the last
 /// rows are clean or unterminated sources that refuse nothing.
-const SCANNER_CASES: [(&str, &[&str]); 46] = [
+const SCANNER_CASES: [(&str, &[&str]); 48] = [
     (
         "use std::{collections::BTreeMap, /* c */ os::unix::process::parent_id};",
         &["1: std::os::unix::process::parent_id: outside the pure std allowlist"],
@@ -1094,7 +1066,7 @@ const SCANNER_CASES: [(&str, &[&str]); 46] = [
     ),
     (
         "let now = Instant::now();\nlet t = time::OffsetDateTime::now_utc();\nlet u = time::UtcDateTime::now();\nlet c = clock.now();\nlet d = age(now);",
-        &["1: Instant: a clock or randomness source", "1: ::now: a clock or randomness source", "2: now_utc: a clock or randomness source", "3: ::now: a clock or randomness source"],
+        &["1: Instant: a clock or randomness source", "1: ::now: a clock or randomness source", "2: now_utc: an effectful item of time 0.3.55", "3: ::now: a clock or randomness source"],
     ),
     (
         "#[path = \"../x.rs\"]\nmod x;\n#[cfg_attr(test, path = \"y.rs\")]\nmod y;\n#![doc(hidden)]",
@@ -1106,7 +1078,7 @@ const SCANNER_CASES: [(&str, &[&str]); 46] = [
     ),
     (
         "#[derive(Deserialize)]\nstruct S {\n    #[serde(default = \"std::os::unix::process::parent_id\")]\n    pid: u32,\n    #[serde(default = \"time::OffsetDateTime::now_utc\")]\n    at: u64,\n}",
-        &["3: \"std::os::unix::process::parent_id\" in an attribute: std::os::unix::process::parent_id: outside the pure std allowlist", "5: \"time::OffsetDateTime::now_utc\" in an attribute: now_utc: a clock or randomness source"],
+        &["3: \"std::os::unix::process::parent_id\" in an attribute: std::os::unix::process::parent_id: outside the pure std allowlist", "5: \"time::OffsetDateTime::now_utc\" in an attribute: now_utc: an effectful item of time 0.3.55"],
     ),
     (
         "#[serde(deserialize_with = \"url::Url::socket_addrs\")]\n#[serde(serialize_with = \"::std::fs::read\", with = \"Instant\")]\n#[cfg_attr(test, serde(getter = \"time::UtcDateTime::now\"))]",
@@ -1122,7 +1094,7 @@ const SCANNER_CASES: [(&str, &[&str]); 46] = [
     ),
     (
         "let a = url.socket_addrs(|| None);\ntime::UtcOffset::local_offset_at(t);\nlet s = time::util::refresh_tz();",
-        &["1: socket_addrs: an effectful item of url 2.5.8", "2: local_offset_at: a clock or randomness source", "3: refresh_tz: an effectful item of time 0.3.55"],
+        &["1: socket_addrs: an effectful item of url 2.5.8", "2: local_offset_at: an effectful item of time 0.3.55", "3: refresh_tz: an effectful item of time 0.3.55"],
     ),
     (
         "mod tests {\n    fn f() {}\n}\n#[cfg(not(test))]\nmod tests {\n    pub(crate) mod evil;\n}\n#[cfg(test)]\nmod tests {}\n#[cfg(test)]\n#[allow(dead_code)]\npub mod tests;",
@@ -1131,6 +1103,14 @@ const SCANNER_CASES: [(&str, &[&str]); 46] = [
     (
         "macro_rules! hide {\n    () => { mod hidden; };\n}\nmacro_rules! paren ( () => ( mod p; ) );",
         &["2: a `mod` inside a macro_rules! body", "4: a `mod` inside a macro_rules! body"],
+    ),
+    (
+        "macro_rules! decl {\n    ($n:ident) => {\n        mod $n;\n    };\n}\ndecl!(clock);",
+        &["3: a `mod` inside a macro_rules! body"],
+    ),
+    (
+        "macro_rules! mods {\n    ($($m:ident),*) => { $(pub mod $m;)* };\n}\nmods!(a, b);\nmacro_rules! raw { () => { r#mod x; } }",
+        &["2: a `mod` inside a macro_rules! body", "5: a `mod` inside a macro_rules! body"],
     ),
     (
         "#![allow(renamed_and_removed_lints)]\n#[allow(clippy::disallowed_method)]\nfn f() {}",
@@ -1283,11 +1263,7 @@ fn module_file(
         .iter()
         .find(|&&(from, to)| (from..=to).any(|index| text(scan.tokens, index) == "path"));
     if let Some(&(from, to)) = path_attribute {
-        let literal = (from + 4 == to - 1 && text(scan.tokens, from + 2) == "path")
-            .then(|| scan.literals.get(&(from + 4)))
-            .flatten()
-            .and_then(|literal| literal.strip_prefix('"')?.strip_suffix('"'))
-            .filter(|path| !path.contains(['\\', '"']));
+        let literal = plain_path(scan, from, to);
         let base = if inline.is_empty() {
             scan.file.parent().unwrap_or(Path::new("")).to_path_buf()
         } else {
@@ -1313,7 +1289,9 @@ fn module_file(
 /// The module tree of the crate whose root is `lib`, both relative to the
 /// workspace `root`. A file reached by any production chain is
 /// production; one reached only through a declaration under exactly
-/// `#[cfg(test)]`, or inside one, is test code.
+/// `#[cfg(test)]`, or inside one, is test code. Every production `mod` the
+/// resolver does not follow, one generated in a `macro_rules!` body
+/// included, is refused rather than skipped.
 fn resolve_modules(root: &Path, lib: &Path) -> ModuleTree {
     let mut tree = ModuleTree::default();
     let mut pending = vec![(lib.to_path_buf(), false)];
@@ -1341,17 +1319,25 @@ fn resolve_modules(root: &Path, lib: &Path) -> ModuleTree {
         };
         let bodies = macro_bodies(&tokens);
         for at in 0..tokens.len() {
-            if text(&tokens, at) != "mod"
-                || !is_ident(text(&tokens, at + 1))
-                || text(&tokens, at + 2) != ";"
-                || bodies.iter().any(|(from, to)| (*from..*to).contains(&at))
-            {
+            if text(&tokens, at) != "mod" {
+                continue;
+            }
+            let in_macro = bodies.iter().any(|(from, to)| (*from..*to).contains(&at));
+            let named = !in_macro && is_ident(text(&tokens, at + 1));
+            if named && text(&tokens, at + 2) == "{" {
                 continue;
             }
             let (inline, chain_test) = inline_chain(&tokens, &blocks, at);
-            let gated =
-                test || chain_test || gated_by_cfg_test(&tokens, &outer_attributes(&tokens, at));
-            match module_file(&scan, root, at, &inline) {
+            let gated = test || chain_test || cfg_test_gated(&tokens, at);
+            let child = if named && text(&tokens, at + 2) == ";" {
+                module_file(&scan, root, at, &inline)
+            } else {
+                Err(format!(
+                    "mod at line {}: the scan cannot follow it",
+                    tokens[at].0
+                ))
+            };
+            match child {
                 Ok(child) => pending.push((child, gated)),
                 Err(why) if !gated => tree.refused.push(format!("{}: {why}", file.display())),
                 Err(_) => {}
@@ -1377,7 +1363,8 @@ fn the_module_tree_follows_declarations_not_file_names() {
             "#[cfg(test)]\nmod tests;\n#[cfg(not(test))]\nmod tests {\n    pub(crate) mod evil;\n}\n\
              pub mod plain;\n#[cfg(test)]\nmod gated {\n    mod inner;\n}\nmod missing;\n\
              #[cfg(test)]\nmod absent;\n#[path = \"moved.rs\"]\nmod renamed;\n\
-             macro_rules! hide { () => { mod hidden; } }\n",
+             macro_rules! hide { () => { mod hidden; } }\n\
+             macro_rules! decl { ($n:ident) => { mod $n; }; }\ndecl!(clock);\n",
         ),
         ("tests.rs", ""),
         ("tests/evil.rs", ""),
@@ -1386,6 +1373,7 @@ fn the_module_tree_follows_declarations_not_file_names() {
         ("gated/inner.rs", ""),
         ("moved.rs", ""),
         ("hidden.rs", ""),
+        ("clock.rs", "pub fn pid() -> u32 { std::os::unix::process::parent_id() }\n"),
     ];
     let _ = std::fs::remove_dir_all(&root);
     for (name, source) in files {
@@ -1417,7 +1405,11 @@ fn the_module_tree_follows_declarations_not_file_names() {
     assert_eq!(names(&tree.test_only), ["gated/inner.rs", "tests.rs"]);
     assert_eq!(
         tree.refused,
-        ["crates/brokkr-core/src/lib.rs: mod missing: 0 candidate files"]
+        [
+            "crates/brokkr-core/src/lib.rs: mod missing: 0 candidate files",
+            "crates/brokkr-core/src/lib.rs: mod at line 17: the scan cannot follow it",
+            "crates/brokkr-core/src/lib.rs: mod at line 18: the scan cannot follow it",
+        ]
     );
 }
 

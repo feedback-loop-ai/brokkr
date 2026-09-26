@@ -29,19 +29,9 @@ use serde::Deserialize;
 
 mod scan;
 
-fn workspace() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/")
-        .parent()
-        .expect("workspace root")
-        .to_path_buf()
-}
-
-fn read(relative: &str) -> String {
-    let path = workspace().join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
+#[path = "../support/workspace.rs"]
+mod workspace_root;
+use workspace_root::{read, workspace};
 
 /// The part of `cargo metadata --format-version 1` this test reads. Cargo
 /// adds fields to the format over time, so unknown fields are ignored; an
@@ -105,7 +95,6 @@ fn metadata() -> &'static Metadata {
                 "1",
                 "--all-features",
                 "--locked",
-                "--offline",
             ])
             .arg("--manifest-path")
             .arg(workspace().join("Cargo.toml"))
@@ -680,18 +669,21 @@ fn the_dependency_surface_table_matches_the_lockfile() {
     );
 }
 
-/// The clippy lints a manifest may not set, current and renamed names and
-/// the groups that hold them, and the rustc lints that would silence them.
-const MANIFEST_PURITY_LINTS: [&str; 9] = [
-    "all",
-    "disallowed_macros",
-    "disallowed_method",
-    "disallowed_methods",
-    "disallowed_type",
-    "disallowed_types",
-    "renamed_and_removed_lints",
-    "style",
+/// The lints a pure crate's attributes (`allow`, `expect` or `warn`) and
+/// the workspace manifest's lint tables may not lower: the purity lints
+/// under their current and renamed names, the clippy groups that hold them,
+/// `warnings`, and `renamed_and_removed_lints`, which would silence a
+/// renamed one. [`admitted_exemption`] names the one exception in source.
+const PURITY_LINTS: [&str; 9] = [
     "warnings",
+    "clippy::all",
+    "clippy::style",
+    "clippy::disallowed_macros",
+    "clippy::disallowed_methods",
+    "clippy::disallowed_types",
+    "clippy::disallowed_method",
+    "clippy::disallowed_type",
+    "renamed_and_removed_lints",
 ];
 
 /// A manifest line as `line: text`, for a refusal.
@@ -748,10 +740,26 @@ fn crate_manifest_refusals(manifest: &str) -> Vec<String> {
     refused
 }
 
+/// A lint table key as rustc reads the lint it names: Cargo passes
+/// `disallowed-methods`, `disallowed_methods.level` and a quoted key alike
+/// as `disallowed_methods`, so quotes go, the key is cut at its first dot,
+/// hyphens become underscores, and a `[workspace.lints.clippy]` key is
+/// `clippy::`-scoped.
+fn manifest_lint(section: &str, key: &str) -> String {
+    let key = key.replace(['"', '\''], "");
+    let name = key.strip_prefix("clippy::").unwrap_or(&key);
+    let name = name.split('.').next().unwrap_or(name).replace('-', "_");
+    if section == "[workspace.lints.clippy]" {
+        format!("clippy::{name}")
+    } else {
+        name
+    }
+}
+
 /// Every line of the workspace manifest that lowers a purity lint or sets
 /// rustflags: lints live only in `[workspace.lints.rust]` and
 /// `[workspace.lints.clippy]`, neither may name a lint of
-/// [`MANIFEST_PURITY_LINTS`], and no other line names `lints`.
+/// [`PURITY_LINTS`], and no other line names `lints`.
 fn workspace_manifest_refusals(manifest: &str) -> Vec<String> {
     let (lines, mut refused) = manifest_lines(manifest);
     for (index, section, line) in lines {
@@ -761,12 +769,11 @@ fn workspace_manifest_refusals(manifest: &str) -> Vec<String> {
             .unwrap_or("")
             .trim()
             .trim_matches('"');
-        let lint = key.strip_prefix("clippy::").unwrap_or(key);
         let governed = ["[workspace.lints.rust]", "[workspace.lints.clippy]"];
         let refuse = if line.starts_with('[') {
             line.contains("lints") && !governed.contains(&line)
         } else if governed.contains(&section.as_str()) {
-            MANIFEST_PURITY_LINTS.contains(&lint)
+            PURITY_LINTS.contains(&manifest_lint(&section, key).as_str())
         } else {
             section.contains("lints") || key.contains("lints")
         };
@@ -781,7 +788,13 @@ fn workspace_manifest_refusals(manifest: &str) -> Vec<String> {
 /// workspace-relative path. Such a file can set `build.rustflags`, which
 /// could compile every `#[cfg(test)]` item into a pure crate.
 fn cargo_config_files(root: &Path) -> Vec<String> {
-    let output = Command::new("git")
+    let mut git = Command::new("git");
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GIT_") {
+            git.env_remove(name);
+        }
+    }
+    let output = git
         .args([
             "ls-files",
             "-z",
@@ -850,6 +863,14 @@ fn the_manifest_readers_refuse_every_lowered_lint_and_flag() {
         (
             "[workspace.lints.clippy]\ndisallowed_methods = \"allow\"\ndisallowed_method = \"allow\"\n\"clippy::disallowed_types\" = \"allow\"\nstyle = \"allow\"\ntoo_many_lines = \"warn\"\n",
             &["2: disallowed_methods = \"allow\"", "3: disallowed_method = \"allow\"", "4: \"clippy::disallowed_types\" = \"allow\"", "5: style = \"allow\""][..],
+        ),
+        (
+            "[workspace.lints.clippy]\ndisallowed-methods = \"allow\"\ndisallowed_methods.level = \"allow\"\n\"disallowed-types\".priority = 1\n",
+            &[
+                "2: disallowed-methods = \"allow\"",
+                "3: disallowed_methods.level = \"allow\"",
+                "4: \"disallowed-types\".priority = 1",
+            ][..],
         ),
         (
             "[workspace.lints.rust]\nrenamed_and_removed_lints = \"allow\"\n",
