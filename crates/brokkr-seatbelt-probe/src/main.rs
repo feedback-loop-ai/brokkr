@@ -17,8 +17,6 @@
 //! It is probe scaffolding only; it is not production Seatbelt code and it
 //! makes no containment claim.
 
-#![allow(clippy::too_many_arguments)]
-
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};

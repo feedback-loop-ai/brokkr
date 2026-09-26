@@ -265,11 +265,12 @@ jobs:
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # The instrumented dependency build and the production check, kept
-      # warm between runs (issue #341). coverage-exact.sh keys its directory
-      # by the nightly, the lockfile and the workspace's target set and drops
-      # every workspace artifact before it measures, so a restored cache
-      # never reaches the report; the key here changes whenever the
-      # script's would.
+      # warm between runs (issue #341). coverage-exact.sh keys its own
+      # directory by the nightly, the lockfile and the workspace's target set,
+      # and drops every workspace artifact before it measures, so a restored
+      # cache never reaches the report. This key is coarser: it cannot see
+      # the target set, so a restored cache may hold only a stale key, which
+      # the script replaces with a cold build and prunes.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/brokkr-coverage-cache

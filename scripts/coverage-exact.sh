@@ -14,6 +14,34 @@ cd "$(git rev-parse --show-toplevel)"
 metadata="$(cargo metadata --format-version 1 --no-deps --locked)"
 root="$(jq -r .workspace_root <<<"$metadata")"
 
+# The workspace's shape is read from cargo metadata, and every scan below is
+# derived from it: each member's manifest is crates/<name>/Cargo.toml, so no
+# member can sit where a scan does not look. A repository cargo config could
+# set rustflags or a compiler wrapper for the build the report reads, so
+# there is none.
+members="$(jq -c '.workspace_members as $ids
+  | [.packages[] | select(.id as $id | $ids | any(. == $id))
+     | {name, manifest_path, targets, dir: (.manifest_path | sub("/Cargo\\.toml$"; ""))}]' <<<"$metadata")"
+misplaced="$(jq -r --arg root "$root" '.[]
+  | select(.manifest_path != "\($root)/crates/\(.name)/Cargo.toml")
+  | "\(.name): its manifest is \(.manifest_path), not crates/\(.name)/Cargo.toml"' <<<"$members")"
+if [[ -n "$misplaced" ]]; then
+  printf '%s\n' "$misplaced" >&2
+  refuse 'a workspace member sits outside crates/<name>/'
+fi
+configs="$(git ls-files --cached --others --exclude-standard -- \
+  ':(glob)**/.cargo/config' ':(glob)**/.cargo/config.toml')"
+for config in .cargo/config .cargo/config.toml; do
+  if [[ -e "$config" ]]; then configs="$configs"$'\n'"$config"; fi
+done
+configs="$(printf '%s\n' "$configs" | sed '/^$/d' | sort -u)"
+if [[ -n "$configs" ]]; then
+  printf '%s\n' "$configs" >&2
+  refuse 'a repository cargo config could set rustflags or a compiler wrapper for the measured build'
+fi
+member_dirs=()
+while IFS= read -r directory; do member_dirs+=("$directory"); done < <(jq -r '.[].dir' <<<"$members")
+
 # The one test-path vocabulary. A file under a `tests/`, `examples/` or
 # `benches/` directory, or named `tests.rs` or `*_tests.rs` or `*-tests.rs`,
 # is test harness: the report leaves it out, and no production target or
@@ -40,7 +68,7 @@ root_re="$(re_escape "$root")"
 # A lint level on `unexpected_cfgs`, or an allow of every warning, is refused
 # too: it would silence the compiler's own refusal of an undeclared cfg,
 # which the production check below relies on.
-git ls-files -z --cached --others --exclude-standard -- 'crates/*.rs' 'crates/**/*.rs' |
+scan_rust_sources() {
   xargs -0 perl -CSD -0777 -ne '
   sub blank { my $text = shift; $text =~ s/[^\n]/ /g; $text }
   sub code_of {
@@ -88,21 +116,33 @@ git ls-files -z --cached --others --exclude-standard -- 'crates/*.rs' 'crates/**
     $refuse->($at, "an allow of every warning") if $lints =~ /\bwarnings\b/;
   }
   END { exit($refused ? 1 : 0) }
-' || refuse 'attribute and cfg(coverage) source exclusions are forbidden'
+'
+}
+# Every Rust file under every member's directory, ignored or not; the files a
+# production target compiles from anywhere else are scanned after the
+# production check below, from its dep-info.
+find "${member_dirs[@]}" -name '*.rs' -type f -print0 | scan_rust_sources ||
+  refuse 'attribute and cfg(coverage) source exclusions are forbidden'
 
 # A cfg is declared, and so escapes the compiler check below, only through
 # a manifest's check-cfg list or a build script. The one lint entry the
-# workspace may carry is the root's plain `unexpected_cfgs = "warn"`, and
-# no manifest may spell a key through a TOML escape.
-manifests=(Cargo.toml crates/*/Cargo.toml)
-perl -ne '
+# workspace may carry is the root's plain `unexpected_cfgs = "warn"`, no
+# manifest may spell a key through a TOML escape, and none may set rustflags
+# or a compiler wrapper for a profile. The manifests are the root's and every
+# member's, as cargo metadata names them.
+manifests=("$root/Cargo.toml")
+while IFS= read -r manifest; do manifests+=("$manifest"); done < <(jq -r '.[].manifest_path' <<<"$members")
+ROOT_MANIFEST="$root/Cargo.toml" perl -ne '
   if (/check-cfg|\\[uU]/) { print "$ARGV:$.: a check-cfg list or a TOML escape\n"; $refused = 1 }
-  if (/unexpected_cfgs/ && !($ARGV eq "Cargo.toml" && /^unexpected_cfgs = "warn"$/)) {
+  if (/unexpected_cfgs/ && !($ARGV eq $ENV{ROOT_MANIFEST} && /^unexpected_cfgs = "warn"$/)) {
     print "$ARGV:$.: a lint level on unexpected_cfgs\n"; $refused = 1;
+  }
+  if (/rustflags|cargo-features|rustc-wrapper|rustc-workspace-wrapper/) {
+    print "$ARGV:$.: rustflags or a compiler wrapper\n"; $refused = 1;
   }
   close ARGV if eof;
   END { exit($refused ? 1 : 0) }
-' "${manifests[@]}" >&2 || refuse 'a manifest declares a cfg or changes the unexpected_cfgs lint'
+' "${manifests[@]}" >&2 || refuse 'a manifest declares a cfg, changes the unexpected_cfgs lint or sets rustflags'
 
 # The single named exclusion. Its sources stay out of the report, and its
 # tests still run, so the production code they reach is still measured.
@@ -200,51 +240,16 @@ for stale in "$cache_dir"/*; do
 done
 export CARGO_LLVM_COV_TARGET_DIR="$cache_dir/$key/target"
 
-# Every production target, checked by the compiler with every undeclared cfg
-# forbidden: `coverage` is declared nowhere, so a cfg that names it fails
-# here however it was written, macro expansion included. The same build's
-# dep-info lists every source file each production target compiles, and none
-# may sit at a test path, where the report would drop it.
-check_messages="$forge_coverage_dir/check.json"
-if ! CARGO_ENCODED_RUSTFLAGS='-Funexpected_cfgs' CARGO_TARGET_DIR="$cache_dir/$key/check" \
-  cargo "+$nightly" check --workspace --all-features --locked --lib --bins \
-  --message-format=json 9>&- >"$check_messages"; then
-  jq -r 'select(.reason == "compiler-message" and .message.level == "error") | .message.rendered' \
-    "$check_messages" >&2
-  refuse 'a production target does not compile with every undeclared cfg forbidden'
-fi
-depinfo="$(jq -r --arg root "$root/" --argjson excluded "$excluded_manifests" '
-  select(.reason == "compiler-artifact" and (.manifest_path | startswith($root))
-         and (.profile.test | not))
-  | select(.manifest_path as $manifest | $excluded | any(. == $manifest) | not)
-  | .filenames[] | select(endswith(".rmeta"))
-  | sub("/lib(?<stem>[^/]*)\\.rmeta$"; "/\(.stem).d")' "$check_messages")"
-[[ -n "$depinfo" ]] || refuse 'the production check reported no dep-info to read'
-while IFS= read -r file; do
-  [[ -f "$file" ]] || refuse "dep-info $file is missing"
-done <<<"$depinfo"
-dropped="$(printf '%s\n' "$depinfo" | tr '\n' '\0' | xargs -0 perl -ne '
-  next unless /^((?:[^:\\\s]|\\.)+):\s*$/;
-  (my $path = $1) =~ s/\\(.)/$1/g;
-  print "$path\n";
-' | sed "s#^$root/##" | sort -u | grep -E "$test_path_regex" || true)"
-if [[ -n "$dropped" ]]; then
-  printf 'a production target compiles %s, which the report drops as a test path\n' $dropped >&2
-  refuse 'a production module sits at a test path'
-fi
-
-# A report is candidate-bound only when no instrumented executable or profile
-# from an earlier source graph can participate in the merge.
-cargo "+$nightly" llvm-cov clean --workspace 9>&-
-
 # What the report leaves out, stated whole: the test vocabulary under the
 # workspace root, the named exclusions, and sources that are not this
 # workspace's (the standard library, the registry and git checkouts, the
-# toolchains and the build output). The tool's own default is off.
+# toolchains and the build output). The tool's own default is off. Every
+# entry is anchored, and no source a production target compiles may match
+# any of them (below): the gate drops only what it names.
 ignore=(
   "^$root_re/(.*/)?($test_dirs)/"
   "^$root_re/(.*/)?($test_files)\$"
-  '/rustc/([0-9a-f]+|[0-9]+\.[0-9]+\.[0-9]+)/'
+  '^/rustc/([0-9a-f]+|[0-9]+\.[0-9]+\.[0-9]+)/'
   "^$(re_escape "${CARGO_HOME:-$HOME/.cargo}")/(registry|git)/"
   "^$(re_escape "${RUSTUP_HOME:-$HOME/.rustup}")/toolchains/"
   "^$(re_escape "$CARGO_LLVM_COV_TARGET_DIR")/"
@@ -254,6 +259,77 @@ while IFS= read -r directory; do
 done < <(jq -r '.[] | sub("/Cargo\\.toml$"; "")' <<<"$excluded_manifests")
 ignore_regex="$(IFS='|'; printf '%s' "${ignore[*]}")"
 report_flags=(--no-default-ignore-filename-regex --ignore-filename-regex "$ignore_regex")
+
+# Every production target, checked by the compiler with every undeclared cfg
+# forbidden: `coverage` is declared nowhere, so a cfg that names it fails
+# here however it was written, macro expansion included.
+check_messages="$forge_coverage_dir/check.json"
+if ! CARGO_ENCODED_RUSTFLAGS='-Funexpected_cfgs' CARGO_TARGET_DIR="$cache_dir/$key/check" \
+  cargo "+$nightly" check --workspace --all-features --locked --lib --bins \
+  --message-format=json 9>&- >"$check_messages"; then
+  jq -r 'select(.reason == "compiler-message" and .message.level == "error") | .message.rendered' \
+    "$check_messages" >&2
+  refuse 'a production target does not compile with every undeclared cfg forbidden'
+fi
+
+# Only the members compile as local code: a path dependency that is not a
+# member would be compiled into the product and never instrumented.
+member_manifests="$(jq -c '[.[].manifest_path]' <<<"$members")"
+unmeasured="$(jq -r --argjson members "$member_manifests" '
+  select(.reason == "compiler-artifact" and (.package_id | startswith("path+")))
+  | select(.manifest_path as $manifest | $members | any(. == $manifest) | not)
+  | .manifest_path' "$check_messages" | sort -u)"
+if [[ -n "$unmeasured" ]]; then
+  printf 'a local package that is not a workspace member: %s\n' $unmeasured >&2
+  refuse 'the product compiles local code that no member measures'
+fi
+
+# The same build's dep-info names every source file each counted production
+# target compiles, through any module, #[path] or include!.
+depinfo="$(jq -r --argjson excluded "$excluded_manifests" --argjson members "$member_manifests" '
+  select(.reason == "compiler-artifact" and (.profile.test | not))
+  | select(.manifest_path as $manifest | $members | any(. == $manifest))
+  | select(.manifest_path as $manifest | $excluded | any(. == $manifest) | not)
+  | .filenames[] | select(endswith(".rmeta"))
+  | sub("/lib(?<stem>[^/]*)\\.rmeta$"; "/\(.stem).d")' "$check_messages")"
+[[ -n "$depinfo" ]] || refuse 'the production check reported no dep-info to read'
+while IFS= read -r file; do
+  [[ "$file" == *.d && -f "$file" ]] || refuse "dep-info $file is not a .d file that exists"
+done <<<"$depinfo"
+# Each path is named twice, as rustc wrote it and with `.` and `..` resolved,
+# so an anchor matches it whichever spelling the report sees.
+compiled="$(printf '%s\n' "$depinfo" | tr '\n' '\0' | ROOT="$root" xargs -0 perl -ne '
+  next unless /^((?:[^:\\\s]|\\.)+):\s*$/;
+  (my $path = $1) =~ s/\\(.)/$1/g;
+  $path = "$ENV{ROOT}/$path" unless $path =~ m{^/};
+  my @parts;
+  for my $part (split m{/+}, $path) {
+    next if $part eq "" || $part eq ".";
+    if ($part eq "..") { pop @parts } else { push @parts, $part }
+  }
+  print "$path\n", "/", join("/", @parts), "\n";
+' | sort -u)"
+[[ -n "$compiled" ]] || refuse 'the production dep-info names no source file'
+
+# A compiled source outside every member's directory was not scanned above.
+member_dirs_regex="$(jq -r "$jq_defs"' "^(" + ([.[].dir | re_escape + "/"] | join("|")) + ")"' <<<"$members")"
+outside="$(printf '%s\n' "$compiled" | grep -v -E -- "$member_dirs_regex" || true)"
+if [[ -n "$outside" ]]; then
+  printf '%s\n' "$outside" | tr '\n' '\0' | scan_rust_sources ||
+    refuse 'attribute and cfg(coverage) source exclusions are forbidden'
+fi
+
+# No source a counted production target compiles may be one the report
+# drops, for any reason the ignore set names.
+dropped="$(printf '%s\n' "$compiled" | grep -E -- "$ignore_regex" || true)"
+if [[ -n "$dropped" ]]; then
+  printf 'a counted production target compiles %s, which the report would drop\n' $dropped >&2
+  refuse 'a production source sits where the report drops it'
+fi
+
+# A report is candidate-bound only when no instrumented executable or profile
+# from an earlier source graph can participate in the merge.
+cargo "+$nightly" llvm-cov clean --workspace 9>&-
 
 cargo "+$nightly" llvm-cov \
   --workspace \
@@ -280,6 +356,22 @@ foreign="$(jq -r --arg crates "$root/crates/" --arg tests "$test_path_regex" --a
 if [[ -n "$foreign" ]]; then
   printf '%s\n' "$foreign" >&2
   refuse 'the report counts a file that is not a production source of this workspace'
+fi
+
+# And every counted member with production code is in the report: a member
+# the report never sees, whatever made it vanish, is refused by name.
+absent="$(jq -r --argjson excluded "$excluded_manifests" --slurpfile report target/coverage/coverage-exact.json '
+  [$report[0].data[0].files[].filename] as $files
+  | .[]
+  | select(.manifest_path as $manifest | $excluded | any(. == $manifest) | not)
+  | select(.targets | any(.kind | any(. == "lib" or . == "rlib" or . == "dylib" or . == "cdylib"
+      or . == "staticlib" or . == "proc-macro" or . == "bin")))
+  | (.dir + "/") as $dir
+  | select($files | any(startswith($dir)) | not)
+  | .name' <<<"$members")"
+if [[ -n "$absent" ]]; then
+  printf 'a counted member contributes no file to the report: %s\n' $absent >&2
+  refuse 'a member with production code is missing from the report'
 fi
 
 # LLVM's JSON summary treats distinct compiler instantiations of the same

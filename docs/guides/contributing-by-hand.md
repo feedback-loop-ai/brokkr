@@ -490,21 +490,41 @@ TOML escape), and the workspace has no build script that could:
 
 ```
 coverage refusal: a production target does not compile with every undeclared cfg forbidden
-coverage refusal: a manifest declares a cfg or changes the unexpected_cfgs lint
+coverage refusal: a manifest declares a cfg, changes the unexpected_cfgs lint or sets rustflags
 ```
 
-**A production target or module at a test path.** A `[[bin]]` or `[lib]`
-whose source sits at a test path, or a module a production target compiles
-from one (a `mod foo_tests;` without `#[cfg(test)]`, a `#[path]`, an
-`include!`), would compile into the product yet leave the report. The
-script reads every target from `cargo metadata`, and every source file each
-production target compiles from the compiler's dep-info, and refuses:
+**A member, a dependency or a config the scans cannot see.** Every scan
+reads the workspace's shape from `cargo metadata`, so the shape itself is
+fixed: each member's manifest is `crates/<name>/Cargo.toml`, a path
+dependency that is not a member may not be compiled at all, and the
+repository carries no `.cargo/config` or `.cargo/config.toml`, which could
+set rustflags or a compiler wrapper for the measured build. And after the
+run, every member with library or binary code must have at least one file
+in the report:
+
+```
+coverage refusal: a workspace member sits outside crates/<name>/
+coverage refusal: the product compiles local code that no member measures
+coverage refusal: a repository cargo config could set rustflags or a compiler wrapper for the measured build
+a counted member contributes no file to the report: <name>
+coverage refusal: a member with production code is missing from the report
+```
+
+**A production target or source the report would drop.** A `[[bin]]` or
+`[lib]` whose source sits at a test path, or any source a production target
+compiles (through a `mod foo_tests;` without `#[cfg(test)]`, a `#[path]`
+or an `include!`) that the report would leave out, would compile into the
+product unmeasured. The script reads every target from `cargo metadata`,
+and every source file each production target compiles from the compiler's
+dep-info, and checks each against the whole ignore set: the test
+vocabulary, the named exclusions, and the standard library, registry,
+toolchain and build-output anchors. The gate drops only what it names:
 
 ```
 <package>: bin target <name> sits at test path <path>
 coverage refusal: a production target escapes the denominator, or an exclusion is not what it claims
-a production target compiles <path>, which the report drops as a test path
-coverage refusal: a production module sits at a test path
+a counted production target compiles <path>, which the report would drop
+coverage refusal: a production source sits where the report drops it
 ```
 
 The only way out of the denominator is a package named in the script's
