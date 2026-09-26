@@ -19,8 +19,8 @@ const FRESH: &str = "crates/brokkr-core/src/policy.rs:700:5: replace < with <= i
 /// line to `STUB_ARGV`. `--list` prints `STUB_LISTED` (only if the
 /// `--in-diff` file names `STUB_LIST_NAMING`, when that is set) and exits
 /// `STUB_LIST_STATUS`; a run writes `STUB_MISSED` as its missed.txt and
-/// one mutant as its mutants.json, leaving out the file `STUB_OMIT`
-/// names, and exits `STUB_STATUS`.
+/// `STUB_JSON` (when set; one mutant when not) as its mutants.json,
+/// leaving out the file `STUB_OMIT` names, and exits `STUB_STATUS`.
 const STUB: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STUB_ARGV"
 out=""; list=""; diff=""
@@ -34,7 +34,8 @@ if [ -n "$list" ]; then
 fi
 mkdir -p "$out/mutants.out"
 [ "${STUB_OMIT:-}" = missed.txt ] || printf '%s' "${STUB_MISSED:-}" > "$out/mutants.out/missed.txt"
-[ "${STUB_OMIT:-}" = mutants.json ] || printf '[{"name":"planted"}]' > "$out/mutants.out/mutants.json"
+json='[{"name":"planted"}]'; [ -z "${STUB_JSON+set}" ] || json="$STUB_JSON"
+[ "${STUB_OMIT:-}" = mutants.json ] || printf '%s' "$json" > "$out/mutants.out/mutants.json"
 exit "${STUB_STATUS:-0}"
 "#;
 
@@ -257,8 +258,21 @@ type Failure<'a> = (&'a [(&'a str, &'a str)], i32, &'a str);
 fn every_failure_to_measure_fails_the_gate() {
     let gate = Gate::new();
     let listed = ("STUB_LISTED", "a listed mutant\n");
-    let cases: [Failure; 4] = [
+    let misses = ("STUB_STATUS", "2");
+    let no_miss = "cargo mutants exited 2, but";
+    let not_a_list = "mutants.out/mutants.json is not a list of mutants";
+    let cases: [Failure; 10] = [
         (&[listed, ("STUB_STATUS", "4")], 4, "cargo mutants exited 4"),
+        (&[listed, misses], 1, no_miss),
+        (&[listed, misses, ("STUB_MISSED", " \n\n")], 1, no_miss),
+        (&[listed, ("STUB_JSON", "")], 1, not_a_list),
+        (&[listed, ("STUB_JSON", "not json\n")], 1, not_a_list),
+        (&[listed, ("STUB_JSON", "[{\"name\":")], 1, not_a_list),
+        (
+            &[listed, ("STUB_JSON", "[ ]\n")],
+            1,
+            "found no mutant to test",
+        ),
         (
             &[listed, ("STUB_STATUS", "2"), ("STUB_OMIT", "missed.txt")],
             1,

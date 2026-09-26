@@ -61,7 +61,7 @@ scope_args() {
 # cargo-mutants also exits 0 when it finds nothing to mutate and writes
 # nothing, so the output must be this run's and must hold a mutant.
 measure() {
-  local status=0 written
+  local status=0
   local jobs=()
   [ -z "${MUTANTS_JOBS:-}" ] || jobs=(--jobs "$MUTANTS_JOBS")
   rm -rf "$out/mutants.out"
@@ -70,16 +70,31 @@ measure() {
     0 | 2 | 3) ;;
     *) printf 'mutants: cargo mutants exited %s\n' "$status" >&2 && return "$status" ;;
   esac
+  readable "$status"
+}
+
+# Refuse an output that does not say what the run measured, exit $1's.
+# What is accepted is named, not what is refused: exit 2 (misses) needs a
+# missed.txt with a miss in it, and mutants.json must be a list of at
+# least one mutant, `[{...}]` once its whitespace is gone. A 0-byte,
+# truncated or foreign file is none of these, and fails.
+readable() {
+  local written
   for written in missed.txt mutants.json; do
     [ -f "$out/mutants.out/$written" ] || {
       printf 'mutants: %s/mutants.out/%s is missing\n' "$out" "$written" >&2
       return 1
     }
   done
-  [ "$(tr -d '[:space:]' < "$out/mutants.out/mutants.json")" != '[]' ] || {
-    printf 'mutants: the run found no mutant to test\n' >&2
+  [ "$1" != 2 ] || grep -q '[^[:space:]]' "$out/mutants.out/missed.txt" || {
+    printf 'mutants: cargo mutants exited 2, but %s/mutants.out/missed.txt names no miss\n' "$out" >&2
     return 1
   }
+  case "$(tr -d '[:space:]' < "$out/mutants.out/mutants.json")" in
+    '[{'*'}]') ;;
+    '[]') printf 'mutants: the run found no mutant to test\n' >&2 && return 1 ;;
+    *) printf 'mutants: %s/mutants.out/mutants.json is not a list of mutants\n' "$out" >&2 && return 1 ;;
+  esac
 }
 
 # A miss's identity is its file and mutation, without line and column,
