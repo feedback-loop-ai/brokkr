@@ -3031,6 +3031,110 @@ fn a_carried_refusal_names_its_tool_and_never_its_permission_payload() {
     }
 }
 
+/// Rebuild unit 12-fix-c, the second returned review's finding R1 (design
+/// D6): a limit a typed contribution conflicts with is named by bounded
+/// identities, never its patterns' payloads. A specified pattern is its
+/// plain tool name and a fixed `(…)`; names are listed while they fit 48
+/// scalar values and the rest are counted; a name that is not plain is a
+/// fixed label; the conflicting tool is named as a carried allowance is.
+/// `Read(/private/REVIEW_SENTINEL)` was spelled
+/// whole before this fix, and three 128-byte names beside a 128-byte local
+/// tool rendered a 693-scalar cause. The same refusal reaches the driver's
+/// command builder in the words the launch boundary uses.
+#[test]
+fn a_limit_refusal_names_bounded_identities_and_never_a_payload() {
+    const SENTINEL: &str = "REVIEW_SENTINEL";
+    let long = |c: char| format!("{c}{}", "a".repeat(127));
+    let local_bash = "the local permissions of the site's typed 'tools.allow' admit";
+    let rows = [
+        (
+            format!("Read(/private/{SENTINEL})"),
+            "Bash(ls:*)".to_string(),
+            "Read(…)".to_string(),
+            "tool 'Bash'".to_string(),
+        ),
+        (
+            format!("Read,Grep(/{SENTINEL}/**),Glob,WebFetch,NotebookEdit,TodoWrite"),
+            "Bash(ls:*)".to_string(),
+            "Read, Grep(…), Glob, WebFetch, NotebookEdit and 1 more".to_string(),
+            "tool 'Bash'".to_string(),
+        ),
+        (
+            [long('A'), long('B'), long('C')].join(","),
+            format!("{}(ls:*)", long('D')),
+            "3 tools".to_string(),
+            format!("tool '{}'", long('D')),
+        ),
+        (
+            long('A'),
+            "Bash(ls:*)".to_string(),
+            "1 tool".to_string(),
+            "tool 'Bash'".to_string(),
+        ),
+        (
+            format!("{}a(/{SENTINEL}),Read", long('B')),
+            format!("{}a{SENTINEL}(ls:*)", long('D')),
+            "a name that is not plain, Read".to_string(),
+            UNPLAIN_TOOL.to_string(),
+        ),
+        (
+            format!("{}a{SENTINEL}", long('A')),
+            "Bash(ls:*)".to_string(),
+            "a name that is not plain".to_string(),
+            "tool 'Bash'".to_string(),
+        ),
+    ];
+    for (limit, local, naming, tool) in rows {
+        let plan = json!({
+            "inventory": "known", "provider": "claude", "harness": "claude",
+            "on": [], "off": ["web-search", "web-fetch"], "admits": {}, "argv": [],
+            "selection": {"include": [], "allow": [], "deny": [], "flags": {
+                "include": {"flag": "--tools", "separator": ","},
+                "allow": {"flag": "--allowedTools", "separator": ","},
+                "deny": {"flag": "--disallowedTools", "separator": ","}
+            }},
+            "guards": [], "local": [local]
+        });
+        let controls = Controls {
+            provenance: typed(0, &[local.as_str()]),
+            ..ready("claude", &[], &["web-search", "web-fetch"])
+        };
+        let authored = argv(&["--tools", &limit, "--allowedTools", &local]);
+        let refusal = compose_for_provider("claude", &authored, &[], &controls)
+            .expect_err("a limit that does not name the local tool");
+        assert_eq!(
+            refusal,
+            Refusal {
+                authored: false,
+                cause: format!(
+                    "the adapter template's explicit '--tools' restriction for provider \
+                     'claude' (naming {naming}) does not name {tool}, which {local_bash}; an \
+                     explicit tool list is a hard limit that nothing widens, so the conflict is \
+                     refused whole rather than unioned (design D6)"
+                ),
+            },
+            "{limit}"
+        );
+        let cause = &refusal.cause;
+        let input = json!({"seat": "work", "native_controls": plan,
+                           "launch_arguments": {"authored": authored, "managed": []}});
+        let launched = crate::adapters::claude_command("claude", &authored, None, &input);
+        assert_eq!(
+            launched,
+            Err(format!("refusing to invoke the agent CLI: {cause}")),
+            "{limit}"
+        );
+        // Both renderings, with no site: the portion D6 bounds, with room
+        // for the longest owner (the managed fragment's, 19 scalar values
+        // longer than the template's).
+        for rendered in [refusal.at_compile(""), launched.unwrap_err()] {
+            let scalars = rendered.chars().count();
+            assert!(!rendered.contains(SENTINEL), "{rendered}");
+            assert!(scalars + 19 <= 512, "{scalars}: {rendered}");
+        }
+    }
+}
+
 /// Rebuild unit 11 (design D6: "Invalid Codex managed arguments have no
 /// verbatim bypass"): a Codex plan's own argv is parsed under the codex
 /// grammar like every other origin. A misplaced terminator, a bare word,

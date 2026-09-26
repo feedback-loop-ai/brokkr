@@ -6884,6 +6884,28 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
              widens, so the conflict is refused whole rather than unioned (design D6)"
         )
     );
+    // The limit is named by bounded identities, never a pattern's payload,
+    // and the rest counted past 48 scalar values (the second return's R1).
+    let outside_local = |naming: &str| {
+        format!(
+            "the adapter template's explicit '--tools' restriction for provider 'claude' \
+             (naming {naming}) does not name tool 'Bash', which the local permissions of the \
+             site's typed 'tools.allow' admit; an explicit tool list is a hard limit that nothing \
+             widens, so the conflict is refused whole rather than unioned (design D6)"
+        )
+    };
+    let names = ["A", "B", "C"].map(|c| format!("{c}{}", "a".repeat(127)));
+    for (limit, naming) in [
+        ("Read(/private/REVIEW_SENTINEL)".to_string(), "Read(…)"),
+        (names.join(","), "3 tools"),
+    ] {
+        let cause = outside_local(naming);
+        assert_eq!(
+            templated(&["--tools", &limit], Some(json!(["ls"]))),
+            refused("templated", &cause)
+        );
+        assert!(cause.chars().count() <= 512, "{cause}");
+    }
     assert_eq!(
         templated(&["--tools", "Read,Bash"], Some(json!(["ls"]))),
         launched_as(&[&[

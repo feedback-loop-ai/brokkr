@@ -11209,3 +11209,125 @@ the box), macOS, remote CI and the full engine council.
 
   Both are engine and adapter data, not authored, but D6's redaction
   reading may reach them too.
+
+## Unit 12-fix-c, the second return — a limit is named by bounded identities, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-167a4539`, returned from review of
+`4183eb17`. The review found one MEDIUM, R1 (correctness C1, security S1,
+spec-compliance SC-1, confirmed by the chief): `Conflict::Outside` went
+through `restricted`/`restriction`, which joined the limit's raw patterns
+with no redaction and no total bound. A template limit
+`Read(/private/REVIEW_SENTINEL)` was spelled whole, and three legal
+128-byte names gave a 693-scalar cause. This picks up the previous
+section's second follow-up (`restriction` listed every pattern).
+
+### What changed
+
+Production is `crates/brokkr-protocol/src/native_controls.rs` only.
+
+- `restriction` names the limit through the new `naming`. Each pattern is
+  rendered by `pattern_identity`: a plain name as written; a specified
+  pattern as its plain name and a fixed `(…)`, never its specifier; any
+  other as the fixed label `a name that is not plain`. Names are listed in
+  order while the list fits 48 scalar values. The rest are counted
+  (`… and N more`), or the whole list is (`1 tool`, `N tools`) when not
+  even the first fits. An empty limit is still `no tool`.
+- `Conflict::Outside` names its tool through `carried_tool`, as a carried
+  allowance is named: `tool '<name>'` when plain, the fixed label
+  otherwise.
+- `plain`, the managed grammar's plain-name check, is shared by
+  `carried_tool` and `pattern_identity`.
+
+Owner, option, provider and the typed conflict are kept. Every short
+plain list renders exactly as before, so no existing expectation moved
+(`adapters/tests.rs:15544` and `:15699` among them). The `Excluded`
+refusal shares `restriction`, so its limit names are bounded too.
+
+### Tests
+
+- New: `native_controls/tests.rs:3045`
+  `a_limit_refusal_names_bounded_identities_and_never_a_payload`. Six template limits,
+  each beside a typed local permission the limit does not name:
+  - `Read(/private/REVIEW_SENTINEL)` → `naming Read(…)`;
+  - six names with a specified `Grep` → `Read, Grep(…), Glob, WebFetch,
+    NotebookEdit and 1 more`;
+  - three 128-byte names, with a 128-byte local tool → `naming 3 tools`,
+    `tool 'Daaa…'`;
+  - one 128-byte name → `naming 1 tool`;
+  - an unplain specified name, then `Read`, with an unplain local tool →
+    `a name that is not plain, Read` and `a tool whose name is not plain`;
+  - one unplain name → `a name that is not plain`.
+
+  Each is the exact refusal from `compose_for_provider` and the exact
+  `refusing to invoke the agent CLI: …` from `adapters::claude_command`,
+  with the typed `local` in the plan the driver reads. Both renderings hold
+  no sentinel and fit 512 with room for the managed owner's 19 extra
+  scalars. A temporary `eprintln!`, since removed, measured the first four
+  rows at 314/361/438/313 at compile (no site) and 346/393/470/345 at
+  launch.
+- `capability_launch.rs:6898`, in
+  `every_position_reproduction_…`: two compiled rows, the sentinel limit
+  (`naming Read(…)`) and the three 128-byte names (`naming 3 tools`), each
+  the exact compile refusal with its cause at most 512.
+
+### Baseline reds on `4183eb17`
+
+- The new protocol test, with `native_controls.rs` as committed: 0/1 at
+  its first row, `(naming Read(/private/REVIEW_SENTINEL))`.
+- `capability_launch every_position_reproduction` with
+  `native_controls.rs` checked out from HEAD: 0/1 at `:6903` with the same
+  spelling. With the two rows swapped for the run, it failed on the three
+  names spelled whole. That cause is the 305 fixed scalars plus 388 of
+  names, 693, the review's count.
+
+The fix was restored from a copy under `.forge/` after each run.
+
+### Mutations (each compiled, was caught, then restored)
+
+Protocol `native_controls` ran 42 passed / 1 failed under each, the
+failure the new test's exact-refusal assertion:
+
+- no budget (`BUDGET = usize::MAX`): got the six names listed whole;
+- the specified arm spells the pattern: got `naming
+  Read(/private/REVIEW_SENTINEL)`;
+- the specified arm drops its plain guard: got `naming 2 tools` beside
+  the label (the unplain name rendered `Baaa…a(…)` and overflowed);
+- the bare arm drops its plain guard: got `naming 1 tool` where the label
+  was expected;
+- `Outside` spells its tool raw: got the unplain local tool
+  `Daaa…aREVIEW_SENTINEL` spelled.
+
+The first, second and fifth were taken on the first shape of
+`pattern_identity` (`strip_prefix` of `tool_name`); the second was
+re-taken on the final shape, and the third and fourth were taken on it
+only. The coverage run (below) found that shape's
+plain-name-then-not-`(` branch unhit and unreachable, so the function was
+restated with `split_once('(')` and a row added for each arm.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean. `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warning.
+- `cargo test -p brokkr-protocol --all-features --locked`: lib 495, 99 (2
+  ignored), 1; no FAILED.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 `ok` lines
+  (lib 565), no FAILED; `capability_launch` alone 49/49.
+- `cargo test --workspace --all-features --locked`: 77 `ok` lines, no
+  FAILED or panic.
+- `bundles/self` compiles. `openspec validate --all --strict`: 18 passed,
+  0 failed.
+- Coverage diagnostic, protocol lib only: `cargo +nightly llvm-cov -p
+  brokkr-protocol --lib --branch --lcov` (495 passed). In the
+  `native_controls.rs` record, no `DA` at 0 and no `BRDA` at 0 in
+  1808–1866 or 1890–1905. `naming`'s branches were hit 345/171 and 6/510;
+  `pattern_identity`'s 508/2 and 4/2. `bundle.rs` did not move, so unit
+  11's handoff stays closed.
+
+**Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
+the box), macOS, remote CI and the full engine council.
+
+- Follow-up, not changed here (outside the finding):
+  - `Conflict::Unheld` still spells the plan's pattern;
+  - `Excluded`'s tool and capability name are not bounded (adapter data,
+    plain by load).

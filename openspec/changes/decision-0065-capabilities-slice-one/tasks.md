@@ -1864,6 +1864,23 @@ permission pattern, past D6's redaction and 512-scalar bound. **Repaired**
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
 
+The second return (2026-09-27, same run, reviewed head `4183eb17`), one
+MEDIUM, R1: a limit's refusal joined its raw patterns, with no redaction
+and no bound. **Repaired** (evidence.md, "Unit 12-fix-c, the second
+return").
+
+- `native_controls.rs` only: a limit is named by bounded identities (a
+  specified pattern as `Name(…)`, an unplain one by a fixed label), listed
+  within 48 scalar values and the rest counted. `Outside` names its tool
+  as a carried allowance is named.
+- New protocol test `a_limit_refusal_names_bounded_identities_and_never_a_payload`
+  (compose and driver), and two compiled rows in `capability_launch`.
+- Red on `4183eb17`. Five mutations caught and restored.
+- Standing-admission lines: none. 12.1 and 12.2 stay ticked. 15.2 stays
+  open.
+- **Pending:** exact coverage outside the box, macOS, remote CI and the
+  council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

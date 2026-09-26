@@ -1806,15 +1806,50 @@ fn restricted(provider: &str, limit: &Limit, conflict: &str) -> Refusal {
 }
 
 fn restriction(provider: &str, limit: &Limit) -> String {
-    let names = match limit.names.as_slice() {
-        [] => "no tool".to_string(),
-        names => names.join(", "),
-    };
     format!(
-        "{} explicit '{}' restriction for provider '{provider}' (naming {names})",
+        "{} explicit '{}' restriction for provider '{provider}' (naming {})",
         limit.origin.owner(),
-        limit.flag
+        limit.flag,
+        naming(&limit.names)
     )
+}
+
+/// A limit's names in a refusal, bounded (design D6; rebuild unit
+/// 12-fix-c, second return R1): each pattern by its identity — a plain
+/// name as written, a specified one as its plain name and a fixed `(…)`,
+/// never its payload, and any other by a fixed label — listed in order
+/// while the list fits 48 scalar values, and the rest counted.
+fn naming(names: &[String]) -> String {
+    const BUDGET: usize = 48;
+    let (mut shown, mut used) = (Vec::new(), 0);
+    for identity in names.iter().map(|pattern| pattern_identity(pattern)) {
+        used += identity.chars().count() + if shown.is_empty() { 0 } else { 2 };
+        if used > BUDGET {
+            break;
+        }
+        shown.push(identity);
+    }
+    match (shown.len(), names.len() - shown.len()) {
+        (0, 0) => "no tool".to_string(),
+        (_, 0) => shown.join(", "),
+        (0, 1) => "1 tool".to_string(),
+        (0, rest) => format!("{rest} tools"),
+        (_, rest) => format!("{} and {rest} more", shown.join(", ")),
+    }
+}
+
+fn pattern_identity(pattern: &str) -> String {
+    match pattern.split_once('(') {
+        None if plain(pattern) => pattern.to_string(),
+        Some((name, _)) if plain(name) => format!("{name}(…)"),
+        _ => "a name that is not plain".to_string(),
+    }
+}
+
+/// A plain tool name the managed grammar reads
+/// ([`grammar::managed_patterns`]: at most 128 bytes).
+fn plain(name: &str) -> bool {
+    grammar::managed_patterns(name).is_ok_and(|patterns| patterns == [name])
 }
 
 /// A carried allowance's bounded identity in a refusal (design D6): its
@@ -1824,7 +1859,7 @@ fn restriction(provider: &str, limit: &Limit) -> String {
 /// never spelled, and an unplain name is never cut short and spelled.
 fn carried_tool(pattern: &str) -> String {
     let name = grammar::tool_name(pattern);
-    match grammar::managed_patterns(name).is_ok_and(|patterns| patterns == [name]) {
+    match plain(name) {
         true => format!("tool '{name}'"),
         false => "a tool whose name is not plain".to_string(),
     }
@@ -1864,7 +1899,8 @@ fn conflicting(
             provider,
             &limits[limit],
             &format!(
-                "does not name tool '{tool}', which {} admit",
+                "does not name {}, which {} admit",
+                carried_tool(&tool),
                 match by {
                     Typed::Hands => "the site's typed hands",
                     Typed::Local => "the local permissions of the site's typed 'tools.allow'",
