@@ -10563,3 +10563,60 @@ Re-observed in this visit:
 - The patch was reversed, and `git status --short` is empty.
 
 The unit is still oversized, on the same split. Nothing else moved.
+
+## Unit 12-fix-b, second visit — oversized on one line, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-578edee1`, on `9ccba5d2` with a
+clean tree, under the operator's ruling (12-fix-b option A). The ruling
+admits the two `adapters/tests.rs` rows, and a re-plant of the invalid
+Claude `--door` gate fragment at `bundle/model_policy_tests.rs:3934` and
+`:4046`. **Nothing landed.** Re-planting the gate exposes a second invalid
+fragment, the work fragment on the next line, and the ruling does not
+admit it.
+
+Observed:
+
+- The saved sha256s match the record above (`f65b0b25…`, `934b2f40…`,
+  `7c591a26…`). `git apply .forge/unit-12-fix-b/full-with-adapters.patch`
+  applies clean on `9ccba5d2`.
+- **Gate re-planted as `["--permission-mode", "plan"]`:** `cargo test -p
+  brokkr-runtime --lib --locked` gives 563 passed and 2 failed. The
+  refusal is "the 'claude' command grammar cannot place argument 7
+  ('--permission-mode'): it repeats option '--permission-mode', which the
+  grammar admits once". The Claude driver argv (`adapters/claude.json`
+  `driver`) already carries `--permission-mode acceptEdits`, so no gate or
+  work fragment can name that option again. The launch would refuse the
+  same fragment.
+- **Gate re-planted as `["--max-turns", "40"]`,** a Claude option the
+  grammar models (`grammar.rs:485`, inert) and the driver does not set:
+  - `a_measured_claude_gap_is_reported_not_papered_over` passes.
+  - `every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured`
+    still fails at `:3960`: "recipes/release refuses under harness with the
+    members planted: … seat 'implement' (office 'release-manager') …
+    cannot place argument 7 ('--permission-mode'): it repeats option
+    '--permission-mode'". The cause is the planted WORK fragment at
+    `:3935`, `["--permission-mode", "acceptEdits"]`. The first visit never
+    reached it, because the gate refusal at `recipes/panel-review` comes
+    earlier in the walk.
+- **`:3935` also re-planted, as `["--max-turns", "80"]`** (scratch only):
+  - `cargo test -p brokkr-runtime --lib --locked` passes 565/565.
+  - `cargo test --workspace --all-features --locked --no-fail-fast` gives
+    77 `test result: ok` lines, and none FAILED.
+  - Both re-plants leave every assertion unchanged.
+
+**The split needed:** admit `model_policy_tests.rs:3935`, the planted
+Claude work fragment, under the same re-plant terms as `:3934`: a valid
+fragment, assertions unchanged. `--max-turns` is modelled by the grammar
+but is not in the adapter's recorded measured-help list. If the operator
+wants another valid fragment, the ruling can name it.
+
+Saved under `.forge/unit-12-fix-b/`. Both apply clean on `9ccba5d2`:
+
+- `visit2-admitted-only.patch` (`59a9b379…`): the full patch plus the
+  admitted gate re-plants.
+- `visit2-full-with-work-replant.patch` (`5606eda4…`): the same, plus the
+  `:3935` re-plant.
+
+The patch was reversed, and `git status --short` is empty. The mutation
+proofs for I1–I3 were not re-taken in this visit. They are owed when the
+patch lands. Standing-admission lines: none.
