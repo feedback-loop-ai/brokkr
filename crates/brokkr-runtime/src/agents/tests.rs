@@ -4817,9 +4817,13 @@ fn unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission() {
             NativePlan::Known { contribution, .. } => Some((**contribution).clone()),
             NativePlan::Unmeasured { .. } => None,
         };
-        let segment = contribution
-            .as_ref()
-            .map(|native| native.segment(&outcome.provider, &outcome.harness));
+        let segment = contribution.as_ref().map(|native| {
+            native.segment(
+                &outcome.provider,
+                &outcome.harness,
+                &outcome.native.expected(),
+            )
+        });
         (outcome.native.expected(), contribution, segment)
     };
     use crate::capabilities::Outcome;
@@ -4988,7 +4992,11 @@ fn unit3_a_record_from_the_real_producers_round_trips_and_reassembles() {
         panic!("{:?}", outcome.native)
     };
     let native = contribution
-        .segment(&outcome.provider, &outcome.harness)
+        .segment(
+            &outcome.provider,
+            &outcome.harness,
+            &outcome.native.expected(),
+        )
         .unwrap();
     // The fixture's driver ends at its verb, so it emits no permission
     // template and `none` is the truthful expectation (rebuild unit 5c-fix).
@@ -5081,7 +5089,11 @@ fn unit3_a_pending_selection_keeps_its_own_mappings_through_materialization() {
         (
             outcome.native.expected(),
             (**contribution).clone(),
-            contribution.segment(&outcome.provider, &outcome.harness),
+            contribution.segment(
+                &outcome.provider,
+                &outcome.harness,
+                &outcome.native.expected(),
+            ),
         )
     };
     let expected = |deny: (&str, &str),
@@ -5208,7 +5220,11 @@ fn unit3_a_pending_selection_keeps_its_own_mappings_through_materialization() {
         segments: [
             composition.segments.clone(),
             vec![contribution
-                .segment(&outcome.provider, &outcome.harness)
+                .segment(
+                    &outcome.provider,
+                    &outcome.harness,
+                    &outcome.native.expected(),
+                )
                 .unwrap()],
         ]
         .concat(),

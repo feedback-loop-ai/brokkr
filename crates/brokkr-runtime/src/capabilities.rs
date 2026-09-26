@@ -877,6 +877,7 @@ impl NativeCapability {
                 .iter()
                 .map(|name| name.to_string())
                 .collect(),
+            admits: BTreeMap::new(),
             argv,
             selection,
             guards: Vec::new(),
@@ -1178,8 +1179,15 @@ impl NativeContribution {
     /// provider and harness, materialized by the launch's own lowering
     /// ([`launch::native_segment`]) from this typed data alone. A
     /// representation that launch cannot consume refuses exactly as the
-    /// launch would, so a pending selection is never claimed as argv.
-    pub fn segment(&self, provider: &str, harness: &str) -> Result<Segment, launch::Refusal> {
+    /// launch would, so a pending selection is never claimed as argv. What
+    /// each holding admits is the sealed expectation's, taken from the
+    /// holdings when the plan was resolved (rebuild unit 12-fix).
+    pub fn segment(
+        &self,
+        provider: &str,
+        harness: &str,
+        expected: &NativeExpectation,
+    ) -> Result<Segment, launch::Refusal> {
         launch::native_segment(
             harness,
             &launch::Controls {
@@ -1188,6 +1196,7 @@ impl NativeContribution {
                 inventory: launch::Inventory::Known,
                 held: self.held.clone(),
                 denied: self.denied.clone(),
+                admits: expected.admits(),
                 argv: self.argv.clone(),
                 selection: self.selection.clone(),
                 guards: Vec::new(),
@@ -1764,8 +1773,33 @@ impl Authority {
         // merged into what the engine composes below.
         brokkr_protocol::native_controls::authored_refusal(serving.harness, serving.written)
             .map_err(|refusal| refusal.at_compile(&who))?;
-        let native = self.native_plan(&who, serving, &held, &keys, &mut not_held)?;
-        admit(&who, serving, &native)?;
+        // An explicit include limit that excludes a held tool (design D6;
+        // CQ1): a wanted capability drops, its native control switched OFF,
+        // and the plan is resolved again without it; a required one refuses
+        // the whole conflict. Each pass holds one capability fewer.
+        let native = loop {
+            let native = self.native_plan(&who, serving, &held, &keys, &mut not_held)?;
+            let exclusion = match admit(serving, &native) {
+                Ok(()) => break native,
+                Err(launch::Failure::Excluded(exclusion))
+                    if site.asks.get(&exclusion.capability) == Some(&Strength::Wants) =>
+                {
+                    exclusion
+                }
+                Err(failure) => return Err(failure.refusal().at_compile(&who)),
+            };
+            let capability = exclusion.capability;
+            let holding = held
+                .remove(&capability)
+                .expect("an excluded capability is held");
+            keys.retain(|_, name| *name != capability);
+            dropped.push((
+                capability.clone(),
+                format!(" through dialect '{}'", holding.dialect),
+                exclusion.clause.clone(),
+            ));
+            not_held.insert(capability, exclusion.clause);
+        };
         // A notice claims a native OFF only where THIS candidate's plan
         // composed one for a native power serving the capability. A
         // provider whose inventory or OFF control is unmeasured denies
@@ -2038,12 +2072,18 @@ impl Authority {
                 .map(|key| known[key].capability.as_str())
                 .collect()
         };
+        // What each holding admits (rebuild unit 12-fix; design D6): the
+        // tools of the ONE entry the realm's holding binds by its adapter
+        // key, narrowed by the grant — the sealed expectation's own, built
+        // from the holdings above and never from the entries that merely
+        // share a capability's name.
         let mut controls = json!({
             "inventory": "known",
             "provider": provider,
             "harness": serving.harness,
             "on": capabilities(&on),
             "off": capabilities(&off),
+            "admits": expected.admits(),
             "argv": argv,
             "guards": guards.iter().map(|guard| json!({
                 "capability": guard.capability,
@@ -2107,21 +2147,20 @@ impl Authority {
 /// authored, and the fragment the engine appended. A capability server in
 /// the authored part, or a control the provider's launch does not consume,
 /// refuses here, naming the site, rather than first failing after a spawn
-/// or, worse, being recorded and dropped.
-fn admit(who: &str, serving: &Serving<'_>, plan: &NativePlan) -> Result<(), String> {
-    use brokkr_protocol::native_controls as launch;
+/// or, worse, being recorded and dropped. A held capability an explicit
+/// limit excludes is told apart, for [`Authority::resolve`] to rule on.
+fn admit(serving: &Serving<'_>, plan: &NativePlan) -> Result<(), launch::Failure> {
     let plan = plan.controls(serving.provider, serving.harness);
     let decoded = launch::managed(&json!({"native_controls": plan}))
         .expect("the plan this module wrote is one the driver reads")
         .expect("the key is present");
-    launch::compose_for_provider(
+    launch::compose_or_exclude(
         serving.harness,
         serving.authored,
         serving.fragment,
         &decoded,
     )
     .map(drop)
-    .map_err(|refusal| refusal.at_compile(who))
 }
 
 #[cfg(test)]

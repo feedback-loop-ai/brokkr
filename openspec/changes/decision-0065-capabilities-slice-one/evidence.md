@@ -10109,3 +10109,279 @@ change on top of it.
   - Exact coverage stays pending.
 - **Standing-admission lines:** none. **Fixture migrations:** none new.
 - **Pending:** exact coverage outside the box, macOS and remote CI.
+
+## Unit 12-fix — authority follows the selected holding; every limit holds, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-d00aa84c`, on `bd6d7a31` with a
+clean tree. The third council held SECURITY-HOLD, and the chief confirmed
+three code findings:
+
+- **R1 (HIGH):** every guard sharing a held capability's name became
+  authority, so a second, unselected web-fetch entry admitted Bash beside
+  the hands.
+- **R2 (MEDIUM):** the bound entry's unselected tools were read as held,
+  so a compatible `--tools WebFetch` limit refused a grant narrowed to
+  WebFetch.
+- **R3 (HIGH):** only the plan argv's include list was a limit, so a
+  template `--tools Read,Bash` was unioned into `Read,Bash,WebFetch`.
+
+R4, the panel-integrity finding, asks for no code. Per the directive, this
+visit does not patch those paths. It closes them in one function, used at
+admission and at launch.
+
+### What changed (three production files as named; `bundle.rs` did not move)
+
+- **`native_controls.rs`:**
+  - `Controls::admits` (plan key `admits`, capability → tools) carries what
+    each holding admits. `decode` reads it. An absent key holds nothing; a
+    wrong shape refuses.
+  - `final_tools(admits, [include, allow], limits, hands)` is the one pure
+    computation of the final include and allow lists:
+    - an admission whose tool no holding admits is `Unheld`;
+    - a held tool that any limit does not name is `Excluded`;
+    - with no hands, the base is the limits' intersection;
+    - the hands' own list is the base the additive include fills;
+    - a base tool a limit does not name is `Widens`.
+  - `compose_for_provider` (compile and launch alike) now goes through
+    `compose_or_exclude`. For Claude and LaneTally that function:
+    - requires `held` and `admits` to answer for each other exactly (the
+      new `unanswered` refusal);
+    - collects every include list as a `Limit` with its origin: the part
+      before the hands (`Template`, "the adapter template's") and the
+      plan argv (`Plan`, "the capability plan's");
+    - takes the hands' include list as the base;
+    - counts the plan argv's allow lists as admissions;
+    - calls `final_tools` once.
+  - The include list is written whole. The seat's own option is rewritten
+    in its own spelling when its value differs; otherwise the list is
+    appended. Allow and deny fold in place as before.
+  - `Failure::Excluded(Exclusion)` tells an excluded holding apart for
+    resolution; `compose_for_provider` keeps its `Refusal` signature.
+  - `NativeExpectation::admits()` renders the sealed holdings.
+  - The guard-based `capability_of` is deleted. Guards are no longer read
+    for authority (they remain the legacy launch guard's data, F4).
+- **`capabilities.rs`:**
+  - `native_plan` renders `"admits"` from the sealed expectation, which
+    `holding` built from the bound adapter key and the grant's tools.
+  - `resolve` loops on `admit`, which returns `Failure`:
+    - an `Excluded` WANTED capability drops, its native control OFF and its
+      reason recorded (CQ1);
+    - a REQUIRED one refuses the whole conflict;
+    - each pass holds one capability fewer.
+  - `NativeContribution::segment` takes the sealed expectation for its
+    admits.
+  - `denial_on` names empty admits.
+
+### Deliberate behaviour changes, and why
+
+- A boxed seat under a plan limit that names a tool nothing holds (hands
+  `--tools ""` plus plan `--tools Read`) now composes with the box
+  unchanged instead of refusing. A limit only bounds and never adds, so
+  `Read` cannot enter the box. The protocol row changed from `Err` to the
+  literal `Ok`.
+- A WANTED holding a limit excludes now drops with OFF instead of refusing
+  (directive; CQ1). The compiled rows of
+  `an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant`
+  now carry a strength. The refusal rows are `requires`, with unchanged
+  text. New `wants` rows expect the OFF launch.
+
+### Tests
+
+- **`native_controls/tests.rs`:**
+  - New `authority_follows_the_selected_holding_and_every_limit_holds`
+    covers:
+    - R1: refuses `Bash`, and R1's include list alone composes `--tools
+      WebFetch` in the box;
+    - R2, as a literal command;
+    - R3, as the template refusal;
+    - two limits written as their intersection in the template's joined
+      spelling;
+    - the hands case, filling the box with WebFetch only;
+    - a composed `Widens` refusal and both `unanswered` refusals;
+    - `compose_or_exclude`'s `Exclusion` (capability, clause, refusal);
+    - `final_tools` directly: Unheld, Excluded, Widens, intersection with
+      a narrower allow pattern, and nothing held;
+    - `NativeExpectation::admits` for both kinds.
+  - The read-whole decode test gains `admits`, plus rows for its two
+    malformed shapes.
+  - Existing fixtures that held or admitted without a holding now carry
+    one. The hard-limit helper and the contradiction rows hold fetch or
+    search with `admits`. The `held` row in
+    `every_control_representation…` now holds search; before, it admitted
+    WebSearch while denying it.
+- **`capability_launch.rs`:**
+  - New `a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit`
+    runs under Namespace. It covers R1's reproduction, R1's include list
+    alone, the hands filling a `Read,WebFetch` limit with WebFetch only,
+    and a wanted fetch dropped under the box.
+  - New `a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened`
+    covers:
+    - R2's baseline and the compatible limit, both literal commands;
+    - R3 `requires` (the refusal naming the template);
+    - R3 `wants` (the OFF launch);
+    - the dropped reason in `not_held`.
+  - The existing include-limit test carries strength, as stated above.
+
+### Fixture lines outside the named files
+
+- **Standing admission, forced by the compiler**
+  (`crates/brokkr-runtime/src/agents/tests.rs`, four call sites of
+  `NativeContribution::segment`, the argument at lines 4824, 4998, 5095
+  and 5226):
+  - each gains the argument `&outcome.native.expected()`, which the new
+    signature forces;
+  - rustfmt spread each call;
+  - no assertion or behaviour moved.
+- **Standing admission, forced fixture data**
+  (`crates/brokkr-protocol/src/adapters/tests.rs:14931`, `claude_plan`,
+  one line):
+  - adds the plan's `"admits"` key, derived from the fixture's own
+    include and allow;
+  - every Claude plan that holds a power must now name what it admits;
+  - no assertion or expected command moved.
+- **Fixture migration (ruling of 2026-09-26)**
+  (`crates/brokkr-protocol/src/adapters/tests.rs`). Both rows authored
+  `--tools` in the seat's own argv:
+  - **`a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag`,
+    row "every list joined, in aliases":**
+    - it held search behind `--tools=Read` and expected the union
+      `--tools=Read,WebSearch`;
+    - re-planted with nothing held, it proves joined spellings are kept
+      (`--tools=Read`, `--allowed-tools=Bash(git:*)`,
+      `--disallowed-tools=Bash(rm:*),WebSearch,WebFetch`);
+    - a compatible held re-plant cannot pass: the legacy launch guard (F4)
+      refuses an authored list naming a guarded tool;
+    - the re-plant passes on `bd6d7a31` too, so it has no baseline red;
+      M8 binds it.
+  - **`an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list`,
+    last assertion:**
+    - it expected the union `--tools Read,Grep,WebSearch`, R3's defect as
+      a positive;
+    - it now expects the exact launch refusal naming the template limit;
+    - baseline red below; M3 binds it.
+
+### Baseline reds on `bd6d7a31`
+
+`bd6d7a31`'s `native_controls.rs` and `capabilities.rs` were put back under
+the new tests, then restored. The two new compiled tests were also run with
+a throwaway reporting macro, so that every row was observed; the test file
+was then restored.
+
+- **R1:** `launched` `--tools Bash,WebFetch` … `--allowedTools
+  mcp__brokkr__workspace,WebFetch,Bash`, the chief's reproduction.
+- **R1's limit alone:** `--tools Bash,WebFetch` in the box.
+- **Hands with a `Read,WebFetch` limit:** refused ("names tool 'Read'…").
+  The wanted fetch under a `Read` box limit is refused too.
+- **R2:** the baseline without a limit passes. With `--tools WebFetch` it
+  refuses ("does not name tool 'Read'…").
+- **R3 `requires` and `wants`:** both launch `--tools Read,Bash,WebFetch`
+  with `--allowedTools Bash(ls:*),WebFetch`, the chief's reproduction. The
+  `not_held` entry is absent.
+- **The older compiled test:** the `wants` rows for `--tools Read` and
+  `--tools=` refuse instead of dropping.
+- **Launch, `adapters/tests.rs:15684`:** with `bd6d7a31`'s protocol
+  sources, the seat launches `--tools Read,Grep,WebSearch`.
+
+### Mutations (each alone, compiled, failed as stated, then restored)
+
+After each mutation the saved fix was copied back.
+
+- **M1:** the `Unheld` check is disabled.
+  - Protocol authority test, R1 row: fails.
+  - Compiled boxed test (`capability_launch.rs:6273`): left
+    `--allowedTools mcp__brokkr__workspace,WebFetch,Bash`.
+- **M2a:** admits are widened by every same-named guard, the old
+  authority. The protocol R1 row fails, left `Ok(…Bash…)`.
+- **M2b:** `native_plan` renders the whole bound entry's tools. Compiled
+  R2 (`:6373`): left the refusal naming `Read`.
+- **M3:** template limits are dropped.
+  - Protocol R3 row: left `Ok(["--tools", "Read,Bash", …])`.
+  - Compiled R3 (`:6424`): left the `launched` command.
+  - `adapters/tests.rs:15684`: left `Ok([… "--tools", "Read,Grep", …])`.
+- **M4:** limit names join the hands' base.
+  - Protocol authority test: R1-limit row.
+  - Hard-limit test (`:1833`): left `--tools Read` in the box.
+  - Compiled boxed test (`:6288`): left `--tools Bash,WebFetch`.
+- **M5:** wanted is treated as required. Three compiled tests fail
+  (`:6432`, `:6180`, `:6300`), each with the refusal on the left.
+- **M6:** the `Widens` check is disabled. The protocol authority test fails
+  at the direct `final_tools` row (before the composed `Widens` row was
+  added).
+- **M7:** the held-without-admission check is disabled. The protocol
+  `unanswered` row fails: left the `Unheld` refusal, not the exact cause.
+- **M8:** the include is always rewritten, and a joined option is written
+  split.
+  - The adapters joined-spelling row fails: left `"--tools=Read", "Read"`.
+  - The protocol intersection row fails.
+
+### Gates (final tree)
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: no warning.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+  `test result: ok` lines, with no `FAILED` or `panicked`. That includes
+  protocol lib 491, runtime lib 565, `capability_launch` 47, CLI lib 481
+  and driver_conformance 24.
+  - An earlier run in this visit had one panic at
+    `hands::tests::the_network_prefix_is_eight_tokens…`
+    (`hands/tests.rs:1199`). That test writes a shim and executes it in
+    place, the known ETXTBSY race. It passed in both later runs, and this
+    change does not touch it.
+- **Every shipped recipe and bundle compiles:** 16 recipes plus `self` and
+  `verify`. Each compile output is byte-identical between `bd6d7a31` and
+  the fix (`diff -r` clean). Digests:
+  - `self` `45dc1c7e…`;
+  - `verify` `f7cbd4bb…`;
+  - `fast` `2ee700f8…`;
+  - `gpt-flash` `1f03218c…`;
+  - `landing` `b348e919…`;
+  - `night-shift` `c5c12801…`;
+  - `node` `507d499c…`;
+  - `panel-review` `1d78f70b…`;
+  - `preflight` `5a86020a…`;
+  - `release` `4ed9a22b…`;
+  - `research` `a1da4388…`;
+  - `research-dsh` `cbd910ee…`;
+  - `review-first` `ea0eaebf…`;
+  - `standby` `5e11e76b…`;
+  - `triage` `c9c9c347…`;
+  - `wager-harness` `79d30c66…`;
+  - `wager-harness-dsh` `a5c3d2cf…`;
+  - `wager-harness-muse` `f25c7bb5…`.
+- `openspec validate --all --strict`: 18 passed. `git diff --check`: clean.
+- **Coverage diagnostic:** `cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-protocol -p brokkr-runtime -p brokkr-cli --lcov`, run after
+  `llvm-cov clean`.
+  - `grep -x` finds no `DA:…,0` and no zero or `-` `BRDA` in either the
+    `native_controls.rs` record or the `capabilities.rs` record.
+  - An earlier run found two unreachable `Unmeasured` arms in
+    `capabilities.rs`. They became `NativeExpectation::admits`, which is
+    tested directly.
+  - The same diagnostic on `bd6d7a31` gives the identical unhit set for
+    `bundle.rs` (DA 1877, 2644, 2646, 2649, 2783; BRDA 2629, 2645, 2648,
+    3457). No `bundle.rs` record is newly unhit.
+  - The summary lines read `native_controls.rs` LF 1298/LH 1297, BRF
+    128/BRH 125, and `capabilities.rs` LF 1265/LH 1256. No per-line record
+    accounts for the gaps, as in earlier units.
+  - Exact coverage stays pending.
+
+### Follow-ups, not fixed here
+
+- R1's shape also puts web-fetch in both `on` and `off`, and inserts a
+  not-held reason for the held capability. That is pre-existing handling
+  of an inventory with two entries serving one capability. Refusing such
+  an inventory at load is a design question.
+- A compatible template limit that names a held tool compiles, but the
+  legacy launch guard refuses it as authored (F4, units 13–15).
+- Without an adapter selection mapping, a selection's additive names are
+  never written. Composition returns before writing, as it did before this
+  change; the limits are now held on that path too.
+- `hands/tests.rs:1199` executes a shim it has just written (ETXTBSY
+  flake).
+
+### Result
+
+- R1, R2 and R3 are closed structurally in one function. 12.2 stays ticked,
+  and 15.2 is advanced; F4 stays with units 13–15.
+- **Pending:** exact coverage outside the box, macOS and remote CI.

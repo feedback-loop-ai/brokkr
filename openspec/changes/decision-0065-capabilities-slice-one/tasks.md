@@ -1686,6 +1686,35 @@ visit; evidence.md, "Unit 12 — the third review's return"):
   evidence.md, "Amended in the same visit: a denial does not excuse a
   holding".
 
+Repaired 2026-09-26 as unit 12-fix, run
+`0065-rebuild-unit-12-see-the-uni-d00aa84c` (evidence.md, "Unit 12-fix —
+authority follows the selected holding; every limit holds"). The council
+held SECURITY-HOLD on R1, R2 and R3.
+
+- **One function:** `final_tools` in `native_controls.rs`, reached by
+  compile admission and by launch through `compose_for_provider`.
+  - Authority is `Controls::admits`, which `capabilities.rs` seals from the
+    bound adapter entry narrowed by the grant. It is never read from the
+    entries that share a capability's name.
+  - Every include list of the template and the plan argv is a hard limit,
+    and the lists hold as their intersection.
+  - The hands' own list is the base an admission fills.
+  - A WANTED holding a limit excludes drops with OFF (CQ1); a REQUIRED one
+    refuses the whole conflict.
+- **Proof:** R1, R2, R3 and the hands case are bound in both owning
+  suites. Each has baseline reds observed on `bd6d7a31` and mutations
+  M1–M8 with restored passes.
+- **Recipes and bundles:** all 16 recipes and both bundles compile, with
+  output byte-identical to `bd6d7a31`.
+- **Standing-admission lines:**
+  - `agents/tests.rs` 4824, 4998, 5095 and 5226 (the `segment` argument);
+  - `adapters/tests.rs:14931` (the `admits` key in `claude_plan`).
+- **Fixture migrations:** two `adapters/tests.rs` rows that authored
+  `--tools` (the joined-spelling row, and the unboxed seat's last
+  assertion, which now expects the R3 refusal at launch).
+- 12.2 stays ticked, and 15.2 is advanced.
+- **Pending:** exact coverage outside the box, macOS and remote CI.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

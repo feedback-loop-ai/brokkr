@@ -14928,6 +14928,7 @@ fn claude_plan(include: &[&str], allow: &[&str], deny: &[&str]) -> Value {
         "harness": "claude",
         "on": answered(false),
         "off": answered(true),
+        "admits": powers.iter().filter(|(_, tool)| include.contains(tool) || allow.contains(tool)).map(|(capability, tool)| (capability.to_string(), json!([tool]))).collect::<serde_json::Map<_, _>>(),
         "argv": [],
         "selection": {
             "include": include, "allow": allow, "deny": deny,
@@ -15510,20 +15511,22 @@ fn a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag() {
                 "WebFetch",
             ],
         ),
+        // Nothing held (rebuild unit 12-fix): a list before the hands is a
+        // hard limit, so it keeps its joined spelling and gains nothing.
         (
-            "every list joined, in aliases, search held",
+            "every list joined, in aliases, nothing held",
             vec![
                 "--permission-mode=acceptEdits",
                 "--tools=Read",
                 "--allowed-tools=Bash(git:*)",
                 "--disallowed-tools=Bash(rm:*)",
             ],
-            search(),
+            denied(),
             vec![
                 "--permission-mode=acceptEdits",
-                "--tools=Read,WebSearch",
-                "--allowed-tools=Bash(git:*),WebSearch",
-                "--disallowed-tools=Bash(rm:*),WebFetch",
+                "--tools=Read",
+                "--allowed-tools=Bash(git:*)",
+                "--disallowed-tools=Bash(rm:*),WebSearch,WebFetch",
             ],
         ),
     ] {
@@ -15675,28 +15678,22 @@ fn an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list() {
         .map(|part| part.to_string())
         .collect())
     );
-    // A local selection the seat wrote itself gains the held tool and
-    // nothing else: no built-in it left out comes back.
+    // A selection before the hands is a hard limit (rebuild unit 12-fix;
+    // design D6): a held tool it does not name refuses at the launch, never
+    // unioned in as `--tools Read,Grep,WebSearch`.
     assert_eq!(
         claude_composed(
             &["--tools", "Read,Grep"],
             claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"])
         ),
-        Ok([
-            &CLAUDE_HEAD[..],
-            &[
-                "--tools",
-                "Read,Grep,WebSearch",
-                "--allowedTools",
-                "WebSearch",
-                "--disallowedTools",
-                "WebFetch",
-            ]
-        ]
-        .concat()
-        .iter()
-        .map(|part| part.to_string())
-        .collect())
+        Err(
+            "refusing to invoke the agent CLI: the adapter template's explicit '--tools' \
+             restriction for provider 'claude' (naming Read, Grep) does not name tool \
+             'WebSearch', which the plan admits for native capability 'web-search'; an explicit \
+             tool list is a hard limit that nothing widens, so the conflict is refused whole \
+             rather than unioned (design D6)"
+                .to_string()
+        )
     );
 }
 

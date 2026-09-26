@@ -74,6 +74,7 @@ fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
     let plan = json!({"native_controls": {
         "inventory": "known", "provider": "claude", "harness": "claude",
         "on": ["web-search"], "off": ["web-fetch"],
+        "admits": {"web-search": ["WebSearch"]},
         "argv": ["-c", "web_search=\"disabled\""],
         "selection": {
             "include": ["WebSearch"], "allow": ["WebSearch"], "deny": ["WebFetch"],
@@ -96,6 +97,7 @@ fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
     assert_eq!(controls.inventory, Inventory::Known);
     assert_eq!(controls.held, argv(&["web-search"]));
     assert_eq!(controls.denied, argv(&["web-fetch"]));
+    assert_eq!(controls.admits, admits(&[("web-search", &["WebSearch"])]));
     assert_eq!(controls.argv, argv(&["-c", "web_search=\"disabled\""]));
     assert_eq!(
         controls.selection,
@@ -189,6 +191,14 @@ fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
         (
             &|plan: &mut Value| plan["argv"] = json!(["-c", 7]),
             "'argv' is not an array of strings",
+        ),
+        (
+            &|plan: &mut Value| plan["admits"] = json!(["WebSearch"]),
+            "'admits' is not an object",
+        ),
+        (
+            &|plan: &mut Value| plan["admits"]["web-search"] = json!("WebSearch"),
+            "'admits.web-search' is not an array of strings",
         ),
         (&without("guards"), "'guards' is missing"),
         (
@@ -437,10 +447,19 @@ fn claude_controls(selection: Selection, managed: &[&str]) -> Controls {
         inventory: Inventory::Known,
         held: argv(&["web-search", "web-fetch"]),
         denied: Vec::new(),
+        admits: admits(&[("web-search", &["WebSearch"]), ("web-fetch", &["WebFetch"])]),
         argv: argv(managed),
         selection,
         guards: Vec::new(),
     }
+}
+
+/// What each held capability admits, as the engine seals it from the
+/// holding's own adapter entry.
+fn admits(held: &[(&str, &[&str])]) -> std::collections::BTreeMap<String, Vec<String>> {
+    held.iter()
+        .map(|(capability, tools)| (capability.to_string(), argv(tools)))
+        .collect()
 }
 
 /// The composed seat argv, through the one production composer.
@@ -1375,12 +1394,20 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
     // Search held as ARGV lists beside fetch denied by selection: the held
     // tool joins the boxed tool list and the allow list, fetch is denied,
     // and a name both representations carry appears once.
-    let held = claude(
-        &["--tools", "WebSearch", "--allowedTools", "WebSearch"],
-        &["WebSearch"],
-        &[],
-        &["WebFetch"],
-    );
+    let held = Controls {
+        admits: admits(&[("web-search", &["WebSearch"])]),
+        ..claude(
+            &["--tools", "WebSearch", "--allowedTools", "WebSearch"],
+            &["WebSearch"],
+            &[],
+            &["WebFetch"],
+        )
+    };
+    let held = Controls {
+        held: argv(&["web-search"]),
+        denied: argv(&["web-fetch"]),
+        ..held
+    };
     assert_eq!(
         compose_for_provider("claude", &seat, &hands, &held)
             .unwrap()
@@ -1510,14 +1537,25 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             foreign,
             "a selection mapped onto '--deny', which its grammar does not read as that tool list,",
         ),
+        // A held tool the plan also denies.
         (
             "claude",
-            claude(&["--allowedTools", "WebSearch"], &[], &[], &["WebSearch"]),
+            Controls {
+                held: argv(&["web-search"]),
+                denied: argv(&["web-fetch"]),
+                admits: admits(&[("web-search", &["WebSearch"])]),
+                ..claude(&["--allowedTools", "WebSearch"], &[], &[], &["WebSearch"])
+            },
             "tool 'WebSearch' both admitted and denied",
         ),
         (
             "claude",
-            claude(&[], &["WebFetch"], &[], &["WebFetch"]),
+            Controls {
+                held: argv(&["web-fetch"]),
+                denied: argv(&["web-search"]),
+                admits: admits(&[("web-fetch", &["WebFetch"])]),
+                ..claude(&[], &["WebFetch"], &[], &["WebFetch"])
+            },
             "tool 'WebFetch' both admitted and denied",
         ),
     ] {
@@ -1624,7 +1662,10 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
         guards: vec![claude_guard()],
         ..match held {
             [] => ready("claude", &[], &["web-search", "web-fetch"]),
-            _ => ready("claude", &["web-fetch"], &["web-search"]),
+            _ => Controls {
+                admits: admits(&[("web-fetch", &["WebFetch"])]),
+                ..ready("claude", &["web-fetch"], &["web-search"])
+            },
         }
     };
     let hands = argv(&[
@@ -1774,8 +1815,9 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
             &[],
             Err(limit_refusal("Read", fetch)),
         ),
-        // Boxed: the empty limit leaves the hands' own list as it stands;
-        // a nonempty one would widen it with a tool nothing holds.
+        // Boxed: the hands' own list is the base and a limit only bounds
+        // it, so neither the empty limit nor a nonempty one adds a tool
+        // to the box (unit 12-fix: a limit never widens anything).
         (
             plan(&["--tools", ""], &[], &[], &[]),
             &hands,
@@ -1784,11 +1826,7 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
         (
             plan(&["--tools", "Read"], &[], &[], &[]),
             &hands,
-            Err(limit_refusal(
-                "Read",
-                "names tool 'Read', which the seat's own '--tools' list does not carry and no \
-                 held capability admits",
-            )),
+            Ok([hands.clone(), argv(&["--disallowedTools", "WebFetch"])].concat()),
         ),
     ];
     for (controls, fragment, expected) in rows {
@@ -1799,6 +1837,311 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
             controls.argv
         );
     }
+}
+
+/// Rebuild unit 12-fix (chief R1, R2 and R3; design D6): one computation
+/// of the final lists, from what the holdings admit, every engine limit and
+/// the hands. R1: a second inventory entry serving the held capability —
+/// its guard names Bash — admits nothing; its managed `--allowedTools Bash`
+/// refuses, and its include list alone is only a limit the hands' base
+/// stays inside. R2: a grant narrowed to WebFetch admits WebFetch alone, so
+/// a limit naming only WebFetch is compatible. R3: the template's list is a
+/// hard limit too; limits hold together as their intersection, written in
+/// the spelling the seat's own option has. What the plan holds and what it
+/// admits answer for each other.
+#[test]
+fn authority_follows_the_selected_holding_and_every_limit_holds() {
+    let hands = argv(&[
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/run/hands.json",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ]);
+    let boxed = |tools: &str, allow: &str, rest: &[&str]| {
+        [
+            argv(&[
+                "--tools",
+                tools,
+                "--strict-mcp-config",
+                "--mcp-config",
+                "/run/hands.json",
+                "--allowedTools",
+                allow,
+            ]),
+            argv(rest),
+        ]
+        .concat()
+    };
+    // Fetch held through its bound entry; a second fetch entry declares
+    // Bash and is switched OFF.
+    let fetch = |argv_: &[&str], deny: &[&str]| Controls {
+        argv: argv(argv_),
+        admits: admits(&[("web-fetch", &["WebFetch"])]),
+        selection: Selection {
+            include: argv(&["WebFetch"]),
+            allow: argv(&["WebFetch"]),
+            deny: argv(deny),
+            flags: claude_flags(),
+        },
+        guards: vec![
+            claude_guard(),
+            Guard {
+                capability: "web-fetch".into(),
+                tools: argv(&["Bash"]),
+                ..Guard::default()
+            },
+        ],
+        ..ready("claude", &["web-fetch"], &["web-search", "web-fetch"])
+    };
+    let unheld = Refusal {
+        authored: false,
+        cause: "the capability plan admits tool 'Bash' for provider 'claude', which no realm \
+                holding admits; a tool is admitted only through the one adapter entry a holding \
+                binds, narrowed by its grant (design D6)"
+            .into(),
+    };
+    let unanswered = |problem: &str| Refusal {
+        authored: false,
+        cause: format!(
+            "the capability plan for provider 'claude' {problem}; what a plan holds and what each \
+             holding admits answer for each other exactly, so the launch is refused rather than \
+             composed on an inferred admission (design D6)"
+        ),
+    };
+    type Row = (
+        Vec<String>,
+        Vec<String>,
+        Controls,
+        Result<Vec<String>, Refusal>,
+    );
+    let rows: Vec<Row> = vec![
+        // R1, the chief's reproduction: refused, never Bash admitted.
+        (
+            Vec::new(),
+            hands.clone(),
+            fetch(
+                &["--tools", "Bash,WebFetch", "--allowedTools", "Bash"],
+                &["WebSearch"],
+            ),
+            Err(unheld),
+        ),
+        // R1's include list alone: the hands' base takes the held fetch
+        // and nothing the limit names beside it.
+        (
+            Vec::new(),
+            hands.clone(),
+            fetch(&["--tools", "Bash,WebFetch"], &["WebSearch"]),
+            Ok(boxed(
+                "WebFetch",
+                "mcp__brokkr__workspace,WebFetch",
+                &["--disallowedTools", "WebSearch"],
+            )),
+        ),
+        // R2: the narrowed grant's compatible limit, Read denied.
+        (
+            Vec::new(),
+            Vec::new(),
+            Controls {
+                guards: vec![Guard {
+                    capability: "web-fetch".into(),
+                    tools: argv(&["WebFetch", "Read"]),
+                    ..Guard::default()
+                }],
+                denied: argv(&["web-search"]),
+                ..fetch(&["--tools", "WebFetch"], &["Read"])
+            },
+            Ok(argv(&[
+                "--tools",
+                "WebFetch",
+                "--allowedTools",
+                "WebFetch",
+                "--disallowedTools",
+                "Read",
+            ])),
+        ),
+        // R3: the template's limit excludes the held fetch.
+        (
+            argv(&["--tools", "Read,Bash", "--allowedTools", "Bash(ls:*)"]),
+            Vec::new(),
+            fetch(&[], &["WebSearch"]),
+            Err(Refusal {
+                authored: false,
+                cause: "the adapter template's explicit '--tools' restriction for provider \
+                        'claude' (naming Read, Bash) does not name tool 'WebFetch', which the \
+                        plan admits for native capability 'web-fetch'; an explicit tool list is \
+                        a hard limit that nothing widens, so the conflict is refused whole \
+                        rather than unioned (design D6)"
+                    .into(),
+            }),
+        ),
+        // Two limits hold as their intersection, in the template's own
+        // joined spelling.
+        (
+            argv(&["--tools=Read,Bash,WebFetch"]),
+            Vec::new(),
+            fetch(&["--tools", "WebFetch,Read"], &[]),
+            Ok(argv(&[
+                "--tools=Read,WebFetch",
+                "--allowedTools",
+                "WebFetch",
+            ])),
+        ),
+        // The hands fill the limit with the held fetch; Read, which the
+        // limit names and nothing holds, never enters the box.
+        (
+            Vec::new(),
+            hands.clone(),
+            fetch(&["--tools", "Read,WebFetch"], &[]),
+            Ok(boxed("WebFetch", "mcp__brokkr__workspace,WebFetch", &[])),
+        ),
+        // A base the hands would carry past a limit refuses whole.
+        (
+            Vec::new(),
+            argv(&[
+                "--tools",
+                "Read",
+                "--allowedTools",
+                "mcp__brokkr__workspace",
+            ]),
+            fetch(&["--tools", "WebFetch"], &[]),
+            Err(limit_refusal(
+                "WebFetch",
+                "does not name tool 'Read', which the composed include list would carry",
+            )),
+        ),
+        // Holdings and admissions answer for each other.
+        (
+            Vec::new(),
+            Vec::new(),
+            Controls {
+                admits: Default::default(),
+                ..fetch(&[], &["WebSearch"])
+            },
+            Err(unanswered(
+                "holds native capability 'web-fetch' but admits no tool for it",
+            )),
+        ),
+        (
+            Vec::new(),
+            Vec::new(),
+            Controls {
+                admits: admits(&[("web-fetch", &["WebFetch"]), ("web-search", &["WebSearch"])]),
+                ..fetch(&[], &["WebSearch"])
+            },
+            Err(unanswered(
+                "admits tools for native capability 'web-search', which it does not hold",
+            )),
+        ),
+    ];
+    for (authored, fragment, controls, expected) in rows {
+        assert_eq!(
+            compose_for_provider("claude", &authored, &fragment, &controls)
+                .map(|composed| composed.extra),
+            expected,
+            "{authored:?} {fragment:?} {:?}",
+            controls.argv
+        );
+    }
+    // The exclusion is told apart, for resolution to drop a wanted holding.
+    assert_eq!(
+        compose_or_exclude(
+            "claude",
+            &argv(&["--tools", "Read,Bash"]),
+            &[],
+            &fetch(&[], &["WebSearch"])
+        ),
+        Err(Failure::Excluded(Exclusion {
+            capability: "web-fetch".into(),
+            clause: "the adapter template's explicit '--tools' restriction for provider \
+                     'claude' (naming Read, Bash) does not name its tool 'WebFetch'"
+                .into(),
+            refusal: compose_for_provider(
+                "claude",
+                &argv(&["--tools", "Read,Bash"]),
+                &[],
+                &fetch(&[], &["WebSearch"])
+            )
+            .unwrap_err(),
+        }))
+    );
+    // The pure function: an admission no holding makes, a held tool a
+    // limit excludes, and a base tool a limit does not name.
+    let limit = |names: &[&str]| Limit {
+        origin: LimitOrigin::Plan,
+        flag: "--tools".into(),
+        names: argv(names),
+    };
+    let held = admits(&[("web-fetch", &["WebFetch"])]);
+    assert_eq!(
+        final_tools(&held, [&argv(&["Bash"]), &[]], &[], None),
+        Err(Conflict::Unheld("Bash".into()))
+    );
+    assert_eq!(
+        final_tools(&held, [&[], &[]], &[limit(&["Read"]), limit(&[])], None),
+        Err(Conflict::Excluded {
+            capability: "web-fetch".into(),
+            tool: "WebFetch".into(),
+            limit: 0,
+        })
+    );
+    assert_eq!(
+        final_tools(
+            &held,
+            [&[], &[]],
+            &[limit(&["WebFetch"])],
+            Some(&argv(&["Read"]))
+        ),
+        Err(Conflict::Widens {
+            tool: "Read".into(),
+            limit: 0,
+        })
+    );
+    assert_eq!(
+        final_tools(
+            &held,
+            [
+                &argv(&["WebFetch"]),
+                &argv(&["WebFetch(domain:example.org)"])
+            ],
+            &[
+                limit(&["Read", "WebFetch", "Bash"]),
+                limit(&["WebFetch", "Read"])
+            ],
+            None
+        ),
+        Ok(Toolset {
+            include: Some(argv(&["Read", "WebFetch"])),
+            allow: argv(&["WebFetch(domain:example.org)"]),
+        })
+    );
+    assert_eq!(
+        final_tools(&BTreeMap::new(), [&[], &[]], &[], None),
+        Ok(Toolset::default())
+    );
+    // What a sealed expectation says each holding admits.
+    let power = |capability: &str, tools: &[&str]| HeldPower {
+        capability: capability.into(),
+        tools: argv(tools),
+        restrictions: Default::default(),
+    };
+    assert_eq!(
+        NativeExpectation::Known {
+            held: vec![
+                power("web-fetch", &["WebFetch"]),
+                power("web-search", &["WebSearch"])
+            ],
+            denied: Vec::new(),
+        }
+        .admits(),
+        admits(&[("web-fetch", &["WebFetch"]), ("web-search", &["WebSearch"])])
+    );
+    assert_eq!(
+        NativeExpectation::Unmeasured("never probed".into()).admits(),
+        BTreeMap::new()
+    );
 }
 
 /// Rebuild unit 12, second review F3 (design D6): an authored refusal
