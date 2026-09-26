@@ -144,9 +144,11 @@ const DEV_ONLY: [(&str, &str); 3] = [
 ];
 
 /// The workspace crates `deny.toml` does not place in the graph: the
-/// binary, which nothing may depend on. A crate added here is one no other
+/// binary, which nothing may depend on, and the seatbelt probe (#341), a
+/// `publish = false` test helper whose only workspace edge is a
+/// dev-dependency on brokkr-protocol. A crate added here is one no other
 /// crate may name, so cargo-deny has nothing to govern.
-const UNGOVERNED: [&str; 1] = ["brokkr-cli"];
+const UNGOVERNED: [&str; 2] = ["brokkr-cli", "brokkr-seatbelt-probe"];
 
 /// Each governed crate and the crates allowed to depend on it directly.
 type Graph = BTreeMap<String, BTreeSet<String>>;
