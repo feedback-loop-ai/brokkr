@@ -195,17 +195,19 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
     }
 }
 
-/// One job of a workflow: the checks it reports (one per `matrix.os` entry
-/// when its name carries the matrix), and the one-line commands it runs.
-struct WorkflowJob {
-    checks: Vec<String>,
+/// One leg of a workflow job: the check it reports (one per `matrix.os`
+/// entry when the job's name carries the matrix), and what the steps its
+/// runner takes run: every one-line command, every `cargo` command of a
+/// multi-line block, and whether it demands boundary evidence.
+struct WorkflowLeg {
+    check: String,
     id: String,
     file: &'static str,
     commands: Vec<String>,
     requires_boundary_evidence: bool,
 }
 
-fn workflow_jobs(root: &Path, file: &'static str) -> Vec<WorkflowJob> {
+fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
     let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
     let jobs = text.split_once("\njobs:\n").expect("a jobs map").1;
     let mut blocks: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -221,47 +223,135 @@ fn workflow_jobs(root: &Path, file: &'static str) -> Vec<WorkflowJob> {
     }
     blocks
         .into_iter()
-        .map(|(id, body)| {
-            let name = body
-                .iter()
-                .find_map(|line| line.strip_prefix("    name: "))
-                .unwrap_or_else(|| panic!("{file}'s {id} has no name"))
-                .trim_matches('\'');
-            let oses = body
-                .iter()
-                .find_map(|line| line.trim().strip_prefix("os: ["))
-                .map_or_else(Vec::new, |list| {
-                    list.trim_end_matches(']').split(", ").collect()
-                });
-            let checks = if name.contains("${{ matrix.os }}") {
-                oses.iter()
-                    .map(|os| name.replace("${{ matrix.os }}", os))
-                    .collect()
+        .flat_map(|(id, body)| job_legs(file, id, &body))
+        .collect()
+}
+
+fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
+    let field = |key: &str| body.iter().find_map(|line| line.strip_prefix(key));
+    let name = field("    name: ")
+        .unwrap_or_else(|| panic!("{file}'s {id} has no name"))
+        .trim_matches('\'');
+    let runs_on = field("    runs-on: ").unwrap_or_else(|| panic!("{file}'s {id} has no runner"));
+    let oses: Vec<&str> = body
+        .iter()
+        .find_map(|line| line.trim().strip_prefix("os: ["))
+        .map_or_else(
+            || vec![runs_on],
+            |list| list.trim_end_matches(']').split(", ").collect(),
+        );
+    let steps = job_steps(body);
+    oses.into_iter()
+        .map(|os| {
+            let runner = if os.starts_with("macos") {
+                "macOS"
             } else {
-                vec![name.to_string()]
+                "Linux"
             };
-            let commands = body
+            // A line that names a runner holds only on that runner's leg.
+            let on_leg = |line: &str| {
+                !line.contains("runner.os ==") || line.contains(&format!("runner.os == '{runner}'"))
+            };
+            let taken: Vec<&Vec<&str>> = steps
                 .iter()
-                .filter_map(|line| {
-                    let line = line.trim().trim_start_matches("- ");
-                    line.strip_prefix("run: ")
-                        .filter(|run| *run != "|" && !run.starts_with("cargo install "))
-                        .map(|run| run.replace("\"$BASE\"", "origin/main"))
-                        .or_else(|| {
-                            line.strip_prefix("command: ")
-                                .map(|deny| format!("cargo deny {deny}"))
-                        })
+                .filter(|step| {
+                    step.iter()
+                        .filter(|line| line.trim().trim_start_matches("- ").starts_with("if: "))
+                        .all(|line| on_leg(line))
                 })
                 .collect();
-            WorkflowJob {
-                checks,
+            WorkflowLeg {
+                check: name.replace("${{ matrix.os }}", os),
                 id: id.to_string(),
                 file,
-                commands,
-                requires_boundary_evidence: body
+                commands: taken.iter().flat_map(|step| step_commands(step)).collect(),
+                requires_boundary_evidence: taken
                     .iter()
-                    .any(|line| line.contains("BROKKR_REQUIRE_BOUNDARY_EVIDENCE:")),
+                    .copied()
+                    .flatten()
+                    .any(|line| line.contains("BROKKR_REQUIRE_BOUNDARY_EVIDENCE:") && on_leg(line)),
             }
+        })
+        .collect()
+}
+
+/// A job's steps, each its own lines, comments dropped.
+fn job_steps<'a>(body: &[&'a str]) -> Vec<Vec<&'a str>> {
+    let mut steps: Vec<Vec<&str>> = Vec::new();
+    for &line in body
+        .iter()
+        .skip_while(|line| **line != "    steps:")
+        .skip(1)
+    {
+        if line.starts_with("      - ") {
+            steps.push(vec![line]);
+        } else if let Some(step) = steps
+            .last_mut()
+            .filter(|_| !line.trim_start().starts_with('#'))
+        {
+            step.push(line);
+        }
+    }
+    steps
+}
+
+/// What one step runs: its one-line command, or each `cargo` command of
+/// its multi-line block (continuations joined, output redirection cut).
+fn step_commands(step: &[&str]) -> Vec<String> {
+    let mut commands = Vec::new();
+    for (at, line) in step.iter().enumerate() {
+        let key = line.trim_start().trim_start_matches("- ");
+        if key == "run: |" {
+            let indent = line.len() - key.len();
+            let block: Vec<&str> = step[at + 1..]
+                .iter()
+                .take_while(|line| line.len() - line.trim_start().len() > indent)
+                .map(|line| line.trim())
+                .collect();
+            let block = block.join("\n").replace(" \\\n", " ");
+            commands.extend(
+                block
+                    .lines()
+                    .filter(|line| line.starts_with("cargo "))
+                    .map(|line| line.split(" 2>&1").next().unwrap_or(line).to_string()),
+            );
+        } else if let Some(run) = key.strip_prefix("run: ") {
+            commands.push(run.replace("\"$BASE\"", "origin/main"));
+        } else if let Some(deny) = key.strip_prefix("command: ") {
+            commands.push(format!("cargo deny {deny}"));
+        }
+    }
+    commands.retain(|run| !run.starts_with("cargo install "));
+    commands
+}
+
+/// A row's command cell and the guide sections it links to: a command
+/// written out once in the section a row links counts as the row's own.
+fn row_reach(guide: &str, cell: &str) -> String {
+    let mut reach = cell.to_string();
+    for link in cell.split("](#").skip(1) {
+        let anchor = link.split_once(')').expect("a closed link").0;
+        let section = guide
+            .split("\n#")
+            .find(|section| heading_anchor(section) == anchor)
+            .unwrap_or_else(|| panic!("the guide has no section #{anchor}"));
+        reach.push_str(section);
+    }
+    reach
+}
+
+/// The anchor GitHub gives the heading a section starts with.
+fn heading_anchor(section: &str) -> String {
+    let heading = section.lines().next().unwrap_or_default();
+    heading
+        .trim_start_matches('#')
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter_map(|c| match c {
+            ' ' => Some('-'),
+            c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
+            _ => None,
         })
         .collect()
 }
@@ -338,8 +428,8 @@ const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
 /// The by-hand guide's check table is exactly the twelve checks main
 /// requires, and every row is a check the workflows define: its name and
 /// job as the job states them, in the workflows' order, and a local
-/// command that carries each one-line command the job runs, with the
-/// boundary evidence the job requires.
+/// command that carries (itself or in a section it links) each command its
+/// leg of the job runs, with the boundary evidence that leg requires.
 #[test]
 fn the_by_hand_checks_are_the_workflows_checks() {
     let root = workspace();
@@ -357,20 +447,13 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         listed, required,
         "the guide lists the twelve checks main requires"
     );
-    let jobs: Vec<WorkflowJob> = ["ci.yml", "mutants.yml"]
+    let legs: Vec<WorkflowLeg> = ["ci.yml", "mutants.yml"]
         .into_iter()
-        .flat_map(|file| workflow_jobs(&root, file))
+        .flat_map(|file| workflow_legs(&root, file))
         .collect();
-    let defined: Vec<(String, String, &str)> = jobs
+    let defined: Vec<(String, String, &str)> = legs
         .iter()
-        .flat_map(|job| {
-            job.checks
-                .iter()
-                .map(|check| (check.clone(), job.id.clone(), job.file))
-        })
-        .collect();
-    let defined: Vec<(String, String, &str)> = defined
-        .into_iter()
+        .map(|leg| (leg.check.clone(), leg.id.clone(), leg.file))
         .filter(|check| listed.contains(check))
         .collect();
     assert_eq!(
@@ -387,19 +470,20 @@ fn the_by_hand_checks_are_the_workflows_checks() {
         if row.command.starts_with('—') {
             continue;
         }
-        let job = jobs
+        let leg = legs
             .iter()
-            .find(|job| (&job.id, job.file) == (&row.job, row.file))
-            .expect("a defined job");
-        for run in &job.commands {
+            .find(|leg| (&leg.check, &leg.id, leg.file) == (&row.check, &row.job, row.file))
+            .expect("a defined leg");
+        let reach = row_reach(&guide, &row.command);
+        for run in &leg.commands {
             assert!(
-                row.command.contains(run.as_str()),
+                reach.contains(run.as_str()),
                 "{check}'s local command lacks `{run}`"
             );
         }
         assert_eq!(
             row.command.contains("BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1"),
-            job.requires_boundary_evidence,
+            leg.requires_boundary_evidence,
             "{check}'s local command and its job disagree on boundary evidence"
         );
     }

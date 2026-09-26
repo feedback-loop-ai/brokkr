@@ -101,7 +101,7 @@ each local command is the job's own, and the sections below explain them:
 | 2 | `MSRV (1.88)` | `msrv` | `cargo +1.88.0 check --workspace --all-targets --all-features --locked` |
 | 3 | `format, clippy, contracts` | `quality` | `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
 | 4 | `test (ubuntu-latest)` | `engine` | `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 cargo test --workspace --all-features --locked --no-fail-fast` with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
-| 5 | `test (macos-latest)` | `engine` | — (your machine is one OS) |
+| 5 | `test (macos-latest)` | `engine` | on a Mac, `cargo test --workspace --all-features --locked --no-fail-fast`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
 | 6 | `exact coverage gate` | `coverage` | `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`, then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
 | 7 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses bans sources` |
 | 8 | `non-Rust lints` | `lint-non-rust` | `bash scripts/lint-non-rust.sh`, then the diagram render and Renovate's validator (commands below) |
@@ -224,6 +224,28 @@ green overall while a binary you expected to gain a test gained none.
 to update `Cargo.lock`, so your run uses the dependency graph CI will
 use; if it errors about the lockfile being out of date, your `Cargo.toml`
 change needs its lockfile update committed too.
+
+### The macOS startup gate
+
+```
+cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe -- --ignored --exact --nocapture seatbelt_probe::native::native_startup_feasibility_probe 2>&1 | tee target/r3-startup.log
+grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
+grep -q 'Gate A startup verdict' target/r3-startup-report.txt
+```
+
+The macOS leg of the `engine` job runs one step the Linux leg does not:
+Seatbelt's Gate A, the startup matrix of decision
+[0046](../decisions/0046-the-boundary-is-named.md) slice II,
+against the real `/usr/bin/sandbox-exec` and your per-user `launchctl`. The
+probe is `#[ignore]`d, so the workspace suite above never runs it; CI selects
+it by name after the suite, and it is a hard gate. It passes only when the
+log reports exactly one test passed and the probe wrote its verdict to
+`target/r3-startup-report.txt`: a name that selects nothing still prints
+`test result: ok`, with none passed. Run it on a Mac, outside any sandbox,
+where a missing `sandbox-exec` or an outer box is a named failure. On Linux
+the probe returns before it runs a cell or writes a report, so it proves
+nothing there. CI prints `sw_vers` and `uname -m` first, and uploads both
+files as the `r3-native-diagnostics` artifact whether the step passes or not.
 
 ### The MSRV
 
@@ -398,8 +420,9 @@ if you think they are at risk:
 - **`delivered by brokkr`** has no local command: it reads a run that
   shipped your head, or the operator's `by-hand` label. See
   [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand).
-- **The two-OS matrix.** Checks 4–5 are the same command on Ubuntu
-  and macOS. You ran one. Anything touching the filesystem or the
+- **The two-OS matrix.** Checks 4–5 run the same suite on Ubuntu and
+  macOS, and the macOS leg adds [the startup gate](#the-macos-startup-gate),
+  which only a Mac can run. You ran one leg. Anything touching the filesystem or the
   platform's process lookup is where this bites. Windows is not a host
   (decision [0063](../decisions/0063-windows-is-not-a-host.md)); WSL2 is Linux. Note that
   [`.gitattributes`](../../.gitattributes) normalises every text file to LF in
