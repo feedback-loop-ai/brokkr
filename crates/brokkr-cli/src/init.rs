@@ -1582,7 +1582,7 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
 /// What `init` hands back: the compiled scaffold's digest, whether its
 /// realm stands under `namespace` (which needs bubblewrap), and the
 /// sentences that say which agent CLI and boundary it chose and why.
-pub struct Scaffold {
+pub(crate) struct Scaffold {
     pub digest: String,
     pub namespace: bool,
     pub notes: Vec<String>,
@@ -1595,7 +1595,8 @@ pub struct Scaffold {
 /// seats the charters describe, and `my-bundle` is only where the text
 /// is written. `path` and `os` are the machine's search path and
 /// operating system, read for the agent CLI and the boundary.
-pub fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaffold> {
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+pub(crate) fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaffold> {
     if dir.join("bundle.json").exists() {
         bail!(
             "{} already contains a bundle.json; refusing to overwrite",

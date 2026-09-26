@@ -591,6 +591,7 @@ impl<T: ProducerTransport> Bridge<T> {
         self.event_times.push_back(now);
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn sync_once(
         &mut self,
         store: &mut Store,

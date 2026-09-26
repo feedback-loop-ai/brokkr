@@ -590,6 +590,7 @@ fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     let fixture = Fixture::new();
     let dir = fixture.dir.path();

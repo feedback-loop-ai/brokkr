@@ -18,11 +18,11 @@ use crate::render::Safe;
 /// A realm whose tree has no readable HEAD — no git repository there, or
 /// no commit yet. Absent, said plainly, the way every other readout
 /// marks an absent fact.
-pub const NO_HEAD: &str = "-";
+pub(crate) const NO_HEAD: &str = "-";
 
 /// One realm as it is read out. Built here so the rendering below stays
 /// pure: the git reads happen once, in [`list`].
-pub struct Row {
+pub(crate) struct Row {
     pub name: String,
     pub path: String,
     pub branch: String,
@@ -44,14 +44,14 @@ pub struct Row {
 
 /// One file a realm publishes, as it is read out: the name its consumers
 /// know it by, and where in the publishing tree it lives.
-pub struct Published {
+pub(crate) struct Published {
     pub name: String,
     pub path: String,
 }
 
 /// One crossing a realm consumes, as it is read out: the name, the realm
 /// that publishes it, and whether the pin is what the map says it is.
-pub struct Consumed {
+pub(crate) struct Consumed {
     pub name: String,
     /// The realm that publishes it — never this one (ruling 3.6).
     pub publisher: String,
@@ -63,7 +63,7 @@ pub struct Consumed {
 /// [`CrossingReport`] — this readout computes nothing, because a second
 /// computation is a second answer waiting to disagree with the one
 /// `World::load` already refused or accepted on.
-pub enum Pin {
+pub(crate) enum Pin {
     /// Compared against the publisher's bytes, and they are the pinned
     /// bytes.
     Matching,
@@ -80,7 +80,7 @@ pub enum Pin {
 
 impl Pin {
     /// The one word a script branches on, and the word the frame prints.
-    pub fn word(&self) -> &'static str {
+    pub(crate) fn word(&self) -> &'static str {
         match self {
             Pin::Matching => "matching",
             Pin::Moved(_) => "moved",
@@ -90,7 +90,7 @@ impl Pin {
 
     /// Why, for the two states that have a why. `Matching` has none: a
     /// pin that matched is entirely said by the word.
-    pub fn detail(&self) -> Option<&str> {
+    pub(crate) fn detail(&self) -> Option<&str> {
         match self {
             Pin::Matching => None,
             Pin::Moved(detail) | Pin::Unchecked(detail) => Some(detail),
@@ -108,7 +108,7 @@ impl Pin {
 /// journal rather than against the header, because `--db` renames the
 /// header for one invocation without changing what the map says — a v1
 /// world read with `--db` grows no column.
-pub fn per_realm(world: &World, rows: &[Row]) -> bool {
+pub(crate) fn per_realm(world: &World, rows: &[Row]) -> bool {
     let world_journal = world.journal().display().to_string();
     rows.iter().any(|row| row.journal != world_journal)
 }
@@ -158,7 +158,7 @@ fn crossings(row: &Row, name: usize, publisher: usize) -> String {
 /// realm with its columns aligned, and under each realm the crossings it
 /// draws. `hearths` is [`per_realm`]: many hearths are said only where
 /// there are many.
-pub fn render(source: &str, journal: &str, rows: &[Row], hearths: bool) -> String {
+pub(crate) fn render(source: &str, journal: &str, rows: &[Row], hearths: bool) -> String {
     let cells: Vec<[Safe; 4]> = rows
         .iter()
         .map(|row| {
@@ -218,7 +218,7 @@ pub fn render(source: &str, journal: &str, rows: &[Row], hearths: bool) -> Strin
 /// the world is — only about how it is spelled. Unescaped, because a
 /// consumer parsing JSON is not a terminal: escaping is the text
 /// surface's job, and doing it here would corrupt the data.
-pub fn view(source: &str, journal: &str, rows: &[Row]) -> Value {
+pub(crate) fn view(source: &str, journal: &str, rows: &[Row]) -> Value {
     json!({
         "map": source,
         "journal": journal,
@@ -330,7 +330,7 @@ pub(crate) fn crossings_of(
 }
 
 /// The rows for a loaded world, each realm's HEAD observed once.
-pub fn rows(world: &World) -> Vec<Row> {
+pub(crate) fn rows(world: &World) -> Vec<Row> {
     world
         .map
         .realms

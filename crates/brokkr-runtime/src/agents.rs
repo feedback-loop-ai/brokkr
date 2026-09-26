@@ -721,6 +721,7 @@ type Composed = (Vec<String>, Option<String>, Vec<String>);
 /// Compose one candidate's argv, or refuse. A lookup and a join: there
 /// is no template language, so there is no substitution function whose
 /// branches could drift from the data.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compose(
     agent: &Agent,
     adapter: &Adapter,

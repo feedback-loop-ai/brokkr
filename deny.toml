@@ -52,6 +52,20 @@ unknown-git = "deny"
 # The same test closes core's and view's own dependency sets, and holds
 # them to the wrappers here, so a pure crate names no crate unlisted.
 [bans]
+# Decision 0071 ruling 4, ratcheted (#337): a second version of any crate
+# is refused. The skips are today's duplicates, each the version with the
+# narrower reach; crates/brokkr-cli/tests/layering/ refuses a skip the
+# lockfile no longer duplicates, so this list only shrinks.
+multiple-versions = "deny"
+skip = [
+  { crate = "getrandom@0.2.17", reason = "pulled by ring 0.17 under ureq's rustls (#337 baseline)" },
+  { crate = "getrandom@0.3.4", reason = "pulled by ahash 0.8 (#337 baseline)" },
+  { crate = "hashbrown@0.14.5", reason = "pulled by dashmap 6 (#337 baseline)" },
+  { crate = "hashbrown@0.16.1", reason = "pulled by boa_engine 0.21, dev-only (#337 baseline)" },
+  { crate = "r-efi@5.3.0", reason = "pulled by getrandom 0.3 (#337 baseline)" },
+  { crate = "syn@3.0.3", reason = "pulled by bytemuck_derive 1.12 (#337 baseline)" },
+  { crate = "windows-sys@0.52.0", reason = "pulled by ring 0.17, never built on Linux or macOS (#337 baseline)" },
+]
 deny = [
   { crate = "brokkr-core", wrappers = ["brokkr-view", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "core sits at the bottom of the one-way graph (decision 0071 ruling 1)" },
   { crate = "brokkr-view", wrappers = ["brokkr-runtime", "brokkr-cli"], reason = "view is read by the engine and the surfaces only (decision 0071 ruling 1)" },

@@ -253,7 +253,7 @@ impl StagedHelper {
 }
 
 /// A host that runs the experiment with real macOS facilities.
-pub struct NativeProbeHost {
+pub(crate) struct NativeProbeHost {
     root: PathBuf,
     uid: u32,
     precondition: Option<Precondition>,
@@ -278,7 +278,7 @@ pub struct NativeProbeHost {
 static HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 impl NativeProbeHost {
-    pub fn new(run_id: String) -> NativeProbeHost {
+    pub(crate) fn new(run_id: String) -> NativeProbeHost {
         let run_tag = format!(
             "{}.{}",
             sanitize_tag(&run_id),
@@ -376,6 +376,11 @@ impl NativeProbeHost {
     // Gate A
     // -----------------------------------------------------------------------
 
+    #[expect(
+        clippy::excessive_nesting,
+        clippy::too_many_lines,
+        reason = "baseline 2026-09, #288"
+    )]
     fn startup_cell(&mut self, cell: StartupCell) -> StartupObservation {
         // A unique private root per cell. The four cells share the one staged
         // helper's bytes, executable, mode, nonce protocol and argv structure;
@@ -648,6 +653,7 @@ impl NativeProbeHost {
         })
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn run_startup_launchd(
         &self,
         cell: StartupCell,
@@ -812,6 +818,7 @@ impl NativeProbeHost {
         }
     }
 
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn run_case_inner(&mut self, case: Case) -> Result<CaseResult, String> {
         let staged = self.staged_helper()?.clone();
         let root = self
@@ -944,7 +951,8 @@ impl NativeProbeHost {
         Ok(result)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn experiment(
         &self,
         case: Case,
@@ -1284,7 +1292,7 @@ impl NativeProbeHost {
         out
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     fn run_one_diagnostic(
         &self,
         name: &str,

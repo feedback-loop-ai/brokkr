@@ -63,6 +63,7 @@ pub(super) fn state_of(status: Status) -> RunState {
 /// An intake seat that concluded, then a design sequence: a forked step
 /// with two members, a one-member step, and a bare member still working.
 /// Every shape the graph draws, in one run.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn journal(seat: &str) -> Vec<EventEnvelope> {
     let mut events = vec![
         ev(
@@ -3155,6 +3156,7 @@ fn enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader() {
 /// opens nothing": the pane's OWN door. What the reader shows is every
 /// turn, composed exactly as the per-turn reader composes one.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn enter_with_no_turn_selected_opens_the_whole_transcript() {
     // Two turns, the second carrying a tool block: order, the ⚙ marker
     // and the separation are all askable of the one string.

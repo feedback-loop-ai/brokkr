@@ -4,7 +4,7 @@
 //! form is what macOS printed: tabs, nested blocks, an absent `successive
 //! crashes` counter and the literal `(never exited)`.
 
-pub const FA7_S2_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.startup-48523.1.48523.startup.1.S2.launchd.unboxed = {
+pub(crate) const FA7_S2_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.startup-48523.1.48523.startup.1.S2.launchd.unboxed = {
 	active count = 1
 	path = /private/var/folders/d8/hvxvltxn0fl4rmnd52sncbth0000gn/T/brokkr-seatbelt-probe-startup-48523.1/startup-48523-S2.launchd.unboxed/startup.plist
 	type = LaunchAgent
@@ -82,7 +82,7 @@ pub const FA7_S2_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.startup-4
 	properties = runatload | inferred program | system service | tle system
 }"##;
 
-pub const FA7_S2_NOT_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.startup-48523.1.48523.startup.1.S2.launchd.unboxed = {
+pub(crate) const FA7_S2_NOT_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.startup-48523.1.48523.startup.1.S2.launchd.unboxed = {
 	active count = 0
 	path = /private/var/folders/d8/hvxvltxn0fl4rmnd52sncbth0000gn/T/brokkr-seatbelt-probe-startup-48523.1/startup-48523-S2.launchd.unboxed/startup.plist
 	type = LaunchAgent
@@ -149,7 +149,7 @@ pub const FA7_S2_NOT_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.start
 	properties = runatload | inferred program | system service | tle system
 }"##;
 
-pub const FA7_S3_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.startup-48523.1.48523.startup.2.S3.launchd.seatbelt = {
+pub(crate) const FA7_S3_RUNNING: &str = r##"gui/501/org.brokkr.seatbelt.probe.startup-48523.1.48523.startup.2.S3.launchd.seatbelt = {
 	active count = 0
 	path = /private/var/folders/d8/hvxvltxn0fl4rmnd52sncbth0000gn/T/brokkr-seatbelt-probe-startup-48523.1/startup-48523-S3.launchd.seatbelt/startup.plist
 	type = LaunchAgent

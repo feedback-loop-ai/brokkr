@@ -932,6 +932,7 @@ const OTHER_OWNER: &str = "dd440000000000000000000000000000000000000000000000000
 /// codex row, offered only to a single work seat, judged by the `driver`
 /// label and the `provenance` of the attempt that wrote it.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     let dir = tempfile::tempdir().unwrap();
     let mut seats = BTreeMap::new();
@@ -1080,6 +1081,7 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
 /// writes (proposed decision 0056 rulings 2 and 3). Every term is
 /// exercised alone against one journal.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
     let dir = tempfile::tempdir().unwrap();
     let mut seats = BTreeMap::new();
@@ -1431,6 +1433,7 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
 /// and 2). Two sites that flatten to the same display tag do not share a
 /// site digest, which is the aliasing the flat tag cannot see.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_site_key_is_structural_and_the_owner_key_moves_on_every_axis() {
     let single = resume::SiteKey::single("work", None);
     let cased = resume::SiteKey::single("work", Some("engine"));
@@ -2819,6 +2822,7 @@ fn serve_dsh_when_spawned() {
 /// is neither filtered away nor missed.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_real_dsh_driver_journals_no_route_byte_and_no_carrier() {
     serve_dsh_when_spawned();
 
@@ -3206,6 +3210,7 @@ fn dsh_assessment_measuring(measured: &str) -> crate::agents::ResumeAssessment {
 /// `root_session` and `transcript` the cold start confirmed.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_real_dsh_driver_journals_no_route_byte_on_the_gated_shapes() {
     serve_dsh_when_spawned();
 
@@ -3843,6 +3848,7 @@ fn a_declared_wrapper_digest_reaches_the_private_start_context() {
 /// opened with. The unchanged bundle beside it still resumes, which is
 /// what makes this a control rather than a declaration read-back.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_edited_inline_resume_declaration_moves_identity_and_refuses_the_old_root() {
     let root = workspace_root();
     let scratch = tempfile::tempdir().unwrap();

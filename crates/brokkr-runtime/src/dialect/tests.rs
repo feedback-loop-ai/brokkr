@@ -104,6 +104,7 @@ fn library_names_and_realm_paths_resolve_to_their_distinct_roots() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_checked_dialect_boundary_is_named() {
     assert!(Dialect::load(Path::new("missing-dialect.json"))
         .unwrap_err()

@@ -106,6 +106,7 @@ impl DriverProcess {
     /// Spawn the driver. With a deadline, a watchdog kills the child when
     /// it expires; the attempt then reports Failed(timeout) rather than
     /// hanging the run forever.
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     pub fn spawn(
         command: &[String],
         workdir: &std::path::Path,
@@ -169,6 +170,7 @@ impl DriverProcess {
         self.stdin.flush()
     }
 
+    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
     fn recv(&mut self) -> Option<Result<Message, String>> {
         let mut line = String::new();
         loop {
@@ -274,7 +276,8 @@ impl DriverProcess {
     /// declared `resume`: a session handle belongs to the credential and
     /// client that opened it, so it is never posted to a driver that did
     /// not say it knows what to do with one.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn run_attempt_resuming(
         mut self,
         engine_version: &str,

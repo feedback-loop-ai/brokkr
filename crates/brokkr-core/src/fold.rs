@@ -210,6 +210,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
     Ok(state)
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     use EventType::*;
 

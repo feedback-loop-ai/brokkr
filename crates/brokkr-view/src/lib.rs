@@ -1094,6 +1094,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
     index
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn scan_participants(events: &[EventEnvelope]) -> Scan {
     let mut scan = Scan {
         effects: Vec::new(),
@@ -1896,6 +1897,7 @@ fn fmt_tokens(total: u64) -> String {
     format!("{}.{:02}M tok", hundredths / 100, hundredths % 100)
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
     let mut out = Vec::new();
     for part in &scan.parts {
@@ -2353,6 +2355,7 @@ fn make_node(scan: &Scan, effect_id: &str, label: &str, tag: Option<&str>, done:
 /// Inner topology for one phase, from its NEWEST observed effect. Only
 /// observed events count: declared-but-unstarted topology is never
 /// invented. An empty result means the phase has no observed effect.
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn inner_columns(scan: &Scan, buckets: &Buckets, phase: &str) -> Vec<Column> {
     let Some((effect_id, seat)) = buckets.newest.get(phase).copied() else {
         return Vec::new();
@@ -2649,6 +2652,7 @@ fn label_of(event: &EventEnvelope) -> Cell {
     cell_of(token.map(str::to_string), None)
 }
 
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn journal_rows(
     events: &[EventEnvelope],
     scan: &Scan,

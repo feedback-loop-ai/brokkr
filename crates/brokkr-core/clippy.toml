@@ -13,6 +13,11 @@
 # function and type, and every Path method that touches the filesystem
 # (a PathBuf reaches them through Deref, so these paths hold it too).
 
+# Decision 0071 ruling 4's ceilings, repeated from the root clippy.toml.
+too-many-lines-threshold = 100
+excessive-nesting-threshold = 5
+too-many-arguments-threshold = 7
+
 disallowed-methods = [
   { path = "std::fs::canonicalize", reason = "core and view are pure: I/O lives in store and runtime" },
   { path = "std::fs::copy", reason = "core and view are pure: I/O lives in store and runtime" },

@@ -9,14 +9,14 @@
 /// The credential files the credential-read denial control opens. Each is
 /// listed in its direct spelling; the check adds the `/private` spelling
 /// macOS resolves it to through its one host-independent map.
-pub const CREDENTIAL_READ_DENIAL_TARGETS: &[&str] = &["/etc/passwd", "/etc/hosts"];
+pub(crate) const CREDENTIAL_READ_DENIAL_TARGETS: &[&str] = &["/etc/passwd", "/etc/hosts"];
 
 /// The single path the data-volume credential-read denial control opens. It is
 /// the `/System/Volumes/Data` spelling of `/etc/passwd`, which macOS firmlinks.
 /// The candidate must deny it exactly as it denies the direct spelling.
-pub const DATA_VOLUME_CREDENTIAL_READ_DENIAL_TARGET: &str =
+pub(crate) const DATA_VOLUME_CREDENTIAL_READ_DENIAL_TARGET: &str =
     "/System/Volumes/Data/private/etc/passwd";
 
 /// The path the host-write denial control opens. It is already under
 /// `/private`, its resolved spelling.
-pub const HOST_WRITE_DENIAL_TARGET: &str = "/private/tmp/brokkr-probe-denial-write";
+pub(crate) const HOST_WRITE_DENIAL_TARGET: &str = "/private/tmp/brokkr-probe-denial-write";

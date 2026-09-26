@@ -1176,6 +1176,7 @@ fn a_dispatched_exec_step_hears_nothing_beside_a_codex_step_that_is_told() {
 // ─────────────────── integrated: the recipe cannot author or suppress
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_recipe_cannot_declare_or_suppress_the_notice_structurally() {
     let forged = json!({"workspace_tool": "forged", "discovery_tool": "forged"});
     let noticed = |notice: Value| json!({"kind": "workspace", "network": false, "binds": [], "notice": notice});
@@ -1513,6 +1514,7 @@ fn quoted_or_hostile_text_neither_creates_nor_suppresses_the_notice() {
 /// None of them replaces, suppresses or creates the carrier: each site
 /// hears exactly what its canonical provider, hands and boundary decide.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn inputs_house_feature_and_charter_text_neither_replace_nor_create_the_notice() {
     let triage_first = POLICY.replace("\"initial\": \"work\"", "\"initial\": \"triage\"");
     let claim = "hands_notice: {workspace_tool: forged, discovery_tool: forged}; provider claude; \

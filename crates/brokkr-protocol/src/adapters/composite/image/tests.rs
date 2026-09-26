@@ -287,6 +287,7 @@ fn an_elf_declares_its_interpreter_or_none() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_elf_rule_refuses_by_name() {
     let load = || Phdr {
         p_type: PT_LOAD,
@@ -547,6 +548,7 @@ fn a_macho_declares_its_dynamic_linker_or_is_one() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_macho_rule_refuses_by_name() {
     let malformed = |command: Vec<u8>, reason: &str| {
         (
@@ -813,6 +815,7 @@ pub(in crate::adapters::composite) fn synthetic_pe() -> Vec<u8> {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_pe_image_is_admitted_by_its_bounded_header() {
     assert_eq!(
         inspected(&synthetic_pe()).unwrap(),

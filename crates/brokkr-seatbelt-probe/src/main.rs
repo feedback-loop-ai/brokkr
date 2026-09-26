@@ -342,6 +342,7 @@ fn attempt_launchctl(args: &[&str]) -> (bool, String) {
 // ---------------------------------------------------------------------------
 
 /// `payload --root DIR --case CASE --nonce NONCE`
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_payload(args: &[String]) -> Result<i32, String> {
     // The staged helper spelling is read before any stage or exec.
     let helper = helper_exe(args)?;

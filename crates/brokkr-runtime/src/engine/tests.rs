@@ -353,6 +353,7 @@ fn an_undeclared_change_claim_is_dropped() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dialect_change_expands_from_typed_history_and_absence_parks() {
     assert!(matches!(
         dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into())),
@@ -612,6 +613,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
     let first = SequenceStep {
         name: "author".into(),
@@ -1007,6 +1009,7 @@ enum StepOrder {
 /// the given order, each step committing or leaving the tree alone. The
 /// non-final step declares its own closed vocabulary; the final step is
 /// the seat boundary and inherits the seat's.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compiled_two_step_sequence(
     dir: &Path,
     order: StepOrder,
@@ -1714,6 +1717,7 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     engine
@@ -1824,6 +1828,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     let outcomes = vec![
@@ -2898,6 +2903,7 @@ fn journal(path: &Path, run_id: &str, manifest: &Value, events: &[(EventType, Va
 /// mid-flight to the boundary the ENGINE itself produces, and between
 /// effects with nothing to wait for.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("work")).unwrap();
@@ -3057,6 +3063,7 @@ fn engine_failing(event_type: &str) -> (tempfile::TempDir, Engine) {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn start_append_and_running_cursor_storage_failures_propagate() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("start.db");
@@ -3523,6 +3530,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_storage_failures_propagate() {
     let (_kept, mut failed_panel) = engine_failing("effect/failed");
     assert!(failed_panel
@@ -3835,6 +3843,7 @@ fn panel_and_sequence_storage_failures_propagate() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn decision_and_operator_storage_failures_propagate() {
     let (_kept, mut decision) = engine_failing("transition/decided");
     assert!(decision
@@ -4395,6 +4404,7 @@ fn realm_facts_state_only_what_the_tree_answers() {
 /// realms is out of scope forever, and a later crossing slice should
 /// read this comment as the ground it moves, not as a law.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     let (dir, alpha_head, beta_head) = crate::realms::tests::two_repositories();
     let alpha = dir.path().join("alpha");
@@ -4646,6 +4656,7 @@ fn capturing_driver_command(
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
     let captures = tempfile::tempdir().unwrap();
     let first_capture = captures.path().join("first.json");
@@ -4947,6 +4958,7 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
 /// overrule. Clarify parks on a contradictory `clear`; analyze still lets
 /// its judge classify the finding and routes on the returned `drift_in`.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compiled_loop_check_failure_cannot_be_judged_away() {
     let (_dir, mut engine) = compiled_triage_engine();
     let SeatBody::Sequence { mut steps } = engine.bundle.seats["clarify"].body.clone() else {
@@ -5171,6 +5183,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
 /// the seat's first law, and why this test asserts the mechanism rather
 /// than pretending the engine forbids the lowering.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
     for (chief_rules, expected) in [("security-hold", "security-hold"), ("residual", "residual")] {
         let capture = tempfile::tempdir().unwrap();

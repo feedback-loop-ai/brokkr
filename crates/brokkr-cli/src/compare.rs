@@ -19,7 +19,8 @@ use serde_json::{json, Map, Value};
 /// `effect/started` joined through `effect/requested.seat`, turns and
 /// cost from `effect/checkpointed` payloads. Returns the per-seat
 /// report map and the total cost.
-pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+pub(crate) fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
     #[derive(Default)]
     struct Usage {
         input: Option<u64>,
@@ -302,7 +303,7 @@ pub fn seat_costs(events: &[EventEnvelope]) -> (Map<String, Value>, f64) {
 /// `brokkr costs`: the run's per-seat report under the id `--run`
 /// resolved to — a full id, a unique prefix or `latest` (decision 0015).
 /// These bytes are LaneTally's join surface.
-pub fn costs(store: &Store, requested: &str) -> Result<Value> {
+pub(crate) fn costs(store: &Store, requested: &str) -> Result<Value> {
     let run = crate::selector::resolve_run(store, requested)?;
     let (report, total) = seat_costs(&store.load(&run)?);
     Ok(json!({
@@ -487,7 +488,7 @@ fn first_divergence(a: &[String], b: &[String]) -> Value {
     Value::Null
 }
 
-pub fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
+pub(crate) fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
     let store = crate::open_journal(db, crate::Access::Read)?;
     let a = run_facts(&store, run_a)?;
     let b = run_facts(&store, run_b)?;

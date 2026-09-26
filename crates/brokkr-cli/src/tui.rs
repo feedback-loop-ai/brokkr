@@ -193,6 +193,7 @@ pub(crate) struct TabState {
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
 /// `Phase.name`, `Participant.key`, `JournalRow.seq` — resolved against
 /// whatever models the current frame carries.
+#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
 pub(crate) struct Tui {
     pub level: Level,
     pub run: Option<String>,
@@ -2369,7 +2370,6 @@ fn window(built: &[Built], anchor: usize, connector: usize, budget: usize) -> (u
 /// `render::keeps_phase` rather than reimplementing the scope predicate,
 /// lists **every** phase whether scoped or not — the lens marks, it does
 /// not hide, here — and returns a layout that fits by construction.
-#[allow(clippy::too_many_arguments)]
 /// The deepest fork's lane pairs: how many rows the rail needs on EACH
 /// side of itself to draw every lane in full.
 fn lane_pairs(phases: &[Phase]) -> usize {
@@ -2392,6 +2392,7 @@ fn rows_wanted(phases: &[Phase]) -> usize {
     2 * lane_pairs(phases) + 4 + usize::from(!returns_of(phases).is_empty())
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn plan(
     phases: &[Phase],
     lens: Option<&render::Lens>,
@@ -3063,6 +3064,7 @@ fn draw_trail(
     );
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, part: &Participant) {
     let [head, stream, transcript] = Layout::vertical([
         Constraint::Length(8),
@@ -3496,7 +3498,7 @@ where
 /// production. Nothing here exits the process outright — that would run
 /// past the guard's `Drop` and leave a terminal in raw mode — so the TUI
 /// returns an `ExitCode` like every other arm.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub(crate) fn start<B: Backend, R: Write>(
     db_is_file: bool,
     run: Option<String>,

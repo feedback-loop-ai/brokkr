@@ -300,6 +300,7 @@ fn string_array(value: &Value, what: &str) -> Result<Vec<String>, PolicyError> {
         .collect()
 }
 
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_rule(
     raw: &Value,
     phases: &[String],
@@ -427,6 +428,7 @@ fn parse_rule(
 
 /// Load-time half of the closed vocabulary: every condition names a
 /// declared input and carries a threshold of the right type.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_condition(
     rule_id: &str,
     key: &str,

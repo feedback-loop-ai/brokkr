@@ -284,6 +284,7 @@ fn shipped_claude_implementer_can_commit() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
     let root = workspace();
     let mut shipped = Vec::new();

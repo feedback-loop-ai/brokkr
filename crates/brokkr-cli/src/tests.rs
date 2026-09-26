@@ -353,6 +353,7 @@ fn at(db: &std::path::Path) -> JournalArgs {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -487,6 +488,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
 /// fields), and no absolute path or username survives in the sanitized
 /// journal. Without the flag no `.redacted.` file exists at all.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -805,6 +807,7 @@ fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn keep_ref_verbs_plant_list_and_release_one_runs_exhibits() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -986,6 +989,7 @@ fn dispatch_for(bundle: &Bundle, run_id: &str, callback: &str) -> DispatchEnvelo
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let dir = tempfile::tempdir().unwrap();
     // The tempdir is the workspace these invocations stand in, so it
@@ -1427,6 +1431,7 @@ fn fixed_clock() -> String {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn watch_redraws_on_seq_and_on_a_hash_only_change_and_leaves_the_journal_alone() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -1563,6 +1568,7 @@ fn watch_redraws_on_seq_and_on_a_hash_only_change_and_leaves_the_journal_alone()
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn watch_frames_a_transient_error_gives_up_on_a_persistent_one_and_reports_a_closed_pipe() {
     let dir = tempfile::tempdir().unwrap();
     let style = render::Style::plain(80);
@@ -2290,6 +2296,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
 /// path: head-gated on both seq and hash, fleet on the slower cadence,
 /// and one unfoldable run keeping its row.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -2550,6 +2557,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
 /// in-memory stamp is the bounded result, not a length or an mtime, so a
 /// same-length rewrite would be noticed as well.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -3501,6 +3509,7 @@ fn the_realms_verb_reads_the_world_or_says_there_is_none() {
 /// journal it came from renders it. The arrival is queryable beside the
 /// chain (decision 0027) and appears in no readout that existed before.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     let dir = tempfile::tempdir().unwrap();
     let native = dir.path().join("native.db");
@@ -4268,6 +4277,7 @@ fn held_and_shipped(db: &std::path::Path) {
 /// 2): the verb writes one annotation, and every way of asking for it
 /// wrong is refused with nothing written.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");

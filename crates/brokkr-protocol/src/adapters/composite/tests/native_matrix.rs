@@ -439,6 +439,7 @@ impl Layout {
 /// components; the ordered denial-then-miss and denial-then-terminal
 /// controls; and, where the ELF fixture can be built, the two
 /// missing-loader layouts.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn layouts(loader_fixture: bool) -> Vec<Layout> {
     let parity = |name: &str, files: Vec<(Slot, Body)>, path: Vec<Slot>| Layout {
         name: name.to_string(),
@@ -900,6 +901,7 @@ const CWD_REASON: &str = "the platform's search would fall into the working dire
 /// Compare one completed native outcome with one resolution, by the
 /// layout's expectation, and answer how the cell was classified. Every
 /// arm asserts identity or the specific cause; none passes on a boolean.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compare(
     cell: &Cell<'_>,
     declared: Expect,
@@ -1192,6 +1194,7 @@ fn compare(
 /// on its own so no cell can hide behind another — the six lengths, and
 /// the two skipped ones crossed with the working directory's states
 /// (run `efb3360b`, R1).
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn assert_glibc_length(
     cell: &Cell<'_>,
     bytes: usize,
@@ -1433,6 +1436,7 @@ fn assert_glibc_padded(
 /// child's environment (and its removal control's in a second child),
 /// collects every oracle the children report and asserts the two sets
 /// are one.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parent() {
     // The child reconstructs this root from its own `current_dir`, which
     // the kernel answers canonically, and then asserts that the `PATH`
@@ -1585,6 +1589,11 @@ fn parent() {
 
 /// One layout, in a child whose cwd and `PATH` the parent staged —
 /// either the layout's own `PATH`, or its removal control's.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
 fn child_layout(index: usize, removed: bool) {
     let cwd = std::env::current_dir().unwrap();
     let root = cwd.parent().unwrap().to_path_buf();
@@ -2006,6 +2015,7 @@ fn cell_view<'a>(cell: &Cell<'a>) -> Cell<'a> {
 
 /// The cells outside the cross-product, each with its own oracle, in a
 /// child whose `PATH` is the parent's `controls` directory alone.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn child_controls() {
     let cwd = std::env::current_dir().unwrap();
     let root = cwd.parent().unwrap().to_path_buf();

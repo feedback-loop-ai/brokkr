@@ -1,0 +1,20 @@
+# Every #[expect] and #[allow] in the Rust sources, by lint (issue #337).
+# Regenerate: BROKKR_REGENERATE_SUPPRESSIONS=1 cargo test -p brokkr-cli --test suppressions
+# production
+    1 expect clippy::disallowed_types
+   15 expect clippy::excessive_nesting
+    3 expect clippy::struct_excessive_bools
+   26 expect clippy::too_many_arguments
+   42 expect clippy::too_many_lines
+    1 allow  dead_code
+    2 expect dead_code
+# test
+    3 expect clippy::disallowed_macros
+    6 expect clippy::disallowed_methods
+    6 expect clippy::excessive_nesting
+    1 expect clippy::permissions_set_readonly_false
+    2 expect clippy::struct_excessive_bools
+    3 expect clippy::too_many_arguments
+  145 expect clippy::too_many_lines
+    1 expect clippy::type_complexity
+    1 expect dead_code

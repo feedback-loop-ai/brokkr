@@ -49,7 +49,7 @@ pub(crate) enum Child {
 }
 
 /// A held directory handle.
-pub struct Dir {
+pub(super) struct Dir {
     inner: imp::Dir,
 }
 
@@ -57,7 +57,7 @@ impl Dir {
     /// Open an already-canonicalized absolute directory path as the
     /// traversal root. The root itself may be reached through symlinks
     /// because canonicalization resolved them first.
-    pub fn open_root(path: &str) -> io::Result<Dir> {
+    pub(super) fn open_root(path: &str) -> io::Result<Dir> {
         Ok(Dir {
             inner: imp::Dir::open_root(path)?,
         })
@@ -67,7 +67,10 @@ impl Dir {
     /// dropped. Returns `(names, truncated)`: `truncated` is true when the
     /// directory held more entries than `max`, so the caller can charge its
     /// discovery bound without materializing an unbounded listing.
-    pub fn entries_bounded(&self, max: usize) -> io::Result<(Vec<std::ffi::OsString>, bool)> {
+    pub(super) fn entries_bounded(
+        &self,
+        max: usize,
+    ) -> io::Result<(Vec<std::ffi::OsString>, bool)> {
         #[cfg(test)]
         {
             if let Some(error) = fault::fail(fault::FailAt::Entries) {
@@ -78,7 +81,7 @@ impl Dir {
     }
 
     /// Open one direct child, following no symlink or reparse point.
-    pub fn child(&self, name: &OsStr) -> io::Result<Child> {
+    pub(super) fn child(&self, name: &OsStr) -> io::Result<Child> {
         #[cfg(test)]
         {
             fault::point(fault::ChangeAt::Child);
@@ -93,12 +96,12 @@ impl Dir {
 }
 
 /// A held regular-file handle with its verified identity.
-pub struct OpenedFile {
+pub(crate) struct OpenedFile {
     inner: imp::File,
 }
 
 impl OpenedFile {
-    pub fn identity(&self) -> io::Result<Identity> {
+    pub(crate) fn identity(&self) -> io::Result<Identity> {
         #[cfg(test)]
         {
             if let Some(error) = fault::fail(fault::FailAt::Identity) {
@@ -109,14 +112,14 @@ impl OpenedFile {
     }
 
     /// The source's size in bytes, measured through the held handle.
-    pub fn len(&self) -> u64 {
+    pub(crate) fn len(&self) -> u64 {
         self.inner.len()
     }
 
     /// Read at most `cap` bytes plus one probe byte from the start of the
     /// file. Returns `(bytes, overflow, eof)`: `overflow` means the probe
     /// byte was present, `eof` means the read reached true end of file.
-    pub fn read_bounded(&self, cap: u64) -> io::Result<(Vec<u8>, bool, bool)> {
+    pub(crate) fn read_bounded(&self, cap: u64) -> io::Result<(Vec<u8>, bool, bool)> {
         #[cfg(test)]
         {
             if let Some(error) = fault::fail(fault::FailAt::Read) {
@@ -135,18 +138,18 @@ mod imp {
     use std::io::{self, Read, Seek};
     use std::os::unix::ffi::OsStrExt;
 
-    pub enum Child {
+    pub(super) enum Child {
         File(File),
         Dir(Dir),
         Unsafe,
         Absent,
     }
 
-    pub struct Dir {
+    pub(super) struct Dir {
         fd: std::os::fd::OwnedFd,
     }
 
-    pub struct File {
+    pub(super) struct File {
         fd: std::os::fd::OwnedFd,
     }
 
@@ -171,12 +174,12 @@ mod imp {
     }
 
     impl Dir {
-        pub fn open_root(path: &str) -> io::Result<Dir> {
+        pub(super) fn open_root(path: &str) -> io::Result<Dir> {
             let fd = openat(CWD, path, dir_flags(), Mode::empty())?;
             Ok(Dir { fd })
         }
 
-        pub fn entries_bounded(&self, max: usize) -> io::Result<(Vec<OsString>, bool)> {
+        pub(super) fn entries_bounded(&self, max: usize) -> io::Result<(Vec<OsString>, bool)> {
             let mut names = Vec::new();
             for entry in RDir::read_from(&self.fd)? {
                 let entry = entry?;
@@ -194,7 +197,7 @@ mod imp {
             Ok((names, false))
         }
 
-        pub fn child(&self, name: &OsStr) -> io::Result<Child> {
+        pub(super) fn child(&self, name: &OsStr) -> io::Result<Child> {
             match openat(&self.fd, name, dir_flags(), Mode::empty()) {
                 Ok(fd) => return Ok(Child::Dir(Dir { fd })),
                 Err(error) if absent(&error) => return Ok(Child::Absent),
@@ -227,17 +230,17 @@ mod imp {
     }
 
     impl File {
-        pub fn identity(&self) -> io::Result<Identity> {
+        pub(super) fn identity(&self) -> io::Result<Identity> {
             identity_of(&self.fd)
         }
 
-        pub fn len(&self) -> u64 {
+        pub(super) fn len(&self) -> u64 {
             fstat(&self.fd)
                 .map(|stat| stat.st_size.max(0) as u64)
                 .unwrap_or(0)
         }
 
-        pub fn read_bounded(&self, cap: u64) -> io::Result<(Vec<u8>, bool, bool)> {
+        pub(super) fn read_bounded(&self, cap: u64) -> io::Result<(Vec<u8>, bool, bool)> {
             // A prior header check on this handle may have consumed bytes;
             // read from the start so the body snapshot is deterministic.
             let mut file = std::fs::File::from(self.fd.try_clone()?);
@@ -779,6 +782,7 @@ pub(crate) mod fault {
     }
 
     impl Drop for Guard {
+        #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
         fn drop(&mut self) {
             PLAN.with(|cell| {
                 let mut slot = cell.borrow_mut();

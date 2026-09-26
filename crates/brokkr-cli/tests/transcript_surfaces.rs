@@ -166,6 +166,7 @@ fn parse(output: &std::process::Output) -> Value {
 }
 
 /// Compare every surface against one shared read, for one source.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
     // No secrets store sits beside the world's journal, so every surface
     // that masks says it masked nothing and names where it looked (#380).
@@ -424,6 +425,7 @@ fn compare_refusal(world: &World, read: &TranscriptRead, expected: &str) {
 /// readable zero-turn source, a truncated source, a counted omission and
 /// each DSH refusal.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn one_derivation_reaches_every_surface() {
     let mut env = EnvGuard::lock();
     for (kind, locator, body) in [

@@ -914,6 +914,7 @@ fn scan_collects_problems_where_load_refuses_them() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
     let cases: Vec<(Value, &str)> = vec![
         (
@@ -1836,6 +1837,7 @@ fn harness_adapter(harness: Value) -> Value {
 /// with a reason a measured gap and not a capability; and every shape
 /// outside the three refused by name.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_adapters_harness_hands_are_three_members_and_two_doors() {
     let tree = Tree::new();
     tree.write("agents/tester.json", &agent_body());
@@ -1978,6 +1980,7 @@ fn an_adapters_harness_hands_are_three_members_and_two_doors() {
 /// lanetally declare no `hands.harness`. The candidate resolved from a
 /// hands agent carries the declaration to the engine.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -2284,6 +2287,7 @@ fn the_assessment_reaches_the_driver_as_closed_data_in_both_identity_forms() {
 /// field, never a silent downgrade to `unmeasured`. An authoring error
 /// must not be able to pass itself off as honest ignorance.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn present_and_malformed_resume_data_is_refused_and_never_read_as_unmeasured() {
     for (case, resume, expected) in [
         ("bare true", json!(true), "must be an object"),
@@ -2737,6 +2741,7 @@ fn a_malformed_hands_notice_is_refused_by_provider_field_and_rule() {
 /// none, and Codex's launch fragments and resume qualification are the
 /// ones main shipped before the notice existed.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_codex_declares_the_notice_and_keeps_its_launch_and_qualification() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../adapters");
     let adapters = Adapters::load(&root).expect("the shipped adapters load");

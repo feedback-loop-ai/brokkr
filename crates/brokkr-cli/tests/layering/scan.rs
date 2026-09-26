@@ -678,18 +678,10 @@ struct Scanned<'a> {
 }
 
 /// Whether a workspace-relative `path` is one the exact coverage gate
-/// treats as a test: under a `tests/` directory, or named `tests.rs` or
-/// `*_tests.rs` (`scripts/coverage-exact.sh`'s pattern).
+/// treats as a test, in the gate's one vocabulary (`support/test_paths.rs`).
 fn is_gate_test_path(path: &Path) -> bool {
-    let parts: Vec<&str> = path.iter().filter_map(|part| part.to_str()).collect();
-    let Some((last, dirs)) = parts.split_last() else {
-        return false;
-    };
-    dirs.contains(&"tests")
-        || *last == "tests.rs"
-        || last
-            .strip_suffix("_tests.rs")
-            .is_some_and(|stem| !stem.is_empty())
+    path.to_str()
+        .is_some_and(crate::test_paths::is_gate_test_path)
 }
 
 /// `relative` joined onto `dir` with `.` and `..` folded, or `None` when it

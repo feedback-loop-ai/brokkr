@@ -1465,6 +1465,7 @@ fn codex_refusal(event: &Value) -> Option<String> {
 /// Privacy invariant (journal is evidence, not transcript): checkpoints
 /// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
 /// never message text, thinking, or full tool inputs.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn fold_stream_event(
     event: &Value,
     assistant_turns: &mut u64,
@@ -2297,7 +2298,6 @@ struct DshTail {
 /// telemetry in the journal, never an injection or a control-flow
 /// decision. A driver whose harness offers a real stdout stream should
 /// use it rather than inherit this.
-#[allow(clippy::too_many_arguments)]
 fn drain_dsh_transcript(
     tail: &mut DshTail,
     root: &std::path::Path,
@@ -3648,7 +3648,13 @@ struct DshLaunch {
     /// The absolute retained root the transcript fold follows.
     root: std::path::PathBuf,
     /// Held for the child's lifetime; dropping it removes the staged file.
-    #[allow(dead_code)]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "held for its Drop, which removes the staged overlay"
+        )
+    )]
     overlay: DshSeatOverlay,
     /// True when the seat pinned no `--effort`, so the absence is the
     /// standing and every row reads `not applicable` (decision 0035
@@ -3734,6 +3740,11 @@ fn dsh_launch_resolving(
 
 /// `dsh_launch` over an injected composite producer, so every drift and
 /// mismatch case is a plain test over synthetic homes.
+#[expect(
+    clippy::excessive_nesting,
+    clippy::too_many_lines,
+    reason = "baseline 2026-09, #288"
+)]
 fn dsh_launch_with(
     bin: &str,
     extra: &[String],
@@ -4005,7 +4016,7 @@ fn owned_dsh_root(
 /// `waitpid` failure cannot be provoked from a test, and the arm that
 /// handles it is the difference between a seat that reports a refusal
 /// and a seat that spins in silence forever, so it is reachable here.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn invoke_dsh_with(
     extra: &[String],
     prompt: &str,
@@ -4215,7 +4226,7 @@ fn invoke_dsh_shipped(
 /// driver accepts. The retained transcript is folded alongside it, only
 /// past the offered root's own sequence boundary, so a warm session never
 /// re-counts its restored history.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn invoke_dsh_stream_json(
     command: &[String],
     launch: &DshLaunch,
@@ -4439,6 +4450,7 @@ struct DshBaseline {
 /// it — publishing the locator and launch row AFTER their own work rows,
 /// and returning a confirmed rejoin built on work that was never
 /// confirmed. `may_fold` withholds the fold until the hold releases.
+#[expect(clippy::struct_excessive_bools, reason = "baseline 2026-09, #288")]
 struct DshRootWatch {
     /// The exact root this launch was built to rejoin. `None` is a cold
     /// launch, which has no offer to confirm and publishes as it always
@@ -4850,7 +4862,8 @@ fn invoke(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn invoke_with_stager(
     kind: AdapterKind,
     extra: &[String],
@@ -5315,7 +5328,13 @@ struct DshSeatOverlay {
     /// Held for the child's lifetime, never read back by this driver:
     /// dsh reads the document live, and a path that vanished mid-seat
     /// would be a level that vanished with it.
-    #[allow(dead_code)]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "held for its Drop: dsh reads the settings file live while the seat runs"
+        )
+    )]
     settings: Option<tempfile::NamedTempFile>,
 }
 
@@ -5728,6 +5747,7 @@ fn run_seat(
 /// delivered-file fact and the unsettled-launch guard — so a test that
 /// drives a real synthetic child through here meets production's own
 /// terminal rule, not a copy of it.
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_seat_with(
     kind: AdapterKind,
     start: &Value,

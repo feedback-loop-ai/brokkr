@@ -1106,6 +1106,7 @@ fn a_turn_past_a_complete_projection_is_not_retained() {
 /// equivalent ordinary rows keep four turns, so ordinary index two selects
 /// `b` while packed index two selects `q`.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let world = world_effects(&[("eff1", "review", None)]);
     let packed = concat!(

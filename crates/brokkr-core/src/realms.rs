@@ -439,6 +439,7 @@ impl RealmMap {
     /// holds when the map arrives embedded in a run's manifest pin rather
     /// than as a file. Same refusals, same words: a world read back out
     /// of evidence is held to what it was held to going in.
+    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn of(path: &str, content: Value) -> Result<(RealmMap, Value), RealmsError> {
         let invalid = |problem: String| RealmsError::Invalid {
             path: path.to_string(),

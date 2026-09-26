@@ -1061,6 +1061,7 @@ fn the_console_serves_and_paints_agent_provenance() {
 /// the page paints both cells into one row through its one pair helper
 /// — computing nothing of its own (design DD12).
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_console_serves_the_boundary_and_paints_the_pair() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");

@@ -503,6 +503,7 @@ fn ruling(machine: &Machine, phase: &str, result: &str, inputs: Value) -> (Strin
 /// Decision 0041 ruling 5, point-blank against shipped tables: every
 /// return and every exhaustion arm is independently earned.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_finding_edge_and_bound_has_a_table_arm() {
     let machine = shipped_machine("../../bundles/self/policy.json");
 
@@ -629,6 +630,7 @@ fn every_finding_edge_and_bound_has_a_table_arm() {
 /// shape assertions: each pair proves first-match ordering on either side of
 /// its literal bound, and each `drift_in` value drives the real table.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
     let machine = shipped_machine("../../recipes/triage/policy.json");
     let park = |phase: &str, result: &str, inputs: Value| match machine.evaluate(

@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 
 /// How the machine asking sees a provider. `unknown` is what compile
 /// sees and what `show` reports unless a caller probed.
-pub fn presence_word(presence: Presence) -> &'static str {
+pub(crate) fn presence_word(presence: Presence) -> &'static str {
     match presence {
         Presence::Available => "available",
         Presence::Unavailable => "unavailable",
@@ -29,7 +29,7 @@ pub fn presence_word(presence: Presence) -> &'static str {
 /// `unmapped`, and the capability check's verdict. A blocked entry is
 /// REPORTED here rather than thrown, so a reader sees the whole chain
 /// and can act on the link that is wrong.
-pub fn entry_value(entry: &ChainEntry) -> Value {
+pub(crate) fn entry_value(entry: &ChainEntry) -> Value {
     let mut value = json!({
         "model": entry.model,
         "provider": entry.provider.clone().map(Value::String).unwrap_or(Value::Null),
@@ -69,7 +69,7 @@ fn resolution_value(walked: &Report) -> Value {
 /// One tab-separated line per agent — `name ⇥ chain ⇥ description` — and
 /// a warning line per definition that does not parse. Nothing aborts the
 /// listing.
-pub fn list(library_root: &Path) -> Result<()> {
+pub(crate) fn list(library_root: &Path) -> Result<()> {
     let (library, problems) = Library::scan(library_root)?;
     for problem in &problems {
         println!("warning: {problem}");
@@ -87,7 +87,7 @@ pub fn list(library_root: &Path) -> Result<()> {
 
 /// The definition as written, plus its per-entry resolution. An unknown
 /// name errors naming the known set, so the next command is obvious.
-pub fn show(name: &str, library_root: &Path, adapters_root: &Path) -> Result<()> {
+pub(crate) fn show(name: &str, library_root: &Path, adapters_root: &Path) -> Result<()> {
     let library = Library::load(library_root)?;
     let adapters = Adapters::load(adapters_root)?;
     let walked = match report(&library, &adapters, &Availability::unspecified(), name) {

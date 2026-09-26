@@ -29,6 +29,8 @@ use serde::Deserialize;
 
 mod scan;
 
+#[path = "../support/test_paths.rs"]
+mod test_paths;
 #[path = "../support/workspace.rs"]
 mod workspace_root;
 use workspace_root::{read, workspace};
@@ -160,15 +162,32 @@ struct NotUnderstood {
     text: String,
 }
 
+/// `deny.toml`'s `[bans]` table as the strict reader understands it.
+#[derive(Debug, Default, PartialEq)]
+struct Bans {
+    parents: Graph,
+    /// `name@version` duplicates `multiple-versions` lets stand (#337).
+    skips: Vec<(String, String)>,
+    multiple_versions_denied: bool,
+}
+
+/// Which array of the `[bans]` table a line sits in.
+#[derive(Clone, Copy, PartialEq)]
+enum Array {
+    Out,
+    Deny,
+    Skip,
+}
+
 /// `deny.toml`'s `[bans]` entries, read strictly: inside the table every
-/// line is `deny = [`, `]`, a comment, or one whole entry in the house
-/// form, and outside it no line names `bans` or could spell it through an
-/// escape or a multi-line string. Anything else is refused, never skipped,
-/// so the graph read here is the graph cargo-deny enforces.
-fn allowed_parents(deny: &str) -> Result<Graph, NotUnderstood> {
-    let mut parents = Graph::new();
-    let mut in_bans = false;
-    let mut seen_bans = false;
+/// line is `multiple-versions = "deny"`, `deny = [`, `skip = [`, `]`, a
+/// comment, or one whole entry of the open array in the house form, and
+/// outside it no line names `bans` or could spell it through an escape or
+/// a multi-line string. Anything else is refused, never skipped, so the
+/// graph read here is the graph cargo-deny enforces.
+fn read_bans(deny: &str) -> Result<Bans, NotUnderstood> {
+    let mut bans = Bans::default();
+    let (mut in_bans, mut seen_bans, mut array) = (false, false, Array::Out);
     for (index, line) in deny.lines().enumerate() {
         let refuse = || NotUnderstood {
             line: index + 1,
@@ -178,7 +197,7 @@ fn allowed_parents(deny: &str) -> Result<Graph, NotUnderstood> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        if trimmed.starts_with('[') {
+        if trimmed.starts_with('[') && array == Array::Out {
             in_bans = line == "[bans]";
             if (in_bans && seen_bans) || (!in_bans && trimmed.contains("bans")) {
                 return Err(refuse());
@@ -195,41 +214,84 @@ fn allowed_parents(deny: &str) -> Result<Graph, NotUnderstood> {
             }
             continue;
         }
-        if trimmed == "deny = [" || trimmed == "]" {
-            continue;
-        }
-        let (name, wrappers) = ban_entry(line).ok_or_else(refuse)?;
-        if parents.insert(name, wrappers).is_some() {
-            return Err(refuse());
-        }
+        array = bans_line(&mut bans, line, array).ok_or_else(refuse)?;
     }
-    Ok(parents)
+    Ok(bans)
+}
+
+/// One line inside `[bans]`, folded into `bans`: the array it leaves
+/// open, or `None` for a line the house form does not have.
+fn bans_line(bans: &mut Bans, line: &str, array: Array) -> Option<Array> {
+    let trimmed = line.trim();
+    match (array, trimmed) {
+        (Array::Out, "multiple-versions = \"deny\"") if !bans.multiple_versions_denied => {
+            bans.multiple_versions_denied = true;
+            Some(Array::Out)
+        }
+        (Array::Out, "deny = [") => Some(Array::Deny),
+        (Array::Out, "skip = [") => Some(Array::Skip),
+        (Array::Deny | Array::Skip, "]") => Some(Array::Out),
+        (Array::Deny, _) => {
+            let (name, wrappers) = ban_entry(line)?;
+            bans.parents
+                .insert(name, wrappers)
+                .is_none()
+                .then_some(Array::Deny)
+        }
+        (Array::Skip, _) => {
+            bans.skips.push(skip_entry(line)?);
+            Some(Array::Skip)
+        }
+        _ => None,
+    }
+}
+
+/// The `[bans]` graph alone, as [`read_bans`] reads it.
+fn allowed_parents(deny: &str) -> Result<Graph, NotUnderstood> {
+    read_bans(deny).map(|bans| bans.parents)
+}
+
+/// A crate name with no quoting, spacing or version in it.
+fn plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// One `[bans]` entry in the house form, or `None`:
 /// `  { crate = "name", wrappers = ["a", "b"], reason = "…" },`
 fn ban_entry(line: &str) -> Option<(String, BTreeSet<String>)> {
-    let plain = |name: &str| {
-        !name.is_empty()
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    };
     let rest = line.strip_prefix("  { crate = \"")?;
     let (name, rest) = rest.split_once("\", wrappers = [")?;
     let (list, rest) = rest.split_once("], reason = \"")?;
     let reason = rest.strip_suffix("\" },")?;
-    if !plain(name) || reason.contains(['"', '\\']) {
+    if !plain_name(name) || reason.contains(['"', '\\']) {
         return None;
     }
     let wrappers = list
         .split(", ")
         .map(|wrapper| {
             let wrapper = wrapper.strip_prefix('"')?.strip_suffix('"')?;
-            plain(wrapper).then(|| wrapper.to_string())
+            plain_name(wrapper).then(|| wrapper.to_string())
         })
         .collect::<Option<BTreeSet<String>>>()?;
     Some((name.to_string(), wrappers))
+}
+
+/// One `skip` entry in the house form, or `None`:
+/// `  { crate = "name@version", reason = "…" },`
+fn skip_entry(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix("  { crate = \"")?;
+    let (spec, rest) = rest.split_once("\", reason = \"")?;
+    let reason = rest.strip_suffix("\" },")?;
+    let (name, version) = spec.split_once('@')?;
+    let exact = !version.is_empty()
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
+    (plain_name(name) && exact && !reason.contains(['"', '\\']))
+        .then(|| (name.to_string(), version.to_string()))
 }
 
 /// The strict reader refuses each form it does not understand by its
@@ -270,6 +332,64 @@ fn the_bans_reader_refuses_what_it_does_not_understand() {
         ("[bans]\n[graph]\n[bans]", 3, "[bans]"),
     ] {
         assert_eq!(allowed_parents(text), refused(at, line), "{text}");
+    }
+}
+
+/// `multiple-versions` is denied, and every skipped duplicate is still one
+/// in the lockfile, so the skip list can only shrink (#337).
+#[test]
+fn the_duplicates_gate_skips_only_what_the_lockfile_still_duplicates() {
+    let bans = read_bans(&read("deny.toml")).expect("deny.toml's [bans] reads");
+    assert!(
+        bans.multiple_versions_denied,
+        "deny.toml refuses a second version of a crate"
+    );
+    let mut versions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for block in read("Cargo.lock").split("[[package]]").skip(1) {
+        let field = |key: &str| {
+            block
+                .lines()
+                .find_map(|line| line.strip_prefix(key))
+                .map(|value| value.trim_matches('"').to_string())
+        };
+        if let (Some(name), Some(version)) = (field("name = "), field("version = ")) {
+            versions.entry(name).or_default().insert(version);
+        }
+    }
+    let stale: Vec<String> = bans
+        .skips
+        .iter()
+        .filter(|(name, version)| {
+            versions
+                .get(name)
+                .is_none_or(|all| all.len() < 2 || !all.contains(version))
+        })
+        .map(|(name, version)| format!("{name}@{version}"))
+        .collect();
+    assert_eq!(
+        stale,
+        Vec::<String>::new(),
+        "skips the lockfile no longer duplicates"
+    );
+}
+
+/// The duplicate gate's two lines are read in their house form, and every
+/// near miss is refused rather than skipped.
+#[test]
+fn the_bans_reader_reads_the_duplicate_gate_in_its_house_form() {
+    let text = "[bans]\nmultiple-versions = \"deny\"\nskip = [\n  { crate = \"syn@3.0.3\", reason = \"r\" },\n]\ndeny = [\n]\n";
+    let bans = read_bans(text).expect("the house form reads");
+    assert!(bans.multiple_versions_denied);
+    assert_eq!(bans.skips, [("syn".to_string(), "3.0.3".to_string())]);
+    for bad in [
+        "[bans]\nmultiple-versions = \"warn\"\n",
+        "[bans]\nmultiple-versions = \"deny\"\nmultiple-versions = \"deny\"\n",
+        "[bans]\nskip = [\n  { crate = \"syn\", reason = \"r\" },\n]\n",
+        "[bans]\nskip = [\n  { crate = \"syn@3\", wrappers = [\"a\"], reason = \"r\" },\n]\n",
+        "[bans]\nskip = [\n  \"syn@3.0.3\",\n]\n",
+        "[bans]\n]\n",
+    ] {
+        assert!(read_bans(bad).is_err(), "{bad}");
     }
 }
 

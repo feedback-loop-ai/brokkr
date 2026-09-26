@@ -119,6 +119,7 @@ fn home_expands_only_the_tilde_prefix() {
 /// Unix only: the argv it checks names Unix paths, and the box is Linux's.
 #[cfg(unix)]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
@@ -617,6 +618,7 @@ fn the_harness_config_names_this_binary_and_the_spec() {
 /// boundary is meant to hold and the only place it is claimed to.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_box_hides_the_host_and_holds_the_worktree() {
     if !can_create_namespace() {
         skip_boundary_proof(
@@ -759,6 +761,7 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
 /// hooks nor config can be written from inside.
 #[cfg(target_os = "linux")]
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn git_works_in_the_box_and_cannot_plant_a_hook() {
     if !can_create_namespace() {
         skip_boundary_proof(
@@ -1009,6 +1012,7 @@ fn engine_env(home: &Path) -> std::collections::BTreeMap<String, String> {
 /// proof about the ENVIRONMENT, not the filesystem — the same script
 /// naming the operator's home by absolute path reads it.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_unboxed_environment_hands_nothing_of_the_engines_over() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
@@ -1242,6 +1246,7 @@ fn windows_bootstrap_is_verbatim_on_windows_and_absent_elsewhere() {
 /// Both complete tables run on Linux too: a Windows-only test cannot
 /// protect the Windows allow-list in the literal coverage gate.
 #[test]
+#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
     use std::collections::{BTreeMap, BTreeSet};
 

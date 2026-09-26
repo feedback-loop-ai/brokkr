@@ -10,12 +10,12 @@ use serde_json::Value;
 
 /// A hand-built event: the first of run `run`, chained to the zero hash
 /// and unsealed. A test names only the fields its assertion reads.
-pub struct EnvelopeBuilder {
+pub(crate) struct EnvelopeBuilder {
     envelope: EventEnvelope,
 }
 
 impl EnvelopeBuilder {
-    pub fn new(event_type: EventType, payload: Value) -> Self {
+    pub(crate) fn new(event_type: EventType, payload: Value) -> Self {
         Self {
             envelope: EventEnvelope {
                 run_id: "run".into(),
@@ -35,59 +35,59 @@ impl EnvelopeBuilder {
     }
 
     /// The run the event belongs to; its correlation follows it.
-    pub fn run(mut self, run_id: &str) -> Self {
+    pub(crate) fn run(mut self, run_id: &str) -> Self {
         self.envelope.run_id = run_id.into();
         self.envelope.correlation_id = run_id.into();
         self
     }
 
-    pub fn correlation(mut self, correlation_id: &str) -> Self {
+    pub(crate) fn correlation(mut self, correlation_id: &str) -> Self {
         self.envelope.correlation_id = correlation_id.into();
         self
     }
 
-    pub fn seq(mut self, seq: u64) -> Self {
+    pub(crate) fn seq(mut self, seq: u64) -> Self {
         self.envelope.seq = seq;
         self
     }
 
-    pub fn event_id(mut self, event_id: impl Into<String>) -> Self {
+    pub(crate) fn event_id(mut self, event_id: impl Into<String>) -> Self {
         self.envelope.event_id = event_id.into();
         self
     }
 
-    pub fn caused_by(mut self, causation_id: &str) -> Self {
+    pub(crate) fn caused_by(mut self, causation_id: &str) -> Self {
         self.envelope.causation_id = Some(causation_id.into());
         self
     }
 
-    pub fn attempt(mut self, attempt_id: Option<&str>) -> Self {
+    pub(crate) fn attempt(mut self, attempt_id: Option<&str>) -> Self {
         self.envelope.attempt_id = attempt_id.map(str::to_string);
         self
     }
 
-    pub fn at(mut self, recorded_at: impl Into<String>) -> Self {
+    pub(crate) fn at(mut self, recorded_at: impl Into<String>) -> Self {
         self.envelope.recorded_at = recorded_at.into();
         self
     }
 
-    pub fn previous(mut self, previous_hash: impl Into<String>) -> Self {
+    pub(crate) fn previous(mut self, previous_hash: impl Into<String>) -> Self {
         self.envelope.previous_hash = previous_hash.into();
         self
     }
 
     /// An event hash the test states instead of one sealed from content.
-    pub fn hash(mut self, event_hash: impl Into<String>) -> Self {
+    pub(crate) fn hash(mut self, event_hash: impl Into<String>) -> Self {
         self.envelope.event_hash = event_hash.into();
         self
     }
 
-    pub fn build(self) -> EventEnvelope {
+    pub(crate) fn build(self) -> EventEnvelope {
         self.envelope
     }
 
     /// The event with its hash computed from its content.
-    pub fn sealed(self) -> EventEnvelope {
+    pub(crate) fn sealed(self) -> EventEnvelope {
         self.envelope.sealed()
     }
 }
