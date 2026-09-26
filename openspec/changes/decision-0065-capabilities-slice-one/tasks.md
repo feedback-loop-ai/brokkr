@@ -1910,8 +1910,20 @@ pattern) and SC-2 (`Excluded` had no total bound). Both are **repaired**
   caught and restored.
 - Standing-admission lines: none. 12.1 and 12.2 stay ticked. 15.2 is
   advanced and stays open.
-- Assumption: the 512 bound covers the complete driver refusal and the
-  compile refusal's cause portion, not the compiler's site label.
+- Assumption as first written, **withdrawn** by the third visit: the 512
+  bound covers the complete driver refusal and the compile refusal's cause
+  portion, not the compiler's site label. The closure claim above ("at most
+  512" for the driver only) was incomplete in the same way.
+- Third visit (the second review's return, based on `eba3f1b0`): the
+  compiler's whole line (`bundle: `, the site and the cause) is at most 512.
+  `Refusal::at_compile` cuts the site to what the cause leaves it, never
+  below 64 scalars, and the composition cause bound is 438 (512 − 8 − 64 −
+  2). A tool both admitted and denied is named through `refused` by its tool
+  name alone. There are two new tests, one in protocol and one compiled, on
+  Claude and LaneTally. They were red on `eba3f1b0`, and mutations M1–M4
+  were caught and restored. Three existing expectations moved with the new
+  bound; each move is recorded in evidence.md. Standing-admission lines:
+  none. 12.1 and 12.2 stay ticked; 15.2 stays open.
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
 

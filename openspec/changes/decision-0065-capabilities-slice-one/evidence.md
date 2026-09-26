@@ -11379,7 +11379,10 @@ Production is `crates/brokkr-protocol/src/native_controls.rs` only.
   through `refused` as well: the engine's words, then `Piece::Tool`. See
   "Second visit" below.
 
-Assumption, flagged for review: D6's 512 covers the option/cause portion
+**Superseded by the third visit below.** The second review rejected this
+assumption: the complete compile refusal, site and `bundle: ` included,
+is now bounded to 512 too. The assumption as first written, kept for the
+record: D6's 512 covers the option/cause portion
 (spec `realm-capability-grants`: "The option/cause portion SHALL be at
 most 512 Unicode scalar values").
 Here the bound is the complete driver refusal (a fixed 34-scalar prefix
@@ -11496,8 +11499,9 @@ move, so unit 11's handoff stays closed.
 **Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
 the box), macOS, remote CI and the full engine council.
 
-- Follow-up, not changed here: the compiler's site label is outside the
-  bounded cause portion (see the assumption above).
+- Follow-up as first written, **withdrawn** by the third visit below:
+  the compiler's site label is outside the bounded cause portion (see the
+  assumption above).
 
 ### Second visit — the exclusion clause through the same renderer
 
@@ -11536,3 +11540,143 @@ rejects follow-ups as a reason to defer these diagnostics.
 - Not re-run on this visit: the workspace-wide test and the lib-only
   llvm-cov diagnostic. The new clause lines are executed by the test that
   M7 turned red. External exact coverage stays **pending**.
+
+### Third visit — the second review's return, 2026-09-27
+
+Based on `eba3f1b0`. The second review (gpt-6-astra chief) returned two
+MEDIUM findings, both confirmed by the chief, and one LOW finding:
+
+- C1/S1/SC-D1: the 478-scalar cause budget counted only the driver's
+  34-scalar prefix. `Refusal::at_compile` appended the site, so SC-2's
+  478-scalar cause plus the 59-scalar `bundle: seat 'work' (office
+  'bounded') in realm 'private': ` gave a 537-scalar compile refusal. The
+  compiled test bounded only the cause.
+- Adversarial: `unconsumed` spelled the raw pattern of a tool both admitted
+  and denied (`native_controls.rs:2358` at `eba3f1b0`). For a held `Bash`
+  and `Bash(/private/REVIEW_SENTINEL:*)`, with that pattern in the
+  selection's allow and deny, it said the private path on Claude and
+  LaneTally. The longest pattern gave a 612-scalar cause.
+- LOW: the earlier notes carried result-directed prose. This visit's notes
+  and records state observations only.
+
+#### What changed
+
+Production is `crates/brokkr-protocol/src/native_controls.rs` only.
+
+- `Refusal::at_compile` (`:547`) cuts the site identity to the room the
+  cause leaves of 512 scalars. The room is counted beside the compiler's
+  own `bundle: ` (`COMPILER`, `:1880`, the text of the runtime's
+  `CompileError::Capability`), the `: ` and, for an authored refusal,
+  `its arguments `. The site is never cut below `SITE` = 64 (`:1884`), and
+  the cause is never cut here. A cut site ends in `…` (`shortened`).
+- `CAUSE` (`:1890`) = 512 − 8 − 64 − 2 = 438. Every composition refusal's
+  cause is within 438, so the compiler's whole line is within 512 with a
+  site of at least 64. The driver's line is at most 34 + 438 = 472.
+- `unconsumed` (`:1554`) now renders through `refused` by way of
+  `unconsumed_naming` (`:1561`). The admitted-and-denied refusal (`:2385`)
+  passes `Piece::Tool(tool)`, so it names the tool alone:
+  `tool 'Bash' both admitted and denied`. Every other `unconsumed` form is
+  engine words only, and its text is unchanged.
+
+#### Tests
+
+- New `native_controls/tests.rs:3359`,
+  `a_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity`.
+  It covers Claude and LaneTally, each with the sentinel pattern and the
+  longest pattern. It asserts the exact `compose_for_provider` refusal and
+  the exact `at_launch` text; for Claude it also asserts
+  `adapters::claude_command`. It checks that the text holds no sentinel
+  and has at most 512 scalars.
+- New `capability_launch.rs:7052`,
+  `a_compiled_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity`.
+  It compiles an inline Claude seat and an inline LaneTally seat (LaneTally
+  carries Claude's native declarations, as at `:2290`). Each seat requires
+  `web-fetch`, whose entry admits `[Bash, pattern]` and whose ON selection
+  allows and denies the pattern. The test asserts the exact compile
+  refusals:
+  - with the sentinel, `bundle: seat 'work' (office 'work') in realm
+    'private': the capability plan carries tool 'Bash' both admitted and
+    denied for provider '<driver>', …`;
+  - with the longest pattern and a 300-scalar realm, the site cut to
+    `realm '` + 102 (Claude) or 99 (LaneTally) `r` + `…`. The whole line is
+    exactly 512 scalars (asserted).
+- `every_composition_conflict_is_refused_in_bounded_identities`
+  (`tests.rs:3151`) now asserts:
+  - SC-2's cause is exactly 438 scalars, with the capability `c` + 24 `a` +
+    `…`.
+  - `bundle: ` + `at_compile` of a 300-scalar-realm site is exactly 512,
+    with the site cut to 64.
+  - A fitting site is whole.
+  - An authored 500-scalar cause keeps the site at 64 and its own
+    `its arguments ` whole.
+- `a_compiled_conflict_is_refused_in_bounded_identities`
+  (`capability_launch.rs:6940`) now bounds the whole compile line, not the
+  cause, and its SC-2 capability is `c` + 24 `a` + `…`.
+- Three existing expectations moved with the 438 bound. The Carried
+  sibling's 128-scalar tool is now cut to 114 (`B`/`T` + 112 `a` + `…`) at:
+  - `tests.rs:2979` (`a_carried_refusal_…`, one row);
+  - the carried row of `tests.rs:3151`;
+  - `capability_launch.rs:6757` (`every_position_…`, the longest-pattern
+    row), and the carried row of `:6940`.
+
+  No assertion was removed. Standing-admission lines: none, because every
+  edited line is in the unit's two test files.
+
+#### Baseline reds on `eba3f1b0`
+
+The tests were written first, with production at `eba3f1b0`:
+
+- `tests.rs`: `a_tool_both_admitted_…` FAILED at `:3375`, left `carries
+  tool 'Bash(/private/REVIEW_SENTINEL:*)' both admitted and denied`.
+  `every_composition_…` FAILED at `:3253`, left capability `c` + 64 `a` +
+  `…` (the 478 budget).
+- `capability_launch`: `a_compiled_tool_both_…` FAILED at `:7108`, left
+  `bundle: seat 'work' (office 'work') in realm 'private': the capability
+  plan carries tool 'Bash(/private/REVIEW_SENTINEL:*)' …`.
+  `a_compiled_conflict_…` FAILED at `:7016`, left capability `c` + 64 `a` +
+  `…`.
+
+#### Mutations (each compiled, was caught, then restored)
+
+The failure lines in this subsection and the one above are as observed,
+before the final `cargo fmt` moved lines in `capability_launch.rs`.
+
+- M1, no site cut (`shortened(who, room.max(usize::MAX))`): FAILED at
+  `tests.rs:3286` (the 512 line) and `capability_launch.rs:7121` (the long
+  realm).
+- M2, `CAUSE` back to `512 - "refusing to invoke the agent CLI: ".len()`:
+  FAILED at `tests.rs:3010` and `:3255`, and at `capability_launch.rs:6872`
+  and `:7020`.
+- M3, admitted-and-denied as `Piece::Words(format!("tool '{tool}'"))`:
+  FAILED at `tests.rs:3377` and `capability_launch.rs:7115`.
+- M4, no site floor (`.max(1)`): at first no test failed. The authored
+  500-scalar assertion was added, and M4 then FAILED at `tests.rs:3304`.
+
+#### Gates
+
+- `cargo fmt --all -- --check`: clean. `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warning.
+- `cargo test -p brokkr-protocol --all-features --locked`: lib 497, probe
+  99 (2 ignored), doc 1, with no FAILED or panic
+  (`.forge/unit-12-fix-d-protocol-tests.log`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 `ok`
+  summaries (lib 565, `capability_launch` 51), with no FAILED or panic
+  (`.forge/unit-12-fix-d-runtime-tests.log`).
+- `cargo test -p brokkr-cli --all-features --locked`: 33 `ok` summaries,
+  with no FAILED or panic. It was run because `at_compile` reaches every
+  compile refusal. The workspace-wide single run was not repeated.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`:
+  compiles.
+- Coverage diagnostic: `cargo +nightly llvm-cov -p brokkr-protocol --lib
+  --branch --lcov` (497 passed), then the `native_controls.rs` record
+  searched for `DA:…,0` and `BRDA:…,0|-`.
+  - Unhit: 357–447, 1380 and 1430–1468. These are the same untouched lines
+    the first visit listed (357–447, 1372, 1422–1460), shifted by the
+    eight lines `at_compile` grew.
+  - Every line this visit touched is hit: `at_compile`,
+    `unconsumed`/`unconsumed_naming`, the constants and `:2385`.
+
+**Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
+the box), macOS, remote CI and the full engine council.

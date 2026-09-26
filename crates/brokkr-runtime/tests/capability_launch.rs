@@ -6861,10 +6861,11 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
     // Named by its tool alone, never its permission payload, inside the
     // 512 scalar values D6 bounds the cause to — here the longest
     // grammar-valid pattern, once spelled whole (the returned review's
-    // finding).
+    // finding), its tool cut to what the cause's bound leaves it (rebuild
+    // unit 12-fix-d).
     let longest = format!("B{}", "a".repeat(127));
     let secret = format!("{longest}(/{}/REVIEW_SENTINEL:*)", "s".repeat(230));
-    let cause = untyped("the adapter template's", &longest);
+    let cause = untyped("the adapter template's", &format!("B{}…", "a".repeat(112)));
     assert_eq!(
         templated(&["--allowedTools", &secret], None),
         refused("templated", &cause)
@@ -6931,9 +6932,10 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
 /// naming its tool alone; a
 /// required 200-scalar capability whose 128-scalar tool the template's
 /// limit excludes is refused with the capability cut to what keeps the
-/// cause within 478 scalar values — 512 with the driver's prefix. The
-/// carried sibling, the template's own allowance, renders through the same
-/// function.
+/// cause within 438 scalar values, so the compiler's whole line — its
+/// `bundle: `, the site and the cause — stays within 512 (the second
+/// return). The carried sibling, the template's own allowance, renders
+/// through the same function.
 #[test]
 fn a_compiled_conflict_is_refused_in_bounded_identities() {
     const SENTINEL: &str = "REVIEW_SENTINEL";
@@ -6988,9 +6990,10 @@ fn a_compiled_conflict_is_refused_in_bounded_identities() {
         solo_sealed(&operator, adapters.path(), &context)
     };
     let refused = |cause: &str| {
-        assert!(!cause.contains(SENTINEL), "{cause}");
-        assert!(cause.chars().count() <= 478, "{cause}");
-        format!("bundle: seat 'work' (office 'bounded') in realm 'private': {cause}")
+        let line = format!("bundle: seat 'work' (office 'bounded') in realm 'private': {cause}");
+        assert!(!line.contains(SENTINEL), "{line}");
+        assert!(line.chars().count() <= 512, "{line}");
+        line
     };
     let unheld = |tool: &str| {
         format!(
@@ -7018,7 +7021,7 @@ fn a_compiled_conflict_is_refused_in_bounded_identities() {
              Read) does not name tool '{tool}', which the plan admits for native capability \
              'c{}…'; an explicit tool list is a hard limit that nothing widens, so the conflict \
              is refused whole rather than unioned (design D6)",
-            "a".repeat(64)
+            "a".repeat(24)
         ))
     );
     assert_eq!(
@@ -7029,13 +7032,107 @@ fn a_compiled_conflict_is_refused_in_bounded_identities() {
             &["--allowedTools", &payload]
         ),
         refused(&format!(
-            "the adapter template's '--allowedTools' allow list names tool '{tool}' for provider \
+            "the adapter template's '--allowedTools' allow list names tool 'T{}…' for provider \
              'claude', which no realm holding admits, the site's typed hands do not carry and its \
              typed 'tools.allow' did not lower; an allowance is admitted by the typed \
              contribution that made it, never by its spelling or by the list it stands in \
-             (design D6)"
+             (design D6)",
+            "a".repeat(112)
         ))
     );
+}
+
+/// Rebuild unit 12-fix-d, the second return (design D6): a realm-granted
+/// entry that admits `Bash` and a `Bash(/private/…:*)` its ON selection both
+/// allows and denies is refused at compile by its tool name alone, on
+/// Claude and LaneTally; the longest grammar-valid pattern, at a site whose
+/// realm is 300 scalar values long, is refused with the site cut to what
+/// the cause leaves it, the compiler's whole line within 512.
+#[test]
+fn a_compiled_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity() {
+    const SENTINEL: &str = "REVIEW_SENTINEL";
+    let tool = format!("T{}", "a".repeat(127));
+    let sentinel = format!("Bash(/private/{SENTINEL}:*)");
+    let payload = format!("{tool}(/{}/{SENTINEL}:*)", "s".repeat(230));
+    let compiled = |driver: &str, pattern: &str, realm: &str| {
+        let operator = Operator::new();
+        one_inline_seat(
+            &operator,
+            &[
+                "{brokkr}",
+                "driver",
+                driver,
+                "--",
+                "--model",
+                "claude-opus-5-5",
+                "--effort",
+                "high",
+            ],
+        );
+        let path = operator.root().join("solo/bundle.json");
+        let mut bundle: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        bundle["seats"]["work"]["capabilities"] = json!({"web-fetch": "requires"});
+        write(operator.root(), "solo/bundle.json", &bundle);
+        let name = brokkr_protocol::native_controls::grammar::tool_name(pattern);
+        fetch_dialect(&operator, "bounded", json!([name, pattern]));
+        let path = operator.root().join("dialects/tools/bounded.json");
+        let mut dialect: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        dialect["provider"] = json!(driver);
+        write(operator.root(), "dialects/tools/bounded.json", &dialect);
+        let adapters = copied_adapters();
+        let claude: Value =
+            serde_json::from_slice(&std::fs::read(adapters.path().join("claude.json")).unwrap())
+                .unwrap();
+        edit_adapter(adapters.path(), driver, |adapter| {
+            adapter["native_capabilities"] = claude["native_capabilities"].clone();
+            let fetch = &mut adapter["native_capabilities"]["known"]["web-fetch"];
+            fetch["tools"] = json!([name, pattern]);
+            fetch["on"] =
+                json!({"selection": {"include": [], "allow": [pattern], "deny": [pattern]}});
+        });
+        let mut context = operator.context(json!({"web-fetch": {"dialect": "bounded"}}));
+        context.realm = realm.to_string();
+        solo_sealed(&operator, adapters.path(), &context)
+    };
+    let refused = |site: &str, named: &str, driver: &str| {
+        let line = format!(
+            "bundle: {site}: the capability plan carries tool '{named}' both admitted and denied \
+             for provider '{driver}', which its launch does not consume; a control that cannot \
+             reach the final command is refused rather than recorded and dropped (decision 0066 \
+             ruling 3)"
+        );
+        assert!(!line.contains(SENTINEL), "{line}");
+        assert!(line.chars().count() <= 512, "{line}");
+        line
+    };
+    let long = "r".repeat(300);
+    // The site keeps what the cause leaves it: LaneTally's name is three
+    // scalar values longer than Claude's.
+    for (driver, kept) in [("claude", 102), ("lanetally", 99)] {
+        assert_eq!(
+            compiled(driver, &sentinel, "private"),
+            refused(
+                "seat 'work' (office 'work') in realm 'private'",
+                "Bash",
+                driver
+            ),
+            "{driver}"
+        );
+        let line = compiled(driver, &payload, &long);
+        assert_eq!(
+            line,
+            refused(
+                &format!(
+                    "seat 'work' (office 'work') in realm '{}…",
+                    "r".repeat(kept)
+                ),
+                &tool,
+                driver
+            ),
+            "{driver}"
+        );
+        assert_eq!(line.chars().count(), 512, "{driver}");
+    }
 }
 
 /// `launched […]` for the Claude head followed by `parts`, concatenated.

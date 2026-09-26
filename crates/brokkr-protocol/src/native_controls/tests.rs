@@ -2984,9 +2984,10 @@ fn a_carried_refusal_names_its_tool_and_never_its_permission_payload() {
             format!("Bash(/secret/{SENTINEL}:*)"),
             "tool 'Bash'".to_string(),
         ),
+        // Cut to what the cause's bound leaves it (rebuild unit 12-fix-d).
         (
             format!("{longest}(/{}/{SENTINEL}:*)", "s".repeat(230)),
-            format!("tool '{longest}'"),
+            format!("tool 'B{}…'", "a".repeat(112)),
         ),
         (format!("/secret/{SENTINEL}"), UNPLAIN_TOOL.to_string()),
         (format!("{longest}a{SENTINEL}"), UNPLAIN_TOOL.to_string()),
@@ -3141,10 +3142,11 @@ fn a_limit_refusal_names_bounded_identities_and_never_a_payload() {
 /// path was spelled, and a 128-byte tool with a 249-byte specifier gave a
 /// 572-scalar cause. An excluded holding's tool and capability are bounded
 /// identities, each cut to 128 scalar values and then, the last first, to
-/// what keeps the whole cause within 478 — 512 with the driver's prefix: a
-/// 200-scalar capability beside a 128-scalar tool gave 612. The carried
-/// sibling renders through the same function. The same refusal reaches the
-/// driver's command builder in the words the launch boundary uses.
+/// what keeps the whole cause within 438: a 200-scalar capability beside a
+/// 128-scalar tool gave 612. The carried sibling renders through the same
+/// function. The same refusal reaches the driver's command builder in the
+/// words the launch boundary uses, and the compiler's whole line, its site
+/// cut to what the cause leaves it, stays within 512 (the second return).
 #[test]
 fn every_composition_conflict_is_refused_in_bounded_identities() {
     const SENTINEL: &str = "REVIEW_SENTINEL";
@@ -3196,7 +3198,7 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
             Vec::new(),
             excluded(
                 &format!("tool '{tool}'"),
-                &format!("native capability 'c{}…'", "a".repeat(64)),
+                &format!("native capability 'c{}…'", "a".repeat(24)),
             ),
         ),
         // Alone it fits, and is cut to 128 scalar values.
@@ -3218,7 +3220,8 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
                 "a native capability whose name is not plain",
             ),
         ),
-        // The carried sibling, through the same renderer.
+        // The carried sibling, through the same renderer, its tool cut to
+        // what the cause's bound leaves it.
         (
             argv(&["--allowedTools", &payload]),
             fetch(),
@@ -3226,7 +3229,7 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
             carried_named(
                 "claude",
                 "the adapter template's",
-                &format!("tool '{tool}'"),
+                &format!("tool 'T{}…'", "a".repeat(112)),
             )
             .cause,
         ),
@@ -3265,12 +3268,47 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
         assert!(!said.contains(SENTINEL), "{said}");
         assert!(said.chars().count() <= 512, "{said}");
     }
-    // SC-2's cause is cut to the bound exactly, the driver's to 512.
+    // SC-2's cause is cut to the bound exactly: 438, which leaves the
+    // compiler's `bundle: ` and a site of 64 scalar values within 512.
     let full = excluded(
         &format!("tool '{tool}'"),
-        &format!("native capability 'c{}…'", "a".repeat(64)),
+        &format!("native capability 'c{}…'", "a".repeat(24)),
     );
-    assert_eq!(full.chars().count(), 478);
+    assert_eq!(full.chars().count(), 438);
+    // The compiler's whole line keeps 512 however long the site's identity
+    // is: the site is cut to what the cause leaves it, never the cause.
+    let refusal = Refusal {
+        authored: false,
+        cause: full.clone(),
+    };
+    let site = format!("seat 'work' (office 'o') in realm '{}'", "r".repeat(300));
+    let compiled = format!("bundle: {}", refusal.at_compile(&site));
+    assert_eq!(
+        compiled,
+        format!(
+            "bundle: seat 'work' (office 'o') in realm '{}…: {full}",
+            "r".repeat(28)
+        )
+    );
+    assert_eq!(compiled.chars().count(), 512);
+    // A site that fits is whole; one beside a cause that leaves it less
+    // keeps 64 scalar values, and the cause is never cut.
+    assert_eq!(
+        refusal.at_compile("seat 'work'"),
+        format!("seat 'work': {full}")
+    );
+    let long = Refusal {
+        authored: true,
+        cause: "x".repeat(500),
+    };
+    assert_eq!(
+        long.at_compile(&site),
+        format!(
+            "seat 'work' (office 'o') in realm '{}…: its arguments {}",
+            "r".repeat(28),
+            "x".repeat(500)
+        )
+    );
     // The exclusion's clause — the dropped holding's note the seat and the
     // manifest carry — renders its tool through the same function.
     for (held_tool, named) in [
@@ -3308,6 +3346,61 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
             exclusion.refusal.cause,
             excluded(&named, "native capability 'web-fetch'")
         );
+    }
+}
+
+/// Rebuild unit 12-fix-d, the second return's adversarial finding (design
+/// D6): a tool the plan both admits and denies is refused through the same
+/// bounded renderer, by its tool name alone. A held
+/// `Bash(/private/…:*)` that the selection allows and denies spelled its
+/// private path, and the longest grammar-valid pattern gave a 612-scalar
+/// cause, on Claude and LaneTally alike.
+#[test]
+fn a_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity() {
+    const SENTINEL: &str = "REVIEW_SENTINEL";
+    let tool = format!("T{}", "a".repeat(127));
+    for (pattern, named) in [
+        (
+            format!("Bash(/private/{SENTINEL}:*)"),
+            "tool 'Bash'".to_string(),
+        ),
+        (
+            format!("{tool}(/{}/{SENTINEL}:*)", "s".repeat(230)),
+            format!("tool '{tool}'"),
+        ),
+    ] {
+        for provider in ["claude", "lanetally"] {
+            let plan = json!({
+                "inventory": "known", "provider": provider, "harness": provider,
+                "on": ["web-fetch"], "off": ["web-search"],
+                "admits": {"web-fetch": [crate::native_controls::grammar::tool_name(&pattern),
+                                         pattern]},
+                "argv": [],
+                "selection": {"include": [], "allow": [pattern], "deny": [pattern], "flags": {
+                    "include": {"flag": "--tools", "separator": ","},
+                    "allow": {"flag": "--allowedTools", "separator": ","},
+                    "deny": {"flag": "--disallowedTools", "separator": ","}
+                }},
+                "guards": []
+            });
+            let controls = managed(&json!({"native_controls": plan})).unwrap().unwrap();
+            let refusal = compose_for_provider(provider, &[], &[], &controls)
+                .expect_err("a tool both admitted and denied");
+            let expected = form_refusal(provider, &format!("{named} both admitted and denied"));
+            assert_eq!(refusal, expected, "{provider}: {plan}");
+            let input = json!({"seat": "work", "native_controls": plan,
+                               "launch_arguments": {"authored": [], "managed": []}});
+            let said = format!("refusing to invoke the agent CLI: {}", expected.cause);
+            assert_eq!(refusal.at_launch(&input), said, "{provider}");
+            if provider == "claude" {
+                assert_eq!(
+                    crate::adapters::claude_command("claude", &[], None, &input),
+                    Err(said.clone())
+                );
+            }
+            assert!(!said.contains(SENTINEL), "{said}");
+            assert!(said.chars().count() <= 512, "{said}");
+        }
     }
 }
 

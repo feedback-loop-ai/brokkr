@@ -539,12 +539,20 @@ impl Refusal {
         }
     }
 
-    /// The refusal as the compiler states it, after naming the site.
+    /// The refusal as the compiler states it, after naming the site. The
+    /// site is cut to what the cause leaves of 512 scalar values beside the
+    /// compiler's own [`COMPILER`] words, never below [`SITE`] — which every
+    /// composition refusal's cause leaves ([`CAUSE`]; design D6) — and the
+    /// cause is never cut here.
     pub fn at_compile(&self, who: &str) -> String {
-        match self.authored {
-            false => format!("{who}: {}", self.cause),
-            true => format!("{who}: its arguments {}", self.cause),
-        }
+        let words = match self.authored {
+            false => "",
+            true => "its arguments ",
+        };
+        let room = 512usize
+            .saturating_sub(COMPILER.len() + ": ".len() + words.len() + self.cause.chars().count())
+            .max(SITE);
+        format!("{}: {words}{}", shortened(who, room), self.cause)
     }
 }
 
@@ -1544,14 +1552,21 @@ fn unanswered(provider: &str, problem: &str) -> Refusal {
 }
 
 fn unconsumed(provider: &str, form: &str) -> Refusal {
-    Refusal {
-        authored: false,
-        cause: format!(
-            "the capability plan carries {form} for provider '{provider}', which its launch does \
-             not consume; a control that cannot reach the final command is refused rather than \
-             recorded and dropped (decision 0066 ruling 3)"
-        ),
-    }
+    unconsumed_naming(provider, vec![Piece::Words(form.to_string())])
+}
+
+/// [`unconsumed`], whose form names a tool or a capability: rendered by
+/// [`refused`], so an identity is bounded and a payload never said
+/// (rebuild unit 12-fix-d; design D6).
+fn unconsumed_naming(provider: &str, form: Vec<Piece<'_>>) -> Refusal {
+    let mut pieces = vec![Piece::Words("the capability plan carries ".to_string())];
+    pieces.extend(form);
+    pieces.push(Piece::Words(format!(
+        " for provider '{provider}', which its launch does not consume; a control that cannot \
+         reach the final command is refused rather than recorded and dropped (decision 0066 \
+         ruling 3)"
+    )));
+    refused(pieces)
 }
 
 /// Which engine contribution carries one explicit tool list (rebuild unit
@@ -1860,9 +1875,19 @@ enum Piece<'a> {
     Capability(&'a str),
 }
 
-/// The scalar values a composition refusal's cause takes at most: 512 with
-/// the driver's prefix before it (design D6).
-const CAUSE: usize = 512 - "refusing to invoke the agent CLI: ".len();
+/// The compiler's own words before a capability refusal's site: the
+/// runtime's `CompileError::Capability` renders as `bundle: {0}`.
+const COMPILER: &str = "bundle: ";
+
+/// The scalar values of a site's identity that a compiled refusal keeps at
+/// least ([`Refusal::at_compile`]).
+const SITE: usize = 64;
+
+/// The scalar values a composition refusal's cause takes at most, so that
+/// the compiler's whole line — its own words, a site cut to [`SITE`] and
+/// the cause — is within 512 (design D6; the driver's own prefix is
+/// shorter).
+const CAUSE: usize = 512 - COMPILER.len() - SITE - ": ".len();
 
 /// The scalar values one spelled identity takes at most.
 const IDENTITY: usize = 128;
@@ -1873,9 +1898,8 @@ const IDENTITY: usize = 128;
 /// payload — where the managed grammar reads it as a plain name, and a
 /// capability by its name where it is a capability name; any other by a
 /// fixed label. Each spelled name is cut to 128 scalar values, and where
-/// the whole cause would pass 478 — 512 with the driver's prefix — the
-/// names are cut further, the last first, never the engine's words. A cut
-/// name ends in `…`.
+/// the whole cause would pass [`CAUSE`] the names are cut further, the last
+/// first, never the engine's words. A cut name ends in `…`.
 fn refused(pieces: Vec<Piece<'_>>) -> Refusal {
     let parts: Vec<(String, &str, &str)> = pieces
         .into_iter()
@@ -2355,10 +2379,15 @@ pub fn compose_or_exclude(
                 .iter()
                 .chain(folding[0].all())
                 .collect();
+            // Named by its tool alone, through the one bounded renderer
+            // (rebuild unit 12-fix-d): the pattern's payload is never said.
             if let Some(tool) = folding[1].all().into_iter().find(|t| admitted.contains(t)) {
-                return Err(unconsumed(
+                return Err(unconsumed_naming(
                     provider,
-                    &format!("tool '{tool}' both admitted and denied"),
+                    vec![
+                        Piece::Tool(tool),
+                        Piece::Words(" both admitted and denied".to_string()),
+                    ],
                 )
                 .into());
             }
