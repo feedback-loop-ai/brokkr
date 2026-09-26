@@ -341,6 +341,9 @@ const SUPPRESSIONS: &str = "# by lint
     5 expect clippy::too_many_lines
 ";
 
+/// A budget file (#342): ceilings its own gate holds the tree to.
+const BUDGETS: &str = r#"{"budgets":{"a/x":10,"a/y":20}}"#;
+
 /// Commit a set of baselines as the base a pull request is compared with.
 fn baselined(at: &Path) {
     write(at, "quality/crap-baseline.json", &crap_baseline(20, 3, &[]));
@@ -360,6 +363,7 @@ fn baselined(at: &Path) {
     write(at, "quality/duplicate-skips.txt", "syn@1.0.0\nsyn@2.0.0\n");
     write(at, "quality/mutants/brokkr-core.missed.txt", MISS);
     write(at, "quality/mutants/brokkr-view.missed.txt", "");
+    write(at, "quality/prompt-bytes.json", BUDGETS);
     git(at, &["add", "-A"]);
     git(at, &["commit", "-q", "-m", "base"]);
 }
@@ -402,6 +406,9 @@ fn raise_everything(at: &Path) -> Vec<&'static str> {
     );
     let misses = MISS.to_owned() + "crates/demo/src/lib.rs:9:1: replace g with ()\n";
     write(at, "quality/mutants/brokkr-core.missed.txt", &misses);
+    let budgets = r#"{"budgets":{"a/x":11,"a/y":20,"a/z":1}}"#;
+    write(at, "quality/prompt-bytes.json", budgets);
+    write(at, "quality/heap-bytes.json", r#"{"budgets":{"k":5}}"#);
     vec![
         "crap-baseline.json: ./crates/demo/src/lib.rs big #0 at CC 21 (was 20)",
         "crap-baseline.json: ./crates/demo/src/lib.rs fresh #0 at CC 16 (was absent)",
@@ -418,6 +425,9 @@ fn raise_everything(at: &Path) -> Vec<&'static str> {
         "suppressions.txt: test allow dead_code at 1 (was 0)",
         "duplicate-skips.txt: new skip syn@3.0.0",
         "quality/mutants/brokkr-core.missed.txt: new miss crates/demo/src/lib.rs:9:1: replace g with ()",
+        "prompt-bytes.json: a/x at 11 (was 10)",
+        "prompt-bytes.json: a/z at 1 (was absent)",
+        "heap-bytes.json: k at 5 (was absent)",
     ]
 }
 
@@ -513,7 +523,7 @@ fn a_baseline_this_check_cannot_read_is_refused_under_any_ruling() {
 fn unreadable_shapes_are_refused(at: &Path, ruled: Option<&str>) {
     let no_cc = crap_baseline(21, 3, &[]).replace(r#""cyclomatic":21"#, r#""complexity":21"#);
     let not_counts = r#"{"version":1,"fingerprints":{"aa":"one"}}"#;
-    let cases: [(&str, &str, &str); 7] = [
+    let cases: [(&str, &str, &str); 8] = [
         (
             "quality/crap-baseline.json",
             &no_cc,
@@ -548,6 +558,11 @@ fn unreadable_shapes_are_refused(at: &Path, ruled: Option<&str>) {
             "quality/duplicate-skips.txt",
             "syn 2.0.0\n",
             "duplicate-skips.txt:1 is not \"<crate>@<version>\" (here)",
+        ),
+        (
+            "quality/prompt-bytes.json",
+            r#"{"budgets":{"a/x":10.5,"a/y":20}}"#,
+            "prompt-bytes.json: no budgets object of whole numbers (here)",
         ),
     ];
     for (path, text, refusal) in cases {
@@ -592,6 +607,7 @@ fn a_lowered_baseline_needs_no_ruling_but_a_changed_rule_does() {
         &SUPPRESSIONS.replace("    5 expect", "    4 expect"),
     );
     write(at, "quality/duplicate-skips.txt", "syn@2.0.0\n");
+    write(at, "quality/prompt-bytes.json", r#"{"budgets":{"a/x":9}}"#);
     assert_holds(
         &ratchet(at, &["baselines", "HEAD"], None),
         "ratchet: no baseline raised since HEAD",

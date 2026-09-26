@@ -10,8 +10,8 @@ set -euo pipefail
 binary="$1"
 budget_file="$2"
 
-budget="$(jq -er '.bytes | select(type == "number" and . == floor and . > 0)' "$budget_file")" || {
-  printf 'binary size refusal: %s holds no whole positive "bytes"\n' "$budget_file" >&2
+budget="$(jq -er '.budgets.bytes | select(type == "number" and . == floor and . > 0)' "$budget_file")" || {
+  printf 'binary size refusal: %s holds no whole positive budgets.bytes\n' "$budget_file" >&2
   exit 1
 }
 size="$(wc -c < "$binary")"

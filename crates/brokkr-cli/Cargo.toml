@@ -102,6 +102,11 @@ insta = "=1.48.0"
 # Decision 0014's dependency ruling of 2026-09-26 (#342): instruction-count
 # budgets under Valgrind, run by CI on Linux only against the merge-base.
 gungraun = "=0.19.4"
+# Decision 0014's dependency ruling of 2026-09-26 (#342): the heap budgets
+# for projecting a transcript at the reader's source cap, one kind per test
+# binary because dhat allows one profiler per process. Here rather than in
+# brokkr-view, whose dependency set is closed (decision 0071 ruling 1).
+dhat = "=0.3.3"
 
 # The CPU budgets (#342). Library benches measure the fold, the run view,
 # a compile of bundles/self and one TUI frame; binary benches measure the

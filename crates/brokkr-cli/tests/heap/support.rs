@@ -1,7 +1,13 @@
 //! Shared by the heap-budget binaries (#342): one deterministic transcript
 //! per kind at the reader's source cap, and the peak heap its projection
 //! holds, measured by dhat. dhat allows one profiler per process, so each
-//! kind is its own test binary and this module is its whole body.
+//! kind is its own test binary and this module is its whole body. The
+//! binaries live here, in the crate that serves the transcript, rather than
+//! in brokkr-view: a pure crate's dependency set is closed (decision 0071
+//! ruling 1), and a heap profiler clocks, walks stacks and writes a file,
+//! which no pure crate may name, even in its tests.
+
+use std::path::PathBuf;
 
 use brokkr_view::transcript::{project, Snapshot, TranscriptKind, SOURCE_CAP};
 
@@ -87,10 +93,25 @@ fn source(kind: TranscriptKind) -> Vec<u8> {
     text.into_bytes()
 }
 
+/// The committed budget of `kind`, read from `quality/heap-bytes.json` by
+/// the kind's own name. A kind with no whole-number budget refuses.
+fn budget(kind: TranscriptKind) -> u64 {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../quality/heap-bytes.json");
+    let text = std::fs::read_to_string(&path).expect("quality/heap-bytes.json reads");
+    let file: serde_json::Value =
+        serde_json::from_str(&text).expect("quality/heap-bytes.json is JSON");
+    let name = serde_json::to_value(kind).expect("a kind serializes");
+    let name = name.as_str().expect("a kind serializes to its name");
+    file["budgets"][name]
+        .as_u64()
+        .unwrap_or_else(|| panic!("quality/heap-bytes.json holds no whole budget for {name}"))
+}
+
 /// Project the largest admitted source of `kind` under dhat and hold its
-/// peak heap to `budget` bytes. The source is built before the profiler
-/// starts, so only the projection's own allocations count.
-pub fn assert_within(kind: TranscriptKind, budget: u64) {
+/// peak heap to the committed budget. The source is built before the
+/// profiler starts, so only the projection's own allocations count. The
+/// measurement is printed for `scripts/measure-budgets.sh`.
+pub(crate) fn assert_within(kind: TranscriptKind) {
     let bytes = source(kind);
     let profiler = dhat::Profiler::builder().testing().build();
     let snapshot = Snapshot {
@@ -103,6 +124,12 @@ pub fn assert_within(kind: TranscriptKind, budget: u64) {
     drop(profiler);
     assert!(projection.unavailable.is_none(), "the source projects");
     assert!(!projection.turns.is_empty(), "the projection holds turns");
+    let name = serde_json::to_value(kind).expect("a kind serializes");
+    println!(
+        "heap\t{}\t{peak}",
+        name.as_str().expect("a kind serializes to its name")
+    );
+    let budget = budget(kind);
     assert!(
         peak <= budget,
         "projecting {} bytes of {kind:?} into {} turns held {peak} heap bytes at its peak; \

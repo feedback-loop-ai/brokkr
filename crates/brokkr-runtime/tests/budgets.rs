@@ -110,10 +110,28 @@ fn shipped() -> Vec<(String, Bundle)> {
     bundles
 }
 
+/// The input the engine composes for one model site: the office's text,
+/// the realm's house rules and, outside review, the dialect's instructions
+/// for the phase, the largest input the engine composes for that site.
+fn seat_input(site: &Site, phase: &str, house: &str, dialect: Option<&String>) -> Value {
+    let mut input = json!({
+        "role_path": site.role_path.to_string_lossy(),
+        "feature": "the feature under delivery",
+        "phase": phase,
+        "workdir": "/repo",
+        "allowed_results": site.results,
+        "context": {},
+        "result_path": "/repo/.forge/results/effect.json",
+        "house_rules": house,
+    });
+    if let Some(dialect) = dialect.filter(|_| phase != "review") {
+        input["spec_dialect"] = json!(dialect);
+    }
+    input
+}
+
 /// The prompt every model site is handed, rendered by the driver's own
-/// function over the input the engine composes: the office's text, the
-/// realm's house rules and, outside review, the dialect's instructions for
-/// the phase (the largest input the engine composes for that site).
+/// function over the input the engine composes (see [`seat_input`]).
 fn prompts() -> BTreeMap<String, String> {
     let house =
         std::fs::read_to_string(root().join("docs/house-rules.md")).expect("the house reads");
@@ -123,21 +141,7 @@ fn prompts() -> BTreeMap<String, String> {
             let mut sites = Vec::new();
             walk(&mut sites, phase, &seat.body, &seat.results);
             for site in sites {
-                let mut input = json!({
-                    "role_path": site.role_path.to_string_lossy(),
-                    "feature": "the feature under delivery",
-                    "phase": phase,
-                    "workdir": "/repo",
-                    "allowed_results": site.results,
-                    "context": {},
-                    "result_path": "/repo/.forge/results/effect.json",
-                    "house_rules": house,
-                });
-                if let Some(dialect) = bundle.dialect_prompts.get(phase) {
-                    if phase != "review" {
-                        input["spec_dialect"] = json!(dialect);
-                    }
-                }
+                let input = seat_input(&site, phase, &house, bundle.dialect_prompts.get(phase));
                 let prompt = render_prompt(&input, AdapterKind::Claude)
                     .unwrap_or_else(|error| panic!("{name}/{}: {error}", site.label));
                 prompts.insert(format!("{name}/{}", site.label), prompt);
@@ -228,10 +232,11 @@ fn packages(lock: &str) -> Result<u64, String> {
 fn the_lockfile_holds_no_more_packages_than_its_committed_count() {
     let lock = std::fs::read_to_string(root().join("Cargo.lock")).expect("Cargo.lock reads");
     let count = packages(&lock).unwrap_or_else(|refusal| panic!("{refusal}"));
+    println!("packages\t{count}");
     let file = committed("crate-count.json");
-    let budget = file["packages"]
+    let budget = file["budgets"]["packages"]
         .as_u64()
-        .expect("crate-count.json holds a packages number");
+        .expect("crate-count.json holds a budgets.packages number");
     assert!(
         count <= budget,
         "Cargo.lock holds {count} packages; the committed count is {budget}. A new \

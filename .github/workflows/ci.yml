@@ -660,23 +660,34 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: valgrind and the gungraun runner the library pins
+      # The runner must be the library's own version, so it is read from
+      # Cargo.lock rather than pinned a second time here: brokkr-cli's
+      # `gungraun = "=X.Y.Z"` is its one home, moved by hand like every
+      # Cargo.toml requirement.
+      - name: valgrind, and the gungraun runner at the library's version
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q valgrind
-          cargo install --locked gungraun-runner --version 0.19.4
+          version="$(awk '$0 == "name = \"gungraun\"" { getline; gsub(/^version = "|"$/, ""); print }' Cargo.lock)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Cargo.lock holds no single gungraun version" >&2; exit 1; }
+          cargo install --locked gungraun-runner --version "$version"
+          echo "GUNGRAUN_VERSION=$version" >> "$GITHUB_ENV"
       - name: the base's counts
         run: |
           export GUNGRAUN_HOME="$RUNNER_TEMP/gungraun"
           git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
-          if [ -f "$RUNNER_TEMP/base/crates/brokkr-cli/benches/budgets_lib.rs" ]; then
-            cd "$RUNNER_TEMP/base"
-            cargo bench --locked -p brokkr-cli --bench budgets_lib --bench budgets_bin -- --save-baseline=base
-          else
+          cd "$RUNNER_TEMP/base"
+          base="$(awk '$0 == "name = \"gungraun\"" { getline; gsub(/^version = "|"$/, ""); print }' Cargo.lock)"
+          if [ ! -f crates/brokkr-cli/benches/budgets_lib.rs ]; then
             echo "the base carries no CPU budgets yet; this run records the first counts"
+          elif [ "$base" != "$GUNGRAUN_VERSION" ]; then
+            echo "the base measures with gungraun $base, this merge with $GUNGRAUN_VERSION; this run records the first counts"
+          else
+            cargo bench --locked -p brokkr-cli --bench budgets_lib --bench budgets_bin -- --save-baseline=base
           fi
       - name: this merge's counts, 2% over the base at most
         run: |

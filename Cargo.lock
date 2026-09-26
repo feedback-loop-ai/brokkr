@@ -367,6 +367,7 @@ dependencies = [
  "brokkr-store",
  "brokkr-view",
  "clap",
+ "dhat",
  "gungraun",
  "insta",
  "ratatui",
@@ -453,7 +454,6 @@ name = "brokkr-view"
 version = "0.11.0"
 dependencies = [
  "brokkr-core",
- "dhat",
  "serde",
  "serde_json",
 ]

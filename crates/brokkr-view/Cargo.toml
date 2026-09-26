@@ -14,9 +14,3 @@ workspace = true
 brokkr-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-[dev-dependencies]
-# Decision 0014's dependency ruling of 2026-09-26 (#342): the heap budgets
-# for projecting a transcript at the reader's source cap, one kind per test
-# binary because dhat allows one profiler per process.
-dhat = "=0.3.3"
