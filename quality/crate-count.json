@@ -1,0 +1,7 @@
+{
+  "schema": "brokkr.crate-count/v1",
+  "note": "The [[package]] tables Cargo.lock holds, measured 2026-09-26 by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which refuses any count above this one. bincode-next is held at 2.1.0 because 3.x needs rustc 1.90 and the MSRV job checks every target on 1.88. A dependency moves the count in the pull request that adds it.",
+  "budgets": {
+    "packages": 327
+  }
+}

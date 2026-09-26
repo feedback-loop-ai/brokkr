@@ -12,6 +12,7 @@
 
 mod agents;
 mod boundary;
+mod budget_frame;
 mod cli_args;
 mod compare;
 mod doctor;
@@ -26,12 +27,11 @@ mod selector;
 mod tui;
 mod ui;
 
-// Test seams for the 11.2 cross-surface proof: the same local reader,
-// HTTP handler and TUI renderers the binary serves, reachable from the
-// integration test. Hidden from documentation and not part of the CLI's
-// supported surface.
+// Test seams, hidden from documentation and outside the CLI's supported
+// surface: the renderers the binary serves, for 11.2's cross-surface proof,
+// and the TUI frame #342's CPU budget draws.
 #[doc(hidden)]
-pub use tui::transcript_surfaces_for_test;
+pub use crate::{budget_frame::run_frame_for_budget, tui::transcript_surfaces_for_test};
 #[doc(hidden)]
 pub use ui::{handle, read_local, Response};
 

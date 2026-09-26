@@ -1,0 +1,7 @@
+{
+  "schema": "brokkr.binary-size/v1",
+  "note": "Bytes of target/release/brokkr as CI's release-binary job builds it (x86_64-unknown-linux-gnu, rust 1.98.0, --locked, [profile.release] as the root Cargo.toml leaves it), read from main's artifact at 6ad4a928 on 2026-09-26 (19,602,920 at 97b6653d). scripts/binary-size.sh holds each build within one per cent of this number either way. A local build embeds different source paths and is not comparable.",
+  "budgets": {
+    "bytes": 19650200
+  }
+}

@@ -241,6 +241,11 @@ too_many_lines_keyed() {
 #                          measurement, here or at the base;
 #              from-empty  zero is allowed only where the base was already
 #                          empty (or absent).
+#            A `budgets` listing holds ceilings that a gate of its own reads
+#            (#342): the budget tests in crates/brokkr-runtime/tests/budgets.rs
+#            and crates/brokkr-cli/tests/heap_*.rs, and scripts/binary-size.sh
+#            in the release-binary job. Here, a ceiling that rose or is new is
+#            raised; one that fell or went is a shrink.
 # A listing whose head reads zero entries where the base had some is read as
 # a measurement that failed, and no ruling passes it. A file under quality/
 # that no row names is refused, so a new baseline cannot arrive unguarded.
@@ -260,6 +265,10 @@ quality/jscpd-baseline-*.json   listing fingerprints   from-empty
 quality/suppressions.txt        listing suppressions   from-empty
 quality/duplicate-skips.txt     listing skips          from-empty
 quality/mutants/*.missed.txt    listing lines          from-empty
+quality/binary-size.json        listing budgets        never
+quality/crate-count.json        listing budgets        never
+quality/heap-bytes.json         listing budgets        never
+quality/prompt-bytes.json       listing budgets        never
 TABLE
 }
 
@@ -283,6 +292,7 @@ entries() {
   case "$1" in
     crap-entries) jq -e '.entries | length' "$2" 2> /dev/null; return 0 ;;
     fingerprints) jq -e '.fingerprints | length' "$2" 2> /dev/null; return 0 ;;
+    budgets) jq -e '(.budgets // {}) | objects | [.[] | numbers] | length' "$2" 2> /dev/null; return 0 ;;
     file-lines) pattern='^ *[0-9]+ [^ ]+$' ;;
     long-functions) pattern='^ *[0-9]+ [^ ]+:[0-9]+( [A-Za-z0-9_]+)?$' ;;
     suppressions) pattern='^ *[0-9]+ (expect|allow) +[^ ]+$' ;;
@@ -423,6 +433,18 @@ raised_since() {
     [ -f "$scratch/base" ] || { [ -s "$path" ] && printf '%s: a new allow-list (was absent)\n' "$path" >> "$scratch/raised"; continue; }
     { grep -vxF -f "$scratch/base" "$path" || true; } | { grep -E '^[^#[:space:]]' || true; } |
       sed "s|^|$path: new miss |" >> "$scratch/raised"
+  done
+  # Budgets (#342): a ceiling that rose, or a new one, in a file whose gate
+  # holds the tree to it. A file new since <rev> raises every ceiling in it.
+  for path in $(quality_table | awk '$3 == "budgets" { print $1 }'); do
+    [ -e "$path" ] || continue
+    base_file "$rev" "$path" "$scratch/base"
+    [ -f "$scratch/base" ] || printf '{"budgets": {}}\n' > "$scratch/base"
+    json_holds "$path" '(.budgets | type) == "object"
+      and all(.budgets[]; type == "number" and . >= 0 and . == floor)' "no budgets object of whole numbers" || continue
+    jq -r -n --arg path "${path#quality/}" --slurpfile base "$scratch/base" --slurpfile head "$path" '
+      $head[0].budgets | to_entries[] | select(.value > ($base[0].budgets[.key] // -1))
+      | "\($path): \(.key) at \(.value) (was \($base[0].budgets[.key] // "absent"))"' >> "$scratch/raised"
   done
   # Public API: each crate's public items, and serde_json::Value in
   # brokkr-core's signatures (decision 0071 ruling 3). Every library crate
