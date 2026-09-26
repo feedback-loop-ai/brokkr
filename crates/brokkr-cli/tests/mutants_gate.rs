@@ -38,6 +38,14 @@ mkdir -p "$out/mutants.out"
 exit "${STUB_STATUS:-0}"
 "#;
 
+/// Stands in for `wc`, padding the host's count as macOS's `wc` does, so
+/// every case sees the counts a macOS runner prints. `STUB_PATH` is the
+/// host's own `PATH`.
+const PADDING_WC: &str = r#"#!/usr/bin/env bash
+count="$(PATH="$STUB_PATH" wc "$@")" || exit
+printf '%8s\n' "$count"
+"#;
+
 struct Gate {
     dir: tempfile::TempDir,
 }
@@ -47,10 +55,12 @@ impl Gate {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("bin")).unwrap();
         std::fs::create_dir_all(dir.path().join("allow")).unwrap();
-        let stub = dir.path().join("bin/cargo");
-        std::fs::write(&stub, STUB).unwrap();
-        let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
-        std::fs::set_permissions(&stub, mode).unwrap();
+        for (name, body) in [("cargo", STUB), ("wc", PADDING_WC)] {
+            let stub = dir.path().join("bin").join(name);
+            std::fs::write(&stub, body).unwrap();
+            let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+            std::fs::set_permissions(&stub, mode).unwrap();
+        }
         for crate_name in ["brokkr-core", "brokkr-protocol"] {
             let allow = dir.path().join(format!("allow/{crate_name}.missed.txt"));
             std::fs::write(
@@ -73,17 +83,15 @@ impl Gate {
 
     /// Run `scripts/mutants.sh <args>` from the repository at `cwd`.
     fn run_in(&self, cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
-        let path = format!(
-            "{}:{}",
-            self.path("bin").display(),
-            std::env::var("PATH").unwrap()
-        );
+        let host = std::env::var("PATH").unwrap();
+        let path = format!("{}:{host}", self.path("bin").display());
         let mut command = Command::new("bash");
         command
             .arg(workspace().join("scripts/mutants.sh"))
             .args(args)
             .current_dir(cwd)
             .env("PATH", path)
+            .env("STUB_PATH", host)
             .env("MUTANTS_OUT", self.path("out"))
             .env("MUTANTS_ALLOW", self.path("allow"))
             .env("STUB_ARGV", self.path("argv"))
@@ -169,7 +177,7 @@ fn a_miss_no_committed_one_accounts_for_fails_the_gate_by_name() {
 fn a_committed_miss_at_a_moved_line_passes_the_gate() {
     let output = Gate::new().verdict(&[KNOWN_MOVED]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert!(text(&output.stdout).contains("misses this diff adds: 0"));
+    assert!(text(&output.stdout).contains("misses this diff adds: 0 (1 missed,"));
 }
 
 #[test]
@@ -177,7 +185,9 @@ fn a_second_miss_of_a_committed_file_and_mutation_fails_the_gate() {
     let output = Gate::new().verdict(&[KNOWN_MOVED, KNOWN_AGAIN]);
     assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
     let stdout = text(&output.stdout);
-    assert!(stdout.contains("misses this diff adds: 1"), "{stdout}");
+    assert!(stdout.contains("misses this diff adds: 1\n"), "{stdout}");
+    let stderr = text(&output.stderr);
+    assert!(stderr.contains("this diff adds 1 brokkr-core"), "{stderr}");
     assert!(stdout.contains(&format!("- {KNOWN_AGAIN}")), "{stdout}");
     assert!(!stdout.contains(&format!("- {KNOWN_MOVED}")), "{stdout}");
 }

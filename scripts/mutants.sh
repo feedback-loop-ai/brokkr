@@ -101,6 +101,9 @@ known() {
 
 summary() { tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"; }
 
+# The lines in $1. macOS's wc pads its count with spaces; GNU's does not.
+count() { wc -l < "$1" | tr -d ' '; }
+
 # Print the misses in $1 that no committed allow-list names. Identities
 # are counted, so a second miss of a committed file and mutation is new.
 # Only a run over the whole scope may subtract: a run over part of it
@@ -111,7 +114,7 @@ report_scope() {
   known > "$committed"
   identity "$1" | comm -23 - "$committed" > "$fresh"
   {
-    printf '### Mutants no committed miss names: %s\n\n' "$(wc -l < "$fresh")"
+    printf '### Mutants no committed miss names: %s\n\n' "$(count "$fresh")"
     sed 's/^/- /' "$fresh"
   } | summary
   rm -f "$committed" "$fresh"
@@ -124,7 +127,7 @@ report_diff() {
   committed="$(mktemp)"
   known > "$committed"
   {
-    printf '### Mutants missed in this diff: %s\n\n' "$(wc -l < "$1")"
+    printf '### Mutants missed in this diff: %s\n\n' "$(count "$1")"
     while IFS= read -r line; do
       id="$(printf '%s\n' "$line" | identity)"
       if grep -qxF -e "$id" "$committed"; then
@@ -141,7 +144,7 @@ report_diff() {
 timeouts() {
   [ -s "$1" ] || return 0
   {
-    printf '\n### Timeouts, each a possible hidden miss: %s\n\n' "$(wc -l < "$1")"
+    printf '\n### Timeouts, each a possible hidden miss: %s\n\n' "$(count "$1")"
     sed 's/^/- /' "$1"
   } | summary
 }
@@ -186,16 +189,16 @@ gate_misses() {
   ' "$1" - > "$fresh"
   if [ -s "$fresh" ]; then
     {
-      printf '### brokkr-core misses this diff adds: %s\n\n' "$(wc -l < "$fresh")"
+      printf '### brokkr-core misses this diff adds: %s\n\n' "$(count "$fresh")"
       sed 's/^/- /' "$fresh"
     } | summary
     printf 'mutants: this diff adds %s brokkr-core miss(es); a test must catch each (the #289 gate)\n' \
-      "$(wc -l < "$fresh")" >&2
+      "$(count "$fresh")" >&2
     rm -f "$fresh"
     return 1
   fi
   printf '### brokkr-core misses this diff adds: 0 (%s missed, each a committed miss)\n' \
-    "$(wc -l < "$2")" | summary
+    "$(count "$2")" | summary
   rm -f "$fresh"
 }
 
