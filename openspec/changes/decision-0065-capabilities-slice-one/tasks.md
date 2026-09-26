@@ -1715,6 +1715,34 @@ held SECURITY-HOLD on R1, R2 and R3.
 - 12.2 stays ticked, and 15.2 is advanced.
 - **Pending:** exact coverage outside the box, macOS and remote CI.
 
+Unit 12-fix-b (2026-09-26, run `0065-rebuild-unit-12-see-the-uni-ab0a1e57`),
+the second repair after the council's SECURITY-HOLD on R1–R6: **oversized,
+nothing landed** (evidence.md, "Unit 12-fix-b — oversized"). The one
+function was completed against I1–I3, and the in-scope patch passes its
+own suites and gates. It changes two assertions in
+`crates/brokkr-protocol/src/adapters/tests.rs`, outside the unit's files
+and outside both standing admissions:
+
+- `an_explicitly_restrictive_managed_tool_list_reaches_the_final_command`,
+  rows "split" and "equals": the plan's `--tools Read` limit with nothing
+  held must now launch `--tools ""` (I1).
+
+The compile-side half of R2 (`bundle.rs` composing the managed
+`hands.harness.*` fragment at compile) also breaks two tests in
+`crates/brokkr-runtime/src/bundle/model_policy_tests.rs`. Their planted
+Claude gate fragment carries `--door`, which the Claude grammar cannot
+place. The split needed is one of:
+
+- (A) admit both files: the two `adapters/tests.rs` rows, and a re-plant of
+  the fictional `--door` token at `model_policy_tests.rs:3934` and `:4046`;
+- (B) admit `adapters/tests.rs` only, and drop the `bundle.rs` threading.
+  R2 then refuses at launch, and a wanted holding excluded by a managed
+  fragment is refused rather than dropped, deferred as a follow-up.
+
+The patches are saved under `.forge/unit-12-fix-b/`. Standing-admission
+lines: none landed. 12.2 stays ticked on the prior evidence; R1–R5 remain
+open.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

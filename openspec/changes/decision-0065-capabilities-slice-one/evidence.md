@@ -10385,3 +10385,157 @@ After each mutation the saved fix was copied back.
 - R1, R2 and R3 are closed structurally in one function. 12.2 stays ticked,
   and 15.2 is advanced; F4 stays with units 13–15.
 - **Pending:** exact coverage outside the box, macOS and remote CI.
+
+## Unit 12-fix-b — oversized, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-ab0a1e57`, on `1ecd3304` with a clean
+tree. The chief's SECURITY-HOLD (R1–R6) commissioned the function to be
+completed against I1–I3 and proved by an enumerating property test.
+**Nothing landed.** The work is built and saved, and it needs lines
+outside the unit's files that neither standing admission covers.
+
+### What was built (saved, not committed)
+
+The patches are under `.forge/unit-12-fix-b/`:
+
+- `in-scope.patch` (`934b2f40…`): the three named production files and the
+  two named test files, formatted;
+- `adapters-tests-needs-admission.patch` (`7c591a26…`): the out-of-scope
+  lines;
+- `full-with-adapters.patch` (`f65b0b25…`): both. `git apply --check`
+  passes on `1ecd3304`.
+
+What the in-scope patch does:
+
+- **`native_controls.rs`:** `final_tools(admits, Sources, limits, hands)`
+  returns the final include AND allow lists. `Sources` carries the plan's
+  additions, the seat's carried allow list (template, local or hands) and
+  the governed tools (every guard's tools).
+  - Include is `None` with no box and no limit. Otherwise it is the held
+    tools, ordered by the selection. A limit's, template's or argv's names
+    never enter it (I1, I3).
+  - A held tool outside any limit is `Excluded` (I2).
+  - A carried name on a governed, unheld tool is the new `Carried` refusal.
+  - `Widens` is deleted.
+  - The composer takes the fragment as the box's hands only when its allow
+    list names `mcp__brokkr__workspace`. Any other fragment include list is
+    a `LimitOrigin::Managed` limit (R2).
+  - The allow fold writes `tools.allow` minus what the seat carries (R4).
+  - With no selection mapping, a final list that differs from the seat's
+    own refuses.
+- **`bundle.rs`:** under `harness`, a hands site's candidates are composed at
+  compile with their `hands.harness.{work,gate}` fragment, as at launch. A
+  wanted holding a managed list excludes therefore drops (CQ1).
+- **Tests:**
+  - `the_final_lists_hold_their_invariants_over_every_combination`
+    enumerates 480 combinations: 4 holdings × 5 plan argvs × 3 templates ×
+    managed × hands × strength. On every one it asserts I1–I3 and the exact
+    exclusion cause, and it pins the tally: 120 composed, 20 of them after
+    a wanted drop; 30 carried native tool; 280 list written twice; 20
+    unheld admission; 30 required refused.
+  - `every_chief_reproduction_composes_inside_the_holdings_and_every_limit`
+    compiles R1 (two rows), R2 (required and wanted) and R3 (three rows).
+  - Changed expectations in the hard-limit, authority, server and
+    include-limit tests, each with a baseline red below.
+
+### Why it is oversized
+
+Observed with the full patch applied:
+
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 76 `ok`
+  lines. The remaining failures are the two runtime-lib tests in
+  `bundle/model_policy_tests.rs` named below (563 passed, 2 failed).
+- With the in-scope patch alone, `cargo test -p brokkr-protocol --lib`
+  failed two `adapters/tests.rs` tests:
+  - **`a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag`**,
+    row "every list joined, in aliases, nothing held": it now yields
+    `--tools=`, not `--tools=Read`. The row authors `--tools`, so the
+    fixture-migration ruling of 2026-09-26 admits it. On `1ecd3304` and
+    `bd6d7a31` the row yields `--tools=Read`, which is the baseline red R5
+    asks for.
+  - **`an_explicitly_restrictive_managed_tool_list_reaches_the_final_command`**,
+    rows "split" and "equals": the plan's OFF `--tools Read`, with nothing
+    held, now launches `--tools ""`. This is a plan argv, not an authored
+    option, so **no admission covers it.** I1 requires the change ("a tool
+    that only a limit … names … is never emitted").
+- With both patches, protocol lib passes 492/492. Runtime lib then fails
+  two tests in `bundle/model_policy_tests.rs`:
+  - `a_measured_claude_gap_is_reported_not_papered_over` (`:4078`);
+  - `every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured`
+    (`:3960`).
+
+  Both plant a Claude `hands.harness.gate` of `["--permission-mode",
+  "plan", "--door", "{result_path}"]`. `--door` is no Claude option, so the
+  compile-time composition refuses it ("cannot place argument 3
+  ('--door')"). The launch would refuse the same fragment.
+- With `bundle.rs` back at `HEAD`, runtime lib passes 565/565. Only the R2
+  `wants` row of the new compiled test then fails, because the refusal
+  arrives at launch instead of the drop.
+
+**The split needed is one of:**
+
+- **(A)** admit the two `adapters/tests.rs` rows, and a re-plant of `--door`
+  at `model_policy_tests.rs:3934` and `:4046`;
+- **(B)** admit the two `adapters/tests.rs` rows only, and drop the
+  `bundle.rs` threading. R2 then refuses at launch, and the wanted drop
+  under a managed fragment becomes a follow-up.
+
+### Baseline reds on `1ecd3304`
+
+The production files were restored from `1ecd3304` under the new tests,
+then the saved patch was re-applied (`cmp` identical). The new pure block
+was compiled out for the protocol run, because it uses the new API.
+
+- **Protocol:** four tests fail.
+  - The property test fails at "no holding, no plan argv, template [],
+    managed true, hands false, requires: I1 --tools Read". The managed list
+    stood as the base.
+  - The hard-limit test yields `--tools Read`, not `--tools ""`.
+  - The authority test yields `--tools=Read,WebFetch`, not
+    `--tools=WebFetch`.
+  - The server test composes `--tools mcp__x__y Bash` instead of refusing.
+- **Compiled:** with a throwaway non-panicking macro, all seven reproduction
+  rows are red:
+  - R1: `--tools WebFetch`, and `--tools WebFetch,Read`;
+  - R2 `requires` and `wants`: both launch `--tools Read,Bash,WebFetch
+    --allowedTools WebFetch`;
+  - R3: all three launch `--tools ""`.
+- The include-limit and narrowed-grant tests are red at their changed rows
+  (`--tools Read` and `--tools Read,Bash`).
+
+### Mutations (each compiled, caught by the property test, then restored)
+
+- **M-I1:** limit names are added to the include list. Caught at "…managed
+  true, hands false, requires: I1 --tools Read".
+- **M-I2:** the include list is filled from `selection.include` only.
+  Caught at "one holding, no plan argv, …, hands true, requires: I2/I3",
+  left `[]`, right `["WebFetch"]`.
+- **M-I3:** the managed fragment is not a limit. Caught at "…managed true,
+  hands false, requires: I1 --tools Read".
+- **Restored:** `git diff` equals `work.patch`, and the protocol
+  `native_controls` tests pass 40/40.
+
+### Gates run on the full patch
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -D
+  warnings`: clean.
+- `self` and `verify` compile.
+- Not run in this visit: a byte comparison of the 18 recipe and bundle
+  outputs, strict openspec on the code patch, and llvm-cov. Those are owed
+  when the patch lands.
+
+### Recorded for the ruling
+
+- **The hands detection reads the hands tool's name in the fragment's allow
+  list.** A harness fragment that names it would be treated as the box and
+  its include list as the base. I1 still holds there, since only held
+  tools are written.
+- **I1's allow scope is an assumption.** It exempts the engine's local
+  permissions on ungoverned tools (`Bash(git:*)`), which the invariant's
+  literal `H ∪ W` would forbid on every unboxed seat.
+- **`a_selection_folds_…` changed its fixture, not its assertion.** It held
+  fetch while denying WebFetch, and now holds search only. It passes on
+  both trees.
+
+Standing-admission lines: none. The tree is restored to `1ecd3304`.
