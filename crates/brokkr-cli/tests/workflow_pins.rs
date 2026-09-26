@@ -1432,6 +1432,24 @@ fn ci_jobs() -> Vec<(String, String)> {
     parsed
 }
 
+/// The body of the job `wanted` among [`ci_jobs`].
+fn ci_job<'a>(jobs: &'a [(String, String)], wanted: &str) -> &'a str {
+    jobs.iter()
+        .find(|(id, _)| id == wanted)
+        .map(|(_, body)| body.as_str())
+        .unwrap_or_else(|| panic!("no {wanted} job"))
+}
+
+/// The tools a job's install-action `tool:` line names, versions dropped.
+fn installed_tools(job: &str) -> Vec<&str> {
+    job.lines()
+        .find_map(|line| line.trim().strip_prefix("tool: "))
+        .expect("an install-action tool: line")
+        .split(',')
+        .map(|entry| entry.split_once('@').map_or(entry, |(name, _)| name))
+        .collect()
+}
+
 /// The rest of issue #340's CI shape: superseded pull request runs are
 /// cancelled, every job is bounded, the Linux release binary is built
 /// once and shared, and the reporting Gate B probe is off the required
@@ -1473,12 +1491,7 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
         assert!(body.contains("    timeout-minutes: "), "{id} is unbounded");
     }
 
-    let job = |wanted: &str| {
-        jobs.iter()
-            .find(|(id, _)| id == wanted)
-            .map(|(_, body)| body.as_str())
-            .unwrap_or_else(|| panic!("no {wanted} job"))
-    };
+    let job = |wanted: &str| ci_job(&jobs, wanted);
     let builders: Vec<&str> = jobs
         .iter()
         .filter(|(_, body)| body.contains("cargo build --release"))
@@ -1505,9 +1518,30 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
     assert!(job("seatbelt-lifetime").contains("    runs-on: macos-latest\n"));
 }
 
+/// The offline lints, as `scripts/lint-non-rust.sh` lists them: the tools
+/// each needs, and its command.
+fn offline_lints() -> Vec<(String, String)> {
+    let script = read("scripts/lint-non-rust.sh");
+    let (_, rest) = script.split_once("\nlints=(\n").expect("a lints=( list");
+    let (list, _) = rest.split_once("\n)\n").expect("a closed lints=( list");
+    list.lines()
+        .map(|row| {
+            let row = row
+                .trim()
+                .strip_prefix('"')
+                .and_then(|row| row.strip_suffix('"'));
+            let (tools, command) = row
+                .and_then(|row| row.split_once(": "))
+                .unwrap_or_else(|| panic!("a lint row that is not \"<tools>: <command>\""));
+            (tools.to_string(), command.to_string())
+        })
+        .collect()
+}
+
 /// The non-Rust half of the tree is linted by one job, each check at the
 /// threshold issue #339 set: dropping a step, or softening its flags,
-/// fails here.
+/// fails here. The offline checks are one list, `scripts/lint-non-rust.sh`
+/// (#427), which the job runs and runs nothing beside.
 #[test]
 fn the_non_rust_lints_job_runs_every_check() {
     let jobs = ci_jobs();
@@ -1515,16 +1549,42 @@ fn the_non_rust_lints_job_runs_every_check() {
         .iter()
         .find(|(id, _)| id == "lint-non-rust")
         .expect("a lint-non-rust job");
+    let listed = offline_lints();
+    let lints: Vec<(&str, &str)> = listed
+        .iter()
+        .map(|(tools, command)| (tools.as_str(), command.as_str()))
+        .collect();
+    // Cheapest first.
+    assert_eq!(
+        lints,
+        [
+            ("typos", "typos --hidden"),
+            ("shellcheck", "git ls-files -z '*.sh' | xargs -0 shellcheck -S warning"),
+            ("shellcheck", "bash scripts/shellcheck-actions.sh"),
+            ("actionlint shellcheck", "SHELLCHECK_OPTS='-S warning' actionlint"),
+            (
+                "zizmor",
+                "git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline"
+            ),
+            (
+                "lychee",
+                "git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress"
+            ),
+        ]
+    );
+    for tool in ["typos", "shellcheck", "actionlint", "zizmor", "lychee"] {
+        let direct: Vec<&str> = job
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("run: ") && line.contains(tool))
+            .collect();
+        assert_eq!(direct, Vec::<&str>::new(), "{tool} runs outside the list");
+    }
     for step in [
         "uses: ./.github/actions/setup-actionlint\n",
         "uses: ./.github/actions/setup-lychee\n",
         "fallback: none\n",
-        "SHELLCHECK_OPTS: -S warning\n        run: actionlint\n",
-        "run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline\n",
-        "run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning\n",
-        "run: typos --hidden\n",
-        "run: bash scripts/shellcheck-actions.sh\n",
-        "run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress\n",
+        "run: bash scripts/lint-non-rust.sh\n",
         "npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund\n",
         "bash scripts/lint-diagrams.sh\n",
         "--entrypoint renovate-config-validator \"$image\" --strict \"$@\"\n",
@@ -1537,14 +1597,7 @@ fn the_non_rust_lints_job_runs_every_check() {
     // The versions have their homes (the tool: line, the lockfile) and
     // Renovate moves them there; this holds the shape, so a bump never
     // reddens it. The pin scan holds each tool: entry to an exact release.
-    let tools: Vec<&str> = job
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("tool: "))
-        .expect("an install-action tool: line")
-        .split(',')
-        .map(|entry| entry.split_once('@').map_or(entry, |(name, _)| name))
-        .collect();
-    assert_eq!(tools, ["shellcheck", "typos", "zizmor"]);
+    assert_eq!(installed_tools(job), ["shellcheck", "typos", "zizmor"]);
     let lock = read(".github/lint/package-lock.json");
     let mermaid = lock
         .split_once(
@@ -1560,4 +1613,53 @@ fn the_non_rust_lints_job_runs_every_check() {
         !lock.contains("node_modules/renovate"),
         "Renovate is back in .github/lint"
     );
+}
+
+/// The verify seat a landing inherits runs what CI requires and can run
+/// offline in the box (#427): the quality job's fmt and clippy commands,
+/// verbatim, and the one list of lints the lint-non-rust job runs, whose
+/// every tool that job installs.
+#[test]
+fn the_landing_verify_seat_runs_the_ci_jobs_commands() {
+    let seat = read("recipes/fast/scripts/verify-seat.sh");
+    let jobs = ci_jobs();
+    let rust: Vec<&str> = ci_job(&jobs, "quality")
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("run: "))
+        .filter(|command| command.starts_with("cargo fmt ") || command.starts_with("cargo clippy "))
+        .collect();
+    assert_eq!(rust.len(), 2, "{rust:?}");
+    for command in rust
+        .into_iter()
+        .chain(["bash scripts/lint-non-rust.sh --seat"])
+    {
+        assert_eq!(
+            seat.matches(&format!(
+                "if ! {command} > \"$output\" 2>&1 </dev/null; then"
+            ))
+            .count(),
+            1,
+            "the verify seat does not run {command}"
+        );
+    }
+    let lint_job = ci_job(&jobs, "lint-non-rust");
+    assert_eq!(
+        lint_job
+            .matches("run: bash scripts/lint-non-rust.sh\n")
+            .count(),
+        1
+    );
+
+    // actionlint and lychee arrive by their setup actions, which the
+    // lint-non-rust job is held to above.
+    let mut installed = installed_tools(lint_job);
+    installed.extend(["actionlint", "lychee"]);
+    for (tools, command) in offline_lints() {
+        for tool in tools.split(' ') {
+            assert!(
+                installed.contains(&tool),
+                "{command} needs {tool}, which CI does not install"
+            );
+        }
+    }
 }

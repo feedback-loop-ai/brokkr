@@ -64,6 +64,12 @@ test matrix runs on three operating systems. A preflight run has one
 machine and no advisory database of CI's vintage. The verifier script
 names both as unrun rather than imply they passed.
 
+Of the checks #427 brought into `fast`'s verifier, this one runs
+`cargo fmt` and clippy with `-D warnings`, and not
+`scripts/lint-non-rust.sh`: its script predates that one list, and
+until it reads the list too the non-Rust lints are the pull request's
+`non-Rust lints` check alone.
+
 ## The terminal shape is a test, not a comment
 
 `crates/brokkr-runtime/tests/preflight_shape.rs` asserts that this

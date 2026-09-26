@@ -32,7 +32,10 @@ in one run, and the gate refuses an eleventh entry.
   clean, nothing outside `docs/research/` changed, at most ten entries
   were added, and `cargo test --test research_registry` passes: the
   index equals the entries, every class is in the vocabulary, every
-  citation resolves.
+  citation resolves. It runs none of `cargo fmt`, clippy or
+  `scripts/lint-non-rust.sh` (#427): the branch may change only prose
+  under `docs/research/`, which no Rust check reads, and the pull
+  request's required `non-Rust lints` check still spells and links it.
 
 ## The dsh lane
 

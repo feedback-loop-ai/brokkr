@@ -137,3 +137,10 @@ Its one-attempt verifier and shipper are boxed exec scripts. Cargo runs
 offline from the bound registry cache; an uncached dependency fails
 closed and the verifier quotes Cargo's decisive offline/cache line in
 its `fail` notes.
+
+The verify seat overrides only its limits, so its script resolves
+against `fast`, the layer that wrote the seat: it runs `fast`'s checks,
+`cargo fmt`, `scripts/lint-non-rust.sh`, clippy with `-D warnings`, the
+suite and the bundle compile (#427), because a queue drained overnight
+should not ship a head that CI's required checks then refuse in the
+morning.

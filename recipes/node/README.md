@@ -80,3 +80,8 @@ artifacts, and a missing dependency fails closed with npm's decisive
 line quoted in the `fail` notes. The bundle itself is mounted read-only
 inside that box, so the command runs this recipe's script even when
 `--repo` names a different repository; no script-copying step is needed.
+
+It runs none of the checks #427 brought into `fast`'s verifier:
+`cargo fmt`, clippy and `scripts/lint-non-rust.sh` are this repository's
+Rust toolchain and lint list, and a Node repository carries neither. Its
+own formatter and linters belong in its npm sequence.
