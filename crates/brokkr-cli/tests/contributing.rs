@@ -4,7 +4,7 @@
 //! hatch in repository-owned platform data.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
@@ -193,6 +193,185 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
     ] {
         assert!(manual.contains(preserved), "manual guide lost {preserved}");
     }
+}
+
+/// One job of a workflow: the checks it reports (one per `matrix.os` entry
+/// when its name carries the matrix), and the one-line commands it runs.
+struct WorkflowJob {
+    checks: Vec<String>,
+    id: String,
+    file: &'static str,
+    commands: Vec<String>,
+    requires_boundary_evidence: bool,
+}
+
+fn workflow_jobs(root: &Path, file: &'static str) -> Vec<WorkflowJob> {
+    let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+    let jobs = text.split_once("\njobs:\n").expect("a jobs map").1;
+    let mut blocks: Vec<(&str, Vec<&str>)> = Vec::new();
+    for line in jobs.lines() {
+        match line
+            .strip_prefix("  ")
+            .and_then(|key| key.strip_suffix(':'))
+        {
+            Some(id) if !id.starts_with([' ', '#']) => blocks.push((id, Vec::new())),
+            // A comment above the first job belongs to no job.
+            _ => blocks.last_mut().map_or((), |(_, body)| body.push(line)),
+        }
+    }
+    blocks
+        .into_iter()
+        .map(|(id, body)| {
+            let name = body
+                .iter()
+                .find_map(|line| line.strip_prefix("    name: "))
+                .unwrap_or_else(|| panic!("{file}'s {id} has no name"))
+                .trim_matches('\'');
+            let oses = body
+                .iter()
+                .find_map(|line| line.trim().strip_prefix("os: ["))
+                .map_or_else(Vec::new, |list| {
+                    list.trim_end_matches(']').split(", ").collect()
+                });
+            let checks = if name.contains("${{ matrix.os }}") {
+                oses.iter()
+                    .map(|os| name.replace("${{ matrix.os }}", os))
+                    .collect()
+            } else {
+                vec![name.to_string()]
+            };
+            let commands = body
+                .iter()
+                .filter_map(|line| {
+                    let line = line.trim().trim_start_matches("- ");
+                    line.strip_prefix("run: ")
+                        .filter(|run| *run != "|" && !run.starts_with("cargo install "))
+                        .map(|run| run.replace("\"$BASE\"", "origin/main"))
+                        .or_else(|| {
+                            line.strip_prefix("command: ")
+                                .map(|deny| format!("cargo deny {deny}"))
+                        })
+                })
+                .collect();
+            WorkflowJob {
+                checks,
+                id: id.to_string(),
+                file,
+                commands,
+                requires_boundary_evidence: body
+                    .iter()
+                    .any(|line| line.contains("BROKKR_REQUIRE_BOUNDARY_EVIDENCE:")),
+            }
+        })
+        .collect()
+}
+
+/// One row of the by-hand guide's check table.
+#[derive(Debug)]
+struct CheckRow {
+    number: String,
+    check: String,
+    job: String,
+    file: &'static str,
+    command: String,
+}
+
+fn check_rows(guide: &str) -> Vec<CheckRow> {
+    let section = guide
+        .split_once("\n## The twelve checks\n")
+        .expect("the guide has its checks section")
+        .1
+        .split_once("\n## ")
+        .expect("a section follows the checks")
+        .0;
+    section
+        .lines()
+        .filter(|line| line.starts_with("| ") && line.as_bytes()[2].is_ascii_digit())
+        .map(|line| {
+            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+            assert_eq!(cells.len(), 4, "one four-column check row: {line}");
+            let file = if cells[2].ends_with(" (mutants.yml)") {
+                "mutants.yml"
+            } else {
+                "ci.yml"
+            };
+            CheckRow {
+                number: cells[0].to_string(),
+                check: cells[1].trim_matches('`').to_string(),
+                job: cells[2]
+                    .trim_end_matches(" (mutants.yml)")
+                    .trim_matches('`')
+                    .to_string(),
+                file,
+                command: cells[3].to_string(),
+            }
+        })
+        .collect()
+}
+
+/// Every row of the by-hand guide's check table is a check the workflows
+/// define: its name and job as the job states them, in the workflows'
+/// order, and a local command that carries each one-line command the job
+/// runs, with the boundary evidence the job requires.
+#[test]
+fn the_by_hand_checks_are_the_workflows_checks() {
+    let root = workspace();
+    let guide = std::fs::read_to_string(root.join("docs/guides/contributing-by-hand.md")).unwrap();
+    let rows = check_rows(&guide);
+    assert_eq!(rows.len(), 12, "the guide lists twelve checks: {rows:?}");
+    let jobs: Vec<WorkflowJob> = ["ci.yml", "mutants.yml"]
+        .into_iter()
+        .flat_map(|file| workflow_jobs(&root, file))
+        .collect();
+    let defined: Vec<(String, String, &str)> = jobs
+        .iter()
+        .flat_map(|job| {
+            job.checks
+                .iter()
+                .map(|check| (check.clone(), job.id.clone(), job.file))
+        })
+        .collect();
+    let listed: Vec<(String, String, &str)> = rows
+        .iter()
+        .map(|row| (row.check.clone(), row.job.clone(), row.file))
+        .collect();
+    let defined: Vec<(String, String, &str)> = defined
+        .into_iter()
+        .filter(|check| listed.contains(check))
+        .collect();
+    assert_eq!(
+        listed, defined,
+        "a row names a check its workflow does not define"
+    );
+    for (at, row) in rows.iter().enumerate() {
+        let check = &row.check;
+        assert_eq!(
+            row.number,
+            (at + 1).to_string(),
+            "{check} is numbered in order"
+        );
+        if row.command.starts_with('—') {
+            continue;
+        }
+        let job = jobs
+            .iter()
+            .find(|job| (&job.id, job.file) == (&row.job, row.file))
+            .expect("a defined job");
+        for run in &job.commands {
+            assert!(
+                row.command.contains(run.as_str()),
+                "{check}'s local command lacks `{run}`"
+            );
+        }
+        assert_eq!(
+            row.command.contains("BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1"),
+            job.requires_boundary_evidence,
+            "{check}'s local command and its job disagree on boundary evidence"
+        );
+    }
+    let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
+    assert!(contributing.contains("preserves the twelve exact checks"));
+    assert!(guide.contains("twelve required checks"));
 }
 
 /// Decision 0046's guides (boundary-guides / The guides document the
