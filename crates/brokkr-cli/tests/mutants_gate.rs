@@ -223,15 +223,17 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// The gate failed, and its report names `miss` as a new one.
+fn fails_naming(output: &Output, miss: &str) {
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    let stdout = text(&output.stdout);
+    assert!(stdout.contains(&format!("- {miss}")), "{stdout}");
+}
+
 #[test]
 fn a_miss_no_committed_one_accounts_for_fails_the_gate_by_name() {
     let output = Gate::new().verdict(&[FRESH]);
-    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
-    assert!(
-        text(&output.stdout).contains(&format!("- {FRESH}")),
-        "{}",
-        text(&output.stdout)
-    );
+    fails_naming(&output, FRESH);
     assert!(text(&output.stderr).contains("brokkr-core miss(es); a test must catch each"));
 }
 
@@ -294,12 +296,7 @@ fn the_gate_measures_the_changes_the_branch_carries() {
             ("STUB_STATUS", "2"),
         ],
     );
-    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
-    assert!(
-        text(&output.stdout).contains(&format!("- {FRESH}")),
-        "{}",
-        text(&output.stdout)
-    );
+    fails_naming(&output, FRESH);
 }
 
 /// The gate over a scratch branch whose planted hunk the stub lists, so
@@ -603,12 +600,7 @@ fn an_empty_committed_list_still_fails_a_fresh_miss() {
     let gate = Gate::new();
     std::fs::write(gate.path("allow/brokkr-core.missed.txt"), "").unwrap();
     let output = gate.verdict(&[FRESH]);
-    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
-    assert!(
-        text(&output.stdout).contains(&format!("- {FRESH}")),
-        "{}",
-        text(&output.stdout)
-    );
+    fails_naming(&output, FRESH);
 }
 
 /// Without jq the gate cannot read mutants.json, so it fails before it
