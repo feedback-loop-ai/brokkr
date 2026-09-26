@@ -19,8 +19,8 @@ const FRESH: &str = "crates/brokkr-core/src/policy.rs:700:5: replace < with <= i
 /// line to `STUB_ARGV`. `--list` prints `STUB_LISTED` (only if the
 /// `--in-diff` file names `STUB_LIST_NAMING`, when that is set) and exits
 /// `STUB_LIST_STATUS`; a run writes `STUB_MISSED` as its missed.txt and
-/// one mutant as its mutants.json (unless `STUB_NO_OUTPUT`), and exits
-/// `STUB_STATUS`.
+/// one mutant as its mutants.json, leaving out the file `STUB_OMIT`
+/// names, and exits `STUB_STATUS`.
 const STUB: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STUB_ARGV"
 out=""; list=""; diff=""
@@ -32,11 +32,9 @@ if [ -n "$list" ]; then
   [ -z "${STUB_LIST_NAMING:-}" ] || grep -qF -e "$STUB_LIST_NAMING" "$diff" || exit "${STUB_LIST_STATUS:-0}"
   printf '%s' "${STUB_LISTED:-}"; exit "${STUB_LIST_STATUS:-0}"
 fi
-if [ -z "${STUB_NO_OUTPUT:-}" ]; then
-  mkdir -p "$out/mutants.out"
-  printf '%s' "${STUB_MISSED:-}" > "$out/mutants.out/missed.txt"
-  printf '[{"name":"planted"}]' > "$out/mutants.out/mutants.json"
-fi
+mkdir -p "$out/mutants.out"
+[ "${STUB_OMIT:-}" = missed.txt ] || printf '%s' "${STUB_MISSED:-}" > "$out/mutants.out/missed.txt"
+[ "${STUB_OMIT:-}" = mutants.json ] || printf '[{"name":"planted"}]' > "$out/mutants.out/mutants.json"
 exit "${STUB_STATUS:-0}"
 "#;
 
@@ -252,11 +250,15 @@ fn every_failure_to_measure_fails_the_gate() {
     let cases: [Failure; 4] = [
         (&[listed, ("STUB_STATUS", "4")], 4, "cargo mutants exited 4"),
         (
-            &[listed, ("STUB_STATUS", "2"), ("STUB_NO_OUTPUT", "1")],
+            &[listed, ("STUB_STATUS", "2"), ("STUB_OMIT", "missed.txt")],
             1,
-            "missed.txt is missing",
+            "mutants.out/missed.txt is missing",
         ),
-        (&[("STUB_LIST_STATUS", "5")], 5, ""),
+        (
+            &[listed, ("STUB_STATUS", "2"), ("STUB_OMIT", "mutants.json")],
+            1,
+            "mutants.out/mutants.json is missing",
+        ),
         (
             &[listed, ("STUB_STATUS", "70")],
             70,
@@ -277,6 +279,24 @@ fn every_failure_to_measure_fails_the_gate() {
             text(&output.stderr)
         );
     }
+}
+
+/// A list that fails ends the gate with cargo-mutants' own code, before
+/// any mutant is run: the stub's argument log holds the one `--list` call.
+#[test]
+fn a_failed_list_fails_the_gate_before_any_run() {
+    let gate = Gate::new();
+    let output = gate.run(
+        &["gate", "HEAD", "brokkr-core"],
+        &[
+            ("STUB_LISTED", "a listed mutant\n"),
+            ("STUB_LIST_STATUS", "5"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(5), "{}", text(&output.stderr));
+    let calls = std::fs::read_to_string(gate.path("argv")).unwrap();
+    assert_eq!(calls.lines().count(), 1, "{calls}");
+    assert!(calls.contains("--list"), "{calls}");
 }
 
 #[test]
@@ -307,11 +327,14 @@ fn an_empty_committed_list_still_fails_a_fresh_miss() {
     );
 }
 
-/// A base the gate cannot diff against measures nothing, so it fails.
+/// A base the gate cannot diff against measures nothing, so it fails with
+/// git's own code, before cargo-mutants is called at all.
 #[test]
 fn a_base_git_cannot_resolve_fails_the_gate() {
-    let output = Gate::new().run(&["gate", "no-such-base-ref", "brokkr-core"], &[]);
-    assert!(!output.status.success(), "{}", text(&output.stdout));
+    let gate = Gate::new();
+    let output = gate.run(&["gate", "no-such-base-ref", "brokkr-core"], &[]);
+    assert_eq!(output.status.code(), Some(128), "{}", text(&output.stderr));
+    assert!(!gate.path("argv").exists());
 }
 
 /// The body of mutants.yml's job `id`: its lines indented under the id.
@@ -334,17 +357,35 @@ fn the_required_job_runs_the_gate_and_protocol_only_reports() {
     let workflow = std::fs::read_to_string(workspace().join(".github/workflows/mutants.yml"))
         .expect("mutants.yml");
     let core = job(&workflow, "core-gate");
-    // A skipped job reports success, which satisfies a required check: the
-    // #420 landing set this condition to `false` and every test stayed
-    // green. The job runs on exactly the event it gates, and nothing else.
+    // A skipped job or step reports success, which satisfies a required
+    // check: the #420 landing set the job's condition to `false`, then gave
+    // the gate step an `if:` of its own and the job a `needs:` on the
+    // weekly job, and every test stayed green each time. The job runs on
+    // exactly the event it gates, and its only other condition is the
+    // artifact upload's. Conditions are read at every depth, a step's
+    // leading `- if:` included.
     let conditions: Vec<&str> = core
         .lines()
-        .filter(|line| line.starts_with("    if:"))
+        .map(str::trim_start)
+        .map(|line| line.strip_prefix("- ").unwrap_or(line))
+        .filter(|line| line.starts_with("if:"))
         .collect();
     assert_eq!(
         conditions,
-        ["    if: github.event_name == 'pull_request'"],
-        "core-gate's only condition must be the pull-request event:\n{core}"
+        ["if: github.event_name == 'pull_request'", "if: always()"],
+        "core-gate's conditions must be the pull-request event and the upload's:\n{core}"
+    );
+    assert!(core.contains("\n    if: github.event_name == 'pull_request'\n"));
+    let keys: Vec<&str> = core
+        .lines()
+        .filter_map(|line| line.strip_prefix("    "))
+        .filter(|line| !line.starts_with([' ', '#']))
+        .filter_map(|line| line.split_once(':').map(|(key, _)| key))
+        .collect();
+    assert_eq!(
+        keys,
+        ["name", "if", "runs-on", "timeout-minutes", "steps"],
+        "core-gate gained or lost a job key, such as `needs:`:\n{core}"
     );
     for line in [
         "    name: 'mutants in the diff: brokkr-core'\n",
