@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# The exact coverage gate: literal 100% of production lines, branches and
+# functions. Its threat model, as the operator ruled it on 2026-09-26 (#341):
+# the gate catches every realistic way code leaves the denominator by
+# mistake, and fails closed on whatever it cannot read. Deliberate evasion by
+# a determined adversary is out of scope; a review rates an exotic evasion as
+# a low residual, not a security hold.
 set -euo pipefail
 
 refuse() {
