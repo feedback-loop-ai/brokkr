@@ -10044,3 +10044,68 @@ and `cmp` reported it identical.
   deferral, and F4 stays with units 13–15 under 15.2.
 - **Standing-admission lines:** none. **Fixture migrations:** none new.
 - **Pending:** exact coverage outside the box, macOS and remote CI.
+
+### Amended in the same visit: a denial does not excuse a holding
+
+The seat that committed `a672f16a` ended before it wrote its result. A
+resumed seat in the same visit re-verified that commit and made one
+change on top of it.
+
+- **Why:** `a672f16a` exempted from the limit any held tool that a managed
+  denial named. Two of its rows asserted that a held (granted) web-fetch,
+  beside a plan-argv or selection denial of `WebFetch`, composes to `Ok([
+  "--tools", "Read", "--disallowedTools", "WebFetch"])`. That is a granted
+  capability switched off in the final command: the "always-OFF passes as
+  grant support" outcome NCT "Admission and restriction cannot erase each
+  other" forbids. The review's finding asks for every effective held
+  admission to meet the limit.
+- **Change (`native_controls.rs`, `compose_for_provider`):** the exemption
+  is deleted. Every tool of every held capability counts as an admission,
+  and so does the selection's include and allow. A managed denial beside a
+  holding excuses nothing, so a limit that does not name the tool refuses.
+  Held-versus-denied without any limit stays a managed contradiction for
+  13.1 (F4 under units 13–15), as before this visit.
+- **Tests:** both denial rows in
+  `an_explicit_include_list_is_a_hard_limit_that_no_admission_widens` now
+  expect `Err(limit_refusal("Read", fetch))`, the full `restricted` cause.
+  No row was added or removed. The compiled rows are unchanged.
+- **Mutations** (each alone, compiled, failed as stated). Afterwards the fix
+  was restored from `.forge/u12r3/fix.rs`, and `cmp` printed nothing.
+  - **M6** (`false && controls.held.contains(…)`): the test fails at `[
+    "--tools", "Read", "--allowedTools", "WebFetch"]`, with left
+    `Ok([… "--allowedTools", "WebFetch"])` and right the refusal.
+  - **M9** (a672f16a's plan-argv denial exemption restored): it fails at `[
+    "--tools", "Read", "--disallowedTools", "WebFetch"]`, with left
+    `Ok(["--tools", "Read", "--disallowedTools", "WebFetch"])` and right
+    the refusal.
+  - **M10** (a selection-denial exemption): it fails at the selection-deny
+    row (plan `["--tools", "Read"]`), with left `Ok(["--tools", "Read",
+    "--disallowedTools", "WebFetch"])` and right the refusal.
+  - M7 and M8 above tested the exemption, so they no longer apply.
+- **Baseline red, re-observed:** `5fbd87d0`'s `native_controls.rs` was put
+  under the current tests, then restored (`cmp` identical).
+  `an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant`
+  failed at `capability_launch.rs:6155` for `["--tools","Read"]` under
+  `private`. Left: `launched [… "--tools", "Read", "--allowedTools",
+  "WebFetch"]`. Right: the full compile refusal naming `WebFetch` and
+  `web-fetch`.
+- **Gates (final tree):**
+  - `cargo fmt --all -- --check`: clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: finished with no warning.
+  - `cargo test --workspace --all-features --locked`: 77 `test result: ok`
+    lines, no `FAILED` or `panicked`. That includes protocol lib 490,
+    runtime lib 565, `capability_launch` 45, CLI lib 481 and
+    driver_conformance 24.
+  - `bundles/self` and `bundles/verify` compile with exit 0.
+  - `openspec validate --all --strict`: 18 passed.
+  - `git diff --check`: clean.
+- **Coverage diagnostic:** `cargo +nightly llvm-cov --branch --locked -p
+  brokkr-protocol -p brokkr-runtime --lcov` reported 0 `FAILED`.
+  - `grep -x -E 'DA:[0-9]+,0|BRDA:[0-9]+,[0-9]+,[0-9]+,(0|-)'` matches 298
+    records in the report, and none inside the `native_controls.rs` record.
+  - That record reads LF 1105/LH 1104 and BRF 128/BRH 126. As before, no
+    per-line record accounts for the gap.
+  - Exact coverage stays pending.
+- **Standing-admission lines:** none. **Fixture migrations:** none new.
+- **Pending:** exact coverage outside the box, macOS and remote CI.

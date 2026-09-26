@@ -1715,8 +1715,8 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
         ),
         // Third review F1: a holding the selection does not carry is held
         // as much — an ON switch in the plan's own argv, and a measured
-        // default ON that writes nothing — unless a managed denial removes
-        // its tool.
+        // default ON that writes nothing. A managed denial beside the
+        // holding, from the plan's argv or its selection, excuses nothing.
         (
             plan(
                 &["--tools", "Read", "--allowedTools", "WebFetch"],
@@ -1760,7 +1760,7 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
                 &[],
             ),
             &[],
-            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+            Err(limit_refusal("Read", fetch)),
         ),
         (
             Controls {
@@ -1772,7 +1772,7 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
                 ..plan(&["--tools", "Read"], &["web-fetch"], &[], &[])
             },
             &[],
-            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+            Err(limit_refusal("Read", fetch)),
         ),
         // Boxed: the empty limit leaves the hands' own list as it stands;
         // a nonempty one would widen it with a tool nothing holds.

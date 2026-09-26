@@ -1630,15 +1630,8 @@ pub fn compose_for_provider(
             // being unioned in past it. What a held capability admits is
             // not only its selection: an ON switch in the plan's argv, or a
             // measured default ON that writes nothing, admits the
-            // capability's tools as well, unless a managed denial removes
-            // them (third review F1).
-            let denied: Vec<&str> = controls
-                .selection
-                .deny
-                .iter()
-                .map(String::as_str)
-                .chain(plan.lists(ListKind::Deny).flat_map(grammar::node_patterns))
-                .collect();
+            // capability's tools as well — and a managed denial beside a
+            // holding does not excuse the limit from it (third review F1).
             let admissions: Vec<&str> = controls
                 .selection
                 .include
@@ -1651,8 +1644,7 @@ pub fn compose_for_provider(
                         .iter()
                         .filter(|guard| controls.held.contains(&guard.capability))
                         .flat_map(|guard| &guard.tools)
-                        .map(String::as_str)
-                        .filter(|tool| !denied.contains(tool)),
+                        .map(String::as_str),
                 )
                 .collect();
             if let Some(limit) = plan.lists(ListKind::Include).next() {

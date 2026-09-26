@@ -1679,6 +1679,12 @@ visit; evidence.md, "Unit 12 — the third review's return"):
   ticked on that evidence.
 - Standing-admission lines: none. Fixture migrations: none new.
 - **Pending:** exact coverage outside the box, macOS and remote CI.
+- **Amended in the same visit:** `a672f16a` let a managed denial excuse a
+  held tool from the limit, which composed a granted fetch as denied. The
+  exemption is deleted, and both denial rows now refuse. This is bound by
+  M6, M9 and M10, with the compiled baseline red re-observed. See
+  evidence.md, "Amended in the same visit: a denial does not excuse a
+  holding".
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
