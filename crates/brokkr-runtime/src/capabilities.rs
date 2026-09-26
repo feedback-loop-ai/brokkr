@@ -1104,12 +1104,20 @@ pub struct Serving<'a> {
     /// at all — the loader's own words. A load that fails is not a
     /// provider with nothing to declare (decision 0066 ruling 1).
     pub unloaded: Option<&'a str>,
-    /// The argv the seat or its agent AUTHORED, judged for contenders and
-    /// for capability-server configuration.
+    /// The argv before the engine's hands: an inline site's command, or an
+    /// agent's composed driver template, pins and local permissions. It is
+    /// what the native plan composes with; under an opaque harness it is
+    /// also judged for a guarded control, since nothing parses it.
     pub authored: &'a [String],
     /// The fragment the ENGINE appended for the boundary — the adapter's
     /// workspace hands. Composed with, never judged as authored.
     pub fragment: &'a [String],
+    /// What the RECIPE itself wrote, by origin (design D5.7): an inline
+    /// site's whole command; nothing for an agent candidate, whose
+    /// composition is the adapter's and the engine's alone.
+    /// Under a harness brokkr drives it carries no capability-bearing
+    /// option (operator ruling 1 of 2026-09-23; rebuild unit 12).
+    pub written: &'a [String],
 }
 
 // ------------------------------------------------------------ authority
@@ -1750,6 +1758,12 @@ impl Authority {
                 }
             }
         }
+        // Operator ruling 1 of 2026-09-23 (rebuild unit 12): what the
+        // recipe wrote carries no capability-bearing option, whatever the
+        // realm grants and whatever the option's value; nothing authored is
+        // merged into what the engine composes below.
+        brokkr_protocol::native_controls::authored_refusal(serving.harness, serving.written)
+            .map_err(|refusal| refusal.at_compile(&who))?;
         let native = self.native_plan(&who, serving, &held, &keys, &mut not_held)?;
         admit(&who, serving, &native)?;
         // A notice claims a native OFF only where THIS candidate's plan
@@ -1879,17 +1893,20 @@ impl Authority {
                 value_flags: native.authored.value_flags.clone(),
             })
             .collect();
-        // The authored part is PARSED against the harness's own option
-        // grammar before it is judged, so a guarded control is found in
-        // every spelling at once and a token the grammar cannot place is
-        // refused rather than passed over (decision 0066 ruling 6).
-        if let Some((written, capability)) = brokkr_protocol::native_controls::authored_conflict(
-            serving.harness,
-            serving.authored,
-            &guards,
-        )
-        .map_err(|refusal| refusal.at_compile(who))?
-        {
+        // A command nothing parses — an opaque custom driver — is judged
+        // CONSERVATIVELY by name for a guarded control (design D6a). A
+        // harness brokkr drives was judged by origin in `resolve`, and its
+        // values are never read for admission (rebuild unit 12).
+        let opaque = brokkr_protocol::native_controls::grammar::grammar(serving.harness).is_none();
+        if let Some((written, capability)) = match opaque {
+            true => brokkr_protocol::native_controls::authored_conflict(
+                serving.harness,
+                serving.authored,
+                &guards,
+            )
+            .map_err(|refusal| refusal.at_compile(who))?,
+            false => None,
+        } {
             return Err(format!(
                 "{who}: its arguments carry '{written}', which controls native capability \
                  '{capability}' of provider '{provider}'. Only the realm grants a capability, \

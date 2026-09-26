@@ -3369,20 +3369,21 @@ fn expressed_sandbox(
                     .iter()
                     .any(|value| grammar::config_under(&grammar::config_key(value), table))
             }) {
-                // A resolved native plan names canonical `--config`, as its
-                // unqualified-assignment refusal does (review return C1).
-                let door = match contribution {
-                    Contribution::Written => "the harness's configuration,",
-                    Contribution::Native => "`--config`, the harness's configuration,",
-                };
+                // Only written bytes reach here: a resolved native plan's
+                // every declared assignment passed the bounded reader at
+                // adapter load, which admits no sandbox table (rebuild units
+                // 11 and 12).
                 return Err(CompileError::Invalid(format!(
                     "{whom} requests a typed 'tools.sandbox', but the {part} \
-                     assigns '{table}' through {door} a second door to the same control that no \
-                     typed class can be checked against — refused (design D5.3)"
+                     assigns '{table}' through the harness's configuration, a second door to the \
+                     same control that no typed class can be checked against — refused (design \
+                     D5.3)"
                 )));
             }
             // An assignment outside the established keys is not echoed:
-            // its key is authored bytes, and only its position is named.
+            // its key is authored bytes, and only its position is named. A
+            // resolved native plan's assignments are all established ones
+            // (rebuild units 11 and 12), so only written bytes reach here.
             let established = node.values.iter().all(|value| {
                 let key = grammar::config_key(value);
                 ESTABLISHED_TABLES
@@ -3393,25 +3394,12 @@ fn expressed_sandbox(
             });
             if !established {
                 let at = node.at;
-                let (door, writer, keys) = match contribution {
-                    Contribution::Written => (
-                        "",
-                        "an existing fragment",
-                        "the hands transport under 'mcp_servers.brokkr' and the effort \
-                         'model_reasoning_effort'",
-                    ),
-                    Contribution::Native => (
-                        " through `--config`",
-                        "a resolved native control",
-                        "the hands transport under 'mcp_servers.brokkr', the effort \
-                         'model_reasoning_effort' and the exact key 'web_search'",
-                    ),
-                };
                 return Err(CompileError::Invalid(format!(
                     "{whom} requests a typed 'tools.sandbox', but the {part} \
-                     assigns configuration{door} at argument {at} outside the keys {writer} is \
-                     established to write ({keys}); an unqualified assignment could reach the \
-                     same control, so no typed class can be checked against it — refused \
+                     assigns configuration at argument {at} outside the keys an existing fragment \
+                     is established to write (the hands transport under 'mcp_servers.brokkr' and \
+                     the effort 'model_reasoning_effort'); an unqualified assignment could reach \
+                     the same control, so no typed class can be checked against it — refused \
                      (design D5.3)"
                 )));
             }
@@ -4616,6 +4604,7 @@ fn site_capabilities(
             unloaded: adapters.unloaded,
             authored: inline_argv,
             fragment: &[],
+            written: inline_argv,
         }],
         false => chain
             .iter()
@@ -4630,6 +4619,11 @@ fn site_capabilities(
                     unloaded: adapters.unloaded,
                     authored,
                     fragment,
+                    // An agent reference is total (AC-21): the seat writes
+                    // no argv, and its composition is the adapter's
+                    // template, the engine's local permissions and hands
+                    // (design D5.7), none of it the recipe's words.
+                    written: &[],
                 }
             })
             .collect(),

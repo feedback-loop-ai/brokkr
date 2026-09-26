@@ -31,6 +31,7 @@ fn two_candidates() -> SiteCapabilities {
         unloaded: None,
         authored: &[],
         fragment: &[],
+        written: &[],
     };
     let outcomes = vec![
         authority

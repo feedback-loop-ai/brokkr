@@ -293,16 +293,20 @@ fn an_agent_reference_resolves_into_an_ordinary_seat_and_pins_itself() {
 fn a_resolved_seat_equals_the_equivalent_inline_seat() {
     let fixture = AgentFixture::new();
     let resolved = fixture.compile(fixture.config()).unwrap();
+    // A recipe authors no `--allowedTools` (operator ruling 1 of
+    // 2026-09-23): the equivalent inline seat declares the office's typed
+    // allow, which the engine lowers as its own segment (rebuild unit 5b;
+    // fixture migration of 2026-09-26).
     let mut inline = fixture.config();
     inline["seats"]["work"] = json!({
         "results": ["complete"],
         "role": "roles/work.md",
         "limits": {"max_attempts": 3, "timeout_seconds": 77},
+        "tools": {"allow": ["cargo"]},
         "driver": {"command": [
             "{brokkr}", "driver", "claude", "--",
             "--model", "claude-opus-5",
             "--effort", "high",
-            "--allowedTools", "Bash(cargo:*)",
         ]},
     });
     let inline = fixture.compile(inline).unwrap();
@@ -310,7 +314,9 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
     // The role is the same TEXT under two names — the agent's charter in
     // the library, the inline seat's role inside its bundle — so the
     // bodies are compared on the bytes each path holds, not on a link
-    // from one tree into the other (review return F6).
+    // from one tree into the other (review return F6). The command is
+    // compared with the inline site's lowered segment behind it, as
+    // dispatch composes it; the fixture's adapter declares no template.
     let describe = |bundle: &Bundle| {
         let seat = &bundle.seats["work"];
         let SeatBody::Single {
@@ -319,9 +325,15 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
         else {
             unreachable!("single seat")
         };
+        let facts = bundle.sites.get("work");
+        assert_eq!(facts.and_then(|facts| facts.inline_template.as_ref()), None);
+        let lowered = facts
+            .and_then(|facts| facts.inline_local.as_ref())
+            .map(|local| local.segment.argv.clone())
+            .unwrap_or_default();
         (
             std::fs::read(role_path).unwrap(),
-            command.clone(),
+            [command.clone(), lowered].concat(),
             seat.limits.max_attempts,
             seat.limits.timeout_seconds,
             seat.inputs.clone(),

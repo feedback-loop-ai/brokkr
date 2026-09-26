@@ -4750,6 +4750,7 @@ mod native {
                 unloaded: None,
                 authored: &[],
                 fragment: &[],
+                written: &[],
             },
         )
     }

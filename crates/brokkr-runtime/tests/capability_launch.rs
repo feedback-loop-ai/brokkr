@@ -166,15 +166,19 @@ impl Operator {
             command.extend(extra);
             json!({"command": command})
         };
+        // A recipe authors no `--sandbox` (operator ruling 1 of 2026-09-23):
+        // the inline seat declares its class, which the engine lowers as its
+        // own segment (rebuild unit 5d; fixture migration of 2026-09-26).
         let mut inline = json!({"results": ["complete"], "role": "roles/role.md",
-            "driver": codex(&["--sandbox", "workspace-write"])});
+            "tools": {"sandbox": "workspace-write"}, "driver": codex(&[])});
         // An inline seat with hands authors NO box tokens: a recipe's argv
         // carries no capability server, the engine's own included (decision
         // 0066 ruling 4). The boxed seat that does get the workspace server
-        // is the agent-backed one, whose adapter owns the fragment.
+        // is the agent-backed one, whose adapter owns the fragment. Beside
+        // hands no inline class is declared: the box confines it (D5.3).
         let mut boxed = json!({"results": ["complete"], "role": "roles/role.md",
             "hands": {"kind": "workspace", "network": false, "binds": []},
-            "driver": codex(&["--sandbox", "read-only"])});
+            "driver": codex(&[])});
         let mut agent = json!({"results": ["complete"], "agent": "searcher"});
         let mut chain = json!({"results": ["complete"], "agent": "fallback"});
         if let Some(asks) = asks {
@@ -397,7 +401,10 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
             _ => panic!("{label} is a single seat"),
         },
     };
-    let spawn = brokkr_runtime::engine::compose_site(
+    // Composed from the site's facts, as dispatch composes it, so an inline
+    // seat's lowered class is the engine's own segment (rebuild unit 5d).
+    let spawn = brokkr_runtime::engine::compose_site_at(
+        Some(facts),
         brokkr_runtime::engine::BuiltBoundary::Harness,
         brokkr_runtime::SeatClass::Work,
         argv,
@@ -426,7 +433,10 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
     .unwrap_or_else(|refusal| panic!("{label} refused: {refusal}"))
 }
 
-/// The seat's own controls survive beside the managed one.
+/// The seat's own controls survive beside the managed one. A sandbox is
+/// the engine's alone: the inline seat's lowered class, an agent's hands;
+/// the boxed inline seat, confined by the box, authors none and is given
+/// none (fixture migration of 2026-09-26).
 fn assert_intact(argv: &[String], label: &str) {
     for expected in [
         ["--model", "gpt-6-astra"],
@@ -437,8 +447,9 @@ fn assert_intact(argv: &[String], label: &str) {
             "{label} lost {expected:?}: {argv:?}"
         );
     }
-    assert!(
-        argv.iter().any(|part| part == "--sandbox"),
+    assert_eq!(
+        argv.iter().filter(|part| *part == "--sandbox").count(),
+        usize::from(label != "boxed"),
         "{label}: {argv:?}"
     );
 }
@@ -636,26 +647,44 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
             "template": {"kind": "none"},
         })
     );
-    // The inline seat spells the same arguments byte for byte, and every
-    // one of them is authored.
-    let (inline, input) = sealed(&unboxed, "inline", 0);
-    let copied = &input["launch_record"];
+    // The inline seat's command is the same bytes: its pins are authored,
+    // and the class it declares is the engine's `local` segment, never
+    // hands (fixture migration of 2026-09-26; rebuild unit 5d).
+    let (inline, sealed_inline) = sealing(&unboxed, "inline", 0, &unboxed.sites["inline"]);
+    assert_eq!(sealed_inline, Ok(()));
+    let copied = inline.launch_record();
     assert_eq!(
         copied["segments"],
         json!([{"origin": "authored",
-                "argv": ["--model", "gpt-6-astra", "--effort", "high",
-                         "--sandbox", "workspace-write"]}])
+                "argv": ["--model", "gpt-6-astra", "--effort", "high"]},
+               {"origin": "local", "argv": ["--sandbox", "workspace-write"]}])
     );
     assert_eq!(inline.argv[1..], agent.argv[1..]);
     assert_eq!(
         copied["expected"]["local"],
-        json!({"allow": {"kind": "unspecified"}, "sandbox": {"kind": "unspecified"},
+        json!({"allow": {"kind": "unspecified"}, "sandbox": {"kind": "workspace-write"},
                "application": {"kind": "unrestricted"}})
     );
     assert_eq!(copied["expected"]["hands"], json!({"kind": "none"}));
-    // An inline site whose allow does not lower emits no template and
+    // An inline site whose adapter declares no template emits none and
     // expects none (rebuild unit 5c-fix).
     assert_eq!(copied["expected"]["template"], json!({"kind": "none"}));
+    // Counterfeit origin (operator ruling 1 of 2026-09-23; rebuild unit
+    // 12): a recipe that AUTHORS the engine's own class bytes is refused at
+    // compile by origin, the bytes proving nothing.
+    one_inline_seat(
+        &operator,
+        &[&CODEX_SEAT[..], &["--sandbox", "workspace-write"]].concat(),
+    );
+    assert_eq!(
+        solo(&operator, &workspace().join("adapters"), &context),
+        "bundle: seat 'work' (office 'work') in realm 'private': its arguments carry \
+         '--sandbox' (argument 5), a capability-bearing option of harness 'codex'. A recipe \
+         authors no capability-bearing option for a harness brokkr drives, whatever its value, \
+         polarity or grant: tools come only from typed agent and seat declarations and the \
+         realm's grant, composed by the engine alone, and nothing authored is merged (operator \
+         ruling 1 of 2026-09-23)"
+    );
 
     // `namespace`: the Claude primary and its Codex fallback, each under
     // its own identity, with the box's workspace fragment as hands.
@@ -663,13 +692,13 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
         .compile(&context, Boundary::Namespace, None, Some(json!({})))
         .unwrap();
     // The boxed inline seat's arguments are all its author's, its hands
-    // the site's own declaration.
+    // the site's own declaration; it authors no sandbox (fixture migration
+    // of 2026-09-26).
     let (_, input) = sealed(&boxed, "boxed", 0);
     assert_eq!(
         input["launch_record"]["segments"],
         json!([{"origin": "authored",
-                "argv": ["--model", "gpt-6-astra", "--effort", "high",
-                         "--sandbox", "read-only"]}])
+                "argv": ["--model", "gpt-6-astra", "--effort", "high"]}])
     );
     assert_eq!(
         input["launch_record"]["expected"]["hands"],
@@ -3907,8 +3936,12 @@ fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_ro
 }
 
 /// An authored control that reaches the capability is refused at compile,
-/// naming the seat — `--search` and the OFF pair itself alike — while an
-/// unrelated `-c` (the boxed seat's own MCP configuration) is no conflict.
+/// naming the seat — `--search` and the OFF pair itself alike. Operator
+/// ruling 1 of 2026-09-23 (rebuild unit 12): the refusal names the
+/// canonical option and its position, never the value. The inline seat
+/// now declares its class, whose lowering judges its command first, so the
+/// authored control is planted on the boxed inline seat, which declares
+/// none (fixture migration of 2026-09-26).
 #[test]
 fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
     let operator = Operator::new();
@@ -3919,17 +3952,11 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
     // judges it.
     for (authored, written) in [
         (vec!["--search"], "--search"),
-        (vec!["-c", "web_search=\"disabled\""], "-c web_search"),
-        (vec!["-cweb_search=\"disabled\""], "-c web_search"),
-        (vec!["-c=web_search=\"disabled\""], "-c web_search"),
-        (
-            vec!["--config", "web_search=\"disabled\""],
-            "--config web_search",
-        ),
-        (
-            vec!["--config=web_search=\"disabled\""],
-            "--config web_search",
-        ),
+        (vec!["-c", "web_search=\"disabled\""], "--config"),
+        (vec!["-cweb_search=\"disabled\""], "--config"),
+        (vec!["-c=web_search=\"disabled\""], "--config"),
+        (vec!["--config", "web_search=\"disabled\""], "--config"),
+        (vec!["--config=web_search=\"disabled\""], "--config"),
     ] {
         // The sound bundle compiles; then one authored control is added.
         operator
@@ -3939,7 +3966,7 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
             &std::fs::read(operator.root().join("bundle/bundle.json")).unwrap(),
         )
         .unwrap();
-        let command = bundle["seats"]["inline"]["driver"]["command"]
+        let command = bundle["seats"]["boxed"]["driver"]["command"]
             .as_array_mut()
             .unwrap();
         command.extend(authored.iter().map(|part| json!(part)));
@@ -3958,11 +3985,12 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
         assert_eq!(
             refusal,
             format!(
-                "bundle: seat 'inline' (office 'inline') in realm 'private': its \
-                 arguments carry '{written}', which controls native capability 'web-search' of \
-                 provider 'codex'. Only the realm grants a capability, and the engine composes \
-                 the one control the grant resolves to; request 'web-search' by name under \
-                 'capabilities' instead (decision 0065 rulings 3 and 4)"
+                "bundle: seat 'boxed' (office 'boxed') in realm 'private': its arguments carry \
+                 '{written}' (argument 5), a capability-bearing option of harness 'codex'. A \
+                 recipe authors no capability-bearing option for a harness brokkr drives, \
+                 whatever its value, polarity or grant: tools come only from typed agent and \
+                 seat declarations and the realm's grant, composed by the engine alone, and \
+                 nothing authored is merged (operator ruling 1 of 2026-09-23)"
             )
         );
     }
@@ -3975,7 +4003,7 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
     let mut bundle: Value =
         serde_json::from_slice(&std::fs::read(operator.root().join("bundle/bundle.json")).unwrap())
             .unwrap();
-    bundle["seats"]["inline"]["driver"]["command"]
+    bundle["seats"]["boxed"]["driver"]["command"]
         .as_array_mut()
         .unwrap()
         .extend([json!("--enable"), json!("web_search_request")]);
@@ -3992,8 +4020,8 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
         )
         .unwrap_err()
         .to_string(),
-        "bundle: seat 'inline' (office 'inline') in realm 'private': its arguments do not \
-         parse: the 'codex' command grammar cannot place argument 7 ('--enable'): it names no \
+        "bundle: seat 'boxed' (office 'boxed') in realm 'private': its arguments do not \
+         parse: the 'codex' command grammar cannot place argument 5 ('--enable'): it names no \
          option. A harness brokkr launches is parsed against a model of its options, and a \
          token that grammar cannot place is refused rather than passed through, because a \
          control nobody can read is a control nobody can rule on (decision 0066 ruling 6)"
@@ -4996,9 +5024,9 @@ fn no_shipped_driver_command_authors_a_capability_bearing_option() {
 fn a_panel_member_and_a_sequence_step_resolve_under_their_own_labels() {
     let operator = Operator::new();
     let site = |asks: Option<Value>| {
+        // No authored `--sandbox` (fixture migration of 2026-09-26).
         let mut site = json!({"role": "roles/role.md", "driver": {"command": [
-            "{brokkr}", "driver", "codex", "--", "--model", "gpt-6-astra", "--effort", "high",
-            "--sandbox", "read-only"]}});
+            "{brokkr}", "driver", "codex", "--", "--model", "gpt-6-astra", "--effort", "high"]}});
         if let Some(asks) = asks {
             site["capabilities"] = asks;
         }
@@ -5364,7 +5392,10 @@ fn solo_bundle(
     .map_err(|refusal| refusal.to_string())
 }
 
-const CODEX_SEAT: [&str; 10] = [
+/// An inline Codex work seat's pins, with no authored sandbox: a recipe
+/// authors no `--sandbox` (operator ruling 1 of 2026-09-23; fixture
+/// migration of 2026-09-26).
+const CODEX_SEAT: [&str; 8] = [
     "{brokkr}",
     "driver",
     "codex",
@@ -5373,8 +5404,6 @@ const CODEX_SEAT: [&str; 10] = [
     "gpt-6-astra",
     "--effort",
     "high",
-    "--sandbox",
-    "workspace-write",
 ];
 
 /// Finding H1: DENIAL IS SOMETHING THE LAUNCH PROVES, NEVER SOMETHING
@@ -5613,13 +5642,16 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
     let operator = Operator::new();
     let context = operator.context(json!({}));
     let adapters = workspace().join("adapters");
+    // Operator ruling 1 of 2026-09-23 (rebuild unit 12): refused by origin,
+    // naming the canonical option and its position, never its value.
     let refusal = |site: &str, written: &str, provider: &str| {
         format!(
             "bundle: seat '{site}' (office '{site}') in realm 'private': its arguments carry \
-             '{written}', which configures a capability server or admits a server's tools for \
-             provider '{provider}'. A recipe's driver arguments are recipe data, and only the \
-             realm grants a capability (decision 0065 ruling 3); the workspace hands are the \
-             engine's own to compose and need no authored configuration (decision 0066 ruling 4)"
+             '{written}' (argument 5), a capability-bearing option of harness '{provider}'. A \
+             recipe authors no capability-bearing option for a harness brokkr drives, whatever \
+             its value, polarity or grant: tools come only from typed agent and seat \
+             declarations and the realm's grant, composed by the engine alone, and nothing \
+             authored is merged (operator ruling 1 of 2026-09-23)"
         )
     };
     fn codex(extra: &[&'static str]) -> Vec<&'static str> {
@@ -5646,12 +5678,12 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
                 "-c",
                 "mcp_servers.ungranted.args=[\"fetch-mcp\"]",
             ]),
-            "-c mcp_servers",
+            "--config",
             "codex",
         ),
         (
             codex(&["--config=mcp_servers={ungranted={command=\"npx\"}}"]),
-            "--config mcp_servers",
+            "--config",
             "codex",
         ),
         // Second council H1, verbatim: the ATTACHED spelling the first
@@ -5659,17 +5691,17 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
         // `codex exec` command earns the same realm-only refusal.
         (
             codex(&["-cmcp_servers.ungranted.command=\"/bin/false\""]),
-            "-c mcp_servers",
+            "--config",
             "codex",
         ),
         (
             codex(&["-c=mcp_servers.ungranted.command=\"/bin/false\""]),
-            "-c mcp_servers",
+            "--config",
             "codex",
         ),
         (
             codex(&["--config", "mcp_servers.ungranted.command=\"/bin/false\""]),
-            "--config mcp_servers",
+            "--config",
             "codex",
         ),
         // Second council H2: the plugin channel, and a later admission
@@ -5681,13 +5713,13 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
         ),
         (
             claude(&["--allowedTools", "Read", "mcp__ungranted__fetch"]),
-            "--allowedTools mcp__*",
+            "--allowedTools",
             "claude",
         ),
         // Counterfeit hands: the engine's server name, authored.
         (
             codex(&["-c", "mcp_servers.brokkr.command=\"{brokkr}\""]),
-            "-c mcp_servers",
+            "--config",
             "codex",
         ),
         (
@@ -5702,10 +5734,10 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
         ),
         (
             claude(&["--allowedTools", "Bash(git:*),mcp__ungranted__fetch"]),
-            "--allowedTools mcp__*",
+            "--allowedTools",
             "claude",
         ),
-        (claude(&["--allowed-tools=*"]), "--allowedTools *", "claude"),
+        (claude(&["--allowed-tools=*"]), "--allowedTools", "claude"),
     ] {
         one_inline_seat(&operator, &command);
         assert_eq!(
@@ -5741,7 +5773,7 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
         std::fs::write(&path, serde_json::to_vec(&bundle).unwrap()).unwrap();
         assert_eq!(
             solo(&operator, &adapters, &context),
-            refusal(site, "-c mcp_servers", "codex"),
+            refusal(site, "--config", "codex"),
             "{site}"
         );
     }
@@ -5780,6 +5812,134 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
         1,
         "{primary:?}"
     );
+}
+
+/// Rebuild unit 12 (operator ruling 1 of 2026-09-23; tasks 12.1 and 12.2):
+/// an inline seat of every harness brokkr drives that AUTHORS a
+/// capability-bearing option is refused at compile under every grant state
+/// — no map, a realm that grants nothing, a grant its office asks for and
+/// one it does not — whatever the option's polarity: a list agreeing with
+/// the engine's managed denial, an explicit empty restriction, the ON a
+/// grant would compose, and the engine's own OFF bytes. The same seat
+/// without the option compiles in every state, and where it holds nothing
+/// its final command carries the engine's managed denial alone.
+#[test]
+fn an_authored_capability_option_refuses_the_compile_under_every_grant_state() {
+    let operator = Operator::new();
+    let adapters = workspace().join("adapters");
+    let seat = |harness: &str, model: &str, extra: &[&str]| {
+        let mut command = vec!["{brokkr}", "driver", harness, "--", "--model", model];
+        command.extend(["--effort", "high"]);
+        [command, extra.to_vec()]
+            .concat()
+            .iter()
+            .map(|part| part.to_string())
+            .collect::<Vec<_>>()
+    };
+    let refused = |realm: &str, option: &str, harness: &str| {
+        format!(
+            "bundle: seat 'work' (office 'work') in realm '{realm}': its arguments carry \
+             '{option}' (argument 5), a capability-bearing option of harness '{harness}'. A \
+             recipe authors no capability-bearing option for a harness brokkr drives, whatever \
+             its value, polarity or grant: tools come only from typed agent and seat \
+             declarations and the realm's grant, composed by the engine alone, and nothing \
+             authored is merged (operator ruling 1 of 2026-09-23)"
+        )
+    };
+    type Rows = Vec<(&'static [&'static str], &'static str)>;
+    let harnesses: [(&str, &str, &str, Rows); 3] = [
+        (
+            "claude",
+            "claude-opus-5",
+            "claude-native-search",
+            vec![
+                (
+                    &["--disallowedTools", "WebSearch,WebFetch"],
+                    "--disallowedTools",
+                ),
+                (&["--tools", ""], "--tools"),
+                (&["--allowed-tools=WebSearch"], "--allowedTools"),
+            ],
+        ),
+        (
+            "lanetally",
+            "claude-opus-5",
+            "claude-native-search",
+            vec![
+                (&["--disallowed-tools=WebFetch"], "--disallowedTools"),
+                (&["--tools="], "--tools"),
+            ],
+        ),
+        (
+            "codex",
+            "gpt-6-astra",
+            "codex-native-search",
+            vec![
+                (&["-c", "web_search=\"disabled\""], "--config"),
+                (&["--search"], "--search"),
+                (&["-sread-only"], "--sandbox"),
+            ],
+        ),
+    ];
+    for (harness, model, dialect, rows) in &harnesses {
+        let granted = json!({"web-search": {"dialect": dialect}});
+        let states = [
+            (
+                CapabilityContext::no_grants("<unmapped>", operator.root()),
+                None,
+            ),
+            (
+                operator.context(json!({})),
+                Some(json!({"web-search": "wants"})),
+            ),
+            (
+                operator.context(granted.clone()),
+                Some(json!({"web-search": "wants"})),
+            ),
+            (operator.context(granted), None),
+        ];
+        for (context, asks) in &states {
+            let realm = context.realm.as_str();
+            let plant = |command: &[String]| {
+                let parts: Vec<&str> = command.iter().map(String::as_str).collect();
+                one_inline_seat(&operator, &parts);
+                if let Some(asks) = asks {
+                    let path = operator.root().join("solo/bundle.json");
+                    let mut bundle: Value =
+                        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                    bundle["seats"]["work"]["capabilities"] = asks.clone();
+                    write(operator.root(), "solo/bundle.json", &bundle);
+                }
+            };
+            for (extra, option) in rows {
+                plant(&seat(harness, model, extra));
+                assert_eq!(
+                    solo(&operator, &adapters, context).as_str(),
+                    refused(realm, option, harness),
+                    "{harness} {extra:?} in {realm} asking {asks:?}"
+                );
+            }
+            // The migrated positive: the same seat, nothing authored.
+            plant(&seat(harness, model, &[]));
+            let bundle = solo_bundle(&operator, &adapters, context)
+                .unwrap_or_else(|refusal| panic!("{harness} in {realm}: {refusal}"));
+            let outcome = &bundle.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
+            if !outcome.held.is_empty() || *harness == "lanetally" {
+                continue;
+            }
+            let launched = try_launch(&bundle, "work", 0)
+                .unwrap_or_else(|refusal| panic!("{harness} in {realm}: {refusal}"));
+            let denial: &[&str] = match *harness {
+                "codex" => &OFF,
+                _ => &["--disallowedTools", "WebFetch,WebSearch"],
+            };
+            assert_eq!(
+                &launched[launched.len() - 2..],
+                denial,
+                "{harness} in {realm}: {launched:?}"
+            );
+        }
+    }
 }
 
 /// Finding H3, the council's reproduction along the whole chain: Claude's
@@ -5833,10 +5993,10 @@ fn a_native_control_declared_as_argv_reaches_the_final_claude_command() {
             "claude-opus-5",
             "--effort",
             "high",
-            "--permission-mode",
-            "acceptEdits",
         ],
     );
+    // No authored `--permission-mode` (fixture migration of 2026-09-26):
+    // the inline seat declares no typed allow, so no template is emitted.
     assert_eq!(
         solo(&operator, mixed.path(), &context),
         format!(
@@ -5851,8 +6011,6 @@ fn a_native_control_declared_as_argv_reaches_the_final_claude_command() {
                 "claude-opus-5",
                 "--effort",
                 "high",
-                "--permission-mode",
-                "acceptEdits",
                 "--disallowedTools",
                 "WebFetch,WebSearch"
             ]

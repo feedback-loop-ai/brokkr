@@ -278,16 +278,83 @@ pub fn managed(input: &Value) -> Result<Option<Controls>, String> {
 /// A DENY list is never a contender: it narrows access, and subtraction is
 /// not admission (second council M1). An admitted tool that the engine's
 /// plan denies is a different refusal, stated where the lists are composed.
+///
+/// This is the LAUNCH boundary's guard over the driver's legacy authored
+/// part, which still carries the engine's template and local segments
+/// beside the recipe's own words; compilation refuses every authored
+/// capability-bearing option by origin instead ([`authored_refusal`]).
+/// Beside the guards it judges the same part for a capability server
+/// ([`authored_server_conflict`]), refused in the words composition used.
 pub fn authored_conflict(
     harness: &str,
     authored: &[String],
     guards: &[Guard],
 ) -> Result<Option<(String, String)>, Refusal> {
     let authored = harness_arguments(authored);
-    Ok(match parse_origin(harness, authored, true)? {
-        Some(command) => typed_conflict(&command, guards),
-        None => opaque_conflict(authored, guards),
-    })
+    let Some(command) = parse_origin(harness, authored, true)? else {
+        return Ok(opaque_conflict(authored, guards));
+    };
+    if let Some(conflict) = typed_conflict(&command, guards) {
+        return Ok(Some(conflict));
+    }
+    match authored_server_conflict(&command) {
+        None => Ok(None),
+        Some(written) => Err(Refusal {
+            authored: true,
+            cause: format!(
+                "carry '{written}', which configures a capability server or admits a server's \
+                 tools for provider '{harness}'. A recipe's driver arguments are recipe data, \
+                 and only the realm grants a capability (decision 0065 ruling 3); the workspace \
+                 hands are the engine's own to compose and need no authored configuration \
+                 (decision 0066 ruling 4)"
+            ),
+        }),
+    }
+}
+
+/// Operator ruling 1 of 2026-09-23 at compilation (rebuild unit 12): what
+/// a recipe itself WROTE for a harness brokkr drives — claude, codex, dsh,
+/// and LaneTally's claude path — carries no capability-bearing option. The
+/// judgment is the grammar's own classification of each parsed node
+/// ([`grammar::Node::bears_capability`]): a tool list of any polarity, a
+/// loaded document, a catalogue control, or a configuration assignment
+/// into a capability table, in every spelling, whatever its value and
+/// whatever the realm grants. Nothing is read out of the value, so an
+/// empty, restrictive, deny or agreeing list refuses exactly as a widening
+/// one does, and nothing authored is merged. An assignment with no bounded
+/// meaning refuses with its fixed cause. The refusal names the canonical
+/// option and its position, never a value.
+///
+/// Only the recipe's own words are judged: the adapter's template, the
+/// engine's local permissions and hands are separate origins (design
+/// D5.7), and copying their bytes into a command does not make them
+/// engine-owned. A harness brokkr has no grammar for is opaque and is not
+/// judged here.
+pub fn authored_refusal(harness: &str, authored: &[String]) -> Result<(), Refusal> {
+    let authored = harness_arguments(authored);
+    let Some(command) = parse_origin(harness, authored, true)? else {
+        return Ok(());
+    };
+    for node in &command.nodes {
+        let what = match node.bears_capability() {
+            Ok(false) => continue,
+            Ok(true) => "a capability-bearing option".to_string(),
+            Err(cause) => format!("a configuration assignment that {cause}"),
+        };
+        return Err(Refusal {
+            authored: true,
+            cause: format!(
+                "carry '{}' (argument {}), {what} of harness '{harness}'. A recipe authors no \
+                 capability-bearing option for a harness brokkr drives, whatever its value, \
+                 polarity or grant: tools come only from typed agent and seat declarations and \
+                 the realm's grant, composed by the engine alone, and nothing authored is merged \
+                 (operator ruling 1 of 2026-09-23)",
+                node.name(),
+                node.at + 1
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// The same question for a command that dispatches no harness brokkr
@@ -1403,7 +1470,12 @@ fn unconsumed(provider: &str, form: &str) -> Refusal {
 /// consumes, called by the compiler on the unexpanded parts and by the
 /// driver on the expanded ones (decision 0066 rulings 1, 3 and 4).
 ///
-/// 1. The authored part carries no capability server ([`authored_server_conflict`]).
+/// 1. Every origin parses under the provider's grammar. What was authored
+///    is not judged here by what its values say: compilation has refused
+///    every authored capability-bearing option by origin
+///    ([`authored_refusal`]; rebuild unit 12), so the lists this composes
+///    with are the engine's own — its local permissions, its template and
+///    its hands.
 /// 2. The plan is ready: it was resolved for this provider, and every power
 ///    the provider is known to carry ([`known_powers`]) is answered for, ON
 ///    or OFF. An unmeasured inventory answers for nothing.
@@ -1437,20 +1509,8 @@ pub fn compose_for_provider(
     // Every origin is parsed to completion and SEPARATELY, so a dangling
     // value or terminator in one cannot reach across and consume another
     // origin's control (decision 0066 ruling 6).
-    let authored_command = parse_origin(provider, authored, true)?;
+    parse_origin(provider, authored, true)?;
     parse_origin(provider, fragment, false)?;
-    if let Some(written) = authored_command.as_ref().and_then(authored_server_conflict) {
-        return Err(Refusal {
-            authored: true,
-            cause: format!(
-                "carry '{written}', which configures a capability server or admits a server's \
-                 tools for provider '{provider}'. A recipe's driver arguments are recipe data, \
-                 and only the realm grants a capability (decision 0065 ruling 3); the workspace \
-                 hands are the engine's own to compose and need no authored configuration \
-                 (decision 0066 ruling 4)"
-            ),
-        });
-    }
     for capability in known_powers(provider) {
         if let Inventory::Unmeasured(reason) = &controls.inventory {
             return Err(unready(

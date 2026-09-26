@@ -9441,3 +9441,223 @@ rebuild the patch. Logs are `.forge/u12-v2-*.log`.
 - **Standing-admission lines:** none.
 - **Pending:** exact coverage (the dead-arm deletion is still only in the
   patch), macOS and remote CI.
+
+## Unit 12 — built, under the fixture-migration ruling of 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-8bdee503`, the second visit, on
+`b4ad852e`, a clean tree. Step 0 appended the operator's 2026-09-26
+standing admission for fixture migration verbatim to
+`operator-ruling-2026-09-23.md` and committed it alone (`912a04db`). Logs
+are `.forge/u12c-*.log`.
+
+### Starting point, re-verified
+
+- `sha256sum .forge/unit-12-oversized-2026-09-26.patch` gave
+  `f12b3e528af9c906ac172d18b327bf3a528e94398602de722a738786daa209e6`;
+  `git apply --check` was clean on `912a04db`, and the patch was applied.
+- With the patch applied and no test changed (`u12c-base-proto.log`,
+  `u12c-base-rt.log`): protocol lib 485 passed, 2 failed (both named in
+  "Unit 12 — oversized"); runtime lib 564 passed, 1 failed
+  (`agent_tests.rs:308:42`, `--allowedTools`); `tests/capability_launch.rs`
+  29 passed, 14 failed, every one on ruling 1's refusal of an authored
+  `--sandbox` (argument 5), the one at 5711 on the old server cause. The
+  unmigrated `driver_conformance.rs` failed 22/2 with the change applied
+  (`u12c-baseline-dc.log`): `driver_conformance.rs:3063:6`, `carry
+  '--sandbox' (argument 5)`, and the second test on the poisoned
+  `PROOF_ENV` lock. The first visit's record is confirmed.
+
+### Production beyond the saved patch
+
+- `bundle.rs`: the patch's per-candidate `written` (the composition's
+  `Authored` segments) is replaced by `written: &[]` for an agent
+  candidate. Every candidate of a resolved chain composed (`agents.rs`
+  1490–1492), and an agent composition holds only template, local and
+  hands segments (the only `Origin::Authored` producers are the inline and
+  dispatch paths in `engine.rs` and `bundle.rs` 3645). The patch's match
+  arm for a non-composed candidate was therefore unreachable, and the
+  first measurement (`u12c-lcov.info`) showed it unhit (DA:4610). An agent
+  reference is total (AC-21): the seat writes no argv.
+- `capabilities.rs`: the `Serving::written` doc says so.
+
+### Fixture migrations (operator ruling of 2026-09-26)
+
+Each is a fixture that authored an option ruling 1 refuses. The reason is
+the same for every row: the recipe may no longer author it, so the test
+must plant the typed declaration or a re-planted fixture that still
+reaches what it proves.
+
+| File | Test / fixture | Migration |
+|---|---|---|
+| `tests/capability_launch.rs` | `Operator::compile_against` inline seat | `--sandbox workspace-write` → `tools.sandbox: workspace-write` (unit 5d lowers it as the engine's `local` segment) |
+| same | `Operator::compile_against` boxed seat | `--sandbox read-only` dropped: an inline class beside hands is refused (D5.3), the box confines it |
+| same | `CODEX_SEAT` (used by `a_known_native_power…`, the server test, `inline_codex_seats`) | `--sandbox workspace-write` dropped |
+| same | `a_panel_member_and_a_sequence_step…` site | `--sandbox read-only` dropped (a member takes no typed class) |
+| same | `a_native_control_declared_as_argv…` inline Claude seat | `--permission-mode acceptEdits` dropped; the expected final argv loses it (no typed allow, so no template) |
+| `bundle/agent_tests.rs` | `a_resolved_seat_equals_the_equivalent_inline_seat` | `--allowedTools Bash(cargo:*)` → `tools.allow: ["cargo"]`; the body compared is the command with the site's lowered `local` segment behind it, and the site emits no template |
+| `brokkr-cli/tests/driver_conformance.rs` | `proof_codex_argv`, `proof_codex_driver`, `proof_verify(Single)` | `--sandbox danger-full-access` dropped (the narrow ruling admits it nowhere); the single seat declares `tools.sandbox: workspace-write` (`PROOF_CLASS`) |
+| same | `the_compiled_live_inline_codex_shapes_rejoin…` | the Single rows now expect `workspace-write` re-expressed; the NoHandsMember rows are **re-planted** (below) |
+
+**The NoHandsMember re-plant, and why.** Unit 5d lowers a typed class only
+at a seat (`bundle.rs` 2832–2845 refuses `tools.sandbox` at a member), so
+a no-hands panel member can express no class at all. The adapter then
+fails closed: its retry runs `cold` with `resume_refusal:
+"sandbox-unavailable"` (`adapters.rs` 2818–2819), observed in
+`u12c-dc-2.log`. The member rows now assert exactly that — the member's
+own refusal, not its hands-bearing sibling's `restrictions-unavailable`,
+no `resumed` row, and no `exec resume` in the provider's argv log — and
+keep every cold-row assertion. The rejoin itself stays proved at the
+Single shapes, wrapped and unwrapped. This is the one migration where the
+test cannot prove what it proved before: that member shape no longer
+exists. Restoring a member rejoin needs a typed class at members (a unit
+5d extension); see "Follow-ups".
+
+Changed assertions beyond fixtures, all in the named files:
+
+- `capability_launch.rs::assert_intact`: `--sandbox` appears exactly once,
+  except at the boxed inline seat, where it appears zero times.
+- `a_compiled_links_origins…`: the inline record is `authored` pins plus
+  the engine's `local` class, and its expected `local.sandbox` is
+  `workspace-write`; the byte-identical AUTHORED copy is refused at compile
+  with ruling 1's cause naming `'--sandbox' (argument 5)` — the counterfeit
+  origin. The boxed seat's authored segment loses the sandbox.
+- `rejoin` composes with the site's facts (`compose_site_at`), as dispatch
+  does, so an inline seat's lowered class is in the command.
+- `an_authored_search_control…`: planted on the boxed seat (the inline
+  seat's typed class refuses first under 5d); the six spellings now expect
+  ruling 1's cause naming `--search` or `--config` at argument 5; the
+  `--enable` grammar refusal moves to argument 5.
+- `an_authored_capability_server_refuses_the_compile…`: every row now
+  expects ruling 1's cause naming the canonical option (`--config`,
+  `--plugin-dir`, `--allowedTools`, `--mcp-config`) at argument 5.
+- `native_controls/tests.rs::a_tool_list_that_admits…`: the
+  `mcp__brokkr__workspace` row moves from `None` to the launch guard's
+  server refusal (`authored_conflict` now judges servers).
+- `an_authored_capability_server_is_refused_by_provenance…`: each row is
+  refused by `authored_conflict` (the launch guard) in the old words, and
+  by `authored_refusal` naming the canonical option at argument 1; and
+  `compose_for_provider` now composes the authored part unchanged.
+
+### New tests
+
+- `native_controls/tests.rs::an_authored_capability_option_is_refused_by_origin_whatever_its_value_or_form`
+  (line 1045): claude and lanetally (15 rows each: every list polarity,
+  empty, agreeing deny, joined and alias forms, `--mcp-config`,
+  `--plugin-dir`, `--settings`, `--agents`, `--permission-mode`,
+  `--add-dir`, `--strict-mcp-config`), codex (15 rows: `--sandbox` in four
+  spellings, `-a`, `--search`, `--full-auto`, the bypass switch,
+  `--include-plan-tool`, `--add-dir`, `-p`, and the engine's own OFF and
+  hands bytes authored), two unbounded assignments with their fixed
+  causes, positives (pins, an inert effort assignment, the DSH route
+  overlay, `exec` and `<custom>` opaque), and DSH's grammar refusal. Every
+  expectation is exact and carries no value.
+- `capability_launch.rs::an_authored_capability_option_refuses_the_compile_under_every_grant_state`
+  (line 5827): claude, lanetally and codex inline seats, under no map, a
+  realm granting nothing (asking `wants`), a grant the office asks for, and
+  a grant it does not; the refused options include a list agreeing with
+  the managed denial, an explicit empty restriction, the ON a grant would
+  compose and the engine's own OFF bytes. The same seat with nothing
+  authored compiles in every state, and where it holds nothing its final
+  command ends with the engine's managed denial alone.
+
+### Baseline reds (HEAD `912a04db` production, the tests above in place)
+
+`u12c-baseline-cl.log`: 40 passed, 4 failed — the grant-state test
+(`capability_launch.rs:5916`: an authored `--disallowedTools
+WebSearch,WebFetch` LAUNCHED), the origins test (`:679`: the authored
+`--sandbox workspace-write` copy launched), the search-control test
+(`:3985`, the old guard cause), and the server test (`:5743`, the old
+server cause). `u12c-baseline-proto.log`: the protocol tests do not
+compile (E0425, no `authored_refusal`). The migrated tests' reds are the
+patch-applied runs above.
+
+### Mutations (each alone, compiled, failed as stated, restored)
+
+- **M1** deny lists pass `authored_refusal`: the protocol matrix fails on
+  the four deny rows; the grant-state test fails at `:5916`
+  (`u12c-mut-M1-*.log`).
+- **M2** the `authored_refusal` call in `resolve` discarded: 40/4 — the
+  grant-state, origins, search-control and server tests.
+- **M3** the inline site passes `written: &[]`: the same four.
+- **M4** an agent candidate's engine argv judged as written: 91 failures
+  in 11 runtime targets (`--permission-mode` template refused).
+- **M5** the server check restored in `compose_for_provider`: the
+  provenance test fails at its composition assertion (`tests.rs:938`).
+- **M6** the launch guard's server check filtered out: 5 protocol tests
+  fail, three of them `adapters/tests.rs` launch tests.
+- **M7** the position is `node.at`: both authored-refusal protocol tests.
+- **M8** an unbounded assignment skipped: the matrix fails on both
+  unbounded rows.
+- **M9** the inline typed allow not recorded: `agent_tests.rs:342`.
+- **M10** `compose_site_at` drops the inline class: 12 launch tests
+  (origins, rejoin, both `assert_intact` tests among them) and the Single
+  proof rows (`driver_conformance.rs:3232`).
+- **M11** the no-class rejoin token changed to `restrictions-unavailable`:
+  the re-planted member rows fail (`driver_conformance.rs:3255`).
+- **M12** the composer creates no named list: the grant-state test fails
+  at `:5936`; `a_native_control…` panics before its changed assertion, so
+  **M12b** (an unhanded Claude composition drops `high`) binds that
+  assertion at `:6000`.
+
+After every restore, `git diff | sha256sum` gave the saved work diff's
+`698f12f2…4180`.
+
+### The two arms handed by unit 11, and coverage
+
+`cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --all-features
+--locked --branch --lcov` on the final tree (`u12c-lcov-final.info`; 24
+`ok` lines, 0 `FAILED`). The `bundle.rs` record, read with `grep -x` for
+`DA:…,0` and zero/unhit `BRDA`, against unit 11's `u11f-lcov.info`:
+
+- DA:3376 and DA:3403–3408 are gone: the two `Contribution::Native` arms
+  are deleted, and the `Written` text is byte for byte the old one.
+- Every remaining zero is unit 11's, at the same source text: DA:1295,
+  1413, 1671–1674, 1877, 2644, 2646, 2649, 2783 unchanged; unit 11's
+  DA:5247–5250 and BRDA 3469/4274/5246 now read 5241–5244 and
+  3457/4262/5240, the same lines (`git show HEAD:…` and the tree compared).
+  No `bundle.rs` line is newly unhit.
+- `capabilities.rs`: the zero set equals unit 11's (838–888 unchanged,
+  1571–1575 now 1579–1583). The opaque-only guard branch is hit.
+- `llvm-cov -p brokkr-protocol` (`u12c-lcov-proto.info`, 2 `ok`, 0
+  `FAILED`): `native_controls.rs` zeros are the opaque path (295,
+  368–385) and unit 11's load reader (1344–1382), both reached from the
+  runtime's compile path, which this package-scoped run does not
+  instrument. **Exact coverage stays pending** until
+  `scripts/coverage-exact.sh` runs outside the box.
+
+### Gates (final tree)
+
+- `cargo test -p brokkr-runtime -p brokkr-protocol --all-features --locked
+  --no-fail-fast`: 28 `ok` lines, 0 failures; protocol lib 488, runtime lib
+  565 (`u12c-final-rt-proto.log`).
+- `cargo test -p brokkr-cli --all-features --locked --no-fail-fast`: 33
+  `ok` lines, 0 failures; CLI lib 481 (`u12c-final-cli.log`).
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: 0 warning/error lines (`u12c-clippy.log`).
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `bundles/self` and `bundles/verify` compiled, with no error or warning
+  line.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0 failed.
+- **Standing-admission lines** (compiler-forced by `Serving::written`):
+  `capabilities/tests.rs:121`, `engine/capability_tests.rs:34`,
+  `agents/tests.rs:4753`, each `written: &[]`.
+- **Pending:** exact coverage, macOS and remote CI.
+
+### Reading, and follow-ups not fixed here
+
+- **Reading.** Value-dependent admission is deleted from compilation and
+  from `compose_for_provider`; compilation refuses by origin. The launch
+  boundary's guard (`authored_conflict`, called from `adapters.rs`) still
+  judges the driver's legacy authored part by value, now with the server
+  check beside the guards, because that part also carries the engine's
+  template and local segments. Making it origin-aware needs `adapters.rs`
+  (units 13–14) and stays under 15.2. `fold_lists` remains: every list it
+  folds into at compile is the engine's (template, local, hands), since an
+  authored list is refused first.
+- **Member rejoin.** A no-hands inline Codex panel member or sequence step
+  can express no sandbox class, so it never rejoins
+  (`sandbox-unavailable`). A typed class at members would restore it
+  (a unit 5d extension).
+- **Mutation not run.** Making the compile path's opaque-only guard run for
+  every harness was not tried: with ruling 1 refusing every guarded
+  control first, its difference reaches only engine-owned lists, which the
+  launch guard judges anyway.

@@ -407,8 +407,18 @@ fn a_tool_list_that_admits_a_native_tool_is_an_authored_control() {
             "{extra:?}"
         );
     }
+    // Rebuild unit 12: the launch guard judges the authored part for a
+    // capability server beside the guards, so an admitted server tool is
+    // that refusal here rather than a pass the composer used to refuse.
+    assert_eq!(
+        authored_conflict(
+            "claude",
+            &argv(&["--allowedTools", "Bash(git:*),mcp__brokkr__workspace"]),
+            &guards
+        ),
+        Err(server_refusal("claude", "--allowedTools mcp__*"))
+    );
     for extra in [
-        argv(&["--allowedTools", "Bash(git:*),mcp__brokkr__workspace"]),
         argv(&["--tools", ""]),
         // Denying the tool by name is not admitting it (second council M1).
         argv(&["--disallowedTools", "WebFetch"]),
@@ -747,6 +757,23 @@ fn server_refusal(provider: &str, written: &str) -> Refusal {
     }
 }
 
+/// Operator ruling 1 of 2026-09-23 at compilation: the cause of a refused
+/// authored option, `what` it is, at its 1-based harness position.
+fn authored_refused(harness: &str, option: &str, at: usize, what: &str) -> Refusal {
+    Refusal {
+        authored: true,
+        cause: format!(
+            "carry '{option}' (argument {at}), {what} of harness '{harness}'. A recipe authors no \
+             capability-bearing option for a harness brokkr drives, whatever its value, polarity \
+             or grant: tools come only from typed agent and seat declarations and the realm's \
+             grant, composed by the engine alone, and nothing authored is merged (operator ruling \
+             1 of 2026-09-23)"
+        ),
+    }
+}
+
+const BEARS: &str = "a capability-bearing option";
+
 /// Finding H2: a recipe's AUTHORED driver arguments configure no capability
 /// server and admit no server's tool — under `grants: {}`, with a sound
 /// inventory, independent of both. The council's two reproductions lead:
@@ -886,11 +913,30 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
             "--allowedTools mcp__*",
         ),
     ] {
+        // Rebuild unit 12: the launch boundary's guard refuses it in the
+        // words the composer used to.
         assert_eq!(
-            compose_for_provider(provider, &authored, &[], controls),
+            authored_conflict(provider, &authored, &[]),
             Err(server_refusal(provider, written)),
             "{provider}: {authored:?}"
         );
+        // Compilation refuses it by origin (operator ruling 1 of
+        // 2026-09-23), naming the canonical option — `-c` is `--config`'s
+        // alias — and its position, never a value.
+        let option = match written.split(' ').next() {
+            Some("-c") => "--config",
+            name => name.unwrap(),
+        };
+        assert_eq!(
+            authored_refusal(provider, &authored),
+            Err(authored_refused(provider, option, 1, BEARS)),
+            "{provider}: {authored:?}"
+        );
+        // Composition reads no authored value (rebuild unit 12): it
+        // composes the parts it is handed, the authored part unchanged.
+        let composed = compose_for_provider(provider, &authored, &[], controls)
+            .unwrap_or_else(|refusal| panic!("{authored:?}: {refusal:?}"));
+        assert_eq!(&composed.extra[..authored.len()], authored, "{authored:?}");
     }
     // Inert: a value is a value whatever it spells, and another key is
     // another key. An option-looking value reaches the command through the
@@ -983,6 +1029,166 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
             refusal.cause
         )
     );
+}
+
+/// Rebuild unit 12 (operator ruling 1 of 2026-09-23; task 12.1): what a
+/// recipe WROTE for a harness brokkr drives carries no capability-bearing
+/// option, in any form, whatever its value or polarity. An empty list, a
+/// deny list, a list that agrees with the engine's own denial and the
+/// engine's own OFF bytes refuse exactly as a widening list does; the
+/// refusal names the canonical option and its position after the dispatch
+/// terminator, and never the value. Pins and the DSH route overlay are no
+/// such option; a harness brokkr has no grammar for is opaque and is not
+/// judged here; an assignment with no bounded meaning refuses with its
+/// fixed cause; a token the grammar cannot place is the grammar's refusal.
+#[test]
+fn an_authored_capability_option_is_refused_by_origin_whatever_its_value_or_form() {
+    let pins = ["--model", "a-model", "--effort", "high"];
+    let written = |harness: &str, extra: &[&str]| {
+        let mut command = argv(&["{brokkr}", "driver", harness, "--"]);
+        command.extend(argv(&pins));
+        command.extend(argv(extra));
+        command
+    };
+    let claude_like: Vec<(&[&str], &str)> = vec![
+        // Every polarity and value of every tool list.
+        (&["--tools", ""], "--tools"),
+        (&["--tools="], "--tools"),
+        (&["--tools", "Read WebSearch"], "--tools"),
+        (&["--allowedTools", "Bash(git:*)"], "--allowedTools"),
+        (&["--allowed-tools=WebFetch"], "--allowedTools"),
+        (&["--allowedTools", "Read", "mcp__x__y"], "--allowedTools"),
+        // A deny list that AGREES with the engine's own denial.
+        (
+            &["--disallowedTools", "WebSearch,WebFetch"],
+            "--disallowedTools",
+        ),
+        (&["--disallowed-tools=Bash(rm:*)"], "--disallowedTools"),
+        // Loaded documents, permission and filesystem controls.
+        (&["--mcp-config", "/etc/m.json"], "--mcp-config"),
+        (&["--plugin-dir=/etc/p"], "--plugin-dir"),
+        (&["--settings", "{}"], "--settings"),
+        (&["--agents", "{}"], "--agents"),
+        (&["--permission-mode", "acceptEdits"], "--permission-mode"),
+        (&["--add-dir", "/elsewhere"], "--add-dir"),
+        (&["--strict-mcp-config"], "--strict-mcp-config"),
+    ];
+    let codex: Vec<(&[&str], &str)> = vec![
+        (&["--sandbox", "read-only"], "--sandbox"),
+        (&["-s", "workspace-write"], "--sandbox"),
+        (&["-sread-only"], "--sandbox"),
+        (&["--sandbox=danger-full-access"], "--sandbox"),
+        (&["-a", "never"], "--ask-for-approval"),
+        (&["--search"], "--search"),
+        (&["--full-auto"], "--full-auto"),
+        (
+            &["--dangerously-bypass-approvals-and-sandbox"],
+            "--dangerously-bypass-approvals-and-sandbox",
+        ),
+        (&["--include-plan-tool"], "--include-plan-tool"),
+        (&["--add-dir", "/elsewhere"], "--add-dir"),
+        (&["-p", "profile"], "--profile"),
+        // The engine's own OFF bytes and hands, authored: counterfeits.
+        (&["-c", "web_search=\"disabled\""], "--config"),
+        (&["-cmcp_servers.brokkr.command=\"brokkr\""], "--config"),
+        (&["--config=sandbox_mode=\"read-only\""], "--config"),
+        (
+            &[
+                "-c",
+                "model_reasoning_effort=\"high\"",
+                "-c",
+                "web_search=\"live\"",
+            ],
+            "--config",
+        ),
+    ];
+    let mut rows: Vec<(&str, Vec<String>, Result<(), Refusal>)> = Vec::new();
+    for harness in ["claude", "lanetally"] {
+        for (extra, option) in &claude_like {
+            rows.push((
+                harness,
+                written(harness, extra),
+                Err(authored_refused(harness, option, 5, BEARS)),
+            ));
+        }
+    }
+    for (extra, option) in &codex {
+        // A leading inert assignment moves the refused one to its own place.
+        let at = 5 + 2 * usize::from(extra.len() == 4);
+        rows.push((
+            "codex",
+            written("codex", extra),
+            Err(authored_refused("codex", option, at, BEARS)),
+        ));
+    }
+    // An assignment no bounded meaning is modelled for, and an effort
+    // outside its levels: the fixed cause, never the key or value.
+    for (extra, cause) in [
+        (
+            "-cunmodelled.key=1",
+            "assigns a key no bounded meaning is modelled for, so it is refused rather than \
+             passed through as opaque configuration",
+        ),
+        (
+            "--config=model_reasoning_effort=\"ludicrous\"",
+            "assigns 'model_reasoning_effort' a value outside its bounded levels (none, \
+             minimal, low, medium, high, xhigh, max)",
+        ),
+    ] {
+        rows.push((
+            "codex",
+            written("codex", &[extra]),
+            Err(authored_refused(
+                "codex",
+                "--config",
+                5,
+                &format!("a configuration assignment that {cause}"),
+            )),
+        ));
+    }
+    // What is no capability-bearing option passes: pins, an inert
+    // assignment, the DSH route overlay; and an opaque command is not
+    // judged here at all.
+    for (harness, command) in [
+        ("claude", written("claude", &[])),
+        ("lanetally", written("lanetally", &[])),
+        (
+            "codex",
+            written("codex", &["-c", "model_reasoning_effort=\"low\"", "--json"]),
+        ),
+        (
+            "dsh",
+            written("dsh", &["--patch", "/work/.brokkr/route.json"]),
+        ),
+        (
+            "exec",
+            argv(&["--allowedTools", "WebFetch", "--sandbox", "x"]),
+        ),
+        (
+            "<custom>",
+            argv(&["{brokkr}", "driver", "custom", "--", "--tools", ""]),
+        ),
+    ] {
+        rows.push((harness, command, Ok(())));
+    }
+    // DSH models no capability option at all: the grammar refuses first.
+    rows.push((
+        "dsh",
+        written("dsh", &["--allowedTools", "WebFetch"]),
+        Err(Refusal {
+            authored: true,
+            cause: unplaced("dsh", 5, "'--allowedTools'", "names no option"),
+        }),
+    ));
+    let failures: Vec<String> = rows
+        .iter()
+        .filter_map(|(harness, command, expected)| {
+            let got = authored_refusal(harness, command);
+            (&got != expected).then(|| format!("{harness} {command:?}: {got:?}"))
+        })
+        .collect();
+    // Each expectation is exact, and none of them carries a value.
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 fn unready_refusal(provider: &str, capability: &str, problem: &str) -> Refusal {

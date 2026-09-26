@@ -1542,9 +1542,9 @@ F1 fix lands; the two dead arms go to unit 12"):
 
 ## 12. Unit 12 — Enable authored refusal and engine-only composition
 
-- [ ] 12.1 Unit 12 refuses every authored catalogue option regardless of grant/value/polarity/form. Verify complete all-harness matrix and bounded reasons without payloads; typed hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Subtractive tool lists never grant a capability][RGS], [Reserved hands preserves the existing workspace authority][TD6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2. (previous 4.6)
+- [x] 12.1 Unit 12 refuses every authored catalogue option regardless of grant/value/polarity/form. Verify complete all-harness matrix and bounded reasons without payloads; typed hands/route positives. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known provider commands have a closed argument grammar][RGP], [Subtractive tool lists never grant a capability][RGS], [Reserved hands preserves the existing workspace authority][TD6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2. (previous 4.6)
 
-- [ ] 12.2 Unit 12 deletes authored folding and composes only engine controls. Verify exact empty/nonempty restrictions, OFF/hands or full managed conflict refusal. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Authored provider configuration cannot supply capability authority][RGR]. Reopened/remaining: operator ruling 1–2. (previous 4.3)
+- [x] 12.2 Unit 12 deletes authored folding and composes only engine controls. Verify exact empty/nonempty restrictions, OFF/hands or full managed conflict refusal. Requirements: [Every accepted native control reaches the final command][NCC], [Explicit restrictive tool lists retain their meaning][NCT], [Authored provider configuration cannot supply capability authority][RGR]. Reopened/remaining: operator ruling 1–2. (previous 4.3)
 
 Handed from unit 11 (2026-09-26): unit 12 also deletes exactly the two
 `Contribution::Native` arms of `expressed_sandbox` in `bundle.rs`, the
@@ -1582,6 +1582,44 @@ files (evidence.md, "Unit 12 — re-commissioned without a ruling"):
 - The tree was restored, and the unit is **oversized** again with the
   same split.
 - **Standing-admission lines:** none.
+
+Built 2026-09-26 on the second visit, run
+`0065-rebuild-unit-12-see-the-uni-8bdee503`, under the operator's
+fixture-migration ruling of 2026-09-26 (evidence.md, "Unit 12 — built,
+under the fixture-migration ruling of 2026-09-26"):
+
+- **Step 0:** the ruling is appended verbatim to
+  `operator-ruling-2026-09-23.md`, committed alone (`912a04db`).
+- **Production:** the saved patch (`f12b3e52…09e6`) applied clean; an
+  agent candidate's `written` is `&[]` (an agent reference authors no
+  argv), replacing the patch's unreachable per-segment filter. The two
+  dead `Contribution::Native` arms of `expressed_sandbox` are deleted and
+  the `Written` text kept; llvm-cov shows DA:3376 and 3403–3408 gone and
+  no `bundle.rs` line newly unhit.
+- **Fixture migrations** (reason for each: the recipe may no longer author
+  the option): `capability_launch.rs` — the shared inline seat to
+  `tools.sandbox: workspace-write`, the boxed seat, `CODEX_SEAT` and the
+  panel site drop `--sandbox`, the inline Claude seat drops
+  `--permission-mode`; `bundle/agent_tests.rs` — the equivalent inline
+  seat to `tools.allow: ["cargo"]`; `driver_conformance.rs` — the proof
+  argv drops `--sandbox danger-full-access` and the single seat declares
+  `workspace-write`. The live proof's NoHandsMember rows are re-planted to
+  the adapter's fail-closed `sandbox-unavailable` cold retry, because a
+  panel member can express no class (the one migration whose test no
+  longer proves a rejoin at that shape).
+- **New tests:** the all-harness authored-refusal matrix
+  (`native_controls/tests.rs`) and the grant-state compile test
+  (`capability_launch.rs`). Baseline reds at `912a04db`'s production;
+  M1–M12b each failed as recorded and restored to the saved diff.
+- **Standing-admission lines:** `capabilities/tests.rs:121`,
+  `engine/capability_tests.rs:34`, `agents/tests.rs:4753` (`written:
+  &[]`, forced by the new `Serving` field).
+- **Gates:** runtime, protocol and CLI suites, clippy, fmt, both bundle
+  compiles, strict openspec and `git diff --check` pass. **Pending:**
+  exact coverage, macOS and remote CI.
+- **12.1 and 12.2 are ticked.** 15.2 is advanced: compilation refuses by
+  origin and composes only engine lists; the launch guard's value-reading
+  over the legacy authored part stays for units 13–15.
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
