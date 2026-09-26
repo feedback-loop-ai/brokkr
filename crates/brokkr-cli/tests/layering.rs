@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
@@ -50,6 +51,17 @@ struct Package {
     /// `None` for a path package, the registry or git URL otherwise.
     source: Option<String>,
     dependencies: Vec<Dependency>,
+    /// Every root Cargo compiles for the package: lib, bins, tests,
+    /// examples, benches and a build script alike.
+    targets: Vec<Target>,
+}
+
+/// One compiled root: its kinds as Cargo names them (`lib`, `test`,
+/// `custom-build`, …) and the file it starts from.
+#[derive(Deserialize)]
+struct Target {
+    kind: Vec<String>,
+    src_path: PathBuf,
 }
 
 /// One manifest edge as Cargo read it: `name` is the package's own name
@@ -70,31 +82,34 @@ enum Kind {
     Build,
 }
 
-/// The workspace's packages, their edges and every package they resolve
-/// to, as Cargo reads the manifests and the lockfile.
-fn metadata() -> Metadata {
-    let output = Command::new(env!("CARGO"))
-        .args([
-            "metadata",
-            "--format-version",
-            "1",
-            "--all-features",
-            "--locked",
-            "--offline",
-        ])
-        .arg("--manifest-path")
-        .arg(workspace().join("Cargo.toml"))
-        .output()
-        .expect("cargo runs");
-    assert_eq!(
-        (
+/// The workspace's packages, their edges, their targets and every package
+/// they resolve to, as Cargo reads the manifests and the lockfile, read
+/// once per test binary. Cargo's stderr carries progress such as a wait
+/// for the package cache lock, so only its exit status is judged.
+fn metadata() -> &'static Metadata {
+    static METADATA: OnceLock<Metadata> = OnceLock::new();
+    METADATA.get_or_init(|| {
+        let output = Command::new(env!("CARGO"))
+            .args([
+                "metadata",
+                "--format-version",
+                "1",
+                "--all-features",
+                "--locked",
+                "--offline",
+            ])
+            .arg("--manifest-path")
+            .arg(workspace().join("Cargo.toml"))
+            .output()
+            .expect("cargo runs");
+        assert_eq!(
             output.status.code(),
+            Some(0),
+            "cargo metadata reads the workspace: {}",
             String::from_utf8_lossy(&output.stderr)
-        ),
-        (Some(0), "".into()),
-        "cargo metadata reads the workspace"
-    );
-    serde_json::from_slice(&output.stdout).expect("cargo metadata's format 1")
+        );
+        serde_json::from_slice(&output.stdout).expect("cargo metadata's format 1")
+    })
 }
 
 /// The one registry every package outside the workspace comes from.
@@ -129,6 +144,11 @@ const DEV_ONLY: [(&str, &str); 3] = [
     ("brokkr-bridge", "rusqlite"),
     ("brokkr-cli", "rusqlite"),
 ];
+
+/// The workspace crates `deny.toml` does not place in the graph: the
+/// binary, which nothing may depend on. A crate added here is one no other
+/// crate may name, so cargo-deny has nothing to govern.
+const UNGOVERNED: [&str; 1] = ["brokkr-cli"];
 
 /// Each governed crate and the crates allowed to depend on it directly.
 type Graph = BTreeMap<String, BTreeSet<String>>;
@@ -304,6 +324,7 @@ fn the_graph_refuses_every_edge_it_does_not_allow() {
                 kind: *kind,
             })
             .collect(),
+        targets: Vec::new(),
     };
     let packages = [
         package(
@@ -350,8 +371,7 @@ fn every_manifest_edge_is_in_the_allowed_graph() {
         .filter(|name| !parents.contains_key(*name))
         .collect();
     assert_eq!(
-        ungoverned,
-        ["brokkr-cli"],
+        ungoverned, UNGOVERNED,
         "deny.toml places every library crate in the graph"
     );
     let disagreements: Vec<String> = PURE
@@ -404,6 +424,111 @@ fn every_manifest_edge_is_in_the_allowed_graph() {
         unknown,
         Vec::<String>::new(),
         "every package is a workspace member or comes from crates.io"
+    );
+}
+
+/// Every root a pure crate compiles that the purity scan would not read,
+/// as `crate kind at path`: the scan walks `src/` from `src/lib.rs`, so the
+/// crate must have exactly that one lib, and every other root must be a
+/// test under `tests/`. A build script, a bin, an example, a bench, a lib
+/// elsewhere or a second lib is refused.
+fn target_refusals(package: &Package, dir: &Path) -> Vec<String> {
+    let mut refused = Vec::new();
+    let mut libs = 0;
+    for target in &package.targets {
+        let kind = target.kind.join(",");
+        let reached = match kind.as_str() {
+            "lib" => {
+                libs += 1;
+                target.src_path == dir.join("src").join("lib.rs")
+            }
+            "test" => target.src_path.starts_with(dir.join("tests")),
+            _ => false,
+        };
+        if !reached {
+            let at = target
+                .src_path
+                .strip_prefix(dir)
+                .unwrap_or(&target.src_path);
+            refused.push(format!("{} {kind} at {}", package.name, at.display()));
+        }
+    }
+    if libs != 1 {
+        refused.push(format!("{}: {libs} lib targets", package.name));
+    }
+    refused
+}
+
+/// The target check refuses each root outside the scan's reach.
+#[test]
+fn the_target_check_refuses_every_root_the_scan_does_not_read() {
+    let dir = Path::new("/w/crates/brokkr-core");
+    let target = |kind: &str, path: &str| Target {
+        kind: vec![kind.to_string()],
+        src_path: dir.join(path),
+    };
+    let package = |targets: Vec<Target>| Package {
+        id: "brokkr-core".to_string(),
+        name: "brokkr-core".to_string(),
+        source: None,
+        dependencies: Vec::new(),
+        targets,
+    };
+    let clean = package(vec![
+        target("lib", "src/lib.rs"),
+        target("test", "tests/fold_test.rs"),
+    ]);
+    assert_eq!(target_refusals(&clean, dir), Vec::<String>::new());
+    let planted = package(vec![
+        target("lib", "other.rs"),
+        target("custom-build", "build.rs"),
+        target("bin", "src/main.rs"),
+        target("example", "examples/e.rs"),
+        target("bench", "benches/b.rs"),
+        target("test", "src/pure_tests.rs"),
+        target("lib", "src/lib.rs"),
+    ]);
+    assert_eq!(
+        target_refusals(&planted, dir),
+        [
+            "brokkr-core lib at other.rs",
+            "brokkr-core custom-build at build.rs",
+            "brokkr-core bin at src/main.rs",
+            "brokkr-core example at examples/e.rs",
+            "brokkr-core bench at benches/b.rs",
+            "brokkr-core test at src/pure_tests.rs",
+            "brokkr-core: 2 lib targets",
+        ]
+    );
+    assert_eq!(
+        target_refusals(&package(vec![]), dir),
+        ["brokkr-core: 0 lib targets"]
+    );
+}
+
+/// Ruling 1: each pure crate compiles only roots the purity scan reads, as
+/// Cargo reports them.
+#[test]
+fn the_pure_crates_compile_only_what_the_scan_reads() {
+    let metadata = metadata();
+    let root = workspace();
+    let refused: Vec<String> = PURE
+        .iter()
+        .flat_map(|(name, _)| {
+            let package = metadata
+                .packages
+                .iter()
+                .find(|package| {
+                    package.name == *name && metadata.workspace_members.contains(&package.id)
+                })
+                .unwrap_or_else(|| panic!("{name} is a workspace member"));
+            target_refusals(package, &root.join("crates").join(name))
+        })
+        .collect();
+    assert_eq!(
+        refused,
+        Vec::<String>::new(),
+        "a pure crate compiles a root the purity scan never reads (decision 0071 ruling 1)"
     );
 }
 
@@ -471,6 +596,81 @@ const PURE_MACROS: [&str; 5] = ["format", "json", "matches", "thread_local", "ve
 /// Keywords that may stand before `!(`, where the `!` is a negation.
 const NEGATING_KEYWORDS: [&str; 6] = ["break", "if", "in", "match", "return", "while"];
 
+/// Every macro std and core define, reached through the prelude or a path,
+/// stable and unstable. A pure crate may not define a macro by one of these
+/// names, so a call by one always means the builtin: only those in
+/// [`PURE_MACROS`] pass.
+const BUILTIN_MACROS: [&str; 56] = [
+    "addr_of",
+    "addr_of_mut",
+    "asm",
+    "assert",
+    "assert_eq",
+    "assert_matches",
+    "assert_ne",
+    "cfg",
+    "cfg_match",
+    "cfg_select",
+    "column",
+    "compile_error",
+    "concat",
+    "concat_bytes",
+    "concat_idents",
+    "const_format_args",
+    "dbg",
+    "debug_assert",
+    "debug_assert_eq",
+    "debug_assert_matches",
+    "debug_assert_ne",
+    "env",
+    "eprint",
+    "eprintln",
+    "file",
+    "format",
+    "format_args",
+    "format_args_nl",
+    "global_asm",
+    "include",
+    "include_bytes",
+    "include_str",
+    "is_aarch64_feature_detected",
+    "is_x86_feature_detected",
+    "line",
+    "log_syntax",
+    "matches",
+    "module_path",
+    "naked_asm",
+    "offset_of",
+    "option_env",
+    "panic",
+    "pin",
+    "print",
+    "println",
+    "ready",
+    "stringify",
+    "thread_local",
+    "todo",
+    "trace_macros",
+    "try",
+    "unimplemented",
+    "unreachable",
+    "vec",
+    "write",
+    "writeln",
+];
+
+/// The lint names an `allow`, `expect` or `warn` in a pure crate may not
+/// lower: the crate-local purity lints, the clippy groups that hold them,
+/// and `warnings`. [`admitted_exemption`] names the one exception.
+const PURITY_LINTS: [&str; 6] = [
+    "warnings",
+    "clippy::all",
+    "clippy::style",
+    "clippy::disallowed_macros",
+    "clippy::disallowed_methods",
+    "clippy::disallowed_types",
+];
+
 /// Clock and randomness sources from the crates the pure crates may use,
 /// refused wherever they are named.
 const SOURCES: [&str; 12] = [
@@ -493,6 +693,11 @@ const LITERAL: &str = "<literal>";
 
 /// A token and the line it starts on.
 type Token = (usize, String);
+
+/// The token at `at`, or `""` past the end.
+fn text(tokens: &[Token], at: usize) -> &str {
+    tokens.get(at).map_or("", |(_, token)| token.as_str())
+}
 
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -620,6 +825,9 @@ fn word_or_literal(chars: &[char], at: usize) -> (usize, Option<String>) {
     }
 }
 
+/// A `use` tree in a form the reader does not know.
+struct Unreadable;
+
 /// One path a `use` tree imports, the line of its last segment, and
 /// whether it is renamed.
 struct Import {
@@ -636,23 +844,22 @@ fn use_tree(
     at: &mut usize,
     mut path: Vec<String>,
     imports: &mut Vec<Import>,
-) -> Result<(), ()> {
-    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
-    if text(*at) == "::" {
+) -> Result<(), Unreadable> {
+    if text(tokens, *at) == "::" {
         *at += 1;
     }
     loop {
-        let (line, token) = tokens.get(*at).ok_or(())?.clone();
+        let (line, token) = tokens.get(*at).ok_or(Unreadable)?.clone();
         *at += 1;
         if token == "{" {
             return use_group(tokens, at, &path, imports);
         }
         if token != "*" && !is_ident(&token) {
-            return Err(());
+            return Err(Unreadable);
         }
         let glob = token == "*";
         path.push(token);
-        match (glob, text(*at)) {
+        match (glob, text(tokens, *at)) {
             (false, "::") => *at += 1,
             (false, "as") => {
                 *at += 2;
@@ -681,18 +888,17 @@ fn use_group(
     at: &mut usize,
     path: &[String],
     imports: &mut Vec<Import>,
-) -> Result<(), ()> {
-    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
+) -> Result<(), Unreadable> {
     loop {
-        if text(*at) == "}" {
+        if text(tokens, *at) == "}" {
             *at += 1;
             return Ok(());
         }
         use_tree(tokens, at, path.to_vec(), imports)?;
-        match text(*at) {
+        match text(tokens, *at) {
             "," => *at += 1,
             "}" => {}
-            _ => return Err(()),
+            _ => return Err(Unreadable),
         }
     }
 }
@@ -737,13 +943,12 @@ fn import_refusal(import: &Import) -> Option<(usize, String)> {
 /// A segment that is not an identifier (a macro's `$`) ends the path and
 /// is kept, so the path falls outside the allowlist; a turbofish ends it.
 fn expression_path(tokens: &[Token], at: usize) -> (Vec<String>, usize) {
-    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
     let mut path = vec![tokens[at].1.clone()];
     let mut end = at + 1;
-    while text(end) == "::" && !["", "<"].contains(&text(end + 1)) {
-        path.push(text(end + 1).to_string());
+    while text(tokens, end) == "::" && !["", "<"].contains(&text(tokens, end + 1)) {
+        path.push(text(tokens, end + 1).to_string());
         end += 2;
-        if !is_ident(text(end - 1)) {
+        if !is_ident(text(tokens, end - 1)) {
             break;
         }
     }
@@ -753,20 +958,21 @@ fn expression_path(tokens: &[Token], at: usize) -> (Vec<String>, usize) {
 /// Every import and every other path that reaches a root and falls
 /// outside the allowlist, and every rename of a root.
 fn std_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
-    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
     let mut found = Vec::new();
     let mut at = 0;
     while at < tokens.len() {
         let line = tokens[at].0;
-        if text(at) == "use" && text(at + 1) != "<" {
+        if text(tokens, at) == "use" && text(tokens, at + 1) != "<" {
             let (mut end, mut imports) = (at + 1, Vec::new());
-            if use_tree(tokens, &mut end, Vec::new(), &mut imports).is_ok() && text(end) == ";" {
+            if use_tree(tokens, &mut end, Vec::new(), &mut imports).is_ok()
+                && text(tokens, end) == ";"
+            {
                 found.extend(imports.iter().filter_map(import_refusal));
                 at = end + 1;
                 continue;
             }
             found.push((line, "an import the scanner cannot read".to_string()));
-        } else if ROOTS.contains(&text(at)) {
+        } else if ROOTS.contains(&text(tokens, at)) {
             let (path, end) = expression_path(tokens, at);
             if !pure_std(&path) {
                 let path = path.join("::");
@@ -810,32 +1016,210 @@ fn sets_a_path(tokens: &[Token], at: usize) -> bool {
     false
 }
 
+/// Where each token sits among the brace blocks: `at[i]` is the `{` of
+/// the innermost block open at token `i`, and `parent[&b]` the `{` of the
+/// block around the one opening at `b`. `None` is the file's top level.
+struct Blocks {
+    at: Vec<Option<usize>>,
+    parent: BTreeMap<usize, Option<usize>>,
+}
+
+impl Blocks {
+    fn of(tokens: &[Token]) -> Self {
+        let mut open: Vec<usize> = Vec::new();
+        let mut blocks = Blocks {
+            at: Vec::with_capacity(tokens.len()),
+            parent: BTreeMap::new(),
+        };
+        for (index, (_, token)) in tokens.iter().enumerate() {
+            blocks.at.push(open.last().copied());
+            match token.as_str() {
+                "{" => {
+                    blocks.parent.insert(index, open.last().copied());
+                    open.push(index);
+                }
+                "}" => {
+                    open.pop();
+                }
+                _ => {}
+            }
+        }
+        blocks
+    }
+
+    /// Whether token `inner` lies in the block `outer`, directly or in a
+    /// block nested in it.
+    fn within(&self, outer: Option<usize>, inner: usize) -> bool {
+        let mut block = self.at[inner];
+        loop {
+            if block == outer {
+                return true;
+            }
+            match block {
+                Some(open) => block = self.parent[&open],
+                None => return false,
+            }
+        }
+    }
+}
+
+/// Whether a `macro_rules!` of `name` is in scope at token `at`: defined
+/// earlier, in the block that holds `at` or one around it. A builtin name
+/// is never in scope, because defining one is refused.
+fn defined_before(tokens: &[Token], blocks: &Blocks, name: &str, at: usize) -> bool {
+    !BUILTIN_MACROS.contains(&name)
+        && (2..at).any(|index| {
+            text(tokens, index - 2) == "macro_rules"
+                && text(tokens, index - 1) == "!"
+                && text(tokens, index) == name
+                && blocks.within(blocks.at[index - 2], at)
+        })
+}
+
+/// The index of the `]` closing the attribute, inner or outer, whose `#`
+/// is at `at`. `None` when no `[` follows.
+fn attribute_end(tokens: &[Token], at: usize) -> Option<usize> {
+    let open = at + 1 + usize::from(text(tokens, at + 1) == "!");
+    if text(tokens, open) != "[" {
+        return None;
+    }
+    let mut depth = 0;
+    for (index, (_, token)) in tokens.iter().enumerate().skip(open) {
+        match token.as_str() {
+            "[" => depth += 1,
+            "]" if depth == 1 => return Some(index),
+            "]" => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether the attribute from `at` to `end` lowers a lint in
+/// [`PURITY_LINTS`]: it holds `allow`, `expect` or `warn`, and names one.
+fn lowers_purity(tokens: &[Token], at: usize, end: usize) -> bool {
+    let words: Vec<&str> = (at..=end).map(|index| text(tokens, index)).collect();
+    let lowers = words
+        .iter()
+        .any(|word| ["allow", "expect", "warn"].contains(word));
+    let names = words.iter().enumerate().any(|(index, word)| {
+        let path = match words.get(index + 1..index + 3) {
+            Some(["::", lint]) if *word == "clippy" => format!("clippy::{lint}"),
+            _ => (*word).to_string(),
+        };
+        PURITY_LINTS.contains(&path.as_str())
+    });
+    lowers && names
+}
+
+/// One thread-local counter as the admitted shape spells it.
+const COUNTER: [&str; 22] = [
+    "pub", "(", "super", ")", "static", "<name>", ":", "Cell", "<", "usize", ">", "=", "const",
+    "{", "Cell", "::", "new", "(", "0", ")", "}", ";",
+];
+
+/// The one exemption from the purity lints a pure crate may carry: an
+/// outer `#[expect(clippy::disallowed_types, reason = "…")]` on a module
+/// that holds only `use std::cell::Cell;` and a `thread_local!` of
+/// `Cell<usize>` counters, itself inside a `#[cfg(test)]` module. The
+/// view's test-only projector counters take it; nothing else can.
+fn admitted_exemption(tokens: &[Token], blocks: &Blocks, at: usize, end: usize) -> bool {
+    let attribute = [
+        "#",
+        "[",
+        "expect",
+        "(",
+        "clippy",
+        "::",
+        "disallowed_types",
+        ",",
+        "reason",
+        "=",
+        LITERAL,
+        ")",
+        "]",
+    ];
+    let head = [
+        "mod",
+        "<name>",
+        "{",
+        "use",
+        "std",
+        "::",
+        "cell",
+        "::",
+        "Cell",
+        ";",
+        "thread_local",
+        "!",
+        "{",
+    ];
+    let fits = |from: usize, shape: &[&str]| {
+        shape.iter().enumerate().all(|(offset, want)| {
+            let got = text(tokens, from + offset);
+            if *want == "<name>" {
+                is_ident(got)
+            } else {
+                got == *want
+            }
+        })
+    };
+    if end + 1 - at != attribute.len() || !fits(at, &attribute) || !fits(end + 1, &head) {
+        return false;
+    }
+    let enclosing = blocks.at[at].is_some_and(|open| {
+        open >= 2
+            && text(tokens, open - 2) == "mod"
+            && is_ident(text(tokens, open - 1))
+            && under_cfg_test(tokens, open - 2)
+    });
+    let open = end + head.len();
+    let Some(close) = (open + 1..tokens.len())
+        .find(|&index| text(tokens, index) == "}" && blocks.at[index] == Some(open))
+    else {
+        return false;
+    };
+    let length = close - open - 1;
+    enclosing
+        && length.is_multiple_of(COUNTER.len())
+        && (0..length / COUNTER.len()).all(|n| fits(open + 1 + n * COUNTER.len(), &COUNTER))
+        && text(tokens, close + 1) == "}"
+        && blocks.at[close + 1] == Some(end + 3)
+}
+
 /// Every item form the pure crates may not take: an `extern crate`, a
-/// `#[path]`, a `mod tests;` outside `#[cfg(test)]`, a macro outside the
-/// allowlist, and a clock or randomness source.
+/// `#[path]`, a `mod tests;` outside `#[cfg(test)]`, a lowered purity lint,
+/// a `macro_rules!` shadowing a builtin, a macro outside the allowlist or
+/// out of its definition's scope, and a clock or randomness source.
 fn form_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
-    let text = |at: usize| tokens.get(at).map_or("", |(_, token)| token.as_str());
-    let defined: BTreeSet<&str> = tokens
-        .windows(3)
-        .filter(|window| window[0].1 == "macro_rules" && window[1].1 == "!")
-        .map(|window| window[2].1.as_str())
-        .collect();
+    let blocks = Blocks::of(tokens);
     let mut found = Vec::new();
     for (at, (line, token)) in tokens.iter().enumerate() {
-        let what = match (token.as_str(), text(at + 1), text(at + 2)) {
+        let what = match (token.as_str(), text(tokens, at + 1), text(tokens, at + 2)) {
             ("extern", "crate", _) => "an extern crate".to_string(),
             ("mod", "tests", ";") if !under_cfg_test(tokens, at) => {
                 "a `mod tests;` outside #[cfg(test)]".to_string()
             }
             ("#", _, _) if sets_a_path(tokens, at) => "a #[path] attribute".to_string(),
+            ("#", _, _)
+                if attribute_end(tokens, at).is_some_and(|end| {
+                    lowers_purity(tokens, at, end) && !admitted_exemption(tokens, &blocks, at, end)
+                }) =>
+            {
+                "an attribute that lowers a purity lint".to_string()
+            }
+            ("macro_rules", "!", name) if BUILTIN_MACROS.contains(&name) => {
+                format!("macro_rules! {name}: shadows a builtin macro")
+            }
             (name, "!", "(" | "[" | "{")
                 if is_ident(name)
                     && !NEGATING_KEYWORDS.contains(&name)
                     && !PURE_MACROS.contains(&name)
-                    && !defined.contains(name) =>
+                    && !defined_before(tokens, &blocks, name, at) =>
             {
                 format!("{name}!: outside the pure macro allowlist")
             }
+            ("::", "now", _) => "::now: a clock or randomness source".to_string(),
             (name, _, _) if SOURCES.contains(&name) => {
                 format!("{name}: a clock or randomness source")
             }
@@ -858,125 +1242,149 @@ fn impurities(source: &str) -> Vec<String> {
         .collect()
 }
 
+/// The scanner's cases: a source, and exactly what it refuses there, by
+/// line. Every form the allowlists do not name is refused; the last
+/// rows are clean or unterminated sources that refuse nothing.
+const SCANNER_CASES: [(&str, &[&str]); 32] = [
+    (
+        "use std::{collections::BTreeMap, /* c */ os::unix::process::parent_id};",
+        &["1: std::os::unix::process::parent_id: outside the pure std allowlist"],
+    ),
+    (
+        "use std::{\n    collections::BTreeMap,\n    // c\n    os::unix::process::parent_id,\n};",
+        &["4: std::os::unix::process::parent_id: outside the pure std allowlist"],
+    ),
+    (
+        "/* /* */ std::fs::read(p) */ std::process::id()",
+        &["1: std::process::id: outside the pure std allowlist"],
+    ),
+    (
+        "/// a \"quote\n//! std::fs\n/** std::env */\nuse std::io::Read;",
+        &["4: std::io::Read: outside the pure std allowlist"],
+    ),
+    (
+        "let s = \"/*\"; let t = \"std::fs\"; std::env::var(s)",
+        &["1: std::env::var: outside the pure std allowlist"],
+    ),
+    (
+        "let s = r#\"\\\"#; let t = br##\"\"#\"##; std::process::id()",
+        &["1: std::process::id: outside the pure std allowlist"],
+    ),
+    (
+        "let q = '\"'; let e = '\\''; let b = b'\"';\nfn f<'a>(x: &'a str) { std::fs::read(x) }",
+        &["2: std::fs::read: outside the pure std allowlist"],
+    ),
+    (
+        "use std as s;\nuse core::{self as c};\nuse std::collections as h;",
+        &["1: a rename of std", "2: a rename of core", "3: std::collections: outside the pure std allowlist"],
+    ),
+    (
+        "extern crate alloc as a;",
+        &["1: alloc: outside the pure std allowlist", "1: an extern crate"],
+    ),
+    (
+        "use std::*;\nuse std::collections::*;\nuse std::fmt::*;",
+        &["1: std::*: outside the pure std allowlist", "2: std::collections::*: outside the pure std allowlist"],
+    ),
+    (
+        "use ::std::{collections::{BTreeMap, hash_map::HashMap}, io::{self, Write}};",
+        &["1: std::collections::hash_map::HashMap: outside the pure std allowlist", "1: std::io: outside the pure std allowlist", "1: std::io::Write: outside the pure std allowlist"],
+    ),
+    (
+        "macro_rules! reach { ($m:ident) => { std::$m::id() }; }\nreach!(process);",
+        &["1: std::$: outside the pure std allowlist"],
+    ),
+    (
+        "macro_rules! at { ($r:ident) => { $r::fs::read(p) }; }\nat!(std);",
+        &["2: std: outside the pure std allowlist"],
+    ),
+    (
+        "use crate::std::fs;\nlet f = r#std::fs::read;",
+        &["1: std::fs: outside the pure std allowlist", "2: std::fs::read: outside the pure std allowlist"],
+    ),
+    (
+        "use std::{$m};",
+        &["1: an import the scanner cannot read", "1: std::{: outside the pure std allowlist"],
+    ),
+    (
+        "println!(\"x\");\ninclude!(\"f.rs\");\nif !(a) { format!(\"{}\", vec![1]) }",
+        &["1: println!: outside the pure macro allowlist", "2: include!: outside the pure macro allowlist"],
+    ),
+    (
+        "let now = Instant::now();\nlet t = time::OffsetDateTime::now_utc();\nlet u = time::UtcDateTime::now();\nlet c = clock.now();\nlet d = age(now);",
+        &["1: Instant: a clock or randomness source", "1: ::now: a clock or randomness source", "2: now_utc: a clock or randomness source", "3: ::now: a clock or randomness source"],
+    ),
+    (
+        "#[path = \"../x.rs\"]\nmod x;\n#[cfg_attr(test, path = \"y.rs\")]\nmod y;\n#![doc(hidden)]",
+        &["1: a #[path] attribute", "3: a #[path] attribute"],
+    ),
+    (
+        "mod tests;\n#[cfg(test)]\nmod tests;\n#[cfg(any(test))]\nmod tests;",
+        &["1: a `mod tests;` outside #[cfg(test)]", "5: a `mod tests;` outside #[cfg(test)]"],
+    ),
+    (
+        "mod m {\n    macro_rules! include { () => {}; }\n    include!();\n}\ninclude!(\"../../../outside/pid.rs\");",
+        &["2: macro_rules! include: shadows a builtin macro", "3: include!: outside the pure macro allowlist", "5: include!: outside the pure macro allowlist"],
+    ),
+    (
+        "m!();\nmacro_rules! m { () => {}; }\nm!();\nmod a {\n    macro_rules! n { () => {}; }\n}\nn!();",
+        &["1: m!: outside the pure macro allowlist", "7: n!: outside the pure macro allowlist"],
+    ),
+    (
+        "macro_rules! vec { () => {}; }\nmacro_rules! env { () => {}; }\nenv!();",
+        &["1: macro_rules! vec: shadows a builtin macro", "2: macro_rules! env: shadows a builtin macro", "3: env!: outside the pure macro allowlist"],
+    ),
+    (
+        "#[allow(clippy::disallowed_types)]\nfn f() {}\n#![expect(clippy::all)]\n#[cfg_attr(test, allow(warnings))]\nfn g() {}\n#[warn(clippy::style)]\nfn h() {}\n#[allow(clippy::too_many_arguments)]\nfn i() {}\n#[deny(warnings)]\nfn j() {}",
+        &["1: an attribute that lowers a purity lint", "3: an attribute that lowers a purity lint", "4: an attribute that lowers a purity lint", "6: an attribute that lowers a purity lint"],
+    ),
+    (
+        "#[cfg(test)]\nmod observe {\n    #[expect(clippy::disallowed_types, reason = \"r\")]\n    mod cells {\n        use std::cell::Cell;\n        thread_local! {\n            pub(super) static A: Cell<usize> = const { Cell::new(0) };\n            pub(super) static B: Cell<usize> = const { Cell::new(0) };\n        }\n    }\n}",
+        &[],
+    ),
+    (
+        "mod observe {\n    #[expect(clippy::disallowed_types, reason = \"r\")]\n    mod cells {\n        use std::cell::Cell;\n        thread_local! {\n            pub(super) static A: Cell<usize> = const { Cell::new(0) };\n            pub(super) static B: Cell<usize> = const { Cell::new(0) };\n        }\n    }\n}",
+        &["2: an attribute that lowers a purity lint"],
+    ),
+    (
+        "#[cfg(test)]\nmod observe {\n    #[expect(clippy::disallowed_types, reason = \"r\")]\n    mod cells {\n        use std::cell::Cell;\n        thread_local! {\n            pub(super) static A: Cell<usize> = const { Cell::new(0) };\n            pub(super) static B: Cell<usize> = const { Cell::new(0) };\n        }\n        pub fn leak() {}\n    }\n}",
+        &["3: an attribute that lowers a purity lint"],
+    ),
+    (
+        "#[cfg(test)]\nmod observe {\n    #[expect(clippy::disallowed_types, reason = \"r\")]\n    mod cells {\n        use std::cell::Cell;\n        thread_local! {\n            pub(super) static A: Cell<u64> = const { Cell::new(0) };\n            pub(super) static B: Cell<usize> = const { Cell::new(0) };\n        }\n    }\n}",
+        &["3: an attribute that lowers a purity lint"],
+    ),
+    (
+        "use std::collections::{BTreeMap, BTreeSet};\nuse std::{fmt, rc::Rc, str::FromStr};\nlet s = std::str::from_utf8(b).map(std::mem::take);\nstd::iter::once::<u8>(1);\nmacro_rules! m { () => {} }\nm!();\nfn f<'a>() -> impl Sized + use<'a> { m!() }\nmod inner { fn g() { m!(); } }\n#",
+        &[],
+    ),
+    (
+        "\"open",
+        &[],
+    ),
+    (
+        "/* open",
+        &[],
+    ),
+    (
+        "r#\"open",
+        &[],
+    ),
+    (
+        "'",
+        &[],
+    ),
+];
+
 /// The scanner lexes before it matches, so no comment or literal hides a
 /// path or poses as one, and it refuses every form the allowlists do not
 /// name: an unlisted module or item, a rename or glob of a root, a nested
-/// group, a macro's metavariable, an unlisted macro, an `extern crate`, a
-/// `#[path]` and an ungated `mod tests;`.
+/// group, a macro's metavariable, an unlisted macro, a builtin shadowed or
+/// called out of scope, an `extern crate`, a `#[path]`, an ungated
+/// `mod tests;`, a lowered purity lint and a clock or randomness source.
 #[test]
 fn the_scanner_refuses_every_form_its_allowlists_do_not_name() {
-    let outside =
-        |line: usize, path: &str| format!("{line}: {path}: outside the pure std allowlist");
-    let raw = "let s = r#\"\\\"#; let t = br##\"\"#\"##; std::process::id()";
-    let cases: Vec<(&str, Vec<String>)> = vec![
-        (
-            "use std::{collections::BTreeMap, /* c */ os::unix::process::parent_id};",
-            vec![outside(1, "std::os::unix::process::parent_id")],
-        ),
-        (
-            "use std::{\n    collections::BTreeMap,\n    // c\n    os::unix::process::parent_id,\n};",
-            vec![outside(4, "std::os::unix::process::parent_id")],
-        ),
-        (
-            "/* /* */ std::fs::read(p) */ std::process::id()",
-            vec![outside(1, "std::process::id")],
-        ),
-        (
-            "/// a \"quote\n//! std::fs\n/** std::env */\nuse std::io::Read;",
-            vec![outside(4, "std::io::Read")],
-        ),
-        (
-            "let s = \"/*\"; let t = \"std::fs\"; std::env::var(s)",
-            vec![outside(1, "std::env::var")],
-        ),
-        (raw, vec![outside(1, "std::process::id")]),
-        (
-            "let q = '\"'; let e = '\\''; let b = b'\"';\nfn f<'a>(x: &'a str) { std::fs::read(x) }",
-            vec![outside(2, "std::fs::read")],
-        ),
-        (
-            "use std as s;\nuse core::{self as c};\nuse std::collections as h;",
-            vec![
-                "1: a rename of std".to_string(),
-                "2: a rename of core".to_string(),
-                outside(3, "std::collections"),
-            ],
-        ),
-        (
-            "extern crate alloc as a;",
-            vec![outside(1, "alloc"), "1: an extern crate".to_string()],
-        ),
-        (
-            "use std::*;\nuse std::collections::*;\nuse std::fmt::*;",
-            vec![outside(1, "std::*"), outside(2, "std::collections::*")],
-        ),
-        (
-            "use ::std::{collections::{BTreeMap, hash_map::HashMap}, io::{self, Write}};",
-            vec![
-                outside(1, "std::collections::hash_map::HashMap"),
-                outside(1, "std::io"),
-                outside(1, "std::io::Write"),
-            ],
-        ),
-        (
-            "macro_rules! reach { ($m:ident) => { std::$m::id() }; }\nreach!(process);",
-            vec![outside(1, "std::$")],
-        ),
-        (
-            "macro_rules! at { ($r:ident) => { $r::fs::read(p) }; }\nat!(std);",
-            vec![outside(2, "std")],
-        ),
-        (
-            "use crate::std::fs;\nlet f = r#std::fs::read;",
-            vec![outside(1, "std::fs"), outside(2, "std::fs::read")],
-        ),
-        (
-            "use std::{$m};",
-            vec![
-                "1: an import the scanner cannot read".to_string(),
-                outside(1, "std::{"),
-            ],
-        ),
-        (
-            "println!(\"x\");\ninclude!(\"f.rs\");\nif !(a) { format!(\"{}\", vec![1]) }",
-            vec![
-                "1: println!: outside the pure macro allowlist".to_string(),
-                "2: include!: outside the pure macro allowlist".to_string(),
-            ],
-        ),
-        (
-            "let now = Instant::now();\nlet t = time::OffsetDateTime::now_utc();",
-            vec![
-                "1: Instant: a clock or randomness source".to_string(),
-                "2: now_utc: a clock or randomness source".to_string(),
-            ],
-        ),
-        (
-            "#[path = \"../x.rs\"]\nmod x;\n#[cfg_attr(test, path = \"y.rs\")]\nmod y;\n#![doc(hidden)]",
-            vec![
-                "1: a #[path] attribute".to_string(),
-                "3: a #[path] attribute".to_string(),
-            ],
-        ),
-        (
-            "mod tests;\n#[cfg(test)]\nmod tests;\n#[cfg(any(test))]\nmod tests;",
-            vec![
-                "1: a `mod tests;` outside #[cfg(test)]".to_string(),
-                "5: a `mod tests;` outside #[cfg(test)]".to_string(),
-            ],
-        ),
-        (
-            "use std::collections::{BTreeMap, BTreeSet};\nuse std::{fmt, rc::Rc, str::FromStr};\n\
-             let s = std::str::from_utf8(b).map(std::mem::take);\nstd::iter::once::<u8>(1);\n\
-             macro_rules! m { () => {} }\nm!();\nfn f<'a>() -> impl Sized + use<'a> {}\n#",
-            vec![],
-        ),
-        ("\"open", vec![]),
-        ("/* open", vec![]),
-        ("r#\"open", vec![]),
-        ("'", vec![]),
-    ];
-    for (source, expected) in cases {
+    for (source, expected) in SCANNER_CASES {
         assert_eq!(impurities(source), expected, "{source}");
     }
 }

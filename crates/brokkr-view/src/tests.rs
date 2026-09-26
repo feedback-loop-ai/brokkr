@@ -97,28 +97,10 @@ fn seat_journal() -> Vec<EventEnvelope> {
 
 // ------------------------------------------------------------- AC-1
 
-#[test]
-fn the_crate_carries_no_io_no_clock_and_no_terminal_concept() {
-    // Structural, not conventional: `brokkr-view`'s manifest depends on
-    // exactly brokkr-core, serde and serde_json, and these tokens are the
-    // ways a derivation quietly acquires a side effect.
-    for source in [include_str!("lib.rs"), include_str!("js.rs")] {
-        for banned in ["std::fs", "std::env", "IsTerminal", "print!", "println!"] {
-            assert!(
-                !source.contains(banned),
-                "brokkr-view must not reach for {banned}"
-            );
-        }
-    }
-    let manifest = include_str!("../Cargo.toml");
-    let deps = manifest.split("[dependencies]").nth(1).unwrap();
-    for allowed in ["brokkr-core", "serde", "serde_json"] {
-        assert!(deps.contains(allowed), "{allowed} is a dependency");
-    }
-    for forbidden in ["brokkr-store", "time", "rusqlite", "clap"] {
-        assert!(!deps.contains(forbidden), "{forbidden} must stay out");
-    }
-}
+// AC-1 (no I/O, no clock, no terminal concept) has one home:
+// crates/brokkr-cli/tests/layering.rs lexes every production file of this
+// crate against a closed std allowlist and holds its manifest to a closed
+// dependency set (decision 0071 ruling 1, #336).
 
 // ------------------------------------------------------ small helpers
 

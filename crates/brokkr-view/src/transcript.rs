@@ -2416,32 +2416,41 @@ impl DshCollector {
 /// no counter and the CLI/TUI integration tests cannot observe them. The
 /// counters are logical, not allocator measurements.
 #[cfg(test)]
-#[expect(
-    clippy::disallowed_types,
-    reason = "test-only counters; thread-local state never reaches a production build (#336)"
-)]
 mod observe {
-    use std::cell::Cell;
+    /// The counters alone: the one place a pure crate holds thread-local
+    /// state, and only in its unit tests. The scanner in
+    /// crates/brokkr-cli/tests/layering.rs admits this exemption in exactly
+    /// this shape and refuses every other.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "test-only counters; thread-local state never reaches a production build (#336)"
+    )]
+    mod cells {
+        use std::cell::Cell;
 
-    thread_local! {
-        static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
-        /// Ordinary events that reached the fact pass's retained buffer.
-        static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
-        static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
-        static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
-        static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
-        /// Blockless ordinary events released without retention.
-        static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
+        thread_local! {
+            pub(super) static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+            /// Ordinary events that reached the fact pass's retained buffer.
+            pub(super) static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
+            pub(super) static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
+            /// Blockless ordinary events released without retention.
+            pub(super) static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
+        }
     }
+
+    use cells::*;
+    use std::cell::Cell;
 
     pub(super) fn reset() {
         PACKED_CANDIDATES.with(|cell| cell.set(0));
