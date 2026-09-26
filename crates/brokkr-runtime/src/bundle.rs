@@ -1725,7 +1725,9 @@ impl Bundle {
                 None => (None, CapabilityAdapters::of(pin_adapters.as_ref())),
             };
             for (phase, raw) in &resolved.seats {
-                record_capabilities(&authority, library, adapters, phase, raw, &mut sites)?;
+                record_capabilities(
+                    &authority, library, adapters, boundary, phase, raw, &mut sites,
+                )?;
             }
         }
 
@@ -1857,6 +1859,7 @@ impl Bundle {
                     &authority,
                     library,
                     adapters,
+                    boundary,
                     dialect_site,
                     &synthetic,
                     &mut sites,
@@ -4567,6 +4570,7 @@ fn site_capabilities(
     adapters: CapabilityAdapters<'_>,
     asks: crate::capabilities::SiteAsks,
     chain: &[Candidate],
+    managed: &[Vec<String>],
     inline_driver: Option<&str>,
     inline_argv: &[String],
 ) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
@@ -4595,6 +4599,16 @@ fn site_capabilities(
                 .unwrap_or_else(|| crate::capabilities::OPAQUE_HARNESS.to_string())
         })
         .collect();
+    // A candidate's engine fragment: the box's hands `compose` recorded,
+    // then the managed boundary fragment the engine appends behind them.
+    let fragments: Vec<Vec<String>> = chain
+        .iter()
+        .enumerate()
+        .map(|(at, candidate)| {
+            let managed = managed.get(at).map(Vec::as_slice).unwrap_or_default();
+            [candidate.parts().1, managed].concat()
+        })
+        .collect();
     let servings: Vec<crate::capabilities::Serving<'_>> = match chain.is_empty() {
         true => vec![crate::capabilities::Serving {
             provider: inline,
@@ -4609,8 +4623,9 @@ fn site_capabilities(
         false => chain
             .iter()
             .zip(&harnesses)
-            .map(|(candidate, harness)| {
-                let (authored, fragment) = candidate.parts();
+            .zip(&fragments)
+            .map(|((candidate, harness), fragment)| {
+                let (authored, _) = candidate.parts();
                 crate::capabilities::Serving {
                     provider: &candidate.provider,
                     harness,
@@ -4649,6 +4664,7 @@ fn record_capabilities(
     authority: &crate::capabilities::Authority,
     library: Option<&Library>,
     adapters: CapabilityAdapters<'_>,
+    boundary: Boundary,
     what: &str,
     raw: &Value,
     sites: &mut BTreeMap<String, SiteFacts>,
@@ -4662,7 +4678,27 @@ fn record_capabilities(
             crate::capabilities::SiteAsks::of(what, Some((name, &agent.capabilities)), written)
                 .map_err(CompileError::Invalid)?;
         let chain = site_facts(sites, what).chain.clone();
-        let site = site_capabilities(authority, adapters, asks, &chain, None, &[])?;
+        // Under the harness boundary the engine appends each candidate's
+        // `hands.harness.*` fragment for the seat's class behind a hands
+        // site's argv; it is composed with here exactly as at the launch,
+        // so a limit it carries holds at compile, and a wanted holding it
+        // excludes drops rather than refusing its spawn (unit 12-fix-b, R2).
+        let class = match (boundary, &agent.hands) {
+            (Boundary::Harness, Some(_)) => Some(parse_class(what, raw)?),
+            _ => None,
+        };
+        let managed: Vec<Vec<String>> = chain
+            .iter()
+            .map(|candidate| {
+                let fragment = match class {
+                    Some(SeatClass::Gate) => candidate.harness.gate.as_deref(),
+                    Some(SeatClass::Work) => candidate.harness.work.as_deref(),
+                    None => None,
+                };
+                fragment.unwrap_or_default().to_vec()
+            })
+            .collect();
+        let site = site_capabilities(authority, adapters, asks, &chain, &managed, None, &[])?;
         let facts = site_facts(sites, what);
         // The EFFECTIVE class, an inherited office class included, as the
         // local admission recorded it (design D5.6).
@@ -4699,7 +4735,15 @@ fn record_capabilities(
             .map_err(CompileError::Invalid)?;
         let parts = command_parts(raw);
         let driver = dispatch_driver(&parts);
-        let site = site_capabilities(authority, adapters, asks, &[], driver.as_deref(), &parts)?;
+        let site = site_capabilities(
+            authority,
+            adapters,
+            asks,
+            &[],
+            &[],
+            driver.as_deref(),
+            &parts,
+        )?;
         let facts = site_facts(sites, what);
         // Rebuild unit 5d-fix-b: an inline class the engine lowered is
         // judged with its whole launch, the resolved native plan included.
@@ -4727,7 +4771,7 @@ fn record_capabilities(
                 office: what.to_string(),
                 ..Default::default()
             };
-            let site = site_capabilities(authority, adapters, asks, &[], Some("exec"), &[])?;
+            let site = site_capabilities(authority, adapters, asks, &[], &[], Some("exec"), &[])?;
             site_facts(sites, what).capabilities = Some(site);
         }
         return Ok(());
@@ -4759,7 +4803,7 @@ fn record_capabilities(
         }
     }
     for (label, raw) in nested {
-        record_capabilities(authority, library, adapters, &label, raw, sites)?;
+        record_capabilities(authority, library, adapters, boundary, &label, raw, sites)?;
     }
     Ok(())
 }

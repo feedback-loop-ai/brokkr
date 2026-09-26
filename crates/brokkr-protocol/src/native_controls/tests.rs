@@ -477,7 +477,14 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
         deny: argv(&["WebFetch"]),
         flags: claude_flags(),
     };
-    let controls = claude_controls(selection.clone(), &[]);
+    // Search held and fetch OFF (unit 12-fix-b: a holding is never
+    // silently left out of the list it fills, so none is denied here).
+    let controls = Controls {
+        held: argv(&["web-search"]),
+        denied: argv(&["web-fetch"]),
+        admits: admits(&[("web-search", &["WebSearch"])]),
+        ..claude_controls(selection.clone(), &[])
+    };
     // Boxed hands: the empty native list gains exactly the held tool, the
     // workspace tool stays allowed, and strict MCP configuration stays.
     assert_eq!(
@@ -951,9 +958,22 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
             "{provider}: {authored:?}"
         );
         // Composition reads no authored value (rebuild unit 12): it
-        // composes the parts it is handed, the authored part unchanged.
-        let composed = compose_for_provider(provider, &authored, &[], controls)
-            .unwrap_or_else(|refusal| panic!("{authored:?}: {refusal:?}"));
+        // composes the parts it is handed, the authored part unchanged. An
+        // include list before the hands is a limit whose names nothing
+        // holds, so the final list is empty and, with no selection mapping
+        // to write it, the launch refuses (unit 12-fix-b, I1).
+        let composed = compose_for_provider(provider, &authored, &[], controls);
+        if written == "--tools mcp__*" {
+            assert_eq!(
+                composed.map(|composed| composed.extra),
+                Err(unconsumed(
+                    "claude",
+                    "a final tool list with no selection mapping to write it into,"
+                ))
+            );
+            continue;
+        }
+        let composed = composed.unwrap_or_else(|refusal| panic!("{authored:?}: {refusal:?}"));
         assert_eq!(&composed.extra[..authored.len()], authored, "{authored:?}");
     }
     // Inert: a value is a value whatever it spells, and another key is
@@ -1683,15 +1703,18 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
     let rows: Vec<Row> = vec![
         // Compatible, every capability OFF: the nonempty and the empty
         // limit, split and joined, beside the independent WebFetch denial.
+        // A limit only bounds (unit 12-fix-b, I1): nothing is held, so the
+        // final list is empty and Read, which only the limit names, never
+        // reaches the command.
         (
             plan(&["--tools", "Read"], &[], &[], &[]),
             &[],
-            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+            Ok(argv(&["--tools", "", "--disallowedTools", "WebFetch"])),
         ),
         (
             plan(&["--tools=Read"], &[], &[], &[]),
             &[],
-            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+            Ok(argv(&["--tools", "", "--disallowedTools", "WebFetch"])),
         ),
         (
             plan(&["--tools", ""], &[], &[], &[]),
@@ -1703,14 +1726,14 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
             &[],
             Ok(argv(&["--tools", "", "--disallowedTools", "WebFetch"])),
         ),
-        // A name the limit repeats is written once.
+        // A name the limit repeats bounds once, and adds nothing.
         (
             plan(&["--tools", "Read,Read"], &[], &[], &[]),
             &[],
-            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+            Ok(argv(&["--tools", "", "--disallowedTools", "WebFetch"])),
         ),
         // Compatible, fetch held: the limit names it, so it reaches the
-        // command with its admission and the limit unchanged.
+        // command with its admission, and Read beside it does not.
         (
             plan(
                 &["--tools", "Read,WebFetch"],
@@ -1719,12 +1742,7 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
                 &["WebFetch"],
             ),
             &[],
-            Ok(argv(&[
-                "--tools",
-                "Read,WebFetch",
-                "--allowedTools",
-                "WebFetch",
-            ])),
+            Ok(argv(&["--tools", "WebFetch", "--allowedTools", "WebFetch"])),
         ),
         // The review's reproduction and the explicit empty limit: refused
         // whole, never `--tools WebFetch,Read` or `--tools WebFetch`.
@@ -1781,17 +1799,12 @@ fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
                 &[],
             ),
             &[],
-            Ok(argv(&[
-                "--tools",
-                "Read,WebFetch",
-                "--allowedTools",
-                "WebFetch",
-            ])),
+            Ok(argv(&["--tools", "WebFetch", "--allowedTools", "WebFetch"])),
         ),
         (
             plan(&["--tools", "Read,WebFetch"], &["web-fetch"], &[], &[]),
             &[],
-            Ok(argv(&["--tools", "Read,WebFetch"])),
+            Ok(argv(&["--tools", "WebFetch"])),
         ),
         (
             plan(
@@ -1977,17 +1990,15 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
                     .into(),
             }),
         ),
-        // Two limits hold as their intersection, in the template's own
-        // joined spelling.
+        // Two limits both bound the held fetch, and the list is written in
+        // the template's own joined spelling with the holding alone: Read,
+        // which both limits name and nothing holds, is not written
+        // (unit 12-fix-b, I1).
         (
             argv(&["--tools=Read,Bash,WebFetch"]),
             Vec::new(),
             fetch(&["--tools", "WebFetch,Read"], &[]),
-            Ok(argv(&[
-                "--tools=Read,WebFetch",
-                "--allowedTools",
-                "WebFetch",
-            ])),
+            Ok(argv(&["--tools=WebFetch", "--allowedTools", "WebFetch"])),
         ),
         // The hands fill the limit with the held fetch; Read, which the
         // limit names and nothing holds, never enters the box.
@@ -1997,7 +2008,8 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
             fetch(&["--tools", "Read,WebFetch"], &[]),
             Ok(boxed("WebFetch", "mcp__brokkr__workspace,WebFetch", &[])),
         ),
-        // A base the hands would carry past a limit refuses whole.
+        // The hands' own list is filled from the holding alone: a name it
+        // carries that nothing holds is not written (unit 12-fix-b, I3).
         (
             Vec::new(),
             argv(&[
@@ -2007,10 +2019,12 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
                 "mcp__brokkr__workspace",
             ]),
             fetch(&["--tools", "WebFetch"], &[]),
-            Err(limit_refusal(
+            Ok(argv(&[
+                "--tools",
                 "WebFetch",
-                "does not name tool 'Read', which the composed include list would carry",
-            )),
+                "--allowedTools",
+                "mcp__brokkr__workspace,WebFetch",
+            ])),
         ),
         // Holdings and admissions answer for each other.
         (
@@ -2067,58 +2081,102 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
             .unwrap_err(),
         }))
     );
-    // The pure function: an admission no holding makes, a held tool a
-    // limit excludes, and a base tool a limit does not name.
+    // The pure function: an admission no holding makes, a carried native
+    // tool no holding admits, a held tool a limit excludes, and the final
+    // include and allow lists from the holdings and every allowance.
     let limit = |names: &[&str]| Limit {
         origin: LimitOrigin::Plan,
         flag: "--tools".into(),
         names: argv(names),
     };
     let held = admits(&[("web-fetch", &["WebFetch"])]);
+    let sources = |include: &[&str], allow: &[&str], carried: &[&str]| {
+        (argv(include), argv(allow), argv(carried))
+    };
+    let pure = |(include, allow, carried): (Vec<String>, Vec<String>, Vec<String>),
+                admits: &BTreeMap<String, Vec<String>>,
+                limits: &[Limit],
+                hands: bool| {
+        final_tools(
+            admits,
+            Sources {
+                include: &include,
+                allow: &allow,
+                carried: &carried,
+                governed: &argv(&["WebFetch", "WebSearch"]),
+            },
+            limits,
+            hands,
+        )
+    };
     assert_eq!(
-        final_tools(&held, [&argv(&["Bash"]), &[]], &[], None),
+        pure(sources(&["Bash"], &[], &[]), &held, &[], false),
         Err(Conflict::Unheld("Bash".into()))
     );
     assert_eq!(
-        final_tools(&held, [&[], &[]], &[limit(&["Read"]), limit(&[])], None),
+        pure(sources(&[], &[], &["WebSearch"]), &held, &[], false),
+        Err(Conflict::Carried("WebSearch".into()))
+    );
+    assert_eq!(
+        pure(
+            sources(&[], &[], &[]),
+            &held,
+            &[limit(&["Read"]), limit(&[])],
+            false
+        ),
         Err(Conflict::Excluded {
             capability: "web-fetch".into(),
             tool: "WebFetch".into(),
             limit: 0,
         })
     );
+    // The chief's pure R1: a limit naming WebFetch, nothing held.
     assert_eq!(
-        final_tools(
-            &held,
-            [&[], &[]],
+        pure(
+            sources(&[], &[], &[]),
+            &BTreeMap::new(),
             &[limit(&["WebFetch"])],
-            Some(&argv(&["Read"]))
+            false
         ),
-        Err(Conflict::Widens {
-            tool: "Read".into(),
-            limit: 0,
+        Ok(Toolset {
+            include: Some(Vec::new()),
+            allow: Vec::new(),
         })
     );
     assert_eq!(
-        final_tools(
+        pure(
+            sources(
+                &["WebFetch"],
+                &["WebFetch(domain:example.org)"],
+                &["Bash(ls:*)"]
+            ),
             &held,
-            [
-                &argv(&["WebFetch"]),
-                &argv(&["WebFetch(domain:example.org)"])
-            ],
             &[
                 limit(&["Read", "WebFetch", "Bash"]),
                 limit(&["WebFetch", "Read"])
             ],
-            None
+            false
         ),
         Ok(Toolset {
-            include: Some(argv(&["Read", "WebFetch"])),
-            allow: argv(&["WebFetch(domain:example.org)"]),
+            include: Some(argv(&["WebFetch"])),
+            allow: argv(&["Bash(ls:*)", "WebFetch(domain:example.org)"]),
+        })
+    );
+    // The box's hands fill from the holding alone, beside the hands tool.
+    assert_eq!(
+        pure(
+            sources(&[], &[], &["mcp__brokkr__workspace"]),
+            &held,
+            &[],
+            true
+        ),
+        Ok(Toolset {
+            include: Some(argv(&["WebFetch"])),
+            allow: argv(&["mcp__brokkr__workspace"]),
         })
     );
     assert_eq!(
-        final_tools(&BTreeMap::new(), [&[], &[]], &[], None),
+        pure(sources(&[], &[], &[]), &BTreeMap::new(), &[], false),
         Ok(Toolset::default())
     );
     // What a sealed expectation says each holding admits.
@@ -2141,6 +2199,318 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
     assert_eq!(
         NativeExpectation::Unmeasured("never probed".into()).admits(),
         BTreeMap::new()
+    );
+}
+
+/// Rebuild unit 12-fix-b (chief R1-R4; design D6; CQ1): the one computation
+/// of the final lists holds three invariants over EVERY combination of its
+/// inputs, composed through the production composer. H is what the selected
+/// holdings admit, W the box's hands tool, L every restrictive list: the
+/// template's, the plan argv's and the adapter's managed boundary fragment.
+///
+/// - I1: every name the final `--tools` and `--allowedTools` carry is in H,
+///   is the box's W, or is the engine's local permission on a tool no
+///   native power governs; and every held tool is inside every limit.
+/// - I2: a required held tool is written wherever an include list is, or
+///   the launch refuses, naming the limit's origin, flag and tool; a wanted
+///   one a limit excludes drops, and the launch composes with it OFF.
+/// - I3: under the box or any limit the include list is exactly the held
+///   tools, filled from the holding, and the box keeps W; a managed list
+///   bounds and is never the base.
+#[test]
+fn the_final_lists_hold_their_invariants_over_every_combination() {
+    const W: &str = "mcp__brokkr__workspace";
+    const LOCAL: &str = "Bash(ls:*)";
+    let box_hands = argv(&[
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/run/hands.json",
+        "--allowedTools",
+        W,
+    ]);
+    // The holding, and the guard a second inventory entry serving the same
+    // capability adds: an unselected duplicate declaring Bash, or the bound
+    // entry's unselected Read beside a grant narrowed to WebFetch.
+    type Holding<'a> = (&'a str, bool, &'a [&'a str]);
+    let holdings: [Holding; 4] = [
+        ("no holding", false, &[]),
+        ("one holding", true, &[]),
+        ("a duplicate unselected entry", true, &["Bash"]),
+        ("a narrowed grant", true, &["WebFetch", "Read"]),
+    ];
+    // The plan's representation: its argv, whether its selection carries
+    // the ON, and whether the argv IS the ON (gone once a wanted holding
+    // drops) rather than a restriction the adapter declares beside it.
+    type Plan<'a> = (&'a str, &'a [&'a str], bool, bool);
+    let plans: [Plan; 5] = [
+        ("no plan argv (a measured default ON)", &[], false, false),
+        ("a selection ON", &[], true, false),
+        ("a plan limit", &["--tools", "Read,WebFetch"], true, false),
+        (
+            "an allow-only ON",
+            &["--allowedTools", "WebFetch"],
+            false,
+            true,
+        ),
+        (
+            "an ON with --tools",
+            &["--tools", "WebFetch", "--allowedTools", "WebFetch"],
+            false,
+            true,
+        ),
+    ];
+    let templates: [&[&str]; 3] = [
+        &[],
+        &["--tools", "Read"],
+        &["--tools", "Read,WebFetch,Bash"],
+    ];
+    let controls = |held: bool, extra: &[&str], plan: &[&str], selection: bool| {
+        let mut guards = vec![
+            claude_guard(),
+            Guard {
+                capability: "web-search".into(),
+                tools: argv(&["WebSearch"]),
+                ..Guard::default()
+            },
+        ];
+        if !extra.is_empty() {
+            guards.push(Guard {
+                capability: "web-fetch".into(),
+                tools: argv(extra),
+                ..Guard::default()
+            });
+        }
+        let on = match held && selection {
+            true => argv(&["WebFetch"]),
+            false => Vec::new(),
+        };
+        let (base, admitted, deny) = match held {
+            true => (
+                ready("claude", &["web-fetch"], &["web-search"]),
+                admits(&[("web-fetch", &["WebFetch"])]),
+                argv(&["WebSearch"]),
+            ),
+            false => (
+                ready("claude", &[], &["web-search", "web-fetch"]),
+                BTreeMap::new(),
+                argv(&["WebSearch", "WebFetch"]),
+            ),
+        };
+        Controls {
+            argv: argv(plan),
+            admits: admitted,
+            selection: Selection {
+                include: on.clone(),
+                allow: on,
+                deny,
+                flags: claude_flags(),
+            },
+            guards,
+            ..base
+        }
+    };
+    // One final list as the command carries it, split or joined.
+    let list = |extra: &[String], flag: &str| -> Option<Vec<String>> {
+        let joined = format!("{flag}=");
+        let found: Vec<usize> = (0..extra.len())
+            .filter(|at| extra[*at] == flag || extra[*at].starts_with(&joined))
+            .collect();
+        assert!(found.len() <= 1, "{flag} is written once: {extra:?}");
+        let at = *found.first()?;
+        let value = match extra[at].strip_prefix(&joined) {
+            Some(value) => value.to_string(),
+            None => extra[at + 1].clone(),
+        };
+        Some(distinct(value.split(',')))
+    };
+    let owner = |template: &[&str]| match template {
+        ["--tools", "Read"] => ("the adapter template's", "Read"),
+        _ => ("the adapter's managed boundary fragment's", "Read, Bash"),
+    };
+    let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
+    for (holding, held, extra) in holdings {
+        for (plan_name, plan_argv, selection, on_argv) in plans {
+            for template in templates {
+                for managed in [false, true] {
+                    for hands in [false, true] {
+                        for strength in ["requires", "wants"] {
+                            let label = format!(
+                                "{holding}, {plan_name}, template {template:?}, managed \
+                                 {managed}, hands {hands}, {strength}"
+                            );
+                            // The local permission beside hands is dormant.
+                            let mut authored = argv(template);
+                            if !hands {
+                                authored.extend(argv(&["--allowedTools", LOCAL]));
+                            }
+                            let mut fragment = Vec::new();
+                            if hands {
+                                fragment.extend(box_hands.clone());
+                            }
+                            if managed {
+                                fragment.extend(argv(&["--tools", "Read,Bash"]));
+                            }
+                            let mut plan = controls(held, extra, plan_argv, selection);
+                            let mut outcome =
+                                compose_or_exclude("claude", &authored, &fragment, &plan);
+                            let mut dropped = false;
+                            if let Err(Failure::Excluded(exclusion)) = &outcome {
+                                // I2: the limit's origin, flag and tool.
+                                let (origin, names) = owner(template);
+                                assert_eq!(
+                                    exclusion.refusal.cause,
+                                    format!(
+                                        "{origin} explicit '--tools' restriction for provider \
+                                         'claude' (naming {names}) does not name tool \
+                                         'WebFetch', which the plan admits for native \
+                                         capability 'web-fetch'; an explicit tool list is a \
+                                         hard limit that nothing widens, so the conflict is \
+                                         refused whole rather than unioned (design D6)"
+                                    ),
+                                    "{label}"
+                                );
+                                if strength == "requires" {
+                                    *tally.entry("required, refused by its limit").or_default() +=
+                                        1;
+                                    continue;
+                                }
+                                // CQ1: the wanted holding drops, its ON with it.
+                                let kept: &[&str] = if on_argv { &[] } else { plan_argv };
+                                plan = controls(false, extra, kept, false);
+                                outcome = compose_or_exclude("claude", &authored, &fragment, &plan);
+                                dropped = true;
+                            }
+                            let extra_ = match outcome {
+                                Ok(composed) => composed.extra,
+                                Err(failure) => {
+                                    let cause = failure.refusal().cause;
+                                    let kind = if cause.starts_with("the capability plan admits") {
+                                        "refused, an unheld plan admission"
+                                    } else if cause.starts_with("the seat's own allow list names") {
+                                        "refused, a carried native tool"
+                                    } else if cause.contains("it repeats option '--tools'") {
+                                        "refused, a list written twice"
+                                    } else {
+                                        panic!("{label}: unexpected refusal: {cause}")
+                                    };
+                                    *tally.entry(kind).or_default() += 1;
+                                    continue;
+                                }
+                            };
+                            *tally.entry("composed").or_default() += 1;
+                            if dropped {
+                                let deny = list(&extra_, "--disallowedTools");
+                                assert!(
+                                    deny.is_some_and(|deny| deny.contains(&"WebFetch".into())),
+                                    "{label}: the dropped fetch is OFF"
+                                );
+                                *tally
+                                    .entry("composed, a wanted holding dropped with OFF")
+                                    .or_default() += 1;
+                            }
+                            let held_tools: Vec<String> =
+                                plan.admits.values().flatten().cloned().collect();
+                            let governed: Vec<String> = plan
+                                .guards
+                                .iter()
+                                .flat_map(|guard| guard.tools.clone())
+                                .collect();
+                            let mut limits: Vec<Vec<String>> = Vec::new();
+                            if let [_, names] = template {
+                                limits.push(distinct(names.split(',')));
+                            }
+                            if managed {
+                                limits.push(argv(&["Read", "Bash"]));
+                            }
+                            if let Some(names) = list(&plan.argv, "--tools") {
+                                limits.push(names);
+                            }
+                            let include = list(&extra_, "--tools");
+                            let allow = list(&extra_, "--allowedTools").unwrap_or_default();
+                            // I1.
+                            for name in include.iter().flatten() {
+                                assert!(held_tools.contains(name), "{label}: I1 --tools {name}");
+                            }
+                            for name in &allow {
+                                let tool = grammar::tool_name(name);
+                                assert!(
+                                    held_tools.iter().any(|held| held == tool)
+                                        || (hands && name == W)
+                                        || (name == LOCAL && !governed.iter().any(|g| g == tool)),
+                                    "{label}: I1 --allowedTools {name}"
+                                );
+                            }
+                            for tool in &held_tools {
+                                for limit in &limits {
+                                    assert!(limit.contains(tool), "{label}: I1 {tool} in L");
+                                }
+                            }
+                            // I2 and I3.
+                            match &include {
+                                Some(names) => assert_eq!(names, &held_tools, "{label}: I2/I3"),
+                                None => assert!(!hands && limits.is_empty(), "{label}: I3"),
+                            }
+                            assert_eq!(allow.contains(&W.to_string()), hands, "{label}: I3 W");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        tally,
+        // 480 combinations. A seat's argv carries one include list, so a
+        // template or managed list beside another is refused as written
+        // twice; a local Bash permission beside an entry declaring Bash is a
+        // native tool no holding admits.
+        BTreeMap::from([
+            ("composed", 120),
+            ("composed, a wanted holding dropped with OFF", 20),
+            ("refused, a carried native tool", 30),
+            ("refused, a list written twice", 280),
+            ("refused, an unheld plan admission", 20),
+            ("required, refused by its limit", 30),
+        ])
+    );
+}
+
+/// Rebuild unit 12-fix-b (I1, R4): the seat's own allow list is an input
+/// to the one computation, not merged after it. A native tool on it that a
+/// holding admits is carried once and gains nothing; an allowance the plan
+/// adds where the adapter maps no list to write it into refuses, as a final
+/// include list there does.
+#[test]
+fn a_held_carried_allowance_is_kept_once_and_an_unwritable_one_refuses() {
+    let plan = |flags| Controls {
+        admits: admits(&[("web-fetch", &["WebFetch"])]),
+        selection: Selection {
+            include: Vec::new(),
+            allow: argv(&["WebFetch"]),
+            deny: argv(&["WebSearch"]),
+            flags,
+        },
+        guards: vec![claude_guard()],
+        ..ready("claude", &["web-fetch"], &["web-search"])
+    };
+    let carried = argv(&["--allowedTools", "WebFetch"]);
+    assert_eq!(
+        compose_for_provider("claude", &carried, &[], &plan(claude_flags()))
+            .map(|composed| composed.extra),
+        Ok(argv(&[
+            "--allowedTools",
+            "WebFetch",
+            "--disallowedTools",
+            "WebSearch"
+        ]))
+    );
+    assert_eq!(
+        compose_for_provider("claude", &[], &[], &plan(None)).map(|composed| composed.extra),
+        Err(unconsumed(
+            "claude",
+            "a final tool list with no selection mapping to write it into,"
+        ))
     );
 }
 

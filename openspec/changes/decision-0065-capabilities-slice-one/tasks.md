@@ -1764,6 +1764,38 @@ unchanged, the whole workspace suite passes. The split needed:
 The patches are saved under `.forge/unit-12-fix-b/` (`visit2-*.patch`).
 Standing-admission lines: none landed. R1–R5 remain open.
 
+Third visit (2026-09-26, same run): **landed** (evidence.md, "Unit 12-fix-b,
+third visit — landed").
+
+- `final_tools` returns both final lists from every allowance source
+  (plan, template, local and hands). Nothing is merged afterwards.
+  - The include list is filled from the holdings alone.
+  - Every restrictive list is a limit, the managed `hands.harness.*`
+    fragment included.
+  - `bundle.rs` composes that fragment at compile.
+- **Proof:**
+  - The 480-combination property test asserts I1–I3. Mutations M-I1, M-I2
+    and M-I3 are each caught.
+  - The chief reproductions are red on `1ecd3304`.
+  - One new row, `a_held_carried_allowance_…`, covers two branches that
+    llvm-cov found unhit. Mutations M-C1 and M-C2 are caught.
+- **Admitted test changes:**
+  - Option A: the `adapters/tests.rs` rows "every list joined, in aliases,
+    nothing held" and "split"/"equals" (R5), each red on `1ecd3304`;
+    `model_policy_tests.rs:3934` and `:4046`, the gate `--door` re-planted
+    as `--max-turns 40`.
+  - Standing fixture migration of 2026-09-26: `model_policy_tests.rs:3935`,
+    the work fragment `--permission-mode acceptEdits` (refused as a
+    repeat of the driver's permission mode) re-planted as `--max-turns 80`.
+    This reading is an assumption, and it is flagged for review.
+  - Every assertion is unchanged, and every baseline red is recorded.
+- Unit 11's coverage handoff is closed: no unhit `bundle.rs` record lies in
+  `expressed_sandbox`.
+- 12.1 and 12.2 stay ticked. 15.2 is advanced, and it stays open.
+- Standing-admission lines: none.
+- **Pending:** exact coverage outside the box, macOS, remote CI and the
+  council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

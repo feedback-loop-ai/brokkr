@@ -1526,6 +1526,9 @@ pub enum LimitOrigin {
     /// The capability plan's own argv: an ON or OFF switch or a
     /// restriction transport the adapter declared.
     Plan,
+    /// The fragment the engine appended for the boundary that is not the
+    /// box's hands: the adapter's `hands.harness.*` (unit 12-fix-b, R2).
+    Managed,
 }
 
 impl LimitOrigin {
@@ -1533,6 +1536,7 @@ impl LimitOrigin {
         match self {
             LimitOrigin::Template => "the adapter template's",
             LimitOrigin::Plan => "the capability plan's",
+            LimitOrigin::Managed => "the adapter's managed boundary fragment's",
         }
     }
 }
@@ -1548,12 +1552,30 @@ pub struct Limit {
 
 /// The final include and allow lists of one launch, as [`final_tools`]
 /// computes them. `include` is `None` where no list restricts the harness
-/// at all, so it runs with its whole set; `allow` is what the plan adds to
-/// the seat's own allow list.
+/// at all, so it runs with its whole set; `allow` is the whole allow list
+/// the command carries, the seat's own names first.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Toolset {
     pub include: Option<Vec<String>>,
     pub allow: Vec<String>,
+}
+
+/// Every allowance [`final_tools`] computes from, by source.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Sources<'a> {
+    /// What the plan adds: its selection's include and allow names, and
+    /// every allow list its own argv names.
+    pub include: &'a [String],
+    pub allow: &'a [String],
+    /// The allow list the seat's argv already carries: the adapter
+    /// template's or the engine's local permissions before the hands, or
+    /// the hands' own, which names the hands tool.
+    pub carried: &'a [String],
+    /// Every tool a native power of the provider governs, held or not. A
+    /// carried name among them is admitted by a holding or not at all; the
+    /// engine's local permissions never name one (a typed allow entry
+    /// mapped onto a native tool is refused where it is lowered).
+    pub governed: &'a [String],
 }
 
 /// Why no final tool set exists.
@@ -1561,6 +1583,8 @@ pub struct Toolset {
 pub enum Conflict {
     /// The plan admits a tool that no holding's admissions name.
     Unheld(String),
+    /// The seat's own allow list names a native tool no holding admits.
+    Carried(String),
     /// A limit does not name a tool a held capability admits. The one
     /// conflict resolution can answer by dropping a wanted holding (CQ1).
     Excluded {
@@ -1568,8 +1592,6 @@ pub enum Conflict {
         tool: String,
         limit: usize,
     },
-    /// The composed list would carry a tool a limit does not name.
-    Widens { tool: String, limit: usize },
 }
 
 /// Names once each, in first-seen order, with no empty one.
@@ -1584,33 +1606,37 @@ fn distinct<S: AsRef<str>>(names: impl IntoIterator<Item = S>) -> Vec<String> {
     seen
 }
 
-/// The ONE computation of a launch's final tool lists (rebuild unit 12-fix;
-/// design D6), a pure function of what the realm's holdings admit, the
-/// explicit limits every engine contribution carries and the box's hands.
-/// Compilation and launch both reach it through [`compose_for_provider`].
+/// The ONE computation of a launch's final include AND allow lists
+/// (rebuild unit 12-fix-b; design D6), a pure function of what the realm's
+/// holdings admit, every allowance source, the explicit limits every
+/// engine contribution carries and whether the box's hands stand. Nothing
+/// is merged into its answer afterwards. Compilation and launch both reach
+/// it through [`compose_for_provider`].
 ///
-/// - Authority follows the selected holding only. `admits` is each held
-///   capability's own set ([`Controls::admits`]); an admission — the
-///   plan's additive include and allow names — whose tool is outside
-///   their union is refused, whatever another inventory entry declares.
-/// - Every limit is a hard limit, and they hold together: each tool a
-///   holding admits must be named by every one of them, and the final
-///   include list is inside their intersection.
-/// - The hands' own include list is the box's base: the plan's additive
-///   include names fill it, and nothing a limit excludes enters it. With
-///   no hands the base is the limits' intersection itself, and with no
-///   limit either there is no include list at all.
+/// - I1: every name it returns is held, the hands tool the hands carry, or
+///   an engine local permission on a tool no native power governs. A name
+///   that only a limit, a template or the plan's argv supplies is never
+///   returned: the include list is filled from the holdings alone.
+/// - I2: every held tool is inside every limit, or the conflict is a
+///   [`Conflict::Excluded`] naming the limit and the tool, for a wanted
+///   holding to drop with OFF and a required one to refuse (CQ1). Where an
+///   include list is written it names every held tool.
+/// - I3: with the box's hands, or under any limit, the include list is the
+///   held tools; the hands tool rides the hands' own allow list. A managed
+///   boundary fragment's list is one of the limits, never a base.
 pub fn final_tools(
     admits: &BTreeMap<String, Vec<String>>,
-    [include, allow]: [&[String]; 2],
+    sources: Sources<'_>,
     limits: &[Limit],
-    hands: Option<&[String]>,
+    hands: bool,
 ) -> Result<Toolset, Conflict> {
     let held: Vec<&str> = admits.values().flatten().map(String::as_str).collect();
-    if let Some(tool) = include
+    let admitted = |name: &&String| held.contains(&grammar::tool_name(name));
+    if let Some(tool) = sources
+        .include
         .iter()
-        .chain(allow)
-        .find(|name| !held.contains(&grammar::tool_name(name)))
+        .chain(sources.allow)
+        .find(|name| !admitted(name))
     {
         return Err(Conflict::Unheld(tool.clone()));
     }
@@ -1625,34 +1651,21 @@ pub fn final_tools(
             }
         }
     }
-    let base = match (hands, limits) {
-        (Some(hands), _) => Some(hands.to_vec()),
-        (None, []) => None,
-        (None, [first, rest @ ..]) => Some(
-            first
-                .names
+    if let Some(tool) = sources.carried.iter().find(|name| {
+        !admitted(name)
+            && sources
+                .governed
                 .iter()
-                .filter(|name| rest.iter().all(|limit| limit.names.contains(name)))
-                .cloned()
-                .collect(),
-        ),
-    };
-    let include = base.map(|base| distinct(base.iter().chain(include)));
-    for (index, limit) in limits.iter().enumerate() {
-        if let Some(tool) = include
-            .iter()
-            .flatten()
-            .find(|tool| !limit.names.contains(tool))
-        {
-            return Err(Conflict::Widens {
-                tool: tool.clone(),
-                limit: index,
-            });
-        }
+                .any(|tool| tool == grammar::tool_name(name))
+    }) {
+        return Err(Conflict::Carried(tool.clone()));
     }
+    // Every name the selection includes is held (above), so it only orders
+    // the held tools.
     Ok(Toolset {
-        include,
-        allow: distinct(allow),
+        include: (hands || !limits.is_empty())
+            .then(|| distinct(sources.include.iter().map(String::as_str).chain(held))),
+        allow: distinct(sources.carried.iter().chain(sources.allow)),
     })
 }
 
@@ -1726,6 +1739,14 @@ fn conflicting(provider: &str, limits: &[Limit], conflict: Conflict) -> Failure 
                  holding binds, narrowed by its grant (design D6)"
             ),
         }),
+        Conflict::Carried(tool) => Failure::Refused(Refusal {
+            authored: false,
+            cause: format!(
+                "the seat's own allow list names native tool '{tool}' for provider \
+                 '{provider}', which no realm holding admits; a native tool is admitted only \
+                 through the one adapter entry a holding binds, narrowed by its grant (design D6)"
+            ),
+        }),
         Conflict::Excluded {
             capability,
             tool,
@@ -1745,11 +1766,6 @@ fn conflicting(provider: &str, limits: &[Limit], conflict: Conflict) -> Failure 
             ),
             capability,
         }),
-        Conflict::Widens { tool, limit } => Failure::Refused(restricted(
-            provider,
-            &limits[limit],
-            &format!("does not name tool '{tool}', which the composed include list would carry"),
-        )),
     }
 }
 
@@ -1907,18 +1923,42 @@ pub fn compose_or_exclude(
                 )
                 .into());
             }
-            // Every explicit include list an engine contribution carries is
-            // a limit (design D6): the template's own, in the part before
-            // the hands, and each one the plan's argv names. The include
-            // list in the hands is the box's base instead. The seat's argv
-            // holds one include list at most: a duplicate across its two
-            // origins refused above.
+            // The box's hands are the fragment that carries the hands tool;
+            // their include list is the base the holdings fill. Every other
+            // explicit include list an engine contribution carries is a
+            // limit (design D6): the template's own, in the part before the
+            // hands, each one the plan's argv names, and the adapter's
+            // managed boundary fragment (unit 12-fix-b, R2). The seat's argv
+            // holds one include and one allow list at most: a duplicate
+            // across its two origins refused above.
             let split = authored.len();
             let own = seat.lists(ListKind::Include).next();
+            let patterns = |node: &grammar::Node| -> Vec<String> {
+                grammar::node_patterns(node)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect()
+            };
+            let carried: Vec<String> = seat
+                .lists(ListKind::Allow)
+                .next()
+                .map(patterns)
+                .unwrap_or_default();
+            let hands_tool = format!(
+                "mcp__{}__{}",
+                crate::hands::SERVER_NAME,
+                crate::hands::TOOL_NAME
+            );
+            let boxed = seat
+                .lists(ListKind::Allow)
+                .any(|node| node.at >= split && patterns(node).contains(&hands_tool));
             let limits: Vec<Limit> = seat
                 .lists(ListKind::Include)
-                .filter(|node| node.at < split)
-                .map(|node| (LimitOrigin::Template, node))
+                .filter_map(|node| match (node.at < split, boxed) {
+                    (true, _) => Some((LimitOrigin::Template, node)),
+                    (false, false) => Some((LimitOrigin::Managed, node)),
+                    (false, true) => None,
+                })
                 .chain(
                     plan.lists(ListKind::Include)
                         .map(|node| (LimitOrigin::Plan, node)),
@@ -1929,9 +1969,7 @@ pub fn compose_or_exclude(
                     names: distinct(grammar::node_patterns(node)),
                 })
                 .collect();
-            let hands = own
-                .filter(|node| node.at >= split)
-                .map(|node| distinct(grammar::node_patterns(node)));
+            let hands = boxed && own.is_some_and(|node| node.at >= split);
             let named = |kind: ListKind| -> Vec<String> {
                 plan.lists(kind)
                     .flat_map(grammar::node_patterns)
@@ -1946,17 +1984,43 @@ pub fn compose_or_exclude(
                 .cloned()
                 .chain(named(ListKind::Allow))
                 .collect();
+            let governed: Vec<String> = controls
+                .guards
+                .iter()
+                .flat_map(|guard| guard.tools.iter().cloned())
+                .collect();
             let tools = final_tools(
                 &controls.admits,
-                [&controls.selection.include, &allow],
+                Sources {
+                    include: &controls.selection.include,
+                    allow: &allow,
+                    carried: &carried,
+                    governed: &governed,
+                },
                 &limits,
-                hands.as_deref(),
+                hands,
             )
             .map_err(|conflict| conflicting(provider, &limits, conflict))?;
+            // The include list is written only where it is not already the
+            // seat's own, spelled as it stands; the allow list gains what
+            // the seat does not carry.
+            let include = tools.include.as_ref().filter(|names| {
+                own.is_none_or(|node| {
+                    !grammar::node_patterns(node)
+                        .into_iter()
+                        .eq(names.iter().map(String::as_str))
+                })
+            });
+            let gained: Vec<String> = tools
+                .allow
+                .iter()
+                .filter(|tool| !carried.contains(tool))
+                .cloned()
+                .collect();
             // A plan that carries a list for a provider whose adapter maps
             // none cannot be folded anywhere, and is refused rather than
-            // dropped (decision 0066 ruling 3). Without one the seat's own
-            // lists stand as written, every limit already held above.
+            // dropped (decision 0066 ruling 3); so is a final list that
+            // differs from the seat's own. Otherwise the seat's lists stand.
             let Some(flags) = controls.selection.flags.clone() else {
                 if let Some(node) = plan.nodes.iter().find(|node| node.list().is_some()) {
                     return Err(unconsumed(
@@ -1965,6 +2029,13 @@ pub fn compose_or_exclude(
                             "a managed '{}' with no selection mapping to fold it into,",
                             node.name()
                         ),
+                    )
+                    .into());
+                }
+                if include.is_some() || !gained.is_empty() {
+                    return Err(unconsumed(
+                        provider,
+                        "a final tool list with no selection mapping to write it into,",
                     )
                     .into());
                 }
@@ -1979,10 +2050,7 @@ pub fn compose_or_exclude(
                 .chain(named(ListKind::Deny))
                 .collect();
             let mut folding: Vec<Folding> = Vec::new();
-            for (slot, kind, names) in [
-                (1, ListKind::Allow, tools.allow.clone()),
-                (2, ListKind::Deny, deny),
-            ] {
+            for (slot, kind, names) in [(1, ListKind::Allow, gained), (2, ListKind::Deny, deny)] {
                 let node = seat.lists(kind).next();
                 let carried: Vec<String> = node
                     .map(grammar::node_patterns)
@@ -2002,15 +2070,6 @@ pub fn compose_or_exclude(
                     names,
                 });
             }
-            // The include list is written only where it is not already the
-            // seat's own, spelled as it stands.
-            let include = tools.include.as_ref().filter(|names| {
-                own.is_none_or(|node| {
-                    !grammar::node_patterns(node)
-                        .into_iter()
-                        .eq(names.iter().map(String::as_str))
-                })
-            });
             // The adapter's mapping must name a flag the harness's own
             // grammar reads as THIS list: a mapping onto anything else
             // cannot reach the final command, and is refused rather than

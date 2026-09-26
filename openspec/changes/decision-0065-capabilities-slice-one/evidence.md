@@ -10620,3 +10620,163 @@ Saved under `.forge/unit-12-fix-b/`. Both apply clean on `9ccba5d2`:
 The patch was reversed, and `git status --short` is empty. The mutation
 proofs for I1–I3 were not re-taken in this visit. They are owed when the
 patch lands. Standing-admission lines: none.
+
+## Unit 12-fix-b, third visit — landed, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-578edee1`, on `ef8b98ee` with a clean
+tree. Nothing on the branch changed since the second visit, and no new
+addendum exists. `visit2-full-with-work-replant.patch` (`5606eda4…`) was
+applied as saved: `full-with-adapters.patch`, plus the option-A gate
+re-plant, plus the `:3935` work re-plant. The saved sha256s match the
+records above.
+
+### Why `:3935` is admitted (an assumption, stated for review)
+
+The second visit stopped because option A names only `:3934` and `:4046`.
+It did not weigh the standing fixture-migration admission of 2026-09-26.
+That admission covers "a test fixture that authors, inline, an option the
+operator's refusal ruling now refuses (for example … `--permission-mode` …)"
+and lets it be "re-planted so the test still proves what it exists to
+prove, in any test file, without stopping".
+
+`:3935` plants `["--permission-mode", "acceptEdits"]` as the Claude work
+fragment. This unit's compile-time threading now refuses it. The refusal
+text says why: the option repeats the driver's own `--permission-mode`, and
+"a CLI that resolves a duplicate last-wins would resolve it against the
+control the engine composed". That is a permission mode, refused and never
+reconciled. This visit reads the admission as covering the line.
+
+The re-plant is `["--max-turns", "80"]`, the value the second visit used.
+The grammar models it as inert (`native_controls/grammar.rs:485`), and the
+driver does not set it. No assertion changed. If the operator reads the
+admission more narrowly, this line is the one to rule on.
+
+### Admitted test changes, each with its baseline red
+
+The baseline reds were observed with the patch applied and the fixture
+alone put back.
+
+- **`model_policy_tests.rs:3934` and `:4046`** (option A), the gate fragment
+  `["--permission-mode", "plan", "--door", "{result_path}"]`, re-planted as
+  `["--max-turns", "40"]`. With the original fixture, runtime
+  `model_policy_tests` gave 92 passed and 2 failed:
+  - `a_measured_claude_gap_is_reported_not_papered_over` at `:4078`,
+    "cannot place argument 3 ('--door'): it names no option";
+  - `every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured`
+    at `:3960`, "recipes/panel-review refuses under harness … cannot place
+    argument 3 ('--door')".
+- **`model_policy_tests.rs:3935`** (fixture migration, above). With the
+  original work fragment, runtime `model_policy_tests` gave 93 passed and 1
+  failed: `every_shipped_bundle_…` at `:3960`, "recipes/release refuses
+  under harness … seat 'implement' … cannot place argument 7
+  ('--permission-mode'): it repeats option '--permission-mode'".
+- **`adapters/tests.rs`** (option A, R5). Run against the `1ecd3304`
+  `native_controls.rs`, with `native_controls/tests.rs` swapped to
+  `1ecd3304` so that the lib compiles. Each changed assertion is red:
+  - `a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag`
+    `:15536`, row "every list joined, in aliases, nothing held": it yields
+    `--tools=Read`, not `--tools=`.
+  - `an_explicitly_restrictive_managed_tool_list_reaches_the_final_command`
+    `:15149`, row "split": it yields `--tools Read`, not `--tools ""`.
+  - The same test, row "equals", run alone with the "split" row
+    temporarily removed: `:15148`, `--tools Read`, not `--tools ""`.
+
+### Chief reproductions on `1ecd3304`
+
+`capability_launch` was run with `native_controls.rs` and `bundle.rs` put
+back to `1ecd3304`. `git diff 1ecd3304 HEAD -- crates/` is empty. The
+result was 45 passed and 3 failed:
+
+- `every_chief_reproduction_composes_inside_the_holdings_and_every_limit`
+  (`:6474`) fails at `:6505`, R1's first row. It launches `--tools
+  WebFetch --disallowedTools WebSearch` with nothing held, where the fix
+  gives `--tools ""`.
+- `an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant`
+  fails at `:6183`, with `--tools Read`.
+- `a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened`
+  fails at `:6438`, with `--tools Read,Bash`.
+
+### Mutations of the property test
+
+Each mutation compiled, and each was caught by
+`the_final_lists_hold_their_invariants_over_every_combination`:
+
+- **M-I1:** the limits' names are chained into the include list. Caught
+  at `:2434`: "no holding, no plan argv (a measured default ON), template
+  [], managed true, hands false, requires: I1 --tools Read".
+- **M-I2:** the include list is filled from `selection.include` alone
+  (`.chain(held)` removed). Caught at `:2452`: "one holding, no plan argv
+  (a measured default ON), template [], managed false, hands true,
+  requires: I2/I3", left `[]`, right `["WebFetch"]`. This is R3's silent
+  `--tools ""`.
+- **M-I3:** a managed fragment's include list is not a limit (`(false,
+  false) => None`). Caught at `:2434`, on the same row as M-I1.
+- **Restored:** `cmp` against the saved file is identical, and the
+  protocol `native_controls` tests pass 40/40.
+
+### A coverage gap found, and closed in the owning suite
+
+`cargo +nightly-2026-09-05 llvm-cov --branch -p brokkr-protocol -p
+brokkr-runtime -p brokkr-cli --all-features --locked --lcov`, run after
+`llvm-cov clean --workspace`, gave 58 `test result: ok` lines and 0
+`FAILED`. `grep -E -x` for `DA:…,0` and for zero or `-` `BRDA` found:
+
+- **`native_controls.rs`:** two new zero branches.
+  - `BRDA:1655,0,1,0`: a carried allow name that a holding admits.
+  - `BRDA:2035,1,2,0`: a plan allowance where there is no selection
+    mapping and no include list.
+- **`capabilities.rs`:** none.
+- **`bundle.rs`:** DA 1880, 2647, 2649, 2652, 2786, and BRDA 2632, 2648,
+  2651, 3460. This is the 12-fix record's `bd6d7a31` set (1877, 2644, 2646,
+  2649, 2783; 2629, 2645, 2648, 3457), moved +3 by the patch's hunks at
+  `:1728` (+2) and `:1862` (+1).
+
+New test `a_held_carried_allowance_is_kept_once_and_an_unwritable_one_refuses`
+(`native_controls/tests.rs:2485`), sized like its neighbours:
+
+- A template `--allowedTools WebFetch` with WebFetch held composes
+  `--allowedTools WebFetch --disallowedTools WebSearch`.
+- A held plan allowance with no selection mapping refuses: "… carries a
+  final tool list with no selection mapping to write it into, …".
+
+Its mutations:
+
+- **M-C1:** `!admitted(name) &&` is removed from the carried check. Caught
+  at `:2498` by the Carried refusal "the seat's own allow list names native
+  tool 'WebFetch' …".
+- **M-C2:** `|| !gained.is_empty()` is removed. Caught at `:2508` with
+  `Ok([])`: the held allowance was silently dropped.
+- Both were restored, and `cmp` is identical.
+
+A protocol-only re-run of the diagnostic then gives `BRDA:1655,0,1,1` and
+`BRDA:2035,1,2,1`.
+
+### Unit 11's handoff: closed
+
+The two dead `Contribution::Native` arms of `expressed_sandbox` were
+already deleted, and they stay deleted. `expressed_sandbox` spans
+`bundle.rs:3288`–`3420`, and none of the nine unhit `bundle.rs` records
+lies inside it. No `bundle.rs` record is left unhit because of those arms.
+The other nine are the pre-existing set above.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean, both before and after the new test.
+- `cargo test -p brokkr-protocol --lib --locked`: 493/493.
+- `cargo test -p brokkr-runtime --locked`: every suite is ok (lib 565,
+  `capability_launch` 48).
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+  `test result: ok` lines, and none FAILED. This run came before the new
+  protocol test was added; the protocol lib was re-run after it.
+- `bundles/self` and `bundles/verify` compile.
+- All 18 recipe and bundle compiles were run through `cargo run -- compile`
+  with the fix and with `HEAD`'s production files. `diff -r`: identical.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+Standing-admission (forced) lines: none. Frozen paths are unchanged.
+
+**Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
+the box), macOS and remote CI. The full engine council is still to review.

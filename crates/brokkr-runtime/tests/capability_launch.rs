@@ -6096,16 +6096,19 @@ fn an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant() {
     let default = json!({"default": "fetch is on unless a list removes it"});
     // Unit 12-fix (CQ1): a REQUIRED holding the limit excludes refuses the
     // whole conflict; a WANTED one drops, its native control OFF.
-    let off_launch = |limit: &str| launched(&["--tools", limit, "--disallowedTools", "WebFetch"]);
+    // Unit 12-fix-b (I1): a limit only bounds, and the list it calls for is
+    // filled from the holdings alone, so Read, which only the limit names,
+    // never reaches the command.
+    let off_launch = || launched(&["--tools", "", "--disallowedTools", "WebFetch"]);
     let rows: Vec<(Value, Option<&Value>, &CapabilityContext, &str, String)> = vec![
         (
             json!(["--tools", "Read"]),
             None,
             &nothing,
             "wants",
-            off_launch("Read"),
+            off_launch(),
         ),
-        (json!(["--tools="]), None, &nothing, "wants", off_launch("")),
+        (json!(["--tools="]), None, &nothing, "wants", off_launch()),
         (
             json!(["--tools", "Read"]),
             None,
@@ -6125,15 +6128,15 @@ fn an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant() {
             None,
             &fetch,
             "wants",
-            off_launch("Read"),
+            off_launch(),
         ),
-        (json!(["--tools="]), None, &fetch, "wants", off_launch("")),
+        (json!(["--tools="]), None, &fetch, "wants", off_launch()),
         (
             json!(["--tools", "Read,WebFetch"]),
             None,
             &fetch,
             "wants",
-            launched(&["--tools", "Read,WebFetch", "--allowedTools", "WebFetch"]),
+            launched(&["--tools", "WebFetch", "--allowedTools", "WebFetch"]),
         ),
         (
             json!(["--tools", "Read"]),
@@ -6154,14 +6157,14 @@ fn an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant() {
             Some(&switch),
             &fetch,
             "wants",
-            launched(&["--tools", "Read,WebFetch", "--allowedTools", "WebFetch"]),
+            launched(&["--tools", "WebFetch", "--allowedTools", "WebFetch"]),
         ),
         (
             json!(["--tools", "Read,WebFetch"]),
             Some(&default),
             &fetch,
             "wants",
-            launched(&["--tools", "Read,WebFetch"]),
+            launched(&["--tools", "WebFetch"]),
         ),
     ];
     for (off, on, context, strength, expected) in rows {
@@ -6429,10 +6432,13 @@ fn a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened() {
          tool list is a hard limit that nothing widens, so the conflict is refused whole rather \
          than unioned (design D6)"
     );
+    // Dropped, the fetch leaves nothing held: the template's list is
+    // written empty in place, Read and Bash being names only the template
+    // gives (unit 12-fix-b, I1).
     assert_eq!(
         templated("Read,Bash", "wants"),
         template(&[
-            "Read,Bash",
+            "",
             "--model",
             "claude-opus-5-5",
             "--effort",
@@ -6450,6 +6456,192 @@ fn a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened() {
         outcome.not_held["web-fetch"],
         "the adapter template's explicit '--tools' restriction for provider 'claude' (naming \
          Read, Bash) does not name its tool 'WebFetch'; native capability remains OFF"
+    );
+}
+
+/// Rebuild unit 12-fix-b, the chief's four reproductions compiled and
+/// launched (design D6; CQ1). R1: a restrictive list names no power for
+/// the command — a fetch OFF written `--tools WebFetch` with nothing held
+/// launches an empty list, and an ON written `--tools WebFetch,Read` for a
+/// holding admitting WebFetch launches WebFetch alone. R2: under `harness`
+/// the adapter's managed `hands.harness.work` list is a limit, never the
+/// base: a required fetch it does not name refuses at compile, naming it,
+/// and a wanted one drops with its denial and leaves the list empty. R3:
+/// in the box a held fetch fills the hands' list from the holding, whether
+/// its ON is an argv with its own list, an allow-only argv or a measured
+/// default beside a compatible limit — never `--tools ""`.
+#[test]
+fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
+    let operator = Operator::new();
+    fetch_dialect(&operator, "claude-native-fetch", json!(["WebFetch"]));
+    let nothing = operator.context(json!({}));
+    let fetch = operator.context(json!({"web-fetch": {"dialect": "claude-native-fetch"}}));
+    // R1, on the inline Claude seat.
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+        ],
+    );
+    let inline = |fetch_entry: &str, value: Value, context: &CapabilityContext, asks: Value| {
+        let path = operator.root().join("solo/bundle.json");
+        let mut bundle: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        bundle["seats"]["work"]["capabilities"] = asks;
+        write(operator.root(), "solo/bundle.json", &bundle);
+        let adapters = copied_adapters();
+        edit_adapter(adapters.path(), "claude", |adapter| {
+            adapter["native_capabilities"]["known"]["web-fetch"][fetch_entry] = value;
+        });
+        solo(&operator, adapters.path(), context)
+    };
+    let pins = ["--model", "claude-opus-5", "--effort", "high"];
+    assert_eq!(
+        inline(
+            "off",
+            json!({"argv": ["--tools", "WebFetch"]}),
+            &nothing,
+            json!({})
+        ),
+        launched_as(&[&pins, &["--tools", "", "--disallowedTools", "WebSearch"]])
+    );
+    assert_eq!(
+        inline(
+            "on",
+            json!({"argv": ["--tools", "WebFetch,Read"]}),
+            &fetch,
+            json!({"web-fetch": "requires"})
+        ),
+        launched_as(&[
+            &pins,
+            &["--tools", "WebFetch", "--disallowedTools", "WebSearch"]
+        ])
+    );
+    // R2: an agent seat with hands under `harness`, whose Claude adapter
+    // appends a managed `--tools Read,Bash` for a work seat.
+    write(
+        operator.root(),
+        "solo/bundle.json",
+        &json!({"name": "solo", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "handed"},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    let managed = copied_adapters();
+    edit_adapter(managed.path(), "claude", |adapter| {
+        adapter["hands"]["harness"] = json!({"work": ["--tools", "Read,Bash"]});
+    });
+    let handed = |strength: &str| {
+        write(
+            operator.root(),
+            "agents/handed.json",
+            &json!({
+                "description": "an office with hands",
+                "charter": "charters/searcher.md",
+                "models": ["opus"],
+                "efforts": {"opus": "high"},
+                "hands": {"kind": "workspace", "network": false, "binds": []},
+                "capabilities": {"web-fetch": strength},
+            }),
+        );
+        solo(&operator, managed.path(), &fetch)
+    };
+    assert_eq!(
+        handed("requires"),
+        "bundle: seat 'work' (office 'handed') in realm 'private': the adapter's managed \
+         boundary fragment's explicit '--tools' restriction for provider 'claude' (naming Read, \
+         Bash) does not name tool 'WebFetch', which the plan admits for native capability \
+         'web-fetch'; an explicit tool list is a hard limit that nothing widens, so the conflict \
+         is refused whole rather than unioned (design D6)"
+    );
+    assert_eq!(
+        handed("wants"),
+        launched_as(&[&[
+            "--permission-mode",
+            "acceptEdits",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+            "--tools",
+            "",
+            "--disallowedTools",
+            "WebFetch,WebSearch"
+        ]])
+    );
+    // R3: the boxed Claude link of `fallback`, which requires fetch, so
+    // its Codex link is left out of the chain.
+    let path = operator.root().join("agents/fallback.json");
+    let mut agent: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    agent["capabilities"] = json!({"web-fetch": "requires"});
+    agent["models"] = json!(["opus"]);
+    agent["efforts"] = json!({"opus": "high"});
+    write(operator.root(), "agents/fallback.json", &agent);
+    let boxed = |on: Value, search_off: Option<Value>| {
+        let adapters = copied_adapters();
+        edit_adapter(adapters.path(), "claude", |adapter| {
+            let known = &mut adapter["native_capabilities"]["known"];
+            known["web-fetch"]["on"] = on;
+            if let Some(off) = search_off {
+                known["web-search"]["off"] = json!({"argv": off});
+            }
+        });
+        operator
+            .compile_against(adapters.path(), &fetch, Boundary::Namespace, None, None)
+            .and_then(|bundle| try_launch(&bundle, "chain", 0))
+            .map(|argv| {
+                // The hands server's document names this test binary.
+                let mut tail =
+                    argv[argv.iter().position(|part| part == "--tools").unwrap()..].to_vec();
+                tail[4] = "<hands>".into();
+                tail
+            })
+    };
+    let tail = |allow: &str, deny: &[&str]| {
+        Ok([
+            &[
+                "--tools",
+                "WebFetch",
+                "--strict-mcp-config",
+                "--mcp-config",
+                "<hands>",
+                "--allowedTools",
+                allow,
+            ][..],
+            deny,
+        ]
+        .concat()
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>())
+    };
+    let both = "mcp__brokkr__workspace,WebFetch";
+    assert_eq!(
+        boxed(
+            json!({"argv": ["--tools", "WebFetch", "--allowedTools", "WebFetch"]}),
+            None
+        ),
+        tail(both, &["--disallowedTools", "WebSearch"])
+    );
+    assert_eq!(
+        boxed(
+            json!({"argv": ["--allowedTools", "WebFetch"]}),
+            Some(json!(["--tools", "WebFetch"]))
+        ),
+        tail(both, &[])
+    );
+    assert_eq!(
+        boxed(
+            json!({"default": "fetch is on unless a list removes it"}),
+            Some(json!(["--tools", "WebFetch"]))
+        ),
+        tail("mcp__brokkr__workspace", &[])
     );
 }
 

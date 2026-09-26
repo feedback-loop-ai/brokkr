@@ -3931,8 +3931,8 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // First half: the members planted.
     let planted = scratch_adapters(|claude| {
         claude["hands"]["harness"] = json!({
-            "gate": ["--permission-mode", "plan", "--door", "{result_path}"],
-            "work": ["--permission-mode", "acceptEdits"],
+            "gate": ["--max-turns", "40"],
+            "work": ["--max-turns", "80"],
         });
     });
     let mut compiled = Vec::new();
@@ -4043,7 +4043,7 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
         .0;
     let measured = scratch_adapters(|claude| {
         claude["hands"]["harness"] = json!({
-            "gate": ["--permission-mode", "plan", "--door", "{result_path}"],
+            "gate": ["--max-turns", "40"],
             "work": {"unsupported": "claude 2.1.x: acceptEdits prompts on every shell call"},
         });
     });

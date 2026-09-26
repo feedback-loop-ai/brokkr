@@ -15139,9 +15139,11 @@ fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
         plan["argv"] = json!(off);
         plan
     };
+    // Unit 12-fix-b (I1): the list a limit calls for is filled from the
+    // holdings alone, so with nothing held it reaches the command empty.
     for (case, off, restriction) in [
-        ("split", vec!["--tools", "Read"], vec!["--tools", "Read"]),
-        ("equals", vec!["--tools=Read"], vec!["--tools", "Read"]),
+        ("split", vec!["--tools", "Read"], vec!["--tools", ""]),
+        ("equals", vec!["--tools=Read"], vec!["--tools", ""]),
         ("explicitly empty", vec!["--tools="], vec!["--tools", ""]),
     ] {
         assert_eq!(
@@ -15512,7 +15514,8 @@ fn a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag() {
             ],
         ),
         // Nothing held (rebuild unit 12-fix): a list before the hands is a
-        // hard limit, so it keeps its joined spelling and gains nothing.
+        // hard limit, so it keeps its joined spelling and gains nothing;
+        // filled from no holding, it is written empty (unit 12-fix-b, I1).
         (
             "every list joined, in aliases, nothing held",
             vec![
@@ -15524,7 +15527,7 @@ fn a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag() {
             denied(),
             vec![
                 "--permission-mode=acceptEdits",
-                "--tools=Read",
+                "--tools=",
                 "--allowed-tools=Bash(git:*)",
                 "--disallowed-tools=Bash(rm:*),WebSearch,WebFetch",
             ],
