@@ -185,7 +185,7 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
         "the old handbook was not preserved whole"
     );
     for preserved in [
-        "## The eight checks",
+        "## The twelve checks",
         "## The coverage gate, practically",
         "## Commits, signing, and how your PR actually lands",
         "## The decision culture",

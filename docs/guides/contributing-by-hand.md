@@ -2,7 +2,7 @@
 
 This repository's engine forges its own changes and reviews them
 adversarially. The bar for a human contribution is the bar the machine
-is already held to — eight required checks, none of them a percentage you
+is already held to — twelve required checks, none of them a percentage you
 can nudge. This document is the whole walk from `git clone` to a green
 pull request, with every command written out.
 
@@ -14,7 +14,7 @@ ever looks at it.
 
 - [What you need installed](#what-you-need-installed)
 - [Fork, clone, branch](#fork-clone-branch)
-- [The eight checks](#the-eight-checks)
+- [The twelve checks](#the-twelve-checks)
 - [The pre-flight: let the machine review you first](#the-pre-flight-let-the-machine-review-you-first)
 - [The coverage gate, practically](#the-coverage-gate-practically)
 - [Commits, signing, and how your PR actually lands](#commits-signing-and-how-your-pr-actually-lands)
@@ -27,9 +27,10 @@ ever looks at it.
 
 The engine is Rust-only (decision
 [0009](../decisions/0009-rust-only.md)): no Python, no Node, no
-toolchain beyond cargo for the ordinary path. Three of the eight checks —
-the MSRV, the coverage gate and the licence gate — need something beyond
-a stable toolchain.
+toolchain beyond cargo for the ordinary path. The MSRV, the coverage
+gate, the licence gate, the ratchets, the mutants gate and the non-Rust
+lints need something beyond a stable toolchain; each tool is pinned in
+the workflow that runs it, and the version below is that pin.
 
 | Tool | Needed by | Check it is there |
 |---|---|---|
@@ -39,6 +40,11 @@ a stable toolchain.
 | `cargo-llvm-cov` at the pinned version | the coverage gate | `cargo llvm-cov --version` |
 | `jq` | the coverage gate and the mutants gate (both scripts refuse without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
+| cargo-crap 0.5.0 and cargo-public-api 0.52.0 | the complexity and public-API ratchets, inside the coverage job | `cargo crap --version`, `cargo public-api --version` |
+| jscpd 5.3.2 and cargo-shear 1.14.0 | the baseline ratchets | `jscpd --version`, `cargo shear --version` |
+| cargo-mutants 27.1.0 | the brokkr-core mutants gate | `cargo mutants --version` |
+| typos 1.50.2, shellcheck 0.11.0, zizmor 1.30.1, actionlint and lychee | the non-Rust lints (the last two at the digests in `.github/actions/setup-*`) | each tool's `--version` |
+| Node 22, with `npm ci --prefix .github/lint` | the non-Rust lints' diagram render (`scripts/lint-diagrams.sh`); only the lint needs it, never the engine | `node --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
 install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
@@ -78,32 +84,54 @@ Two habits from the house flow that transfer directly:
   that adds behaviour and no test fails the coverage gate anyway (see
   below), so this is not a style preference.
 
-## The eight checks
+## The twelve checks
 
-All eight are required jobs in
-[`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml). They run on every
-pull request. This is the full list, in CI's own order:
+All twelve are required status checks on `main`. Eleven are jobs in
+[`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml), and one is in
+[`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
+every pull request. This is the full list, in the workflows' own order:
 
 | # | CI check | Job | Local command |
 |---|---|---|---|
-| 1 | `MSRV (1.88)` | `msrv` | `cargo +1.88.0 check --workspace --locked` |
-| 2 | `format, clippy, contracts` | `quality` | `cargo fmt`, `cargo clippy`, two `compile --bundle` runs |
-| 3 | `test (ubuntu-latest)` | `engine` | `cargo test --workspace --all-features --locked` |
-| 4 | `test (macos-latest)` | `engine` | — (your machine is one OS) |
-| 5 | `exact coverage gate` | `coverage` | `bash scripts/coverage-exact.sh` |
-| 6 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses` |
-| 7 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
-| 8 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli`; the size budget in `quality/binary-size.json` holds only for CI's build, whose embedded paths yours do not share |
+| 1 | `delivered by brokkr` | `delivered-by-brokkr` | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
+| 2 | `MSRV (1.88)` | `msrv` | `cargo +1.88.0 check --workspace --locked` |
+| 3 | `format, clippy, contracts` | `quality` | `cargo fmt`, `cargo clippy`, two `compile --bundle` runs |
+| 4 | `test (ubuntu-latest)` | `engine` | `cargo test --workspace --all-features --locked` |
+| 5 | `test (macos-latest)` | `engine` | — (your machine is one OS) |
+| 6 | `exact coverage gate` | `coverage` | `bash scripts/coverage-exact.sh`, then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses` |
+| 8 | `non-Rust lints` | `lint-non-rust` | `bash scripts/lint-non-rust.sh` (the job also renders the Mermaid diagrams and validates Renovate's configuration) |
+| 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `quality/ratchet.sh baselines origin/main` |
+| 10 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
+| 11 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli`; the size budget in `quality/binary-size.json` holds only for CI's build, whose embedded paths yours do not share |
+| 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
 
-A ninth check lives in
-[`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml):
-`mutants in the diff: brokkr-core` fails a pull request that adds a
-mutant no test catches to brokkr-core. The operator ruled it required on
-#289, and it binds once branch protection names it. Reproduce it with
-`bash scripts/mutants.sh gate origin/main brokkr-core` (cargo-mutants
-27.1.0). A miss that shares a committed miss's file and mutation, in
-`quality/mutants/brokkr-core.missed.txt`, is accounted for once; any
-other miss fails, and the fix is a test that catches it.
+The four checks the list above adds to the older eight:
+
+- **`delivered by brokkr`** (decision
+  [0033](../decisions/0033-contributing-through-brokkr.md), tiers from decision
+  [0038](../decisions/0038-evidence-follows-content.md)) passes when the `Brokkr-Run:` line in your
+  pull request names a run that shipped your head. The operator's `by-hand` label
+  is the visible exception.
+- **`non-Rust lints`** (#339) reads the workflows, shell scripts,
+  spelling, Markdown links and their anchors, the Mermaid diagrams and
+  Renovate's configuration. The offline part is one list,
+  `scripts/lint-non-rust.sh` (#427): typos, shellcheck, actionlint,
+  zizmor and lychee, each checked against its pin in `ci.yml`. A
+  landing's verify seat runs the same list. The Mermaid render needs
+  Node and the Renovate validator needs docker, so they run in CI only.
+- **`baseline ratchets`** (#338) holds file size and duplication to
+  `quality/`'s committed baselines, refuses an unused dependency, and
+  refuses any raised baseline unless the pull request body carries a
+  `Ruling:` line. `quality/README.md` explains each baseline and how to
+  refresh it. The complexity and public-API ratchets run inside the
+  coverage job, because they read its LCOV and its pinned nightly.
+- **`mutants in the diff: brokkr-core`** (#289) fails a pull request that
+  adds a mutant no test catches to brokkr-core. Reproduce it with the
+  command in row 12 (cargo-mutants 27.1.0). A miss that shares a
+  committed miss's file and mutation, in
+  `quality/mutants/brokkr-core.missed.txt`, is accounted for once; any
+  other miss fails, and the fix is a test that catches it.
 
 The sections below are in a different order on purpose: run them from
 the repository root in the order written, cheapest refusal first, so a
@@ -311,7 +339,7 @@ test`-only path that hid a warning.
 Be honest with yourself about these two, and say so in the pull request
 if you think they are at risk:
 
-- **The two-OS matrix.** Checks 3–4 are the same command on Ubuntu
+- **The two-OS matrix.** Checks 4–5 are the same command on Ubuntu
   and macOS. You ran one. Anything touching the filesystem or the
   platform's process lookup is where this bites. Windows is not a host
   (decision [0063](../decisions/0063-windows-is-not-a-host.md)); WSL2 is Linux. Note that
@@ -377,8 +405,11 @@ decision 0051 you do not have to run it yourself to propose the branch:
 light `brokkr run --recipe landing --repo . --feature "landing: <what
 the branch is>"` on it. A gate of seconds reads the branch's class
 against `.github/delivery-classes.json`; prose goes straight to the
-review seat, code goes through the verifier first — the same eight
-checks, boxed — and a failure or a finding above low comes back to an
+review seat, code goes through the verifier first — `cargo fmt
+--check`, `scripts/lint-non-rust.sh --seat`, `cargo clippy -D warnings`,
+the workspace tests and `compile --bundle bundles/self`, boxed (#427); the
+coverage gate, the ratchets and the other OS stay CI's to prove — and a failure or a finding
+above low comes back to an
 implement seat commissioned by that finding, twice at most. A clean
 judgment ships: the anchor carries the branch's patch map, and the
 contribution gate vouches for your pull request at tier `vouched`
