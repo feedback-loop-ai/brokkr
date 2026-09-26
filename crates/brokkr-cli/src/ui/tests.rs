@@ -4937,3 +4937,17 @@ fn a_missing_journal_gains_no_file_on_every_browser_route() {
         "no -shm was created"
     );
 }
+
+/// The drill counts a recorded home as local only when both canonicalize
+/// to one directory. Both arms are held here directly, so the branch does
+/// not depend on whether the host running the suite has a
+/// `~/.claude/projects` of its own (a developer host does, CI does not).
+#[test]
+fn a_recorded_home_is_local_only_beside_a_local_projects_home() {
+    let dir = tempfile::tempdir().unwrap();
+    let recorded = dir.path().to_str().unwrap();
+    let local = Some(std::fs::canonicalize(dir.path()).unwrap());
+    assert!(same_canonical_home(recorded, &local));
+    assert!(!same_canonical_home(recorded, &None));
+    assert!(!same_canonical_home("/no/such/recorded/home", &local));
+}
