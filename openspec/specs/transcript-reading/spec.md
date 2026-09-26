@@ -140,43 +140,53 @@ eligibility from `part.session_id` alone. Client id validation remains a
 guard on an already eligible drill, never evidence that a participant owns
 a Claude session.
 
-The existing `/api/session/<id>` and `/sse/session/<id>` routes SHALL remain
-journal-independent, Claude-only lookups under the server's local
-`HOME/.claude/projects`. They SHALL use shared validation, discovery and
-Claude projection as applicable, with the existing successful wire shapes.
-They SHALL neither inspect a participant's provenance nor guess a recorded
-home from an id. A direct request is an explicit local Claude-id lookup,
-not a request for the transcript of any participant sharing that string.
+The browser's transcript body and growth routes SHALL be keyed by
+participant, for every kind: `/api/transcript/<run>/<key>` and
+`/sse/transcript/<run>/<key>`, where `<run>` is a full run id and `<key>`
+the participant key, each path component percent-decoded exactly once. A
+malformed escape, an empty or extra component, an unknown run or an unknown
+participant SHALL be refused before any transcript is read: the body route
+answers HTTP 404 with `{"error":"participant not found"}`. The routes SHALL
+select the participant's effective reference from the read-only journal by
+the same shared selection CLI/TUI use, and accept no path, home or id
+override. The body route SHALL read that reference through the one local
+read `brokkr transcript` uses, masked against the same secrets store beside
+the journal, and answer with that command's `--json` document byte for byte
+(the command adds one trailing newline): HTTP 200 when the read is readable,
+and HTTP 404 carrying the same document when it is refused. The id-only
+`/api/session/<id>` and `/sse/session/<id>` routes and their three-field
+Claude envelope are retired; no route looks a transcript up by a bare id.
 
-The browser SHALL offer the `· session <id>` label and use these id-only
-routes only for an effective valid `claude-session` reference whose
-canonical home is established to be the same as that local projects home.
-For an effective valid Claude reference, if this equality cannot be
-established, it SHALL show
+The browser SHALL offer the `· session <locator>` label and use these
+participant routes only for an eligible drill. For an effective valid
+Claude reference whose canonical home cannot be established to be the same
+as the server's local `HOME/.claude/projects`, it SHALL show
 `browser transcript unavailable for this recorded home` and the shared hint
-when non-null, keep the checkpoint fallback, and make no id-only request.
-A Codex/DSH reference SHALL retain its shared full-session information and
-checkpoint fallback without a Claude drill; browser transcript bodies for
-those kinds are outside this change. An ineligible or invalid reference
-SHALL show its shared unavailability and checkpoint fallback without a
-session label or drill. Changing participant/reference eligibility SHALL
-clear a stale transcript and close its growth watch before another result
-is displayed.
+when non-null, keep the checkpoint fallback, and make no body request. An
+ineligible or invalid reference SHALL show its shared unavailability and
+checkpoint fallback without a session label or drill. Changing
+participant/reference eligibility SHALL clear a stale transcript and close
+its growth watch before another result is displayed.
 
 That gate is the drill's eligibility, and it is a property of the reference
 alone: a drill is eligible when the effective reference is a valid
-`claude-session` one whose canonical home is established to be the same as
-that local projects home, whatever the shared presentation's admission state.
-Every id-only body request, growth watch and `· session <id>` label below
-SHALL require an eligible drill as well as an admitted source. A Codex or DSH
-reference, and a Claude reference whose home equality cannot be established,
-are never eligible, however discoverable and readable their recorded file is.
+`codex-thread` or `dsh-session` one, or a valid `claude-session` one whose
+canonical home is established to be the same as that local projects home,
+whatever the shared presentation's admission state. Every body request,
+growth watch and `· session <locator>` label below SHALL require an
+eligible drill as well as an admitted source. A Claude reference whose home
+equality cannot be established is never eligible, however discoverable and
+readable its recorded file is. The server SHALL enforce the same rule, from
+the same derivation the presentation reports, before any read: both
+participant routes answer an ineligible reference with HTTP 404 and
+`{"error":"transcript not found"}`, open no transcript file and write no
+event-stream header, so the page's gate is never the only refusal.
 
 Stale browser prose SHALL also be invalidated when an admitted drill's
 admission is lost without any participant, reference or journal change.
-When a growth watch closes or errors, or an id-only body request is refused,
-the browser SHALL close that watch without reconnecting it to the same
-source, discard its cached and displayed turns for that id and request the
+When a growth watch closes or errors, or a body request is refused, the
+browser SHALL close that watch without reconnecting it to the same
+source, discard its cached and displayed turns for that source and request the
 shared presentation result again. If that fresh result admits no unique safe
 source, the page SHALL render the current shared unavailability, hint and
 checkpoint fallback. It SHALL NOT keep showing the previous source's turns,
@@ -212,18 +222,18 @@ bounded DSH opening-header read is discovery metadata needed to establish
 ownership, not a content projection. Admission is therefore kind-agnostic and
 cannot report the browser's own two gates: the
 equivalence tuple's `admission state` member carries this shared state alone,
-and its `drill eligibility` member carries the `claude-session` kind and the
-established home equality above, so a change in either repaints. An admitted
-source whose drill is ineligible SHALL keep its shared full-session
-information, hint and checkpoint fallback and SHALL drive no id-only request
-and no growth watch on any occasion, including a recurring re-check, so a
-discoverable Codex or DSH source is never drilled by a Claude-id lookup and
-never shows the body-failure prose. An id-only body request is refused when
-it does not deliver a successful transcript body:
-either specified 404 envelope, any other non-success status, a transport
-failure with no status, or a body the page cannot parse. Because those two
-404 envelopes are deliberately indistinguishable, the page SHALL NOT name a
-reason for a refusal; it SHALL show the existing body-failure prose with the
+and its `drill eligibility` member carries the reference's kind and, for a
+`claude-session` reference, the established home equality above, so a
+change in either repaints. An admitted source whose drill is ineligible
+SHALL keep its shared full-session information, hint and checkpoint
+fallback and SHALL drive no body request and no growth watch on any
+occasion, including a recurring re-check, so a foreign-home Claude source
+is never drilled and never shows the body-failure prose. A body request is
+refused when it does not deliver a successful transcript body: any HTTP 404
+(the refused read's document or an error envelope), any other non-success
+status, a transport failure with no status, or a body the page cannot
+parse. The page SHALL NOT name a reason for a refusal from the body
+response; it SHALL show the existing body-failure prose with the
 checkpoint fallback beside the shared hint, and display no turns. Where the
 fresh presentation it then requests reports its own unavailability, that
 reason SHALL be displayed instead, because it is the more current account of
@@ -277,7 +287,7 @@ watch is open, so a deferred reopening resumes at the next re-check. A body is
 missing for a participant and reference when no body request for it has
 succeeded since the page last discarded its turns for them, and none is
 outstanding. A successful body mends it, including a readable zero-turn one —
-which the id-only route answers with HTTP 200 and an empty `turns` array — so
+which the body route answers with HTTP 200 and an empty `turns` array — so
 the page SHALL display that success as it displays any other, with no turns,
 no unavailability reason and none of the body-failure prose, and no later
 equivalent re-check SHALL request that body again. Only a clear or a refusal
@@ -293,8 +303,8 @@ within that same bound; a re-check that loses admission SHALL apply the
 clearing rule above.
 
 The browser's selected-participant presentation result SHALL remain local
-and separate from existing inspect/seats/watch JSON and the three-field
-Claude session response. It SHALL not add transcript prose to journal-derived
+and separate from existing inspect/seats/watch JSON and the body route's
+transcript document. It SHALL not add transcript prose to journal-derived
 run/participant models or journal/export telemetry. Transport of this
 presentation result is a design choice; duplicating the eligibility or hint
 rules in JavaScript is not.
@@ -302,7 +312,7 @@ rules in JavaScript is not.
 #### Scenario: A legacy Codex participant never starts a Claude browser drill
 - **WHEN** a pre-0032 participant has explicit Codex provenance, legacy `session_id: "abcd-1234"` and no common reference, even with a unique readable local Claude file of that id
 - **THEN** the browser, CLI and TUI agree on `no-reference` and null `full_session`; the page shows `transcript unavailable: no-reference` and its checkpoint fallback, with no session label, holder sentence, transcript request or growth watch
-- **AND** a separately requested `/api/session/abcd-1234` still returns HTTP 200 with that local Claude file's `session_id`, `turns` and `truncated` because the route is journal-independent; if that Claude file is absent it returns HTTP 404, and neither outcome changes the participant's ineligibility
+- **AND** a separately requested `/api/transcript/<run>/<key>` for that participant returns HTTP 404 with the `no-reference` transcript document and no turns, because the route reads the participant's own selection and never a bare id; `/api/session/abcd-1234` is not a route
 
 #### Scenario: A common reference defeats the browser's stale flat id
 - **WHEN** a participant has a stale valid Claude-looking `session_id` beside common kind `none` or an unannounced, invalid or unsupported common reference
@@ -310,7 +320,7 @@ rules in JavaScript is not.
 
 #### Scenario: An eligible Claude browser participant uses the shared hint
 - **WHEN** a common or eligible legacy Claude reference identifies the unique readable file `abcd-1234.jsonl` under the same canonical home as the browser's local projects root
-- **THEN** the page shows `· session abcd-1234`, the shared `full session: claude --resume abcd-1234` value and the shared Claude turns; a working participant can use the existing growth route without deriving a second command
+- **THEN** the page shows `· session abcd-1234`, the shared `full session: claude --resume abcd-1234` value and the shared Claude turns; a working participant can use the participant growth route without deriving a second command
 
 #### Scenario: A closed growth stream cannot leave stale browser prose
 - **WHEN** an admitted Claude browser drill is displaying turns and watching growth, and a second qualifying file appears, discovery exceeds its bound, or the selected file becomes a symlink, so the next poll closes the stream while the participant, its recorded reference and the journal head are unchanged
@@ -323,7 +333,7 @@ rules in JavaScript is not.
 - **AND** if that new watch also closes at once, the page again clears, re-requests and displays that closure's fresh turns but opens no further watch until its next recurring re-check, so repeated immediate closure yields at most one watch opening per re-check
 
 #### Scenario: An unreadable admitted source is asked once per re-check
-- **WHEN** a selected working Claude participant's unique safe file stays discoverable while every read of it fails — its consumed bytes are invalid UTF-8, or the read raises an I/O error — so the shared presentation keeps admitting that source and `/api/session/<id>` returns HTTP 404 with `{"error":"transcript not found"}`
+- **WHEN** a selected working Claude participant's unique safe file stays discoverable while every read of it fails — its consumed bytes are invalid UTF-8, or the read raises an I/O error — so the shared presentation keeps admitting that source and `/api/transcript/<run>/<key>` returns HTTP 404 with the `unreadable` transcript document
 - **THEN** the page discards its cached and displayed turns, re-requests the presentation once, shows the existing body-failure prose and checkpoint fallback beside the shared Claude hint, names no reason it cannot distinguish from a lookup failure, and makes no second body request and opens no growth watch for that participant and reference before its next recurring re-check
 - **AND** each later re-check makes exactly one further body request, so a permanently unreadable source costs one refused request per interval rather than an unbounded refusal, clear and re-request cycle; a read that fails only after an admitting presentation behaves the same way, because the refusal and not the presentation is what silences the source
 
@@ -340,20 +350,21 @@ rules in JavaScript is not.
 #### Scenario: A recorded custom Claude home cannot drill an ambient twin
 - **WHEN** a valid Claude participant records a readable file under `/retained/claude-projects` and the browser's different local projects home contains an unrelated file with the same id
 - **THEN** CLI/TUI read the recorded file, while the browser shows the same shared Claude hint and `browser transcript unavailable for this recorded home` with its checkpoint fallback; it offers no session drill and reads neither ambient twin nor a guessed browser route
+- **AND** a direct `/api/transcript/<run>/<key>` or `/sse/transcript/<run>/<key>` request for that participant returns HTTP 404 with `{"error":"transcript not found"}`, no prose and no event-stream header, while its presentation still admits the source with `drill_eligible: false`
 
-#### Scenario: An admitted Codex source drives no browser drill
-- **WHEN** a working participant's common `codex-thread` reference names one discoverable safe rollout under its recorded home, so the shared presentation admits that source with a null unavailability reason, and the operator leaves it selected across consecutive recurring re-checks
-- **THEN** the page shows its shared Codex full-session information and checkpoint fallback with no session label, and makes no id-only body request and opens no growth watch on selection or on any of those re-checks, because an admitted source without an eligible drill repairs nothing; it never requests `/api/session/<thread-id>` with that recorded thread id and never shows the body-failure prose
-- **AND** a working DSH participant with a discoverable session file, and a valid Claude participant whose recorded home is not the browser's local projects home, behave the same way, the latter keeping `browser transcript unavailable for this recorded home` while its own presentation state drives no body request or watch
+#### Scenario: An admitted Codex or DSH source drills by participant
+- **WHEN** a working participant's common `codex-thread` reference names one discoverable safe rollout under its recorded home, or its `dsh-session` reference one discoverable session file, so the shared presentation admits that source with a null unavailability reason and `drill_eligible: true`
+- **THEN** the page shows `· session <locator>`, its shared full-session information and the turns `/api/transcript/<run>/<key>` returns, which are the bytes `brokkr transcript --json` prints for that participant without the trailing newline, and opens one growth watch on `/sse/transcript/<run>/<key>`
+- **AND** a valid Claude participant whose recorded home is not the browser's local projects home keeps `browser transcript unavailable for this recorded home` while its own presentation state drives no body request or watch
 
 #### Scenario: An admitted empty body is fetched once, not once per re-check
-- **WHEN** an eligible Claude drill's admitted unique safe file is readable but projects no turns, so `/api/session/<id>` returns HTTP 200 with `session_id`, an empty `turns` array and `truncated: false`, and the participant's run then concludes so its journal head never moves again
+- **WHEN** an eligible Claude drill's admitted unique safe file is readable but projects no turns, so `/api/transcript/<run>/<key>` returns HTTP 200 with its transcript document, an empty `turns` array and `truncated: false`, and the participant's run then concludes so its journal head never moves again
 - **THEN** the page displays that successful empty body with no turns, no unavailability reason and none of the body-failure prose, and each later equivalent re-check performs no further body request and opens no growth watch, because the success mended the missing body and a concluded participant watches nothing
 - **AND** a further body request follows only a clear or a refusal — a participant, reference, eligibility or admission change, a watch closure, or a refused request — so an admitted readable empty source costs one body request rather than one per re-check interval
 
 #### Scenario: DSH discovery unreadability is a browser presentation refusal
 - **WHEN** a selected DSH participant has an otherwise valid common reference but I/O failure or invalid UTF-8 in a bounded opening-header read prevents discovery from establishing a unique depth-zero source
-- **THEN** browser participant presentation reports `unreadable` as its shared unavailability reason, with admission closed, null path and DSH hint, the checkpoint fallback and no session label, id-only body request or growth watch; its recurring re-check performs only fresh bounded presentation discovery
+- **THEN** browser participant presentation reports `unreadable` as its shared unavailability reason, with admission closed, null path and DSH hint, the checkpoint fallback and no session label, body request or growth watch; its recurring re-check performs only fresh bounded presentation discovery
 - **AND** directory I/O that prevents Claude or Codex discovery from establishing a unique source has the same presentation-level `unreadable` outcome, while a source read that fails only after safe unique discovery admitted it remains the body refusal governed by the once-per-re-check floor
 
 ### Requirement: Discovery identifies one owned local file
@@ -734,8 +745,8 @@ per kind across all its local consumers. Claude session identifiers SHALL
 be 1 through 64 ASCII hexadecimal-or-hyphen characters, beginning with a
 hexadecimal character: `[0-9a-fA-F][0-9a-fA-F-]{0,63}`. This Claude rule
 SHALL replace the existing shared session-id guard for CLI reading, TUI
-lookup and convenience lines, the Claude `/api/session/<id>` and
-`/sse/session/<id>` routes, and the browser's Claude client guard.
+lookup and convenience lines, the browser's participant routes for a
+Claude reference, and the browser's Claude client guard.
 Leading-hyphen Claude ids previously admitted by the old guard are now
 invalid on every surface. No separate permissive legacy Claude rule remains.
 
@@ -746,7 +757,7 @@ and thread-echo guard language, including non-hex letters and lengths above
 64. CLI reading, TUI lookup, and every Codex full-session hint, including
 browser participant presentation, SHALL use that language. The browser's
 Claude drill guard SHALL not be applied to a Codex reference; a valid Codex
-reference still SHALL NOT offer a Claude drill. Empty common locators retain
+reference drills by participant under its own language. Empty common locators retain
 `unannounced` precedence; otherwise an id outside its kind's language SHALL
 return `invalid-reference` before lookup or command construction.
 
@@ -778,7 +789,7 @@ unrequested alternative, delete a retained file or change its bytes.
 
 #### Scenario: The browser drill rejects a leading-hyphen id
 - **WHEN** a Claude journal id is `-abc`, even with a matching local `-abc.jsonl` file
-- **THEN** CLI/TUI report `invalid-reference` without reading it or forming a command, the browser offers no drill or resume line, and both `/api/session/-abc` and `/sse/session/-abc` return HTTP 404 before opening the file or a stream
+- **THEN** CLI/TUI report `invalid-reference` without reading it or forming a command, the browser offers no drill or resume line, and that participant's `/api/transcript/<run>/<key>` and `/sse/transcript/<run>/<key>` both return HTTP 404 before opening the file or a stream, the body route carrying the `invalid-reference` document
 
 #### Scenario: A legacy invalid id uses the same refusal
 - **WHEN** a pre-common-reference Claude participant has legacy `session_id: "-abc"`
@@ -786,11 +797,11 @@ unrequested alternative, delete a retained file or change its bytes.
 
 #### Scenario: The browser retains valid-id compatibility
 - **WHEN** a Claude id is `a-bC09` and its unique owned local file is readable within the shared limits
-- **THEN** the client and server both accept it, the session endpoint retains its `session_id`, `turns` and `truncated` response shape and shared Claude content, and the existing growth stream remains available
+- **THEN** the client and server both accept it, the participant body route serves its transcript document with the shared Claude content, and the participant growth stream remains available
 
 #### Scenario: Codex ids retain the engine's accepted language
 - **WHEN** common Codex references contain `0199mine` or an ASCII alphanumeric-or-dash id of 65 or 80 characters with an alphanumeric first character, valid absolute homes, and unique safe filename-matching rollouts
-- **THEN** CLI and TUI read those files and retain the complete recorded id in the shared Codex hint; browser participant presentation shows that hint without a Claude drill or `invalid-reference`, while the same strings under kind `claude-session` are rejected by its own guard
+- **THEN** CLI and TUI read those files and retain the complete recorded id in the shared Codex hint; browser participant presentation shows that hint and drills by participant without the Claude guard or `invalid-reference`, while the same strings under kind `claude-session` are rejected by its own guard
 
 #### Scenario: Codex validation keeps the engine's length boundaries
 - **WHEN** otherwise valid common Codex references have alphanumeric-or-dash ids of 1, 64, 81 or 128 characters with an alphanumeric first character, or ids of 129 characters, `-abc`, `ab_cd`, or non-ASCII letters
@@ -813,8 +824,9 @@ unrequested alternative, delete a retained file or change its bytes.
 `transcript-reading` SHALL own the informational `full_session` value; CLI
 text/JSON, the TUI and browser participant presentation SHALL consume it
 without independently deciding whether a hint exists or which command to
-name. The id-only Claude response retains its existing three-field envelope;
-the browser receives its hint through the separate local presentation result.
+name. The browser receives its hint through the separate local presentation
+result, and its participant body route carries the same `full_session` the
+CLI's `--json` document carries.
 The value SHALL follow this table.
 A valid reference here is an effective supported reference with a nonempty
 validated locator and absolute validated home, including a synthesized legacy
@@ -925,9 +937,9 @@ kinds.
 - **WHEN** three complete assistant records respectively have an object-valued `content`, an array with a text block whose `text` is numeric, and an array with an untyped block
 - **THEN** each record counts once as unrecognized, producing zero turns, `skipped_lines: 0` and `unrecognized_records: 3`; the no-visible-block rule does not exempt unsupported representations
 
-#### Scenario: The browser drill keeps its wire shape
-- **WHEN** the existing local Claude session endpoint reads a supported session within the shared limits
-- **THEN** it keeps its `session_id`, `turns` and `truncated` response fields and the same Claude turn contents while using the common derivation
+#### Scenario: The browser drill serves the command's document
+- **WHEN** the participant body route reads an eligible Claude participant's supported session within the shared limits
+- **THEN** it serves the document `brokkr transcript --json` prints for that participant, without the trailing newline, with the same Claude turn contents from the common derivation
 
 ### Requirement: Codex rollouts expose ordered retained content once
 
@@ -1473,9 +1485,9 @@ also carry it. A refused DSH snapshot SHALL keep its notices in the pane/error
 output with both reading doors disabled. A successful zero-turn case SHALL
 not appear as an empty recording with no explanation. For CLI/TUI, notices
 SHALL be ordered: truncation, malformed-line count, unrecognized-record count, omitting only notices whose condition is
-false. The existing Claude browser response retains its three-field envelope;
-these added diagnostic fields belong to the explicit transcript CLI/TUI
-result, not that compatibility response.
+false. The browser's participant body route serves the CLI's `--json`
+document, so these diagnostic fields and notices reach it unchanged; no
+three-field compatibility response remains.
 
 #### Scenario: A growing final line becomes a turn later
 - **WHEN** an active transcript initially ends halfway through a JSON record and a later read sees that record completed
@@ -1784,3 +1796,4 @@ thresholds, or edits to `scripts/coverage-exact.sh`.
 - `2026-09-13-prove-transcript-reader-faults` — folded 2026-09-13
 - `2026-09-13-dsh-session-v3` — folded 2026-09-14
 - `2026-09-14-admit-dsh-session-v3` — folded 2026-09-14
+- `2026-09-27-352-browser-reads-by-participant` — folded 2026-09-27

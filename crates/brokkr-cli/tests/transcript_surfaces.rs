@@ -1,9 +1,10 @@
 //! One local derivation across the surfaces (#222, proposed decision
 //! 0055; design D11). A synthetic source of each kind is read once
 //! through `brokkr_cli::read_local`; the command's text and JSON, the
-//! TUI pane keys and both doors, Claude's `/api/session/<id>` body and
-//! the browser participant presentation are then compared against that
-//! one result. The browser transport is asserted prose-free.
+//! TUI pane keys and both doors, the browser's transcript route (the
+//! command's JSON, byte for byte, #352) and the browser participant
+//! presentation are then compared against that one result. The
+//! presentation transport is asserted prose-free.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -165,6 +166,20 @@ fn parse(output: &std::process::Output) -> Value {
     })
 }
 
+/// The browser's transcript route serves `brokkr transcript --json`'s
+/// document byte for byte, for every kind (#352): the command prints the
+/// same bytes and a newline. A refused read keeps its document under a 404.
+fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, status: &str) {
+    let response = brokkr_cli::handle(&world.db, "/api/transcript/r222/eff1");
+    assert_eq!(response.status, status, "{}", response.body);
+    assert_eq!(
+        format!("{}\n", response.body),
+        String::from_utf8_lossy(&command.stdout),
+        "{}",
+        world.reference.kind
+    );
+}
+
 /// Compare every surface against one shared read, for one source.
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
@@ -179,28 +194,6 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
         ));
     }
     let read = &read;
-
-    // The API's Claude body agrees on turns, truncation and notices, and
-    // keeps its four-field envelope.
-    if world.reference.kind == "claude-session" {
-        let response = brokkr_cli::handle(
-            &world.db,
-            &format!("/api/session/{}", world.reference.locator),
-        );
-        assert_eq!(response.status, "200 OK");
-        let body: Value = serde_json::from_str(&response.body).unwrap();
-        let mut keys: Vec<&str> = body
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        keys.sort_unstable();
-        assert_eq!(keys, vec!["notices", "session_id", "truncated", "turns"]);
-        assert_eq!(body["turns"], serde_json::to_value(&read.turns).unwrap());
-        assert_eq!(body["truncated"], read.truncated);
-        assert_eq!(body["notices"], json!(read.notices));
-    }
 
     // The browser participant presentation carries only the shared
     // metadata, never transcript prose.
@@ -292,6 +285,7 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
     assert_eq!(document["full_session"], json!(read.full_session));
     // A readable derivation is never an unavailable one.
     assert_eq!(document["unavailable"], Value::Null);
+    same_bytes_in_the_browser(world, &whole, "200 OK");
 
     // The text command carries the same one-based numbering, roles,
     // stamps, blocks, notices and hint as the pane and the JSON face.
@@ -399,6 +393,7 @@ fn compare_refusal(world: &World, read: &TranscriptRead, expected: &str) {
     let document = parse(&whole);
     assert_eq!(document["unavailable"], expected);
     assert_eq!(document["turns"], json!([]));
+    same_bytes_in_the_browser(world, &whole, "404 Not Found");
     assert_eq!(document["path"], json!(read.path));
     assert_eq!(document["full_session"], json!(read.full_session));
     assert_eq!(document["truncated"], read.truncated);

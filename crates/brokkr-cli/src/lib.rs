@@ -1464,9 +1464,11 @@ fn select_transcript_turn(read: TranscriptRead, turn: Option<u64>) -> Transcript
 }
 
 /// The complete `brokkr.transcript/v1` document, every member present
-/// even when null or empty, serialized from the shared result alone.
-fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> Value {
-    json!({
+/// even when null or empty, serialized from the shared result alone: the
+/// bytes `brokkr transcript --json` prints and the browser's transcript
+/// route serves (#352).
+fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> String {
+    let document = json!({
         "schema": brokkr_view::transcript::TRANSCRIPT_SCHEMA,
         "run_id": run,
         "seat": seat,
@@ -1481,7 +1483,8 @@ fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Optio
         "notices": &read.notices,
         "unavailable": read.unavailable.map(Unavailable::as_str),
         "full_session": &read.full_session,
-    })
+    });
+    serde_json::to_string_pretty(&document).expect("a JSON value serializes")
 }
 
 /// `brokkr transcript`: resolve the run read-only, select exactly one
@@ -1516,12 +1519,7 @@ fn transcript_command(
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&transcript_document(
-                &run,
-                &participant.key,
-                &read,
-                turn
-            ))?
+            transcript_document(&run, &participant.key, &read, turn)
         );
     }
     match read.unavailable {

@@ -803,13 +803,14 @@ function createTranscriptController(effects) {
   function isClaudeId(id) {
     return typeof id === 'string' && /^[0-9a-fA-F][0-9a-fA-F-]{0,63}$/.test(id);
   }
-  // A drill is offered only for an admitted, drill-eligible Claude reference
-  // whose locator still passes the client guard.
+  // A drill is offered only for an admitted, drill-eligible reference of any
+  // kind; a Claude locator must still pass the client guard.
   function drillId() {
     if (!presentation || !presentation.admitted || !presentation.drill_eligible) return null;
     const reference = presentation.reference;
-    if (!reference || reference.kind !== 'claude-session') return null;
-    return isClaudeId(reference.locator) ? reference.locator : null;
+    if (!reference) return null;
+    if (reference.kind === 'claude-session' && !isClaudeId(reference.locator)) return null;
+    return reference.locator;
   }
   function unavailablePresentation() {
     return {
@@ -1063,19 +1064,26 @@ let transcriptBox = null;
 let transcriptPart = null;
 let explicitSelectKey = null;
 
+// Every transcript route is keyed by the participant, whatever its kind.
+function participantPath(route, subject) {
+  return route + encodeURIComponent(subject.runId) + '/'
+    + encodeURIComponent(subject.participantKey);
+}
+
+function fetchJson(url) {
+  return fetch(url, { cache: 'no-store' }).then(
+    (res) => res.ok ? res.json() : Promise.reject(new Error(String(res.status))));
+}
+
 const transcriptController = createTranscriptController({
   requestPresentation(subject) {
-    const url = '/api/presentation/' + encodeURIComponent(subject.runId) + '/'
-      + encodeURIComponent(subject.participantKey);
-    return fetch(url, { cache: 'no-store' }).then(
-      (res) => res.ok ? res.json() : Promise.reject(new Error(String(res.status))));
+    return fetchJson(participantPath('/api/presentation/', subject));
   },
-  requestBody(id) {
-    return fetch('/api/session/' + encodeURIComponent(id), { cache: 'no-store' }).then(
-      (res) => res.ok ? res.json() : Promise.reject(new Error(String(res.status))));
+  requestBody(id, subject) {
+    return fetchJson(participantPath('/api/transcript/', subject));
   },
   openWatch(id, subject, handlers) {
-    const source = new EventSource('/sse/session/' + encodeURIComponent(id));
+    const source = new EventSource(participantPath('/sse/transcript/', subject));
     source.onmessage = () => handlers.growth();
     source.onerror = () => { source.close(); handlers.close(); };
     return source;

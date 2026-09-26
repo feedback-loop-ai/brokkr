@@ -5,8 +5,9 @@
 //! semantics (first-release acceptance criteria).
 //!
 //! Routes: `/` (page) · `/api/runs` · `/api/view/<id>` · `/api/run/<id>` ·
-//! `/api/session/<id>` · `/sse/<id>` (server-sent head changes,
-//! poll-backed) · `/sse/session/<id>` (server-sent transcript growth,
+//! `/api/presentation/<run>/<key>` · `/api/transcript/<run>/<key>` ·
+//! `/sse/<id>` (server-sent head changes, poll-backed) ·
+//! `/sse/transcript/<run>/<key>` (server-sent transcript growth,
 //! poll-backed by the same clock).
 //!
 //! `/api/runs` and `/api/view/<id>` serve `brokkr-view`'s models: the page
@@ -77,11 +78,6 @@ pub fn handle(db: &Path, path: &str) -> Response {
     if path == "/" {
         return ok("text/html; charset=utf-8", PAGE.to_string());
     }
-    if let Some(session_id) = path.strip_prefix("/api/session/") {
-        // Journal-independent: the lowest drill level is the seat's own
-        // session transcript on the operator's machine, not the db.
-        return session_transcript(&store_beside(db), session_id);
-    }
     if !db.is_file() {
         // Reads never create: a missing database is a 404, not an
         // initialized empty store.
@@ -99,6 +95,9 @@ pub fn handle(db: &Path, path: &str) -> Response {
     };
     if let Some(rest) = path.strip_prefix("/api/presentation/") {
         return participant_presentation(&store, rest);
+    }
+    if let Some(rest) = path.strip_prefix("/api/transcript/") {
+        return participant_transcript(db, &store, rest);
     }
     if path == "/api/runs" {
         // The page receives `RunsView.runs` — already newest first,
@@ -164,46 +163,35 @@ pub fn handle(db: &Path, path: &str) -> Response {
     not_found(path)
 }
 
-/// Lowest-level drilldown: the seat session's transcript, located in
-/// the operator's local Claude projects directory by session id. The
-/// id is strictly validated before any path is formed; the response
-/// carries prose text and tool names (file targets only), size-capped.
-/// This is a loopback-only, operator-local surface — the same trust as
-/// `claude --resume <id>` in a terminal. The prose is masked against the
-/// secrets store beside the journal, and the reader's notices ride along.
-fn session_transcript(store: &Path, id: &str) -> Response {
-    // The two misses read differently to the operator, and that is the
-    // only reason the validity question is asked here as well: the guard
-    // that matters lives inside the shared reader.
-    if !brokkr_view::transcript::valid_claude_id(id) {
-        return not_found("session");
-    }
-    let read = mask_secrets(read_local(None, LegacyProvenance::Claude, Some(id)), store);
-    if !read.is_readable() {
+/// The lowest drill level (#352): one participant's transcript, read by
+/// the one local read path `brokkr transcript` uses and masked against the
+/// same secrets store beside the journal, served as that command's
+/// `--json` document byte for byte, for every kind. This is a
+/// loopback-only, operator-local surface — the same trust as the command
+/// in a terminal. A refused read keeps its document under a 404, so the
+/// page falls back to the checkpoint stream.
+fn participant_transcript(db: &Path, store: &Store, rest: &str) -> Response {
+    let Some((run_id, participant)) = route_participant(store, rest) else {
+        return not_found("participant");
+    };
+    if participant_reference(&participant).is_ok_and(|valid| !drillable(&valid)) {
         return not_found("transcript");
     }
-    let turns: Vec<Value> = read
-        .turns
-        .iter()
-        .map(|turn| {
-            let blocks: Vec<Value> = turn
-                .blocks
-                .iter()
-                .map(|block| json!({"kind": block.kind.as_str(), "text": block.text}))
-                .collect();
-            json!({"role": turn.role, "ts": turn.ts, "blocks": blocks})
-        })
-        .collect();
-    ok(
-        "application/json",
-        json!({
-            "session_id": id,
-            "turns": turns,
-            "truncated": read.truncated,
-            "notices": read.notices,
-        })
-        .to_string(),
-    )
+    let read = read_local(
+        participant.transcript.as_ref(),
+        crate::participant_legacy_provenance(&participant),
+        participant.session_id.as_deref(),
+    );
+    let read = mask_secrets(read, &store_beside(db));
+    Response {
+        status: if read.is_readable() {
+            "200 OK"
+        } else {
+            "404 Not Found"
+        },
+        content_type: "application/json",
+        body: crate::transcript_document(&run_id, &participant.key, &read, None),
+    }
 }
 
 /// The local Claude projects root a legacy flat id is synthesized
@@ -930,51 +918,14 @@ fn refused_source(
     )
 }
 
-/// One safely discovered Claude source by flat id: the journal-independent
-/// lookup the API, SSE and browser routes share. Each call revalidates
-/// unique safe discovery rather than trusting an earlier spelling.
-pub(crate) fn claude_source(id: &str, home: Option<&str>) -> Discovery {
-    // The projects home arrives as a parameter, the same split
-    // `read_local`/`read_with_home` already uses, so the missing-home arm is
-    // testable without mutating the process environment.
-    let Some(home) = home else {
-        return Discovery::Refused(Unavailable::MissingHome, None);
-    };
-    if !brokkr_view::transcript::valid_claude_id(id) {
-        return Discovery::Refused(Unavailable::InvalidReference, None);
-    }
-    let valid = ValidReference {
-        kind: TranscriptKind::ClaudeSession,
-        locator: id.to_string(),
-        home: home.to_string(),
-    };
-    discover(&valid)
-}
-
-/// The current size of the unique safely discovered Claude source for a
-/// flat id, or `None` when the shared guard and discovery admit nothing.
-/// The size event keeps its shipped `{"size": n}` shape; the size is
-/// measured through the retained handle, never a reopened pathname.
-fn claude_source_size(id: &str) -> Option<u64> {
-    match claude_source(id, local_projects_home().as_deref()) {
+/// The current size of the unique safely discovered source for a validated
+/// reference, or `None` when discovery admits nothing. The size event
+/// keeps its shipped `{"size": n}` shape; the size is measured through the
+/// retained handle, never a reopened pathname.
+fn source_size(reference: &ValidReference) -> Option<u64> {
+    match discover(reference) {
         Discovery::Admitted(source) => Some(source.file.len()),
         Discovery::Refused(..) => None,
-    }
-}
-
-/// The provenance bridge the presentation route shares with the command:
-/// Claude, LaneTally and an inline pre-0032 seat may fall back to a local
-/// Claude id, while explicit Codex/DSH provenance refuses synthesis.
-fn presentation_provenance(participant: &brokkr_view::Participant) -> LegacyProvenance {
-    match participant
-        .provenance
-        .as_ref()
-        .map(|provenance| provenance.provider.as_str())
-    {
-        None => LegacyProvenance::Absent,
-        Some("claude") => LegacyProvenance::Claude,
-        Some("lanetally") => LegacyProvenance::LaneTally,
-        Some(_) => LegacyProvenance::Other,
     }
 }
 
@@ -1027,10 +978,19 @@ fn same_canonical_home(recorded: &str, local: &Option<PathBuf>) -> bool {
         .unwrap_or(false)
 }
 
+/// The one drill-eligibility rule the presentation, the body route and the
+/// watch all answer by: every kind is eligible, except a Claude reference
+/// recorded under a home that is not the local projects home (#352 keeps
+/// that rule, and the server enforces it, not only the page).
+fn drillable(valid: &ValidReference) -> bool {
+    valid.kind != TranscriptKind::ClaudeSession
+        || same_canonical_home(&valid.home, &canonical_local_projects())
+}
+
 /// The CLI-private, prose-free participant presentation (D9): the
 /// selected reference, its legacy flag, admission state, discovery-stage
-/// unavailability, the shared hint and Claude drill eligibility. It is
-/// constructed from selection, validation, bounded safe discovery and
+/// unavailability, the shared hint and drill eligibility ([`drillable`]).
+/// It is constructed from selection, validation, bounded safe discovery and
 /// hint helpers only — never from body bytes or a content projector.
 fn presentation_payload(
     common: Option<&brokkr_view::Transcript>,
@@ -1073,10 +1033,7 @@ fn presentation_payload(
     let hint = valid
         .as_ref()
         .and_then(|valid| brokkr_view::transcript::full_session(valid, path.as_deref()));
-    let local = canonical_local_projects();
-    let drill_eligible = valid.as_ref().is_some_and(|valid| {
-        valid.kind == TranscriptKind::ClaudeSession && same_canonical_home(&valid.home, &local)
-    });
+    let drill_eligible = valid.as_ref().is_some_and(drillable);
     json!({
         "reference": selection.reference,
         "legacy": selection.legacy,
@@ -1089,49 +1046,71 @@ fn presentation_payload(
     })
 }
 
-/// One GET participant-presentation route, keyed by a full run id and an
-/// encoded participant key. Each path component is decoded exactly once;
-/// a malformed escape or any extra component is refused before the
-/// read-only journal is touched. No path or home override is accepted.
-fn participant_presentation(store: &Store, rest: &str) -> Response {
+/// The participant a `<run>/<key>` route names: a full run id and an
+/// encoded participant key, the three participant routes' one lookup. Each
+/// path component is decoded exactly once; a malformed escape or any extra
+/// component is refused before the read-only journal is touched. No path
+/// or home override is accepted.
+fn route_participant(store: &Store, rest: &str) -> Option<(String, brokkr_view::Participant)> {
     let mut components = rest.split('/');
     let (Some(run_id), Some(participant_key), None) =
         (components.next(), components.next(), components.next())
     else {
-        return not_found("participant");
+        return None;
     };
     if run_id.is_empty() || participant_key.is_empty() {
-        return not_found("participant");
+        return None;
     }
-    let (Some(run_id), Some(participant_key)) =
-        (decode_component(run_id), decode_component(participant_key))
-    else {
-        return not_found("participant");
-    };
+    let run_id = decode_component(run_id)?;
+    let participant_key = decode_component(participant_key)?;
     // The post-decode emptiness check is removed as unreachable:
     // `decode_component` appends exactly one byte per input byte or `%XX`
     // triple, so a non-empty component decodes to a non-empty byte string;
     // `String::from_utf8` of a non-empty vector is non-empty or `None`; and
     // the pre-decode check above already refused an empty component.
-    let events = match store.load(&run_id) {
-        Ok(events) => events,
-        Err(_) => return not_found("participant"),
-    };
+    let events = store.load(&run_id).ok()?;
     let state = fold(&events).ok();
     let view = brokkr_view::run_view(&events, state.as_ref());
-    let Some(participant) = view
+    let participant = view
         .participants
-        .iter()
-        .find(|participant| participant.key == participant_key)
-    else {
+        .into_iter()
+        .find(|participant| participant.key == participant_key)?;
+    Some((run_id, participant))
+}
+
+/// One GET participant-presentation route.
+fn participant_presentation(store: &Store, rest: &str) -> Response {
+    let Some((_, participant)) = route_participant(store, rest) else {
         return not_found("participant");
     };
     let payload = presentation_payload(
         participant.transcript.as_ref(),
-        presentation_provenance(participant),
+        crate::participant_legacy_provenance(&participant),
         participant.session_id.as_deref(),
     );
     ok("application/json", payload.to_string())
+}
+
+/// The validated reference a participant selects against the local
+/// projects home, or why none is selected.
+fn participant_reference(
+    participant: &brokkr_view::Participant,
+) -> Result<ValidReference, Unavailable> {
+    brokkr_view::transcript::select_reference(
+        participant.transcript.as_ref(),
+        crate::participant_legacy_provenance(participant),
+        participant.session_id.as_deref(),
+        local_projects_home().as_deref(),
+    )
+    .outcome
+}
+
+/// The validated, drill-eligible reference a watched participant selects,
+/// resolved once from the read-only journal when the watch opens.
+fn watched_reference(db: &Path, rest: &str) -> Option<ValidReference> {
+    let store = Store::open_read_only(db).ok()?;
+    let (_, participant) = route_participant(&store, rest)?;
+    participant_reference(&participant).ok().filter(drillable)
 }
 
 fn head_seq(db: &Path, run_id: &str) -> u64 {
@@ -1212,46 +1191,9 @@ fn serve_io(
     // Before the run's stream, because a run id never contains a slash:
     // the seat's own prose lands BETWEEN journal checkpoints, so the
     // transcript is watched on its own file rather than on the head.
-    if let Some(session_id) = path.strip_prefix("/sse/session/") {
-        // The shared identifier guard and safe discovery both run before a
-        // single byte of stream is written: an id that cannot name a
-        // transcript, or a transcript that is not on this machine, is a
-        // clean 404 — never an open connection waiting for a file to
-        // appear. Every refusal, an invalid id included, is
-        // `{"error":"transcript not found"}`.
-        if claude_source_size(session_id).is_none() {
-            write_response(stream, not_found("transcript"));
-            return;
-        }
-        if stream.write_all(SSE_HEADER.as_bytes()).is_err() {
-            return;
-        }
-        let mut seen: Option<u64> = None;
-        let mut sent = 0usize;
-        loop {
-            // Unique safe discovery is revalidated on every poll, not
-            // trusted from the admitted first look. Losing it closes the
-            // stream without reporting another size.
-            let Some(size) = claude_source_size(session_id) else {
-                return;
-            };
-            let message = if seen.is_some_and(|previous| size > previous) {
-                format!("data: {}\n\n", json!({"size": size}))
-            } else {
-                // Heartbeat comment, exactly as the run's stream: the
-                // write that fails is how a closed drilldown is reaped.
-                ": ping\n\n".to_string()
-            };
-            seen = Some(size);
-            if stream.write_all(message.as_bytes()).is_err() {
-                return; // the operator left the drilldown
-            }
-            sent += 1;
-            if sse_limit.is_some_and(|limit| sent >= limit) {
-                return;
-            }
-            std::thread::sleep(SSE_POLL);
-        }
+    if let Some(rest) = path.strip_prefix("/sse/transcript/") {
+        watch_transcript(db, rest, stream, sse_limit);
+        return;
     }
 
     if let Some(run_id) = path.strip_prefix("/sse/") {
@@ -1283,6 +1225,49 @@ fn serve_io(
     }
 
     write_response(stream, handle(db, &path));
+}
+
+/// One participant's transcript growth (#352), keyed like its body route
+/// and for every kind. The route, the journal, the reference and safe
+/// discovery are all settled before a single byte of stream is written: a
+/// participant with no transcript on this machine is a clean 404 — never
+/// an open connection waiting for a file to appear. Every refusal is
+/// `{"error":"transcript not found"}`.
+fn watch_transcript(db: &Path, rest: &str, stream: &mut impl Write, sse_limit: Option<usize>) {
+    let Some(reference) = watched_reference(db, rest).filter(|valid| source_size(valid).is_some())
+    else {
+        write_response(stream, not_found("transcript"));
+        return;
+    };
+    if stream.write_all(SSE_HEADER.as_bytes()).is_err() {
+        return;
+    }
+    let mut seen: Option<u64> = None;
+    let mut sent = 0usize;
+    loop {
+        // Unique safe discovery is revalidated on every poll, not trusted
+        // from the admitted first look. Losing it closes the stream
+        // without reporting another size.
+        let Some(size) = source_size(&reference) else {
+            return;
+        };
+        let message = if seen.is_some_and(|previous| size > previous) {
+            format!("data: {}\n\n", json!({"size": size}))
+        } else {
+            // Heartbeat comment, exactly as the run's stream: the write
+            // that fails is how a closed drilldown is reaped.
+            ": ping\n\n".to_string()
+        };
+        seen = Some(size);
+        if stream.write_all(message.as_bytes()).is_err() {
+            return; // the operator left the drilldown
+        }
+        sent += 1;
+        if sse_limit.is_some_and(|limit| sent >= limit) {
+            return;
+        }
+        std::thread::sleep(SSE_POLL);
+    }
 }
 
 fn open_system_browser(url: &str) {
@@ -1321,3 +1306,5 @@ pub(crate) fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Resu
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transcript_route_tests;
