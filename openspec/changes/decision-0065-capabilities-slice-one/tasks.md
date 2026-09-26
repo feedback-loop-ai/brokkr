@@ -1881,6 +1881,36 @@ return").
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
 
+Unit 12-fix-d (2026-09-27, run `0065-rebuild-unit-12-see-the-uni-50c8438c`,
+based on `fd1dd905`) answers the chief's SC-1 (`Unheld` spelled the plan's
+pattern) and SC-2 (`Excluded` had no total bound). Both are **repaired**
+(evidence.md, "Unit 12-fix-d").
+
+- `native_controls.rs` only. Every `Conflict` variant is rendered by one
+  function, `refused`:
+  - a tool by its tool name alone, never its specifier;
+  - a capability by its name;
+  - an unplain one by a fixed label.
+
+  Each name is cut to 128 scalars. Then the names, last first, are cut to
+  keep the cause within 478 scalars, so the driver's refusal is at most
+  512.
+- Two new tests:
+  - `every_composition_conflict_is_refused_in_bounded_identities`, in
+    protocol, with compose and driver;
+  - `a_compiled_conflict_is_refused_in_bounded_identities`, in
+    `capability_launch`, compiled.
+
+  Their rows are SC-1's sentinel and longest pattern, SC-2's 200/128
+  pair, and the carried sibling.
+- Red on `fd1dd905`. Six mutations were caught and restored.
+- Standing-admission lines: none. 12.1 and 12.2 stay ticked. 15.2 is
+  advanced and stays open.
+- Assumption: the 512 bound covers the complete driver refusal and the
+  compile refusal's cause portion, not the compiler's site label.
+- **Pending:** exact coverage outside the box, macOS, remote CI and the
+  council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

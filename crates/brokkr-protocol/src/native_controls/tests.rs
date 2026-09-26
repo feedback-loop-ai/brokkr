@@ -3135,6 +3135,144 @@ fn a_limit_refusal_names_bounded_identities_and_never_a_payload() {
     }
 }
 
+/// Rebuild unit 12-fix-d, the chief's SC-1 and SC-2 (design D6): every
+/// composition conflict is refused through the one bounded renderer. An
+/// unheld plan allowance is named by its tool alone — `Bash(/private/…)`'s
+/// path was spelled, and a 128-byte tool with a 249-byte specifier gave a
+/// 572-scalar cause. An excluded holding's tool and capability are bounded
+/// identities, each cut to 128 scalar values and then, the last first, to
+/// what keeps the whole cause within 478 — 512 with the driver's prefix: a
+/// 200-scalar capability beside a 128-scalar tool gave 612. The carried
+/// sibling renders through the same function. The same refusal reaches the
+/// driver's command builder in the words the launch boundary uses.
+#[test]
+fn every_composition_conflict_is_refused_in_bounded_identities() {
+    const SENTINEL: &str = "REVIEW_SENTINEL";
+    let tool = format!("T{}", "a".repeat(127));
+    let capability = format!("c{}", "a".repeat(199));
+    let payload = format!("{tool}(/{}/{SENTINEL}:*)", "s".repeat(230));
+    let unheld = |named: &str| {
+        format!(
+            "the capability plan admits {named} for provider 'claude', which no realm holding \
+             admits; a tool is admitted only through the one adapter entry a holding binds, \
+             narrowed by its grant (design D6)"
+        )
+    };
+    let excluded = |named: &str, native: &str| {
+        format!(
+            "the adapter template's explicit '--tools' restriction for provider 'claude' (naming \
+             Read) does not name {named}, which the plan admits for {native}; an explicit tool \
+             list is a hard limit that nothing widens, so the conflict is refused whole rather \
+             than unioned (design D6)"
+        )
+    };
+    let fetch = || (json!(["web-fetch"]), json!({"web-fetch": ["WebFetch"]}));
+    let held = |capability: &str, tool: &str| (json!([capability]), json!({capability: [tool]}));
+    type Row = (Vec<String>, (Value, Value), Vec<String>, String);
+    let rows: Vec<Row> = vec![
+        // SC-1: the sentinel path, and the longest grammar-valid pattern.
+        (
+            Vec::new(),
+            fetch(),
+            argv(&["--allowedTools", &format!("Bash(/private/{SENTINEL}:*)")]),
+            unheld("tool 'Bash'"),
+        ),
+        (
+            Vec::new(),
+            fetch(),
+            argv(&["--allowedTools", &payload]),
+            unheld(&format!("tool '{tool}'")),
+        ),
+        (
+            Vec::new(),
+            fetch(),
+            argv(&["--allowedTools", &format!("/private/{SENTINEL}")]),
+            unheld(UNPLAIN_TOOL),
+        ),
+        // SC-2: the capability is cut to what the whole cause leaves it.
+        (
+            argv(&["--tools", "Read"]),
+            held(&capability, &tool),
+            Vec::new(),
+            excluded(
+                &format!("tool '{tool}'"),
+                &format!("native capability 'c{}…'", "a".repeat(64)),
+            ),
+        ),
+        // Alone it fits, and is cut to 128 scalar values.
+        (
+            argv(&["--tools", "Read"]),
+            held(&capability, "WebFetch"),
+            Vec::new(),
+            excluded(
+                "tool 'WebFetch'",
+                &format!("native capability 'c{}…'", "a".repeat(126)),
+            ),
+        ),
+        (
+            argv(&["--tools", "Read"]),
+            held(&format!("{SENTINEL}\n"), "WebFetch"),
+            Vec::new(),
+            excluded(
+                "tool 'WebFetch'",
+                "a native capability whose name is not plain",
+            ),
+        ),
+        // The carried sibling, through the same renderer.
+        (
+            argv(&["--allowedTools", &payload]),
+            fetch(),
+            Vec::new(),
+            carried_named(
+                "claude",
+                "the adapter template's",
+                &format!("tool '{tool}'"),
+            )
+            .cause,
+        ),
+    ];
+    for (authored, (on, admits), plan_argv, cause) in rows {
+        let off: Vec<&str> = ["web-search", "web-fetch"]
+            .into_iter()
+            .filter(|power| !on.as_array().unwrap().contains(&json!(power)))
+            .collect();
+        let plan = json!({
+            "inventory": "known", "provider": "claude", "harness": "claude",
+            "on": on, "off": off, "admits": admits, "argv": plan_argv,
+            "selection": {"include": [], "allow": [], "deny": [], "flags": {
+                "include": {"flag": "--tools", "separator": ","},
+                "allow": {"flag": "--allowedTools", "separator": ","},
+                "deny": {"flag": "--disallowedTools", "separator": ","}
+            }},
+            "guards": []
+        });
+        let controls = managed(&json!({"native_controls": plan})).unwrap().unwrap();
+        let refusal = compose_for_provider("claude", &authored, &[], &controls)
+            .expect_err("a conflicting composition");
+        assert_eq!(
+            refusal,
+            Refusal {
+                authored: false,
+                cause: cause.clone(),
+            },
+            "{plan}"
+        );
+        let input = json!({"seat": "work", "native_controls": plan,
+                           "launch_arguments": {"authored": authored, "managed": []}});
+        let launched = crate::adapters::claude_command("claude", &authored, None, &input);
+        let said = format!("refusing to invoke the agent CLI: {cause}");
+        assert_eq!(launched, Err(said.clone()), "{plan}");
+        assert!(!said.contains(SENTINEL), "{said}");
+        assert!(said.chars().count() <= 512, "{said}");
+    }
+    // SC-2's cause is cut to the bound exactly, the driver's to 512.
+    let full = excluded(
+        &format!("tool '{tool}'"),
+        &format!("native capability 'c{}…'", "a".repeat(64)),
+    );
+    assert_eq!(full.chars().count(), 478);
+}
+
 /// Rebuild unit 11 (design D6: "Invalid Codex managed arguments have no
 /// verbatim bypass"): a Codex plan's own argv is parsed under the codex
 /// grammar like every other origin. A misplaced terminator, a bare word,

@@ -1791,20 +1791,6 @@ impl From<Refusal> for Failure {
     }
 }
 
-/// A conflict with an explicit limit (design D6): its origin, flag and
-/// names, the provider and the conflicting tool are named, and the whole
-/// conflict is refused rather than unioned away.
-fn restricted(provider: &str, limit: &Limit, conflict: &str) -> Refusal {
-    Refusal {
-        authored: false,
-        cause: format!(
-            "{} {conflict}; an explicit tool list is a hard limit that nothing widens, so the \
-             conflict is refused whole rather than unioned (design D6)",
-            restriction(provider, limit)
-        ),
-    }
-}
-
 fn restriction(provider: &str, limit: &Limit) -> String {
     format!(
         "{} explicit '{}' restriction for provider '{provider}' (naming {})",
@@ -1852,61 +1838,149 @@ fn plain(name: &str) -> bool {
     grammar::managed_patterns(name).is_ok_and(|patterns| patterns == [name])
 }
 
-/// A carried allowance's bounded identity in a refusal (design D6): its
-/// tool name alone, where that is a plain name the managed grammar reads
-/// ([`grammar::managed_patterns`]: at most 128 bytes), and otherwise a fixed
-/// label. Its permission payload — `Bash(/secret/…:*)`'s specifier — is
-/// never spelled, and an unplain name is never cut short and spelled.
-fn carried_tool(pattern: &str) -> String {
-    let name = grammar::tool_name(pattern);
-    match plain(name) {
-        true => format!("tool '{name}'"),
-        false => "a tool whose name is not plain".to_string(),
+/// A capability name as a request spells one: lowercase letters, digits,
+/// '.', '_' and '-', starting with a letter or digit.
+fn capability_name(name: &str) -> bool {
+    name.chars().enumerate().all(|(at, c)| {
+        matches!(
+            (at, c),
+            (_, 'a'..='z' | '0'..='9') | (1.., '.' | '_' | '-')
+        )
+    })
+}
+
+/// One piece of a composition refusal (rebuild unit 12-fix-d; design D6):
+/// the engine's own words — its text, a provider, a flag or a limit's
+/// bounded [`naming`] — or an identity [`refused`] renders bounded.
+enum Piece<'a> {
+    Words(String),
+    /// A tool, by the tool name of its permission pattern alone.
+    Tool(&'a str),
+    /// A native capability, by its name.
+    Capability(&'a str),
+}
+
+/// The scalar values a composition refusal's cause takes at most: 512 with
+/// the driver's prefix before it (design D6).
+const CAUSE: usize = 512 - "refusing to invoke the agent CLI: ".len();
+
+/// The scalar values one spelled identity takes at most.
+const IDENTITY: usize = 128;
+
+/// The ONE rendering of a composition refusal (rebuild unit 12-fix-d;
+/// design D6): every [`Conflict`] is refused through it. A tool is named
+/// by the tool name of its pattern alone — never a permission specifier or
+/// payload — where the managed grammar reads it as a plain name, and a
+/// capability by its name where it is a capability name; any other by a
+/// fixed label. Each spelled name is cut to 128 scalar values, and where
+/// the whole cause would pass 478 — 512 with the driver's prefix — the
+/// names are cut further, the last first, never the engine's words. A cut
+/// name ends in `…`.
+fn refused(pieces: Vec<Piece<'_>>) -> Refusal {
+    let parts: Vec<(String, &str, &str)> = pieces
+        .into_iter()
+        .map(|piece| match piece {
+            Piece::Words(words) => (words, "", ""),
+            Piece::Tool(pattern) => match grammar::tool_name(pattern) {
+                name if plain(name) => ("tool '".to_string(), name, "'"),
+                _ => ("a tool whose name is not plain".to_string(), "", ""),
+            },
+            Piece::Capability(name) if capability_name(name) => {
+                ("native capability '".to_string(), name, "'")
+            }
+            Piece::Capability(_) => (
+                "a native capability whose name is not plain".to_string(),
+                "",
+                "",
+            ),
+        })
+        .collect();
+    let scalars = |text: &str| text.chars().count();
+    let whole: usize = parts
+        .iter()
+        .map(|(open, name, close)| scalars(open) + scalars(name).min(IDENTITY) + scalars(close))
+        .sum();
+    let mut over = whole.saturating_sub(CAUSE);
+    let mut cause: Vec<String> = parts
+        .into_iter()
+        .rev()
+        .map(|(open, name, close)| {
+            let keep = scalars(name).min(IDENTITY);
+            let cut = over.min(keep.saturating_sub(1));
+            over -= cut;
+            format!("{open}{}{close}", shortened(name, keep - cut))
+        })
+        .collect();
+    cause.reverse();
+    Refusal {
+        authored: false,
+        cause: cause.concat(),
     }
 }
 
-/// The failure one [`Conflict`] is, in the provider's words. `carrier` is
-/// the contribution whose allow list the seat's argv carries, by where the
-/// engine placed it.
+/// `name` whole where it has at most `keep` scalar values, and otherwise
+/// its first `keep - 1` and `…`.
+fn shortened(name: &str, keep: usize) -> String {
+    match name.chars().count() <= keep {
+        true => name.to_string(),
+        false => name.chars().take(keep - 1).chain(['…']).collect(),
+    }
+}
+
+/// The failure one [`Conflict`] is, in the provider's words, rendered by
+/// [`refused`]. `carrier` is the contribution whose allow list the seat's
+/// argv carries, by where the engine placed it. A conflict with an explicit
+/// limit names its origin, flag and names (design D6), and the whole
+/// conflict is refused rather than unioned away.
 fn conflicting(
     provider: &str,
     limits: &[Limit],
     carrier: (LimitOrigin, &str),
     conflict: Conflict,
 ) -> Failure {
+    const WIDENS: &str = "; an explicit tool list is a hard limit that nothing widens, so the \
+                          conflict is refused whole rather than unioned (design D6)";
+    let limited = |limit: usize| {
+        Piece::Words(format!(
+            "{} does not name ",
+            restriction(provider, &limits[limit])
+        ))
+    };
     match conflict {
-        Conflict::Unheld(tool) => Failure::Refused(Refusal {
-            authored: false,
-            cause: format!(
-                "the capability plan admits tool '{tool}' for provider '{provider}', which no \
-                 realm holding admits; a tool is admitted only through the one adapter entry a \
-                 holding binds, narrowed by its grant (design D6)"
-            ),
-        }),
-        Conflict::Carried(tool) => Failure::Refused(Refusal {
-            authored: false,
-            cause: format!(
-                "{} '{}' allow list names {} for provider '{provider}', which no \
-                 realm holding admits, the site's typed hands do not carry and its typed \
-                 'tools.allow' did not lower; an allowance is admitted by the typed contribution \
-                 that made it, never by its spelling or by the list it stands in (design D6)",
+        Conflict::Unheld(tool) => Failure::Refused(refused(vec![
+            Piece::Words("the capability plan admits ".to_string()),
+            Piece::Tool(&tool),
+            Piece::Words(format!(
+                " for provider '{provider}', which no realm holding admits; a tool is admitted \
+                 only through the one adapter entry a holding binds, narrowed by its grant \
+                 (design D6)"
+            )),
+        ])),
+        Conflict::Carried(tool) => Failure::Refused(refused(vec![
+            Piece::Words(format!(
+                "{} '{}' allow list names ",
                 carrier.0.owner(),
-                carrier.1,
-                carried_tool(&tool)
-            ),
-        }),
-        Conflict::Outside { tool, by, limit } => Failure::Refused(restricted(
-            provider,
-            &limits[limit],
-            &format!(
-                "does not name {}, which {} admit",
-                carried_tool(&tool),
+                carrier.1
+            )),
+            Piece::Tool(&tool),
+            Piece::Words(format!(
+                " for provider '{provider}', which no realm holding admits, the site's typed \
+                 hands do not carry and its typed 'tools.allow' did not lower; an allowance is \
+                 admitted by the typed contribution that made it, never by its spelling or by \
+                 the list it stands in (design D6)"
+            )),
+        ])),
+        Conflict::Outside { tool, by, limit } => Failure::Refused(refused(vec![
+            limited(limit),
+            Piece::Tool(&tool),
+            Piece::Words(format!(
+                ", which {} admit{WIDENS}",
                 match by {
                     Typed::Hands => "the site's typed hands",
                     Typed::Local => "the local permissions of the site's typed 'tools.allow'",
                 }
-            ),
-        )),
+            )),
+        ])),
         Conflict::Excluded {
             capability,
             tool,
@@ -1916,14 +1990,13 @@ fn conflicting(
                 "{} does not name its tool '{tool}'",
                 restriction(provider, &limits[limit])
             ),
-            refusal: restricted(
-                provider,
-                &limits[limit],
-                &format!(
-                    "does not name tool '{tool}', which the plan admits for native capability \
-                     '{capability}'"
-                ),
-            ),
+            refusal: refused(vec![
+                limited(limit),
+                Piece::Tool(&tool),
+                Piece::Words(", which the plan admits for ".to_string()),
+                Piece::Capability(&capability),
+                Piece::Words(WIDENS.to_string()),
+            ]),
             capability,
         }),
     }

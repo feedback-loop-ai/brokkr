@@ -6925,6 +6925,119 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
     );
 }
 
+/// Rebuild unit 12-fix-d, the chief's SC-1 and SC-2 compiled (design D6):
+/// a realm-granted entry whose tool and ON allowance are
+/// `Bash(/private/…:*)`, or the longest grammar-valid pattern, is refused
+/// naming its tool alone; a
+/// required 200-scalar capability whose 128-scalar tool the template's
+/// limit excludes is refused with the capability cut to what keeps the
+/// cause within 478 scalar values — 512 with the driver's prefix. The
+/// carried sibling, the template's own allowance, renders through the same
+/// function.
+#[test]
+fn a_compiled_conflict_is_refused_in_bounded_identities() {
+    const SENTINEL: &str = "REVIEW_SENTINEL";
+    let operator = Operator::new();
+    one_inline_seat(&operator, &["driver"]);
+    write(
+        operator.root(),
+        "solo/bundle.json",
+        &json!({"name": "solo", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "bounded"},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    // One realm-granted entry serving `capability` with `tool`, whose ON
+    // allows `on`, required by the office under the template's `template`.
+    let compiled = |capability: &str, tool: &str, on: &str, template: &[&str]| {
+        fetch_dialect(&operator, "bounded", json!([tool]));
+        let path = operator.root().join("dialects/tools/bounded.json");
+        let mut dialect: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        dialect["serves"] = json!(capability);
+        dialect["adapter_key"] = json!("bounded");
+        write(operator.root(), "dialects/tools/bounded.json", &dialect);
+        write(
+            operator.root(),
+            &format!("capabilities/{capability}.json"),
+            &json!({"name": capability, "classes": ["reads", "egress"]}),
+        );
+        write(
+            operator.root(),
+            "agents/bounded.json",
+            &json!({
+                "description": "an office with one bounded capability",
+                "charter": "charters/searcher.md",
+                "models": ["opus"],
+                "efforts": {"opus": "high"},
+                "capabilities": {capability: "requires"},
+            }),
+        );
+        let adapters = copied_adapters();
+        edit_adapter(adapters.path(), "claude", |adapter| {
+            let known = &mut adapter["native_capabilities"]["known"];
+            let mut entry = known["web-fetch"].clone();
+            entry["capability"] = json!(capability);
+            entry["tools"] = json!([tool]);
+            entry["on"] = json!({"argv": ["--allowedTools", on]});
+            entry["off"] = json!({"argv": ["--disallowedTools", tool]});
+            known["bounded"] = entry;
+            let driver = adapter["driver"].as_array_mut().unwrap();
+            driver.extend(template.iter().map(|part| json!(part)));
+        });
+        let context = operator.context(json!({capability: {"dialect": "bounded"}}));
+        solo_sealed(&operator, adapters.path(), &context)
+    };
+    let refused = |cause: &str| {
+        assert!(!cause.contains(SENTINEL), "{cause}");
+        assert!(cause.chars().count() <= 478, "{cause}");
+        format!("bundle: seat 'work' (office 'bounded') in realm 'private': {cause}")
+    };
+    let unheld = |tool: &str| {
+        format!(
+            "the capability plan admits tool '{tool}' for provider 'claude', which no realm \
+             holding admits; a tool is admitted only through the one adapter entry a holding \
+             binds, narrowed by its grant (design D6)"
+        )
+    };
+    let tool = format!("T{}", "a".repeat(127));
+    let payload = format!("{tool}(/{}/{SENTINEL}:*)", "s".repeat(230));
+    let sentinel = format!("Bash(/private/{SENTINEL}:*)");
+    assert_eq!(
+        compiled("web-fetch", &sentinel, &sentinel, &[]),
+        refused(&unheld("Bash"))
+    );
+    assert_eq!(
+        compiled("web-fetch", &payload, &payload, &[]),
+        refused(&unheld(&tool))
+    );
+    let capability = format!("c{}", "a".repeat(199));
+    assert_eq!(
+        compiled(&capability, &tool, &tool, &["--tools", "Read"]),
+        refused(&format!(
+            "the adapter template's explicit '--tools' restriction for provider 'claude' (naming \
+             Read) does not name tool '{tool}', which the plan admits for native capability \
+             'c{}…'; an explicit tool list is a hard limit that nothing widens, so the conflict \
+             is refused whole rather than unioned (design D6)",
+            "a".repeat(64)
+        ))
+    );
+    assert_eq!(
+        compiled(
+            "web-fetch",
+            "WebFetch",
+            "WebFetch",
+            &["--allowedTools", &payload]
+        ),
+        refused(&format!(
+            "the adapter template's '--allowedTools' allow list names tool '{tool}' for provider \
+             'claude', which no realm holding admits, the site's typed hands do not carry and its \
+             typed 'tools.allow' did not lower; an allowance is admitted by the typed \
+             contribution that made it, never by its spelling or by the list it stands in \
+             (design D6)"
+        ))
+    );
+}
+
 /// `launched […]` for the Claude head followed by `parts`, concatenated.
 fn launched_as(parts: &[&[&str]]) -> String {
     let head: &[&str] = &[

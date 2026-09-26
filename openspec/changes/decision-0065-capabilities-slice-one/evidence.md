@@ -11331,3 +11331,171 @@ the box), macOS, remote CI and the full engine council.
   - `Conflict::Unheld` still spells the plan's pattern;
   - `Excluded`'s tool and capability name are not bounded (adapter data,
     plain by load).
+
+## Unit 12-fix-d — one bounded renderer for every composition conflict, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-50c8438c`, based on `fd1dd905`. The
+chief rejected 12-fix-c's two remaining MEDIUMs as follow-ups, and so does
+this unit. Both findings were independently confirmed:
+
+- SC-1: `Conflict::Unheld` spelled the plan's whole permission pattern.
+  `Bash(/private/REVIEW_SENTINEL:*)` exposed its path. A 128-byte tool with
+  a 249-byte specifier gave a 572-scalar cause.
+- SC-2: `Conflict::Excluded` spelled its tool and capability with no total
+  bound. A 200-scalar capability and a 128-scalar tool gave 612.
+
+The previous section's two follow-ups are the same defects, and both are
+closed here.
+
+### What changed
+
+Production is `crates/brokkr-protocol/src/native_controls.rs` only.
+
+- `refused` (`:1879`) is the ONE rendering of a composition refusal. It
+  takes pieces (`Piece`, `:1855`), each of them one of:
+  - the engine's own words, which include a provider, a flag and a limit's
+    `naming` (already bounded to 48 scalars in 12-fix-c);
+  - `Tool`, a tool named by the tool name of its pattern alone: `tool
+    '<name>'` when the managed grammar reads it as plain, otherwise the
+    fixed label `a tool whose name is not plain`. A permission specifier or
+    payload is never spelled.
+  - `Capability`, a capability named by its name: `native capability
+    '<name>'` when it is a capability name (`capability_name`, `:1843`:
+    lowercase letters, digits, and `.`, `_`, `-` after the first), otherwise
+    the fixed label `a native capability whose name is not plain`.
+
+  Each spelled name is cut to `IDENTITY` = 128 scalars. If the whole cause
+  would pass `CAUSE` = 512 − 34 = 478 scalars (512 with the driver's
+  `refusing to invoke the agent CLI: ` prefix), the names are cut further,
+  last first. The engine's words are never cut. A cut name ends in `…`
+  (`shortened`, `:1923`).
+- `conflicting` (`:1935`) renders all four variants through `refused`:
+  `Unheld`, `Carried`, `Outside` and `Excluded`. `restricted` and
+  `carried_tool` are deleted, since their work is now `refused`'s. Every
+  existing sentence is unchanged word for word. So is every existing
+  expectation: no test outside the two new ones moved.
+- `Exclusion.clause` is not a refusal (it is the dropped-holding note the
+  manifest and the seat's prompt carry), and it keeps its old rendering.
+  See the follow-ups.
+
+Assumption, flagged for review: D6's 512 covers the option/cause portion.
+Here the bound is the complete driver refusal (a fixed 34-scalar prefix
+plus the cause, at most 512) and the compile refusal's cause portion (at
+most 478). The compiler's own site label (`bundle: seat '…' (office '…') in
+realm '…': `) comes from `capabilities.rs`, which is outside this unit's
+file. It names the operator's own site, not a conflicting identity.
+
+### Tests
+
+- New in `native_controls/tests.rs:3149`,
+  `every_composition_conflict_is_refused_in_bounded_identities`. It has
+  seven rows. Each row asserts three things:
+  - the exact refusal from `compose_for_provider`, with the plan decoded
+    from the same JSON the driver reads;
+  - the exact `refusing to invoke the agent CLI: …` from
+    `adapters::claude_command`;
+  - that the driver text holds no sentinel and has at most 512 scalars.
+
+  The rows:
+  - SC-1 sentinel: `Bash(/private/REVIEW_SENTINEL:*)` gives `tool 'Bash'`.
+  - SC-1 longest: the 128-byte tool with the 249-byte specifier gives
+    `tool 'Taaa…'` (128 scalars).
+  - An unplain unheld pattern gives the tool label.
+  - SC-2: the 200-scalar capability beside the 128-scalar tool gives
+    `native capability 'c` + 64 `a` + `…'`. The cause is exactly 478
+    scalars (asserted), so the driver text is exactly 512.
+  - The 200-scalar capability alone is cut to 128 (`c` + 126 `a` + `…`).
+  - A capability `REVIEW_SENTINEL\n` gives the capability label.
+  - The carried sibling: the template's `--allowedTools` with the longest
+    pattern gives `tool 'Taaa…'`.
+- New in `capability_launch.rs:6938`,
+  `a_compiled_conflict_is_refused_in_bounded_identities`. It compiles four
+  bundles, each on a copied adapter with a third native entry `bounded`, a
+  realm-granted dialect serving it and a requiring office. Each result is
+  the exact compile refusal `bundle: seat 'work' (office 'bounded') in realm
+  'private': <cause>`, where the cause has at most 478 scalars and no
+  sentinel. The four bundles:
+  - The entry's tool and ON allowance are SC-1's sentinel pattern.
+  - The same with the longest pattern.
+  - SC-2: the 200-scalar capability and 128-scalar tool under a template
+    `--tools Read`. The capability is cut as above.
+  - The carried sibling: a template `--allowedTools` with the longest
+    pattern.
+
+  A first shape used tool `Bash` beside the sentinel ON allowance. That
+  shape launched, because `Bash` was held and `Bash(…)` is its narrowed
+  allowance, so it is not a conflict. The row now makes the entry's tool
+  the pattern itself, as the chief's reproduction does.
+
+### Baseline reds on `fd1dd905`
+
+With `native_controls.rs` as committed at `fd1dd905` (production set aside
+as `.forge/unit-12-fix-d/prod.patch`, checked out, then re-applied):
+
+- Protocol test, rows 0.. : 0/1 at `tests.rs:3247`, left `admits tool
+  'Bash(/private/REVIEW_SENTINEL:*)'`. Taken before the production edit.
+- With the loop temporarily set to `.skip(1)`: red on the longest pattern
+  spelled whole.
+- With `.skip(3)`: red on SC-2's unbounded cause.
+- With `.skip(6)`: the carried sibling passed. It was already bounded by
+  12-fix-c. The test's own 478 check on the SC-2 literal also passed there.
+- `capability_launch`: 0/1 at `:7005`, left `admits tool
+  'Bash(/private/REVIEW_SENTINEL:*)'`. With the two SC-1 asserts
+  temporarily negated, it was red at `:7014` on SC-2. The left line was 682
+  characters: 9 of assertion framing, 59 of site wrapper and 2 of quote and
+  newline, which leaves a 612-scalar cause, the chief's count.
+
+### Mutations (each compiled, was caught, then restored)
+
+The mutations ran the new protocol test (P) and, where noted, the new
+compiled test (C):
+
+- M1, `Unheld` spells `tool '{tool}'` raw: P red at `:3247` (the sentinel
+  path spelled) and C red at `:7005`.
+- M2, `Excluded` spells `native capability '{capability}'` as words: P and
+  C red on SC-2. The tool was cut to `'…'`, because the raw capability left
+  it no room.
+- M3, `Carried` spells `tool '{tool}'` raw: P red and C red at `:7024`, the
+  longest pattern spelled.
+- M4, no whole-cause cut (`over = … * 0`): P and C red on SC-2, with the
+  capability cut only to 128.
+- M5, no identity cap (`IDENTITY = usize::MAX`): P red on the lone
+  200-scalar capability, spelled whole.
+- M6, every capability plain (`capability_name(name) || true`): P red on
+  `native capability 'REVIEW_SENTINEL\n'`.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean. `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished, no warning.
+- `cargo test -p brokkr-protocol -p brokkr-runtime --all-features
+  --locked`: 28 `ok` summaries, no failure. Protocol lib 496, runtime lib
+  565, `capability_launch` 50.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `cargo test --workspace --all-features --locked`: exit 0, 77 `ok`
+  summaries, no FAILED or panic.
+- `bundles/self` compiles.
+- Coverage diagnostic, protocol lib only: `cargo +nightly llvm-cov -p
+  brokkr-protocol --lib --branch --lcov` (496 passed), then `grep -x` over
+  the `native_controls.rs` record. It shows no `DA` at 0 and no `BRDA` at
+  0 or `-` in 1794–2030 (`restriction` through `conflicting`).
+  - `refused`'s plain-tool guard was hit 827/10, and its capability guard
+    135/2.
+  - The record's unhit lines are 357–447, 1372 and 1422–1460, which is
+    code this unit did not touch. This lib-only run does not reach code
+    that the runtime suites cover. The workspace-wide exact gate is the
+    judge of those lines, and it is pending.
+
+Standing-admission lines: none. `bundle.rs` and `capabilities.rs` did not
+move, so unit 11's handoff stays closed.
+
+**Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
+the box), macOS, remote CI and the full engine council.
+
+- Follow-ups, not changed here:
+  - `Exclusion.clause` still spells the excluded tool unbounded, as `its
+    tool '<tool>'`. It is the dropped-holding note, not a refusal. Its tool
+    is adapter data, which is plain by load in compiled bundles.
+  - The compiler's site label is outside the bounded cause portion (see
+    the assumption above).
