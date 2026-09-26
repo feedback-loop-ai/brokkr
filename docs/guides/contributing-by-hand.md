@@ -199,21 +199,24 @@ refusal. There is no threshold to lower. This one has its own section:
 [the coverage gate, practically](#the-coverage-gate-practically).
 
 One operational note before you run it. The script builds a second,
-instrumented copy of the workspace and keeps it warm between runs, under
-a cache root:
+instrumented copy of the workspace, and a checked copy of its production
+targets, and keeps both warm between runs in a directory it owns:
 
 ```
-${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/brokkr-coverage}
+${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}}/brokkr-coverage-cache
 ```
 
 The build directory is keyed by the pinned nightly, the lockfile and the
 workspace's target set, so the dependency build is reused until one of
-them changes, and an old key is pruned when a new one is made. Every
+them changes. When a new key is made, the script prunes old keys: only
+directories inside `brokkr-coverage-cache` whose names have the key's exact
+shape, so nothing else under the root you give it is ever touched. Every
 workspace artifact and profile is still dropped before the run
 (`cargo llvm-cov clean --workspace`), so the report is always this
 checkout's. Only one run holds the cache at a time: a second run on the
-same host waits for the first, because two runs sharing a target would
-merge each other's profiles. The instrumented copy takes several
+same host says it is waiting, waits up to an hour for the first, and then
+refuses, because two runs sharing a target would merge each other's
+profiles. The instrumented copy takes several
 gigabytes, so point `BROKKR_COVERAGE_CACHE` at a disk-backed directory if
 your cache home is small or RAM-backed.
 
@@ -446,17 +449,19 @@ start line under your file's `SF:` heading whose every `FNDA` record
 reads `0`. Either a test calls it, or it should not exist yet. This
 repository does not carry code ahead of its use.
 
-**Test-harness source in the production report.** The script checks for
-this before it checks coverage
-(`scripts/coverage-exact.sh:43-50`):
+**Test-harness source in the production report.** The script has one
+test-path vocabulary, and hands `cargo-llvm-cov` exactly that, with the
+tool's own default switched off: a file under a `tests/`, `examples/` or
+`benches/` directory, or named `tests.rs`, `*_tests.rs` or `*-tests.rs`.
+Such a file leaves the report. After the run, every file the report counts
+must be a production source under `crates/`, or the script names it and
+refuses:
 
 ```
-coverage refusal: test harness source leaked into the production report
+coverage refusal: the report counts a file that is not a production source of this workspace
 ```
 
-The check reads the report's filenames and refuses any that match
-`tests.rs`, `*_tests.rs`, or a `tests/` directory component — the paths
-`cargo-llvm-cov` treats as harness. Test modules in this workspace
+Test modules in this workspace
 therefore sit in a sibling file, declared from the production file as
 `#[cfg(test)] mod tests;` or `#[cfg(test)] mod foo_tests;`, or under
 `crates/<crate>/tests/` — never as an inline `#[cfg(test)] mod tests {
@@ -467,22 +472,39 @@ one of them.
 **A `coverage(off)` attribute or a `cfg(coverage)` switch.** Forbidden
 outright, in every spelling: `#[coverage(off)]`, and any `cfg`, `cfg_attr`
 or `cfg!` predicate that names `coverage` or `coverage_nightly`, however it
-is spaced, nested or split across lines. The script reads every Rust file
-under `crates/` before it builds anything, names each file and line it
-finds, and refuses:
+is spaced, nested, split across lines or broken up by comments. The script
+reads every Rust file under `crates/` as tokens, with comments and literals
+blanked, before it builds anything, names each file and line it finds, and
+refuses:
 
 ```
 coverage refusal: attribute and cfg(coverage) source exclusions are forbidden
 ```
 
-**A production target at a test path.** A `[[bin]]` or `[lib]` whose source
-sits under `tests/`, or in a `tests.rs` or `*_tests.rs` file, would compile
-into the product yet leave the report. The script reads every target from
-`cargo metadata` and refuses one:
+The same scan refuses any lint level on `unexpected_cfgs`, and any allow of
+every warning. Those would silence the compiler's refusal of an undeclared
+cfg: the script checks every production target with that lint forbidden,
+so a cfg that names `coverage` fails there however a macro built it. A
+manifest may not declare the cfg (`check-cfg`, or a key spelled through a
+TOML escape), and the workspace has no build script that could:
+
+```
+coverage refusal: a production target does not compile with every undeclared cfg forbidden
+coverage refusal: a manifest declares a cfg or changes the unexpected_cfgs lint
+```
+
+**A production target or module at a test path.** A `[[bin]]` or `[lib]`
+whose source sits at a test path, or a module a production target compiles
+from one (a `mod foo_tests;` without `#[cfg(test)]`, a `#[path]`, an
+`include!`), would compile into the product yet leave the report. The
+script reads every target from `cargo metadata`, and every source file each
+production target compiles from the compiler's dep-info, and refuses:
 
 ```
 <package>: bin target <name> sits at test path <path>
 coverage refusal: a production target escapes the denominator, or an exclusion is not what it claims
+a production target compiles <path>, which the report drops as a test path
+coverage refusal: a production module sits at a test path
 ```
 
 The only way out of the denominator is a package named in the script's

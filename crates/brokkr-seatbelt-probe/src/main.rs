@@ -15,8 +15,7 @@
 //! * `child` — the ordinary child used by Gate A.
 //!
 //! It is probe scaffolding only; it is not production Seatbelt code and it
-//! makes no containment claim. On non-Unix hosts it compiles but is never
-//! selected.
+//! makes no containment claim.
 
 #![allow(clippy::too_many_arguments)]
 
@@ -546,10 +545,8 @@ fn target(label: &str) -> String {
 }
 
 // The helper is only ever selected on macOS, but it is compiled and linked on
-// every workspace host so a non-Darwin build cannot hide drift. The Unix ABI
-// calls are therefore target-gated: the Windows binary must link without a
-// `getuid`/`getpgid` reference (native CI run `34441725835` proved it did not).
-#[cfg(unix)]
+// every supported host, so a Linux build cannot hide drift. Both hosts are
+// Unix (decision 0063), so the Unix ABI calls need no target gate.
 fn current_uid() -> u32 {
     extern "C" {
         fn getuid() -> u32;
@@ -558,14 +555,6 @@ fn current_uid() -> u32 {
     unsafe { getuid() }
 }
 
-#[cfg(not(unix))]
-fn current_uid() -> u32 {
-    // Off Unix the launchd domain and its targets are never constructed; the
-    // stub keeps the shared code compiled and linked without the symbol.
-    0
-}
-
-#[cfg(unix)]
 fn process_group() -> u32 {
     extern "C" {
         fn getpgid(pid: i32) -> i32;
@@ -579,11 +568,6 @@ fn process_group() -> u32 {
             pgid as u32
         }
     }
-}
-
-#[cfg(not(unix))]
-fn process_group() -> u32 {
-    0
 }
 
 fn heartbeat(payload: &Path) {
@@ -727,7 +711,6 @@ fn run_holder(args: &[String]) -> Result<i32, String> {
 // Unix primitives
 // ---------------------------------------------------------------------------
 
-#[cfg(unix)]
 fn detach_spawn(command: &mut Command) -> Result<std::process::Child, String> {
     use std::os::unix::process::CommandExt;
     // SAFETY: `setsid` is async-signal-safe and called between fork and exec
@@ -747,12 +730,6 @@ fn detach_spawn(command: &mut Command) -> Result<std::process::Child, String> {
     command.spawn().map_err(|error| format!("detach: {error}"))
 }
 
-#[cfg(not(unix))]
-fn detach_spawn(command: &mut Command) -> Result<std::process::Child, String> {
-    command.spawn().map_err(|error| format!("detach: {error}"))
-}
-
-#[cfg(unix)]
 fn ignore_termination_signals() {
     extern "C" {
         fn signal(signal: i32, handler: usize) -> usize;
@@ -769,6 +746,3 @@ fn ignore_termination_signals() {
         signal(SIGHUP, SIG_IGN);
     }
 }
-
-#[cfg(not(unix))]
-fn ignore_termination_signals() {}
