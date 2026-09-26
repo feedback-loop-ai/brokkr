@@ -2,7 +2,9 @@
 # Regenerate the code-health baselines (#335) from the tree and from the
 # LCOV the exact coverage gate writes. Run scripts/coverage-exact.sh first,
 # on a clean checkout. quality/ratchet.sh holds the tree to what this writes
-# (#338); the tools and versions are in quality/README.md.
+# (#338); the tools and versions are in quality/README.md. One baseline is
+# not written here: duplicate-skips.txt is edited by hand beside deny.toml,
+# and the layering test holds the two equal (#337).
 set -euo pipefail
 # Byte order, not the host locale's collation, so every host sorts alike.
 export LC_ALL=C
@@ -65,10 +67,11 @@ done
     sort -u -k2,2V |
     while read -r n at; do
       name="$(sed -n "${at##*:}p" "${at%:*}" | grep -oE 'fn [A-Za-z0-9_]+' | head -n 1)"
-      printf '%4d %s %s\n' "$n" "$at" "${name#fn }"
+      name="${name#fn }"
+      printf '%4d %s%s\n' "$n" "$at" "${name:+ $name}"
     done |
-    awk -v re="$test_re" '
-      { split($2, at, ":"); if (at[1] ~ re) test[++t] = $0; else prod[++p] = $0 }
+    RE="$test_re" awk '
+      { split($2, at, ":"); if (at[1] ~ ENVIRON["RE"]) test[++t] = $0; else prod[++p] = $0 }
       END {
         print "# production"; for (i = 1; i <= p; i++) print prod[i]
         print "# test"; for (i = 1; i <= t; i++) print test[i]

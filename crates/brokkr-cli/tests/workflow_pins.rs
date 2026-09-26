@@ -1372,6 +1372,13 @@ fn the_lint_tools_are_installed_from_releases_verified_by_digest() {
             vec![(".github/workflows/ci.yml", 1)],
         ),
         (
+            ".github/actions/setup-jscpd/action.yml",
+            "JSCPD_SHA256",
+            "kucherenko/jscpd/releases/download",
+            r#"tar xzf "$tarball""#,
+            vec![(".github/workflows/ci.yml", 1)],
+        ),
+        (
             ".github/actions/setup-lychee/action.yml",
             "LYCHEE_SHA256",
             "lycheeverse/lychee/releases/download",

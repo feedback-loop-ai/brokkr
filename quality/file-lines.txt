@@ -100,7 +100,7 @@
   1438 crates/brokkr-cli/tests/muninn.rs
   1362 crates/brokkr-cli/tests/packaging.rs
    227 crates/brokkr-cli/tests/provenance.rs
-   409 crates/brokkr-cli/tests/ratchets.rs
+   533 crates/brokkr-cli/tests/ratchets.rs
   1297 crates/brokkr-cli/tests/realms.rs
    601 crates/brokkr-cli/tests/recipes.rs
    457 crates/brokkr-cli/tests/rename_guard.rs
@@ -113,7 +113,7 @@
    952 crates/brokkr-cli/tests/transcript_privacy.rs
    920 crates/brokkr-cli/tests/transcript_surfaces.rs
    260 crates/brokkr-cli/tests/witness_journal.rs
-  1555 crates/brokkr-cli/tests/workflow_pins.rs
+  1562 crates/brokkr-cli/tests/workflow_pins.rs
     18 crates/brokkr-core/src/canonical/tests.rs
    546 crates/brokkr-core/src/dispatch/tests.rs
     67 crates/brokkr-core/src/envelope/tests.rs

@@ -45,7 +45,8 @@ fn rust_lines(count: usize) -> String {
 }
 
 /// A scratch repository with the ratchet, its shared definitions, the
-/// generator and the ruled ceilings, copied from this tree.
+/// generator, the ruled ceilings and the exact gate (whose test vocabulary
+/// `lib.sh` reads), copied from this tree.
 fn scratch() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     for name in ["lib.sh", "ratchet.sh", "measure.sh", "ceilings.json"] {
@@ -55,6 +56,8 @@ fn scratch() -> tempfile::TempDir {
             &read(&format!("quality/{name}")),
         );
     }
+    let gate = "scripts/coverage-exact.sh";
+    write(dir.path(), gate, &read(gate));
     git(dir.path(), &["init", "-q"]);
     dir
 }
@@ -141,6 +144,35 @@ fn the_file_ratchet_holds_each_file_to_its_baseline_or_ceiling() {
         &ratchet(at, &["files"], None),
         &["quality/file-lines.txt:7 is not \"<count> <path>\""],
     );
+
+    let misfiled = FILE_LINES
+        .replace("   900 crates/demo/src/big.rs\n", "")
+        .replace("# test\n", "# test\n   900 crates/demo/src/big.rs\n");
+    write(at, "quality/file-lines.txt", &misfiled);
+    assert_refused(
+        &ratchet(at, &["files"], None),
+        &["quality/file-lines.txt:5: crates/demo/src/big.rs is production code, listed under # test"],
+    );
+    write(at, "quality/file-lines.txt", "# production\n# test\n");
+    assert_refused(
+        &ratchet(at, &["files"], None),
+        &["quality/file-lines.txt: no baseline entry parsed"],
+    );
+}
+
+/// A tree with no test file is measured, not refused for its empty section.
+#[test]
+fn the_file_ratchet_reads_a_tree_with_no_test_file() {
+    let repo = scratch();
+    let at = repo.path();
+    write(
+        at,
+        "quality/file-lines.txt",
+        "# production\n    10 crates/demo/src/small.rs\n# test\n",
+    );
+    write(at, "crates/demo/src/small.rs", &rust_lines(10));
+    git(at, &["add", "-A"]);
+    assert_holds(&ratchet(at, &["files"], None), "ratchet: file size holds");
 }
 
 /// An existing function may grow to the ceiling or its baseline, whichever
@@ -220,6 +252,17 @@ fn crap_baseline(big: i64, small: i64, extra: &[(&str, i64)]) -> String {
 
 const VALUE: &str = "pub fn brokkr_core::f() -> serde_json::value::Value\n";
 
+const TOO_MANY_LINES: &str = "# produced by quality/measure.sh
+# production
+ 120 crates/demo/src/lib.rs:1 big
+# test
+ 150 crates/demo/tests/t.rs:3 long_test
+";
+
+const VIEW_API: &str = "# produced by quality/measure.sh
+pub fn brokkr_view::a()
+";
+
 const SUPPRESSIONS: &str = "# by lint
 # production
     2 expect clippy::too_many_lines
@@ -240,10 +283,62 @@ fn baselined(at: &Path) {
         );
     }
     write(at, "quality/public-api/brokkr-core.txt", &VALUE.repeat(2));
+    write(at, "quality/public-api/brokkr-view.txt", VIEW_API);
+    write(at, "quality/too-many-lines.txt", TOO_MANY_LINES);
     write(at, "quality/suppressions.txt", SUPPRESSIONS);
     write(at, "quality/duplicate-skips.txt", "syn@2.0.0\n");
     git(at, &["add", "-A"]);
     git(at, &["commit", "-q", "-m", "base"]);
+}
+
+/// Raise every baseline once, and return the line each raise is named by.
+fn raise_everything(at: &Path) -> Vec<&'static str> {
+    let crap = crap_baseline(21, 14, &[("fresh", 16), ("tiny", 4)]);
+    write(at, "quality/crap-baseline.json", &crap);
+    let big = FILE_LINES.replace(
+        "   900 crates/demo/src/big.rs",
+        "   950 crates/demo/src/big.rs",
+    );
+    write(at, "quality/file-lines.txt", &big);
+    let long = TOO_MANY_LINES.replace(
+        " 120 crates/demo/src/lib.rs:1 big",
+        " 125 crates/demo/src/lib.rs:1 big",
+    ) + " 101 crates/demo/src/lib.rs:40 fresh\n";
+    write(at, "quality/too-many-lines.txt", &long);
+    let clones = r#"{"version":1,"fingerprints":{"aa":1,"bb":1}}"#;
+    write(at, "quality/jscpd-baseline-tests.json", clones);
+    write(at, "quality/public-api/brokkr-core.txt", &VALUE.repeat(3));
+    write(
+        at,
+        "quality/public-api/brokkr-view.txt",
+        &(VIEW_API.to_owned() + "pub fn brokkr_view::b()\n"),
+    );
+    write(
+        at,
+        "quality/public-api/brokkr-new.txt",
+        "pub fn brokkr_new::c()\n",
+    );
+    std::fs::remove_file(at.join("quality/jscpd-baseline-data.json")).unwrap();
+    let suppressions =
+        SUPPRESSIONS.replace("    2 expect", "    3 expect") + "    1 allow  dead_code\n";
+    write(at, "quality/suppressions.txt", &suppressions);
+    write(at, "quality/duplicate-skips.txt", "syn@2.0.0\nsyn@3.0.0\n");
+    vec![
+        "crap-baseline.json: ./crates/demo/src/lib.rs big #0 at CC 21 (was 20)",
+        "crap-baseline.json: ./crates/demo/src/lib.rs fresh #0 at CC 16 (was absent)",
+        "file-lines.txt: crates/demo/src/big.rs at 950 lines (was 900)",
+        "too-many-lines.txt: crates/demo/src/lib.rs big #0 at 125 lines (was 120)",
+        "too-many-lines.txt: crates/demo/src/lib.rs fresh #0 at 101 lines (was absent)",
+        "jscpd-baseline-tests.json: new clone bb",
+        "public-api/brokkr-core.txt: 3 public items (was 2)",
+        "public-api/brokkr-view.txt: 2 public items (was 1)",
+        "public-api/brokkr-new.txt: 1 public items (was absent)",
+        "public-api/brokkr-core.txt: 3 items name serde_json::Value (was 2)",
+        "quality/jscpd-baseline-data.json: removed",
+        "suppressions.txt: production expect clippy::too_many_lines at 3 (was 2)",
+        "suppressions.txt: test allow dead_code at 1 (was 0)",
+        "duplicate-skips.txt: new skip syn@3.0.0",
+    ]
 }
 
 /// Every way a baseline can be raised is named, and the set passes only
@@ -253,55 +348,13 @@ fn a_raised_baseline_passes_only_with_a_named_ruling() {
     let repo = scratch();
     let at = repo.path();
     baselined(at);
-    write(
-        at,
-        "quality/crap-baseline.json",
-        &crap_baseline(21, 14, &[("fresh", 16), ("tiny", 4)]),
-    );
-    write(
-        at,
-        "quality/file-lines.txt",
-        &FILE_LINES.replace(
-            "   900 crates/demo/src/big.rs",
-            "   950 crates/demo/src/big.rs",
-        ),
-    );
-    write(
-        at,
-        "quality/jscpd-baseline-tests.json",
-        r#"{"version":1,"fingerprints":{"aa":1,"bb":1}}"#,
-    );
-    write(at, "quality/public-api/brokkr-core.txt", &VALUE.repeat(3));
-    std::fs::remove_file(at.join("quality/jscpd-baseline-data.json")).unwrap();
-    write(
-        at,
-        "quality/suppressions.txt",
-        &(SUPPRESSIONS.replace("    2 expect", "    3 expect") + "    1 allow  dead_code\n"),
-    );
-    write(at, "quality/duplicate-skips.txt", "syn@2.0.0\nsyn@3.0.0\n");
-    let raised = [
-        "crap-baseline.json: ./crates/demo/src/lib.rs big #0 at CC 21 (was 20)",
-        "crap-baseline.json: ./crates/demo/src/lib.rs fresh #0 at CC 16 (was absent)",
-        "file-lines.txt: crates/demo/src/big.rs at 950 lines (was 900)",
-        "jscpd-baseline-tests.json: new clone bb",
-        "public-api/brokkr-core.txt: 3 items name serde_json::Value (was 2)",
-        "quality/jscpd-baseline-data.json: removed",
-        "suppressions.txt: production expect clippy::too_many_lines at 3 (was 2)",
-        "suppressions.txt: test allow dead_code at 1 (was 0)",
-        "duplicate-skips.txt: new skip syn@3.0.0",
-    ];
+    let raised = raise_everything(at);
     let refused = ratchet(at, &["baselines", "HEAD"], None);
     assert_refused(&refused, &raised);
     let text = stderr(&refused);
     assert!(!text.contains("small") && !text.contains("tiny"), "{text}");
-    assert_refused(
-        &ratchet(
-            at,
-            &["baselines", "HEAD"],
-            Some("Mentions Ruling: in passing only"),
-        ),
-        &raised,
-    );
+    let passing = Some("Mentions Ruling: in passing only");
+    assert_refused(&ratchet(at, &["baselines", "HEAD"], passing), &raised);
     let allowed = ratchet(
         at,
         &["baselines", "HEAD"],
@@ -310,6 +363,67 @@ fn a_raised_baseline_passes_only_with_a_named_ruling() {
     assert_holds(
         &allowed,
         "ratchet: raised baselines allowed by: Ruling: #338",
+    );
+}
+
+/// A web form's CRLF body is read with its carriage returns dropped: a
+/// Ruling line that names nothing is refused, and one that names a ruling
+/// passes.
+#[test]
+fn the_ruling_line_must_name_something_whatever_its_line_ends() {
+    let repo = scratch();
+    let at = repo.path();
+    baselined(at);
+    let raised = raise_everything(at);
+    let blank = Some("## What changed\r\n\r\nRuling: \r\n");
+    assert_refused(&ratchet(at, &["baselines", "HEAD"], blank), &raised);
+    let named = Some("## What changed\r\n\r\nRuling: #338\r\n");
+    assert_holds(
+        &ratchet(at, &["baselines", "HEAD"], named),
+        "allowed by: Ruling: #338",
+    );
+}
+
+/// A baseline this check cannot read is refused, and no ruling passes it:
+/// a listing with no entry, and a file listed under the section its path
+/// does not belong to.
+#[test]
+fn a_baseline_this_check_cannot_read_is_refused_under_any_ruling() {
+    let repo = scratch();
+    let at = repo.path();
+    baselined(at);
+    let ruled = Some("Ruling: #338\n");
+    write(at, "quality/file-lines.txt", "# production\n# test\n");
+    assert_refused(
+        &ratchet(at, &["baselines", "HEAD"], ruled),
+        &[
+            "file-lines.txt: no baseline entry parsed",
+            "no ruling passes it",
+        ],
+    );
+    let misfiled = FILE_LINES
+        .replace("   900 crates/demo/src/big.rs\n", "")
+        .replace("# test\n", "# test\n  1900 crates/demo/src/big.rs\n");
+    write(at, "quality/file-lines.txt", &misfiled);
+    assert_refused(
+        &ratchet(at, &["baselines", "HEAD"], ruled),
+        &["file-lines.txt:5: crates/demo/src/big.rs is production code, listed under # test"],
+    );
+    write(at, "quality/file-lines.txt", FILE_LINES);
+    write(
+        at,
+        "quality/too-many-lines.txt",
+        "# production\nnot an entry\n",
+    );
+    assert_refused(
+        &ratchet(at, &["baselines", "HEAD"], ruled),
+        &["too-many-lines.txt:2 is not \"<lines> <path>:<line> <name>\""],
+    );
+    write(at, "quality/too-many-lines.txt", TOO_MANY_LINES);
+    write(at, "quality/crap-baseline.json", "");
+    assert_refused(
+        &ratchet(at, &["baselines", "HEAD"], ruled),
+        &["quality/crap-baseline.json: empty at HEAD or here"],
     );
 }
 
@@ -327,6 +441,16 @@ fn a_lowered_baseline_needs_no_ruling_but_a_changed_rule_does() {
         r#"{"version":1,"fingerprints":{}}"#,
     );
     write(at, "quality/public-api/brokkr-core.txt", VALUE);
+    write(
+        at,
+        "quality/public-api/brokkr-view.txt",
+        "# produced by quality/measure.sh\n",
+    );
+    let shorter = TOO_MANY_LINES.replace(
+        " 120 crates/demo/src/lib.rs:1 big",
+        " 110 crates/demo/src/lib.rs:1 big",
+    );
+    write(at, "quality/too-many-lines.txt", &shorter);
     write(
         at,
         "quality/suppressions.txt",

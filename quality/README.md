@@ -15,7 +15,7 @@ The measurements every code-moving story in epic #330 is judged against. #335 re
 | `duplicate-skips.txt` | Every duplicate crate version `deny.toml`'s `[bans]` skips, as `name@version`. The layering test (`crates/brokkr-cli/tests/layering/`) holds the skip list to it exactly, so a new skip needs an edit of this file (#337) |
 | `ceilings.json` | The ceilings decision 0071 ruling 4 ruled: CC 15 for a new function, 800 lines per production file, 2,000 per test file |
 | `lib.sh` | One home for every measuring command, shared by the two scripts below |
-| `measure.sh` | Regenerates every baseline |
+| `measure.sh` | Regenerates every baseline except `duplicate-skips.txt`, which is edited by hand beside `deny.toml` |
 | `ratchet.sh` | Holds the tree to the baselines |
 
 Every baseline names the tool and version that produced it: a `producedBy` object in each JSON file, and a first `# produced by` line in each text file.
@@ -35,15 +35,19 @@ Every baseline names the tool and version that produced it: a `producedBy` objec
 
 **Matching.** cargo-crap matches a function to its baseline by file and name, not by line, so an edit above a function does not make it new. A function moved to another file, or renamed, is new. If it is over CC 15, its baseline entry moves with a ruling (see below).
 
-**Moving a baseline.** Run `measure.sh` and commit the result:
+**Moving a baseline.** Run `measure.sh` and commit the result (edit `duplicate-skips.txt` by hand with `deny.toml`):
 - a lowered number is always welcome;
-- a raised one fails `ratchet.sh baselines` unless the pull request carries a line of its own reading `Ruling: <where it was ruled>`.
+- a raised one fails `ratchet.sh baselines` unless the pull request carries a line of its own reading `Ruling: <where it was ruled>`, naming something after the colon (line ends are read with any `\r` dropped);
+- a baseline the check cannot read fails, and no ruling passes it: a listing with no entry, a line that is not an entry, a file listed under the section its path does not belong to, or a baseline emptied on either side.
 
 "Raised" means any of these:
 - a function over CC 15 that is new or grew;
-- a file over its ceiling that is new or grew;
+- a file over its ceiling that is new or grew, its ceiling following its path;
+- a function over clippy's 100 lines (`too-many-lines.txt`) that is new or grew;
 - a clone fingerprint not in the earlier baseline;
+- more public items in any crate's snapshot, or a snapshot for a new crate;
 - more items in brokkr-core's public API naming `serde_json::Value`, which decision 0071 ruling 3 ratchets;
+- a lint count that rose in `suppressions.txt`, or a new skip in `duplicate-skips.txt` (#337);
 - a removed baseline;
 - any change to `ceilings.json`, `lib.sh`, `ratchet.sh` or `measure.sh`, since changing how a number is measured changes the number.
 
@@ -81,7 +85,7 @@ Keep `TMPDIR` off `/home`: the hands tests assert that `/home` is empty inside t
 
 ## Definitions
 
-- **Production or test.** A test file is one the exact coverage gate treats as a test, by `scripts/coverage-exact.sh`'s own pattern: under a `tests/` directory, or named `tests.rs` or `*_tests.rs`. Everything else in `crates/` is production.
+- **Production or test.** A test file is one the exact coverage gate treats as a test: under a `tests/`, `examples/` or `benches/` directory, or named `tests.rs`, `*_tests.rs` or `*-tests.rs`. `lib.sh` reads that vocabulary from `scripts/coverage-exact.sh` (`test_dirs`, `test_files`), its one home, and refuses to run if it cannot. Everything else in `crates/` is production.
 - **Paths and order.** Paths are repository-relative. cargo-crap writes them with a leading `./`, which the ratchet, running the same command, matches. Every script runs under `LC_ALL=C`:
   - `file-lines.txt` and the snapshots sort by byte order;
   - `too-many-lines.txt` sorts by `path:line` in version order (`sort -V`), so `:9` comes before `:10`.

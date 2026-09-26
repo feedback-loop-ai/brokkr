@@ -77,29 +77,49 @@ crap() {
   crap_judge "$scratch/crap.json"
 }
 
-files() {
-  local production test
+# parse_file_lines <file> <label> <noun> <dest>: the "<count> <path>" entries
+# of a file-lines listing, as "<count> <path> <ceiling>" in <dest>. A file's
+# ceiling follows its path, read with the gate's one test vocabulary
+# (test_re), never the section it sits under. A line that is not an entry, an
+# entry under the wrong section, or a listing with no entry at all is written
+# to <dest>.offenses.
+parse_file_lines() {
+  local file="$1" label="$2" noun="$3" dest="$4" production test
   production="$(ceiling linesProductionFile)"
   test="$(ceiling linesTestFile)"
-  [ -f "$out/file-lines.txt" ] || refuse "no quality/file-lines.txt"
-  file_lines > "$scratch/current.txt"
-  # A file may grow to its ceiling or its baseline, whichever is higher. A
-  # baseline line that is neither a comment nor "<count> <path>" is refused.
-  awk -v production="$production" -v test="$test" '
-    FNR == NR {
-      if ($0 ~ /^#/) next
-      if ($0 !~ /^ *[0-9]+ [^ ]+$/) { printf "quality/file-lines.txt:%d is not \"<count> <path>\"\n", FNR; bad = 1; next }
-      base[$2] = $1; next
-    }
-    /^# production$/ { limit = production; next }
-    /^# test$/ { limit = test; next }
+  : > "$dest.offenses"
+  RE="$test_re" LABEL="$label" NOUN="$noun" BAD="$dest.offenses" \
+    awk -v production="$production" -v test="$test" '
+    BEGIN { re = ENVIRON["RE"]; bad = ENVIRON["BAD"] }
+    /^# production$/ { section = "production"; next }
+    /^# test$/ { section = "test"; next }
+    /^#/ { next }
+    !/^ *[0-9]+ [^ ]+$/ { printf "%s:%d is not \"<count> <path>\"\n", ENVIRON["LABEL"], FNR > bad; next }
     {
-      seen++
-      allowed = ($2 in base && base[$2] > limit) ? base[$2] : limit
-      if ($1 > allowed) printf "%s: %d lines, over %d\n", $2, $1, allowed
+      class = ($2 ~ re) ? "test" : "production"
+      if (section != class) {
+        printf "%s:%d: %s is %s code, listed under %s\n", ENVIRON["LABEL"], FNR, $2, class,
+          (section == "" ? "no section" : "# " section) > bad
+        next
+      }
+      print $1, $2, (class == "test" ? test : production); n++
     }
-    END { if (!seen) print "no Rust file was measured" }
-  ' "$out/file-lines.txt" "$scratch/current.txt" > "$scratch/files.offenses"
+    END { if (!n) printf "%s: no %s parsed\n", ENVIRON["LABEL"], ENVIRON["NOUN"] > bad }
+  ' "$file" > "$dest"
+}
+
+files() {
+  [ -s "$out/file-lines.txt" ] || refuse "quality/file-lines.txt is missing or empty"
+  parse_file_lines "$out/file-lines.txt" quality/file-lines.txt "baseline entry" "$scratch/base-lines"
+  file_lines > "$scratch/current.txt"
+  parse_file_lines "$scratch/current.txt" "the measured tree" "Rust file" "$scratch/current-lines"
+  cat "$scratch/base-lines.offenses" "$scratch/current-lines.offenses" > "$scratch/files.offenses"
+  # A file may grow to its ceiling or its baseline, whichever is higher.
+  awk 'FILENAME == ARGV[1] { base[$2] = $1; next }
+    {
+      allowed = ($2 in base && base[$2] > $3) ? base[$2] : $3
+      if ($1 > allowed) printf "%s: %d lines, over %d\n", $2, $1, allowed
+    }' "$scratch/base-lines" "$scratch/current-lines" >> "$scratch/files.offenses"
   verdict "file size" "$scratch/files.offenses"
 }
 
@@ -145,13 +165,53 @@ base_file() {
   if git cat-file -e "$1:$2" 2> /dev/null; then git show "$1:$2" > "$3"; else rm -f "$3"; fi
 }
 
-# Every raised baseline since <rev>, one line each, into $scratch/raised.
+# pair <path>: <path> at <rev> into $scratch/base; true when both sides
+# hold something. A baseline emptied on either side is malformed, and a
+# removed one is recorded by raised_since itself.
+pair() {
+  base_file "$rev" "$1" "$scratch/base"
+  [ -f "$scratch/base" ] && [ -e "$1" ] || return 1
+  if [ ! -s "$scratch/base" ] || [ ! -s "$1" ]; then
+    printf '%s: empty at %s or here\n' "$1" "$rev" >> "$scratch/malformed"
+    return 1
+  fi
+}
+
+# json_holds <path> <jq condition> <what>: refuse a JSON baseline, on either
+# side, that does not have the shape its comparison reads.
+json_holds() {
+  local side
+  for side in "$scratch/base" "$1"; do
+    jq -e "$2" "$side" > /dev/null 2>&1 || {
+      printf '%s: %s (%s)\n' "$1" "$3" "$([ "$side" = "$1" ] && echo here || echo "at $rev")" >> "$scratch/malformed"
+      return 1
+    }
+  done
+}
+
+# too_many_lines_keyed <file>: "<path> <name> #<n> <lines>" for each entry of
+# a too-many-lines listing, twins of one name in one file numbered in line
+# order. A line that is not "<lines> <path>:<line> [<name>]" is malformed.
+too_many_lines_keyed() {
+  LABEL="$2" BAD="$scratch/malformed" awk '
+    /^#/ || !NF { next }
+    !/^ *[0-9]+ [^ ]+:[0-9]+( [A-Za-z0-9_]+)?$/ {
+      printf "%s:%d is not \"<lines> <path>:<line> <name>\"\n", ENVIRON["LABEL"], FNR >> ENVIRON["BAD"]; next
+    }
+    {
+      split($2, at, ":"); key = at[1] " " ($3 == "" ? "?" : $3)
+      print key " #" (seen[key]++), $1
+    }' "$1"
+}
+
+# Every raised baseline since <rev>, one line each, into $scratch/raised, and
+# every baseline this check cannot read, into $scratch/malformed.
 raised_since() {
-  local rev="$1" cc production test scope path
+  local cc scope path crate before after
+  rev="$1"
   cc="$(ceiling ccNewFunction)"
-  production="$(ceiling linesProductionFile)"
-  test="$(ceiling linesTestFile)"
   : > "$scratch/raised"
+  : > "$scratch/malformed"
   # The measuring rules themselves.
   for path in quality/ceilings.json quality/lib.sh quality/ratchet.sh quality/measure.sh; do
     base_file "$rev" "$path" "$scratch/base"
@@ -166,8 +226,8 @@ raised_since() {
   done >> "$scratch/raised"
   # Complexity: a function over the ceiling that is new or grew. Twins of one
   # name in one file pair in line order.
-  base_file "$rev" quality/crap-baseline.json "$scratch/base"
-  if [ -f "$scratch/base" ] && [ -f "$out/crap-baseline.json" ]; then
+  if pair quality/crap-baseline.json &&
+    json_holds quality/crap-baseline.json '(.entries | type) == "array" and (.entries | length) > 0' "no baseline entry parsed"; then
     jq -r -n --argjson cc "$cc" --slurpfile base "$scratch/base" --slurpfile head "$out/crap-baseline.json" '
       def keyed: [.entries[]] | group_by([.file, .function])
         | map(sort_by(.line) | to_entries[] | {key: "\(.value.file) \(.value.function) #\(.key)", value: .value.cyclomatic})
@@ -176,47 +236,71 @@ raised_since() {
       | $h | to_entries[] | select(.value > $cc and (($b[.key] // -1) < .value))
       | "crap-baseline.json: \(.key) at CC \(.value) (was \($b[.key] // "absent"))"' >> "$scratch/raised"
   fi
-  # File size: a file over its ceiling that is new or grew.
-  base_file "$rev" quality/file-lines.txt "$scratch/base"
-  if [ -f "$scratch/base" ] && [ -f "$out/file-lines.txt" ]; then
-    awk -v production="$production" -v test="$test" '
-      FNR == NR { if ($0 !~ /^#/) base[$2] = $1; next }
-      /^# production$/ { limit = production; next }
-      /^# test$/ { limit = test; next }
-      /^#/ { next }
-      $1 > limit && (!($2 in base) || $1 > base[$2]) { printf "file-lines.txt: %s at %d lines (was %s)\n", $2, $1, ($2 in base) ? base[$2] : "absent" }
-    ' "$scratch/base" "$out/file-lines.txt" >> "$scratch/raised"
+  # File size: a file over its ceiling that is new or grew, its ceiling
+  # following its path.
+  if pair quality/file-lines.txt; then
+    parse_file_lines "$scratch/base" "file-lines.txt at $rev" "baseline entry" "$scratch/base-lines"
+    parse_file_lines "$out/file-lines.txt" "file-lines.txt" "baseline entry" "$scratch/head-lines"
+    cat "$scratch/base-lines.offenses" "$scratch/head-lines.offenses" >> "$scratch/malformed"
+    awk 'FILENAME == ARGV[1] { base[$2] = $1; next }
+      $1 > $3 && (!($2 in base) || $1 > base[$2]) {
+        printf "file-lines.txt: %s at %d lines (was %s)\n", $2, $1, ($2 in base) ? base[$2] : "absent"
+      }' "$scratch/base-lines" "$scratch/head-lines" >> "$scratch/raised"
+  fi
+  # Function length (#337's reference): an entry that is new or grew.
+  if pair quality/too-many-lines.txt; then
+    too_many_lines_keyed "$scratch/base" "too-many-lines.txt at $rev" > "$scratch/base-long"
+    too_many_lines_keyed "$out/too-many-lines.txt" too-many-lines.txt > "$scratch/head-long"
+    awk 'FILENAME == ARGV[1] { base[$1 " " $2 " " $3] = $4; next }
+      {
+        key = $1 " " $2 " " $3
+        if (!(key in base) || $4 > base[key])
+          printf "too-many-lines.txt: %s at %d lines (was %s)\n", key, $4, (key in base) ? base[key] : "absent"
+      }' "$scratch/base-long" "$scratch/head-long" >> "$scratch/raised"
   fi
   # Duplication: any fingerprint not in the earlier baseline.
   for scope in prod tests data; do
-    base_file "$rev" "quality/jscpd-baseline-$scope.json" "$scratch/base"
-    [ -f "$scratch/base" ] && [ -f "$out/jscpd-baseline-$scope.json" ] || continue
-    jq -r -n --arg scope "$scope" --slurpfile base "$scratch/base" --slurpfile head "$out/jscpd-baseline-$scope.json" '
+    path="quality/jscpd-baseline-$scope.json"
+    pair "$path" && json_holds "$path" '(.fingerprints | type) == "object"' "no fingerprints object" || continue
+    jq -r -n --arg scope "$scope" --slurpfile base "$scratch/base" --slurpfile head "$path" '
       $head[0].fingerprints | to_entries[] | select(.value > ($base[0].fingerprints[.key] // 0))
       | "jscpd-baseline-\($scope).json: new clone \(.key)"' >> "$scratch/raised"
   done
   # Suppressions (#337): a lint's count that rose, per section and kind.
-  base_file "$rev" quality/suppressions.txt "$scratch/base"
-  if [ -f "$scratch/base" ] && [ -f "$out/suppressions.txt" ]; then
+  if pair quality/suppressions.txt; then
     awk '
       /^# (production|test)$/ { section = substr($0, 3); next }
       /^#/ || !NF { next }
-      FNR == NR { base[section " " $2 " " $3] = $1; next }
+      FILENAME == ARGV[1] { base[section " " $2 " " $3] = $1; next }
       {
         key = section " " $2 " " $3; was = (key in base) ? base[key] : 0
         if ($1 > was) printf "suppressions.txt: %s at %d (was %d)\n", key, $1, was
       }' "$scratch/base" "$out/suppressions.txt" >> "$scratch/raised"
   fi
   # Duplicate crate versions (#337): a skip the earlier list did not hold.
+  # An emptied list is a shrink, so this one list may be empty.
   base_file "$rev" quality/duplicate-skips.txt "$scratch/base"
   if [ -f "$scratch/base" ] && [ -f "$out/duplicate-skips.txt" ]; then
-    grep -v '^#' "$out/duplicate-skips.txt" | grep -vxF -f "$scratch/base" |
-      sed 's/^/duplicate-skips.txt: new skip /' >> "$scratch/raised" || true
+    { grep -v '^#' "$out/duplicate-skips.txt" || true; } | { grep -vxF -f "$scratch/base" || true; } |
+      sed 's/^/duplicate-skips.txt: new skip /' >> "$scratch/raised"
   fi
-  # Public API: serde_json::Value in brokkr-core's signatures (decision 0071 ruling 3).
-  base_file "$rev" quality/public-api/brokkr-core.txt "$scratch/base"
-  if [ -f "$scratch/base" ] && [ -f "$out/public-api/brokkr-core.txt" ]; then
-    local before after
+  # Public API: each crate's public items, and serde_json::Value in
+  # brokkr-core's signatures (decision 0071 ruling 3).
+  for path in "$out"/public-api/*.txt; do
+    [ -e "$path" ] || continue
+    crate="$(basename "$path" .txt)"
+    after="$(grep -vc '^#' "$path" || true)"
+    base_file "$rev" "$path" "$scratch/base"
+    if [ -f "$scratch/base" ]; then
+      before="$(grep -vc '^#' "$scratch/base" || true)"
+    else
+      before=absent
+    fi
+    if [ "$before" = absent ] || [ "$after" -gt "$before" ]; then
+      printf 'public-api/%s.txt: %s public items (was %s)\n' "$crate" "$after" "$before" >> "$scratch/raised"
+    fi
+  done
+  if pair quality/public-api/brokkr-core.txt; then
     before="$(grep -c 'serde_json::value::Value' "$scratch/base" || true)"
     after="$(grep -c 'serde_json::value::Value' "$out/public-api/brokkr-core.txt" || true)"
     [ "$after" -le "$before" ] ||
@@ -225,10 +309,14 @@ raised_since() {
 }
 
 baselines() {
-  local rev="${1:-}"
+  rev="${1:-}"
   [ -n "$rev" ] || refuse "baselines needs the revision to compare with"
   git rev-parse --verify --quiet "$rev^{commit}" > /dev/null || refuse "cannot resolve $rev"
   raised_since "$rev"
+  if [ -s "$scratch/malformed" ]; then
+    sed 's/^/  /' "$scratch/malformed" >&2
+    refuse "a baseline this check cannot read; no ruling passes it"
+  fi
   if [ ! -s "$scratch/raised" ]; then
     printf 'ratchet: no baseline raised since %s\n' "$rev"
     return 0
@@ -236,8 +324,12 @@ baselines() {
   sed 's/^/  /' "$scratch/raised" >&2
   # A raised baseline passes only when the pull request names the ruling
   # that allowed it, on a line of its own: "Ruling: <where it was ruled>".
-  if printf '%s\n' "${PR_BODY:-}" | grep -Eq '^Ruling: +[^ ]'; then
-    printf 'ratchet: raised baselines allowed by: %s\n' "$(printf '%s\n' "${PR_BODY:-}" | grep -E '^Ruling: ' | head -n 1)"
+  # A web form sends the body with CRLF line ends, so each \r is dropped
+  # first, and the ruling must name something that is not white space.
+  local ruling
+  ruling="$(printf '%s\n' "${PR_BODY:-}" | tr -d '\r' | grep -E '^Ruling:[[:space:]]+[^[:space:]]' | head -n 1 || true)"
+  if [ -n "$ruling" ]; then
+    printf 'ratchet: raised baselines allowed by: %s\n' "$ruling"
     return 0
   fi
   refuse "a baseline was raised or a measuring rule changed; name the ruling in the pull request as \"Ruling: <reference>\""

@@ -4,11 +4,41 @@
 # which holds the tree to them, so a ratchet measures exactly as its baseline
 # was measured.
 
-# The exact gate's test-file convention (scripts/coverage-exact.sh): a
-# `tests/` directory, `tests.rs` or `*_tests.rs`.
-test_re='(^|/)(tests\.rs|[^/]+_tests\.rs|tests/)'
-test_glob='**/{tests/**/*.rs,tests.rs,*_tests.rs}'
-test_ignore='**/tests/**,**/tests.rs,**/*_tests.rs'
+# The exact gate's test-path vocabulary, read from its one home
+# (scripts/coverage-exact.sh's test_dirs and test_files) rather than copied.
+# A test path lies under a tests/, examples/ or benches/ directory, or is
+# named tests.rs, *_tests.rs or *-tests.rs.
+gate_word() {
+  sed -n "s/^$1='\\(.*\\)'\$/\\1/p" scripts/coverage-exact.sh
+}
+test_dirs="$(gate_word test_dirs)"
+test_files="$(gate_word test_files)"
+if [ -z "$test_dirs" ] || [ -z "$test_files" ]; then
+  printf 'quality: scripts/coverage-exact.sh declares no test_dirs or test_files\n' >&2
+  exit 1
+fi
+test_re="(^|/)(${test_dirs})/|(^|/)(${test_files})\$"
+# jscpd and cargo-crap take globs, not a regex. The directory globs follow
+# test_dirs; the file globs are written for the gate's file vocabulary as it
+# reads today, so a change to it stops here until they are rewritten.
+if [ "$test_files" != 'tests\.rs|[^/]*[_-]tests\.rs' ]; then
+  printf 'quality: the gate'"'"'s test_files changed (%s); rewrite lib.sh'"'"'s globs\n' "$test_files" >&2
+  exit 1
+fi
+test_file_globs=(tests.rs '*_tests.rs' '*-tests.rs')
+IFS='|' read -r -a test_dir_names <<< "$test_dirs"
+test_path_globs=()   # every test path, for --ignore and --exclude
+test_source_globs=() # every test source, for jscpd's --pattern
+for dir in "${test_dir_names[@]}"; do
+  test_path_globs+=("**/$dir/**")
+  test_source_globs+=("$dir/**/*.rs")
+done
+for name in "${test_file_globs[@]}"; do
+  test_path_globs+=("**/$name")
+  test_source_globs+=("$name")
+done
+test_ignore="$(IFS=,; printf '%s' "${test_path_globs[*]}")"
+test_glob="**/{$(IFS=,; printf '%s' "${test_source_globs[*]}")}"
 
 # Left out of the data scan, and why:
 # - contracts/, reference/ and fixtures/ are deliberately frozen copies;
@@ -62,13 +92,12 @@ coverage_exclusions() {
 # excluded, and so is each package the gate excludes by name. `--path .`
 # records repository-relative paths.
 crap_report() {
-  local lcov="$1" out="$2" name
+  local lcov="$1" out="$2" name glob
   local excluded=()
   shift 2
   for name in $(coverage_exclusions); do excluded+=(--exclude "crates/$name/**"); done
-  cargo crap --path . --lcov "$lcov" \
-    --exclude 'target/**' --exclude '**/tests/**' \
-    --exclude '**/tests.rs' --exclude '**/*_tests.rs' \
+  for glob in "${test_path_globs[@]}"; do excluded+=(--exclude "$glob"); done
+  cargo crap --path . --lcov "$lcov" --exclude 'target/**' \
     ${excluded[@]+"${excluded[@]}"} \
     --sort file --format json --output "$out" "$@"
 }
@@ -93,7 +122,7 @@ api_file() {
 rs_lines() { while IFS= read -r file; do printf '%6d %s\n' "$(wc -l < "$file")" "$file"; done; }
 file_lines() {
   printf '# production\n'
-  git ls-files '*.rs' | grep -v -E "$test_re" | sort | rs_lines
+  git ls-files '*.rs' | { grep -v -E "$test_re" || true; } | sort | rs_lines
   printf '# test\n'
-  git ls-files '*.rs' | grep -E "$test_re" | sort | rs_lines
+  git ls-files '*.rs' | { grep -E "$test_re" || true; } | sort | rs_lines
 }
