@@ -1,26 +1,31 @@
 #!/usr/bin/env bash
-# Mutation testing (#289), report only. The exact coverage gate proves
-# every production line runs; a surviving mutant is a line no test checks.
+# Mutation testing (#289). The exact coverage gate proves every
+# production line runs; a surviving mutant is a line no test checks.
 # The scope and the committed misses have one home: this script and
 # quality/mutants/.
 #
-#   scripts/mutants.sh baseline <crate>   measure <crate>'s scope; rewrite its allow-list
-#   scripts/mutants.sh in-diff <base>     mutate what this branch changed since <base>
-#   scripts/mutants.sh shard <k>          one of eight weekly shards of the whole scope
-#   scripts/mutants.sh weekly <dir>       the eight shards' outputs, compared once
+#   scripts/mutants.sh baseline <crate>        measure <crate>'s scope; rewrite its allow-list
+#   scripts/mutants.sh gate <base> brokkr-core fail on a miss this branch adds to brokkr-core
+#   scripts/mutants.sh in-diff <base> [crate]  report what this branch changed since <base>
+#   scripts/mutants.sh shard <k>               one of eight weekly shards of the whole scope
+#   scripts/mutants.sh weekly <dir>            the eight shards' outputs, compared once
 #
-# MUTANTS_OUT names the output directory (target/mutants by default) and
-# MUTANTS_JOBS the parallel jobs (cargo-mutants' own default of one).
+# MUTANTS_OUT names the output directory (target/mutants by default),
+# MUTANTS_JOBS the parallel jobs (cargo-mutants' own default of one), and
+# MUTANTS_ALLOW the directory of committed misses (quality/mutants by
+# default; crates/brokkr-cli/tests/mutants_gate.rs plants its own).
 #
-# A miss is reported, never failed on: the operator rules a gate from the
-# baseline. Anything that stops the report from being true fails instead:
-# a tool error, a failing unmutated tree, an unreadable diff, a run that
-# tested nothing, a missing allow-list, shard or output.
+# The operator ruled on #289 (2026-09-26): brokkr-core's diff is gated, and
+# a pull request that adds a miss there fails. Every other mode reports a
+# miss and never fails on it. Anything that stops a verdict or a report
+# from being true fails in every mode: a tool error, a failing unmutated
+# tree, an unreadable diff, a run that tested nothing, a missing
+# allow-list, shard or output.
 set -euo pipefail
 export LC_ALL=C
 cd "$(git rev-parse --show-toplevel)"
 
-allow=quality/mutants
+allow="${MUTANTS_ALLOW:-quality/mutants}"
 out="${MUTANTS_OUT:-target/mutants}"
 shards=8
 
@@ -141,6 +146,51 @@ timeouts() {
   } | summary
 }
 
+# Write the diff since $1 and list the mutants it touches in the scope of
+# the crates that follow. A diff with no mutant in the scope makes
+# cargo-mutants exit 0 and write nothing, which measure() refuses as a run
+# that measured nothing. Listing first names that case: only an empty list,
+# from a clean exit, means zero; any other list must be measured. A diff
+# that does not apply to the tree exits non-zero and ends the script.
+diff_mutants() {
+  local base="$1"
+  shift
+  mkdir -p "$out"
+  git diff "$base...HEAD" > "$out/branch.diff"
+  scope_args "$@"
+  cargo mutants --list --in-diff "$out/branch.diff" "${args[@]}" > "$out/listed.txt"
+}
+
+# The gate's verdict: print, and fail on, each miss in $2 whose file and
+# mutation occur more often than in the committed list $1. A committed
+# miss at a moved line is accounted for; a second one of the same file
+# and mutation is not. A diff mutates only part of the scope, so a new
+# miss that shares a committed one's file and mutation, where the diff
+# did not reach the committed one, passes here: the weekly report over
+# the whole scope names it.
+gate_misses() {
+  local fresh
+  fresh="$(mktemp)"
+  sort "$2" | awk '
+    function id(line) { sub(/:[0-9]+:[0-9]+: /, ": ", line); return line }
+    NR == FNR { have[id($0)]++; next }
+    { key = id($0); if (++seen[key] > have[key]) print }
+  ' "$1" - > "$fresh"
+  if [ -s "$fresh" ]; then
+    {
+      printf '### brokkr-core misses this diff adds: %s\n\n' "$(wc -l < "$fresh")"
+      sed 's/^/- /' "$fresh"
+    } | summary
+    printf 'mutants: this diff adds %s brokkr-core miss(es); a test must catch each (the #289 gate)\n' \
+      "$(wc -l < "$fresh")" >&2
+    rm -f "$fresh"
+    return 1
+  fi
+  printf '### brokkr-core misses this diff adds: 0 (%s missed, each a committed miss)\n' \
+    "$(wc -l < "$2")" | summary
+  rm -f "$fresh"
+}
+
 case "${1:-}" in
   baseline)
     crate="${2:?usage: scripts/mutants.sh baseline <crate>}"
@@ -150,16 +200,32 @@ case "${1:-}" in
     # the jobs happened to finish in.
     sort "$out/mutants.out/missed.txt" > "$allow/$crate.missed.txt"
     ;;
+  gate)
+    base="${2:?usage: scripts/mutants.sh gate <base commit> brokkr-core}"
+    crate="${3:?usage: scripts/mutants.sh gate <base commit> brokkr-core}"
+    [ "$crate" = brokkr-core ] || {
+      printf 'mutants: only brokkr-core is gated (the operator ruling on #289); %s reports\n' "$crate" >&2
+      exit 1
+    }
+    [ -f "$allow/$crate.missed.txt" ] || {
+      printf 'mutants: %s/%s.missed.txt is missing\n' "$allow" "$crate" >&2
+      exit 1
+    }
+    diff_mutants "$base" "$crate"
+    if [ ! -s "$out/listed.txt" ]; then
+      rm -rf "$out/mutants.out"
+      printf '### brokkr-core mutants in this diff: 0\n' | summary
+      exit 0
+    fi
+    measure --in-diff "$out/branch.diff" "${args[@]}"
+    timeouts "$out/mutants.out/timeout.txt"
+    gate_misses "$allow/$crate.missed.txt" "$out/mutants.out/missed.txt"
+    ;;
   in-diff)
-    base="${2:?usage: scripts/mutants.sh in-diff <base commit>}"
-    mkdir -p "$out"
-    git diff "$base...HEAD" > "$out/branch.diff"
-    scope_args "${crates[@]}"
-    # A diff with no mutant in the scope makes cargo-mutants exit 0 and
-    # write nothing, which measure() refuses as a run that measured
-    # nothing. Listing first names that case: only an empty list, from a
-    # clean exit, reports zero; any other list must be measured.
-    cargo mutants --list --in-diff "$out/branch.diff" "${args[@]}" > "$out/listed.txt"
+    base="${2:?usage: scripts/mutants.sh in-diff <base commit> [crate...]}"
+    shift 2
+    if [ "$#" -eq 0 ]; then set -- "${crates[@]}"; fi
+    diff_mutants "$base" "$@"
     if [ ! -s "$out/listed.txt" ]; then
       rm -rf "$out/mutants.out"
       printf '### Mutants in this diff: 0\n' | summary
@@ -195,5 +261,5 @@ case "${1:-}" in
     report_scope "$out/week.missed.txt"
     timeouts "$out/week.timeout.txt"
     ;;
-  *) printf 'usage: scripts/mutants.sh baseline <crate> | in-diff <base> | shard <k> | weekly <dir>\n' >&2 && exit 1 ;;
+  *) printf 'usage: scripts/mutants.sh baseline <crate> | gate <base> brokkr-core | in-diff <base> [crate...] | shard <k> | weekly <dir>\n' >&2 && exit 1 ;;
 esac

@@ -1,12 +1,17 @@
 name: mutants
 
-# Mutation testing (#289), report only: no job here is a required check.
-# The exact coverage gate proves every production line runs; a surviving
-# mutant is a line no test checks. scripts/mutants.sh holds the scope and
-# the committed misses in quality/mutants/: a pull request's report names
-# every miss in its diff and marks the ones that share a committed miss's
-# file and mutation, and the week's report names the misses no committed
-# one accounts for. The operator rules a gate from that baseline.
+# Mutation testing (#289). The exact coverage gate proves every production
+# line runs; a surviving mutant is a line no test checks. scripts/mutants.sh
+# holds the scope and the committed misses in quality/mutants/.
+#
+# One job is a required check, by the operator's ruling on #289
+# (2026-09-26): "mutants in the diff: brokkr-core" fails a pull request
+# that adds a miss to brokkr-core. brokkr-protocol stays report-only until
+# its hung mutants are reaped, hands.rs also runs brokkr-cli's hands suite,
+# and two weekly cycles come back clean. Its pull-request report names
+# every miss in the diff and marks the ones that share a committed miss's
+# file and mutation; the week's report names the misses no committed one
+# accounts for.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -22,8 +27,41 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The required check: its name is branch protection's, so it changes
+  # only with that setting and docs/guides/contributing-by-hand.md.
+  # brokkr-core is pure, so it needs no box and its own tests are the
+  # whole suite.
+  core-gate:
+    name: 'mutants in the diff: brokkr-core'
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-mutants@27.1.0
+          fallback: none
+      - name: no miss this pull request adds to brokkr-core
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          MUTANTS_JOBS: '2'
+        run: bash scripts/mutants.sh gate "$BASE" brokkr-core
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mutants-in-diff-brokkr-core
+          path: target/mutants/mutants.out/
+
   in-diff:
-    name: mutants in the diff (report only)
+    name: 'mutants in the diff: brokkr-protocol (report only)'
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -48,11 +86,11 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
-        run: bash scripts/mutants.sh in-diff "$BASE"
+        run: bash scripts/mutants.sh in-diff "$BASE" brokkr-protocol
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: mutants-in-diff
+          name: mutants-in-diff-brokkr-protocol
           path: target/mutants/mutants.out/
 
   weekly:
