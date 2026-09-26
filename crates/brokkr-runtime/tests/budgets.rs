@@ -303,20 +303,23 @@ fn every_seat_prompt_stays_within_its_committed_byte_budget() {
     );
 }
 
+/// Why the package count refuses a lockfile.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+enum CountRefusal {
+    #[error("Cargo.lock holds a table this count does not know: {0}")]
+    UnknownTable(String),
+}
+
 /// The package count `Cargo.lock` pins, read as the lockfile's own grammar:
 /// one `[[package]]` table per package. Any other table header is refused
 /// rather than skipped, so a format this reader does not know cannot be
 /// counted as if it did.
-fn packages(lock: &str) -> Result<u64, String> {
+fn packages(lock: &str) -> Result<u64, CountRefusal> {
     let mut packages = 0;
     for line in lock.lines().filter(|line| line.starts_with('[')) {
         match line {
             "[[package]]" => packages += 1,
-            other => {
-                return Err(format!(
-                    "Cargo.lock holds a table this count does not know: {other}"
-                ))
-            }
+            other => return Err(CountRefusal::UnknownTable(other.to_string())),
         }
     }
     Ok(packages)
@@ -346,7 +349,11 @@ fn the_package_count_refuses_a_table_it_does_not_know() {
     );
     assert_eq!(
         packages("[[package]]\n[metadata]\n"),
-        Err("Cargo.lock holds a table this count does not know: [metadata]".to_string())
+        Err(CountRefusal::UnknownTable("[metadata]".to_string()))
+    );
+    assert_eq!(
+        CountRefusal::UnknownTable("[metadata]".to_string()).to_string(),
+        "Cargo.lock holds a table this count does not know: [metadata]"
     );
 }
 
