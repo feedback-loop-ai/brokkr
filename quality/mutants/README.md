@@ -9,7 +9,9 @@ This directory is the committed baseline, measured on `main` at `155aa5f0` (2026
 | `brokkr-core.missed.txt` | Every missed mutant in brokkr-core, as cargo-mutants writes them |
 | `brokkr-protocol.missed.txt` | Every missed mutant in brokkr-protocol's measured scope |
 
-`scripts/mutants.sh` holds the scope and compares a run's misses with these files. A miss's identity is its file and mutation, without the line and column, so an unrelated edit above it does not make it new. `.github/workflows/mutants.yml` runs it on pull requests (only what the diff touched) and weekly in eight shards. Both report only: a miss prints, it never fails a check. The operator rules a gate from this baseline. A tool error, a red unmutated tree, a bad diff, or a missing allow-list or output fails the job instead, because the report would not be true.
+`scripts/mutants.sh` holds the scope and compares a run's misses with these files. A miss's identity is its file and mutation, without the line and column, so an unrelated edit above it does not make it new. `.github/workflows/mutants.yml` runs it on pull requests (only what the diff touched) and weekly in eight shards. Both report only: a miss prints, it never fails a check. The operator rules a gate from this baseline. A tool error, a red unmutated tree, a bad diff, a run that tested nothing, or a missing allow-list, shard or output fails the job instead, because the report would not be true.
+
+Because the identity has no line, only a run over the whole scope subtracts the committed misses, and it counts them: a second miss of a committed file and mutation is new. A pull request mutates only its diff, so its report names every miss and marks the ones that share a committed miss's file and mutation, for a reader to check the line. A weekly shard mutates an eighth of the scope, so no shard subtracts; the week's report joins all eight shards and compares once. A new miss is hidden only when a committed miss of the same file and mutation is fixed in the same week. Timeouts are listed beside the misses, because a timeout can hide one.
 
 ## Refresh
 

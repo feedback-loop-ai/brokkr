@@ -65,6 +65,9 @@ fn write(key: &OsStr, value: Option<&OsStr>) {
     }
 }
 
+/// The two writers the walk refuses outside this file.
+const WRITERS: [&str; 2] = ["set_var", "remove_var"];
+
 /// A test that panics while it holds the guard poisons the lock and
 /// skips its own restore code. The next test still gets the lock, and
 /// finds every variable as it was before the failed test began.
@@ -105,8 +108,9 @@ fn a_panic_under_the_guard_restores_the_environment_and_does_not_cascade() {
 /// An empty offender list proves nothing on its own: a walk that read no
 /// files, or a matcher that sees no writer, passes it on any tree. So the
 /// walk must first show it read the tree (at least `READ_FLOOR` Rust files,
-/// Rust files only, two known ones among them), and the matcher must find
-/// this file's own writes (#413's landing, #289).
+/// Rust files only, two known ones among them, each counted by the matcher
+/// that read it), and the matcher must name exactly this file's own writes
+/// and the `WRITERS` list (#413's landing, #289).
 #[test]
 fn nothing_but_the_guard_writes_the_process_environment() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -131,11 +135,13 @@ fn nothing_but_the_guard_writes_the_process_environment() {
             "{known} unread"
         );
     }
+    // The guard's two writes, one per writer, and the list that names them.
     let mut own = Vec::new();
-    writers_in(root, std::path::Path::new(GUARD), &mut own);
-    assert!(
-        own.len() >= 2,
-        "the matcher misses the guard's own writes: {own:?}"
+    writers_in(root, std::path::Path::new(GUARD), &mut own, &mut Vec::new());
+    assert_eq!(
+        own,
+        [63, 64, 69].map(|line| format!("{GUARD}:{line}")),
+        "the matcher misses the guard's own writes"
     );
     assert_eq!(
         offenders,
@@ -178,20 +184,25 @@ fn writers_under(
         } else if name.extension().is_some_and(|extension| extension == "rs")
             && name != std::path::Path::new(GUARD)
         {
-            writers_in(root, &name, offenders);
-            read.push(name);
+            writers_in(root, &name, offenders, read);
         }
     }
 }
 
-fn writers_in(root: &std::path::Path, name: &std::path::Path, offenders: &mut Vec<String>) {
+/// Name each line of `name` that holds a writer, and record `name` as
+/// read only once its text is in hand, so the walk's count is the files
+/// the matcher saw.
+fn writers_in(
+    root: &std::path::Path,
+    name: &std::path::Path,
+    offenders: &mut Vec<String>,
+    read: &mut Vec<std::path::PathBuf>,
+) {
     let text = std::fs::read_to_string(root.join(name))
         .unwrap_or_else(|error| panic!("{}: {error}", name.display()));
+    read.push(name.to_path_buf());
     for (index, line) in text.lines().enumerate() {
-        if ["set_var", "remove_var"]
-            .iter()
-            .any(|writer| line.contains(writer))
-        {
+        if WRITERS.iter().any(|writer| line.contains(writer)) {
             offenders.push(format!("{}:{}", name.display(), index + 1));
         }
     }

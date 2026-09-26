@@ -3,9 +3,10 @@ name: mutants
 # Mutation testing (#289), report only: no job here is a required check.
 # The exact coverage gate proves every production line runs; a surviving
 # mutant is a line no test checks. scripts/mutants.sh holds the scope and
-# compares each run's misses with the committed ones in quality/mutants/,
-# so a report names only the misses nobody has seen. The operator rules a
-# gate from that baseline.
+# the committed misses in quality/mutants/: a pull request's report names
+# every miss in its diff and marks the ones that share a committed miss's
+# file and mutation, and the week's report names the misses no committed
+# one accounts for. The operator rules a gate from that baseline.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -92,3 +93,24 @@ jobs:
         with:
           name: mutants-shard-${{ matrix.shard }}
           path: target/mutants/mutants.out/
+
+  # A shard holds an eighth of the scope, so it cannot tell a new miss
+  # from a committed one of the same file and mutation that it did not
+  # mutate. The week's misses are compared once, after every shard is
+  # green.
+  weekly-report:
+    name: mutants, the week's report over the whole scope (report only)
+    needs: weekly
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: mutants-shard-*
+          path: target/mutants/shards
+      - name: the week's misses against the committed ones
+        run: bash scripts/mutants.sh weekly target/mutants/shards
