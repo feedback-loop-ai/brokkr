@@ -45,7 +45,7 @@ unknown-git = "deny"
 # entry names the only crates allowed to depend on it directly (its
 # `wrappers`), dev edges included, so a new upward edge of any kind is
 # refused here. cargo-deny cannot tell a dev edge from a normal one, so
-# `crates/brokkr-cli/tests/layering.rs` holds every edge `cargo metadata`
+# `crates/brokkr-cli/tests/layering/` holds every edge `cargo metadata`
 # reports to this table and refuses a normal edge where only a dev one is
 # allowed. It refuses any line here it does not understand, so keep one
 # entry per line. `brokkr-cli` is the root and has no parent to name.

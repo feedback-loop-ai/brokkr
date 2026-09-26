@@ -98,7 +98,7 @@ fn seat_journal() -> Vec<EventEnvelope> {
 // ------------------------------------------------------------- AC-1
 
 // AC-1 (no I/O, no clock, no terminal concept) has one home:
-// crates/brokkr-cli/tests/layering.rs lexes every production file of this
+// crates/brokkr-cli/tests/layering/ lexes every production file of this
 // crate against a closed std allowlist and holds its manifest to a closed
 // dependency set (decision 0071 ruling 1, #336).
 

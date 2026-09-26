@@ -2419,7 +2419,7 @@ impl DshCollector {
 mod observe {
     /// The counters alone: the one place a pure crate holds thread-local
     /// state, and only in its unit tests. The scanner in
-    /// crates/brokkr-cli/tests/layering.rs admits this exemption in exactly
+    /// crates/brokkr-cli/tests/layering/ admits this exemption in exactly
     /// this shape and refuses every other.
     #[expect(
         clippy::disallowed_types,

@@ -3,7 +3,7 @@
 # an environment value arrives as an argument. This file and
 # crates/brokkr-view/clippy.toml are the same bytes, and a crate-level
 # clippy.toml replaces the root one rather than merging with it, so
-# crates/brokkr-cli/tests/layering.rs holds both to each other and to the
+# crates/brokkr-cli/tests/layering/ holds both to each other and to the
 # root's thresholds. Clippy names items, not modules, so the same test
 # lexes both crates' source and refuses every std path outside a closed
 # allowlist.
@@ -88,6 +88,16 @@ disallowed-methods = [
   { path = "time::UtcDateTime::now", reason = "core and view are pure: `now` arrives as an argument", allow-invalid = true },
   { path = "time::UtcOffset::current_local_offset", reason = "core and view are pure: `now` arrives as an argument", allow-invalid = true },
   { path = "time::UtcOffset::local_offset_at", reason = "core and view are pure: the environment arrives as an argument", allow-invalid = true },
+  { path = "time::Duration::time_fn", reason = "core and view are pure: `now` arrives as an argument", allow-invalid = true },
+  { path = "time::Instant::elapsed", reason = "core and view are pure: `now` arrives as an argument", allow-invalid = true },
+  { path = "time::Instant::now", reason = "core and view are pure: `now` arrives as an argument", allow-invalid = true },
+  { path = "time::SignedDuration::time_fn", reason = "core and view are pure: `now` arrives as an argument", allow-invalid = true },
+  { path = "time::Timestamp::now", reason = "core and view are pure: `now` arrives as an argument", allow-invalid = true },
+  { path = "time::util::local_offset::get_soundness", reason = "core and view are pure: the environment arrives as an argument", allow-invalid = true },
+  { path = "time::util::local_offset::set_soundness", reason = "core and view are pure: the environment arrives as an argument", allow-invalid = true },
+  { path = "time::util::refresh_tz", reason = "core and view are pure: the environment arrives as an argument", allow-invalid = true },
+  { path = "time::util::refresh_tz_unchecked", reason = "core and view are pure: the environment arrives as an argument", allow-invalid = true },
+  { path = "url::Url::socket_addrs", reason = "core and view are pure: DNS and the network live in bridge", allow-invalid = true },
   { path = "uuid::Uuid::new_v4", reason = "core and view are pure: fresh ids are drawn in store and runtime", allow-invalid = true },
   { path = "uuid::Uuid::new_v7", reason = "core and view are pure: fresh ids are drawn in store and runtime", allow-invalid = true },
   { path = "uuid::Uuid::now_v1", reason = "core and view are pure: fresh ids are drawn in store and runtime", allow-invalid = true },

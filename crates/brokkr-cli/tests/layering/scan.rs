@@ -1,574 +1,10 @@
-//! Decision 0071 ruling 1's gates that `cargo-deny` and clippy cannot
-//! hold alone (#336). Each is closed: what it does not list, it refuses.
-//!
-//! `deny.toml` is the one home of the crate graph: each `[bans]` entry
-//! names the only crates allowed to depend on it directly. cargo-deny
-//! cannot tell a dev edge from a normal one, and Cargo accepts a dev edge
-//! that cycles, so the test here holds every edge `cargo metadata`
-//! reports, dev ones included, to the same table, read strictly. A pure
-//! crate's own edges are held to a closed set, which the test keeps in
-//! agreement with the table, and every resolved package outside the
-//! workspace must come from crates.io. The purity half checks that core
-//! and view share one `clippy.toml` which repeats the root's thresholds,
-//! and lexes their production source, comments and literals stripped, so
-//! that every path under `std`, `core` or `alloc` and every macro they
-//! name falls under an allowlist.
+//! The purity scan of decision 0071 ruling 1 (#336): a lexer that strips
+//! comments and reads literals before anything is matched, the closed std,
+//! macro and source allowlists, the attribute-string reader, and the module
+//! resolver that decides which files a pure crate compiles outside
+//! `#[cfg(test)]`.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::OnceLock;
-
-use serde::Deserialize;
-
-fn workspace() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crates/")
-        .parent()
-        .expect("workspace root")
-        .to_path_buf()
-}
-
-fn read(relative: &str) -> String {
-    let path = workspace().join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
-
-/// The part of `cargo metadata --format-version 1` this test reads. Cargo
-/// adds fields to the format over time, so unknown fields are ignored; an
-/// unknown dependency kind fails the parse.
-#[derive(Deserialize)]
-struct Metadata {
-    packages: Vec<Package>,
-    workspace_members: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct Package {
-    id: String,
-    name: String,
-    /// `None` for a path package, the registry or git URL otherwise.
-    source: Option<String>,
-    dependencies: Vec<Dependency>,
-    /// Every root Cargo compiles for the package: lib, bins, tests,
-    /// examples, benches and a build script alike.
-    targets: Vec<Target>,
-}
-
-/// One compiled root: its kinds as Cargo names them (`lib`, `test`,
-/// `custom-build`, …) and the file it starts from.
-#[derive(Deserialize)]
-struct Target {
-    kind: Vec<String>,
-    src_path: PathBuf,
-}
-
-/// One manifest edge as Cargo read it: `name` is the package's own name
-/// even when the manifest renames it, and every key form, quoted or
-/// dotted, and every target table arrives here the same way.
-#[derive(Deserialize)]
-struct Dependency {
-    name: String,
-    /// Cargo writes `null` for a normal edge.
-    kind: Option<Kind>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-enum Kind {
-    Normal,
-    Dev,
-    Build,
-}
-
-/// The workspace's packages, their edges, their targets and every package
-/// they resolve to, as Cargo reads the manifests and the lockfile, read
-/// once per test binary. Cargo's stderr carries progress such as a wait
-/// for the package cache lock, so only its exit status is judged.
-fn metadata() -> &'static Metadata {
-    static METADATA: OnceLock<Metadata> = OnceLock::new();
-    METADATA.get_or_init(|| {
-        let output = Command::new(env!("CARGO"))
-            .args([
-                "metadata",
-                "--format-version",
-                "1",
-                "--all-features",
-                "--locked",
-                "--offline",
-            ])
-            .arg("--manifest-path")
-            .arg(workspace().join("Cargo.toml"))
-            .output()
-            .expect("cargo runs");
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "cargo metadata reads the workspace: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        serde_json::from_slice(&output.stdout).expect("cargo metadata's format 1")
-    })
-}
-
-/// The one registry every package outside the workspace comes from.
-const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
-
-/// Ruling 1's closed sets: every crate a pure crate may depend on
-/// directly, of any kind. An edge outside its set is refused whether or
-/// not `deny.toml` governs the crate, and the test holds the sets and the
-/// table's wrappers to one another.
-const PURE: [(&str, &[&str]); 2] = [
-    (
-        "brokkr-core",
-        &[
-            "hex",
-            "serde",
-            "serde_json",
-            "sha2",
-            "thiserror",
-            "time",
-            "url",
-        ],
-    ),
-    ("brokkr-view", &["brokkr-core", "serde", "serde_json"]),
-];
-
-/// The `deny.toml` wrappers the tests alone take: each is a dev edge that
-/// points down or sideways, never above its crate's layer. cargo-deny
-/// admits a wrapper's edge of any kind, so this test refuses a normal or
-/// build edge between these pairs.
-const DEV_ONLY: [(&str, &str); 3] = [
-    ("brokkr-runtime", "rusqlite"),
-    ("brokkr-bridge", "rusqlite"),
-    ("brokkr-cli", "rusqlite"),
-];
-
-/// The workspace crates `deny.toml` does not place in the graph: the
-/// binary, which nothing may depend on. A crate added here is one no other
-/// crate may name, so cargo-deny has nothing to govern.
-const UNGOVERNED: [&str; 1] = ["brokkr-cli"];
-
-/// Each governed crate and the crates allowed to depend on it directly.
-type Graph = BTreeMap<String, BTreeSet<String>>;
-
-/// A `deny.toml` line the strict reader below does not understand.
-#[derive(Debug, PartialEq)]
-struct NotUnderstood {
-    line: usize,
-    text: String,
-}
-
-/// `deny.toml`'s `[bans]` entries, read strictly: inside the table every
-/// line is `deny = [`, `]`, a comment, or one whole entry in the house
-/// form, and outside it no line names `bans` or could spell it through an
-/// escape or a multi-line string. Anything else is refused, never skipped,
-/// so the graph read here is the graph cargo-deny enforces.
-fn allowed_parents(deny: &str) -> Result<Graph, NotUnderstood> {
-    let mut parents = Graph::new();
-    let mut in_bans = false;
-    let mut seen_bans = false;
-    for (index, line) in deny.lines().enumerate() {
-        let refuse = || NotUnderstood {
-            line: index + 1,
-            text: line.to_string(),
-        };
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if trimmed.starts_with('[') {
-            in_bans = line == "[bans]";
-            if (in_bans && seen_bans) || (!in_bans && trimmed.contains("bans")) {
-                return Err(refuse());
-            }
-            seen_bans |= in_bans;
-            continue;
-        }
-        if !in_bans {
-            if ["bans", "\\", "\"\"\"", "'''"]
-                .iter()
-                .any(|word| trimmed.contains(word))
-            {
-                return Err(refuse());
-            }
-            continue;
-        }
-        if trimmed == "deny = [" || trimmed == "]" {
-            continue;
-        }
-        let (name, wrappers) = ban_entry(line).ok_or_else(refuse)?;
-        if parents.insert(name, wrappers).is_some() {
-            return Err(refuse());
-        }
-    }
-    Ok(parents)
-}
-
-/// One `[bans]` entry in the house form, or `None`:
-/// `  { crate = "name", wrappers = ["a", "b"], reason = "…" },`
-fn ban_entry(line: &str) -> Option<(String, BTreeSet<String>)> {
-    let plain = |name: &str| {
-        !name.is_empty()
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    };
-    let rest = line.strip_prefix("  { crate = \"")?;
-    let (name, rest) = rest.split_once("\", wrappers = [")?;
-    let (list, rest) = rest.split_once("], reason = \"")?;
-    let reason = rest.strip_suffix("\" },")?;
-    if !plain(name) || reason.contains(['"', '\\']) {
-        return None;
-    }
-    let wrappers = list
-        .split(", ")
-        .map(|wrapper| {
-            let wrapper = wrapper.strip_prefix('"')?.strip_suffix('"')?;
-            plain(wrapper).then(|| wrapper.to_string())
-        })
-        .collect::<Option<BTreeSet<String>>>()?;
-    Some((name.to_string(), wrappers))
-}
-
-/// The strict reader refuses each form it does not understand by its
-/// line, rather than skip it.
-#[test]
-fn the_bans_reader_refuses_what_it_does_not_understand() {
-    let entry = r#"  { crate = "rusqlite", wrappers = ["brokkr-store"], reason = "r" },"#;
-    let table = |line: &str| format!("[bans]\ndeny = [\n{entry}\n{line}\n]\n");
-    let refused = |line: usize, text: &str| {
-        Err(NotUnderstood {
-            line,
-            text: text.to_string(),
-        })
-    };
-    assert_eq!(
-        allowed_parents(&table("")),
-        Ok(Graph::from([(
-            "rusqlite".to_string(),
-            BTreeSet::from(["brokkr-store".to_string()])
-        )]))
-    );
-    for line in [
-        r#"    { crate = "ureq", wrappers = ["brokkr-bridge"], reason = "r" },"#,
-        r#"  { crate = "ureq", wrappers = ["brokkr-bridge"], reason = "r" }, # c"#,
-        r#"  { crate = "ureq","#,
-        r#"  { crate = "ureq@2", wrappers = ["brokkr-bridge"], reason = "r" },"#,
-        r#"  { crate = "rusqlite", wrappers = ["brokkr-cli"], reason = "r" },"#,
-        r#"allow = ["ureq"]"#,
-    ] {
-        assert_eq!(allowed_parents(&table(line)), refused(4, line), "{line}");
-    }
-    let escaped = format!("\"{}u0062ans\".deny = []", '\\');
-    for (text, at, line) in [
-        ("bans.deny = []", 1, "bans.deny = []"),
-        ("[ bans ]", 1, "[ bans ]"),
-        (escaped.as_str(), 1, escaped.as_str()),
-        ("notes = \"\"\"\n[bans]\n\"\"\"", 1, "notes = \"\"\""),
-        ("[bans]\n[graph]\n[bans]", 3, "[bans]"),
-    ] {
-        assert_eq!(allowed_parents(text), refused(at, line), "{text}");
-    }
-}
-
-/// Every edge of `members` the allowed graph refuses, as
-/// `parent -> child (kind): why`. No edge is skipped: a pure crate's edge
-/// must be in its closed set, a workspace crate must be governed, a
-/// governed crate's wrappers must name the parent, and a dev-only wrapper
-/// admits a dev edge alone. An external crate `deny.toml` does not govern
-/// is open to every crate but the pure ones.
-fn refused_edges(members: &[&Package], parents: &Graph) -> Vec<String> {
-    let workspace: BTreeSet<&str> = members.iter().map(|member| member.name.as_str()).collect();
-    let mut refused = Vec::new();
-    for package in members {
-        let closed = PURE
-            .iter()
-            .find(|(name, _)| *name == package.name)
-            .map(|(_, set)| *set);
-        for dependency in &package.dependencies {
-            let kind = dependency.kind.unwrap_or(Kind::Normal);
-            let pair = (package.name.as_str(), dependency.name.as_str());
-            let allowed = parents.get(&dependency.name);
-            let why = if closed.is_some_and(|set| !set.contains(&pair.1)) {
-                "outside the pure crate's closed set"
-            } else if allowed.is_none() && workspace.contains(pair.1) {
-                "a workspace crate deny.toml does not govern"
-            } else if allowed.is_some_and(|allowed| !allowed.contains(pair.0)) {
-                "its [bans] wrappers do not name the parent"
-            } else if DEV_ONLY.contains(&pair) && kind != Kind::Dev {
-                "a dev-only wrapper"
-            } else {
-                continue;
-            };
-            refused.push(format!("{} -> {} ({kind:?}): {why}", pair.0, pair.1));
-        }
-    }
-    refused
-}
-
-/// The refusal names each form of edge the graph does not allow, and
-/// passes an external crate no entry governs only above the pure crates.
-#[test]
-fn the_graph_refuses_every_edge_it_does_not_allow() {
-    let parents = allowed_parents(&read("deny.toml")).expect("deny.toml's [bans] reads");
-    let package = |name: &str, dependencies: &[(&str, Option<Kind>)]| Package {
-        id: name.to_string(),
-        name: name.to_string(),
-        source: None,
-        dependencies: dependencies
-            .iter()
-            .map(|(name, kind)| Dependency {
-                name: name.to_string(),
-                kind: *kind,
-            })
-            .collect(),
-        targets: Vec::new(),
-    };
-    let packages = [
-        package(
-            "brokkr-core",
-            &[("time", None), ("tempfile", Some(Kind::Dev))],
-        ),
-        package("brokkr-view", &[("brokkr-core", None), ("uuid", None)]),
-        package(
-            "brokkr-store",
-            &[("tempfile", None), ("brokkr-runtime", Some(Kind::Dev))],
-        ),
-        package("brokkr-runtime", &[("rusqlite", Some(Kind::Build))]),
-        package("brokkr-bridge", &[("brokkr-cli", Some(Kind::Dev))]),
-        package("brokkr-cli", &[("rusqlite", Some(Kind::Dev))]),
-    ];
-    assert_eq!(
-        refused_edges(&packages.iter().collect::<Vec<_>>(), &parents),
-        [
-            "brokkr-core -> tempfile (Dev): outside the pure crate's closed set",
-            "brokkr-view -> uuid (Normal): outside the pure crate's closed set",
-            "brokkr-store -> brokkr-runtime (Dev): its [bans] wrappers do not name the parent",
-            "brokkr-runtime -> rusqlite (Build): a dev-only wrapper",
-            "brokkr-bridge -> brokkr-cli (Dev): a workspace crate deny.toml does not govern",
-        ]
-    );
-}
-
-/// Ruling 1, the one-way graph: every workspace crate but the binary is
-/// governed by `deny.toml`, the pure crates' closed sets agree with its
-/// wrappers, every edge Cargo reads is allowed, and every package the
-/// workspace resolves to outside it comes from crates.io.
-#[test]
-fn every_manifest_edge_is_in_the_allowed_graph() {
-    let parents = allowed_parents(&read("deny.toml")).expect("deny.toml's [bans] reads");
-    let metadata = metadata();
-    let members: Vec<&Package> = metadata
-        .packages
-        .iter()
-        .filter(|package| metadata.workspace_members.contains(&package.id))
-        .collect();
-    let ungoverned: Vec<&str> = members
-        .iter()
-        .map(|package| package.name.as_str())
-        .filter(|name| !parents.contains_key(*name))
-        .collect();
-    assert_eq!(
-        ungoverned, UNGOVERNED,
-        "deny.toml places every library crate in the graph"
-    );
-    let disagreements: Vec<String> = PURE
-        .iter()
-        .flat_map(|(pure, closed)| {
-            parents
-                .iter()
-                .filter(|(child, wrappers)| {
-                    wrappers.contains(*pure) != closed.contains(&child.as_str())
-                })
-                .map(move |(child, _)| format!("{pure} -> {child}"))
-        })
-        .collect();
-    assert_eq!(
-        disagreements,
-        Vec::<String>::new(),
-        "a pure crate's closed set and deny.toml's wrappers name the same governed crates"
-    );
-    assert_eq!(
-        refused_edges(&members, &parents),
-        Vec::<String>::new(),
-        "edges outside the one-way graph (decision 0071 ruling 1)"
-    );
-    let dev_only_used: BTreeSet<(&str, &str)> = members
-        .iter()
-        .flat_map(|package| {
-            package
-                .dependencies
-                .iter()
-                .filter(|dependency| dependency.kind == Some(Kind::Dev))
-                .map(|dependency| (package.name.as_str(), dependency.name.as_str()))
-        })
-        .filter(|pair| DEV_ONLY.contains(pair))
-        .collect();
-    assert_eq!(
-        dev_only_used,
-        BTreeSet::from(DEV_ONLY),
-        "every dev-only wrapper is a dev edge in use"
-    );
-    let unknown: Vec<String> = metadata
-        .packages
-        .iter()
-        .filter(|package| {
-            let member = metadata.workspace_members.contains(&package.id);
-            package.source.as_deref() != (!member).then_some(CRATES_IO)
-        })
-        .map(|package| format!("{} ({:?})", package.name, package.source))
-        .collect();
-    assert_eq!(
-        unknown,
-        Vec::<String>::new(),
-        "every package is a workspace member or comes from crates.io"
-    );
-}
-
-/// Every root a pure crate compiles that the purity scan would not read,
-/// as `crate kind at path`: the scan walks `src/` from `src/lib.rs`, so the
-/// crate must have exactly that one lib, and every other root must be a
-/// test under `tests/`. A build script, a bin, an example, a bench, a lib
-/// elsewhere or a second lib is refused.
-fn target_refusals(package: &Package, dir: &Path) -> Vec<String> {
-    let mut refused = Vec::new();
-    let mut libs = 0;
-    for target in &package.targets {
-        let kind = target.kind.join(",");
-        let reached = match kind.as_str() {
-            "lib" => {
-                libs += 1;
-                target.src_path == dir.join("src").join("lib.rs")
-            }
-            "test" => target.src_path.starts_with(dir.join("tests")),
-            _ => false,
-        };
-        if !reached {
-            let at = target
-                .src_path
-                .strip_prefix(dir)
-                .unwrap_or(&target.src_path);
-            refused.push(format!("{} {kind} at {}", package.name, at.display()));
-        }
-    }
-    if libs != 1 {
-        refused.push(format!("{}: {libs} lib targets", package.name));
-    }
-    refused
-}
-
-/// The target check refuses each root outside the scan's reach.
-#[test]
-fn the_target_check_refuses_every_root_the_scan_does_not_read() {
-    let dir = Path::new("/w/crates/brokkr-core");
-    let target = |kind: &str, path: &str| Target {
-        kind: vec![kind.to_string()],
-        src_path: dir.join(path),
-    };
-    let package = |targets: Vec<Target>| Package {
-        id: "brokkr-core".to_string(),
-        name: "brokkr-core".to_string(),
-        source: None,
-        dependencies: Vec::new(),
-        targets,
-    };
-    let clean = package(vec![
-        target("lib", "src/lib.rs"),
-        target("test", "tests/fold_test.rs"),
-    ]);
-    assert_eq!(target_refusals(&clean, dir), Vec::<String>::new());
-    let planted = package(vec![
-        target("lib", "other.rs"),
-        target("custom-build", "build.rs"),
-        target("bin", "src/main.rs"),
-        target("example", "examples/e.rs"),
-        target("bench", "benches/b.rs"),
-        target("test", "src/pure_tests.rs"),
-        target("lib", "src/lib.rs"),
-    ]);
-    assert_eq!(
-        target_refusals(&planted, dir),
-        [
-            "brokkr-core lib at other.rs",
-            "brokkr-core custom-build at build.rs",
-            "brokkr-core bin at src/main.rs",
-            "brokkr-core example at examples/e.rs",
-            "brokkr-core bench at benches/b.rs",
-            "brokkr-core test at src/pure_tests.rs",
-            "brokkr-core: 2 lib targets",
-        ]
-    );
-    assert_eq!(
-        target_refusals(&package(vec![]), dir),
-        ["brokkr-core: 0 lib targets"]
-    );
-}
-
-/// Ruling 1: each pure crate compiles only roots the purity scan reads, as
-/// Cargo reports them.
-#[test]
-fn the_pure_crates_compile_only_what_the_scan_reads() {
-    let metadata = metadata();
-    let root = workspace();
-    let refused: Vec<String> = PURE
-        .iter()
-        .flat_map(|(name, _)| {
-            let package = metadata
-                .packages
-                .iter()
-                .find(|package| {
-                    package.name == *name && metadata.workspace_members.contains(&package.id)
-                })
-                .unwrap_or_else(|| panic!("{name} is a workspace member"));
-            target_refusals(package, &root.join("crates").join(name))
-        })
-        .collect();
-    assert_eq!(
-        refused,
-        Vec::<String>::new(),
-        "a pure crate compiles a root the purity scan never reads (decision 0071 ruling 1)"
-    );
-}
-
-/// The threshold lines of a clippy config: every top-level key but the
-/// crate-local disallowed lists.
-fn thresholds(config: &str) -> BTreeSet<String> {
-    config
-        .lines()
-        .filter(|line| line.starts_with(|c: char| c.is_ascii_alphabetic()))
-        .filter(|line| !line.starts_with("disallowed-"))
-        .map(str::to_string)
-        .collect()
-}
-
-/// A crate-level `clippy.toml` replaces the root one rather than merging
-/// with it, so the pure crates' config repeats every root threshold.
-#[test]
-fn the_pure_crates_share_one_clippy_config_that_repeats_the_root_thresholds() {
-    let core = read("crates/brokkr-core/clippy.toml");
-    assert_eq!(
-        read("crates/brokkr-view/clippy.toml"),
-        core,
-        "core and view hold one purity config"
-    );
-    let root: String = ["clippy.toml", ".clippy.toml"]
-        .iter()
-        .map(
-            |name| match std::fs::read_to_string(workspace().join(name)) {
-                Ok(text) => text,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-                Err(error) => panic!("{name}: {error}"),
-            },
-        )
-        .collect();
-    assert_eq!(
-        thresholds(&core),
-        thresholds(&root),
-        "the root's thresholds, repeated"
-    );
-}
+use super::*;
 
 /// The crates a path may be rooted at to reach the standard library.
 const ROOTS: [&str; 3] = ["std", "core", "alloc"];
@@ -660,15 +96,19 @@ const BUILTIN_MACROS: [&str; 56] = [
 ];
 
 /// The lint names an `allow`, `expect` or `warn` in a pure crate may not
-/// lower: the crate-local purity lints, the clippy groups that hold them,
-/// and `warnings`. [`admitted_exemption`] names the one exception.
-const PURITY_LINTS: [&str; 6] = [
+/// lower: the crate-local purity lints under their current and renamed
+/// names, the clippy groups that hold them, `warnings`, and
+/// `renamed_and_removed_lints`, which would silence a renamed one. [`admitted_exemption`] names the one exception.
+const PURITY_LINTS: [&str; 9] = [
     "warnings",
     "clippy::all",
     "clippy::style",
     "clippy::disallowed_macros",
     "clippy::disallowed_methods",
     "clippy::disallowed_types",
+    "clippy::disallowed_method",
+    "clippy::disallowed_type",
+    "renamed_and_removed_lints",
 ];
 
 /// Clock and randomness sources from the crates the pure crates may use,
@@ -715,13 +155,9 @@ fn word_end(chars: &[char], at: usize) -> usize {
 /// (nested) and doc comments are dropped, and each literal reads as
 /// [`LITERAL`], so neither can hide code or pose as it. Words (a raw
 /// identifier's `r#` dropped), `::` and lifetimes are one token each,
-/// every other non-space character is its own.
-fn lex(source: &str) -> Vec<Token> {
-    lex_with_literals(source).0
-}
-
-/// [`lex`], and the source text of every [`LITERAL`] token, keyed by the
-/// token's index, quotes and prefixes included.
+/// every other non-space character is its own. Beside the tokens, the
+/// source text of every [`LITERAL`] token, keyed by the token's index,
+/// quotes and prefixes included.
 fn lex_with_literals(source: &str) -> (Vec<Token>, BTreeMap<usize, String>) {
     let chars: Vec<char> = source.chars().collect();
     let (mut tokens, mut literals) = (Vec::new(), BTreeMap::new());
@@ -1196,6 +632,77 @@ fn admitted_exemption(tokens: &[Token], blocks: &Blocks, at: usize, end: usize) 
         && blocks.at[close + 1] == Some(end + 3)
 }
 
+/// The index of the bracket closing the one opening at `open`, `(`, `[`
+/// or `{`, counting only brackets of that kind, or `None` if it never does.
+fn closing(tokens: &[Token], open: usize) -> Option<usize> {
+    let (opener, closer) = match text(tokens, open) {
+        "(" => ("(", ")"),
+        "[" => ("[", "]"),
+        "{" => ("{", "}"),
+        _ => return None,
+    };
+    let mut depth = 0;
+    for (index, (_, token)) in tokens.iter().enumerate().skip(open) {
+        if token == opener {
+            depth += 1;
+        } else if token == closer {
+            depth -= 1;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
+}
+
+/// The spans of every `macro_rules!` body, whatever its delimiter. An
+/// unclosed body runs to the end of the file.
+fn macro_bodies(tokens: &[Token]) -> Vec<(usize, usize)> {
+    (0..tokens.len())
+        .filter(|&at| text(tokens, at) == "macro_rules" && text(tokens, at + 1) == "!")
+        .map(|at| (at, closing(tokens, at + 3).unwrap_or(tokens.len())))
+        .collect()
+}
+
+/// The outer attributes written before the item whose keyword is at `at`,
+/// past its visibility, as `(#, ])` index pairs.
+fn outer_attributes(tokens: &[Token], at: usize) -> Vec<(usize, usize)> {
+    let mut start = at;
+    if text(tokens, start.wrapping_sub(1)) == ")" {
+        let open = (0..start - 1)
+            .rev()
+            .find(|&index| closing(tokens, index) == Some(start - 1));
+        if let Some(open) = open.filter(|&open| text(tokens, open.wrapping_sub(1)) == "pub") {
+            start = open - 1;
+        }
+    } else if text(tokens, start.wrapping_sub(1)) == "pub" {
+        start -= 1;
+    }
+    let mut attributes = Vec::new();
+    while text(tokens, start.wrapping_sub(1)) == "]" {
+        let Some(open) = (0..start - 1)
+            .rev()
+            .find(|&index| closing(tokens, index) == Some(start - 1))
+        else {
+            break;
+        };
+        if open == 0 || text(tokens, open - 1) != "#" {
+            break;
+        }
+        attributes.push((open - 1, start - 1));
+        start = open - 1;
+    }
+    attributes
+}
+
+/// Whether one of `attributes` is exactly `#[cfg(test)]`.
+fn gated_by_cfg_test(tokens: &[Token], attributes: &[(usize, usize)]) -> bool {
+    let exact = ["#", "[", "cfg", "(", "test", ")", "]"];
+    attributes
+        .iter()
+        .any(|&(from, to)| (from..=to).map(|index| text(tokens, index)).eq(exact))
+}
+
 /// One lexed source file of a pure crate, and where it sits in the
 /// workspace, which a `#[path]` resolves against and names the crate.
 struct Scanned<'a> {
@@ -1279,19 +786,26 @@ fn test_self_alias(scan: &Scanned, at: usize) -> bool {
 }
 
 /// Every item form the pure crates may not take: an `extern crate`, a
-/// `#[path]`, a `mod tests;` outside `#[cfg(test)]`, a lowered purity lint,
+/// `#[path]`, a `mod tests` outside `#[cfg(test)]`, a `mod` inside a
+/// `macro_rules!` body, a lowered purity lint,
 /// a `macro_rules!` shadowing a builtin, a macro outside the allowlist or
 /// out of its definition's scope, and a clock or randomness source. Code
 /// under exactly `#[cfg(test)]` may take two of them: a `#[path]` to a
 /// gate test path, and an alias of the crate itself.
 fn form_refusals(scan: &Scanned) -> Vec<(usize, String)> {
     let (tokens, blocks) = (scan.tokens, scan.blocks);
+    let bodies = macro_bodies(tokens);
     let mut found = Vec::new();
     for (at, (line, token)) in tokens.iter().enumerate() {
         let what = match (token.as_str(), text(tokens, at + 1), text(tokens, at + 2)) {
             ("extern", "crate", _) if !test_self_alias(scan, at) => "an extern crate".to_string(),
-            ("mod", "tests", ";") if !under_cfg_test(tokens, at) => {
-                "a `mod tests;` outside #[cfg(test)]".to_string()
+            ("mod", _, ";" | "{") if bodies.iter().any(|(from, to)| (*from..*to).contains(&at)) => {
+                "a `mod` inside a macro_rules! body".to_string()
+            }
+            ("mod", "tests", ";" | "{")
+                if !gated_by_cfg_test(tokens, &outer_attributes(tokens, at)) =>
+            {
+                "a `mod tests` outside #[cfg(test)]".to_string()
             }
             ("#", _, _) if sets_a_path(tokens, at) && !test_path_module(scan, at) => {
                 "a #[path] attribute".to_string()
@@ -1318,9 +832,173 @@ fn form_refusals(scan: &Scanned) -> Vec<(usize, String)> {
             (name, _, _) if SOURCES.contains(&name) => {
                 format!("{name}: a clock or randomness source")
             }
+            (name, _, _) if effect_of(name).is_some() => {
+                format!(
+                    "{name}: an effectful item of {}",
+                    effect_of(name).unwrap_or_default()
+                )
+            }
             _ => continue,
         };
         found.push((*line, what));
+    }
+    found
+}
+
+/// Attribute keys whose string is a path the attribute compiles into
+/// code: serde's callbacks, conversions and bounds, and `crate`.
+const PATH_KEYS: [&str; 12] = [
+    "bound",
+    "crate",
+    "default",
+    "deserialize_with",
+    "from",
+    "getter",
+    "into",
+    "remote",
+    "serialize_with",
+    "skip_serializing_if",
+    "try_from",
+    "with",
+];
+
+/// Attribute keys whose string is data the attribute never runs: names,
+/// messages, reasons and `cfg` values. `serialize` and `deserialize` are
+/// data under these and a path under [`PATH_KEYS`].
+const DATA_KEYS: [&str; 21] = [
+    "alias",
+    "content",
+    "deprecated",
+    "doc",
+    "expecting",
+    "feature",
+    "must_use",
+    "note",
+    "reason",
+    "rename",
+    "rename_all",
+    "rename_all_fields",
+    "since",
+    "tag",
+    "target_arch",
+    "target_endian",
+    "target_env",
+    "target_family",
+    "target_os",
+    "target_pointer_width",
+    "target_vendor",
+];
+
+/// Why a path `segments` names leaves ruling 1, if it does: outside the
+/// std allowlist from its first root on, a clock or randomness source, or
+/// an effectful item of a dependency.
+fn path_refusal(segments: &[String]) -> Option<String> {
+    if let Some(root) = segments
+        .iter()
+        .position(|segment| ROOTS.contains(&segment.as_str()))
+    {
+        if !pure_std(&segments[root..]) {
+            let path = segments[root..].join("::");
+            return Some(format!("{path}: outside the pure std allowlist"));
+        }
+    }
+    if let Some(source) = segments
+        .iter()
+        .find(|segment| SOURCES.contains(&segment.as_str()))
+    {
+        return Some(format!("{source}: a clock or randomness source"));
+    }
+    if segments.iter().skip(1).any(|segment| segment == "now") {
+        return Some("::now: a clock or randomness source".to_string());
+    }
+    segments.iter().find_map(|segment| {
+        effect_of(segment).map(|effect| format!("{segment}: an effectful item of {effect}"))
+    })
+}
+
+/// The segments of a plain string literal that spells a Rust path, or
+/// `None`: raw and escaped strings and anything but `::`-joined
+/// identifiers are not read as paths.
+fn literal_path(literal: &str) -> Option<Vec<String>> {
+    let body = literal.strip_prefix('"')?.strip_suffix('"')?;
+    let body = body.strip_prefix("::").unwrap_or(body);
+    let segments: Vec<String> = body.split("::").map(str::to_string).collect();
+    segments
+        .iter()
+        .all(|segment| is_ident(segment))
+        .then_some(segments)
+}
+
+/// The identifier naming the `( … )` group the token at `at` sits in,
+/// within the attribute opening at `open`, or `None` at its top level.
+fn enclosing_call(tokens: &[Token], open: usize, at: usize) -> Option<&str> {
+    let mut depth = 0;
+    for index in (open + 1..at).rev() {
+        match text(tokens, index) {
+            ")" => depth += 1,
+            "(" if depth == 0 => return Some(text(tokens, index - 1)),
+            "(" => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// How one attribute string literal is read, by its key and the group
+/// around it: `None` for data, a path's refusal, or a refusal of a string
+/// the scanner cannot classify.
+fn attribute_literal(scan: &Scanned, open: usize, at: usize) -> Option<String> {
+    let literal = scan.literals.get(&at).map_or("", String::as_str);
+    let unclassified = || {
+        Some(format!(
+            "{literal} in an attribute: a string the scanner cannot classify"
+        ))
+    };
+    let enclosing = enclosing_call(scan.tokens, open, at);
+    let key = (text(scan.tokens, at - 1) == "=").then(|| text(scan.tokens, at - 2));
+    let names_a_path = match (key, enclosing) {
+        (Some("path"), _) | (None, Some("error")) => return None,
+        (Some("serialize" | "deserialize"), Some(group)) if DATA_KEYS.contains(&group) => {
+            return None
+        }
+        (Some("serialize" | "deserialize"), Some(group)) => PATH_KEYS.contains(&group),
+        (Some(key), _) if DATA_KEYS.contains(&key) => return None,
+        (Some(key), _) => PATH_KEYS.contains(&key),
+        (None, _) => false,
+    };
+    if !names_a_path {
+        return unclassified();
+    }
+    match literal_path(literal) {
+        Some(segments) => {
+            path_refusal(&segments).map(|why| format!("{literal} in an attribute: {why}"))
+        }
+        None => unclassified(),
+    }
+}
+
+/// Every attribute string literal that names a path outside ruling 1, or
+/// that the scanner cannot classify: a string inside an attribute is code
+/// whenever its key makes it one.
+fn attribute_refusals(scan: &Scanned) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < scan.tokens.len() {
+        let Some(end) = (text(scan.tokens, at) == "#")
+            .then(|| attribute_end(scan.tokens, at))
+            .flatten()
+        else {
+            at += 1;
+            continue;
+        };
+        for index in at..end {
+            if scan.tokens[index].1 == LITERAL {
+                if let Some(why) = attribute_literal(scan, at, index) {
+                    found.push((scan.tokens[index].0, why));
+                }
+            }
+        }
+        at = end + 1;
     }
     found
 }
@@ -1338,6 +1016,7 @@ fn impurities(source: &str, file: &Path) -> Vec<String> {
     };
     let mut found = std_refusals(&tokens);
     found.extend(form_refusals(&scan));
+    found.extend(attribute_refusals(&scan));
     found.sort_by_key(|(line, _)| *line);
     found
         .into_iter()
@@ -1348,7 +1027,7 @@ fn impurities(source: &str, file: &Path) -> Vec<String> {
 /// The scanner's cases: a source, and exactly what it refuses there, by
 /// line. Every form the allowlists do not name is refused; the last
 /// rows are clean or unterminated sources that refuse nothing.
-const SCANNER_CASES: [(&str, &[&str]); 38] = [
+const SCANNER_CASES: [(&str, &[&str]); 46] = [
     (
         "use std::{collections::BTreeMap, /* c */ os::unix::process::parent_id};",
         &["1: std::os::unix::process::parent_id: outside the pure std allowlist"],
@@ -1423,7 +1102,39 @@ const SCANNER_CASES: [(&str, &[&str]); 38] = [
     ),
     (
         "mod tests;\n#[cfg(test)]\nmod tests;\n#[cfg(any(test))]\nmod tests;",
-        &["1: a `mod tests;` outside #[cfg(test)]", "5: a `mod tests;` outside #[cfg(test)]"],
+        &["1: a `mod tests` outside #[cfg(test)]", "5: a `mod tests` outside #[cfg(test)]"],
+    ),
+    (
+        "#[derive(Deserialize)]\nstruct S {\n    #[serde(default = \"std::os::unix::process::parent_id\")]\n    pid: u32,\n    #[serde(default = \"time::OffsetDateTime::now_utc\")]\n    at: u64,\n}",
+        &["3: \"std::os::unix::process::parent_id\" in an attribute: std::os::unix::process::parent_id: outside the pure std allowlist", "5: \"time::OffsetDateTime::now_utc\" in an attribute: now_utc: a clock or randomness source"],
+    ),
+    (
+        "#[serde(deserialize_with = \"url::Url::socket_addrs\")]\n#[serde(serialize_with = \"::std::fs::read\", with = \"Instant\")]\n#[cfg_attr(test, serde(getter = \"time::UtcDateTime::now\"))]",
+        &["1: \"url::Url::socket_addrs\" in an attribute: socket_addrs: an effectful item of url 2.5.8", "2: \"::std::fs::read\" in an attribute: std::fs::read: outside the pure std allowlist", "2: \"Instant\" in an attribute: Instant: a clock or randomness source", "3: \"time::UtcDateTime::now\" in an attribute: ::now: a clock or randomness source"],
+    ),
+    (
+        "#[serde(bound = \"T: Serialize\")]\n#[serde(foo = \"b\")]\n#[serde(with = r\"std::fs\")]\n#[serde(from = \"std::\\x66s\")]\n#[serde(\"x\")]",
+        &["1: \"T: Serialize\" in an attribute: a string the scanner cannot classify", "2: \"b\" in an attribute: a string the scanner cannot classify", "3: r\"std::fs\" in an attribute: a string the scanner cannot classify", "4: \"std::\\x66s\" in an attribute: a string the scanner cannot classify", "5: \"x\" in an attribute: a string the scanner cannot classify"],
+    ),
+    (
+        "#[serde(skip_serializing_if = \"Option::is_none\", rename = \"x\")]\n#[serde(rename(serialize = \"a\"), rename_all = \"snake_case\")]\n#[error(\"{0} failed\")]\n#[expect(clippy::too_many_lines, reason = \"std::fs\")]\n#[cfg(feature = \"std::fs\")]\n#[deprecated(note = \"n\")]",
+        &[],
+    ),
+    (
+        "let a = url.socket_addrs(|| None);\ntime::UtcOffset::local_offset_at(t);\nlet s = time::util::refresh_tz();",
+        &["1: socket_addrs: an effectful item of url 2.5.8", "2: local_offset_at: a clock or randomness source", "3: refresh_tz: an effectful item of time 0.3.55"],
+    ),
+    (
+        "mod tests {\n    fn f() {}\n}\n#[cfg(not(test))]\nmod tests {\n    pub(crate) mod evil;\n}\n#[cfg(test)]\nmod tests {}\n#[cfg(test)]\n#[allow(dead_code)]\npub mod tests;",
+        &["1: a `mod tests` outside #[cfg(test)]", "5: a `mod tests` outside #[cfg(test)]"],
+    ),
+    (
+        "macro_rules! hide {\n    () => { mod hidden; };\n}\nmacro_rules! paren ( () => ( mod p; ) );",
+        &["2: a `mod` inside a macro_rules! body", "4: a `mod` inside a macro_rules! body"],
+    ),
+    (
+        "#![allow(renamed_and_removed_lints)]\n#[allow(clippy::disallowed_method)]\nfn f() {}",
+        &["1: an attribute that lowers a purity lint", "2: an attribute that lowers a purity lint"],
     ),
     (
         "#[cfg(test)]\nextern crate self as brokkr_core;\n#[cfg(test)]\n#[path = \"../../../tests/support/envelope.rs\"]\nmod envelope_builder;",
@@ -1517,74 +1228,229 @@ fn the_scanner_refuses_every_form_its_allowlists_do_not_name() {
     }
 }
 
-/// Whether `module` declares `mod tests;` under `#[cfg(test)]`, which
-/// makes its `tests.rs` or `tests/` test-only. A file that cannot be read
-/// declares nothing, so its tests are scanned.
-fn declares_test_only_tests(module: &Path) -> bool {
-    std::fs::read_to_string(module).is_ok_and(|source| {
-        let tokens = lex(&source);
-        tokens.windows(3).enumerate().any(|(at, window)| {
-            window[0].1 == "mod"
-                && window[1].1 == "tests"
-                && window[2].1 == ";"
-                && under_cfg_test(&tokens, at)
-        })
-    })
+/// A pure crate's modules as rustc builds them, followed from its
+/// `src/lib.rs` through every `mod` declaration, inline or file, with each
+/// `#[path]`: the workspace-relative files some chain of declarations
+/// reaches outside exactly `#[cfg(test)]`, the files only test code
+/// reaches, and each production declaration the scan cannot follow.
+#[derive(Default)]
+struct ModuleTree {
+    production: BTreeSet<PathBuf>,
+    test_only: BTreeSet<PathBuf>,
+    refused: Vec<String>,
 }
 
-/// Core's and view's production source: every `.rs` under `dir` but a
-/// `tests.rs` or `tests/` that one of `parents`, the files that declare
-/// `dir`'s modules, declares under `#[cfg(test)]`.
-fn production_sources(dir: &Path, parents: &[PathBuf], files: &mut Vec<PathBuf>) {
-    let test_only = parents
+/// The directory a file's child modules live in: its own for `lib.rs`,
+/// `main.rs` and `mod.rs`, one named after it for any other file.
+fn module_dir(file: &Path) -> PathBuf {
+    let parent = file.parent().unwrap_or(Path::new(""));
+    match file.file_name().and_then(|name| name.to_str()) {
+        Some("lib.rs" | "main.rs" | "mod.rs") => parent.to_path_buf(),
+        _ => parent.join(file.file_stem().unwrap_or_default()),
+    }
+}
+
+/// The names of the inline modules around token `at`, outermost first,
+/// and whether any of them is declared under exactly `#[cfg(test)]`.
+fn inline_chain(tokens: &[Token], blocks: &Blocks, at: usize) -> (Vec<String>, bool) {
+    let (mut names, mut test) = (Vec::new(), false);
+    let mut block = blocks.at[at];
+    while let Some(open) = block {
+        if open >= 2 && text(tokens, open - 2) == "mod" {
+            names.push(text(tokens, open - 1).to_string());
+            test |= gated_by_cfg_test(tokens, &outer_attributes(tokens, open - 2));
+        }
+        block = blocks.parent[&open];
+    }
+    names.reverse();
+    (names, test)
+}
+
+/// The file a `mod name;` at `at` in `file` resolves to, as rustc finds
+/// it, or why the scan cannot say: a `#[path]` that is not a plain string,
+/// a path climbing out of the workspace, or not exactly one candidate.
+fn module_file(
+    scan: &Scanned,
+    root: &Path,
+    at: usize,
+    inline: &[String],
+) -> Result<PathBuf, String> {
+    let name = text(scan.tokens, at + 1);
+    let mut dir = module_dir(scan.file);
+    dir.extend(inline);
+    let attributes = outer_attributes(scan.tokens, at);
+    let path_attribute = attributes
         .iter()
-        .any(|parent| declares_test_only_tests(parent));
-    for entry in std::fs::read_dir(dir).expect("a source directory") {
-        let path = entry.expect("a directory entry").path();
-        let name = path.file_name().and_then(|name| name.to_str());
-        if test_only && [Some("tests"), Some("tests.rs")].contains(&name) {
+        .find(|&&(from, to)| (from..=to).any(|index| text(scan.tokens, index) == "path"));
+    if let Some(&(from, to)) = path_attribute {
+        let literal = (from + 4 == to - 1 && text(scan.tokens, from + 2) == "path")
+            .then(|| scan.literals.get(&(from + 4)))
+            .flatten()
+            .and_then(|literal| literal.strip_prefix('"')?.strip_suffix('"'))
+            .filter(|path| !path.contains(['\\', '"']));
+        let base = if inline.is_empty() {
+            scan.file.parent().unwrap_or(Path::new("")).to_path_buf()
+        } else {
+            dir
+        };
+        return literal
+            .and_then(|path| resolve(&base, path))
+            .ok_or_else(|| format!("mod {name}: a #[path] the scan cannot follow"));
+    }
+    let found: Vec<PathBuf> = [
+        dir.join(format!("{name}.rs")),
+        dir.join(name).join("mod.rs"),
+    ]
+    .into_iter()
+    .filter(|candidate| root.join(candidate).is_file())
+    .collect();
+    match found.as_slice() {
+        [file] => Ok(file.clone()),
+        _ => Err(format!("mod {name}: {} candidate files", found.len())),
+    }
+}
+
+/// The module tree of the crate whose root is `lib`, both relative to the
+/// workspace `root`. A file reached by any production chain is
+/// production; one reached only through a declaration under exactly
+/// `#[cfg(test)]`, or inside one, is test code.
+fn resolve_modules(root: &Path, lib: &Path) -> ModuleTree {
+    let mut tree = ModuleTree::default();
+    let mut pending = vec![(lib.to_path_buf(), false)];
+    let mut seen = BTreeSet::new();
+    while let Some((file, test)) = pending.pop() {
+        if !seen.insert((file.clone(), test)) {
             continue;
         }
-        if path.is_dir() {
-            production_sources(
-                &path,
-                &[path.with_extension("rs"), path.join("mod.rs")],
-                files,
-            );
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
-            files.push(path);
+        if test {
+            tree.test_only.insert(file.clone());
+        } else {
+            tree.production.insert(file.clone());
+        }
+        let Ok(source) = std::fs::read_to_string(root.join(&file)) else {
+            tree.refused.push(format!("{}: unreadable", file.display()));
+            continue;
+        };
+        let (tokens, literals) = lex_with_literals(&source);
+        let blocks = Blocks::of(&tokens);
+        let scan = Scanned {
+            tokens: &tokens,
+            literals: &literals,
+            blocks: &blocks,
+            file: &file,
+        };
+        let bodies = macro_bodies(&tokens);
+        for at in 0..tokens.len() {
+            if text(&tokens, at) != "mod"
+                || !is_ident(text(&tokens, at + 1))
+                || text(&tokens, at + 2) != ";"
+                || bodies.iter().any(|(from, to)| (*from..*to).contains(&at))
+            {
+                continue;
+            }
+            let (inline, chain_test) = inline_chain(&tokens, &blocks, at);
+            let gated =
+                test || chain_test || gated_by_cfg_test(&tokens, &outer_attributes(&tokens, at));
+            match module_file(&scan, root, at, &inline) {
+                Ok(child) => pending.push((child, gated)),
+                Err(why) if !gated => tree.refused.push(format!("{}: {why}", file.display())),
+                Err(_) => {}
+            }
         }
     }
+    tree.test_only
+        .retain(|file| !tree.production.contains(file));
+    tree
+}
+
+/// The resolver follows declarations, not names: a `tests` module outside
+/// `#[cfg(test)]` is production wherever its file lies, a gated module is
+/// test code whatever it is called, and a production declaration the scan
+/// cannot follow is refused.
+#[test]
+fn the_module_tree_follows_declarations_not_file_names() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("layering-modules");
+    let src = Path::new("crates/brokkr-core/src");
+    let files = [
+        (
+            "lib.rs",
+            "#[cfg(test)]\nmod tests;\n#[cfg(not(test))]\nmod tests {\n    pub(crate) mod evil;\n}\n\
+             pub mod plain;\n#[cfg(test)]\nmod gated {\n    mod inner;\n}\nmod missing;\n\
+             #[cfg(test)]\nmod absent;\n#[path = \"moved.rs\"]\nmod renamed;\n\
+             macro_rules! hide { () => { mod hidden; } }\n",
+        ),
+        ("tests.rs", ""),
+        ("tests/evil.rs", ""),
+        ("plain.rs", "mod child;\n"),
+        ("plain/child.rs", ""),
+        ("gated/inner.rs", ""),
+        ("moved.rs", ""),
+        ("hidden.rs", ""),
+    ];
+    let _ = std::fs::remove_dir_all(&root);
+    for (name, source) in files {
+        let path = root.join(src).join(name);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("a scratch dir");
+        std::fs::write(&path, source).expect("a scratch file");
+    }
+    let tree = resolve_modules(&root, &src.join("lib.rs"));
+    let names = |set: &BTreeSet<PathBuf>| -> Vec<String> {
+        set.iter()
+            .map(|file| {
+                file.strip_prefix(src)
+                    .expect("under src")
+                    .display()
+                    .to_string()
+            })
+            .collect()
+    };
+    assert_eq!(
+        names(&tree.production),
+        [
+            "lib.rs",
+            "moved.rs",
+            "plain/child.rs",
+            "plain.rs",
+            "tests/evil.rs"
+        ]
+    );
+    assert_eq!(names(&tree.test_only), ["gated/inner.rs", "tests.rs"]);
+    assert_eq!(
+        tree.refused,
+        ["crates/brokkr-core/src/lib.rs: mod missing: 0 candidate files"]
+    );
 }
 
 /// Ruling 1: core's and view's production source names nothing outside
-/// the allowlists, and every `.rs` file in it is scanned.
+/// the allowlists, and every file their module trees compile outside
+/// `#[cfg(test)]` is scanned.
 #[test]
 fn the_pure_crates_name_nothing_outside_the_allowlists() {
     let root = workspace();
-    let mut files = Vec::new();
+    let (mut production, mut test_only, mut found) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
     for krate in ["brokkr-core", "brokkr-view"] {
-        let src = root.join("crates").join(krate).join("src");
-        production_sources(&src, &[src.join("lib.rs")], &mut files);
+        let tree = resolve_modules(&root, &Path::new("crates").join(krate).join("src/lib.rs"));
+        production.extend(tree.production);
+        test_only.extend(tree.test_only);
+        found.extend(tree.refused);
     }
-    let found: Vec<String> = files
-        .iter()
-        .flat_map(|path| {
-            let relative = path.strip_prefix(&root).expect("under the workspace");
-            let source = std::fs::read_to_string(path).expect("readable source");
+    for relative in &production {
+        let source = std::fs::read_to_string(root.join(relative)).expect("readable source");
+        found.extend(
             impurities(&source, relative)
                 .into_iter()
-                .map(move |what| format!("{}:{what}", relative.display()))
-        })
-        .collect();
+                .map(|what| format!("{}:{what}", relative.display())),
+        );
+    }
     assert_eq!(
         found,
         Vec::<String>::new(),
         "core and view are pure (decision 0071 ruling 1): effects live in store and runtime"
     );
-    let crates = root.join("crates");
-    assert!(files.contains(&crates.join("brokkr-core/src/lib.rs")));
-    assert!(files.contains(&crates.join("brokkr-view/src/transcript.rs")));
-    assert!(!files.contains(&crates.join("brokkr-view/src/transcript/tests.rs")));
-    assert!(!files.contains(&crates.join("brokkr-view/src/tests.rs")));
+    let crates = Path::new("crates");
+    assert!(production.contains(&crates.join("brokkr-core/src/lib.rs")));
+    assert!(production.contains(&crates.join("brokkr-view/src/transcript.rs")));
+    assert!(test_only.contains(&crates.join("brokkr-view/src/transcript/tests.rs")));
+    assert!(test_only.contains(&crates.join("brokkr-view/src/tests.rs")));
+    assert!(test_only.contains(Path::new("tests/support/envelope.rs")));
 }
