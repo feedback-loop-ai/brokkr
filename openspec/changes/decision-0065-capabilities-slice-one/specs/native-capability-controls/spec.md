@@ -363,6 +363,7 @@ No versioned public contract or manifest field is added for this private data.
 - **AND** the actual resume assertions verify the offered session and resumed command; boxed ineligible cold fallback stays a separate case
 - **AND** an always-OFF mutation fails authorized ON assertions, and removing a delivered argv fragment fails its own final-command assertion
 - **AND** this matrix tests the current gate launch paths without implementing slice-two gate capability policy; its nonempty-restriction rows are deferred (see "Deferred to the restriction-transport slice")
+- **AND** a no-hands Codex panel member's rows bind its fail-closed `sandbox-unavailable` cold retry; its rejoin positive is deferred (see "Deferred to typed sandbox lowering at members")
 
 ### Requirement: Prompt values cannot absorb a composed control
 
@@ -542,3 +543,19 @@ They are retained here verbatim and are not requirements of slice one.
 - **THEN** each corresponding whole-command equality fails for the missing restriction at the production final launch boundary
 - **AND** restoring delivery restores each pass, with mutation, revision, test, intended assertion, observed failure and restored result recorded
 - **AND** manual construction of a control plan, resolver argv or intermediate composer output cannot substitute for either final-launch failure
+
+## Deferred to typed sandbox lowering at members
+
+The operator's addendum of 2026-09-26 ("the panel-member rejoin positive is
+deferred", operator-ruling-2026-09-23.md) accepts the re-planted panel-member
+rows, which bind the fail-closed `sandbox-unavailable` retry, as slice one's
+panel-member proof. The positive below moves, unticked, to the later slice
+that lowers a typed sandbox at panel members (decision 0072's follow-up). It
+is not a requirement of slice one; tasks.md carries the same pointer.
+
+### Deferred: a no-hands panel member rejoins with its class re-expressed
+
+- **GIVEN** a compiled no-hands inline Codex panel member, wrapped and unwrapped, whose cold invocation recorded the provider-confirmed root
+- **WHEN** the operator retries the run
+- **THEN** the member rejoins that root as `resumed`, with no resume refusal
+- **AND** the provider's exec resume argv re-expresses the member's typed sandbox class and effort

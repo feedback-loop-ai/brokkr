@@ -1767,6 +1767,17 @@ as it stood.
 - **21.3's restriction portion:** the held nonempty restriction rows of the launch matrix ("close only after unit 21 proves the restriction rows too").
 - **23.1's restriction portion:** the independent cold/resume removal of the held nonempty restriction's delivery.
 
+## Deferred to typed sandbox lowering at members
+
+The operator's addendum of 2026-09-26 ("the panel-member rejoin positive is
+deferred", operator-ruling-2026-09-23.md) accepts the re-planted panel-member
+rows as slice one's panel-member proof and moves this positive, unticked, to
+the later slice that lowers a typed sandbox at panel members (decision 0072's
+follow-up). The owning delta carries the same pointer: specs/native-capability-controls/spec.md,
+"Deferred to typed sandbox lowering at members".
+
+- [ ] **DEFERRED (addendum 2026-09-26).** The no-hands panel member rejoin positive, as it stood before `b33de51f`: in `driver_conformance.rs::the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root`, the `NoHandsMember` rows (wrapped and unwrapped) rejoined the provider-confirmed root as `resumed` with no refusal, and the exec resume argv re-expressed the sandbox class and effort. Since `b33de51f` (fixture migration of 2026-09-26) those rows bind the adapter's fail-closed `sandbox-unavailable` cold retry, because design.md D5.3 refuses a typed class at a panel member and ruling 1 refuses an authored `--sandbox`. Unit 12's review F2 (evidence.md, "Unit 12 — the review's return", F2) is closed by this deferral, not by a positive.
+
 [TD1]: specs/tool-dialect-contract/spec.md#requirement-a-tool-dialect-binds-one-capability-to-exactly-one-implementation-kind
 [TD2]: specs/tool-dialect-contract/spec.md#requirement-capability-classes-belong-to-the-abstraction
 [TD3]: specs/tool-dialect-contract/spec.md#requirement-dialects-describe-their-disclosure-using-the-existing-egress-vocabulary
