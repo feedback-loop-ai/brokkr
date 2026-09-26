@@ -15,18 +15,22 @@ const KNOWN_AGAIN: &str = "crates/brokkr-core/src/fold.rs:512:9: replace == with
 const FRESH: &str = "crates/brokkr-core/src/policy.rs:700:5: replace < with <= in planted";
 
 /// Stands in for `cargo mutants`. Each call appends its arguments as one
-/// line to `STUB_ARGV`. `--list` prints `STUB_LISTED` and exits
+/// line to `STUB_ARGV`. `--list` prints `STUB_LISTED` (only if the
+/// `--in-diff` file names `STUB_LIST_NAMING`, when that is set) and exits
 /// `STUB_LIST_STATUS`; a run writes `STUB_MISSED` as its missed.txt and
 /// one mutant as its mutants.json (unless `STUB_NO_OUTPUT`), and exits
 /// `STUB_STATUS`.
 const STUB: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STUB_ARGV"
-out=""; list=""
+out=""; list=""; diff=""
 while [ $# -gt 0 ]; do
-  case "$1" in --output) out="$2"; shift ;; --list) list=1 ;; esac
+  case "$1" in --output) out="$2"; shift ;; --in-diff) diff="$2"; shift ;; --list) list=1 ;; esac
   shift
 done
-if [ -n "$list" ]; then printf '%s' "${STUB_LISTED:-}"; exit "${STUB_LIST_STATUS:-0}"; fi
+if [ -n "$list" ]; then
+  [ -z "${STUB_LIST_NAMING:-}" ] || grep -qF -e "$STUB_LIST_NAMING" "$diff" || exit "${STUB_LIST_STATUS:-0}"
+  printf '%s' "${STUB_LISTED:-}"; exit "${STUB_LIST_STATUS:-0}"
+fi
 if [ -z "${STUB_NO_OUTPUT:-}" ]; then
   mkdir -p "$out/mutants.out"
   printf '%s' "${STUB_MISSED:-}" > "$out/mutants.out/missed.txt"
@@ -65,6 +69,11 @@ impl Gate {
 
     /// Run `scripts/mutants.sh <args>` from the workspace with `env` set.
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+        self.run_in(&workspace(), args, env)
+    }
+
+    /// Run `scripts/mutants.sh <args>` from the repository at `cwd`.
+    fn run_in(&self, cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
         let path = format!(
             "{}:{}",
             self.path("bin").display(),
@@ -74,7 +83,7 @@ impl Gate {
         command
             .arg(workspace().join("scripts/mutants.sh"))
             .args(args)
-            .current_dir(workspace())
+            .current_dir(cwd)
             .env("PATH", path)
             .env("MUTANTS_OUT", self.path("out"))
             .env("MUTANTS_ALLOW", self.path("allow"))
@@ -103,6 +112,34 @@ impl Gate {
     fn path(&self, name: &str) -> PathBuf {
         self.dir.path().join(name)
     }
+
+    /// A scratch repository of two commits, the second planting `file`.
+    fn branch(&self, file: &str) -> PathBuf {
+        let repo = self.path("repo");
+        std::fs::create_dir_all(repo.join(Path::new(file).parent().unwrap())).unwrap();
+        std::fs::write(repo.join("README.md"), "base\n").unwrap();
+        git(&repo, &["init", "--quiet"]);
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "--quiet", "-m", "base"]);
+        std::fs::write(repo.join(file), "pub fn planted() {}\n").unwrap();
+        git(&repo, &["add", file]);
+        git(&repo, &["commit", "--quiet", "-m", "branch"]);
+        repo
+    }
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    let mut command = Command::new("git");
+    for setting in [
+        "user.name=stub",
+        "user.email=stub@example.invalid",
+        "commit.gpgsign=false",
+        "core.hooksPath=/dev/null",
+    ] {
+        command.args(["-c", setting]);
+    }
+    let status = command.args(args).current_dir(repo).status().unwrap();
+    assert!(status.success(), "git {args:?}");
 }
 
 fn workspace() -> PathBuf {
@@ -165,6 +202,33 @@ fn the_gate_lists_and_measures_brokkr_core_over_the_diff() {
             "mutants --list {scope}\nmutants --no-shuffle --output {} {scope}\n",
             out.display()
         )
+    );
+}
+
+/// The diff the gate hands cargo-mutants is the branch's own: the stub
+/// lists a mutant only when that diff names the file the branch planted,
+/// so a gate that wrote an empty diff would list nothing and pass.
+#[test]
+fn the_gate_measures_the_changes_the_branch_carries() {
+    const PLANTED: &str = "crates/brokkr-core/src/planted.rs";
+    let gate = Gate::new();
+    let repo = gate.branch(PLANTED);
+    let missed = lines(&[FRESH]);
+    let output = gate.run_in(
+        &repo,
+        &["gate", "HEAD~1", "brokkr-core"],
+        &[
+            ("STUB_LIST_NAMING", PLANTED),
+            ("STUB_LISTED", "a listed mutant\n"),
+            ("STUB_MISSED", &missed),
+            ("STUB_STATUS", "2"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stdout).contains(&format!("- {FRESH}")),
+        "{}",
+        text(&output.stdout)
     );
 }
 
