@@ -820,6 +820,7 @@ fn bubblewrap_is_built_once_from_a_tarball_verified_by_digest() {
         sites,
         [
             (".github/workflows/ci.yml".to_string(), 3),
+            (".github/workflows/mutants.yml".to_string(), 2),
             (".github/workflows/release.yml".to_string(), 2),
             (".github/workflows/research-weekly.yml".to_string(), 1),
         ]
