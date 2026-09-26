@@ -1,28 +1,7 @@
-crates/brokkr-protocol/src/hands.rs:1015:17: replace > with == in drain_bounded
-crates/brokkr-protocol/src/hands.rs:1015:17: replace > with >= in drain_bounded
-crates/brokkr-protocol/src/hands.rs:1118:72: delete - in execute_in
-crates/brokkr-protocol/src/hands.rs:1133:5: replace run_boxed -> Result<i32, String> with Ok(-1)
-crates/brokkr-protocol/src/hands.rs:1133:5: replace run_boxed -> Result<i32, String> with Ok(0)
-crates/brokkr-protocol/src/hands.rs:1133:5: replace run_boxed -> Result<i32, String> with Ok(1)
-crates/brokkr-protocol/src/hands.rs:1162:5: replace run_boxed_in -> Result<i32, String> with Ok(-1)
-crates/brokkr-protocol/src/hands.rs:1162:5: replace run_boxed_in -> Result<i32, String> with Ok(0)
-crates/brokkr-protocol/src/hands.rs:1162:5: replace run_boxed_in -> Result<i32, String> with Ok(1)
-crates/brokkr-protocol/src/hands.rs:1189:32: delete - in run_boxed_in
-crates/brokkr-protocol/src/hands.rs:317:20: replace match guard out.status.success() with true in git_facts
 crates/brokkr-protocol/src/hands.rs:56:5: replace boundary_evidence_required -> bool with false
 crates/brokkr-protocol/src/hands.rs:56:5: replace boundary_evidence_required -> bool with true
-crates/brokkr-protocol/src/hands.rs:638:51: replace == with != in box_argv
-crates/brokkr-protocol/src/hands.rs:645:51: replace == with != in box_argv
-crates/brokkr-protocol/src/hands.rs:652:51: replace == with != in box_argv
-crates/brokkr-protocol/src/hands.rs:673:5: replace ids -> (u32, u32) with (0, 0)
-crates/brokkr-protocol/src/hands.rs:673:5: replace ids -> (u32, u32) with (0, 1)
-crates/brokkr-protocol/src/hands.rs:673:5: replace ids -> (u32, u32) with (1, 0)
-crates/brokkr-protocol/src/hands.rs:673:5: replace ids -> (u32, u32) with (1, 1)
 crates/brokkr-protocol/src/hands.rs:678:5: replace ids -> (u32, u32) with (0, 1)
 crates/brokkr-protocol/src/hands.rs:678:5: replace ids -> (u32, u32) with (1, 0)
 crates/brokkr-protocol/src/hands.rs:678:5: replace ids -> (u32, u32) with (1, 1)
-crates/brokkr-protocol/src/secret.rs:161:20: replace < with <= in validate_value
-crates/brokkr-protocol/src/secret.rs:227:27: replace + with - in scan_secret_refs
 crates/brokkr-protocol/src/secret.rs:498:13: replace | with ^ in b64
 crates/brokkr-protocol/src/secret.rs:499:13: replace | with ^ in b64
-crates/brokkr-protocol/src/secret.rs:73:9: replace <impl Drop for Secret>::drop with ()

@@ -1,5 +1,0 @@
-crates/brokkr-core/src/dispatch.rs:300:37: replace < with <= in DispatchEnvelopeV2::verify
-crates/brokkr-core/src/fold.rs:155:5: replace cursor_name -> String with "xyzzy".into()
-crates/brokkr-core/src/fold.rs:155:5: replace cursor_name -> String with String::new()
-crates/brokkr-core/src/fold.rs:384:41: replace == with != in apply
-crates/brokkr-core/src/policy.rs:619:55: replace == with != in conditions_met

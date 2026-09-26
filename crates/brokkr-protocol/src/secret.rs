@@ -224,7 +224,7 @@ pub fn scan_secret_refs(text: &str) -> Result<Vec<String>, String> {
             ));
         }
         names.push(name.to_string());
-        search = name_end + 2;
+        search = name_end; // the closing "}}" cannot begin "secret:"
     }
     Ok(names)
 }

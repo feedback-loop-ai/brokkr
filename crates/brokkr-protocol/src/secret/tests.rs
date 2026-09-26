@@ -368,6 +368,20 @@ fn store_set_refuses_every_rejected_value_class() {
     }
 }
 
+/// `SHORT_VALUE_WARN_BYTES` is the shortest value accepted without the
+/// warning, not the longest warned about (#419).
+#[test]
+fn a_value_exactly_at_the_warning_bound_is_accepted_quietly() {
+    assert_eq!(
+        validate_value("1234567"),
+        Ok(Some(
+            "warning: secret value is shorter than 8 bytes; short values mask aggressively"
+                .to_string()
+        ))
+    );
+    assert_eq!(validate_value("12345678"), Ok(None));
+}
+
 #[cfg(unix)]
 #[test]
 fn store_created_0600_and_replace_never_widens() {

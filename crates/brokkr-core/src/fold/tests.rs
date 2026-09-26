@@ -217,6 +217,44 @@ fn a_refusal_cites_the_position_it_refused_at() {
     }
 }
 
+/// The refusal names the cursor it met, as the operator will look for it
+/// in the journal (#419).
+#[test]
+fn an_out_of_place_refusal_names_the_cursor_it_met() {
+    let mut current = state(Cursor::Idle);
+    assert_eq!(
+        apply(
+            &mut current,
+            &event(EventType::TransitionDecided, json!({}))
+        ),
+        Err(FoldError::OutOfPlace {
+            seq: 2,
+            event: "TransitionDecided".into(),
+            cursor: "Idle".into(),
+        })
+    );
+}
+
+/// A `fail` is a failure only where the table scoped a counter to it
+/// (`inputs.consecutive_failures`); any other result under that scope
+/// resets the count (#419).
+#[test]
+fn a_scoped_fail_counts_and_a_scoped_pass_resets() {
+    let decide = |result: &str| {
+        let mut current = state(Cursor::Decide {
+            effect_id: "e".into(),
+            result: json!({}),
+        });
+        current.consecutive_failures.insert("verify".into(), 1);
+        let decided = json!({"from": "verify", "result": result, "next": "done",
+                             "inputs": {"consecutive_failures": 2}});
+        apply(&mut current, &event(EventType::TransitionDecided, decided)).unwrap();
+        current.consecutive_failures["verify"]
+    };
+    assert_eq!(decide("fail"), 2);
+    assert_eq!(decide("pass"), 0);
+}
+
 #[test]
 fn decision_captures_reviewed_heads() {
     let mut current = state(Cursor::Decide {

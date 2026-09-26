@@ -2,7 +2,7 @@
 
 The exact coverage gate proves every production line runs. It cannot prove any test would notice that line changing. [cargo-mutants](https://mutants.rs) answers that second question: it makes one small change at a time (a comparison flipped, a return value replaced, a body emptied) and runs the tests, and a mutant no test catches is a line no test checks (#289).
 
-This directory is the committed baseline, measured on `main` at `155aa5f0` (2026-09-26) before any gate:
+This directory is the committed baseline, measured on `main` at `155aa5f0` (2026-09-26) before any gate, and shrunk by #419, which closes 26 of its 33 misses:
 
 | File | Holds |
 |---|---|
@@ -40,7 +40,9 @@ cargo-mutants 27.1.0 with `.cargo/mutants.toml`: test paths excluded, `timeout_m
 - **A timeout was re-tested before it counted.** The first runs shared a host at load average 60 to 150. Protocol's suite took 43 seconds there, against 8 seconds unloaded, so a 131-second timeout could hide a miss. Every timeout was re-run at `-j 3` with a 300- or 420-second limit:
   - core's three were all caught;
   - of protocol's 22, 10 were caught, 3 were misses (added to the allow-list), and 9 hang for real and count as caught.
-- **Six of protocol's 28 misses are caught in another crate.** cargo-mutants runs only the mutated package's tests by default. `run_boxed` and `run_boxed_in` are exercised from `crates/brokkr-cli/tests/hands.rs`. Against that suite (`--test-package brokkr-cli --cargo-test-arg=--test --cargo-test-arg=hands`), six of those seven mutants are caught, and only `hands.rs:1189` (a signal's exit code, `-1` becoming `1`) survives. They stay in the allow-list because pull-request runs are package-scoped too.
+- **Six of protocol's 28 misses were caught only in another crate.** cargo-mutants runs only the mutated package's tests by default, and `run_boxed` and `run_boxed_in` were exercised only from `crates/brokkr-cli/tests/hands.rs`. #419 holds them in brokkr-protocol's own `tests/hands_exits.rs`, with stand-ins for `bwrap` and `git`, so a package-scoped run catches them, and `hands.rs:1189` too.
+- **#419 closed 26 of the misses and left seven.** 25 are caught by a test written for each; the table above is the `155aa5f0` measurement.
+  - The 26th, `secret.rs:227` (`search = name_end + 2` becoming `name_end - 2` in `scan_secret_refs`), was equivalent and could not be caught. The closing `}}` cannot begin `secret:`, so the search now resumes at `name_end` and the `+ 2` it mutated is gone.
 - **Seven of the misses cannot be caught by any test here.**
   - Two are `secret.rs:498` and `:499` (`|` becoming `^` in `b64`). They are equivalent: the three shifted bytes never overlap, so OR and XOR are the same value.
   - Three are at `hands.rs:678`, the `cfg(not(unix))` twin of `ids()`, which neither supported host compiles. Decision 0063 retires it when the file is next edited.

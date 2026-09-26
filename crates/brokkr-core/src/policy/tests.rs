@@ -479,6 +479,34 @@ fn every_runtime_condition_shape_is_strict() {
     .is_err());
 }
 
+/// Each closed enum refuses a value outside it by naming its own
+/// vocabulary, never the other one's (#419).
+#[test]
+fn an_enum_refusal_names_its_own_vocabulary() {
+    for (name, actual, expected) in [
+        (
+            "strategy",
+            "bogus",
+            r#"strategy 'bogus' not in ["chore", "feature", "design", "engine", "escalate"]"#,
+        ),
+        (
+            "drift_in",
+            "implement",
+            r#"drift_in 'implement' not in ["specify", "design", "tasks"]"#,
+        ),
+    ] {
+        let condition = Condition::EnumIn {
+            name: name.into(),
+            allowed: Vec::new(),
+        };
+        let inputs = json!({ name: actual }).as_object().unwrap().clone();
+        assert_eq!(
+            conditions_met(std::slice::from_ref(&condition), &inputs),
+            Err(expected.to_string())
+        );
+    }
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the test reads a shipped policy table"
