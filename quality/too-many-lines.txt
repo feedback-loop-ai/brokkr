@@ -153,7 +153,6 @@
  139 crates/brokkr-runtime/src/engine/boundary_tests.rs:1146 effect_started_carries_the_boundary_beside_provenance
  110 crates/brokkr-runtime/src/engine/boundary_tests.rs:1308 the_stamp_rides_beside_the_model_and_replaces_a_drivers_word
  113 crates/brokkr-runtime/src/engine/boundary_tests.rs:1441 a_panels_members_and_a_sequences_steps_carry_their_own_word
- 105 crates/brokkr-runtime/src/engine/boundary_tests.rs:1569 the_seat_input_names_the_boundary_and_the_marker_only_under_a_box
  114 crates/brokkr-runtime/src/engine/boundary_tests.rs:1703 the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin
  232 crates/brokkr-runtime/src/engine/notice_tests.rs:1180 a_recipe_cannot_declare_or_suppress_the_notice_structurally
  111 crates/brokkr-runtime/src/engine/notice_tests.rs:1518 inputs_house_feature_and_charter_text_neither_replace_nor_create_the_notice

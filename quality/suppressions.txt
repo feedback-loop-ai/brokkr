@@ -15,6 +15,6 @@
     1 expect clippy::permissions_set_readonly_false
     2 expect clippy::struct_excessive_bools
     3 expect clippy::too_many_arguments
-  145 expect clippy::too_many_lines
+  144 expect clippy::too_many_lines
     1 expect clippy::type_complexity
     1 expect dead_code

@@ -429,7 +429,7 @@ fn the_carrier_follows_hands_boundary_and_the_selected_link_alone() {
     let stale = json!({"workspace_tool": "stale", "discovery_tool": "stale"});
     let mark = |engine: &Engine, link: Option<&Candidate>| {
         let mut input = json!({"hands_notice": stale.clone(), "context": {}});
-        engine.mark_hands_notice("work", link, &mut input);
+        engine.marks().notice("work", link, &mut input);
         input.get("hands_notice").cloned()
     };
 

@@ -1,0 +1,14 @@
+{
+  "schema": "brokkr.heap-budgets/v1",
+  "note": "Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured 2026-09-26 under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up.",
+  "measured": {
+    "claude-session": 57401717,
+    "codex-thread": 82071044,
+    "dsh-session": 4197436
+  },
+  "budgets": {
+    "claude-session": 63141889,
+    "codex-thread": 90278149,
+    "dsh-session": 4617180
+  }
+}

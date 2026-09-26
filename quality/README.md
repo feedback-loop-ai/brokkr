@@ -135,3 +135,25 @@ The clone counts come from the same report. The baselines hold distinct fingerpr
 | JSON and Markdown | 183 | 4,778 | 5.94% |
 
 #335 carries the 20 worst offenders of each measure, and the ceilings with their evidence.
+
+## Budgets (#342)
+
+The baselines above measure code shape. These four files hold what Brokkr costs to run, and a test or a CI step refuses any number past them.
+
+| File | What it holds | Held by |
+|---|---|---|
+| `prompt-bytes.json` | Bytes of the prompt each model site in every shipped recipe and bundle is handed | `crates/brokkr-runtime/tests/budgets.rs`, which also prints each site's o200k tokens, a report only |
+| `crate-count.json` | `Cargo.lock`'s `[[package]]` tables | the same test |
+| `heap-bytes.json` | Peak heap of projecting the largest transcript the reader admits, per kind, measured under dhat, with a tenth of headroom | `crates/brokkr-cli/tests/heap_*.rs` |
+| `binary-size.json` | Bytes of CI's Linux release binary | `scripts/binary-size.sh` in the `release-binary` job, within one per cent either way |
+
+Each file holds its ceilings in one `budgets` object of whole numbers. `ratchet.sh` reads the four as its table's `budgets` listing: a ceiling that rose, or a new one, is raised and needs a `Ruling:` line; a lowered or dropped one is a shrink. The gates above hold the tree to the numbers; the ratchet holds the numbers to their history.
+
+`scripts/measure-budgets.sh` rewrites the first three from the tests' own reports; the tests print what they measure even when it is over budget. The binary size is read from CI's artifact, never a local build, whose embedded paths differ. The CPU budgets have no file: the `cpu-budgets` job counts instructions under Callgrind for the pull request and for its base in one run, and fails a rise over 2%.
+
+```sh
+scripts/measure-budgets.sh
+git diff quality/
+```
+
+A budget that rises is named in the pull request that raises it.

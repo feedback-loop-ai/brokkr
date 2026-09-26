@@ -24,16 +24,22 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agents::{Candidate, ResultDoor};
-// The test modules reach `HarnessHands` through `use super::*`.
+use crate::agents::Candidate;
+// The test modules reach these through `use super::*`.
 #[cfg(test)]
 use crate::agents::HarnessHands;
+#[cfg(test)]
+use crate::bundle::HandsState;
 use crate::bundle::{
-    dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState, PanelMember, Seat,
-    SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
+    dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, PanelMember, Seat, SeatBody,
+    SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
+
+mod marks;
+#[doc(hidden)]
+pub use marks::SiteMarks;
 
 fn nearest_change(context: &Value) -> Option<String> {
     ["tasks", "design", "specify", "triage", "intake"]
@@ -962,11 +968,7 @@ impl Engine {
                 input["house_rules"] = json!(house);
             }
         }
-        if phase != "review" && (phase != "implement" || has_change) {
-            if let Some(instructions) = self.bundle.dialect_prompts.get(phase) {
-                input["spec_dialect"] = json!(instructions);
-            }
-        }
+        self.marks().seat_dialect(phase, has_change, &mut input);
         Ok(input)
     }
 
@@ -1103,12 +1105,11 @@ impl Engine {
         // (design D10 F1): `seat_input` marked the phase, and a selector's
         // phase label owns no facts, so re-marking `site_name` is what
         // publishes the selected body's own boundary and hands. It sits
-        // beside `mark_delivery`, after the requested digest was checked,
+        // beside the delivery door, after the requested digest was checked,
         // so a chain fallback or a selector move cannot refuse the retry
         // as a different effect.
-        self.mark_hands(&site_name, &mut input);
-        self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
-        self.mark_hands_notice(&site_name, selection.get(&None), &mut input);
+        self.marks()
+            .site(&site_name, gate, selection.get(&None), &mut input);
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -1208,105 +1209,18 @@ impl Engine {
     /// outside the worktree (the ordinary same-realm fire), mount only its
     /// parent and mount it read-only. This run-time resource is deliberately
     /// absent from the manifest and the requested-input digest.
-    /// Decision 0043: a boxed site is told that it is, because the one
-    /// tool the box serves is the only thing that can write its result
-    /// file — a harness's own shell runs outside the box and a file
-    /// written through it never reaches the engine. The first
-    /// astra-judged gate wrote its verdict through that shell twice.
-    ///
-    /// Decision 0046 (design DD21): the same mark, grown into the one
-    /// helper that writes the boundary into every site with hands —
-    /// `boundary`, the realm's word, under every boundary; `hands: boxed`
-    /// only when Brokkr builds the box, so the marker is never a false
-    /// statement under `harness` or `open`, where no workspace tool is
-    /// served. A site without hands is untouched.
+    /// The hands and boundary markers (see [`SiteMarks`]).
     fn mark_hands(&self, label: &str, input: &mut Value) {
-        match self.bundle.sites.get(label).map(|facts| &facts.hands) {
-            Some(HandsState::Hands(_)) => {
-                input["boundary"] = json!(self.boundary.word());
-                input["hands"] = json!(if self.boundary.is_boxed() {
-                    "boxed"
-                } else {
-                    "none"
-                });
-            }
-            // A registered, resolved no-hands site is an affirmative
-            // fact: the adapter gate requires it rather than reading the
-            // absence as permission (design D10 F1).
-            Some(HandsState::NoHands) => {
-                input["boundary"] = json!("not applicable");
-                input["hands"] = json!("none");
-            }
-            // Unknown is not `none`. An unregistered or unresolved site
-            // publishes no affirmative marker, so the adapter declines.
-            Some(HandsState::Unknown) | None => {
-                input["boundary"] = Value::Null;
-                input["hands"] = Value::Null;
-            }
-        }
+        self.marks().hands(label, input);
     }
 
-    /// The judge's door under `harness` (decision 0046 ruling 4; design
-    /// D23): a gate-class site with hands whose selected link declares
-    /// `hands.harness.result` as `last-message` is told so, because its
-    /// final message — not a file it writes — is what reaches the engine.
-    /// A spawn-time fact of the selected link, written after the
-    /// requested digest was checked: a chain fallback moves the door, and
-    /// a digest that moved with it would refuse the retry as a different
-    /// effect.
-    fn mark_delivery(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
-        let door = link.map(|link| link.harness.result);
-        if self.boundary == Boundary::Harness
-            && gate
-            && self.has_hands(label)
-            && door == Some(ResultDoor::LastMessage)
-        {
-            input["result_delivery"] = json!("last-message");
+    /// The marks this engine writes into a site's driver input, under the
+    /// boundary this run composes with.
+    fn marks(&self) -> SiteMarks<'_> {
+        SiteMarks {
+            bundle: &self.bundle,
+            boundary: self.boundary,
         }
-    }
-
-    /// The discovery notice (proposed decision 0069): a boxed seat whose
-    /// provider may defer MCP tools is told which tool is its workspace
-    /// and how to load it. The engine alone writes the private
-    /// `hands_notice` carrier, and clears it first, so a reused input, a
-    /// fallback to a provider that declares none, or a site that is not
-    /// boxed never keeps a carrier it does not own. It is written only
-    /// when this label's canonical facts resolve hands, the boundary is
-    /// one Brokkr boxes, and the provider serving THIS attempt declares a
-    /// notice: the selected link's, or — only for an inline site no link
-    /// serves — the notice its adapter declared at compile time. A spawn
-    /// time fact of the selected link, like `mark_delivery`'s door, so it
-    /// stays outside the requested digest.
-    fn mark_hands_notice(&self, label: &str, link: Option<&Candidate>, input: &mut Value) {
-        // Every driver input the engine composes is an object.
-        let _ = input
-            .as_object_mut()
-            .map(|object| object.remove("hands_notice"));
-        if !(self.has_hands(label) && self.boundary.is_boxed()) {
-            return;
-        }
-        let notice = match link {
-            Some(link) => link.hands_notice.as_ref(),
-            None => self
-                .bundle
-                .sites
-                .get(label)
-                .and_then(|facts| facts.inline_hands_notice.as_ref()),
-        };
-        if let Some(notice) = notice {
-            input["hands_notice"] = notice.to_value();
-        }
-    }
-
-    /// Whether the one canonical execution-site family resolved any hands
-    /// at this label (design D10 F1). `NoHands` and `Unknown` both answer
-    /// false; `mark_hands` tells those two apart with affirmative markers
-    /// rather than letting this answer invent one.
-    fn has_hands(&self, label: &str) -> bool {
-        matches!(
-            self.bundle.sites.get(label).map(|facts| &facts.hands),
-            Some(HandsState::Hands(_))
-        )
     }
 
     /// The hands spec this site's canonical family resolved, if any. An
@@ -1424,7 +1338,7 @@ impl Engine {
     /// with hands, none for a site without — the `None` every record of
     /// such a site spells as `not applicable` (decision 0046 ruling 3).
     fn site_boundary(&self, label: &str) -> Option<Boundary> {
-        self.has_hands(label).then_some(self.boundary)
+        self.marks().has_hands(label).then_some(self.boundary)
     }
 
     /// Which boundary stood at every invocation site of this attempt
@@ -1916,19 +1830,11 @@ impl Engine {
                     "house_rules": seat_input["house_rules"],
                     "context": context,
                 });
-                if seat_input["phase"] == "review" && member.name == "spec-compliance" {
-                    input["spec_dialect"] = self
-                        .bundle
-                        .dialect_prompts
-                        .get("review")
-                        .map_or(Value::Null, |text| json!(text));
-                } else if !seat_input["spec_dialect"].is_null() {
-                    input["spec_dialect"] = seat_input["spec_dialect"].clone();
-                }
+                self.marks()
+                    .member_dialect(&member.name, seat_input, &mut input);
                 copy_secret_binding_facts(&mut input, seat_input);
-                self.mark_hands(&label, &mut input);
-                self.mark_delivery(&label, gate, selection.get(&site), &mut input);
-                self.mark_hands_notice(&label, selection.get(&site), &mut input);
+                self.marks()
+                    .site(&label, gate, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
                 let spawn = self.compose(
                     attempt_id,
@@ -2240,10 +2146,9 @@ impl Engine {
                         input["spec_dialect"] = seq_input["spec_dialect"].clone();
                     }
                     copy_secret_binding_facts(&mut input, seq_input);
-                    self.mark_hands(&step_label, &mut input);
                     let step_gate = step.class == SeatClass::Gate;
-                    self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
-                    self.mark_hands_notice(&step_label, selection.get(&site), &mut input);
+                    self.marks()
+                        .site(&step_label, step_gate, selection.get(&site), &mut input);
                     let hands = self.hands_for(&step_label);
                     let spawn = self.compose(
                         attempt_id,
