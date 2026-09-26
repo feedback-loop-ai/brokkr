@@ -209,6 +209,16 @@ fn scalar_fields_hashes_and_times_fail_closed() {
     );
 }
 
+/// A dispatch is live from the instant it was issued: the lower bound of
+/// its window is inclusive, as the upper one is exclusive (#419).
+#[test]
+fn a_dispatch_verifies_at_the_instant_it_was_issued() {
+    let bundle_sha = canonical::sha256_hex(&bundle());
+    let mut dispatch = fixture(&bundle_sha);
+    dispatch.issued_at = "2026-08-28T08:30:00Z".into();
+    assert_eq!(dispatch.sealed().verify(now(), &bundle_sha), Ok(()));
+}
+
 #[test]
 fn authority_scope_budget_and_evidence_are_least_privilege() {
     let bundle_sha = canonical::sha256_hex(&bundle());

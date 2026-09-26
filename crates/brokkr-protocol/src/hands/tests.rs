@@ -427,6 +427,52 @@ fn the_rendering_labels_every_section_and_output_is_bounded_while_draining() {
         .ends_with(&format!("[output truncated at {OUTPUT_BYTES} bytes]")));
     let (kept, truncated) = drain_bounded(Cursor::new(b"tiny".to_vec()));
     assert_eq!((kept.as_slice(), truncated), (&b"tiny"[..], false));
+    // Exactly the bound fits whole: nothing was cut (#419).
+    let (kept, truncated) = drain_bounded(Cursor::new(vec![b'a'; OUTPUT_BYTES]));
+    assert_eq!((kept.len(), truncated), (OUTPUT_BYTES, false));
+}
+
+/// A toolchain variable follows its own bind and no other: a box that
+/// binds none of the three toolchain homes is handed none of them (#419).
+#[test]
+fn a_toolchain_variable_is_set_by_its_own_bind_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let toolchain = |raw: Value| -> Vec<String> {
+        let argv = box_argv(
+            &spec_of(raw),
+            dir.path(),
+            &dir.path().join("home"),
+            &dir.path().join("scratch"),
+            &dir.path().join("session"),
+            &GitFacts::default(),
+            None,
+            &one("true"),
+        )
+        .unwrap();
+        argv.windows(2)
+            .filter(|pair| pair[0] == "--setenv")
+            .map(|pair| pair[1].clone())
+            .filter(|key| ["CARGO_HOME", "RUSTUP_HOME", "NPM_CONFIG_CACHE"].contains(&key.as_str()))
+            .collect()
+    };
+    let bind = |path: &str| json!({"kind": "workspace", "binds": [{"path": path, "mode": "ro"}]});
+    assert_eq!(toolchain(bind("/opt/scratchpad")), Vec::<String>::new());
+    assert_eq!(toolchain(bind("~/.rustup")), ["RUSTUP_HOME"]);
+}
+
+/// The box's `runner` is the engine's own uid and gid, as the host's
+/// `id` reports them (#419).
+#[test]
+fn the_box_identity_is_the_engines_own() {
+    let id = |flag: &str| -> u32 {
+        let out = Command::new("/usr/bin/id").arg(flag).output().unwrap();
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    };
+    assert_eq!(ids(), (id("-u"), id("-g")));
 }
 
 fn fake_run(
