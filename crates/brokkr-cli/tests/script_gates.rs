@@ -7,7 +7,8 @@
 //!   longer matches is refused, and nothing is written unless every release
 //!   was measured and at least one version moved;
 //! - `shellcheck-actions.sh`: every composite action's `run: |` script is
-//!   extracted and checked, and a `run:` it cannot read is refused;
+//!   extracted and checked, and a `run:` (or `run :`) it cannot read is
+//!   refused;
 //! - `lint-diagrams.sh`: every mermaid fence Markdown allows is found, and a
 //!   file whose fences mermaid-cli does not all render is refused.
 
@@ -327,6 +328,9 @@ fn every_run_block_of_every_action_is_extracted_and_checked() {
     - run: |
         echo three
       shell: bash
+    - shell: bash
+      run: |
+       echo four
 ",
         ),
     ]);
@@ -336,7 +340,7 @@ fn every_run_block_of_every_action_is_extracted_and_checked() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(
         stdout(&output),
-        "shellcheck-actions: 3 action scripts clean\n"
+        "shellcheck-actions: 4 action scripts clean\n"
     );
     assert_eq!(
         repo.read("checked.txt"),
@@ -352,13 +356,23 @@ fi
 == 1-1.sh
 #!/usr/bin/env bash
 echo three
+== 1-2.sh
+#!/usr/bin/env bash
+echo four
 "
     );
 }
 
 #[test]
 fn a_run_that_is_not_a_literal_block_or_no_script_at_all_is_refused() {
-    for header in ["run: >-", "run: |-", "run: |2", "run: echo hi"] {
+    for header in [
+        "run: >-",
+        "run: |-",
+        "run: |2",
+        "run: echo hi",
+        "run : |",
+        "run : echo hi",
+    ] {
         let repo = action_tree(&[(
             "folded",
             &format!(
