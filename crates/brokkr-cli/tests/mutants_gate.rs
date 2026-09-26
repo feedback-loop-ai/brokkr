@@ -334,6 +334,18 @@ fn the_required_job_runs_the_gate_and_protocol_only_reports() {
     let workflow = std::fs::read_to_string(workspace().join(".github/workflows/mutants.yml"))
         .expect("mutants.yml");
     let core = job(&workflow, "core-gate");
+    // A skipped job reports success, which satisfies a required check: the
+    // #420 landing set this condition to `false` and every test stayed
+    // green. The job runs on exactly the event it gates, and nothing else.
+    let conditions: Vec<&str> = core
+        .lines()
+        .filter(|line| line.starts_with("    if:"))
+        .collect();
+    assert_eq!(
+        conditions,
+        ["    if: github.event_name == 'pull_request'"],
+        "core-gate's only condition must be the pull-request event:\n{core}"
+    );
     for line in [
         "    name: 'mutants in the diff: brokkr-core'\n",
         "          BASE: ${{ github.event.pull_request.base.sha }}\n",
