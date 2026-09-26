@@ -64,7 +64,23 @@ fn scratch() -> tempfile::TempDir {
 
 /// Run `quality/ratchet.sh`, with `PR_BODY` set only when a body is given.
 fn ratchet(repo: &Path, args: &[&str], pr_body: Option<&str>) -> Output {
+    ratchet_on(repo, args, pr_body, None)
+}
+
+/// Run `quality/ratchet.sh` with a directory of stub tools first on `PATH`
+/// and the stub's report mode in its environment, when given.
+fn ratchet_on(
+    repo: &Path,
+    args: &[&str],
+    pr_body: Option<&str>,
+    stubs: Option<(&Path, &str)>,
+) -> Output {
     let mut command = Command::new("bash");
+    if let Some((stubs, report)) = stubs {
+        let path = std::env::var("PATH").unwrap_or_default();
+        command.env("PATH", format!("{}:{path}", stubs.display()));
+        command.env("JSCPD_STUB_REPORT", report);
+    }
     command
         .arg("quality/ratchet.sh")
         .args(args)
@@ -160,6 +176,48 @@ fn the_file_ratchet_holds_each_file_to_its_baseline_or_ceiling() {
     );
 }
 
+/// A stub jscpd, first on PATH, that exits 0 having written the report
+/// `JSCPD_STUB_REPORT` names: nothing (`empty`), or a well-formed report
+/// of a scan that read no file (`nothing-read`).
+const JSCPD_STUB: &str = r#"#!/bin/sh
+while [ $# -gt 0 ]; do
+  if [ "$1" = --output ]; then
+    mkdir -p "$2"
+    case "$JSCPD_STUB_REPORT" in
+      empty) : > "$2/jscpd-report.json" ;;
+      nothing-read) echo '{"duplicates":[],"statistics":{"total":{"sources":0}}}' > "$2/jscpd-report.json" ;;
+    esac
+  fi
+  shift
+done
+exit 0
+"#;
+
+/// A clone scan that measured nothing passes nothing: a report left empty,
+/// and a well-formed report of a scan that read no file, are each refused
+/// though the tool exited 0.
+#[test]
+fn the_clone_ratchet_refuses_a_scan_that_measured_nothing() {
+    let repo = scratch();
+    let at = repo.path();
+    for scope in ["prod", "tests", "data"] {
+        let path = format!("quality/jscpd-baseline-{scope}.json");
+        write(at, &path, r#"{"version":1,"fingerprints":{}}"#);
+    }
+    write(at, "stubs/jscpd", JSCPD_STUB);
+    let stub = at.join("stubs/jscpd");
+    let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+    std::fs::set_permissions(&stub, mode).unwrap();
+    let stubs = at.join("stubs");
+    for (report, refusal) in [
+        ("empty", "jscpd wrote an empty report for prod"),
+        ("nothing-read", "jscpd read no file for prod"),
+    ] {
+        let output = ratchet_on(at, &["clones"], None, Some((&stubs, report)));
+        assert_refused(&output, &[refusal]);
+    }
+}
+
 /// A tree with no test file is measured, not refused for its empty section.
 #[test]
 fn the_file_ratchet_reads_a_tree_with_no_test_file() {
@@ -227,6 +285,16 @@ fn the_complexity_judge_holds_functions_to_their_allowance() {
         ],
     );
     assert_refused(&report(vec![]), &["no function was measured"]);
+    write(at, "empty.json", "");
+    assert_refused(
+        &ratchet(at, &["crap-judge", "empty.json"], None),
+        &["the cargo-crap report at empty.json is empty"],
+    );
+    write(at, "list.json", "[]");
+    assert_refused(
+        &ratchet(at, &["crap-judge", "list.json"], None),
+        &["the cargo-crap report at list.json is not a JSON object"],
+    );
     let one = || vec![entry("fresh", 1, None, "new", 100)];
     assert_refused(
         &judge(serde_json::json!({ "entries": one() })),
@@ -261,6 +329,7 @@ const TOO_MANY_LINES: &str = "# produced by quality/measure.sh
 
 const VIEW_API: &str = "# produced by quality/measure.sh
 pub fn brokkr_view::a()
+pub fn brokkr_view::b()
 ";
 
 const SUPPRESSIONS: &str = "# by lint
@@ -311,7 +380,7 @@ fn raise_everything(at: &Path) -> Vec<&'static str> {
     write(
         at,
         "quality/public-api/brokkr-view.txt",
-        &(VIEW_API.to_owned() + "pub fn brokkr_view::b()\n"),
+        &(VIEW_API.to_owned() + "pub fn brokkr_view::c()\n"),
     );
     write(
         at,
@@ -331,7 +400,7 @@ fn raise_everything(at: &Path) -> Vec<&'static str> {
         "too-many-lines.txt: crates/demo/src/lib.rs fresh #0 at 101 lines (was absent)",
         "jscpd-baseline-tests.json: new clone bb",
         "public-api/brokkr-core.txt: 3 public items (was 2)",
-        "public-api/brokkr-view.txt: 2 public items (was 1)",
+        "public-api/brokkr-view.txt: 3 public items (was 2)",
         "public-api/brokkr-new.txt: 1 public items (was absent)",
         "public-api/brokkr-core.txt: 3 items name serde_json::Value (was 2)",
         "quality/jscpd-baseline-data.json: removed",
@@ -425,6 +494,64 @@ fn a_baseline_this_check_cannot_read_is_refused_under_any_ruling() {
         &ratchet(at, &["baselines", "HEAD"], ruled),
         &["quality/crap-baseline.json: empty at HEAD or here"],
     );
+    unreadable_shapes_are_refused(at, ruled);
+}
+
+/// Each JSON and text baseline shape this check cannot read, planted one
+/// at a time on a baselined repository, is refused under a Ruling line.
+fn unreadable_shapes_are_refused(at: &Path, ruled: Option<&str>) {
+    let no_cc = crap_baseline(21, 3, &[]).replace(r#""cyclomatic":21"#, r#""complexity":21"#);
+    let not_counts = r#"{"version":1,"fingerprints":{"aa":"one"}}"#;
+    let cases: [(&str, &str, &str); 7] = [
+        (
+            "quality/crap-baseline.json",
+            &no_cc,
+            "without file, function, line and cyclomatic (here)",
+        ),
+        (
+            "quality/jscpd-baseline-prod.json",
+            not_counts,
+            "no fingerprints object of counts (here)",
+        ),
+        (
+            "quality/public-api/brokkr-view.txt",
+            "# produced by quality/measure.sh\n",
+            "brokkr-view.txt: no public item parsed (here)",
+        ),
+        (
+            "quality/public-api/brokkr-view.txt",
+            "",
+            "brokkr-view.txt: no public item parsed (here)",
+        ),
+        (
+            "quality/public-api/brokkr-core.txt",
+            "# produced by quality/measure.sh\n",
+            "brokkr-core.txt: no public item parsed (here)",
+        ),
+        (
+            "quality/suppressions.txt",
+            "# production\n    two expect clippy::x\n",
+            "suppressions.txt:2 is not \"<count> <expect|allow> <lint>\" (here)",
+        ),
+        (
+            "quality/duplicate-skips.txt",
+            "syn 2.0.0\n",
+            "duplicate-skips.txt:1 is not \"<crate>@<version>\" (here)",
+        ),
+    ];
+    for (path, text, refusal) in cases {
+        let committed = read_at(at, path);
+        write(at, path, text);
+        assert_refused(
+            &ratchet(at, &["baselines", "HEAD"], ruled),
+            &[refusal, "no ruling passes it"],
+        );
+        write(at, path, &committed);
+    }
+}
+
+fn read_at(repo: &Path, path: &str) -> String {
+    std::fs::read_to_string(repo.join(path)).unwrap()
 }
 
 /// A lowered number needs no ruling; a changed measuring rule does, and a
@@ -441,11 +568,8 @@ fn a_lowered_baseline_needs_no_ruling_but_a_changed_rule_does() {
         r#"{"version":1,"fingerprints":{}}"#,
     );
     write(at, "quality/public-api/brokkr-core.txt", VALUE);
-    write(
-        at,
-        "quality/public-api/brokkr-view.txt",
-        "# produced by quality/measure.sh\n",
-    );
+    let fewer = VIEW_API.replace("pub fn brokkr_view::b()\n", "");
+    write(at, "quality/public-api/brokkr-view.txt", &fewer);
     let shorter = TOO_MANY_LINES.replace(
         " 120 crates/demo/src/lib.rs:1 big",
         " 110 crates/demo/src/lib.rs:1 big",

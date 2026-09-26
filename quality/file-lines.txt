@@ -94,13 +94,13 @@
    532 crates/brokkr-cli/tests/house_prose.rs
    660 crates/brokkr-cli/tests/init_doctor.rs
   1119 crates/brokkr-cli/tests/init_stacks.rs
-  1094 crates/brokkr-cli/tests/layering/main.rs
+  1123 crates/brokkr-cli/tests/layering/main.rs
   1440 crates/brokkr-cli/tests/layering/scan.rs
   3483 crates/brokkr-cli/tests/machine_proof.rs
   1438 crates/brokkr-cli/tests/muninn.rs
   1362 crates/brokkr-cli/tests/packaging.rs
    227 crates/brokkr-cli/tests/provenance.rs
-   533 crates/brokkr-cli/tests/ratchets.rs
+   657 crates/brokkr-cli/tests/ratchets.rs
   1297 crates/brokkr-cli/tests/realms.rs
    601 crates/brokkr-cli/tests/recipes.rs
    457 crates/brokkr-cli/tests/rename_guard.rs

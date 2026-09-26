@@ -24,12 +24,12 @@ Every baseline names the tool and version that produced it: a `producedBy` objec
 
 | Check | What fails | Where it runs |
 |---|---|---|
-| `ratchet.sh crap` | A function's cyclomatic complexity above its allowance, a measurement not at 100% coverage, or a scan and an LCOV that disagree about which files exist | The coverage job, after the exact gate, on its LCOV |
+| `ratchet.sh crap` | A function's cyclomatic complexity above its allowance, a measurement not at 100% coverage, a scan and an LCOV that disagree about which files exist, or a report that is empty or not a JSON object | The coverage job, after the exact gate, on its LCOV |
 | `ratchet.sh api` | A library crate's public API that differs from its snapshot, or a snapshot with no crate | The coverage job, on the same pinned nightly |
-| `ratchet.sh files` | A Rust file longer than its allowance | The quality job |
-| `ratchet.sh clones` | A jscpd clone whose fingerprint is not in its scope's baseline, or a scan that read nothing | The quality job |
-| `cargo shear --deny-warnings --locked` | An unused dependency | The quality job |
-| `ratchet.sh baselines <rev>` | A baseline raised since `<rev>` with no ruling named | The quality job, on pull requests |
+| `ratchet.sh files` | A Rust file longer than its allowance | The `ratchets` job ("baseline ratchets") |
+| `ratchet.sh clones` | A jscpd clone whose fingerprint is not in its scope's baseline, a scan that read no file, or a report that is empty or not a report | The `ratchets` job ("baseline ratchets") |
+| `cargo shear --deny-warnings --locked` | An unused dependency | The `ratchets` job ("baseline ratchets") |
+| `ratchet.sh baselines <rev>` | A baseline raised since `<rev>` with no ruling named | The `ratchets` job ("baseline ratchets"), on pull requests |
 
 **Allowances.** A function may reach CC 15 or its baseline, whichever is higher, as the operator ruled on 2026-09-26 (decision 0071 ruling 4). A new function stays within 15, an existing one may change freely up to 15, and one already over 15 may only shrink. A file may grow to its ceiling or its baseline, whichever is higher.
 
@@ -38,7 +38,7 @@ Every baseline names the tool and version that produced it: a `producedBy` objec
 **Moving a baseline.** Run `measure.sh` and commit the result (edit `duplicate-skips.txt` by hand with `deny.toml`):
 - a lowered number is always welcome;
 - a raised one fails `ratchet.sh baselines` unless the pull request carries a line of its own reading `Ruling: <where it was ruled>`, naming something after the colon (line ends are read with any `\r` dropped);
-- a baseline the check cannot read fails, and no ruling passes it: a listing with no entry, a line that is not an entry, a file listed under the section its path does not belong to, or a baseline emptied on either side.
+- a baseline the check cannot read fails, and no ruling passes it: a listing with no entry, a line that is not an entry, a file listed under the section its path does not belong to, a CRAP entry without its file, function, line and complexity, a clone count that is not a number, a public-API snapshot that lists no public item, or a baseline emptied on either side.
 
 "Raised" means any of these:
 - a function over CC 15 that is new or grew;

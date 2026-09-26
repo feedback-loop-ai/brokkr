@@ -42,6 +42,11 @@ verdict() {
 crap_judge() {
   local report="$1" cc
   [ -f "$report" ] || refuse "no cargo-crap report at $report"
+  # A tool that wrote nothing measured nothing: jq reads no value from an
+  # empty file and exits 0, so emptiness and shape are refused first.
+  [ -s "$report" ] || refuse "the cargo-crap report at $report is empty"
+  jq -e 'type == "object"' "$report" > /dev/null 2>&1 ||
+    refuse "the cargo-crap report at $report is not a JSON object"
   cc="$(ceiling ccNewFunction)"
   # cargo-crap matches a function to its baseline by file and name, not by
   # line, so an edit above a function does not make it new. An existing
@@ -124,14 +129,21 @@ files() {
 }
 
 clones() {
-  local scope failed=0
+  local scope report failed=0
   for scope in prod tests data; do
     [ -s "$out/jscpd-baseline-$scope.json" ] || refuse "no quality/jscpd-baseline-$scope.json"
     if ! jscpd_scope "$scope" "$scratch/$scope" --baseline "$out/jscpd-baseline-$scope.json" \
       --fail-on-new-clones --fail-on-empty > /dev/null; then
       failed=1
     fi
-    [ -f "$scratch/$scope/jscpd-report.json" ] || refuse "jscpd wrote no report for $scope"
+    report="$scratch/$scope/jscpd-report.json"
+    [ -f "$report" ] || refuse "jscpd wrote no report for $scope"
+    [ -s "$report" ] || refuse "jscpd wrote an empty report for $scope"
+    jq -e 'type == "object" and (.duplicates | type) == "array"
+      and (.statistics.total.sources | type) == "number"' "$report" > /dev/null 2>&1 ||
+      refuse "jscpd's report for $scope is not a report this check reads"
+    jq -e '.statistics.total.sources > 0' "$report" > /dev/null ||
+      refuse "jscpd read no file for $scope"
     jq -r --arg scope "$scope" '.duplicates[] | select(.isNew)
       | "\($scope): \(.lines) lines, \(.firstFile.name):\(.firstFile.start) and \(.secondFile.name):\(.secondFile.start)"' \
       "$scratch/$scope/jscpd-report.json" >> "$scratch/clones.offenses"
@@ -189,6 +201,18 @@ json_holds() {
   done
 }
 
+# listing_holds <path> <line regex> <what>: refuse a text baseline, on either
+# side, holding a line that is neither a comment nor <what>.
+listing_holds() {
+  local side
+  for side in "$scratch/base" "$1"; do
+    WHAT="$3" LABEL="$1" RE="$2" SIDE="$([ "$side" = "$1" ] && echo here || echo "at $rev")" awk '
+      /^#/ || !NF { next }
+      $0 !~ ENVIRON["RE"] { printf "%s:%d is not %s (%s)\n", ENVIRON["LABEL"], FNR, ENVIRON["WHAT"], ENVIRON["SIDE"] }
+    ' "$side" >> "$scratch/malformed"
+  done
+}
+
 # too_many_lines_keyed <file>: "<path> <name> #<n> <lines>" for each entry of
 # a too-many-lines listing, twins of one name in one file numbered in line
 # order. A line that is not "<lines> <path>:<line> [<name>]" is malformed.
@@ -227,7 +251,10 @@ raised_since() {
   # Complexity: a function over the ceiling that is new or grew. Twins of one
   # name in one file pair in line order.
   if pair quality/crap-baseline.json &&
-    json_holds quality/crap-baseline.json '(.entries | type) == "array" and (.entries | length) > 0' "no baseline entry parsed"; then
+    json_holds quality/crap-baseline.json '(.entries | type) == "array" and (.entries | length) > 0
+      and all(.entries[]; (.file | type) == "string" and (.function | type) == "string"
+        and (.line | type) == "number" and (.cyclomatic | type) == "number")' \
+      "no baseline entry parsed, or an entry without file, function, line and cyclomatic"; then
     jq -r -n --argjson cc "$cc" --slurpfile base "$scratch/base" --slurpfile head "$out/crap-baseline.json" '
       def keyed: [.entries[]] | group_by([.file, .function])
         | map(sort_by(.line) | to_entries[] | {key: "\(.value.file) \(.value.function) #\(.key)", value: .value.cyclomatic})
@@ -261,13 +288,15 @@ raised_since() {
   # Duplication: any fingerprint not in the earlier baseline.
   for scope in prod tests data; do
     path="quality/jscpd-baseline-$scope.json"
-    pair "$path" && json_holds "$path" '(.fingerprints | type) == "object"' "no fingerprints object" || continue
+    pair "$path" && json_holds "$path" '(.fingerprints | type) == "object"
+      and all(.fingerprints[]; type == "number")' "no fingerprints object of counts" || continue
     jq -r -n --arg scope "$scope" --slurpfile base "$scratch/base" --slurpfile head "$path" '
       $head[0].fingerprints | to_entries[] | select(.value > ($base[0].fingerprints[.key] // 0))
       | "jscpd-baseline-\($scope).json: new clone \(.key)"' >> "$scratch/raised"
   done
   # Suppressions (#337): a lint's count that rose, per section and kind.
   if pair quality/suppressions.txt; then
+    listing_holds quality/suppressions.txt '^ *[0-9]+ (expect|allow) +[^ ]+$' '"<count> <expect|allow> <lint>"'
     awk '
       /^# (production|test)$/ { section = substr($0, 3); next }
       /^#/ || !NF { next }
@@ -281,24 +310,29 @@ raised_since() {
   # An emptied list is a shrink, so this one list may be empty.
   base_file "$rev" quality/duplicate-skips.txt "$scratch/base"
   if [ -f "$scratch/base" ] && [ -f "$out/duplicate-skips.txt" ]; then
+    listing_holds quality/duplicate-skips.txt '^[A-Za-z0-9_-]+@[0-9][^ ]*$' '"<crate>@<version>"'
     { grep -v '^#' "$out/duplicate-skips.txt" || true; } | { grep -vxF -f "$scratch/base" || true; } |
       sed 's/^/duplicate-skips.txt: new skip /' >> "$scratch/raised"
   fi
   # Public API: each crate's public items, and serde_json::Value in
-  # brokkr-core's signatures (decision 0071 ruling 3).
+  # brokkr-core's signatures (decision 0071 ruling 3). Every library crate
+  # has public items, so a snapshot that lists none, on either side, is one
+  # this check cannot read.
   for path in "$out"/public-api/*.txt; do
     [ -e "$path" ] || continue
     crate="$(basename "$path" .txt)"
     after="$(grep -vc '^#' "$path" || true)"
+    [ "$after" -gt 0 ] || { printf '%s: no public item parsed (here)\n' "$path" >> "$scratch/malformed"; continue; }
     base_file "$rev" "$path" "$scratch/base"
-    if [ -f "$scratch/base" ]; then
-      before="$(grep -vc '^#' "$scratch/base" || true)"
-    else
-      before=absent
+    if [ ! -f "$scratch/base" ]; then
+      printf 'public-api/%s.txt: %s public items (was absent)\n' "$crate" "$after" >> "$scratch/raised"
+      continue
     fi
-    if [ "$before" = absent ] || [ "$after" -gt "$before" ]; then
+    pair "$path" || continue
+    before="$(grep -vc '^#' "$scratch/base" || true)"
+    [ "$before" -gt 0 ] || { printf '%s: no public item parsed (at %s)\n' "$path" "$rev" >> "$scratch/malformed"; continue; }
+    [ "$after" -le "$before" ] ||
       printf 'public-api/%s.txt: %s public items (was %s)\n' "$crate" "$after" "$before" >> "$scratch/raised"
-    fi
   done
   if pair quality/public-api/brokkr-core.txt; then
     before="$(grep -c 'serde_json::value::Value' "$scratch/base" || true)"
