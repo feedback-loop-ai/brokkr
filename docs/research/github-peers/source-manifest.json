@@ -1,0 +1,2975 @@
+{
+  "schema": "brokkr.research-source-manifest/v1",
+  "reviewed": "2026-09-27",
+  "method": "Immutable GitHub source URLs fetched and hashed; source and tests inspected, third-party code not executed. File retrieval validates citations, not architectural conclusions.",
+  "sources": [
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/.github/workflows/ci.yml",
+      "bytes": 711,
+      "sha256": "5a68a061dcaf12da91bb9f04f27a317864a6e7e94a16cd70f7756d8837417683"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "adapters/claude_cli.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/adapters/claude_cli.py",
+      "bytes": 4956,
+      "sha256": "1955486227c577ddaab2049e405793bca2137968764d9990f41b78419b896dec"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "constitution/base_agent.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/constitution/base_agent.py",
+      "bytes": 2864,
+      "sha256": "4220728efcce180ce9b99ba01d311443cacf7267c58fdf82193a7f9bfc316745"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "constitution/constitution.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/constitution/constitution.py",
+      "bytes": 3441,
+      "sha256": "1212fdfb6fd8d3d6b4e8677d65aa21f922294a3c8e2e8799c260a29c0e714ab2"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "constitution/cost_guard.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/constitution/cost_guard.py",
+      "bytes": 1435,
+      "sha256": "f039df1391c210a0518de05ed935ded93a38345bdf36b647c9ae45eae3ea58c5"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "constitution/debate.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/constitution/debate.py",
+      "bytes": 17369,
+      "sha256": "468d0daa80f8dceb8c671d65ef568d67f9b083d87926f41232754850543df117"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "constitution/governance_chain.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/constitution/governance_chain.py",
+      "bytes": 9098,
+      "sha256": "c5bbf465cd444d23d54321ab7dee852a35d665c31cd8a3a329ce445a7223fc47"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "constitution/hooks.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/constitution/hooks.py",
+      "bytes": 33243,
+      "sha256": "5da19a1c41802548d5a690cb5e5fcc68b05bc15ad5fc0f80d89602777c2eac63"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "pyproject.toml",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/pyproject.toml",
+      "bytes": 1308,
+      "sha256": "9c3e65eda32983ccf041b36ee6a1bd6a12a4efa00605b2a41a2f1648943402f0"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "tests/test_cost_guard.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/tests/test_cost_guard.py",
+      "bytes": 3447,
+      "sha256": "3c08532623920e69c3a28616e96d847c4bab5928f3345c4f218496aaae2f39b9"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "tests/test_debate.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/tests/test_debate.py",
+      "bytes": 6982,
+      "sha256": "c84f31e15c91d1bb9e966bac0a37b038b2f3ba359ef2f5c1f5c5edb543cf4527"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "tests/test_governance_chain.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/tests/test_governance_chain.py",
+      "bytes": 9957,
+      "sha256": "3262d746df30fad9b8e7704ffa65293d6ad86c2dfbd6ed4e50ed27f9c60af2de"
+    },
+    {
+      "repository": "AgentPolis/agent-constitution",
+      "revision": "1408e3ace216b9a42da5a409210ca842872f4cfe",
+      "path": "tests/test_hooks.py",
+      "url": "https://github.com/AgentPolis/agent-constitution/blob/1408e3ace216b9a42da5a409210ca842872f4cfe/tests/test_hooks.py",
+      "bytes": 32401,
+      "sha256": "13b279e820ead3c82212f796a911a87c8b9648baa96b1287dacd46f1359aa005"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/.github/workflows/ci.yml",
+      "bytes": 12363,
+      "sha256": "6c3183fde064609315e425b59a84e86c61e27f02b3be6113f63b3e0cdaeb6899"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "docs/opsx.md",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/docs/opsx.md",
+      "bytes": 34929,
+      "sha256": "bd9c88e81ad7d2aa86403e7e62c635f2b39d1fb4d21c0cea97d665e174808e22"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "package.json",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/package.json",
+      "bytes": 2145,
+      "sha256": "3bf1f710b69d1cb0164322ac3bca9a2dbd09eb5c81ef9e1f9f2c175595feeedc"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "src/core/archive.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/src/core/archive.ts",
+      "bytes": 98692,
+      "sha256": "070cdb382c78d38c215e1b83827bce99495235c6bf1199a43b231632b3c6e311"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "src/core/artifact-graph/graph.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/src/core/artifact-graph/graph.ts",
+      "bytes": 5891,
+      "sha256": "89f48f458b17ba41b4f59ccba7e3c4487bd0979ce1b8baaa1692b74ecab7848d"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "src/core/artifact-graph/outputs.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/src/core/artifact-graph/outputs.ts",
+      "bytes": 5706,
+      "sha256": "b6d19b11b4b92d53f389884757213615d7a568c6ae902ca7d5e63959ee526062"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "src/core/artifact-graph/schema.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/src/core/artifact-graph/schema.ts",
+      "bytes": 6160,
+      "sha256": "29b22548191348feab826b8a08217cb051b20dba497f791686c9e168f2e5e04d"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "src/core/artifact-graph/state.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/src/core/artifact-graph/state.ts",
+      "bytes": 1187,
+      "sha256": "f59f748b94cd94ca2fe022ec5aa66b3251dd1b2c00bddb9a17cbd9273a04d0f2"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "src/core/artifact-graph/types.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/src/core/artifact-graph/types.ts",
+      "bytes": 2945,
+      "sha256": "922b4b13b5f86994312e9e737b966046a6b9149b086eb5b7cf5014d4efad8970"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "test/core/archive.test.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/test/core/archive.test.ts",
+      "bytes": 365945,
+      "sha256": "d2de26c1a4510a7ee1425051ba7355ae086a9ed7bfc052f88c5bb991a5e21d17"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "test/core/artifact-graph/graph.test.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/test/core/artifact-graph/graph.test.ts",
+      "bytes": 13249,
+      "sha256": "cb66374e4ab1dd3a9f65c8c1ff2d16ac5ace7a91224d719a2373899f4b42562e"
+    },
+    {
+      "repository": "Fission-AI/OpenSpec",
+      "revision": "79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777",
+      "path": "test/core/artifact-graph/state.test.ts",
+      "url": "https://github.com/Fission-AI/OpenSpec/blob/79b6aa9c98f1e36795b2bc4ef2a8f770c6d3a777/test/core/artifact-graph/state.test.ts",
+      "bytes": 8438,
+      "sha256": "58b6fa8ea1d9825c377ad861a6f953ee6e93d7be9bc155635bb7ef9beb18ffb7"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/.github/workflows/ci.yml",
+      "bytes": 3804,
+      "sha256": "fc1918e14f620a00991c6a92fc9709069239c1a8bc884bb6a6f51c9b2e5b56ef"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "LICENSE",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/LICENSE",
+      "bytes": 1064,
+      "sha256": "0d28ec66a5dd6582d38ea73f2a8d4e2d59c268a265d50b4a24e6079bf6877a6f"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "docs/AUDIT.md",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/docs/AUDIT.md",
+      "bytes": 13536,
+      "sha256": "19ba15e772e4aaf76ae1f840dbbda873eebabc4f8ba315b4e0281f7e65ecf666"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "package.json",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/package.json",
+      "bytes": 3003,
+      "sha256": "53516037ba85e4e2150cb93b3ba42a4c0892c0631379b2abaf7cc09b45abb45c"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/agents/portable-schema.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/agents/portable-schema.ts",
+      "bytes": 7809,
+      "sha256": "112773cb38c9d2a9d72d516d31060d178c07093189c73d150473d2a37f675cfd"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/agents/portable.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/agents/portable.ts",
+      "bytes": 19328,
+      "sha256": "e7ec09850b4f42c3ea591c75e4bb1103144b825d150de355d9335e9eadc8d809"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/agents/spawner.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/agents/spawner.ts",
+      "bytes": 25282,
+      "sha256": "e659108d1d9ef757a11cec365954c9368ea2ae4da17fd8ab748cfc80bedbeb9d"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/audit/chain.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/audit/chain.ts",
+      "bytes": 15436,
+      "sha256": "d830deac7328f5156c6edb28bbcd13f5dd546f047b7f2337f83c2c568a4b9c8e"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/audit/index.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/audit/index.ts",
+      "bytes": 4332,
+      "sha256": "424ac53dbb73e471e41e734388ded695b02e8188f1f185d727afe266475904be"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/cli/commands/workflow-dsl-runner.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/cli/commands/workflow-dsl-runner.ts",
+      "bytes": 5530,
+      "sha256": "cb71935ff4997bb010e1107c2eedd688ba8ea0a78ef1f97060b4743b21d34c0e"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/cli/commands/workflow.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/cli/commands/workflow.ts",
+      "bytes": 10462,
+      "sha256": "8715c8a9da7159b6d795b44e9269ffe319145534dfe29536a90b0e483d2de358"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/coordination/review-loop.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/coordination/review-loop.ts",
+      "bytes": 21144,
+      "sha256": "77549f1d75623acaa93c5aaa4c1e4d39b86330f6f0ba5dfed3c1efbef9db42bf"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/guardrails/runner.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/guardrails/runner.ts",
+      "bytes": 6780,
+      "sha256": "d789e0af8e59dcfa32364cda3752757b767f0806080ee6384bcd7acaf74550ec"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/persistence/checkpointer.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/persistence/checkpointer.ts",
+      "bytes": 14714,
+      "sha256": "e6c9ab894d0929d43d3021d8b4a93e0f87e98591f9e23cd1d02fc75349a0cbae"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/providers/cli-providers.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/providers/cli-providers.ts",
+      "bytes": 7910,
+      "sha256": "a66b55eb3a482f1ed71d1fa9ce712a2abbf3deec6f7843bbcf9822a8b1119e85"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/sandbox/docker.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/sandbox/docker.ts",
+      "bytes": 6613,
+      "sha256": "eb6ae64456131754ceac3096ad5b7a0a2a582724c5293e3d8811280aef37a347"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/workflows/dsl/executor.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/workflows/dsl/executor.ts",
+      "bytes": 11982,
+      "sha256": "cafe79f006e7892e69c799fc1d5c77e926cf635f4aed219b6c58114d2268e4e2"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/workflows/dsl/parser.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/workflows/dsl/parser.ts",
+      "bytes": 6315,
+      "sha256": "3ec1ac751673dd3b733bd9e8d56b11c46db2afd2987fc9f49cabaedc85ce6182"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "src/workflows/dsl/schema.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/src/workflows/dsl/schema.ts",
+      "bytes": 4762,
+      "sha256": "b8da8cfc56fab3de96f8dbc8ef8498142606db537c438b8a85fa18f5f137d0f3"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "tests/unit/audit-chain.test.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/tests/unit/audit-chain.test.ts",
+      "bytes": 10909,
+      "sha256": "e12b2aa209682293094c2b86cbc973f896cbce9b969b201fab239dc1e7e2d87b"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "tests/unit/checkpointer.test.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/tests/unit/checkpointer.test.ts",
+      "bytes": 12260,
+      "sha256": "ecb2eee3c0a99fc16754ea8476eacc6d5abfa95d4c5dc38642e6456fa5e280cb"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "tests/unit/sandbox/security.test.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/tests/unit/sandbox/security.test.ts",
+      "bytes": 4861,
+      "sha256": "f8a82cb129ef13b287665a2ea6deb48cf45923e8f099d83ad9c7477a0f3384cd"
+    },
+    {
+      "repository": "blackms/aistack",
+      "revision": "dda4ae3372bcbee37463f3ca876a2dd08f3f402d",
+      "path": "tests/unit/workflows/dsl/executor.test.ts",
+      "url": "https://github.com/blackms/aistack/blob/dda4ae3372bcbee37463f3ca876a2dd08f3f402d/tests/unit/workflows/dsl/executor.test.ts",
+      "bytes": 12269,
+      "sha256": "85c78364096587a38ae7523edbe8dc19f5bc45a9df87b794aed220213d83c6ae"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": ".github/workflows/quality.yaml",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/.github/workflows/quality.yaml",
+      "bytes": 2128,
+      "sha256": "e71a434b20a1399435b518dae57ae5ae43bb6d10da084ce2b61459962a2a3058"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": ".pre-commit-config.yaml",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/.pre-commit-config.yaml",
+      "bytes": 1782,
+      "sha256": "f60bead758b362e575c4f65fbfc362ab241bf786fdb24887e6fd934502145ebd"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "LICENSE",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/LICENSE",
+      "bytes": 1572,
+      "sha256": "0aa79baf6328b4a1e694ce10a12ffc36d7666554da128dff0e8fcda0fc536a66"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "README.md",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/README.md",
+      "bytes": 7084,
+      "sha256": "69b974911b5a7b1e132889c5f272d7a2145f96c4bf4a318e26489e7ad03206a8"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "pyproject.toml",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/pyproject.toml",
+      "bytes": 1959,
+      "sha256": "618fb52f5c5b5242b2504f8f02f3af7bc298817fa94c2e6d958d08140cec9847"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-agent-dev/SKILL.md",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-agent-dev/SKILL.md",
+      "bytes": 4936,
+      "sha256": "d08d8b3c382ba44310fec8dbf6787394627b9898d4127f4d1434bf9634191aef"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-architecture/SKILL.md",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-architecture/SKILL.md",
+      "bytes": 14169,
+      "sha256": "505388a83a464f210bbcea06963ee42ad4c351568007ea957f487bda778ec70c"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-architecture/scripts/lint_spine.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-architecture/scripts/lint_spine.py",
+      "bytes": 10983,
+      "sha256": "34d1b5dde498b6332b6dd6ac77bf4a6228c3ddc632e35cb32aa465061c79b742"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-build-auto/SKILL.md",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-build-auto/SKILL.md",
+      "bytes": 1234,
+      "sha256": "f833af67b061b178e834c68a98fa638eb85e3202ccb76947115c22ac26f3e968"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-build-auto/customize.toml",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-build-auto/customize.toml",
+      "bytes": 7184,
+      "sha256": "b974a465bf4cf6b58e0a01b5fa0b98f0b898d834fbd63e3981fc52cbdd02bc28"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-build-auto/step-04-review.md",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-build-auto/step-04-review.md",
+      "bytes": 17213,
+      "sha256": "4ea3cdc4f0d49341a2160514c74acc08bc2561f5713f1ad2e418882989ec9d50"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-build-auto/workflow.md",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-build-auto/workflow.md",
+      "bytes": 5030,
+      "sha256": "2d2ce3cc551419c4af65ad2694e5db0c1eea38bb71b72c791346b2e4818c9771"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-build/workflow.md",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-build/workflow.md",
+      "bytes": 4325,
+      "sha256": "0e9c7fb386d6d32f3f70701ba011ba99a1ed43e891fc7c23876a9d37af132ed8"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad-preview-ticketing/scripts/tickets.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad-preview-ticketing/scripts/tickets.py",
+      "bytes": 40962,
+      "sha256": "3dbab5d360b25fbe174a4c6ede6371e5e6242bc0745aa8174b3bca395909aa43"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad/scripts/memlog.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad/scripts/memlog.py",
+      "bytes": 9465,
+      "sha256": "5aa47b2da6af443a3f19f64635642f947c24c3c52c701199d78d3028aabbc118"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad/scripts/render_skill.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad/scripts/render_skill.py",
+      "bytes": 27335,
+      "sha256": "a622fd5d9f633690323bdecf6cc9dc28625ef0d7b9d971fcc3cd101ed271fa19"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad/scripts/resolve_customization.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad/scripts/resolve_customization.py",
+      "bytes": 5786,
+      "sha256": "92f488e327338610dc380734b5b55d6d8c671716665dfcb791f31e7dd3fdb1e2"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad/scripts/setup.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad/scripts/setup.py",
+      "bytes": 77230,
+      "sha256": "37a130d1176c4babd8e7e4879abb2ccf50ee39582b8afcfc33b38ca94ac94c3c"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad/scripts/tests/test_memlog.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad/scripts/tests/test_memlog.py",
+      "bytes": 10139,
+      "sha256": "498bc8c3948a759df5377fd01dcd7246c0b412849c4ff5d3e78cdef4eed2edcd"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "skills/bmad/scripts/tests/test_render_skill.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/skills/bmad/scripts/tests/test_render_skill.py",
+      "bytes": 45048,
+      "sha256": "055382c5d6010db3fd58bc83016d5c9e848f173a72efaf75c770a055a824456c"
+    },
+    {
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "revision": "5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb",
+      "path": "tools/validate_manifests.py",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/blob/5e33d3c03ba53187a40ab679d5479cdd4b6ac2fb/tools/validate_manifests.py",
+      "bytes": 16785,
+      "sha256": "89ccae06e5582b7b2e453eee50a1e26ef63524170041ae57eb5cf2ad3a31161c"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/.github/workflows/ci.yml",
+      "bytes": 15852,
+      "sha256": "335e28644c0e6b9cf5567e23faf573551c1a0bce8c882145f6f2578f4d851e12"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "LICENSE",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/LICENSE",
+      "bytes": 1572,
+      "sha256": "0aa79baf6328b4a1e694ce10a12ffc36d7666554da128dff0e8fcda0fc536a66"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "docs/testing.md",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/docs/testing.md",
+      "bytes": 118517,
+      "sha256": "af26a44f9a15b152501c9cc7d57d2c480472dc69fe51bb08536bdab113a542cf"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "pyproject.toml",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/pyproject.toml",
+      "bytes": 5917,
+      "sha256": "0cb196f36788b6aefcb8c781cd8097b8dda1fecb30288f6ef692233687e037fd"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/adapters/generic.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/adapters/generic.py",
+      "bytes": 148009,
+      "sha256": "39c43baf29664a271881ee2aa199954784d9d9297f51cc360048a7eafb021303"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/adapters/profile.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/adapters/profile.py",
+      "bytes": 34775,
+      "sha256": "b64cf76a74b727b36df95bb8f7fd5ecd0ec3e3734d2156981a42d5000349d120"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/cli.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/cli.py",
+      "bytes": 294155,
+      "sha256": "4aa6b24509bf6a4610e59f2d91cdf92e79f405fc7a154d4afa8361ae36834cb9"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/data/profiles/claude.toml",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/data/profiles/claude.toml",
+      "bytes": 4678,
+      "sha256": "d47f8938747e8fe3a9f6eb2074f965a3b8101d8b665d529675385092a24f119c"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/data/profiles/codex.toml",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/data/profiles/codex.toml",
+      "bytes": 1254,
+      "sha256": "57a1a70f7efa33c8123dca6efe6d6d68bb389ff4eabfbe939c5d550acfaf2a7c"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/engine.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/engine.py",
+      "bytes": 504010,
+      "sha256": "597571b231c125307815bab324c811a6507db010d447e84cc2dfc13f5ee6f86a"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/journal.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/journal.py",
+      "bytes": 22812,
+      "sha256": "43c2d98a14328badacc072eff808e7f92bf659af8101b1568f3774e331ac6b29"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/plugins/trust.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/plugins/trust.py",
+      "bytes": 2744,
+      "sha256": "09476c747c6397ee993f65713dd98759659001625a1a19750b9a6166ff49863c"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/policy.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/policy.py",
+      "bytes": 89572,
+      "sha256": "c5be076ca6d4ab63477427c9f97e069cc77e5a6aa545509affac3696ff60cedd"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/process_host.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/process_host.py",
+      "bytes": 19798,
+      "sha256": "21a05d6fc44728b97fc647f8b34ae78a9a91d7db48fcbedd7b254d1f116b26f2"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/recovery_flow.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/recovery_flow.py",
+      "bytes": 104726,
+      "sha256": "93e00aba7f9b562adcbd4856b366969e16623eed8679a00e5e288f9e7fef011c"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/runsetup.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/runsetup.py",
+      "bytes": 80185,
+      "sha256": "4b11afd17472d3150ff193ca14e747f43300f56ae610b3aee3e801ba194cc8e0"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/statemachine.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/statemachine.py",
+      "bytes": 2415,
+      "sha256": "c9dcaac091812b371f6339c77dabceb819b131c3858c6047586a1d3b10920610"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "src/bmad_loop/stories_engine.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/src/bmad_loop/stories_engine.py",
+      "bytes": 45007,
+      "sha256": "7872a9e161514bb8c6974a42d5c02d263a64a8ef4979e75a09f5627183610e4c"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "tests/test_generic_tmux.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/tests/test_generic_tmux.py",
+      "bytes": 346725,
+      "sha256": "3605cc29ca503fa1fe344db29a55c1fad4938fcc978c504ef1da3ceb31357018"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "tests/test_journal.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/tests/test_journal.py",
+      "bytes": 26604,
+      "sha256": "518581326ed684ed287f433d9f8d89695f884b9aae9522fc64eb16d15b18dc19"
+    },
+    {
+      "repository": "bmad-code-org/bmad-loop",
+      "revision": "87e5687f05717f5503b696974220cf2a91399664",
+      "path": "tests/test_recovery_flow.py",
+      "url": "https://github.com/bmad-code-org/bmad-loop/blob/87e5687f05717f5503b696974220cf2a91399664/tests/test_recovery_flow.py",
+      "bytes": 183616,
+      "sha256": "2e27b7bb9c099d0ef50541753c08f1c5168c064b154f8fd521b9f124d09cf859"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": ".github/workflows/squad-ci.yml",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/.github/workflows/squad-ci.yml",
+      "bytes": 37179,
+      "sha256": "6c0b038cb86d2cbc3a19bc7b6f3f3a590c96c48968f6462db16cc21181889f6e"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": ".squad-templates/charter.md",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/.squad-templates/charter.md",
+      "bytes": 2053,
+      "sha256": "9338640bd7cbf4bb9f62cfbb97eed66a8005d68f58bf281fe7eb5c6e841bdde5"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "LICENSE",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/LICENSE",
+      "bytes": 1086,
+      "sha256": "a29fbca40ece55cf400b003960c6523d909eacde076d32567a4ef2d1af252eb1"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "docs/src/content/docs/concepts/architecture.md",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/docs/src/content/docs/concepts/architecture.md",
+      "bytes": 2968,
+      "sha256": "54093133d9a5cc1e6372318e60bd9fc08061fcd374757b7d0ed1f0708f4c9520"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "package.json",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/package.json",
+      "bytes": 2965,
+      "sha256": "ca9b8f09871f8254949be39dba50581a9a66104411c5d12969afb57155e543c9"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-cli/src/cli/shell/index.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-cli/src/cli/shell/index.ts",
+      "bytes": 59143,
+      "sha256": "99c44c9f94ba910598680bcaa6503fe1f5b94bb16edece9317ca76da2ee0690e"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/package.json",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/package.json",
+      "bytes": 8351,
+      "sha256": "8815c165dd2a450282f82f8128a61b2949621e2978115038f5ccf69674a41509"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/agents/charter-compiler.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/agents/charter-compiler.ts",
+      "bytes": 12464,
+      "sha256": "e2f472f7f02b95905cd5b1236c5e0c9fdf3dfe944e74db284d8600e0a106f844"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/client/session-pool.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/client/session-pool.ts",
+      "bytes": 5159,
+      "sha256": "04ab59e051f9e82d96c00d0483e302a8602d1e9b9d667c9503d9b14d260b5af1"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/config/routing.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/config/routing.ts",
+      "bytes": 11120,
+      "sha256": "065d2ef5382bf6f3a2a882e734a752771ba862f7385ef11b1eb87cf760df5662"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/coordinator/index.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/coordinator/index.ts",
+      "bytes": 8511,
+      "sha256": "dad6be34748aeb0b7d3865e5e2e4df1247de72001a4989b409447f096f1a57ba"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/coordinator/spawn-backend.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/coordinator/spawn-backend.ts",
+      "bytes": 12907,
+      "sha256": "93017846c0320f9d4037cdf9638299fd7098f952421c2541db2c82d333660ab3"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/hooks/index.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/hooks/index.ts",
+      "bytes": 12451,
+      "sha256": "5b45ea3b037f0f3a6488849ed01b53ae279603178b717adf4339ba8f8ef2c84e"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/runtime/scheduler.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/runtime/scheduler.ts",
+      "bytes": 26253,
+      "sha256": "d99644de0171f42cb0f4fb6554af23b636e961bf815574021e5324af0a4035c4"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/state-backend.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/state-backend.ts",
+      "bytes": 51013,
+      "sha256": "259a11384456268d2dad4884ce4e965730241d5b0c7ec76b9fe111d057bf5cb7"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "packages/squad-sdk/src/storage/fs-storage-provider.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/packages/squad-sdk/src/storage/fs-storage-provider.ts",
+      "bytes": 14211,
+      "sha256": "b0196252b1567ef3542ff2b172a32e1e8db0a39a7f25014d6a95249b593907da"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "test/hooks-security.test.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/test/hooks-security.test.ts",
+      "bytes": 11734,
+      "sha256": "92bd684a960f7b8e85a4e6f68ee1c8feaa405738693d4a4184ec4f9912e8356e"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "test/hooks.test.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/test/hooks.test.ts",
+      "bytes": 19105,
+      "sha256": "3917ceae6ef5cc82cfe7dd8bcec87f8ef99692e9a3e732cb1200743110f37002"
+    },
+    {
+      "repository": "bradygaster/squad",
+      "revision": "0f2586ea7ca51c0cdbf91a09b1b8911f653a643b",
+      "path": "test/state-backend.test.ts",
+      "url": "https://github.com/bradygaster/squad/blob/0f2586ea7ca51c0cdbf91a09b1b8911f653a643b/test/state-backend.test.ts",
+      "bytes": 81203,
+      "sha256": "311c9bb93353bcb0f4175dc2191eab6e1c05f2ce8759b29064958696f469d6b9"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": ".github/workflows/tests.yml",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/.github/workflows/tests.yml",
+      "bytes": 5374,
+      "sha256": "dabf309334d3e717c4a25f1292b92647898bb1209b9c5d28a1b8e3fda13f8a63"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/pyproject.toml",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/pyproject.toml",
+      "bytes": 3751,
+      "sha256": "ad3fa16dee2eb6e11555615cc3cb3fceb5b93d50abacc51e9f9306b0cf27ed38"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/agent/core.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/agent/core.py",
+      "bytes": 87473,
+      "sha256": "95733a126d45d76525618d2f694fbe98598e64f8f02e7d32efe257b556142340"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/crew.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/crew.py",
+      "bytes": 97215,
+      "sha256": "6b2a6b9e91a4afebaa739ee9ab22ccfaf8fdf31ceb4c495250efcb23de7725ff"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/flow/flow.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/flow/flow.py",
+      "bytes": 1310,
+      "sha256": "7b586e9b8f85e65455d0b3f577b75167ff18a55bf177ff3aaeb2516a4e5c1cfb"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/flow/flow_definition.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/flow/flow_definition.py",
+      "bytes": 35654,
+      "sha256": "3354c866a5652a5be7eadd56cf7cc76a08cee9f7ee64496382cf75d2dc7a4b37"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/flow/persistence/sqlite.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/flow/persistence/sqlite.py",
+      "bytes": 10360,
+      "sha256": "bed26a8738299b84caa1dae4bcfb054355e1929a120eda7937099bfea3063685"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/flow/runtime/__init__.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/flow/runtime/__init__.py",
+      "bytes": 163964,
+      "sha256": "5a5637348ea2ba21c1f288c8a5d67cf4d5bded4efe34f613cf6d0bf1fedd7a50"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/flow/runtime/_actions.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/flow/runtime/_actions.py",
+      "bytes": 15651,
+      "sha256": "2460bbc1e5f44572bd2b71f15bc8566b7eb59f60967b8814de31d9e29d08131f"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/security/security_config.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/security/security_config.py",
+      "bytes": 2612,
+      "sha256": "3b5be63193fd6d3b034686558be9a574cd7e564d49d860d9ba35b215960d4c99"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/state/checkpoint_config.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/state/checkpoint_config.py",
+      "bytes": 7249,
+      "sha256": "d9b84dc83c8100fc71551938c0e6879fbabab534c369a0fe3055f5c1fbec003a"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/state/checkpoint_listener.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/state/checkpoint_listener.py",
+      "bytes": 8749,
+      "sha256": "2eccb5df1e0f5a8c79f6ececeb528e66f0d8007e77ad3f5d61afb86a62c96870"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/state/runtime.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/state/runtime.py",
+      "bytes": 17834,
+      "sha256": "855e9132a439bc7e93f9808787e96f3c4bb2ac8432fade677e79a1d743718981"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/src/crewai/task.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/src/crewai/task.py",
+      "bytes": 60186,
+      "sha256": "c51620d9fefb5defd5ed935bce5a070a019c0403ac2ed3849161d6bb8978aa83"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/tests/test_flow_persistence.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/tests/test_flow_persistence.py",
+      "bytes": 20695,
+      "sha256": "5d6f8c992a2b45a6c854a6cc1d58761117f0b337fd210e15a280a097f2264e04"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/tests/test_flow_resumability_regression.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/tests/test_flow_resumability_regression.py",
+      "bytes": 5251,
+      "sha256": "962af2d450397ccf0127c7ed16a7bac23e097b5fced7f259ff2a99d44cbe1ec2"
+    },
+    {
+      "repository": "crewAIInc/crewAI",
+      "revision": "4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec",
+      "path": "lib/crewai/tests/test_task_guardrails.py",
+      "url": "https://github.com/crewAIInc/crewAI/blob/4ed2abc7bbf504a634d3b733f2a97e0fbe8d44ec/lib/crewai/tests/test_task_guardrails.py",
+      "bytes": 25744,
+      "sha256": "34b0392e179860927231f0dd1595c988d13a742936f663c3e7816e560dd47c4f"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/.github/workflows/ci.yml",
+      "bytes": 832,
+      "sha256": "6e219e59a0ff4341b5f9e9fe9cff3a3231be0aca45f8be3de007b273db7bd989"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": ".github/workflows/workflow.yml",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/.github/workflows/workflow.yml",
+      "bytes": 1106,
+      "sha256": "899a7a7929593fe4fdefbd41862f108a830271d1118ab408e4a741850ebbf995"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": "CHARTER.md",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/CHARTER.md",
+      "bytes": 3175,
+      "sha256": "8c917b6f94af86f6e21795f3063323ddba29a34a800adafaee37d0837907e2a3"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": "LICENSE",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/LICENSE",
+      "bytes": 1077,
+      "sha256": "5ffa308eb8cd10c9948a5b816d0fe025342b9284c3f1ff5f193345a862e5bafb"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": "README.md",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/README.md",
+      "bytes": 17588,
+      "sha256": "fd7ea7c2735375d5498f2b212ac87cb170269d89a692d43af5c0aab437f84696"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": "SECURITY.md",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/SECURITY.md",
+      "bytes": 2646,
+      "sha256": "71a09727e4c03516b56a4c8843f9adf44cceacaf6c04c5e67d5325c9acce8bf5"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": "charter.py",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/charter.py",
+      "bytes": 85315,
+      "sha256": "e575e7b000629f9c8c9ae496ecd28118d8e71928df642839523281a93affd3d3"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": "pyproject.toml",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/pyproject.toml",
+      "bytes": 1226,
+      "sha256": "de5a7cc90436080b3ef83d087330f0eeccd4bccbb46ad700276627676a8d0ec1"
+    },
+    {
+      "repository": "cspergel/Charter",
+      "revision": "3a46876de80d17d5d94682160835f5695c3487a4",
+      "path": "tests/test_charter.py",
+      "url": "https://github.com/cspergel/Charter/blob/3a46876de80d17d5d94682160835f5695c3487a4/tests/test_charter.py",
+      "bytes": 40525,
+      "sha256": "92f86ee868132fc3e55400bca5791fca38c702d2d2349cb29d5ab649d041635d"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/.github/workflows/ci.yml",
+      "bytes": 993,
+      "sha256": "c71afd60842f2fdea4ccf7dd9d780f6692757c75a4a540a95f6c49493189af69"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "LICENSE",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/LICENSE",
+      "bytes": 1071,
+      "sha256": "1737c1d829f0e48692a032953a0375e67f95651642148ffda96094354c6baeb1"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "README.md",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/README.md",
+      "bytes": 17689,
+      "sha256": "1928a691202e36d1348e367d3abc2ba8e57f71859a6691dfc974df9f0223e459"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "docs/strongdm/attractor/kilroy-metaspec.md",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/docs/strongdm/attractor/kilroy-metaspec.md",
+      "bytes": 21820,
+      "sha256": "17fec595ed190ae2b8ac44eeed6b59e34b9093d7919c6c1fa2041d7e998e9309"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "go.mod",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/go.mod",
+      "bytes": 907,
+      "sha256": "495d3aaba0a2f7b7bebc0c778fb34c40d1edd0b7dae8cd7ad51611946d012c94"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/agent_process_test.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/agent_process_test.go",
+      "bytes": 8976,
+      "sha256": "8ade885272585fc3732f36a93324c07074031c473eb5c35560d1ffe28065915f"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/agent_router.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/agent_router.go",
+      "bytes": 72910,
+      "sha256": "26fcda6f5e67464785f37f3b4f7c9df108f42c105c83c391c72d3746a8d770c4"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/artifact_policy_resume_test.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/artifact_policy_resume_test.go",
+      "bytes": 2531,
+      "sha256": "98b9c2136abb86d3517a4d7bed023ee3c91cdaa8a5d330471e4f810b7fff40fb"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/config.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/config.go",
+      "bytes": 17965,
+      "sha256": "8493c98a0bc65dc20c57fd617a2af9dd821822522fc43f4eabfee1eb5a4e717e"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/cxdb_events.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/cxdb_events.go",
+      "bytes": 12641,
+      "sha256": "4ab2c5a2eada17eff155ba5a6efc7c1419d3f3a80bed4ad279f0fb07ca9bb223"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/cxdb_sink.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/cxdb_sink.go",
+      "bytes": 7044,
+      "sha256": "86c61b0dc99048762ae67abea59c18705b5d78c5a649973cb54af74e7460cc50"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/deterministic_failure_cycle_test.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/deterministic_failure_cycle_test.go",
+      "bytes": 14227,
+      "sha256": "6f247f5930e4acdff409e24693f45022446159b39c59df91b55946f43666fbb3"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/engine.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/engine.go",
+      "bytes": 87404,
+      "sha256": "b16b7c7c187db99f55fc738bd95824f84968f8ef336257a2d64c04aa641860c8"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/input_materialization_resume_test.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/input_materialization_resume_test.go",
+      "bytes": 4283,
+      "sha256": "2f250ebef0a49e73b2af32fbd0f989baefa2befe83d44dcea97bdda65a181846"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/input_snapshot_lineage.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/input_snapshot_lineage.go",
+      "bytes": 10699,
+      "sha256": "a8bacc6d06f05ee503c7cf6614980793d283315b5e57477f4c7500854747b861"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/next_hop.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/next_hop.go",
+      "bytes": 4571,
+      "sha256": "a0ce433193e5fcc28320c8a8720bd76306a82754edce61e79ef3d63a14e7828f"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/parallel_guardrails_test.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/parallel_guardrails_test.go",
+      "bytes": 7996,
+      "sha256": "652d64eaaed062884a8b41fb27a96567a3d17b6bffa6758eac6dc438aba47796"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/parallel_handlers.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/parallel_handlers.go",
+      "bytes": 39604,
+      "sha256": "1211bdbc903e4cdb97863d00e3dcc76c00cdfd8504b38c9694ada7381c931494"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/process_group_unix.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/process_group_unix.go",
+      "bytes": 1122,
+      "sha256": "e48e64bc5a4129cea5e068c42046a913c6d01a0aeb402fe2680e424116397845"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/process_group_windows.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/process_group_windows.go",
+      "bytes": 971,
+      "sha256": "0cc20393d21baf50bd106e82d89cfa1bf95a96884aa71bb2ef118c7f8c80c319"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/resume.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/resume.go",
+      "bytes": 19963,
+      "sha256": "06c82b84e9eb502f1e81d2798ca853d15ce4ec078cdfe7260de4bdc5183741ff"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/engine/run_ownership_lock.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/engine/run_ownership_lock.go",
+      "bytes": 5145,
+      "sha256": "9f05094038e47a7a912ca1106a466d8cc36cb438d08d82fc34a6a08cef9c553f"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/runtime/atomic_write.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/runtime/atomic_write.go",
+      "bytes": 974,
+      "sha256": "ecc633d93a068ab14a6349403dbcc165445bf4c268e472dddc786576be5f7c36"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/runtime/checkpoint.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/runtime/checkpoint.go",
+      "bytes": 1566,
+      "sha256": "39a23364c851b67d54c1fb8b1bacf97dd57abaa1dcb9022b163e3497488a6f35"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/attractor/validate/validate_test.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/attractor/validate/validate_test.go",
+      "bytes": 58200,
+      "sha256": "8dde0ebc8a09a1d959800d5a42605649985e8a8c56c221c09890acb7eece29d3"
+    },
+    {
+      "repository": "danshapiro/kilroy",
+      "revision": "b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f",
+      "path": "internal/providerspec/builtin.go",
+      "url": "https://github.com/danshapiro/kilroy/blob/b55fb0f2b3d5bfc603726d8ce5c5b89de81bfa2f/internal/providerspec/builtin.go",
+      "bytes": 5279,
+      "sha256": "bbc8e02b3b690f3d67062372dfbb675fb59cc3a929706ff076cbcd10675808a9"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": ".codex/install.sh",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/.codex/install.sh",
+      "bytes": 2415,
+      "sha256": "f6b8ede9388d3d31343f804d01517e6da3f75c5287538d40e812d6aabf2a0d84"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/.github/workflows/ci.yml",
+      "bytes": 1031,
+      "sha256": "2a2855d784b30ce82b8076c24b293ee14a56bf4ba38d7ba5821028d88ef6842d"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "LICENSE",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/LICENSE",
+      "bytes": 1067,
+      "sha256": "0ad4f3dc502e0bbcd36372cf43c5868a4c021fab3238a4722c2bcd9cc1d8db74"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "ORCHESTRATION.md",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/ORCHESTRATION.md",
+      "bytes": 338,
+      "sha256": "78c17404c000227aa88a63c129dfd3fb4642274cb17ae96d3845c844475e8b44"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "agents/architect-agent.md",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/agents/architect-agent.md",
+      "bytes": 13005,
+      "sha256": "dea1d7859a30bc8b73056a4d6646d205645f46d578ec8d23f3f5cd0437779293"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "agents/code-review-agent.md",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/agents/code-review-agent.md",
+      "bytes": 15423,
+      "sha256": "5f1aa5e0ae2329f83c22866e54aecae9f6e0e277b496f75a7d7a7c0b57b9d33d"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "hooks/hooks.json",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/hooks/hooks.json",
+      "bytes": 546,
+      "sha256": "742ca602b7ac0f02dda51a933d19547131fc761894477232e9d17734b9f2f127"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "hooks/session-start.sh",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/hooks/session-start.sh",
+      "bytes": 7074,
+      "sha256": "3760712fac2dda41373bdaf252d288ccfaf8159e974acb0834c7632c079062f5"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "lib/sync-resources.js",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/lib/sync-resources.js",
+      "bytes": 16289,
+      "sha256": "7a2c89dcb7a191c7a3fa481a48e00a43c5177e1d994f4e3524144a7b2fb5d4a5"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "package.json",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/package.json",
+      "bytes": 801,
+      "sha256": "0551faa80319367bb729c948d2776a2cab7f4b4e26484f0213746e38db130771"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "skills/external-tools/SKILL.md",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/skills/external-tools/SKILL.md",
+      "bytes": 15311,
+      "sha256": "9aa9b71dbb8f60af4148339e51132f8ca001fc791778e8e3525cd2541184efbc"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "skills/external-tools/adapters/_common.sh",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/skills/external-tools/adapters/_common.sh",
+      "bytes": 19547,
+      "sha256": "3d06ebaccd8b12f6a21b3b399d7c987f8df3c006102ef645068d0bc15ec8d08d"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "skills/external-tools/adapters/codex.sh",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/skills/external-tools/adapters/codex.sh",
+      "bytes": 13039,
+      "sha256": "2b2cb14607165762dc70ced27a3a3e505aec7dad30f90fa0b7aa7e7be8503fea"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "skills/external-tools/adapters/gemini.sh",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/skills/external-tools/adapters/gemini.sh",
+      "bytes": 12649,
+      "sha256": "ffed63d24cde1486720ec901dc46a46783d35a9d67d34e93947848f949a93b91"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "skills/orchestrated-execution/SKILL.md",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/skills/orchestrated-execution/SKILL.md",
+      "bytes": 36945,
+      "sha256": "7257a2f563bba036437e380196ef33019f37a41e66d623c7b3dd216f9a29309c"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "skills/start/SKILL.md",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/skills/start/SKILL.md",
+      "bytes": 34706,
+      "sha256": "2a31dd3e170204b2d758bb5f437541fb2124108ea8013406a56dab072d091002"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "templates/ci.yml",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/templates/ci.yml",
+      "bytes": 1686,
+      "sha256": "9577fc0bce93fe108e543128964be01402199b7866f4dbbe41b36f0457d9cde1"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "templates/pre-push",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/templates/pre-push",
+      "bytes": 1910,
+      "sha256": "19f22d343779e21546c6b0b262f50b002cdd9de0db28ddbe912100d6c2bbfe5a"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "tests/hooks/test-session-start.sh",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/tests/hooks/test-session-start.sh",
+      "bytes": 9331,
+      "sha256": "b655a7d39084f0d76901d115999227a7764dce6f503f0ce5e1836ba16b190f01"
+    },
+    {
+      "repository": "dsifry/metaswarm",
+      "revision": "33d39f776f7fe29098dcf048955756a237e8cb40",
+      "path": "tests/templates/test-ci-template.sh",
+      "url": "https://github.com/dsifry/metaswarm/blob/33d39f776f7fe29098dcf048955756a237e8cb40/tests/templates/test-ci-template.sh",
+      "bytes": 1151,
+      "sha256": "86ad14f9ec23ec164508564663b0e35c273dc50728b5c4dd67202efde7f68303"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/.github/workflows/ci.yml",
+      "bytes": 8352,
+      "sha256": "b3d3d69ee7ee40fb914a293ebadb50c5b2a7a96b55572bbf5a24b3411c8dd009"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "LICENSE",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/LICENSE",
+      "bytes": 1068,
+      "sha256": "6141d15e761ef772bdd45fdd4036dfc1f97488011429e6643e1445afa9d22f4d"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "README.md",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/README.md",
+      "bytes": 30506,
+      "sha256": "4ed9c05be3573a5202b85ff232fe698cc2aba857ea6b8f1b943c33c2e685e3b9"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "docs/design/architecture.md",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/docs/design/architecture.md",
+      "bytes": 15759,
+      "sha256": "1d7abfeaa42265ce63575952e708245de3759ad4618cb7b49b4a026a5d5c1066"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "docs/design/formula-resolution.md",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/docs/design/formula-resolution.md",
+      "bytes": 8016,
+      "sha256": "80e2831b41080d7ae020a03581981b80fe92d185dd6c0dfb072924b70598cc7b"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "go.mod",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/go.mod",
+      "bytes": 13759,
+      "sha256": "ccfcb67121c54f196f6bb0ee8240408dce4628ca945c3176212f8d7e76a532be"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/beads/audit.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/beads/audit.go",
+      "bytes": 3788,
+      "sha256": "bf2ac5cb71f649c312a1f6ac20470d3f17a96adc4ace5f36b14fc9ab61f8a51e"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/cmd/molecule_step.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/cmd/molecule_step.go",
+      "bytes": 15820,
+      "sha256": "cf89a8668c44e2be3b01735b62e0e081c27ae85846a89377ae3a11951136c30e"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/cmd/sling_dispatch.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/cmd/sling_dispatch.go",
+      "bytes": 18120,
+      "sha256": "33433f0b906615034af68683a9cdc4fa0e3699041278b5b14ddd651c8c459ca7"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/cmd/sling_dispatch_lock_test.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/cmd/sling_dispatch_lock_test.go",
+      "bytes": 3113,
+      "sha256": "cad42e7c9664602d273790605a8f178164d6c542da57577bfd368c6c60cbdd53"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/cmd/sling_formula.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/cmd/sling_formula.go",
+      "bytes": 19838,
+      "sha256": "e478e6e62f47d28ea6d821c52fee735726800a02c8fa8a46510f657ba7feda9d"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/cmd/sling_formula_cleanup_test.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/cmd/sling_formula_cleanup_test.go",
+      "bytes": 5829,
+      "sha256": "bd3872128ec9e54354fb84bb353b453b61e3041b91ceaed27f9abb3b776beda0"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/cmd/sling_idempotency.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/cmd/sling_idempotency.go",
+      "bytes": 2031,
+      "sha256": "3e0b48965cebc8d6981eb98476df3746d4a7bf5b4642fa8db28ae8229d142f81"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/cmd/sling_schedule.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/cmd/sling_schedule.go",
+      "bytes": 14316,
+      "sha256": "35aaf79f31502419d6cdf12d8fceb03683ba529de07a9c0d12e69da6b4f3d233"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/config/agents.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/config/agents.go",
+      "bytes": 44513,
+      "sha256": "50edc42acb139448aa598cecfb2daedc66af9ba149384da0f2146c2b0e7e9025"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/daemon/restart_tracker.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/daemon/restart_tracker.go",
+      "bytes": 8904,
+      "sha256": "9f24dada03fb8d8b9a95f56fcaf5f5cf4c62176218084fdffb1235f97077fe85"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/events/events.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/events/events.go",
+      "bytes": 10622,
+      "sha256": "10bd02d9920c71f2732973957a6ac74d7cb0605e43b977758e3059997f825103"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/formula/embed.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/formula/embed.go",
+      "bytes": 11624,
+      "sha256": "3d2ed9ed11af7ed876f2e3e4f51d6dd83d53bea38386f52ca66f7746e7f8cf29"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/formula/overlay.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/formula/overlay.go",
+      "bytes": 4468,
+      "sha256": "976ecf8560f2f1f6a8669dbaf325d8ee9629b78ab5a6d901cfd8bd07e27fdf54"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/formula/overlay_test.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/formula/overlay_test.go",
+      "bytes": 8978,
+      "sha256": "99488352efd00547388387ffc22ce4369b9958771907e8c7a8c77a2a88b3bc37"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/formula/parser.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/formula/parser.go",
+      "bytes": 18236,
+      "sha256": "c169b21439aa67109b04229325a7708e60bc6202e4ce134b2ec074b999b716f2"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/formula/parser_test.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/formula/parser_test.go",
+      "bytes": 21911,
+      "sha256": "c61969c62fc53fe58a49acf06fecfc84a9705d76f0c902b8ca943ee0a2b7b38b"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/formula/types.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/formula/types.go",
+      "bytes": 7833,
+      "sha256": "5175e14b18a1d896f708d5a96d22bdd1e8f4ad9546c7195a890e427bc106b48d"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/refinery/engineer.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/refinery/engineer.go",
+      "bytes": 99051,
+      "sha256": "2c1783b28e4f6f035530dcfdc37538fee50b6897b2c30a7f0f113c580f203baf"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/refinery/prepush_recheck_test.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/refinery/prepush_recheck_test.go",
+      "bytes": 19637,
+      "sha256": "0176240f78782a1b98b0cce7c3554bb51d788423219fd282d919a9198937a038"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/refinery/safety_stop.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/refinery/safety_stop.go",
+      "bytes": 2615,
+      "sha256": "8455621c4ee0cfeeda77f9af55b5f5d5d52df803e4671e5af60d26d47e6335fe"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/session/lifecycle.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/session/lifecycle.go",
+      "bytes": 17222,
+      "sha256": "b29324c143146cf7be973faeeb9a3053fc7f80d68e0dd9bf6978d686cd969a7b"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/session/pidtrack.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/session/pidtrack.go",
+      "bytes": 5839,
+      "sha256": "72c23ac05c7aa8353fd80e5e20de298a8aebebdbf2320c9ff0ccab047d051639"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/session/pidtrack_test.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/session/pidtrack_test.go",
+      "bytes": 7559,
+      "sha256": "aef4c290837ab589859e66f56e343fe641cadec56c1581a355f1a1788a36a840"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/tmux/tmux.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/tmux/tmux.go",
+      "bytes": 160621,
+      "sha256": "40d1fc8440d3e3bc468f0de73b43f887a83da550b9ad69fde932d351132634a3"
+    },
+    {
+      "repository": "gastownhall/gastown",
+      "revision": "649b832b7672bc7a2dbef26f5983aba6198b819b",
+      "path": "internal/util/exec_unix.go",
+      "url": "https://github.com/gastownhall/gastown/blob/649b832b7672bc7a2dbef26f5983aba6198b819b/internal/util/exec_unix.go",
+      "bytes": 689,
+      "sha256": "ab8cd2f69b78e3aa600669e40b63cef05225a895ef2fc227c2e17b2547cc2adc"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/.github/workflows/ci.yml",
+      "bytes": 79288,
+      "sha256": "a17756f05ca98d2de37590e0c92b328238e38876ade833978d090156607c69dc"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "LICENSE",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/LICENSE",
+      "bytes": 1060,
+      "sha256": "2510b446bc1f0cf9702453075d20cd88631e20e5642658edb7325d9c1eb534f7"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "README.md",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/README.md",
+      "bytes": 47033,
+      "sha256": "a32f7645571cab48daa90ae6661e5454b238376328e7a0f181a6480e5d3b8e59"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/check_workflow_timestamp_api.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/check_workflow_timestamp_api.cjs",
+      "bytes": 23493,
+      "sha256": "3f7f368da5504aae97a6c41f5a9de61771cd0bfed9c124bb5945b884d3f93293"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/collect_ndjson_output.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/collect_ndjson_output.cjs",
+      "bytes": 23542,
+      "sha256": "24888b7c184db401a7b8c070bf6ce589776518c6185faf93e7a73aeae424d094"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/create_issue.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/create_issue.cjs",
+      "bytes": 63417,
+      "sha256": "ea6ca1b51681e7ea71eca77a728629d31e6a1174e11b13c9b51f3b77acfbebf9"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/error_recovery.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/error_recovery.cjs",
+      "bytes": 18985,
+      "sha256": "bfb9c3ece7f375bcc0399bb8b1383b61759684ab37c690c13b26262299e60d43"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/issue_title_dedup.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/issue_title_dedup.cjs",
+      "bytes": 2522,
+      "sha256": "00e30bdf5d45079087a64c3da302acc2db8394f65508b77e55e8ed0c8f8c501a"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/package.json",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/package.json",
+      "bytes": 1693,
+      "sha256": "c018b0b0ba65de43d22a16613dc32d3b24ee6ea747f4d83e87fc3e477a09f96b"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/safe_output_handler_manager.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/safe_output_handler_manager.cjs",
+      "bytes": 95363,
+      "sha256": "e9ee47cb0e09829e006b3226e1eae38d524a281e41934346a63d2a4526eccbf5"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/safe_output_handler_manager.test.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/safe_output_handler_manager.test.cjs",
+      "bytes": 111809,
+      "sha256": "62919efbaa57233c7723ae940dd8f909e7a59b201b56d313860d0fd117d354b1"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/js/safe_output_manifest.cjs",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/js/safe_output_manifest.cjs",
+      "bytes": 17627,
+      "sha256": "0b406c204326a7dbd232e64924cb7a9d29f1eee36e682e9b31da93a7b57fb6ca"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/sh/run_awf_with_startup_retries.sh",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/sh/run_awf_with_startup_retries.sh",
+      "bytes": 4686,
+      "sha256": "23823b57c94005c9125e1ffcc54f0206e71b7e134ccf8770c97f39d17e070e51"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/sh/run_awf_with_startup_retries_test.sh",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/sh/run_awf_with_startup_retries_test.sh",
+      "bytes": 4230,
+      "sha256": "1e34ea3e613fe6ec31f018a2fbc87cbaaa0e27e4acec03c402788c1f1a8857df"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "actions/setup/sh/stop_mcp_gateway.sh",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/actions/setup/sh/stop_mcp_gateway.sh",
+      "bytes": 3805,
+      "sha256": "eefb0f4e6429241ceafed77929d5fe54043e0e0a38513d8397c80f8fdba8c79e"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "docs/src/content/docs/introduction/architecture.mdx",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/docs/src/content/docs/introduction/architecture.mdx",
+      "bytes": 39162,
+      "sha256": "a8c554fc93b98deb7ec9cebeaaea0f98384cf66fe45b6bf2d0dfd56a6bfd4698"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "docs/src/content/docs/reference/cache-memory.md",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/docs/src/content/docs/reference/cache-memory.md",
+      "bytes": 9354,
+      "sha256": "a3ce7385acde17dbf6dc8cdb0963112fd0e587962f9803a26adefe0f5fd586ca"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "docs/src/content/docs/reference/inline-sub-agents.md",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/docs/src/content/docs/reference/inline-sub-agents.md",
+      "bytes": 5331,
+      "sha256": "d887f28d3d3367fcb51de868bb6474ec299d561271561462414d4000c9bbad1a"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "go.mod",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/go.mod",
+      "bytes": 6209,
+      "sha256": "0852e65f34580048c4fd401078d21dd9a8d6165977c966126c9304cf84206d56"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/constants/constants.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/constants/constants.go",
+      "bytes": 33855,
+      "sha256": "0fc2c5ca124eb735e083ca9defcad403df2f47a922c8624ee66b679dc894ba06"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/parser/frontmatter_hash_cross_language_test.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/parser/frontmatter_hash_cross_language_test.go",
+      "bytes": 11043,
+      "sha256": "013680108b4a17212649e3241b408b5029a4f5e1e709691b5d1372586edad60a"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/compiler.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/compiler.go",
+      "bytes": 29119,
+      "sha256": "395989669c9ab4213abd9ae1b2e07781448543eaff88a33ecfe9450742fc6bde"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/compiler_activation_steps.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/compiler_activation_steps.go",
+      "bytes": 20940,
+      "sha256": "13a68a4a3ff35a566d03a42fd565114b7f3bb276f92c7195faa7bb43b382734a"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/compiler_options.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/compiler_options.go",
+      "bytes": 4496,
+      "sha256": "00c1947bec6d37f126e33176c767d81e7f43be4d4404a947eaa804b3a950c8c1"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/compiler_pre_activation_job.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/compiler_pre_activation_job.go",
+      "bytes": 43950,
+      "sha256": "0758eab84514398917302c88a83be097339e0d99167b6578578f4ef3533b4559"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/compiler_safe_outputs_job.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/compiler_safe_outputs_job.go",
+      "bytes": 40746,
+      "sha256": "204431d8c943ca3cb993f43960b5ad9626e88f58647be52213aa66bfb6f40e47"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/compiler_yaml_policy.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/compiler_yaml_policy.go",
+      "bytes": 1776,
+      "sha256": "cd77faf1530bd6f7845ce65238f3e39fe8fa374c8177f3bf72e61ee74432f4c9"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/dangerous_permissions_validation.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/dangerous_permissions_validation.go",
+      "bytes": 3449,
+      "sha256": "837a71f7cdaf9e3696c2cef41399e2cbce6a03261fcb6204297fa7708a252b79"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/imports.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/imports.go",
+      "bytes": 32735,
+      "sha256": "e6e46c20258c6cc53f1188d20b02e3a6896ec6a4ceac4c44a84949be99c83484"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/job_timeouts.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/job_timeouts.go",
+      "bytes": 2945,
+      "sha256": "4b5262ea4569c1ecc71c5af8b83dd96637be8ddc04c14a7a0948faa967bb4861"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/safe_outputs_jobs.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/safe_outputs_jobs.go",
+      "bytes": 6546,
+      "sha256": "44ab48828bc0bcc898b0c2857e3972ab7229f6b1c54b13b7f83cea08797dd7b5"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/safe_outputs_max_validation.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/safe_outputs_max_validation.go",
+      "bytes": 12693,
+      "sha256": "6de9cec14299dbf639f54877ccbacf84f002f391a9089e8864364ff9b3fe1640"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/safe_update_enforcement.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/safe_update_enforcement.go",
+      "bytes": 15565,
+      "sha256": "31d95356b7871e6cbb2f9dfbc30b3a1d1955814310a998fdf4e20c5ed5224a59"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/sandbox_runtime_profile.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/sandbox_runtime_profile.go",
+      "bytes": 4456,
+      "sha256": "720ad416022315802ad4475d89ef03f0ccc4872ce88f2c783fc301b68d8862cc"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/security_architecture_sg_formal_test.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/security_architecture_sg_formal_test.go",
+      "bytes": 36264,
+      "sha256": "8a1c9dc1b90bb12a72e643575505a09a04046a563aa2b93b3bba9f7f9c439479"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/strict_mode_env_validation.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/strict_mode_env_validation.go",
+      "bytes": 6873,
+      "sha256": "3e39613ee23fe40b546a46e3195eec9ee1400ee57abdac5c541675b66ce6d5a7"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/strict_mode_sandbox_validation.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/strict_mode_sandbox_validation.go",
+      "bytes": 3076,
+      "sha256": "ac44dfd494cc4639d948f433984ddaacc716cd78b63e953062f5b361b2c2f103"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/strict_mode_steps_validation.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/strict_mode_steps_validation.go",
+      "bytes": 10773,
+      "sha256": "d3c5cf81ae1898b0a532a6e8fe57f9a31ff9abcb71d71216e89fe560593c831c"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/sub_agent_step.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/sub_agent_step.go",
+      "bytes": 1567,
+      "sha256": "c2a1cac12a9db4a11e25ba3311868c0165fc66b5c3cb4441b5dac12b62bd4d89"
+    },
+    {
+      "repository": "github/gh-aw",
+      "revision": "4d1d3ec71b568eb37974720f334c45914da0b95b",
+      "path": "pkg/workflow/threat_detection_config.go",
+      "url": "https://github.com/github/gh-aw/blob/4d1d3ec71b568eb37974720f334c45914da0b95b/pkg/workflow/threat_detection_config.go",
+      "bytes": 14321,
+      "sha256": "6c080ef539ea1282dad63718eb6baada682e1fab7ff336da19b8ae1c0faf413a"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "README.md",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/README.md",
+      "bytes": 329,
+      "sha256": "6530ef6aad23383980a7c405d32c40e73c798ee4263a883f804aef31548569b6"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "hooks/gsd-workflow-guard.js",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/hooks/gsd-workflow-guard.js",
+      "bytes": 3362,
+      "sha256": "62af0a1c0fb5a716ba15fba5012f0f63bff43b1d7fdba107334c4903f7c52117"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "package.json",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/package.json",
+      "bytes": 3742,
+      "sha256": "ad28e24ce2ec1bebaec29a1063b3ee84814b6044e1d1dab30d419d514e77a9bb"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "sdk/src/phase-runner.test.ts",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/sdk/src/phase-runner.test.ts",
+      "bytes": 155577,
+      "sha256": "44c6091fa9a452f373c0c8218a735612c82bd52746254f633a55d7f0267cfdbe"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "sdk/src/phase-runner.ts",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/sdk/src/phase-runner.ts",
+      "bytes": 50028,
+      "sha256": "1003b293a9ed3245d9bb308cd2b88357e56b309c15668a0ab23037c19e01740b"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "sdk/src/planning-journal.test.ts",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/sdk/src/planning-journal.test.ts",
+      "bytes": 2494,
+      "sha256": "bc398fd54d9797d47d5db3b2825967d4c31b1c696892750ab2feec988f00e0e7"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "sdk/src/planning-journal.ts",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/sdk/src/planning-journal.ts",
+      "bytes": 4423,
+      "sha256": "86a7ee69db6e03b572d50a3e9ad1c3f6b09db50aaf76949bf256adf6057f121e"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "sdk/src/query-subprocess-adapter.ts",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/sdk/src/query-subprocess-adapter.ts",
+      "bytes": 4621,
+      "sha256": "ec9f8dbd2e21eb43a06c3379ce4ae7136e3ba663e96d71fd48290ee0d231c9d1"
+    },
+    {
+      "repository": "gsd-build/get-shit-done",
+      "revision": "bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815",
+      "path": "sdk/src/session-runner.ts",
+      "url": "https://github.com/gsd-build/get-shit-done/blob/bdcaab2c752d9a33a1a1ca9acf3a3c81fb991815/sdk/src/session-runner.ts",
+      "bytes": 11195,
+      "sha256": "b9c753aa9206ccd3561fd0f627695075e418f5f229301f4c62de01483ac6c84a"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "docs/phase_13_real_llm_integration_confidence.md",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/docs/phase_13_real_llm_integration_confidence.md",
+      "bytes": 4225,
+      "sha256": "0dfc7536bd90cb8c0c229f49bcd532798d01daad66290b729a9da91e95ce4878"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/agents/supervisor.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/agents/supervisor.py",
+      "bytes": 14978,
+      "sha256": "39df349fe2051a63cf32a753d6a815cf95bb7e950a117021109f83e0d1c24573"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/agents/writer.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/agents/writer.py",
+      "bytes": 6343,
+      "sha256": "c26ac8ea08443874d61b2e73fb138d07d7df45c4cdf08259f8ee1a4a6f7ffc30"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/experiments/fanout_fanin.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/experiments/fanout_fanin.py",
+      "bytes": 11895,
+      "sha256": "c3efdbe5f884b3d2755dba480e89527654cf6f3fb79070be409f05af09b2d94b"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/llm_client.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/llm_client.py",
+      "bytes": 7958,
+      "sha256": "b3d94f76ba0a735eb63a7c5963fb781823328f1b2db8e0ebe1ab6938b7cde18a"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/orchestrator.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/orchestrator.py",
+      "bytes": 1618,
+      "sha256": "8b5e27b203dffbf335847f08f6771d2147ac4453a84171aa8f249889e6e67b0a"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/policies/stop.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/policies/stop.py",
+      "bytes": 1210,
+      "sha256": "a1212a55c79b2d4238ce251935e2b40855d365746c94685610c27ad38fb37267"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/policies/transitions.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/policies/transitions.py",
+      "bytes": 3793,
+      "sha256": "63f045fe09856afe301200a2d4362b9a736144289b66dd0f5a8aa8adc60bf06e"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/runner_v1.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/runner_v1.py",
+      "bytes": 7380,
+      "sha256": "1d68ecdb450b61bb8cba36ff374540a35a80bfa3fcb8f83a82f18ac3df7ef0c2"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/state.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/state.py",
+      "bytes": 3476,
+      "sha256": "f792fd2822da79a17f7118046b4c98b7ea2987f4b9be99118feecd156eb1b960"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/core/system_messages.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/core/system_messages.py",
+      "bytes": 4456,
+      "sha256": "34083bbb6f746e32bce70644edb7323ef980e72df645497829938a5c839554e5"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/services/retry.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/services/retry.py",
+      "bytes": 1526,
+      "sha256": "ce4c3faf3abee9b164e8c732fd79734424d952edfc7d1fea2677ee57853efd7c"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/services/trace.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/services/trace.py",
+      "bytes": 3887,
+      "sha256": "32caa7cd6a0d001f71a91e9d5b673c8086a73f4f6e41543cc762398004a2c667"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "interagents/tools/runner.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/interagents/tools/runner.py",
+      "bytes": 1921,
+      "sha256": "0244b53ac3a1a2f7d261286460d9a483442c90d7bac61fefbd7b837c10fcb012"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "pyproject.toml",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/pyproject.toml",
+      "bytes": 516,
+      "sha256": "5985a259dfe48b972bf07c829345fc35d3626c69195cdc48bd1844fc19b26c8a"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "tests/test_v1_stop_is_terminal_no_post_dispatch.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/tests/test_v1_stop_is_terminal_no_post_dispatch.py",
+      "bytes": 4725,
+      "sha256": "c501ca8809f9e6f64a8a2812d1a69576c20356788f7ac1ad449d4fc6a7c8cc89"
+    },
+    {
+      "repository": "jgzadidiLGDY/InterAgents",
+      "revision": "d0cba222108410112db271037c008cc6f6836c5a",
+      "path": "tests/test_v1_writer_requires_evidence.py",
+      "url": "https://github.com/jgzadidiLGDY/InterAgents/blob/d0cba222108410112db271037c008cc6f6836c5a/tests/test_v1_writer_requires_evidence.py",
+      "bytes": 3561,
+      "sha256": "bc6646e8cb29be80910ebf9345660f4665c384d72870bd1870f4c6582b3cea72"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": ".github/workflows/_test_langgraph.yml",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/.github/workflows/_test_langgraph.yml",
+      "bytes": 1831,
+      "sha256": "ed26ce8d3e17ec86211443cbcc58b9974b1c48fce2906bd088ee831720c544e2"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/checkpoint-conformance/README.md",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/checkpoint-conformance/README.md",
+      "bytes": 4700,
+      "sha256": "005e46eff6543f0b9e5a4884f97064216026a6f2d761a5f463b0e2e3ae998995"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/checkpoint/langgraph/checkpoint/serde/encrypted.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/checkpoint/langgraph/checkpoint/serde/encrypted.py",
+      "bytes": 3180,
+      "sha256": "d1a15ed8f9d97f916bbc02ad51db965994ee736c81dd6af887d4f2cd17568be0"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/checkpoint/langgraph/checkpoint/serde/jsonplus.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/checkpoint/langgraph/checkpoint/serde/jsonplus.py",
+      "bytes": 31710,
+      "sha256": "daad0d87adccf5a2b135e9c10b2e85ac200dd5576a3b729a03caf90b727215c8"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/langgraph/graph/state.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/graph/state.py",
+      "bytes": 76310,
+      "sha256": "d8c8021a93a8fc895d62335a9482e50d51353343bf885901e6487611dcd0d212"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/langgraph/pregel/_executor.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/pregel/_executor.py",
+      "bytes": 8185,
+      "sha256": "5afb1e7e7bd768fc5ff7ed5e222539abb73bd11f88d8e150eb75c30a8484364d"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/langgraph/pregel/_loop.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/pregel/_loop.py",
+      "bytes": 82085,
+      "sha256": "33150cf70fc08fd01affeae0345aa20569d2705704e3d209733d9c7b43dd5c0a"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/langgraph/pregel/_retry.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/pregel/_retry.py",
+      "bytes": 33048,
+      "sha256": "667a74090e23fda724e74ad377586e32325510cdd9042d320d60306f783f0a9d"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/langgraph/pregel/_runner.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/pregel/_runner.py",
+      "bytes": 36898,
+      "sha256": "316cf133c724163a18ef279322615588b3fa8b96e359289a7cadea90f0df7622"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/langgraph/pregel/main.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/pregel/main.py",
+      "bytes": 175454,
+      "sha256": "02651dc9471b88f9299d12f6d836e67ad1114ad84498b9ae26df6cd75be8592c"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/langgraph/types.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/langgraph/types.py",
+      "bytes": 37147,
+      "sha256": "cb451aef481886ba5e9701230e85ef38b35eb95608f959ed421f409a05a5a6e6"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/pyproject.toml",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/pyproject.toml",
+      "bytes": 4466,
+      "sha256": "7224a70df0fae0641afc5b455760333797bf3996dcaee1b05dd66d2397712b1f"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "revision": "7daa3ab49d678a5da75edb08baa87db4a2be52c3",
+      "path": "libs/langgraph/tests/test_retry.py",
+      "url": "https://github.com/langchain-ai/langgraph/blob/7daa3ab49d678a5da75edb08baa87db4a2be52c3/libs/langgraph/tests/test_retry.py",
+      "bytes": 95871,
+      "sha256": "443762a3146fee715e3f490cc032e35c3be4dabc05c9df8aea113da3f89dab57"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": ".github/workflows/dotnet-build-and-test.yml",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/.github/workflows/dotnet-build-and-test.yml",
+      "bytes": 32544,
+      "sha256": "a395d960db546cca96b3a3de8a449c359bfa32469c766352d946363e90954734"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": ".github/workflows/python-tests.yml",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/.github/workflows/python-tests.yml",
+      "bytes": 1964,
+      "sha256": "50fb17c9d0a213b14da4ec7bcc9c554f4288d0082820268c41b76c4def9295d9"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "declarative-agents/workflow-samples/README.md",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/declarative-agents/workflow-samples/README.md",
+      "bytes": 666,
+      "sha256": "15d604fd06f98bf34b32e7518fe3fcdb0a3991098b0a1e9c4d245e49a233441a"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "dotnet/src/Microsoft.Agents.AI.Tools.Shell/LocalShellExecutor.cs",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/dotnet/src/Microsoft.Agents.AI.Tools.Shell/LocalShellExecutor.cs",
+      "bytes": 20501,
+      "sha256": "2d1b956a70ceffaed832aea87dd1c697ff2468801e366dabbecc2af77842a763"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "dotnet/src/Microsoft.Agents.AI.Tools.Shell/ShellPolicy.cs",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/dotnet/src/Microsoft.Agents.AI.Tools.Shell/ShellPolicy.cs",
+      "bytes": 11011,
+      "sha256": "f07ecf6afa36482065dc83b823894952621893eab6759786a103fe67efba2f34"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/agent_framework/_workflows/_checkpoint.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/agent_framework/_workflows/_checkpoint.py",
+      "bytes": 40569,
+      "sha256": "839711adc5d74e76e1291e5aeeb45579dd426bd28ea0c188f4b59270bd402ed6"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/agent_framework/_workflows/_edge_runner.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/agent_framework/_workflows/_edge_runner.py",
+      "bytes": 26789,
+      "sha256": "668f8a0c66c0577c83700302cbafeba780f771223adf82fdf6f4cfe95812a2dd"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/agent_framework/_workflows/_runner.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/agent_framework/_workflows/_runner.py",
+      "bytes": 24538,
+      "sha256": "4292ac5f14b304199597f91d9ecf0bad1a4f16185683887b56273adad9d17762"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/agent_framework/_workflows/_validation.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/agent_framework/_workflows/_validation.py",
+      "bytes": 18990,
+      "sha256": "962d3b47a42e91fca48d53f98d66537c66708f40a18736c7932f8a8aeb9c64ef"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/agent_framework/_workflows/_workflow.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/agent_framework/_workflows/_workflow.py",
+      "bytes": 76924,
+      "sha256": "c7f2992d1e9c2be3c765e2c66155afe45c1856df40343238e453e2e1336f71cb"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/agent_framework/_workflows/_workflow_builder.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/agent_framework/_workflows/_workflow_builder.py",
+      "bytes": 38884,
+      "sha256": "d93a52f3a6fd0272dd243b52b8ee472e93d54415cc2b5342e5748894737db8a6"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/pyproject.toml",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/pyproject.toml",
+      "bytes": 4693,
+      "sha256": "2af9bf9be2b91f122999e1176e39a2ce91b42c69db36c9941223f9d25c92ddea"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/tests/workflow/test_checkpoint.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/tests/workflow/test_checkpoint.py",
+      "bytes": 145804,
+      "sha256": "5d382bea3f052ca272d7bcdaa55210b47f48a7d7093b2e113f69813b4e35568b"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/tests/workflow/test_checkpoint_validation.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/tests/workflow/test_checkpoint_validation.py",
+      "bytes": 5888,
+      "sha256": "2b81b2f40cc10ace300afff77a0b6db7ff2016f9d5bb7683a24a0d384ebe06cb"
+    },
+    {
+      "repository": "microsoft/agent-framework",
+      "revision": "6f1522a50b66f117da34cc25ea299ba24a528b15",
+      "path": "python/packages/core/tests/workflow/test_runner.py",
+      "url": "https://github.com/microsoft/agent-framework/blob/6f1522a50b66f117da34cc25ea299ba24a528b15/python/packages/core/tests/workflow/test_runner.py",
+      "bytes": 64099,
+      "sha256": "1e50f76bb438b1175ca6d947abc610c70850184c8fa0279bb4478dddb4c8f248"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/.github/workflows/ci.yml",
+      "bytes": 8991,
+      "sha256": "400b5f6a2cb88a805a4a28c4763cb6a2f0a464cf236c1443e8916dc1bb4df501"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "LICENSE",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/LICENSE",
+      "bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "docs/EXECUTOR_PARITY.md",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/docs/EXECUTOR_PARITY.md",
+      "bytes": 32181,
+      "sha256": "8c76362fe9208cd95f3e7ba368b2bffcc1187fae6c32f0d47e27fa7ac96a36b6"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "pyproject.toml",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/pyproject.toml",
+      "bytes": 1634,
+      "sha256": "fd09c06942adeaa0b4aa8f7b355b566aa5e073675bc4eee5255dec8f69e83b68"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/cli.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/cli.py",
+      "bytes": 56794,
+      "sha256": "79c65f970d0ad41f6c34a935a3925c4cf8ac9d24804611d468e77263120a1c00"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/engine.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/engine.py",
+      "bytes": 92440,
+      "sha256": "ed066d40e332265a0c239935369d68fbbaf4a188a48bad8ab655d95406b25837"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/execution.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/execution.py",
+      "bytes": 74663,
+      "sha256": "0979a9b65971d1b43333ab5b3a3db2f72f9c3f4f27d5f7ce2680af3dea6de6d6"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/lockfile.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/lockfile.py",
+      "bytes": 22829,
+      "sha256": "48955bee85cf47c9bcf00bc966173fb9bdae7a5c46f55e05341fd43d8df6e296"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/planner.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/planner.py",
+      "bytes": 29948,
+      "sha256": "dcd7b3297716b1cacd4b5fa272fedff36fb6b704e4e0329da7d4882a4890dfc4"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/provenance.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/provenance.py",
+      "bytes": 18422,
+      "sha256": "97be7cc537351332f0ab32919961a603bd1479318c6d0b42d73551785de116a8"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/tests/test_errored_step_fails_the_run.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/tests/test_errored_step_fails_the_run.py",
+      "bytes": 4431,
+      "sha256": "cf9ce8cd324acf4d98d48a7c6ae039925fc17500e98afb5758fbafcb09471300"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/tests/test_foreach_checkpointing.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/tests/test_foreach_checkpointing.py",
+      "bytes": 20961,
+      "sha256": "f7b51c3c70854549d838fe26e53dcc160538b3c8313e579b78acbde6e674ef91"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/tests/test_self_agent_refusal.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/tests/test_self_agent_refusal.py",
+      "bytes": 9358,
+      "sha256": "a8d47a0ec11dc4cfd8ce0cfd71e3faa0af2283e35f539911cabb0be8b3f0ea9c"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/tests/test_trust.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/tests/test_trust.py",
+      "bytes": 19164,
+      "sha256": "988f000d6a4b73fa841bdb2fc8071f5995ddd5ae238641059ed5e658267765dc"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/tests/test_unknown_step_and_stage_keys.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/tests/test_unknown_step_and_stage_keys.py",
+      "bytes": 13500,
+      "sha256": "2245857413073d4f94f3dcf9d0dc9da7a16c67b9c92a78c960df8cde072de1e0"
+    },
+    {
+      "repository": "microsoft/amplifier-bundle-recipes",
+      "revision": "f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63",
+      "path": "src/amplifier_recipe_runner/trust.py",
+      "url": "https://github.com/microsoft/amplifier-bundle-recipes/blob/f8ec2ec8190ec55309cae784a98a1f7bfcdd1d63/src/amplifier_recipe_runner/trust.py",
+      "bytes": 24473,
+      "sha256": "cd522bbd10a637d57604370747d796dbc6bd0d0056b15e6e4285a05281ca33a5"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": ".github/workflows/ci.yml",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/.github/workflows/ci.yml",
+      "bytes": 1526,
+      "sha256": "850778ea601e50a725311d93b39fcbf0fd18ad216f1cfd2de56d7cdef9c2fae1"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "LICENSE",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/LICENSE",
+      "bytes": 1141,
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "agents/zen-architect.md",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/agents/zen-architect.md",
+      "bytes": 13545,
+      "sha256": "e67bd9210d16ef703f399447c61fc3ae57e0f60b9a367b8d53cb256a66067309"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "amplifier_foundation/bundle/_dataclass.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/amplifier_foundation/bundle/_dataclass.py",
+      "bytes": 51442,
+      "sha256": "b71a64f9491e64b768b706e647ed70c2af57a9ecf2ecec62aceee576154bc59f"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "amplifier_foundation/bundle/_provenance.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/amplifier_foundation/bundle/_provenance.py",
+      "bytes": 18064,
+      "sha256": "d4ffbe697f5ba467b01d483270131ef8869975a9ec97843480325dc596892668"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "amplifier_foundation/session/shared_state.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/amplifier_foundation/session/shared_state.py",
+      "bytes": 32826,
+      "sha256": "0022af101835655be6ae4ed503b8aab589669288f903986dc916747d2193481f"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "amplifier_foundation/subprocess_runner.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/amplifier_foundation/subprocess_runner.py",
+      "bytes": 34103,
+      "sha256": "4cd2b22176fc90c4436ed2894151a52281a30de84eb3a471dde21fcc72401554"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "amplifier_foundation/validator.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/amplifier_foundation/validator.py",
+      "bytes": 13504,
+      "sha256": "3b8bbdf3066ceaf432b0c9dbe85bc5ca7a84ee0d24e85090763289fd3cb5cc6b"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "modules/hooks-process-guard/amplifier_module_hooks_process_guard/__init__.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/modules/hooks-process-guard/amplifier_module_hooks_process_guard/__init__.py",
+      "bytes": 8673,
+      "sha256": "26ab595833e661979c25204c0ba74c8adf001bfcf26a0f87fc693cec3524d54e"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "modules/tool-delegate/amplifier_module_tool_delegate/__init__.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/modules/tool-delegate/amplifier_module_tool_delegate/__init__.py",
+      "bytes": 129312,
+      "sha256": "196b330b74e5a951834d6f8de200fe8012385794e9508e905527ef0eb93f2f6b"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "modules/tool-delegate/tests/test_delegate_call_budget.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/modules/tool-delegate/tests/test_delegate_call_budget.py",
+      "bytes": 17699,
+      "sha256": "637b219ffeacf7afc1a0ade7751e3d64525490583d64781303d31d067b3e0e6d"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "pyproject.toml",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/pyproject.toml",
+      "bytes": 1956,
+      "sha256": "fb8bae0a840e7191c2d55f570cc84bf47a78b4d398bf9b262205f9b482f961b4"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "tests/test_session_transfer_fence.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/tests/test_session_transfer_fence.py",
+      "bytes": 18629,
+      "sha256": "c66743080ff8213dfa70ded14525fcc33e1d9de38c5d56e5a2476b342ed4abc2"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "tests/test_shared_state.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/tests/test_shared_state.py",
+      "bytes": 13601,
+      "sha256": "1b42757375794e9bf9d4b7215fca51792359333ef7d1cf403caccf834b76c8c7"
+    },
+    {
+      "repository": "microsoft/amplifier-foundation",
+      "revision": "89575c3482e3e8afe5a03df72e723cf815fa1f6c",
+      "path": "tests/test_subprocess_runner.py",
+      "url": "https://github.com/microsoft/amplifier-foundation/blob/89575c3482e3e8afe5a03df72e723cf815fa1f6c/tests/test_subprocess_runner.py",
+      "bytes": 78046,
+      "sha256": "f20b1b8311645dc17635425d23063955ea6d6dfe7061100c5b1201a5937e428b"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": ".claude/agents/core/coder.md",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/.claude/agents/core/coder.md",
+      "bytes": 7205,
+      "sha256": "9fabad496ebd2b601b800f109b84dbf7f0a36e4edc66c0af6302f4d2328488d8"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": ".github/workflows/adr-166-mcp-bridge-security.yml",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/.github/workflows/adr-166-mcp-bridge-security.yml",
+      "bytes": 3887,
+      "sha256": "c779f5db9a6d42b5c337b8d54653bacaf4776e68da682e26573c8ae88bc58fda"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "bin/cli.js",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/bin/cli.js",
+      "bytes": 427,
+      "sha256": "d1f666d0bb379b21e41b17e798ae96f5fdfb267861b6f108d073eff12b764b44"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "package.json",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/package.json",
+      "bytes": 6484,
+      "sha256": "2e191216ed68f2b24624a3b0b3d7c8767283c7564be95217b744f4a1bfd77091"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "ruflo/src/mcp-bridge/index.js",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/ruflo/src/mcp-bridge/index.js",
+      "bytes": 72876,
+      "sha256": "de70d2b13da1d8d6d879b3e959a01d6239a22d10c4603f176ea88f7fb5cbfbb9"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "ruflo/src/mcp-bridge/test-runtime-security.mjs",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/ruflo/src/mcp-bridge/test-runtime-security.mjs",
+      "bytes": 7800,
+      "sha256": "44d35172b2c548c3ddb1d9a411c76e9192ee3776f309a1ced7c1ae045911c87a"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "scripts/prepare-root-publish.mjs",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/scripts/prepare-root-publish.mjs",
+      "bytes": 2105,
+      "sha256": "1ffaf1ffbbf0f41c1bbb359f9909cd249918e76cb157d8971e54d147b84a949e"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "v3/@claude-flow/cli/__tests__/checkpoint-gate.test.ts",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/v3/@claude-flow/cli/__tests__/checkpoint-gate.test.ts",
+      "bytes": 9081,
+      "sha256": "4b2cd830d74cd55a3e2c1af4e9119cc7990060187f53559b7887867348d7852c"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "v3/@claude-flow/cli/src/services/checkpoint-gate.ts",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/v3/@claude-flow/cli/src/services/checkpoint-gate.ts",
+      "bytes": 11666,
+      "sha256": "40b330cb73fb472459f3db1819078502ce44fc378217b9eebc058f39d4005255"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "v3/@claude-flow/shared/src/events/event-store.test.ts",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/v3/@claude-flow/shared/src/events/event-store.test.ts",
+      "bytes": 13817,
+      "sha256": "71e4ca98fde12c9257efce10572835af728207bebd97ebae7475b9f410f514ff"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "v3/@claude-flow/shared/src/events/event-store.ts",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/v3/@claude-flow/shared/src/events/event-store.ts",
+      "bytes": 16402,
+      "sha256": "109cb728d75d85ac8247fcdbb82d66e667a7aa05bf7b9c228cb58f0e46a3cc84"
+    },
+    {
+      "repository": "ruvnet/ruflo",
+      "revision": "a91db6768ba5e8c9e31c840ad25c1c96478f3f0f",
+      "path": "v3/@claude-flow/swarm/src/coordination/task-orchestrator.ts",
+      "url": "https://github.com/ruvnet/ruflo/blob/a91db6768ba5e8c9e31c840ad25c1c96478f3f0f/v3/@claude-flow/swarm/src/coordination/task-orchestrator.ts",
+      "bytes": 17459,
+      "sha256": "368a4117d35faed4856e67ad1d0fe1542d554d071664509763f43c76744da63b"
+    },
+    {
+      "repository": "strongdm/attractor",
+      "revision": "fb57a55ed97372a27ac90102f436947e29f48426",
+      "path": "LICENSE",
+      "url": "https://github.com/strongdm/attractor/blob/fb57a55ed97372a27ac90102f436947e29f48426/LICENSE",
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "repository": "strongdm/attractor",
+      "revision": "fb57a55ed97372a27ac90102f436947e29f48426",
+      "path": "README.md",
+      "url": "https://github.com/strongdm/attractor/blob/fb57a55ed97372a27ac90102f436947e29f48426/README.md",
+      "bytes": 884,
+      "sha256": "0b5f8d1b8ed4db6bec9060bb6b39dddbd38dec06a6958cd24f2dba4773068773"
+    },
+    {
+      "repository": "strongdm/attractor",
+      "revision": "fb57a55ed97372a27ac90102f436947e29f48426",
+      "path": "attractor-spec.md",
+      "url": "https://github.com/strongdm/attractor/blob/fb57a55ed97372a27ac90102f436947e29f48426/attractor-spec.md",
+      "bytes": 93036,
+      "sha256": "235354496e2bc35cba9822cded2ebd71ff35a8fb7fce4e51f52b2788586e92ec"
+    },
+    {
+      "repository": "strongdm/attractor",
+      "revision": "fb57a55ed97372a27ac90102f436947e29f48426",
+      "path": "coding-agent-loop-spec.md",
+      "url": "https://github.com/strongdm/attractor/blob/fb57a55ed97372a27ac90102f436947e29f48426/coding-agent-loop-spec.md",
+      "bytes": 71906,
+      "sha256": "cd3cf44bb8e297f765d112595d71583e6f4eacf40f0385474532446c715b0101"
+    },
+    {
+      "repository": "strongdm/attractor",
+      "revision": "fb57a55ed97372a27ac90102f436947e29f48426",
+      "path": "unified-llm-spec.md",
+      "url": "https://github.com/strongdm/attractor/blob/fb57a55ed97372a27ac90102f436947e29f48426/unified-llm-spec.md",
+      "bytes": 112518,
+      "sha256": "3e2ae0a9d7242c160d914a11d7a736f90ea13b37c49af7bb2fb2e064a5204f9e"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "066a62ffa6cbc8c859262536dc579fecf8535ebb",
+      "path": "swarmforge/roles/QA.prompt",
+      "url": "https://github.com/unclebob/swarm-forge/blob/066a62ffa6cbc8c859262536dc579fecf8535ebb/swarmforge/roles/QA.prompt",
+      "bytes": 2763,
+      "sha256": "beda280510ed0882cbfdc6b80b8402c7c734930e6bc5920cf1fc34492c97c559"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "066a62ffa6cbc8c859262536dc579fecf8535ebb",
+      "path": "swarmforge/swarmforge.conf",
+      "url": "https://github.com/unclebob/swarm-forge/blob/066a62ffa6cbc8c859262536dc579fecf8535ebb/swarmforge/swarmforge.conf",
+      "bytes": 838,
+      "sha256": "1186f6fa36feac082359b1913c25f388ffc30f199c30635025d57871e5e8a47a"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "23653942488281a3c6d9a60b7e9378be0a1ca1c2",
+      "path": ".swarmforge/project-pack/swarmforge/swarmforge.conf",
+      "url": "https://github.com/unclebob/swarm-forge/blob/23653942488281a3c6d9a60b7e9378be0a1ca1c2/.swarmforge/project-pack/swarmforge/swarmforge.conf",
+      "bytes": 1191,
+      "sha256": "cacfc9a9b83c2040516bec749f43d7b56ded138524ebd3ccf5b6bc95743cdbee"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "23653942488281a3c6d9a60b7e9378be0a1ca1c2",
+      "path": "README.md",
+      "url": "https://github.com/unclebob/swarm-forge/blob/23653942488281a3c6d9a60b7e9378be0a1ca1c2/README.md",
+      "bytes": 14279,
+      "sha256": "8cdd6e9de318ad2ba4d408097e2dd48840cd155e853b1c0ef1cd13042a1418ef"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "README.md",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/README.md",
+      "bytes": 10126,
+      "sha256": "ab4e84ad0fa1df0de06d161c775f7b121dd8d3b87b07d1296bd4cb474bc051f6"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "bb.edn",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/bb.edn",
+      "bytes": 3783,
+      "sha256": "bcfc226ddb4030bc4aebe498a1f2a2f351a0cebe67f94336f769455659cdcfbb"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "get-swarm-forge",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/get-swarm-forge",
+      "bytes": 8650,
+      "sha256": "e1bf84fb7793cc979eb0bdf3a184d5c8b663d366b887719199676b806c50adba"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/handoff-protocol.md",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/handoff-protocol.md",
+      "bytes": 20158,
+      "sha256": "fe7d44b4d7c0c01dfbb8a970cbbfcb28a2b0d1ec1934e0d98db9c8061c5b0164"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/handoff_lib.bb",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/handoff_lib.bb",
+      "bytes": 8961,
+      "sha256": "448933825f4e5b316881a4b2c6d2d1467246d509c663f2e60aba2da63ce33c41"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/handoffd.bb",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/handoffd.bb",
+      "bytes": 15430,
+      "sha256": "2dc6eceb9319a358ead28e677f9238a27807d0c8d67829c9a7dcbff9686f2b47"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/merge_and_process.bb",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/merge_and_process.bb",
+      "bytes": 1133,
+      "sha256": "8f7fe2a1aef4c85d5026839c0e5e33342bc98eab45c1f040b6e88db51c8ea790"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/pack_web.bb",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/pack_web.bb",
+      "bytes": 74991,
+      "sha256": "4fc2f61c14423bd3f9c0d8e539669a52387d8f68451069f973911bbc2853e9b5"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/stop_handoff_daemon.bb",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/stop_handoff_daemon.bb",
+      "bytes": 1573,
+      "sha256": "3c377ba1c32e560380bfdb6e28ec3ab10e0830f98bb799d617d6b645b9267f59"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/swarm-cleanup.sh",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/swarm-cleanup.sh",
+      "bytes": 1318,
+      "sha256": "9cd4cf4d9af850390929f122ac09766100da9d32a0d8931cba02c14e98529929"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/swarm_handoff.bb",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/swarm_handoff.bb",
+      "bytes": 36845,
+      "sha256": "1bcc807d6b18730b094cae1cb080fd060147411f6f8fd99581c126e11f177302"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "swarmforge/scripts/swarmforge.bb",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/swarmforge/scripts/swarmforge.bb",
+      "bytes": 47123,
+      "sha256": "2f6863892d5b43d487b919f62779399bd1a8720c3b2040a667986c9d8cace61d"
+    },
+    {
+      "repository": "unclebob/swarm-forge",
+      "revision": "f4f5fbcae0de6f7dcc26e82400334227647cfdb2",
+      "path": "test/swarmforge/handoff_test.clj",
+      "url": "https://github.com/unclebob/swarm-forge/blob/f4f5fbcae0de6f7dcc26e82400334227647cfdb2/test/swarmforge/handoff_test.clj",
+      "bytes": 90988,
+      "sha256": "9fe2dd3a2ee5f804a1f803610edab4f07f4aa315400e77cc451610ff32b12cba"
+    }
+  ]
+}
