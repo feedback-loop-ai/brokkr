@@ -31,7 +31,20 @@ use workspace_root::{read, workspace};
 const BASELINE: &str = "quality/suppressions.txt";
 
 /// The lints #337 ratchets: suppressing one in production needs a ruling.
+/// A lint group suppresses every lint in it, so `warnings` and each clippy
+/// group are ratcheted as well.
 const RATCHETED: &[&str] = &[
+    "warnings",
+    "clippy::all",
+    "clippy::correctness",
+    "clippy::suspicious",
+    "clippy::style",
+    "clippy::complexity",
+    "clippy::perf",
+    "clippy::pedantic",
+    "clippy::restriction",
+    "clippy::nursery",
+    "clippy::cargo",
     "clippy::too_many_lines",
     "clippy::excessive_nesting",
     "clippy::too_many_arguments",
@@ -124,6 +137,35 @@ fn skip_comment(s: &[char], at: usize) -> Result<usize, String> {
     }
 }
 
+/// Advances past whitespace and comments at `at`.
+fn skip_trivia(s: &[char], at: usize) -> Result<usize, String> {
+    let mut i = at;
+    loop {
+        let next = skip_comment(s, i)?;
+        if next != i {
+            i = next;
+        } else if s.get(i).is_some_and(|c| c.is_whitespace()) {
+            i += 1;
+        } else {
+            return Ok(i);
+        }
+    }
+}
+
+/// The index just past the `[` that opens an attribute at `at`: `#`, an
+/// optional `!`, and whitespace or comments between any of them, as rustc
+/// reads the three tokens. `None` when no attribute starts there.
+fn attribute_open(s: &[char], at: usize) -> Result<Option<usize>, String> {
+    if s[at] != '#' {
+        return Ok(None);
+    }
+    let mut i = skip_trivia(s, at + 1)?;
+    if s.get(i) == Some(&'!') {
+        i = skip_trivia(s, i + 1)?;
+    }
+    Ok((s.get(i) == Some(&'[')).then_some(i + 1))
+}
+
 /// Every attribute's inner text (`expect(..)` of `#[expect(..)]`), with
 /// each comment inside it read as a space.
 fn attributes(source: &str) -> Result<Vec<String>, String> {
@@ -135,12 +177,11 @@ fn attributes(source: &str) -> Result<Vec<String>, String> {
             i = next;
             continue;
         }
-        let bang = usize::from(s.get(i + 1) == Some(&'!'));
-        if s[i] != '#' || s.get(i + 1 + bang) != Some(&'[') {
+        let Some(open) = attribute_open(&s, i)? else {
             i += 1;
             continue;
-        }
-        let (mut text, mut depth, mut j) = (String::new(), 1, i + 2 + bang);
+        };
+        let (mut text, mut depth, mut j) = (String::new(), 1, open);
         while depth > 0 {
             if j >= s.len() {
                 return Err("an unterminated attribute".into());
@@ -202,13 +243,15 @@ fn top_level(text: &str) -> Result<Vec<String>, String> {
 
 /// An `expect`, `allow` or `cfg_attr` attribute split into its name and
 /// argument text, `None` for any other attribute, and refused when one of
-/// those three is not `name(args)`.
+/// those three is not `name(args)`. A raw identifier (`r#expect`) is read
+/// as the name it spells.
 fn call(attribute: &str) -> Result<Option<(&str, &str)>, String> {
     let attribute = attribute.trim();
-    let end = attribute
+    let start = if attribute.starts_with("r#") { 2 } else { 0 };
+    let end = attribute[start..]
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == ':'))
-        .unwrap_or(attribute.len());
-    let name = &attribute[..end];
+        .map_or(attribute.len(), |at| start + at);
+    let name = &attribute[start..end];
     if level_of(name).is_none() && name != "cfg_attr" {
         return Ok(None);
     }
@@ -549,9 +592,22 @@ fn the_lexer_reads_every_spelling_and_nothing_inside_literals() {
             vec![expect(&["clippy::todo"], "r", Some("all(unix, not(test))"))],
         ),
         (
+            "# /* c */ [expect(clippy::too_many_lines, reason = \"r\")]",
+            vec![expect(&["clippy::too_many_lines"], "r", None)],
+        ),
+        (
+            "# // c\n ! [expect(unreachable_pub, reason = \"r\")]",
+            vec![expect(&["unreachable_pub"], "r", None)],
+        ),
+        (
+            "#[r#expect(clippy::too_many_lines, reason = \"r\")]",
+            vec![expect(&["clippy::too_many_lines"], "r", None)],
+        ),
+        (
             "#[derive(Debug)] #[doc = \"a (b\"] #[rustfmt::skip] #[cfg_attr(unix, path = \"u.rs\")]",
             vec![],
         ),
+        ("let r#type = 1; let x = a # b;", vec![]),
     ];
     for (source, want) in cases {
         assert_eq!(suppressions(source).as_ref(), Ok(want), "{source}");
@@ -625,4 +681,14 @@ fn the_diff_check_refuses_an_unruled_addition_and_passes_a_ruled_one() {
     assert!(unruled_additions(repo, "HEAD").is_empty());
     write(&format!("{old}#![allow(unreachable_pub)]\n"));
     assert_eq!(unruled_additions(repo, "HEAD").len(), 1);
+    write(&format!(
+        "{old}#[expect(clippy::pedantic, reason = \"it grew\")]\nfn a() {{}}\n#[allow(warnings)]\nfn b() {{}}\n"
+    ));
+    assert_eq!(
+        unruled_additions(repo, "HEAD"),
+        [
+            "src/lib.rs: expect of clippy::pedantic without a ruling in its reason",
+            "src/lib.rs: allow of warnings without a ruling in its reason",
+        ]
+    );
 }

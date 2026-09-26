@@ -335,14 +335,27 @@ fn the_bans_reader_refuses_what_it_does_not_understand() {
     }
 }
 
-/// `multiple-versions` is denied, and every skipped duplicate is still one
-/// in the lockfile, so the skip list can only shrink (#337).
+/// `multiple-versions` is denied, every skipped duplicate is still one in
+/// the lockfile, and the skips are exactly the baseline, so the skip list
+/// grows only by a reviewed edit of `quality/duplicate-skips.txt` (#337).
 #[test]
 fn the_duplicates_gate_skips_only_what_the_lockfile_still_duplicates() {
     let bans = read_bans(&read("deny.toml")).expect("deny.toml's [bans] reads");
     assert!(
         bans.multiple_versions_denied,
         "deny.toml refuses a second version of a crate"
+    );
+    let skips: BTreeSet<String> = bans
+        .skips
+        .iter()
+        .map(|(name, version)| format!("{name}@{version}"))
+        .collect();
+    let baseline = read("quality/duplicate-skips.txt");
+    assert_eq!(
+        skips,
+        baseline.lines().map(String::from).collect::<BTreeSet<_>>(),
+        "deny.toml's skips are exactly quality/duplicate-skips.txt: a new skip needs \
+         a ruling, and a dropped one leaves both files"
     );
     let mut versions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for block in read("Cargo.lock").split("[[package]]").skip(1) {

@@ -55,7 +55,8 @@ unknown-git = "deny"
 # Decision 0071 ruling 4, ratcheted (#337): a second version of any crate
 # is refused. The skips are today's duplicates, each the version with the
 # narrower reach; crates/brokkr-cli/tests/layering/ refuses a skip the
-# lockfile no longer duplicates, so this list only shrinks.
+# lockfile no longer duplicates, and holds the list to the baseline in
+# quality/duplicate-skips.txt, so this list only shrinks.
 multiple-versions = "deny"
 skip = [
   { crate = "getrandom@0.2.17", reason = "pulled by ring 0.17 under ureq's rustls (#337 baseline)" },
