@@ -1924,6 +1924,13 @@ pattern) and SC-2 (`Excluded` had no total bound). Both are **repaired**
   were caught and restored. Three existing expectations moved with the new
   bound; each move is recorded in evidence.md. Standing-admission lines:
   none. 12.1 and 12.2 stay ticked; 15.2 stays open.
+- Fourth visit (audit, based on `237a6e29`): no production or test byte
+  moved. Every identity-bearing `Conflict` arm renders through `refused`.
+  The one variant not yet mutated, `Outside`, was mutated to spell its tool
+  (M8). It was caught by 12-fix-c's limit test at `tests.rs:3106`, then
+  restored. The locked all-features workspace run exited 0 with 77 `ok`
+  summaries. fmt, clippy, `bundles/self`, strict OpenSpec validation and
+  the diff check are clean. Standing-admission lines: none.
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
 

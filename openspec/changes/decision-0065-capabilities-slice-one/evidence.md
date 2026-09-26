@@ -11680,3 +11680,41 @@ before the final `cargo fmt` moved lines in `capability_launch.rs`.
 
 **Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
 the box), macOS, remote CI and the full engine council.
+
+### Fourth visit — audit of the adopted work, 2026-09-27
+
+Based on `237a6e29`, after triage re-framed the same run
+(`.forge/tasks/0065-unit12-fix-d-50c8438c.md`). This visit moved no production
+or test byte. It audited the three visits above against the framing and ran
+the one proof and the one gate they left unrecorded.
+
+- In `conflicting`, all four `Conflict` variants name their tool through
+  `Piece::Tool`, and `Excluded` names its capability through
+  `Piece::Capability`. So do the exclusion clause and the admitted-and-denied
+  refusal. No identity-bearing arm spells a pattern as words.
+- M8, `Outside` spells `tool '{tool}'` as words. The first three visits
+  mutated `Unheld` (M1), `Excluded` (M2, M7) and `Carried` (M3), but not
+  `Outside`. The mutation compiled and was caught:
+  `a_limit_refusal_names_bounded_identities_and_never_a_payload` (12-fix-c)
+  FAILED at `tests.rs:3106`, left `... does not name tool
+  'Daaa…aREVIEW_SENTINEL', ...` (the unplain row, spelled whole). The
+  `native_controls` filter gave 44 passed and 1 failed. After the restore,
+  `git status` was clean.
+- Gates on `237a6e29`, restored:
+  - `cargo fmt --all -- --check`: clean. `git diff --check`: clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings`: finished, no warning.
+  - `cargo test --workspace --all-features --locked`: exit 0, 77 `ok`
+    summaries, no FAILED or panic
+    (`.forge/unit-12-fix-d-workspace-tests.log`). Protocol lib 497, runtime
+    lib 565, `capability_launch` 51. This is the workspace-wide run that the
+    third visit did not repeat.
+  - `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`:
+    exit 0.
+  - `openspec validate --all --strict --no-interactive`: 18 passed, 0
+    failed.
+- Standing-admission lines: none. 12.1 and 12.2 stay ticked; 15.2 stays
+  open.
+
+**Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
+the box), macOS, remote CI and the full engine council.
