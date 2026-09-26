@@ -345,9 +345,8 @@ pub fn authored_refusal(harness: &str, authored: &[String]) -> Result<(), Refusa
             authored: true,
             cause: format!(
                 "carry '{}' (argument {}), {what} of harness '{harness}'. A recipe authors no \
-                 capability-bearing option for a harness brokkr drives, whatever its value, \
-                 polarity or grant: tools come only from typed agent and seat declarations and \
-                 the realm's grant, composed by the engine alone, and nothing authored is merged \
+                 capability-bearing option, whatever its value, polarity or grant: tools come \
+                 from typed declarations and the realm's grant, composed by the engine alone \
                  (operator ruling 1 of 2026-09-23)",
                 node.name(),
                 node.at + 1
@@ -1465,6 +1464,35 @@ fn unconsumed(provider: &str, form: &str) -> Refusal {
     }
 }
 
+/// An explicit tool list the plan carries, in conflict with an admission
+/// or with the seat's own list (design D6): the provider, the restriction
+/// and the conflicting tool are named, and the whole conflict is refused
+/// rather than unioned away.
+fn restricted(provider: &str, flag: &str, limit: &[&str], conflict: &str) -> Refusal {
+    let limit = match limit {
+        [] => "no tool".to_string(),
+        names => names.join(", "),
+    };
+    Refusal {
+        authored: false,
+        cause: format!(
+            "the capability plan's explicit '{flag}' restriction for provider '{provider}' \
+             (naming {limit}) {conflict}; an explicit tool list is a hard limit that nothing \
+             widens, so the conflict is refused whole rather than unioned (design D6)"
+        ),
+    }
+}
+
+/// The native capability whose declared tools name `tool`, as the plan's
+/// guards carry them.
+fn capability_of<'a>(controls: &'a Controls, tool: &str) -> &'a str {
+    controls
+        .guards
+        .iter()
+        .find(|guard| guard.tools.iter().any(|name| name == tool))
+        .map_or("undeclared", |guard| guard.capability.as_str())
+}
+
 /// Compose one provider's launch from the two parts of its argv and the
 /// engine's plan, or refuse it — the ONE definition of what each provider
 /// consumes, called by the compiler on the unexpanded parts and by the
@@ -1485,7 +1513,9 @@ fn unconsumed(provider: &str, form: &str) -> Refusal {
 ///    argv and selection as ONE set of lists: a managed list argument such
 ///    as `--disallowedTools WebSearch` is folded into the same include,
 ///    allow and deny lists a selection contributes to, each list flag is
-///    emitted once, and what is not a list — a restriction transport — is
+///    emitted once — except that an explicit include list is a hard limit
+///    that is never widened, and a conflict with it refuses ([`restricted`])
+///    — and what is not a list — a restriction transport — is
 ///    appended verbatim. DSH and `exec` consume nothing, so a plan that
 ///    carries anything for them is refused rather than dropped.
 ///
@@ -1594,6 +1624,34 @@ pub fn compose_for_provider(
                 extra.extend(verbatim);
                 return Ok(composed(extra, Vec::new()));
             };
+            // An explicit include list the plan carries — empty or not — is
+            // a hard limit (design D6): no admission widens it, so a held
+            // tool it does not name refuses the whole conflict rather than
+            // being unioned in past it.
+            let admissions: Vec<&String> = controls
+                .selection
+                .include
+                .iter()
+                .chain(&controls.selection.allow)
+                .collect();
+            if let Some(limit) = plan.lists(ListKind::Include).next() {
+                let named = grammar::node_patterns(limit);
+                if let Some(tool) = admissions
+                    .iter()
+                    .find(|tool| !named.contains(&tool.as_str()))
+                {
+                    return Err(restricted(
+                        provider,
+                        limit.name(),
+                        &named,
+                        &format!(
+                            "does not name tool '{tool}', which the plan admits for native \
+                             capability '{}'",
+                            capability_of(controls, tool)
+                        ),
+                    ));
+                }
+            }
             let mut folding: Vec<Folding> = Vec::new();
             for (slot, kind) in [ListKind::Include, ListKind::Allow, ListKind::Deny]
                 .into_iter()
@@ -1608,6 +1666,8 @@ pub fn compose_for_provider(
                     .map(str::to_string)
                     .collect();
                 let mut names: Vec<String> = match slot {
+                    // The limit's own names are the whole list.
+                    0 if explicit.is_some() => Vec::new(),
                     0 => controls.selection.include.clone(),
                     1 => controls.selection.allow.clone(),
                     _ => controls.selection.deny.clone(),
@@ -1628,6 +1688,24 @@ pub fn compose_for_provider(
                         true
                     }
                 });
+                // The seat's own include list — the box's hands, which
+                // name no built-in tool — is a hard limit too: the plan's
+                // limit may bring into it only what a held capability
+                // admits, and one limit never widens the other.
+                if let (0, Some(own), Some(limit)) = (slot, node, explicit) {
+                    if let Some(tool) = names.iter().find(|tool| !admissions.contains(tool)) {
+                        return Err(restricted(
+                            provider,
+                            limit.name(),
+                            &grammar::node_patterns(limit),
+                            &format!(
+                                "names tool '{tool}', which the seat's own '{}' list does not \
+                                 carry and no held capability admits",
+                                own.name()
+                            ),
+                        ));
+                    }
+                }
                 // The adapter's mapping must name a flag the harness's own
                 // grammar reads as THIS list: a mapping onto anything else
                 // cannot reach the final command, and is refused rather

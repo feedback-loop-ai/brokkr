@@ -680,10 +680,9 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
         solo(&operator, &workspace().join("adapters"), &context),
         "bundle: seat 'work' (office 'work') in realm 'private': its arguments carry \
          '--sandbox' (argument 5), a capability-bearing option of harness 'codex'. A recipe \
-         authors no capability-bearing option for a harness brokkr drives, whatever its value, \
-         polarity or grant: tools come only from typed agent and seat declarations and the \
-         realm's grant, composed by the engine alone, and nothing authored is merged (operator \
-         ruling 1 of 2026-09-23)"
+         authors no capability-bearing option, whatever its value, polarity or grant: tools \
+         come from typed declarations and the realm's grant, composed by the engine alone \
+         (operator ruling 1 of 2026-09-23)"
     );
 
     // `namespace`: the Claude primary and its Codex fallback, each under
@@ -3987,10 +3986,9 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
             format!(
                 "bundle: seat 'boxed' (office 'boxed') in realm 'private': its arguments carry \
                  '{written}' (argument 5), a capability-bearing option of harness 'codex'. A \
-                 recipe authors no capability-bearing option for a harness brokkr drives, \
-                 whatever its value, polarity or grant: tools come only from typed agent and \
-                 seat declarations and the realm's grant, composed by the engine alone, and \
-                 nothing authored is merged (operator ruling 1 of 2026-09-23)"
+                 recipe authors no capability-bearing option, whatever its value, polarity or \
+                 grant: tools come from typed declarations and the realm's grant, composed by \
+                 the engine alone (operator ruling 1 of 2026-09-23)"
             )
         );
     }
@@ -5648,10 +5646,9 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
         format!(
             "bundle: seat '{site}' (office '{site}') in realm 'private': its arguments carry \
              '{written}' (argument 5), a capability-bearing option of harness '{provider}'. A \
-             recipe authors no capability-bearing option for a harness brokkr drives, whatever \
-             its value, polarity or grant: tools come only from typed agent and seat \
-             declarations and the realm's grant, composed by the engine alone, and nothing \
-             authored is merged (operator ruling 1 of 2026-09-23)"
+             recipe authors no capability-bearing option, whatever its value, polarity or \
+             grant: tools come from typed declarations and the realm's grant, composed by the \
+             engine alone (operator ruling 1 of 2026-09-23)"
         )
     };
     fn codex(extra: &[&'static str]) -> Vec<&'static str> {
@@ -5840,10 +5837,9 @@ fn an_authored_capability_option_refuses_the_compile_under_every_grant_state() {
         format!(
             "bundle: seat 'work' (office 'work') in realm '{realm}': its arguments carry \
              '{option}' (argument 5), a capability-bearing option of harness '{harness}'. A \
-             recipe authors no capability-bearing option for a harness brokkr drives, whatever \
-             its value, polarity or grant: tools come only from typed agent and seat \
-             declarations and the realm's grant, composed by the engine alone, and nothing \
-             authored is merged (operator ruling 1 of 2026-09-23)"
+             recipe authors no capability-bearing option, whatever its value, polarity or \
+             grant: tools come from typed declarations and the realm's grant, composed by the \
+             engine alone (operator ruling 1 of 2026-09-23)"
         )
     };
     type Rows = Vec<(&'static [&'static str], &'static str)>;
@@ -6039,4 +6035,94 @@ fn a_native_control_declared_as_argv_reaches_the_final_claude_command() {
          cannot reach the final command is refused rather than recorded and dropped (decision \
          0066 ruling 3)"
     );
+}
+
+/// Rebuild unit 12, second review F1 (design D6; NCT "Admission and
+/// restriction cannot erase each other"; task 12.2), along the whole chain:
+/// Claude's search OFF declared as an explicit include list is a hard
+/// limit. Holding nothing, the inline seat's final command carries the
+/// limit as declared, empty or not, beside the independent WebFetch
+/// denial. Holding a realm-granted fetch the limit does not name, the
+/// compile refuses the whole conflict instead of launching
+/// `--tools WebFetch,Read`; a limit that names WebFetch reaches its literal
+/// command with the admission, so always-OFF is no grant support.
+#[test]
+fn an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant() {
+    let operator = Operator::new();
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+        ],
+    );
+    let head = [
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        "claude-opus-5",
+        "--effort",
+        "high",
+    ];
+    let launched = |tail: &[&str]| format!("launched {:?}", [&head[..], tail].concat());
+    let refused = |limit: &str| {
+        format!(
+            "bundle: seat 'work' (office 'work') in realm 'private': the capability plan's \
+             explicit '--tools' restriction for provider 'claude' (naming {limit}) does not name \
+             tool 'WebFetch', which the plan admits for native capability 'web-fetch'; an \
+             explicit tool list is a hard limit that nothing widens, so the conflict is refused \
+             whole rather than unioned (design D6)"
+        )
+    };
+    let dialect = "dialects/tools/claude-native-fetch.json";
+    let body: Value =
+        serde_json::from_slice(&std::fs::read(workspace().join(dialect)).unwrap()).unwrap();
+    write(operator.root(), dialect, &body);
+    let nothing = operator.context(json!({}));
+    let fetch = operator.context(json!({"web-fetch": {"dialect": "claude-native-fetch"}}));
+    let rows: Vec<(Value, &CapabilityContext, String)> = vec![
+        (
+            json!(["--tools", "Read"]),
+            &nothing,
+            launched(&["--tools", "Read", "--disallowedTools", "WebFetch"]),
+        ),
+        (
+            json!(["--tools="]),
+            &nothing,
+            launched(&["--tools", "", "--disallowedTools", "WebFetch"]),
+        ),
+        (json!(["--tools", "Read"]), &fetch, refused("Read")),
+        (json!(["--tools="]), &fetch, refused("no tool")),
+        (
+            json!(["--tools", "Read,WebFetch"]),
+            &fetch,
+            launched(&["--tools", "Read,WebFetch", "--allowedTools", "WebFetch"]),
+        ),
+    ];
+    for (off, context, expected) in rows {
+        let adapters = copied_adapters();
+        edit_adapter(adapters.path(), "claude", |adapter| {
+            adapter["native_capabilities"]["known"]["web-search"]["off"] =
+                json!({"argv": off.clone()});
+        });
+        let path = operator.root().join("solo/bundle.json");
+        let mut bundle: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        bundle["seats"]["work"]["capabilities"] = json!({"web-fetch": "wants"});
+        write(operator.root(), "solo/bundle.json", &bundle);
+        assert_eq!(
+            solo(&operator, adapters.path(), context),
+            expected,
+            "{off} under {}",
+            context.realm
+        );
+    }
 }

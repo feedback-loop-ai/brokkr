@@ -1621,6 +1621,31 @@ under the fixture-migration ruling of 2026-09-26"):
   origin and composes only engine lists; the launch guard's value-reading
   over the legacy authored part stays for units 13–15.
 
+Returned by review on 2026-09-26 (same run, second implement visit;
+evidence.md, "Unit 12 — the review's return"):
+
+- **12.2's tick at `b33de51f` was premature (F1).** The composer still
+  unioned the selection into an explicit managed include list:
+  `--tools Read` plus a granted fetch launched `--tools WebFetch,Read`.
+  The fix makes an explicit include list, empty or not, a hard limit: an
+  admission it does not name refuses the whole conflict, and so does a
+  limit that would widen the boxed hands' own list. A compatible limit
+  reaches its literal command. This is bound by protocol and compiled
+  tests, baseline reds and M1–M4. 12.2 is ticked again on that evidence.
+- **F3:** the authored refusal's prose is shortened. The bound is tested
+  at argument 101 with room for a twenty-digit position; baseline red and
+  M5.
+- **F2 is blocked.** The re-planted NoHandsMember rows in
+  `driver_conformance.rs` no longer prove a member rejoin, and D5.3
+  refuses every typed class at a no-hands member. No admissible fixture
+  restores the proof. The operator must rule: accept the fail-closed
+  re-plant and move the member-rejoin positive later, or commission
+  member lowering.
+- **F4** stays a residual under 15.2.
+- **Fixture migrations:** none new. **Standing-admission lines:** none.
+- **Pending:** exact coverage, macOS and remote CI. **The unit is not
+  complete until F2 is ruled.**
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

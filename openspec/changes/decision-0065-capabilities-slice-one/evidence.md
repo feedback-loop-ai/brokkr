@@ -9661,3 +9661,170 @@ After every restore, `git diff | sha256sum` gave the saved work diff's
   every harness was not tried: with ruling 1 refusing every guarded
   control first, its difference reaches only engine-owned lists, which the
   launch guard judges anyway.
+
+## Unit 12 — the review's return, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-8bdee503`, second implement visit.
+The review of `b4ad852e..b33de51f` returned residual (max severity high)
+with four findings. F1 and F3 are fixed here. F2 cannot be fixed inside
+the settled design and needs an operator ruling. F4 stays a residual under
+15.2. **The unit is blocked, not complete.**
+
+### F1 — a managed hard limit was widened by union (fixed)
+
+The reproduction was confirmed first. With HEAD `b33de51f` production and
+the new compiled test in place, Claude search OFF declared as
+`["--tools", "Read"]` beside a realm-granted, asked-for fetch compiled
+and launched `… "--tools", "WebFetch,Read", "--allowedTools",
+"WebFetch"` (`capability_launch.rs:6121`, left side of the failed
+`assert_eq`).
+
+The fix is in `compose_for_provider` (`native_controls.rs`), the one
+composer that compilation (`capabilities.rs::admit`) and the driver share:
+
+- An explicit include list in the plan's own argv (the `plan` origin),
+  empty or not, is a hard limit (line 1631). An admission the limit does
+  not name refuses the whole conflict. An admission is any name in the
+  selection's include or allow list. The refusal
+  (`restricted`, line 1471) names the flag, the provider, the limit's
+  names ("no tool" when empty), the tool and the native capability
+  (`capability_of`, line 1488, read from the plan's guards).
+- The include slot's names are the limit's own, never unioned with the
+  selection. A compatible limit therefore reaches the command exactly as
+  declared: `Read,WebFetch` stays `Read,WebFetch` and is not reordered.
+- Boxed: the hands' own `--tools ""` is a hard limit too (NCT "boxed
+  engine-owned hands remain permitted independently of the empty built-in
+  list; an incompatible restriction refuses rather than being weakened").
+  A limit name that the seat's list does not carry and no held capability
+  admits refuses (line 1695) instead of widening the box. The existing
+  held case (`--tools WebSearch` with WebSearch selected, into the hands'
+  list) is unchanged; `every_control_representation…` still passes.
+
+New tests:
+
+- `native_controls/tests.rs::an_explicit_include_list_is_a_hard_limit_that_no_admission_widens`
+  (line 1612), eleven exact rows:
+  - compatible OFF with `--tools Read`, `--tools=Read`, `--tools ""`,
+    `--tools=` and a repeated `Read,Read`, each beside the independent
+    WebFetch denial;
+  - compatible held fetch under `Read,WebFetch`;
+  - the reproduction and the explicit empty limit, each refused whole;
+  - an allow-only admission, refused;
+  - boxed with the empty limit (the hands unchanged, plus the denial);
+  - boxed with `Read`, refused.
+- `capability_launch.rs::an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant`
+  (line 6050): the adapter is edited on a copied root, the fetch dialect
+  is planted in the operator root, and five compiled rows assert whole
+  final commands or whole refusals. The empty limit is declared `--tools=`
+  because the adapter schema refuses an empty argv item (observed: "does
+  not satisfy '/definitions/disposition/properties/argv/items/minLength'").
+
+Baseline reds, HEAD `b33de51f` production with these tests in place:
+
+- The protocol test fails at the compatible held row: left
+  `--tools WebFetch,Read`, right `--tools Read,WebFetch`.
+- The compiled test fails at the reproduction as above.
+
+Mutations, each alone, compiled, failed as stated, then restored. The
+production file was byte-compared (`diff`) with the saved fixed copy
+after M5.
+
+- **M1** the limit check never fires (`&& false`): the protocol test fails
+  at the reproduction row, left `Ok(["--tools", "Read", "--allowedTools",
+  "WebFetch"])`.
+- **M2** the include slot unions again (`0 if … && false`): it fails at the
+  compatible held row, left `WebFetch,Read`.
+- **M3** the boxed-widen check never fires: it fails at the boxed `Read`
+  row, left `Ok(["--tools", "Read", "--strict-mcp-config", …])`.
+- **M4** admissions without the allow list (`allow[..0]`): it fails at the
+  allow-only row, left `Ok(["--tools", "Read", "--allowedTools",
+  "WebFetch"])`.
+
+### F3 — the authored refusal's bound (fixed)
+
+What I measured differs from the review's figures. With the old prose,
+the cause alone at argument 101 (fifty inert `-c
+model_reasoning_effort="low"` pairs, then `-cunmodelled.key=1`) is 489
+scalars. As compilation renders it without a site (`at_compile("")`,
+which adds `: its arguments `), it is 505; a twenty-digit position would
+make it 522, past D6's 512. The review's 511 and 513 were not reproduced
+exactly, but the bound is broken at a large enough position either way.
+The fixed prose is shorter by 80 scalars ("A recipe authors no
+capability-bearing option, whatever its value, polarity or grant: tools
+come from typed declarations and the realm's grant, composed by the engine
+alone"), and the canonical option, position and fixed cause are unchanged.
+The new rendering is 409 scalars for the cause at argument 101.
+
+- New test `an_authored_refusal_stays_bounded_wherever_the_option_stands`
+  (`native_controls/tests.rs:1750`): the exact refusal at argument 101,
+  and `at_compile("")` plus 17 more digits must be at most 512.
+- Baseline red, HEAD production: it fails on the exact refusal (the old
+  prose), alongside the matrix test's own prose assertion.
+- **M5** the old prose restored in BOTH production and the test's
+  `authored_refused` helper, so only the bound can catch it: it fails with
+  `505: : its arguments carry '--config' (argument 101), …`.
+- The four literal copies in `capability_launch.rs` (lines 681, 3988,
+  5649, 5841) now carry the shorter prose. The ruling document is left as
+  written.
+
+### F2 — the no-hands member rejoin proof (blocked on an operator ruling)
+
+The settled design cannot express it:
+
+- design.md's D5.3 table (the "every other inline sandbox" row) refuses a
+  typed class at "a panel member, sequence step or select case", and at
+  "agent-backed without hands".
+- `bundle.rs::record_inline_tools` lowers `tools.sandbox` only when
+  `seat && dispatch_driver == codex`.
+- Ruling 1 refuses an authored `--sandbox`.
+- An agent-backed sandbox needs hands (`admit_local_sandbox`: "without
+  hands; no engine path expresses a sandbox class").
+
+So a Codex panel member with no hands has no admissible representation
+of any class, inline or agent-backed. The adapter correctly fails closed
+at `sandbox-unavailable`, which is what the migrated rows now bind.
+
+No fixture can restore "a no-hands member rejoins with its class
+re-expressed" without a production change outside this unit (typed class
+lowering at members) or a design change. Giving the member hands changes
+the shape under test from no-hands to a boundary, which the migration
+admission forbids. The rows were left exactly as `b33de51f` has them.
+
+The operator needs to rule on one of these:
+
+- (a) accept the fail-closed re-plant as the member proof under the narrow
+  ruling, and move the member-rejoin positive to the unit or slice that
+  gives members a typed class;
+- (b) commission typed `tools.sandbox` lowering at panel members (a unit
+  5d extension, production `bundle.rs`), then restore the rejoin rows.
+
+### F4 — the launch-boundary residual (retained)
+
+`adapters.rs` still judges the private `launch_arguments.authored` by
+guards and the server check only. This visit made no change. It stays
+under units 13–15 and 15.2, as the review directs. It is not cleared and
+not accepted.
+
+### Gates (this tree)
+
+- `cargo fmt --all -- --check`: clean. `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning or error. A `type_complexity` hit in
+  the new protocol test was fixed with a local `type Row`.
+- `cargo test --workspace --all-features --locked`: every `test result`
+  line `ok`, none `FAILED`. Protocol lib 490, runtime lib 565,
+  `capability_launch` 45, CLI lib 481, `driver_conformance` 24.
+- `bundles/self` and `bundles/verify` compile with exit 0.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- Coverage diagnostic: `cargo +nightly-2026-09-05 llvm-cov clean
+  --workspace`, then `llvm-cov -p brokkr-protocol -p brokkr-runtime
+  --all-features --locked --branch --lcov`. Read with `grep -x`, the
+  `native_controls.rs` record has no `DA:…,0` and no zero or `-` `BRDA`.
+  - A protocol-only run first showed `BRDA:1686,1,3,0`, the dedup's
+    duplicate branch. The union was the only protocol case that fed it,
+    so the `Read,Read` row was added and the branch is hit again.
+  - An earlier run without `llvm-cov clean` mixed stale builds of the
+    crate and reported false zeros. It is not evidence.
+- **Standing-admission lines:** none this visit.
+- **Pending:** exact coverage (`scripts/coverage-exact.sh` outside the
+  box), macOS and remote CI.

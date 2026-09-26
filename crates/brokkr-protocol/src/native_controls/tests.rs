@@ -764,10 +764,9 @@ fn authored_refused(harness: &str, option: &str, at: usize, what: &str) -> Refus
         authored: true,
         cause: format!(
             "carry '{option}' (argument {at}), {what} of harness '{harness}'. A recipe authors no \
-             capability-bearing option for a harness brokkr drives, whatever its value, polarity \
-             or grant: tools come only from typed agent and seat declarations and the realm's \
-             grant, composed by the engine alone, and nothing authored is merged (operator ruling \
-             1 of 2026-09-23)"
+             capability-bearing option, whatever its value, polarity or grant: tools come from \
+             typed declarations and the realm's grant, composed by the engine alone (operator \
+             ruling 1 of 2026-09-23)"
         ),
     }
 }
@@ -1589,6 +1588,187 @@ fn every_control_representation_reaches_the_composed_command_or_refuses() {
             managed: argv(&["--search-off"])
         })
     );
+}
+
+fn limit_refusal(limit: &str, conflict: &str) -> Refusal {
+    Refusal {
+        authored: false,
+        cause: format!(
+            "the capability plan's explicit '--tools' restriction for provider 'claude' (naming \
+             {limit}) {conflict}; an explicit tool list is a hard limit that nothing widens, so \
+             the conflict is refused whole rather than unioned (design D6)"
+        ),
+    }
+}
+
+/// Rebuild unit 12, second review F1 (design D6; NCT "Admission and
+/// restriction cannot erase each other"; task 12.2): an explicit include
+/// list the plan carries is a hard limit. Empty or not, it reaches the
+/// command as written and is never widened: a held tool it does not name —
+/// by include or by allow — refuses the whole conflict, as does a limit
+/// that would widen a boxed seat's own empty list; a held tool it does
+/// name reaches its literal command, so always-OFF is no grant support.
+#[test]
+fn an_explicit_include_list_is_a_hard_limit_that_no_admission_widens() {
+    let plan = |argv_: &[&str], held: &[&str], include: &[&str], allow: &[&str]| Controls {
+        argv: argv(argv_),
+        selection: Selection {
+            include: argv(include),
+            allow: argv(allow),
+            deny: match held {
+                [] => argv(&["WebFetch"]),
+                _ => Vec::new(),
+            },
+            flags: claude_flags(),
+        },
+        guards: vec![claude_guard()],
+        ..match held {
+            [] => ready("claude", &[], &["web-search", "web-fetch"]),
+            _ => ready("claude", &["web-fetch"], &["web-search"]),
+        }
+    };
+    let hands = argv(&[
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/run/hands.json",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ]);
+    let fetch = "does not name tool 'WebFetch', which the plan admits for native capability \
+                 'web-fetch'";
+    type Row<'a> = (Controls, &'a [String], Result<Vec<String>, Refusal>);
+    let rows: Vec<Row> = vec![
+        // Compatible, every capability OFF: the nonempty and the empty
+        // limit, split and joined, beside the independent WebFetch denial.
+        (
+            plan(&["--tools", "Read"], &[], &[], &[]),
+            &[],
+            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+        ),
+        (
+            plan(&["--tools=Read"], &[], &[], &[]),
+            &[],
+            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+        ),
+        (
+            plan(&["--tools", ""], &[], &[], &[]),
+            &[],
+            Ok(argv(&["--tools", "", "--disallowedTools", "WebFetch"])),
+        ),
+        (
+            plan(&["--tools="], &[], &[], &[]),
+            &[],
+            Ok(argv(&["--tools", "", "--disallowedTools", "WebFetch"])),
+        ),
+        // A name the limit repeats is written once.
+        (
+            plan(&["--tools", "Read,Read"], &[], &[], &[]),
+            &[],
+            Ok(argv(&["--tools", "Read", "--disallowedTools", "WebFetch"])),
+        ),
+        // Compatible, fetch held: the limit names it, so it reaches the
+        // command with its admission and the limit unchanged.
+        (
+            plan(
+                &["--tools", "Read,WebFetch"],
+                &["web-fetch"],
+                &["WebFetch"],
+                &["WebFetch"],
+            ),
+            &[],
+            Ok(argv(&[
+                "--tools",
+                "Read,WebFetch",
+                "--allowedTools",
+                "WebFetch",
+            ])),
+        ),
+        // The review's reproduction and the explicit empty limit: refused
+        // whole, never `--tools WebFetch,Read` or `--tools WebFetch`.
+        (
+            plan(
+                &["--tools", "Read"],
+                &["web-fetch"],
+                &["WebFetch"],
+                &["WebFetch"],
+            ),
+            &[],
+            Err(limit_refusal("Read", fetch)),
+        ),
+        (
+            plan(
+                &["--tools", ""],
+                &["web-fetch"],
+                &["WebFetch"],
+                &["WebFetch"],
+            ),
+            &[],
+            Err(limit_refusal("no tool", fetch)),
+        ),
+        // An admission by allow alone is held as much as one by include.
+        (
+            plan(&["--tools", "Read"], &["web-fetch"], &[], &["WebFetch"]),
+            &[],
+            Err(limit_refusal("Read", fetch)),
+        ),
+        // Boxed: the empty limit leaves the hands' own list as it stands;
+        // a nonempty one would widen it with a tool nothing holds.
+        (
+            plan(&["--tools", ""], &[], &[], &[]),
+            &hands,
+            Ok([hands.clone(), argv(&["--disallowedTools", "WebFetch"])].concat()),
+        ),
+        (
+            plan(&["--tools", "Read"], &[], &[], &[]),
+            &hands,
+            Err(limit_refusal(
+                "Read",
+                "names tool 'Read', which the seat's own '--tools' list does not carry and no \
+                 held capability admits",
+            )),
+        ),
+    ];
+    for (controls, fragment, expected) in rows {
+        assert_eq!(
+            compose_for_provider("claude", &[], fragment, &controls).map(|composed| composed.extra),
+            expected,
+            "{:?} {fragment:?}",
+            controls.argv
+        );
+    }
+}
+
+/// Rebuild unit 12, second review F3 (design D6): an authored refusal
+/// names a fixed cause, the canonical option and its position, inside 512
+/// scalar values wherever the option stands — here the longest fixed cause
+/// at argument 101, behind fifty inert assignments, with room left for a
+/// position of twenty digits. The prose before this fix rendered 505 here,
+/// and 522 at twenty digits.
+#[test]
+fn an_authored_refusal_stays_bounded_wherever_the_option_stands() {
+    let mut command = argv(&["{brokkr}", "driver", "codex", "--"]);
+    for _ in 0..50 {
+        command.extend(argv(&["-c", "model_reasoning_effort=\"low\""]));
+    }
+    command.push("-cunmodelled.key=1".to_string());
+    let refusal = authored_refusal("codex", &command).expect_err("a malformed key");
+    assert_eq!(
+        refusal,
+        authored_refused(
+            "codex",
+            "--config",
+            101,
+            "a configuration assignment that assigns a key no bounded meaning is modelled for, \
+             so it is refused rather than passed through as opaque configuration"
+        )
+    );
+    // Rendered as compilation renders it, with no site: the portion D6
+    // bounds, and seventeen more digits than argument 101 has.
+    let rendered = refusal.at_compile("");
+    let scalars = rendered.chars().count();
+    assert!(scalars + 17 <= 512, "{scalars}: {rendered}");
 }
 
 /// Rebuild unit 11 (design D6: "Invalid Codex managed arguments have no
