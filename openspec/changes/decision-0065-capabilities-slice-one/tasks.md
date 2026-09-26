@@ -1796,6 +1796,35 @@ third visit — landed").
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
 
+Unit 12-fix-c (2026-09-26, run `0065-rebuild-unit-12-see-the-uni-c0c83ac6`):
+**oversized on one test row; nothing production landed** (evidence.md,
+"Unit 12-fix-c — oversized on one test row").
+
+- Built and saved under `.forge/unit-12-fix-c/` (`full.patch`
+  `57582b50…`). Provenance is a typed record carried in the plan: the
+  typed hands' argument count and the typed local permissions. It is never
+  read from argv text. A managed fragment is always a limit. Every emitted
+  allowance is in H ∪ W ∪ T and inside every limit.
+- **Proof on the full patch:**
+  - A 2880-combination provenance property test; the positions'
+    reproductions compiled, sealed and verified.
+  - Baseline reds on `add73ee2`; mutations M1–M7 caught.
+  - Gates clean; the 18 compiles are identical.
+  - No new unhit coverage record. Unit 11's handoff stays closed.
+- **Stops on** `adapters/tests.rs:15525`. That row asserts a local
+  permission emitted outside `--tools=Read`, which is S2's shape. The
+  proposed re-plant is `--tools=Read,Bash`, with the output unchanged. Two
+  other fixture lines there change no assertion.
+- Forced literal lines (standing admission), one `provenance` field each:
+  - `agents/tests.rs` after `:4752`;
+  - `capabilities/tests.rs` after `:120`;
+  - `engine/capability_tests.rs` after `:33`.
+- Assumption for review: NCT's "empty built-in list" is read as the hands'
+  own base, so W is bounded by every plan list.
+- 12.1 and 12.2 stay ticked on the prior evidence. 15.2 stays open.
+- **Pending:** the ruling, exact coverage outside the box, macOS, remote
+  CI and the council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

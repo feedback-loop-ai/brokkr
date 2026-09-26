@@ -10780,3 +10780,198 @@ Standing-admission (forced) lines: none. Frozen paths are unchanged.
 
 **Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
 the box), macOS and remote CI. The full engine council is still to review.
+
+## Unit 12-fix-c — oversized on one test row, 2026-09-26
+
+Run `0065-rebuild-unit-12-see-the-uni-c0c83ac6`, on `add73ee2` with a clean
+tree. The return is the four positions of run `…-578edee1` (the chief never
+ran). Both shared HIGHs had one root cause: provenance inferred from
+strings. The repair is built and proved, but one assertion row outside the
+unit's files needs a changed input, so **nothing production landed**.
+
+### What was built (saved, not committed)
+
+Under `.forge/unit-12-fix-c/`, each applying clean on `add73ee2`
+(`git apply --check`):
+
+- `full.patch` (`57582b50…`): everything below.
+- `in-scope.patch` (`1f91f956…`): all but `adapters/tests.rs`.
+- `adapters-tests.patch` (`2bcd5705…`): the three `adapters/tests.rs` lines.
+
+Production, the three named files only:
+
+- **`native_controls.rs`.** `Controls` carries a typed `Provenance`: how
+  many leading fragment arguments are the box's hands, and the local
+  permissions lowered from the site's typed allow. The plan decodes it
+  from `hands` and `local`; absent types nothing, a wrong shape refuses.
+  `compose_or_exclude` places every list by position: template, typed
+  hands, managed. It never reads `mcp__brokkr__workspace` to decide. The
+  hands and managed parts parse apart. A count the fragment cannot hold
+  refuses. `final_tools` takes W (the hands tool, only with typed hands)
+  and T. A carried name outside H ∪ W ∪ T refuses (`Conflict::Carried`,
+  naming the list's owner and flag), before any limit is judged. A W or
+  T allowance whose tool a limit does not name refuses
+  (`Conflict::Outside`). `governed` is gone: no shape is exempt.
+- **`capabilities.rs`.** `Serving` carries the provenance, and the plan
+  JSON writes `hands` and `local`, so compile and launch compose from one
+  typed record.
+- **`bundle.rs`.** `site_capabilities` fills it from the candidate:
+  `hands_fragment.len()` and `Application::Direct` limits. An inline site
+  uses its `inline_local` limits.
+
+### An assumption, stated for review
+
+The commission's restated I1 puts W under every limit. NCT's second-H4
+scenario says "boxed engine-owned hands remain permitted independently of
+the empty built-in list; an incompatible restriction refuses rather than
+being weakened". This visit reads "the empty built-in list" as the hands'
+own `--tools ""`. That list stays the base, not a limit. A plan list that
+does not name W is the incompatible restriction, and it refuses. So a boxed
+seat whose ON or OFF argv writes `--tools WebFetch` now refuses at compile.
+It used to launch with W beside it. If the operator reads NCT otherwise,
+the switch is one filter in the `Outside` loop (mutation M3 below).
+
+### Deliberate behaviour changes, in the owning suites
+
+- `native_controls/tests.rs`: two boxed rows under a plan limit, R1's
+  include-alone row and one hands row now refuse on W. The representation
+  test's boxed argv-ON row refuses too, and its unboxed twin composes. The
+  authored-server rows that carry an allow list refuse as untyped. The
+  inert `Bash(mcp__not_a_tool:*)` row and the fold tests type their local
+  permissions. Each refusal row has a positive twin whose limit names W.
+- `capability_launch.rs`: `a_boxed_holding_…` and `every_chief_…` R3 rows
+  refuse where the limit omits W, each beside a positive naming it. Both
+  tests now launch through `sealed_launch`: compile, `sealed`,
+  `verify_record`, then `claude_command` (C3).
+
+### Tests
+
+- The property test gained the provenance axis: typed hands, the hands'
+  bytes untyped, a managed limit naming W, a typed local permission, an
+  untyped allowance, a template naming W and a plan allowing W. Absent,
+  empty, compatible and excluding limits, holdings and requires/wants are
+  crossed: 2880 combinations. The oracle is built from the axes only. It
+  checks H ∪ W ∪ T and every limit for every emitted name, the refused
+  name of every untyped refusal and the missing tool of every `Outside`.
+  Tally: composed 196 (42 with a wanted holding dropped OFF), written
+  twice 1968, typed allowance outside a limit 68, unheld plan admission
+  228, untyped managed allowance 72, untyped template allowance 288,
+  required refused by its limit 60. The 72 are the counterfeit managed
+  rows, reached with nothing written twice.
+- Pure `final_tools` rows: SC-1's `Bash(ls:*)` untyped, then typed
+  outside `Read`; W untyped, then typed outside `WebFetch`.
+- `authority_…` rows: the hands' own allow list naming `Bash` refuses as
+  "the box's hands'"; an untyped four-argument hands fragment refuses on
+  W; a typed-hands count of 7 over two arguments refuses.
+- Plan decoding: `hands` 7 and `local` read exactly. `hands` -1, `"7"` and
+  a string `local` refuse with their paths.
+- New compiled test
+  `every_position_reproduction_refuses_by_provenance_and_typed_origins_launch`:
+  - harness hands with work `["--tools","Read,Bash","--allowedTools",
+    "mcp__brokkr__workspace"]` and WebFetch required or wanted;
+  - `["--allowedTools","Bash"]` with nothing held;
+  - that allowance beside `--tools Read`;
+  - a template `--allowedTools Bash(ls:*)` with no typed allow;
+  - typed `ls` under a template `--tools Read` (refused);
+  - typed `ls` under `--tools Read,Bash` (launched).
+
+### Baseline reds on `add73ee2`
+
+`capability_launch` was run with the three production files at
+`add73ee2`. Each assertion was temporarily printed rather than panicking,
+and the file was then restored. Result: 46 passed, 3 failed.
+
+- S1, required and wanted: launched `--tools WebFetch --allowedTools
+  mcp__brokkr__workspace,WebFetch --disallowedTools WebSearch`.
+- S2: launched `--allowedTools Bash`, and `--tools "" --allowedTools Bash`.
+- SC-1: launched `--allowedTools Bash(ls:*)`, and under `--tools Read`
+  launched `--tools "" … --allowedTools Bash(ls:*)`.
+- W outside a limit: each of the six new refusal rows launched with W.
+- Every positive row passed on `add73ee2` too.
+
+### Mutations (each compiled, was caught, then restored by copy)
+
+- **M1**, hands inferred from the fragment's text: property `:2819`
+  "I1 --allowedTools mcp__brokkr__workspace", S1's row `:6813`, and two
+  table rows.
+- **M2**, an untyped carried name admitted as local: property `:2819`
+  "I1 --allowedTools Bash(ls:*)" and four rows. Printed per row, S2
+  launched `--allowedTools Bash` and SC-1 launched `Bash(ls:*)` again.
+- **M3**, W exempt from limits: property `:2826` "mcp__brokkr__workspace
+  inside the capability plan's limit", and five rows.
+- **M4**, `bundle.rs` types no hands: 13 `capability_launch` tests,
+  `every_site_of_every_shipped_bundle_…` among them.
+- **M5**, `bundle.rs` types no agent local: four tests, `bundles/self`
+  refused on `Bash(cargo:*)` among them.
+- **M6**, an inline site types no local: five tests.
+- **M7**, the hands' owner spelled as the template's: `authority_…` `:2278`.
+
+After each run, `git diff | sha256sum` equalled the saved patch.
+
+### Gates run on the full patch
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-protocol --lib native_controls`: 41/41.
+- `capability_launch`: 49/49.
+- `cargo test --workspace --locked --no-fail-fast` and the
+  `--all-features` run: each gave 77 `test result: ok` lines and no FAILED.
+  The all-features run was repeated on the final tree.
+- `bundles/self` and `bundles/verify` compile. All 18 bundle and recipe
+  compiles were byte-identical to HEAD's production (sha256 pairs).
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+### Coverage diagnostic, and unit 11's handoff
+
+`cargo +nightly-2026-09-05 llvm-cov --branch -p brokkr-protocol -p
+brokkr-runtime -p brokkr-cli --all-features --locked --lcov` ran after a
+clean. It gave 58 `test result: ok` lines and 0 FAILED. `grep -xE` for
+`DA:…,0` and for zero or `-` `BRDA`:
+
+- `native_controls.rs`, `capabilities.rs`: none. A first run found
+  `DA:1585` (the hands' owner) and `bundle.rs` `DA:4629` (a non-`Composed`
+  arm). The row above closed the first. The match was folded into one
+  pattern, so no arm is unreachable.
+- `bundle.rs`: DA 1880, 2647, 2649, 2652, 2786 and BRDA 2632, 2648, 2651,
+  3460, the 12-fix-b set. Every patch hunk lies below line 4567.
+  `expressed_sandbox` (from 3288) holds none of them. Unit 11's handoff
+  stays closed.
+
+### Why it is oversized
+
+`adapters/tests.rs` hand-writes the engine's plan:
+
+- Two of its lines are fixture lines this change reaches, with no
+  assertion changed: `claude_plan` gains `"local": ["Bash(git:*)"]` (after
+  HEAD `:14932`), and `claude_admits_…` sets `plan["hands"]` to its
+  recorded hands count (`:15281`–`:15286`).
+- The third is not. The row "every list joined, in aliases, nothing held"
+  (HEAD `:15525`) asserts `--tools=` beside `--allowed-tools=Bash(git:*)`
+  under a template `--tools=Read`. That is S2's second shape: a local
+  permission emitted outside a limit. Under this change it refuses: "…
+  explicit '--tools' restriction … (naming Read) does not name tool
+  'Bash', which the local permissions of the site's typed 'tools.allow'
+  admit; …". The proposed re-plant is `--tools=Read,Bash`, with the
+  asserted output unchanged. It changes the row's input, which the
+  standing admission does not cover.
+
+Forced literal lines (standing admission, no assertion): a `provenance:
+Provenance::NONE` line in each `Serving` literal:
+
+- `agents/tests.rs`, after HEAD `:4752`;
+- `capabilities/tests.rs`, after `:120`;
+- `engine/capability_tests.rs`, after `:33`.
+
+### Recorded for the ruling
+
+1. Admit the `:15525` re-plant (`--tools=Read` → `--tools=Read,Bash`), or
+   rule that its expectation becomes the refusal above.
+2. Confirm the NCT reading above: W is bounded by every plan list.
+
+With a ruling, `git apply .forge/unit-12-fix-c/full.patch`, or that patch
+with the row's other form, lands the unit.
+
+**Pending:** the ruling, external exact coverage, macOS, remote CI and the
+full engine council.
