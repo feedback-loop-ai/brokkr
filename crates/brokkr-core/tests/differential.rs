@@ -5,6 +5,11 @@
 //! evidence, not contract: parity compares rule id, next phase,
 //! severity, and park-vs-rule including whether `problem` is set.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the committed corpus"
+)]
+
 use std::fs;
 use std::path::PathBuf;
 

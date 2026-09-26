@@ -9,7 +9,7 @@
 //! and touches no filesystem — decision 0013's separation is a compile
 //! property, not a convention.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -994,7 +994,7 @@ fn codex_quiet_event(kind: &str) -> bool {
 /// A mirrored Codex fact family. Identity alone is not evidence: a call
 /// and its output are two facts, and message, reasoning and tool facts
 /// never associate across families.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum CodexFact {
     Message,
     Reasoning,
@@ -1208,13 +1208,13 @@ fn associate_codex_observed<F>(records: &mut [CodexRecord], mut observe: F)
 where
     F: FnMut(CodexKeySite, &CodexId, &CodexId),
 {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::BTreeSet;
     // Keys share each record's id allocation: a key is a reference count,
     // never a copy of the recorded bytes.
-    let mut canonical: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
-    let mut fallback: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
+    let mut canonical: BTreeMap<(CodexFact, CodexId), usize> = BTreeMap::new();
+    let mut fallback: BTreeMap<(CodexFact, CodexId), usize> = BTreeMap::new();
     for record in records.iter() {
-        let mut seen: HashSet<(CodexFact, CodexId)> = HashSet::new();
+        let mut seen: BTreeSet<(CodexFact, CodexId)> = BTreeSet::new();
         for block in &record.blocks {
             let Some((fact, id)) = &block.fact else {
                 continue;
@@ -2267,12 +2267,12 @@ type CoverageEdge = (i128, i32, u32);
 /// citing row ordinal. A chunk is suppressed when its sequence is unique
 /// and this value is strictly greater than the chunk's own row ordinal.
 struct CitationCoverage {
-    by_step: HashMap<StepKey, Vec<CoveredSpan>>,
+    by_step: BTreeMap<StepKey, Vec<CoveredSpan>>,
 }
 
 impl CitationCoverage {
     fn new(assemblies: &[AssemblyFact]) -> CitationCoverage {
-        let mut grouped: HashMap<StepKey, Vec<CoverageEdge>> = HashMap::new();
+        let mut grouped: BTreeMap<StepKey, Vec<CoverageEdge>> = BTreeMap::new();
         for assembly in assemblies {
             for &(start, end) in &assembly.cited {
                 let entries = grouped.entry((assembly.turn, assembly.step)).or_default();
@@ -2280,7 +2280,7 @@ impl CitationCoverage {
                 entries.push((end as i128 + 1, -1, assembly.ordinal));
             }
         }
-        let mut by_step = HashMap::new();
+        let mut by_step = BTreeMap::new();
         for (key, mut entries) in grouped {
             entries.sort_unstable();
             let mut segments: Vec<(i64, i64, u32)> = Vec::new();
@@ -2417,27 +2417,40 @@ impl DshCollector {
 /// counters are logical, not allocator measurements.
 #[cfg(test)]
 mod observe {
-    use std::cell::Cell;
+    /// The counters alone: the one place a pure crate holds thread-local
+    /// state, and only in its unit tests. The scanner in
+    /// crates/brokkr-cli/tests/layering/ admits this exemption in exactly
+    /// this shape and refuses every other.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "test-only counters; thread-local state never reaches a production build (#336)"
+    )]
+    mod cells {
+        use std::cell::Cell;
 
-    thread_local! {
-        static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
-        static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
-        static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
-        /// Ordinary events that reached the fact pass's retained buffer.
-        static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
-        static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
-        static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
-        static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
-        /// Blockless ordinary events released without retention.
-        static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
+        thread_local! {
+            pub(super) static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+            /// Ordinary events that reached the fact pass's retained buffer.
+            pub(super) static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
+            pub(super) static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
+            pub(super) static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
+            /// Blockless ordinary events released without retention.
+            pub(super) static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
+        }
     }
+
+    use cells::*;
+    use std::cell::Cell;
 
     pub(super) fn reset() {
         PACKED_CANDIDATES.with(|cell| cell.set(0));
@@ -2598,7 +2611,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // payload is ever appended to a complete-prefix event vector. ----
     let mut spans: Vec<(i64, i64)> = Vec::new();
     let mut assemblies: Vec<AssemblyFact> = Vec::new();
-    let mut dedicated: HashMap<(String, DshDirection, Position, Position), u32> = HashMap::new();
+    let mut dedicated: BTreeMap<(String, DshDirection, Position, Position), u32> = BTreeMap::new();
     let mut refused = false;
     let mut unrecognized = 0u64;
     let mut retained: Vec<DshEvent> = Vec::new();
@@ -2735,7 +2748,7 @@ fn collect_ordinary_facts(
     ordinal: u32,
     associate: bool,
     assemblies: &mut Vec<AssemblyFact>,
-    dedicated: &mut HashMap<(String, DshDirection, Position, Position), u32>,
+    dedicated: &mut BTreeMap<(String, DshDirection, Position, Position), u32>,
 ) {
     #[cfg(test)]
     observe::fact_retained(
@@ -2770,8 +2783,8 @@ fn collect_ordinary_facts(
         let (Some(turn), Some(step)) = (row.turn, row.step) else {
             continue;
         };
-        let mut seen: std::collections::HashSet<(String, DshDirection, Position, Position)> =
-            std::collections::HashSet::new();
+        let mut seen: std::collections::BTreeSet<(String, DshDirection, Position, Position)> =
+            std::collections::BTreeSet::new();
         for block in &row.blocks {
             let Some(tool) = &block.tool else { continue };
             let key = (tool.id.clone(), tool.direction, turn, step);
@@ -2903,7 +2916,7 @@ fn emit_ordinary(
     ordinal: u32,
     associate: bool,
     suppression: &Suppression,
-    dedicated: &HashMap<(String, DshDirection, Position, Position), u32>,
+    dedicated: &BTreeMap<(String, DshDirection, Position, Position), u32>,
 ) {
     if row.chunk {
         if let (Some(turn), Some(step), Some(seq)) = (row.turn, row.step, row.seq) {
@@ -2934,7 +2947,7 @@ fn emit_ordinary(
 }
 
 /// The recorded identifier and direction a DSH tool block carries.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum DshDirection {
     Call,
     Result,

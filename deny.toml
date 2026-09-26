@@ -3,6 +3,9 @@
 # this allowlist; anything outside it fails CI. Permissive only, in
 # the spirit of the ruling: openness that imposes nothing.
 [licenses]
+# Dev-only crates such as the test ECMAScript engine are held to the
+# same allowlist; cargo-deny skips them unless told otherwise.
+include-dev = true
 allow = [
   "MIT",
   "Apache-2.0",
@@ -23,6 +26,42 @@ allow = [
 ]
 
 [advisories]
-# Advisories are the RustSec job's beat; cargo-deny here is scoped to
-# licenses so each gate says one thing.
+# Advisories are the RustSec job's beat; cargo-deny here checks
+# licenses, bans and sources, so each gate says one thing.
 db-path = "~/.cargo/advisory-dbs"
+
+# The graph cargo-deny judges carries every feature and every
+# dev-dependency, so the licence check covers every crate it gathers.
+[graph]
+all-features = true
+
+# Every crate comes from crates.io or this workspace, never an unknown
+# registry or a git repository.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+# Decision 0071 ruling 1's one-way crate graph, and its one home. Each
+# entry names the only crates allowed to depend on it directly (its
+# `wrappers`), dev edges included, so a new upward edge of any kind is
+# refused here. cargo-deny cannot tell a dev edge from a normal one, so
+# `crates/brokkr-cli/tests/layering/` holds every edge `cargo metadata`
+# reports to this table and refuses a normal edge where only a dev one is
+# allowed. It refuses any line here it does not understand, so keep one
+# entry per line. `brokkr-cli` is the root and has no parent to name.
+# The same test closes core's and view's own dependency sets, and holds
+# them to the wrappers here, so a pure crate names no crate unlisted.
+[bans]
+deny = [
+  { crate = "brokkr-core", wrappers = ["brokkr-view", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "core sits at the bottom of the one-way graph (decision 0071 ruling 1)" },
+  { crate = "brokkr-view", wrappers = ["brokkr-runtime", "brokkr-cli"], reason = "view is read by the engine and the surfaces only (decision 0071 ruling 1)" },
+  { crate = "brokkr-protocol", wrappers = ["brokkr-runtime", "brokkr-cli", "brokkr-seatbelt-probe"], reason = "the driver protocol is spoken by the engine and the binary only, and exercised by the seatbelt probe's tests (decision 0071 ruling 1, #341)" },
+  { crate = "brokkr-store", wrappers = ["brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "the journal is written above core and view (decision 0071 ruling 1)" },
+  { crate = "brokkr-runtime", wrappers = ["brokkr-bridge", "brokkr-cli"], reason = "the engine sits under the bridge and the binary only (decision 0071 ruling 1)" },
+  { crate = "brokkr-bridge", wrappers = ["brokkr-cli"], reason = "the bridge is reached from the binary only (decision 0071 ruling 1)" },
+  { crate = "rusqlite", wrappers = ["brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "SQLite lives behind brokkr-store; the crates above it read journals in tests only (decision 0071 ruling 1)" },
+  { crate = "ureq", wrappers = ["brokkr-bridge"], reason = "the network client lives in brokkr-bridge (decision 0071 ruling 1)" },
+  { crate = "ratatui", wrappers = ["brokkr-cli"], reason = "the terminal lives in brokkr-cli (decision 0014)" },
+  { crate = "uuid", wrappers = ["brokkr-protocol", "brokkr-store", "brokkr-runtime"], reason = "fresh ids are randomness, which core and view never draw (decision 0071 ruling 1)" },
+  { crate = "time", wrappers = ["brokkr-core", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli", "boa_engine"], reason = "view takes `now` as an argument and needs no clock crate (decision 0071 ruling 1)" },
+]

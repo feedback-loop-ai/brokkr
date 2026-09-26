@@ -37,11 +37,12 @@ flowchart TB
 Every edge is a real dependency and every crate is drawn, without transitive
 edges (decision 0037).
 
-`brokkr-core` performs no I/O, clock reads, randomness or process execution.
-The same journal and bundle produce the same state and ruling. Effectful work
-sits above it and is journaled. `brokkr-view` is also pure: one display
-answer rendered as HTML or terminal text. Its dependencies are restricted to
-`brokkr-core`, `serde` and `serde_json` (decision 0013).
+`brokkr-core` performs no I/O, clock reads, randomness or process execution,
+so state and ruling replay exactly; effects sit above, journaled.
+`brokkr-view`, equally pure, renders one answer, HTML or terminal text, from
+`brokkr-core`, `serde` and `serde_json` alone (decision 0013). Gates hold both
+against mistakes, not adversaries (decision 0071 ruling 1): `clippy.toml`,
+`deny.toml` bans, `brokkr-cli/tests/layering/`.
 
 Brokkr decides how far delivery advances. Product priorities are decided above
 it; costs are measured beside it from seat ids and checkpoints; harnesses below

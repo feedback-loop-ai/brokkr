@@ -80,6 +80,9 @@ windows-sys = { version = "0.61.2", default-features = false, features = [
 
 [dev-dependencies]
 rusqlite = { workspace = true }
+# The layering test parses `cargo metadata` into types (decision 0071
+# ruling 3); serde is already in the graph through serde_json.
+serde = { workspace = true }
 # The packaging test verifies an APT `Release` file's own digests
 # against the files it indexes — the same hash the engine already
 # depends on, no new crate in the graph.

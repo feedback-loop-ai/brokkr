@@ -3,6 +3,8 @@
 //! boundary 1). Given the same journal and pinned bundle, fold and
 //! evaluate always return the same state and ruling.
 
+#![forbid(unsafe_code)]
+
 pub mod canonical;
 pub mod dispatch;
 pub mod envelope;

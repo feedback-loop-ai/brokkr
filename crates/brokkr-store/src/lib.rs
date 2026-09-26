@@ -59,6 +59,8 @@
 //! worktree-local `.forge/forge.db` remains entirely legal — it is
 //! emergency isolation now, not the assumed steady state.
 
+#![forbid(unsafe_code)]
+
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;

@@ -302,7 +302,7 @@ jobs:
       # by SHA pins the tool that rules on the licences.
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          command: check licenses
+          command: check licenses bans sources
 
   dependency-audit:
     name: RustSec dependency audit

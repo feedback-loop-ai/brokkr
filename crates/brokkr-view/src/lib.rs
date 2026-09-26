@@ -23,10 +23,12 @@
 //! the console renders `?` and keeps the row. Both are repair
 //! (decision 0001).
 
+#![forbid(unsafe_code)]
+
 pub mod js;
 pub mod transcript;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use brokkr_core::fold::{RunState, Status};
 use brokkr_core::realms::Boundary;
@@ -1050,8 +1052,8 @@ struct Build {
 struct Scan {
     effects: Vec<EffectFacts>,
     parts: Vec<Build>,
-    by_key: HashMap<String, usize>,
-    boundaries: HashMap<(String, String), Vec<BoundaryEntry>>,
+    by_key: BTreeMap<String, usize>,
+    boundaries: BTreeMap<(String, String), Vec<BoundaryEntry>>,
 }
 
 fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -> usize {
@@ -1096,7 +1098,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
     let mut scan = Scan {
         effects: Vec::new(),
         parts: Vec::new(),
-        by_key: HashMap::new(),
+        by_key: BTreeMap::new(),
         boundaries: events
             .iter()
             .filter(|event| event.event_type == EventType::EffectStarted)
@@ -1111,7 +1113,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
             })
             .collect(),
     };
-    let mut by_effect_id: HashMap<String, usize> = HashMap::new();
+    let mut by_effect_id: BTreeMap<String, usize> = BTreeMap::new();
     for (index, event) in events.iter().enumerate() {
         let payload = &event.payload;
         if event.event_type == EventType::EffectRequested {
@@ -2258,18 +2260,18 @@ struct Buckets<'a> {
     /// label a structureless phase draws, and reading it here keeps that
     /// lookup total — a participant always exists for a requested effect,
     /// so a "no participant" fallback would be an uncoverable branch.
-    newest: HashMap<&'a str, (&'a str, &'a str)>,
+    newest: BTreeMap<&'a str, (&'a str, &'a str)>,
     /// Effect id -> its `effect/checkpointed` events, in journal order.
-    checkpoints: HashMap<&'a str, Vec<&'a Value>>,
+    checkpoints: BTreeMap<&'a str, Vec<&'a Value>>,
     /// Effect id -> every phase it was requested in (scope membership).
-    effect_phases: HashMap<&'a str, Vec<String>>,
+    effect_phases: BTreeMap<&'a str, Vec<String>>,
 }
 
 fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
     let mut buckets = Buckets {
-        newest: HashMap::new(),
-        checkpoints: HashMap::new(),
-        effect_phases: HashMap::new(),
+        newest: BTreeMap::new(),
+        checkpoints: BTreeMap::new(),
+        effect_phases: BTreeMap::new(),
     };
     for event in events {
         let payload = &event.payload;
@@ -2656,7 +2658,7 @@ fn journal_rows(
     // `verify_chain` pins `seq == i + 1`, so seq 0 is unrepresentable in
     // a loaded journal and the console's truthiness check on the looked-up
     // seq has nothing to guard. A total map is the whole rule.
-    let mut by_id: HashMap<&str, u64> = HashMap::new();
+    let mut by_id: BTreeMap<&str, u64> = BTreeMap::new();
     for event in events {
         by_id.insert(event.event_id.as_str(), event.seq);
     }

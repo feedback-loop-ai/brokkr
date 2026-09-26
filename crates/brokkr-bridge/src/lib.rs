@@ -6,6 +6,8 @@
 //! closed producer vocabulary; separately authorized operator commands are
 //! fenced by the exact Brokkr journal head before becoming control events.
 
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 

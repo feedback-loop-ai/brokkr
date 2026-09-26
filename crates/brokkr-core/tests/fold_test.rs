@@ -250,6 +250,10 @@ fn replay_is_deterministic() {
 /// map existed folds to exactly the state it always folded to, its
 /// unkeyed facts still read, and it gained no realm key anywhere.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the committed fixture journal"
+)]
 fn the_committed_fixture_journal_folds_exactly_as_it_did() {
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
