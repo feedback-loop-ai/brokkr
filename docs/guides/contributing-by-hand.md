@@ -30,7 +30,9 @@ The engine is Rust-only (decision
 toolchain beyond cargo for the ordinary path. The MSRV, the coverage
 gate, the licence gate, the ratchets, the mutants gate and the non-Rust
 lints need something beyond a stable toolchain; each tool is pinned in
-the workflow that runs it, and the version below is that pin.
+the workflow that runs it, in a `.github/actions/setup-*` action it
+calls, or in a version file at the root, and the version below is that
+pin.
 
 | Tool | Needed by | Check it is there |
 |---|---|---|
@@ -119,7 +121,9 @@ The four checks the list above adds to the older eight:
   spelling, Markdown links and their anchors, the Mermaid diagrams and
   Renovate's configuration. The offline part is one list,
   `scripts/lint-non-rust.sh` (#427): typos, shellcheck, actionlint,
-  zizmor and lychee, each checked against its pin in `ci.yml`. A
+  zizmor and lychee, each checked against its pin: typos, shellcheck
+  and zizmor in `ci.yml`, actionlint and lychee in
+  `.github/actions/setup-actionlint` and `.github/actions/setup-lychee`. A
   landing's verify seat runs the same list. The job then renders the
   diagrams, which needs Node and the Chrome that
   `.github/lint/puppeteer.json` names:

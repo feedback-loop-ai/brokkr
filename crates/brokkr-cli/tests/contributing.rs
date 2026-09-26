@@ -309,16 +309,54 @@ fn check_rows(guide: &str) -> Vec<CheckRow> {
         .collect()
 }
 
-/// Every row of the by-hand guide's check table is a check the workflows
-/// define: its name and job as the job states them, in the workflows'
-/// order, and a local command that carries each one-line command the job
-/// runs, with the boundary evidence the job requires.
+/// The checks branch protection on main requires (operator rulings,
+/// 2026-09-26), as (context, job id, workflow). Branch protection lives
+/// outside the tree, so this list is its one home in the repository.
+const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
+    ("delivered by brokkr", "delivered-by-brokkr", "ci.yml"),
+    ("MSRV (1.88)", "msrv", "ci.yml"),
+    ("format, clippy, contracts", "quality", "ci.yml"),
+    ("test (ubuntu-latest)", "engine", "ci.yml"),
+    ("test (macos-latest)", "engine", "ci.yml"),
+    ("exact coverage gate", "coverage", "ci.yml"),
+    (
+        "dependency licenses (cargo-deny)",
+        "license-compliance",
+        "ci.yml",
+    ),
+    ("non-Rust lints", "lint-non-rust", "ci.yml"),
+    ("baseline ratchets", "ratchets", "ci.yml"),
+    ("RustSec dependency audit", "dependency-audit", "ci.yml"),
+    ("release binary artifact", "release-binary", "ci.yml"),
+    (
+        "mutants in the diff: brokkr-core",
+        "core-gate",
+        "mutants.yml",
+    ),
+];
+
+/// The by-hand guide's check table is exactly the twelve checks main
+/// requires, and every row is a check the workflows define: its name and
+/// job as the job states them, in the workflows' order, and a local
+/// command that carries each one-line command the job runs, with the
+/// boundary evidence the job requires.
 #[test]
 fn the_by_hand_checks_are_the_workflows_checks() {
     let root = workspace();
     let guide = std::fs::read_to_string(root.join("docs/guides/contributing-by-hand.md")).unwrap();
     let rows = check_rows(&guide);
-    assert_eq!(rows.len(), 12, "the guide lists twelve checks: {rows:?}");
+    let listed: Vec<(String, String, &str)> = rows
+        .iter()
+        .map(|row| (row.check.clone(), row.job.clone(), row.file))
+        .collect();
+    let required: Vec<(String, String, &str)> = MAIN_REQUIRES
+        .iter()
+        .map(|&(check, job, file)| (check.to_string(), job.to_string(), file))
+        .collect();
+    assert_eq!(
+        listed, required,
+        "the guide lists the twelve checks main requires"
+    );
     let jobs: Vec<WorkflowJob> = ["ci.yml", "mutants.yml"]
         .into_iter()
         .flat_map(|file| workflow_jobs(&root, file))
@@ -330,10 +368,6 @@ fn the_by_hand_checks_are_the_workflows_checks() {
                 .iter()
                 .map(|check| (check.clone(), job.id.clone(), job.file))
         })
-        .collect();
-    let listed: Vec<(String, String, &str)> = rows
-        .iter()
-        .map(|row| (row.check.clone(), row.job.clone(), row.file))
         .collect();
     let defined: Vec<(String, String, &str)> = defined
         .into_iter()
