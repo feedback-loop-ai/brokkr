@@ -256,42 +256,50 @@ fn workspace() -> PathBuf {
 /// reported no movement; each value is the test's own reported digest.
 /// `recipes/node` moves again when its implementer role gains the
 /// house-deferral paragraph the other seven carry.
+/// #427 moves nine. `recipes/fast`'s verifier gained fmt, clippy and the
+/// lint list, which moves `recipes/triage`, `recipes/night-shift`,
+/// `recipes/gpt-flash` and `recipes/wager-harness` that compose it;
+/// `recipes/node`, `recipes/preflight` and `recipes/research` carry a
+/// README that now says which of those checks their verifier runs, and
+/// `recipes/research-dsh` composes research.
+/// `bundles/verify` reported no movement; each value is the test's own
+/// reported digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "bc8a4010cec93a49fc8b6ce88f10c9e4a8282903bb9c54b7434a6c4a2e46ffd4",
+        "bf8b0583a0e656d35c5f2707f182b869c014e99357a27ac8561ae496c0e4dab7",
     ),
     (
         "recipes/node",
-        "6a3e76a4ecd32430e104a7956dc49df28f8d445c94f2a2011ddd9ea2e44f80c9",
+        "3188c68c07761808ffc6343545cd881a4351cf51a9d2befa88cd2fc4c27438f9",
     ),
     (
         "recipes/preflight",
-        "79b50aa2b1aba66ab9a3e2ccb54816588316b88a00587906fe9949177f963622",
+        "7cdfcc90bba5fcc1c26727145f524b730263f359889d01503f7663c00ba4a938",
     ),
     (
         "recipes/night-shift",
-        "d01deaa67f0e4a4d77d68c3d8c6866213b34559cbdc8abdb5883801cf0d2d7d9",
+        "c800f21f5e5a23fa14fc9621ed78de9c66dd050c83df4abb4d03f49a9c102cc7",
     ),
     (
         "recipes/wager-harness",
-        "d7f5af7a4693df71844731a36e17eec94b42faba3c1a1a65c3038a91b51bb0a0",
+        "f687d7ae3e5f5151b806df6f1f02b898e2e07873b62fae6eeaff1813976938f9",
     ),
     (
         "recipes/triage",
-        "e738f6caddea11dbfdaa94b25a82f0f74e0a9a5d560cabe6b65c2bb295b6e9c7",
+        "6a09af070d2fb2266ca97c09a55176f1d2160e8f467e3565a011987edcc44e84",
     ),
     (
         "recipes/research",
-        "393ffd7c5c396d74ed68b23191751e6517ac691c344067d8abd6803037940a9b",
+        "b4d6617495dfa0f9ca4ff1169e36599b33f194c42e09b0a3708060eabe12bfac",
     ),
     (
         "recipes/research-dsh",
-        "76b686a59f3de486c320cea4c575be07e4a13334f549c5a5571dc81593aa2e6c",
+        "6f5da13879f4959319805b2fab43d069dd11b38d437b732f13ba54c04f8b4392",
     ),
     (
         "recipes/gpt-flash",
-        "53e43da17eb41a924ac7f4e00e353238aefabeac2b858049b80a2fafab007560",
+        "8a3c32f3ee050b0686e1dc566b53414cd5f06ad5374ae40d3c5e3dfac71ab60b",
     ),
     (
         "bundles/verify",

@@ -27,7 +27,7 @@ it what not to reinvent.
 | Seat | Class | Results | Runs |
 |---|---|---|---|
 | `classify` | `gate` | `docs`, `code` | `scripts/classify-seat.sh`, boxed, no model: every path the branch changes against the default branch is read against the repository's own docs class, `.github/delivery-classes.json` — the file the contribution gate cuts its tiers by (decision 0038 ruling 3). All prose → `docs`; anything else, or anything it cannot establish → `code`. |
-| `verify` | `gate` | `pass`, `fail` | `fast`'s boxed exec verifier: format, clippy, the workspace suite, both bundle compiles, the exact-coverage script. `fail` returns to `implement` with the decisive output. |
+| `verify` | `gate` | `pass`, `fail` | `fast`'s boxed exec verifier, cheapest first: format, the non-Rust lints CI's `non-Rust lints` job runs (`scripts/lint-non-rust.sh`), clippy with `-D warnings`, the workspace suite, the `bundles/self` compile. A lint tool the box cannot reach is named in the notes, never skipped silently. `fail` returns to `implement` with the failing command and its decisive output. |
 | `review` | `gate` | `clean`, `residual`, `security-hold` | `fast`'s adversarial read of the diff against the base: correctness, fit, security. A residual above low returns to `implement`; at or below low ships as named debt; `security-hold` stops. |
 | `implement` | `work` | `complete`, `broken`, `blocked`, `oversized` | Entered only on a return. `fast`'s implementer charter already says it: "answer the finding in `returned_from`; that finding is the work this visit owns." |
 | `ship` | `gate` | `ready`, `shipped` | `fast`'s boxed exec shipper: a clean tree, the head the engine gated on, the ledger, the anchor with the per-file patch map. |

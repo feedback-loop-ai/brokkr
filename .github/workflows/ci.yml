@@ -375,22 +375,13 @@ jobs:
           # A version the pinned manifest lacks fails here rather than
           # installing through cargo-binstall, unchecked (#339).
           fallback: none
-      - name: the workflows and their run scripts (actionlint with shellcheck)
-        env:
-          SHELLCHECK_OPTS: -S warning
-        run: actionlint
-      - name: workflow security (zizmor, offline, .github/zizmor.yml's policy)
-        run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline
-      - name: shell scripts (shellcheck)
-        run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
-      - name: the composite actions' scripts (shellcheck)
-        run: bash scripts/shellcheck-actions.sh
-      # --hidden: typos skips dot-directories by default, and .github is
-      # where this job's own workflows live.
-      - name: spelling (typos, _typos.toml)
-        run: typos --hidden
-      - name: links and their anchors (lychee, offline)
-        run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress
+      # Spelling (typos --hidden: .github is a dot-directory), the shell
+      # scripts and the composite actions' scripts (shellcheck), the
+      # workflows (actionlint with shellcheck), workflow security (zizmor,
+      # offline, .github/zizmor.yml's policy), and links with their anchors
+      # (lychee, offline): one list, the one fast's verify seat runs (#427).
+      - name: the offline lints (scripts/lint-non-rust.sh)
+        run: bash scripts/lint-non-rust.sh
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.23.3

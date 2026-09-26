@@ -10,7 +10,11 @@
 //!   extracted and checked, and a `run:` (or `run :`) it cannot read is
 //!   refused;
 //! - `lint-diagrams.sh`: every mermaid fence Markdown allows is found, and a
-//!   file whose fences mermaid-cli does not all render is refused.
+//!   file whose fences mermaid-cli does not all render is refused;
+//! - `lint-non-rust.sh` (#427): the offline lints run cheapest first, each
+//!   tool at its CI pin; CI refuses a tool it cannot run, a verify seat
+//!   names it; and `recipes/fast`'s verify seat, the one a landing
+//!   inherits, fails on a lint or on clippy with the command named.
 
 use sha2::{Digest, Sha256};
 use std::os::unix::fs::PermissionsExt;
@@ -87,6 +91,37 @@ impl Repo {
             self.path().join("stub-bin").display(),
             std::env::var("PATH").expect("PATH")
         );
+        self.run_on(&path, script, args, env)
+    }
+
+    /// Links each of the [`SYSTEM_TOOLS`] from the host `PATH` into
+    /// `sys-bin/`.
+    fn link_system_tools(&self) {
+        let system = self.path().join("sys-bin");
+        std::fs::create_dir_all(&system).expect("sys-bin");
+        let host = std::env::var_os("PATH").expect("PATH");
+        for tool in SYSTEM_TOOLS {
+            let found = std::env::split_paths(&host)
+                .map(|directory| directory.join(tool))
+                .find(|candidate| candidate.is_file())
+                .unwrap_or_else(|| panic!("{tool} is not on the host PATH"));
+            std::os::unix::fs::symlink(found, system.join(tool)).expect(tool);
+        }
+    }
+
+    /// The workspace's `script` run here with only `stub-bin/` and
+    /// `sys-bin/` on `PATH`, so a lint tool the host has installed cannot
+    /// stand in for a stub, and one left unstubbed is missing.
+    fn run_hermetic(&self, script: &str, args: &[&str], env: &[(&str, &str)]) -> Output {
+        let path = format!(
+            "{}:{}",
+            self.path().join("stub-bin").display(),
+            self.path().join("sys-bin").display()
+        );
+        self.run_on(&path, script, args, env)
+    }
+
+    fn run_on(&self, path: &str, script: &str, args: &[&str], env: &[(&str, &str)]) -> Output {
         Command::new("bash")
             .arg(workspace().join(script))
             .args(args)
@@ -485,5 +520,237 @@ fn a_fence_the_renderer_skips_or_no_diagram_at_all_is_refused() {
     assert_eq!(
         stderr(&output),
         "lint-diagrams: no mermaid diagram found in the tracked Markdown\n"
+    );
+}
+
+/// What `lint-non-rust.sh` and fast's verify seat need on `PATH` beside
+/// the stubs.
+const SYSTEM_TOOLS: [&str; 14] = [
+    "awk", "bash", "dirname", "git", "grep", "head", "mkdir", "rm", "sed", "sort", "tail", "tr",
+    "wc", "xargs",
+];
+
+/// The version a lint fixture's CI installs each tool at: actionlint and
+/// lychee in their setup actions, the others on the install-action line.
+const LINT_PINS: [(&str, &str); 5] = [
+    ("typos", "2.0.0"),
+    ("shellcheck", "1.0.0"),
+    ("actionlint", "4.0.0"),
+    ("zizmor", "3.0.0"),
+    ("lychee", "5.0.0"),
+];
+
+/// Stands in for a lint tool at `version`: reports it, appends
+/// `<tool>|<arguments>|<SHELLCHECK_OPTS>` to `$STUB_OUT`, and fails as
+/// typos does when `$STUB_FAIL` names it.
+fn stub_lint(tool: &str, version: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+if [ "$1" = --version ]; then echo '{tool} {version}'; exit 0; fi
+printf '%s|%s|%s\n' '{tool}' "$*" "${{SHELLCHECK_OPTS-}}" >> "$STUB_OUT"
+if [ "${{STUB_FAIL-}}" = '{tool}' ]; then echo 'error: README.md:1: a misspelled word'; exit 2; fi
+"#
+    )
+}
+
+/// A repository whose CI pins the [`LINT_PINS`], with a stub at its pin
+/// for every tool but `missing`, and `scripts/lint-non-rust.sh` copied
+/// in, untracked, where the verify seat runs it.
+fn lint_tree(missing: &[&str]) -> Repo {
+    let repo = Repo::new();
+    let installed: Vec<String> = LINT_PINS
+        .iter()
+        .filter(|(tool, _)| !["actionlint", "lychee"].contains(tool))
+        .map(|(tool, version)| format!("{tool}@{version}"))
+        .collect();
+    repo.put(
+        ".github/workflows/ci.yml",
+        &format!(
+            "jobs:\n  lint:\n    steps:\n      - with:\n          tool: {}\n",
+            installed.join(",")
+        ),
+    );
+    for (tool, version) in LINT_PINS {
+        if ["actionlint", "lychee"].contains(&tool) {
+            let key = tool.to_ascii_uppercase();
+            repo.put(
+                &format!(".github/actions/setup-{tool}/action.yml"),
+                &format!("runs:\n  steps:\n    - env:\n        {key}_VERSION: {version}\n"),
+            );
+        }
+        if !missing.contains(&tool) {
+            repo.executable(&format!("stub-bin/{tool}"), &stub_lint(tool, version));
+        }
+    }
+    repo.put(
+        "scripts/shellcheck-actions.sh",
+        "shellcheck -s bash action-scripts\n",
+    );
+    repo.put("README.md", "# lints\n");
+    repo.git(&["add", ".github", "scripts", "README.md"]);
+    repo.put(
+        "scripts/lint-non-rust.sh",
+        &std::fs::read_to_string(workspace().join("scripts/lint-non-rust.sh")).expect("the list"),
+    );
+    repo.link_system_tools();
+    repo
+}
+
+/// `script` run hermetically in `repo` with `STUB_FAIL` set to `fail`,
+/// and what the stubs recorded running, from a fresh record.
+fn run_lints(repo: &Repo, script: &str, args: &[&str], fail: &str) -> (Output, String) {
+    let ran = repo.path().join("ran.txt");
+    std::fs::write(&ran, "").expect("a fresh record");
+    let ran_path = ran.to_str().expect("a UTF-8 path");
+    let output = repo.run_hermetic(script, args, &[("STUB_OUT", ran_path), ("STUB_FAIL", fail)]);
+    (output, repo.read("ran.txt"))
+}
+
+const ALL_LINTS_RAN: &str = "\
+typos|--hidden|
+shellcheck|-S warning scripts/shellcheck-actions.sh|
+shellcheck|-s bash action-scripts|
+actionlint||-S warning
+zizmor|--offline .github/actions/setup-actionlint/action.yml .github/actions/setup-lychee/action.yml .github/workflows/ci.yml|
+lychee|--offline --include-fragments --no-progress README.md|
+";
+
+#[test]
+fn every_offline_lint_runs_at_its_pin_cheapest_first() {
+    let repo = lint_tree(&[]);
+    let (output, ran) = run_lints(&repo, "scripts/lint-non-rust.sh", &[], "");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "lint-non-rust: 6 of 6 lints ran clean\n");
+    assert_eq!(ran, ALL_LINTS_RAN);
+}
+
+#[test]
+fn ci_refuses_a_lint_tool_missing_or_off_its_pin() {
+    let repo = lint_tree(&["actionlint"]);
+    let (output, ran) = run_lints(&repo, "scripts/lint-non-rust.sh", &[], "");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stderr(&output),
+        "lint-non-rust: SHELLCHECK_OPTS='-S warning' actionlint cannot run: actionlint is not on PATH\n"
+    );
+    assert_eq!(
+        ran,
+        "typos|--hidden|\nshellcheck|-S warning scripts/shellcheck-actions.sh|\nshellcheck|-s bash action-scripts|\n"
+    );
+
+    let repo = lint_tree(&[]);
+    repo.executable("stub-bin/typos", &stub_lint("typos", "2.0.1"));
+    let (output, ran) = run_lints(&repo, "scripts/lint-non-rust.sh", &[], "");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stderr(&output),
+        "lint-non-rust: typos --hidden cannot run: typos on PATH reports typos 2.0.1, not the pinned 2.0.0\n"
+    );
+    assert_eq!(ran, "");
+}
+
+#[test]
+fn a_failing_lint_stops_the_list_by_name_and_an_unpinned_tool_is_refused() {
+    let repo = lint_tree(&[]);
+    let (output, ran) = run_lints(&repo, "scripts/lint-non-rust.sh", &["--seat"], "shellcheck");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stdout(&output), "error: README.md:1: a misspelled word\n");
+    assert_eq!(
+        stderr(&output),
+        "lint-non-rust: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning failed\n"
+    );
+    assert_eq!(
+        ran,
+        "typos|--hidden|\nshellcheck|-S warning scripts/shellcheck-actions.sh|\n"
+    );
+
+    for tools in [
+        "shellcheck@1.0.0,typos@2.0.0",
+        "shellcheck@1.0.0,typos@2.0.0,zizmor@3.0.0,zizmor@3.0.1",
+    ] {
+        repo.put(
+            ".github/workflows/ci.yml",
+            &format!("          tool: {tools}\n"),
+        );
+        let (output, _) = run_lints(&repo, "scripts/lint-non-rust.sh", &["--seat"], "");
+        assert_eq!(output.status.code(), Some(1), "{tools}");
+        assert_eq!(
+            stderr(&output),
+            "lint-non-rust: CI does not pin exactly one version of zizmor\n",
+            "{tools}"
+        );
+    }
+
+    let (output, ran) = run_lints(&repo, "scripts/lint-non-rust.sh", &["--strict"], "");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        stderr(&output),
+        "lint-non-rust: unknown argument --strict; the only one is --seat\n"
+    );
+    assert_eq!(ran, "");
+}
+
+/// Stands in for cargo: appends `cargo <arguments>` to `$STUB_OUT`, fails
+/// as a compile error does when `$STUB_FAIL` is `cargo <subcommand>`, and
+/// reports one clean test suite.
+const STUB_CARGO: &str = r#"#!/usr/bin/env bash
+printf 'cargo %s\n' "$*" >> "$STUB_OUT"
+if [ "${STUB_FAIL-}" = "cargo $1" ]; then echo 'error: could not compile `brokkr-cli` due to 1 previous error'; exit 101; fi
+if [ "$1" = test ]; then echo 'test result: ok. 3 passed; 0 failed'; fi
+"#;
+
+/// fast's verify seat, the one a landing inherits, run in `repo` with
+/// `STUB_FAIL` set to `fail`: the result it wrote, and what ran.
+fn fast_verify(repo: &Repo, fail: &str) -> (String, String) {
+    repo.executable("stub-bin/cargo", STUB_CARGO);
+    let result = repo.path().join(".forge/results/verify.json");
+    repo.put(
+        "prompt.md",
+        &format!("Write the result to\n{}\n", result.display()),
+    );
+    let (output, ran) = run_lints(
+        repo,
+        "recipes/fast/scripts/verify-seat.sh",
+        &["prompt.md"],
+        fail,
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    (repo.read(".forge/results/verify.json"), ran)
+}
+
+#[test]
+fn a_branch_failing_typos_or_clippy_fails_the_landing_verify_by_name() {
+    let repo = lint_tree(&[]);
+    let (result, ran) = fast_verify(&repo, "typos");
+    assert_eq!(
+        result,
+        r#"{"result": "fail", "notes": "typos --hidden failed; decisive output follows verbatim:\nerror: README.md:1: a misspelled word\nlint-non-rust: typos --hidden failed"}
+"#
+    );
+    assert_eq!(ran, "cargo fmt --all -- --check\ntypos|--hidden|\n");
+
+    let (result, ran) = fast_verify(&repo, "cargo clippy");
+    assert_eq!(
+        result,
+        r#"{"result": "fail", "notes": "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings failed; decisive output follows verbatim:\nerror: could not compile `brokkr-cli` due to 1 previous error"}
+"#
+    );
+    assert_eq!(
+        ran,
+        format!(
+            "cargo fmt --all -- --check\n{ALL_LINTS_RAN}cargo clippy --workspace --all-targets --all-features --locked -- -D warnings\n"
+        )
+    );
+}
+
+#[test]
+fn a_lint_tool_the_box_cannot_reach_is_named_and_the_rest_decide() {
+    let repo = lint_tree(&["lychee"]);
+    repo.executable("stub-bin/zizmor", &stub_lint("zizmor", "0.1.0"));
+    let (result, _) = fast_verify(&repo, "");
+    assert_eq!(
+        result,
+        r#"{"result": "pass", "notes": "cargo fmt --all -- --check: clean; cargo clippy --workspace --all-targets --all-features --locked -- -D warnings: clean\nlint-non-rust: not run: git ls-files -z .github/workflows .github/actions | xargs -0 zizmor --offline (zizmor on PATH reports zizmor 0.1.0, not the pinned 3.0.0)\nlint-non-rust: not run: git ls-files -z '*.md' | xargs -0 lychee --offline --include-fragments --no-progress (lychee is not on PATH)\nlint-non-rust: 4 of 6 lints ran clean\ncargo test --workspace: 1 successful test-suite summaries, 0 failed; cargo run -p brokkr-cli -- compile --bundle bundles/self: 1 bundle compiled, 0 failed (offline from the bound Cargo registry cache)"}
+"#
     );
 }
