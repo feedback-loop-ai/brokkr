@@ -38,10 +38,14 @@ write_result() {
       END { print "\"}" }' "$notes_file" > "$result_path"
 }
 
+# The decisive output is the lines naming an error, else the output's tail.
+# With "tail" as $2 it is the tail alone: a lint's finding (a shellcheck
+# SC code, an actionlint message) carries no such keyword, and the list's
+# closing "lint-non-rust: <command> failed" line always would (#444).
 failure_notes() {
     command_name="$1"
     printf '%s failed; decisive output follows verbatim:\n' "$command_name" > "$notes_file"
-    grep -E '(^|[[:space:]])(error|Error|ERROR|fail|FAILED|Caused by|not found|offline)' "$output" \
+    [ "${2-}" = tail ] || grep -E '(^|[[:space:]])(error|Error|ERROR|fail|FAILED|Caused by|not found|offline)' "$output" \
         | tail -n 20 >> "$notes_file" || true
     [ "$(wc -l < "$notes_file")" -gt 1 ] || tail -n 20 "$output" >> "$notes_file"
     write_result fail
@@ -57,7 +61,7 @@ if ! cargo fmt --all -- --check > "$output" 2>&1 </dev/null; then
 fi
 if ! bash scripts/lint-non-rust.sh --seat > "$output" 2>&1 </dev/null; then
     failed_lint="$(sed -n 's/^lint-non-rust: \(.*\) failed$/\1/p' "$output")"
-    failure_notes "${failed_lint:-bash scripts/lint-non-rust.sh --seat}"
+    failure_notes "${failed_lint:-bash scripts/lint-non-rust.sh --seat}" tail
 fi
 lint_notes="$(grep '^lint-non-rust: ' "$output")"
 if ! cargo clippy --workspace --all-targets --all-features --locked -- -D warnings > "$output" 2>&1 </dev/null; then

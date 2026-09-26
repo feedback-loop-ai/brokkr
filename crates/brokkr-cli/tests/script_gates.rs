@@ -743,6 +743,30 @@ fn a_branch_failing_typos_or_clippy_fails_the_landing_verify_by_name() {
     );
 }
 
+/// Stands in for shellcheck at its [`LINT_PINS`] pin, finding SC2086 in
+/// its default format: file, line and code, and no word the verify seat's
+/// error grep knows.
+const STUB_SHELLCHECK_SC2086: &str = r#"#!/usr/bin/env bash
+if [ "$1" = --version ]; then echo 'shellcheck 1.0.0'; exit 0; fi
+printf '%s\n' '' 'In scripts/shellcheck-actions.sh line 1:' 'shellcheck -s bash $1' \
+  '                   ^-- SC2086 (info): Double quote to prevent globbing and word splitting.' \
+  '' 'Did you mean:' 'shellcheck -s bash "$1"' '' 'For more information:' \
+  '  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...'
+exit 1
+"#;
+
+#[test]
+fn a_lint_finding_without_an_error_word_reaches_the_landing_verify_notes() {
+    let repo = lint_tree(&[]);
+    repo.executable("stub-bin/shellcheck", STUB_SHELLCHECK_SC2086);
+    let (result, _) = fast_verify(&repo, "");
+    assert_eq!(
+        result,
+        r#"{"result": "fail", "notes": "git ls-files -z '*.sh' | xargs -0 shellcheck -S warning failed; decisive output follows verbatim:\n\nIn scripts/shellcheck-actions.sh line 1:\nshellcheck -s bash $1\n                   ^-- SC2086 (info): Double quote to prevent globbing and word splitting.\n\nDid you mean:\nshellcheck -s bash \"$1\"\n\nFor more information:\n  https://www.shellcheck.net/wiki/SC2086 -- Double quote to prevent globbing ...\nlint-non-rust: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning failed"}
+"#
+    );
+}
+
 #[test]
 fn a_lint_tool_the_box_cannot_reach_is_named_and_the_rest_decide() {
     let repo = lint_tree(&["lychee"]);

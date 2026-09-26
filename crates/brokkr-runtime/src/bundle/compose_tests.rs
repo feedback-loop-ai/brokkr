@@ -1089,10 +1089,12 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// lint list, and `recipes/panel-review`, whose README now says which of
 /// those checks its own verifier runs. `bundles/self` and `bundles/verify`
 /// reported no movement; each value is the test's own reported digest.
+/// #444 moves `recipes/fast` again: its verifier puts a failing lint's
+/// tail in its notes. The other three reported no movement.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "bf8b0583a0e656d35c5f2707f182b869c014e99357a27ac8561ae496c0e4dab7",
+        "d242cc9a2b76a6b59b0ac69bb583a9abc488569ffb6d557d1873f2458bcac3b4",
     ),
     (
         "recipes/panel-review",
@@ -1257,8 +1259,10 @@ fn a_composed_bundles_manifest_is_pinned() {
         // again agrees with the witness pin. #334 moves it once more: its
         // composed `fast` base's roles now point at the house rules. #427
         // moves it again: that base's verifier gained fmt, clippy and the
-        // lint list; the measured value agrees with the witness pin.
-        "6a09af070d2fb2266ca97c09a55176f1d2160e8f467e3565a011987edcc44e84",
+        // lint list; the measured value agrees with the witness pin. #444
+        // moves it once more: that verifier puts a failing lint's tail in
+        // its notes; the measured value agrees with the witness pin.
+        "e3bc01e59fc2dcc039eca6aee2c058a0e745e4567a343a3827dc83d8305a779d",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
