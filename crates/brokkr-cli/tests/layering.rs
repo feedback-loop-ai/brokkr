@@ -717,16 +717,25 @@ fn word_end(chars: &[char], at: usize) -> usize {
 /// identifier's `r#` dropped), `::` and lifetimes are one token each,
 /// every other non-space character is its own.
 fn lex(source: &str) -> Vec<Token> {
+    lex_with_literals(source).0
+}
+
+/// [`lex`], and the source text of every [`LITERAL`] token, keyed by the
+/// token's index, quotes and prefixes included.
+fn lex_with_literals(source: &str) -> (Vec<Token>, BTreeMap<usize, String>) {
     let chars: Vec<char> = source.chars().collect();
-    let mut tokens = Vec::new();
+    let (mut tokens, mut literals) = (Vec::new(), BTreeMap::new());
     let (mut at, mut line) = (0, 1);
     while at < chars.len() {
         let (end, token) = next_token(&chars, at);
+        if token.as_deref() == Some(LITERAL) {
+            literals.insert(tokens.len(), chars[at..end].iter().collect());
+        }
         tokens.extend(token.map(|token| (line, token)));
         line += chars[at..end].iter().filter(|c| **c == '\n').count();
         at = end;
     }
-    tokens
+    (tokens, literals)
 }
 
 /// The token at `at`, if it is not a comment or space, and where it ends.
@@ -1187,23 +1196,109 @@ fn admitted_exemption(tokens: &[Token], blocks: &Blocks, at: usize, end: usize) 
         && blocks.at[close + 1] == Some(end + 3)
 }
 
+/// One lexed source file of a pure crate, and where it sits in the
+/// workspace, which a `#[path]` resolves against and names the crate.
+struct Scanned<'a> {
+    tokens: &'a [Token],
+    literals: &'a BTreeMap<usize, String>,
+    blocks: &'a Blocks,
+    file: &'a Path,
+}
+
+/// Whether a workspace-relative `path` is one the exact coverage gate
+/// treats as a test: under a `tests/` directory, or named `tests.rs` or
+/// `*_tests.rs` (`scripts/coverage-exact.sh`'s pattern).
+fn is_gate_test_path(path: &Path) -> bool {
+    let parts: Vec<&str> = path.iter().filter_map(|part| part.to_str()).collect();
+    let Some((last, dirs)) = parts.split_last() else {
+        return false;
+    };
+    dirs.contains(&"tests")
+        || *last == "tests.rs"
+        || last
+            .strip_suffix("_tests.rs")
+            .is_some_and(|stem| !stem.is_empty())
+}
+
+/// `relative` joined onto `dir` with `.` and `..` folded, or `None` when it
+/// climbs out of the workspace.
+fn resolve(dir: &Path, relative: &str) -> Option<PathBuf> {
+    let mut resolved = Vec::new();
+    for part in dir.iter().chain(Path::new(relative).iter()) {
+        match part.to_str()? {
+            "." => {}
+            ".." => {
+                resolved.pop()?;
+            }
+            part => resolved.push(part),
+        }
+    }
+    Some(resolved.iter().collect())
+}
+
+/// Whether the `#` at `at` opens the one `#[path]` form test code may
+/// take: `#[cfg(test)] #[path = "…"] mod name;` at the file's top level,
+/// the path a plain string that resolves, from the file's directory, to a
+/// gate test path inside the workspace.
+fn test_path_module(scan: &Scanned, at: usize) -> bool {
+    let shape = ["#", "[", "path", "=", LITERAL, "]", "mod", "<name>", ";"];
+    let fits = shape.iter().enumerate().all(|(offset, want)| {
+        let got = text(scan.tokens, at + offset);
+        if *want == "<name>" {
+            is_ident(got)
+        } else {
+            got == *want
+        }
+    });
+    let target = scan
+        .literals
+        .get(&(at + 4))
+        .and_then(|literal| literal.strip_prefix('"')?.strip_suffix('"'))
+        .filter(|path| !path.contains(['\\', '"']))
+        .and_then(|path| resolve(scan.file.parent()?, path));
+    fits && scan.blocks.at[at].is_none()
+        && under_cfg_test(scan.tokens, at)
+        && target.is_some_and(|target| is_gate_test_path(&target))
+}
+
+/// Whether the `extern` at `at` is the one `extern crate` test code may
+/// take: `#[cfg(test)] extern crate self as <this crate>;`, which lets
+/// the workspace's shared test support name the crate as other crates do.
+fn test_self_alias(scan: &Scanned, at: usize) -> bool {
+    let own = scan
+        .file
+        .strip_prefix("crates")
+        .ok()
+        .and_then(|rest| rest.iter().next()?.to_str())
+        .map(|name| name.replace('-', "_"));
+    under_cfg_test(scan.tokens, at)
+        && text(scan.tokens, at + 2) == "self"
+        && text(scan.tokens, at + 3) == "as"
+        && own.is_some_and(|own| text(scan.tokens, at + 4) == own)
+        && text(scan.tokens, at + 5) == ";"
+}
+
 /// Every item form the pure crates may not take: an `extern crate`, a
 /// `#[path]`, a `mod tests;` outside `#[cfg(test)]`, a lowered purity lint,
 /// a `macro_rules!` shadowing a builtin, a macro outside the allowlist or
-/// out of its definition's scope, and a clock or randomness source.
-fn form_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
-    let blocks = Blocks::of(tokens);
+/// out of its definition's scope, and a clock or randomness source. Code
+/// under exactly `#[cfg(test)]` may take two of them: a `#[path]` to a
+/// gate test path, and an alias of the crate itself.
+fn form_refusals(scan: &Scanned) -> Vec<(usize, String)> {
+    let (tokens, blocks) = (scan.tokens, scan.blocks);
     let mut found = Vec::new();
     for (at, (line, token)) in tokens.iter().enumerate() {
         let what = match (token.as_str(), text(tokens, at + 1), text(tokens, at + 2)) {
-            ("extern", "crate", _) => "an extern crate".to_string(),
+            ("extern", "crate", _) if !test_self_alias(scan, at) => "an extern crate".to_string(),
             ("mod", "tests", ";") if !under_cfg_test(tokens, at) => {
                 "a `mod tests;` outside #[cfg(test)]".to_string()
             }
-            ("#", _, _) if sets_a_path(tokens, at) => "a #[path] attribute".to_string(),
+            ("#", _, _) if sets_a_path(tokens, at) && !test_path_module(scan, at) => {
+                "a #[path] attribute".to_string()
+            }
             ("#", _, _)
                 if attribute_end(tokens, at).is_some_and(|end| {
-                    lowers_purity(tokens, at, end) && !admitted_exemption(tokens, &blocks, at, end)
+                    lowers_purity(tokens, at, end) && !admitted_exemption(tokens, blocks, at, end)
                 }) =>
             {
                 "an attribute that lowers a purity lint".to_string()
@@ -1215,7 +1310,7 @@ fn form_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
                 if is_ident(name)
                     && !NEGATING_KEYWORDS.contains(&name)
                     && !PURE_MACROS.contains(&name)
-                    && !defined_before(tokens, &blocks, name, at) =>
+                    && !defined_before(tokens, blocks, name, at) =>
             {
                 format!("{name}!: outside the pure macro allowlist")
             }
@@ -1231,10 +1326,18 @@ fn form_refusals(tokens: &[Token]) -> Vec<(usize, String)> {
 }
 
 /// Every place a pure crate's source leaves ruling 1, as `line: what`.
-fn impurities(source: &str) -> Vec<String> {
-    let tokens = lex(source);
+/// `file` is the source's path relative to the workspace.
+fn impurities(source: &str, file: &Path) -> Vec<String> {
+    let (tokens, literals) = lex_with_literals(source);
+    let blocks = Blocks::of(&tokens);
+    let scan = Scanned {
+        tokens: &tokens,
+        literals: &literals,
+        blocks: &blocks,
+        file,
+    };
     let mut found = std_refusals(&tokens);
-    found.extend(form_refusals(&tokens));
+    found.extend(form_refusals(&scan));
     found.sort_by_key(|(line, _)| *line);
     found
         .into_iter()
@@ -1245,7 +1348,7 @@ fn impurities(source: &str) -> Vec<String> {
 /// The scanner's cases: a source, and exactly what it refuses there, by
 /// line. Every form the allowlists do not name is refused; the last
 /// rows are clean or unterminated sources that refuse nothing.
-const SCANNER_CASES: [(&str, &[&str]); 32] = [
+const SCANNER_CASES: [(&str, &[&str]); 38] = [
     (
         "use std::{collections::BTreeMap, /* c */ os::unix::process::parent_id};",
         &["1: std::os::unix::process::parent_id: outside the pure std allowlist"],
@@ -1323,6 +1426,30 @@ const SCANNER_CASES: [(&str, &[&str]); 32] = [
         &["1: a `mod tests;` outside #[cfg(test)]", "5: a `mod tests;` outside #[cfg(test)]"],
     ),
     (
+        "#[cfg(test)]\nextern crate self as brokkr_core;\n#[cfg(test)]\n#[path = \"../../../tests/support/envelope.rs\"]\nmod envelope_builder;",
+        &[],
+    ),
+    (
+        "#[path = \"../../../tests/support/envelope.rs\"]\nmod envelope_builder;\nextern crate self as brokkr_core;",
+        &["1: a #[path] attribute", "3: an extern crate"],
+    ),
+    (
+        "#[cfg(test)]\n#[path = \"other.rs\"]\nmod a;\n#[cfg(test)]\n#[path = \"../../../../tests/b.rs\"]\nmod b;\n#[cfg(test)]\n#[path = r\"../../../tests/c.rs\"]\nmod c;",
+        &["2: a #[path] attribute", "5: a #[path] attribute", "8: a #[path] attribute"],
+    ),
+    (
+        "mod m {\n    #[cfg(test)]\n    #[path = \"../../../tests/support/envelope.rs\"]\n    mod d;\n}\n#[cfg(any(test))]\n#[path = \"../../../tests/support/envelope.rs\"]\nmod e;\n#[path = \"../../../tests/support/envelope.rs\"]\n#[cfg(test)]\nmod f;\n#[cfg(test)]\n#[cfg_attr(test, path = \"../../../tests/support/envelope.rs\")]\nmod g;",
+        &["3: a #[path] attribute", "7: a #[path] attribute", "9: a #[path] attribute", "13: a #[path] attribute"],
+    ),
+    (
+        "#[cfg(test)]\n#[path = \"fold_tests.rs\"]\nmod h;\n#[cfg(test)]\n#[path = \"inner/tests.rs\"]\nmod i;",
+        &[],
+    ),
+    (
+        "#[cfg(test)]\nextern crate self as brokkr_view;\n#[cfg(test)]\nextern crate self;\n#[cfg(test)]\nextern crate serde as brokkr_core;\n#[cfg(any(test))]\nextern crate self as brokkr_core;",
+        &["2: an extern crate", "4: an extern crate", "6: an extern crate", "8: an extern crate"],
+    ),
+    (
         "mod m {\n    macro_rules! include { () => {}; }\n    include!();\n}\ninclude!(\"../../../outside/pid.rs\");",
         &["2: macro_rules! include: shadows a builtin macro", "3: include!: outside the pure macro allowlist", "5: include!: outside the pure macro allowlist"],
     ),
@@ -1385,7 +1512,8 @@ const SCANNER_CASES: [(&str, &[&str]); 32] = [
 #[test]
 fn the_scanner_refuses_every_form_its_allowlists_do_not_name() {
     for (source, expected) in SCANNER_CASES {
-        assert_eq!(impurities(source), expected, "{source}");
+        let file = Path::new("crates/brokkr-core/src/lib.rs");
+        assert_eq!(impurities(source, file), expected, "{source}");
     }
 }
 
@@ -1444,7 +1572,7 @@ fn the_pure_crates_name_nothing_outside_the_allowlists() {
         .flat_map(|path| {
             let relative = path.strip_prefix(&root).expect("under the workspace");
             let source = std::fs::read_to_string(path).expect("readable source");
-            impurities(&source)
+            impurities(&source, relative)
                 .into_iter()
                 .map(move |what| format!("{}:{what}", relative.display()))
         })
