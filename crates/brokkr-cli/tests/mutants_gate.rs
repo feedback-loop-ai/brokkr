@@ -199,3 +199,26 @@ fn the_gate_holds_brokkr_core_alone_and_needs_its_allow_list() {
     assert_eq!(output.status.code(), Some(1));
     assert!(text(&output.stderr).contains("brokkr-core.missed.txt is missing"));
 }
+
+/// Once every committed core miss is caught, the allow-list is empty. An
+/// empty list must still fail a fresh miss: the #420 landing found an
+/// `NR == FNR` awk idiom that read every fresh miss as committed here.
+#[test]
+fn an_empty_committed_list_still_fails_a_fresh_miss() {
+    let gate = Gate::new();
+    std::fs::write(gate.path("allow/brokkr-core.missed.txt"), "").unwrap();
+    let output = gate.verdict(&[FRESH]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
+    assert!(
+        text(&output.stdout).contains(&format!("- {FRESH}")),
+        "{}",
+        text(&output.stdout)
+    );
+}
+
+/// A base the gate cannot diff against measures nothing, so it fails.
+#[test]
+fn a_base_git_cannot_resolve_fails_the_gate() {
+    let output = Gate::new().run(&["gate", "no-such-base-ref", "brokkr-core"], &[]);
+    assert!(!output.status.success(), "{}", text(&output.stdout));
+}

@@ -171,9 +171,17 @@ diff_mutants() {
 gate_misses() {
   local fresh
   fresh="$(mktemp)"
-  sort "$2" | awk '
-    function id(line) { sub(/:[0-9]+:[0-9]+: /, ": ", line); return line }
-    NR == FNR { have[id($0)]++; next }
+  # The committed list is picked out by name, not by NR == FNR: an empty
+  # list has no records, so that idiom would read every fresh miss as
+  # committed and pass the gate. id() is identity()'s anchored rule.
+  sort "$2" | awk -v committed="$1" '
+    function id(line,   file) {
+      if (!match(line, /^[^:]+:[0-9]+:[0-9]+: /)) return line
+      file = line
+      sub(/:.*/, "", file)
+      return file ": " substr(line, RLENGTH + 1)
+    }
+    FILENAME == committed { have[id($0)]++; next }
     { key = id($0); if (++seen[key] > have[key]) print }
   ' "$1" - > "$fresh"
   if [ -s "$fresh" ]; then
