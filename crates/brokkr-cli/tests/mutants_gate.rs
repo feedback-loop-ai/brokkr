@@ -14,11 +14,13 @@ const KNOWN_AGAIN: &str = "crates/brokkr-core/src/fold.rs:512:9: replace == with
 /// A miss no committed one accounts for.
 const FRESH: &str = "crates/brokkr-core/src/policy.rs:700:5: replace < with <= in planted";
 
-/// Stands in for `cargo mutants`. `--list` prints `STUB_LISTED` and exits
+/// Stands in for `cargo mutants`. Each call appends its arguments as one
+/// line to `STUB_ARGV`. `--list` prints `STUB_LISTED` and exits
 /// `STUB_LIST_STATUS`; a run writes `STUB_MISSED` as its missed.txt and
 /// one mutant as its mutants.json (unless `STUB_NO_OUTPUT`), and exits
 /// `STUB_STATUS`.
 const STUB: &str = r#"#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$STUB_ARGV"
 out=""; list=""
 while [ $# -gt 0 ]; do
   case "$1" in --output) out="$2"; shift ;; --list) list=1 ;; esac
@@ -76,6 +78,8 @@ impl Gate {
             .env("PATH", path)
             .env("MUTANTS_OUT", self.path("out"))
             .env("MUTANTS_ALLOW", self.path("allow"))
+            .env("STUB_ARGV", self.path("argv"))
+            .env_remove("MUTANTS_JOBS")
             .env_remove("GITHUB_STEP_SUMMARY");
         for (key, value) in env {
             command.env(key, value);
@@ -140,6 +144,28 @@ fn a_second_miss_of_a_committed_file_and_mutation_fails_the_gate() {
     assert!(stdout.contains("misses this diff adds: 1"), "{stdout}");
     assert!(stdout.contains(&format!("- {KNOWN_AGAIN}")), "{stdout}");
     assert!(!stdout.contains(&format!("- {KNOWN_MOVED}")), "{stdout}");
+}
+
+/// The gate lists, then measures, the branch's diff over brokkr-core's
+/// scope: whole-scope misses would equal the committed list and pass, and
+/// another crate's would not be brokkr-core's.
+#[test]
+fn the_gate_lists_and_measures_brokkr_core_over_the_diff() {
+    let gate = Gate::new();
+    let output = gate.verdict(&[KNOWN_MOVED]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let out = gate.path("out");
+    let scope = format!(
+        "--in-diff {}/branch.diff --package brokkr-core --file crates/brokkr-core/**",
+        out.display()
+    );
+    assert_eq!(
+        std::fs::read_to_string(gate.path("argv")).unwrap(),
+        format!(
+            "mutants --list {scope}\nmutants --no-shuffle --output {} {scope}\n",
+            out.display()
+        )
+    );
 }
 
 #[test]
