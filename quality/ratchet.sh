@@ -11,6 +11,8 @@
 #   ratchet.sh clones            jscpd fingerprints, per scope
 #   ratchet.sh api               the public-API snapshots, on the pinned nightly
 #   ratchet.sh baselines <rev>   a baseline raised since <rev> needs a ruling
+#   ratchet.sh listings          every file under quality/, as the table reads it
+#   ratchet.sh table             the table itself
 set -euo pipefail
 export LC_ALL=C
 cd "$(git rev-parse --show-toplevel)"
@@ -228,6 +230,105 @@ too_many_lines_keyed() {
     }' "$1"
 }
 
+# The one table of everything under quality/, which `baselines` reads and the
+# tests enumerate (`ratchet.sh listings`). Each row is a path pattern and its
+# kind:
+#   rule     a measuring rule, compared byte for byte (a change needs a Ruling)
+#   doc      prose, not compared
+#   listing  a baseline, with the counter that reads its entries and its
+#            empty policy:
+#              never       a tree always has entries, so zero is a failed
+#                          measurement, here or at the base;
+#              from-empty  zero is allowed only where the base was already
+#                          empty (or absent).
+# A listing whose head reads zero entries where the base had some is read as
+# a measurement that failed, and no ruling passes it. A file under quality/
+# that no row names is refused, so a new baseline cannot arrive unguarded.
+quality_table() {
+  cat << 'TABLE'
+quality/README.md               doc
+quality/mutants/README.md       doc
+quality/ceilings.json           rule
+quality/lib.sh                  rule
+quality/measure.sh              rule
+quality/ratchet.sh              rule
+quality/crap-baseline.json      listing crap-entries   never
+quality/file-lines.txt          listing file-lines     never
+quality/public-api/*.txt        listing public-items   never
+quality/too-many-lines.txt      listing long-functions from-empty
+quality/jscpd-baseline-*.json   listing fingerprints   from-empty
+quality/suppressions.txt        listing suppressions   from-empty
+quality/duplicate-skips.txt     listing skips          from-empty
+quality/mutants/*.missed.txt    listing lines          from-empty
+TABLE
+}
+
+# classify <path>: the table row whose pattern matches <path>, without its
+# pattern ("<kind> [<counter> <empty>]"), or nothing.
+classify() {
+  local pattern kind counter empty
+  while read -r pattern kind counter empty; do
+    # shellcheck disable=SC2053 # the pattern is a glob on purpose
+    if [[ "$1" == $pattern ]]; then
+      printf '%s%s%s\n' "$kind" "${counter:+ $counter}" "${empty:+ $empty}"
+      return 0
+    fi
+  done < <(quality_table)
+}
+
+# entries <counter> <file>: how many entries <file> holds, or nothing when
+# the counter cannot read it.
+entries() {
+  local pattern
+  case "$1" in
+    crap-entries) jq -e '.entries | length' "$2" 2> /dev/null; return 0 ;;
+    fingerprints) jq -e '.fingerprints | length' "$2" 2> /dev/null; return 0 ;;
+    file-lines) pattern='^ *[0-9]+ [^ ]+$' ;;
+    long-functions) pattern='^ *[0-9]+ [^ ]+:[0-9]+( [A-Za-z0-9_]+)?$' ;;
+    suppressions) pattern='^ *[0-9]+ (expect|allow) +[^ ]+$' ;;
+    skips) pattern='^[A-Za-z0-9_-]+@[0-9][^ ]*$' ;;
+    public-items | lines) pattern='^[^#[:space:]]' ;;
+    *) return 0 ;;
+  esac
+  grep -cE "$pattern" "$2" || true
+}
+
+# every_quality_path <rev>: every file under quality/ here or at <rev>, once.
+every_quality_path() {
+  { find quality -type f; git ls-tree -r --name-only "$1" -- quality/; } | sort -u
+}
+
+# table_guard: every path under quality/ is in the table, and no listing's
+# head reads zero entries where the base had some, or ever when its policy
+# is never. Offenses go to $scratch/malformed.
+table_guard() {
+  local path row kind counter empty here was
+  while IFS= read -r path; do
+    row="$(classify "$path")"
+    [ -n "$row" ] || { printf '%s: not in ratchet.sh'"'"'s table of baselines\n' "$path" >> "$scratch/malformed"; continue; }
+    read -r kind counter empty <<< "$row"
+    [ "$kind" = listing ] && [ -e "$path" ] || continue
+    here="$(entries "$counter" "$path")"
+    [ -n "$here" ] || { printf '%s: its entries cannot be counted (here)\n' "$path" >> "$scratch/malformed"; continue; }
+    was=0
+    base_file "$rev" "$path" "$scratch/base"
+    [ -f "$scratch/base" ] && was="$(entries "$counter" "$scratch/base")"
+    [ -n "$was" ] || { printf '%s: its entries cannot be counted (at %s)\n' "$path" "$rev" >> "$scratch/malformed"; continue; }
+    if [ "$here" -eq 0 ] && { [ "$was" -gt 0 ] || [ "$empty" = never ]; }; then
+      printf '%s: no entry parsed here, where %s had %s\n' "$path" "$rev" "$was" >> "$scratch/malformed"
+    fi
+  done < <(every_quality_path "$rev")
+}
+
+# listings: the table resolved against this tree, one file per line.
+listings() {
+  local path row
+  while IFS= read -r path; do
+    row="$(classify "$path")"
+    printf '%s %s\n' "$path" "${row:-unknown}"
+  done < <(find quality -type f | sort)
+}
+
 # Every raised baseline since <rev>, one line each, into $scratch/raised, and
 # every baseline this check cannot read, into $scratch/malformed.
 raised_since() {
@@ -236,8 +337,9 @@ raised_since() {
   cc="$(ceiling ccNewFunction)"
   : > "$scratch/raised"
   : > "$scratch/malformed"
-  # The measuring rules themselves.
-  for path in quality/ceilings.json quality/lib.sh quality/ratchet.sh quality/measure.sh; do
+  table_guard
+  # The measuring rules themselves: every rule row of the table.
+  for path in $(quality_table | awk '$2 == "rule" { print $1 }'); do
     base_file "$rev" "$path" "$scratch/base"
     if [ -f "$scratch/base" ] && ! cmp -s "$scratch/base" "$path"; then
       printf '%s: the measuring rules changed\n' "$path" >> "$scratch/raised"
@@ -314,6 +416,14 @@ raised_since() {
     { grep -v '^#' "$out/duplicate-skips.txt" || true; } | { grep -vxF -f "$scratch/base" || true; } |
       sed 's/^/duplicate-skips.txt: new skip /' >> "$scratch/raised"
   fi
+  # Mutation allow-lists (#289): a miss the earlier list did not name.
+  for path in quality/mutants/*.missed.txt; do
+    [ -e "$path" ] || continue
+    base_file "$rev" "$path" "$scratch/base"
+    [ -f "$scratch/base" ] || { [ -s "$path" ] && printf '%s: a new allow-list (was absent)\n' "$path" >> "$scratch/raised"; continue; }
+    { grep -vxF -f "$scratch/base" "$path" || true; } | { grep -E '^[^#[:space:]]' || true; } |
+      sed "s|^|$path: new miss |" >> "$scratch/raised"
+  done
   # Public API: each crate's public items, and serde_json::Value in
   # brokkr-core's signatures (decision 0071 ruling 3). Every library crate
   # has public items, so a snapshot that lists none, on either side, is one
@@ -376,5 +486,7 @@ case "${1:-}" in
   clones) clones ;;
   api) api ;;
   baselines) shift; baselines "$@" ;;
-  *) refuse "usage: ratchet.sh crap [lcov] | crap-judge <report> | files | clones | api | baselines <rev>" ;;
+  listings) listings ;;
+  table) quality_table ;;
+  *) refuse "usage: ratchet.sh crap [lcov] | crap-judge <report> | files | clones | api | baselines <rev> | listings | table" ;;
 esac

@@ -79,9 +79,9 @@
  119 crates/brokkr-cli/tests/transcript_privacy.rs:818 a_read_leaves_an_existing_frame_bearing_wal_as_it_found
  163 crates/brokkr-cli/tests/transcript_surfaces.rs:170 compare
  103 crates/brokkr-cli/tests/transcript_surfaces.rs:429 one_derivation_reaches_every_surface
- 109 crates/brokkr-core/src/dispatch/tests.rs:344 manifest_conversion_refuses_every_malformed_boundary
- 117 crates/brokkr-core/src/policy/tests.rs:507 every_finding_edge_and_bound_has_a_table_arm
- 103 crates/brokkr-core/src/policy/tests.rs:634 the_shipped_sdd_table_rules_every_artifact_and_loop_arm
+ 109 crates/brokkr-core/src/dispatch/tests.rs:354 manifest_conversion_refuses_every_malformed_boundary
+ 117 crates/brokkr-core/src/policy/tests.rs:535 every_finding_edge_and_bound_has_a_table_arm
+ 103 crates/brokkr-core/src/policy/tests.rs:662 the_shipped_sdd_table_rules_every_artifact_and_loop_arm
  179 crates/brokkr-protocol/src/adapters/composite/image/tests.rs:291 every_elf_rule_refuses_by_name
  121 crates/brokkr-protocol/src/adapters/composite/image/tests.rs:552 every_macho_rule_refuses_by_name
  159 crates/brokkr-protocol/src/adapters/composite/image/tests.rs:819 a_pe_image_is_admitted_by_its_bounded_header
@@ -131,10 +131,10 @@
  138 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:495 every_known_bubblewrap_option_is_stepped_over_by_its_own_arity
  355 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:2614 a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds
  199 crates/brokkr-protocol/src/hands/tests.rs:123 the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names
- 123 crates/brokkr-protocol/src/hands/tests.rs:622 the_box_hides_the_host_and_holds_the_worktree
- 140 crates/brokkr-protocol/src/hands/tests.rs:765 git_works_in_the_box_and_cannot_plant_a_hook
- 114 crates/brokkr-protocol/src/hands/tests.rs:1016 the_unboxed_environment_hands_nothing_of_the_engines_over
- 181 crates/brokkr-protocol/src/hands/tests.rs:1250 the_unboxed_environment_has_exact_keys_on_both_platforms
+ 123 crates/brokkr-protocol/src/hands/tests.rs:668 the_box_hides_the_host_and_holds_the_worktree
+ 140 crates/brokkr-protocol/src/hands/tests.rs:811 git_works_in_the_box_and_cannot_plant_a_hook
+ 114 crates/brokkr-protocol/src/hands/tests.rs:1062 the_unboxed_environment_hands_nothing_of_the_engines_over
+ 181 crates/brokkr-protocol/src/hands/tests.rs:1296 the_unboxed_environment_has_exact_keys_on_both_platforms
  222 crates/brokkr-runtime/src/agents/tests.rs:918 the_adapter_loader_names_the_file_and_the_key_it_refuses
  118 crates/brokkr-runtime/src/agents/tests.rs:1841 an_adapters_harness_hands_are_three_members_and_two_doors
  135 crates/brokkr-runtime/src/agents/tests.rs:1984 the_shipped_adapters_declare_their_harness_as_the_record_says

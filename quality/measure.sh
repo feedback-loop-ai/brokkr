@@ -40,7 +40,9 @@ scratch="$(mktemp -d "${TMPDIR:-/tmp}/forge-jscpd.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 for scope in prod tests data; do
   rm -f "$out/jscpd-baseline-$scope.json"
-  jscpd_scope "$scope" "$scratch/$scope" --baseline "$out/jscpd-baseline-$scope.json" --update-baseline > /dev/null
+  # A scan that read no file fails here, rather than writing an empty baseline.
+  jscpd_scope "$scope" "$scratch/$scope" --baseline "$out/jscpd-baseline-$scope.json" \
+    --update-baseline --fail-on-empty > /dev/null
   producedBy "$out/jscpd-baseline-$scope.json" "$(jscpd --version)"
 done
 
@@ -54,16 +56,34 @@ for crate in $crates; do
 done
 
 # 5. Functions over clippy's default 100 lines, for #337's ratchet. The lint
-# is pedantic, and an attribute could silence it, so it is force-warned.
+# is pedantic, and an attribute could silence it, so it is force-warned. The
+# listing is written only from a clippy run that finished successfully and
+# knew the forced lint: an unknown or renamed lint name (a toolchain drift)
+# would otherwise yield an empty listing that reads as no long function.
+cargo clippy --workspace --all-targets --all-features --locked --message-format=json \
+  -- -A clippy::all --force-warn clippy::too_many_lines 2> /dev/null > "$scratch/clippy.json" || {
+  printf 'measure: cargo clippy failed\n' >&2
+  exit 1
+}
+jq -s -e 'any(.[]; .reason == "build-finished" and .success == true)' "$scratch/clippy.json" > /dev/null || {
+  printf 'measure: cargo clippy reported no successful build-finished message\n' >&2
+  exit 1
+}
+if jq -s -e 'any(.[]; .reason == "compiler-message"
+      and (((.message.code.code // "") | IN("E0602", "unknown_lints", "renamed_and_removed_lints",
+            "clippy::unknown_clippy_lints"))
+        or (.message.message | test("^unknown lint|has been (renamed|removed)"))))' \
+  "$scratch/clippy.json" > /dev/null; then
+  printf 'measure: cargo clippy does not know clippy::too_many_lines by that name\n' >&2
+  exit 1
+fi
 {
   printf '# produced by quality/measure.sh with %s\n' "$(cargo clippy --version)"
-  cargo clippy --workspace --all-targets --all-features --locked --message-format=json \
-    -- -A clippy::all --force-warn clippy::too_many_lines 2> /dev/null |
-    jq -r 'select(.reason == "compiler-message"
-             and .message.code.code == "clippy::too_many_lines")
-           | (.message.message | capture("\\((?<n>[0-9]+)/").n) as $n
-           | .message.spans[] | select(.is_primary)
-           | "\($n) \(.file_name):\(.line_start)"' |
+  jq -r 'select(.reason == "compiler-message"
+           and .message.code.code == "clippy::too_many_lines")
+         | (.message.message | capture("\\((?<n>[0-9]+)/").n) as $n
+         | .message.spans[] | select(.is_primary)
+         | "\($n) \(.file_name):\(.line_start)"' "$scratch/clippy.json" |
     sort -u -k2,2V |
     while read -r n at; do
       name="$(sed -n "${at##*:}p" "${at%:*}" | grep -oE 'fn [A-Za-z0-9_]+' | head -n 1)"

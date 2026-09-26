@@ -327,6 +327,8 @@ const TOO_MANY_LINES: &str = "# produced by quality/measure.sh
  150 crates/demo/tests/t.rs:3 long_test
 ";
 
+const MISS: &str = "crates/demo/src/lib.rs:1:1: replace f with ()\n";
+
 const VIEW_API: &str = "# produced by quality/measure.sh
 pub fn brokkr_view::a()
 pub fn brokkr_view::b()
@@ -344,7 +346,7 @@ fn baselined(at: &Path) {
     write(at, "quality/crap-baseline.json", &crap_baseline(20, 3, &[]));
     write(at, "quality/file-lines.txt", FILE_LINES);
     for scope in ["prod", "tests", "data"] {
-        let fingerprints = r#"{"version":1,"fingerprints":{"aa":1}}"#;
+        let fingerprints = r#"{"version":1,"fingerprints":{"aa":1,"cc":1}}"#;
         write(
             at,
             &format!("quality/jscpd-baseline-{scope}.json"),
@@ -355,7 +357,9 @@ fn baselined(at: &Path) {
     write(at, "quality/public-api/brokkr-view.txt", VIEW_API);
     write(at, "quality/too-many-lines.txt", TOO_MANY_LINES);
     write(at, "quality/suppressions.txt", SUPPRESSIONS);
-    write(at, "quality/duplicate-skips.txt", "syn@2.0.0\n");
+    write(at, "quality/duplicate-skips.txt", "syn@1.0.0\nsyn@2.0.0\n");
+    write(at, "quality/mutants/brokkr-core.missed.txt", MISS);
+    write(at, "quality/mutants/brokkr-view.missed.txt", "");
     git(at, &["add", "-A"]);
     git(at, &["commit", "-q", "-m", "base"]);
 }
@@ -391,7 +395,13 @@ fn raise_everything(at: &Path) -> Vec<&'static str> {
     let suppressions =
         SUPPRESSIONS.replace("    2 expect", "    3 expect") + "    1 allow  dead_code\n";
     write(at, "quality/suppressions.txt", &suppressions);
-    write(at, "quality/duplicate-skips.txt", "syn@2.0.0\nsyn@3.0.0\n");
+    write(
+        at,
+        "quality/duplicate-skips.txt",
+        "syn@1.0.0\nsyn@2.0.0\nsyn@3.0.0\n",
+    );
+    let misses = MISS.to_owned() + "crates/demo/src/lib.rs:9:1: replace g with ()\n";
+    write(at, "quality/mutants/brokkr-core.missed.txt", &misses);
     vec![
         "crap-baseline.json: ./crates/demo/src/lib.rs big #0 at CC 21 (was 20)",
         "crap-baseline.json: ./crates/demo/src/lib.rs fresh #0 at CC 16 (was absent)",
@@ -407,6 +417,7 @@ fn raise_everything(at: &Path) -> Vec<&'static str> {
         "suppressions.txt: production expect clippy::too_many_lines at 3 (was 2)",
         "suppressions.txt: test allow dead_code at 1 (was 0)",
         "duplicate-skips.txt: new skip syn@3.0.0",
+        "quality/mutants/brokkr-core.missed.txt: new miss crates/demo/src/lib.rs:9:1: replace g with ()",
     ]
 }
 
@@ -565,7 +576,7 @@ fn a_lowered_baseline_needs_no_ruling_but_a_changed_rule_does() {
     write(
         at,
         "quality/jscpd-baseline-prod.json",
-        r#"{"version":1,"fingerprints":{}}"#,
+        r#"{"version":1,"fingerprints":{"aa":1}}"#,
     );
     write(at, "quality/public-api/brokkr-core.txt", VALUE);
     let fewer = VIEW_API.replace("pub fn brokkr_view::b()\n", "");
@@ -580,7 +591,7 @@ fn a_lowered_baseline_needs_no_ruling_but_a_changed_rule_does() {
         "quality/suppressions.txt",
         &SUPPRESSIONS.replace("    5 expect", "    4 expect"),
     );
-    write(at, "quality/duplicate-skips.txt", "");
+    write(at, "quality/duplicate-skips.txt", "syn@2.0.0\n");
     assert_holds(
         &ratchet(at, &["baselines", "HEAD"], None),
         "ratchet: no baseline raised since HEAD",
@@ -600,6 +611,91 @@ fn a_lowered_baseline_needs_no_ruling_but_a_changed_rule_does() {
         &ratchet(at, &["baselines", "no-such-revision"], None),
         &["cannot resolve no-such-revision"],
     );
+}
+
+/// Every listing `baselines` reads, enumerated from the script's own table
+/// (`ratchet.sh listings`), is planted with a head that parses to zero
+/// entries: JSON as `{}`, text as its comment lines only. Each is refused
+/// under a Ruling line wherever its base had entries; a listing empty at the
+/// base (brokkr-view's allow-list here) stays allowed. Dropping the shared
+/// guard turns every row red.
+#[test]
+fn a_listing_that_reads_zero_entries_is_refused_under_any_ruling() {
+    let repo = scratch();
+    let at = repo.path();
+    baselined(at);
+    let listings = stdout(&ratchet(at, &["listings"], None));
+    let ruled = Some("Ruling: #338\n");
+    let mut counters = std::collections::BTreeSet::new();
+    let mut unrefused = Vec::new();
+    for row in listings.lines() {
+        let fields: Vec<&str> = row.split_whitespace().collect();
+        assert_ne!(fields.get(1), Some(&"unknown"), "{row}");
+        let [path, "listing", counter, _] = fields[..] else {
+            continue;
+        };
+        counters.insert(counter.to_owned());
+        let committed = read_at(at, path);
+        write(at, path, &zero_entries(path, &committed));
+        let output = ratchet(at, &["baselines", "HEAD"], ruled);
+        write(at, path, &committed);
+        let text = stderr(&output);
+        let held = output.status.code() == Some(1)
+            && text.contains(&format!("{path}: no entry parsed here, where HEAD had"))
+            && text.contains("no ruling passes it");
+        // A listing empty at the base may stay empty; every other row is held
+        // by the shared guard, by its own message.
+        let as_ruled = if committed.is_empty() {
+            output.status.success()
+        } else {
+            held
+        };
+        if !as_ruled {
+            unrefused.push(format!("{path}: {text}"));
+        }
+    }
+    assert!(
+        unrefused.is_empty(),
+        "rows not held by the shared guard:\n{}",
+        unrefused.join("\n")
+    );
+    let table = stdout(&ratchet(at, &["table"], None));
+    let every: std::collections::BTreeSet<String> = table
+        .lines()
+        .filter_map(|row| match row.split_whitespace().collect::<Vec<_>>()[..] {
+            [_, "listing", counter, _] => Some(counter.to_owned()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        counters, every,
+        "the fixture plants a file for every listing row"
+    );
+    write(at, "quality/new-baseline.json", "{}");
+    assert_refused(
+        &ratchet(at, &["baselines", "HEAD"], ruled),
+        &[
+            "quality/new-baseline.json: not in ratchet.sh's table of baselines",
+            "no ruling passes it",
+        ],
+    );
+}
+
+/// A head that parses to zero entries: JSON as an object with nothing in it,
+/// text as its comment lines only.
+fn zero_entries(path: &str, committed: &str) -> String {
+    if path.ends_with(".json") {
+        return "{}".to_owned();
+    }
+    committed
+        .lines()
+        .filter(|line| line.starts_with('#'))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+fn stdout(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 /// One job's body in `.github/workflows/ci.yml`: its lines up to the next

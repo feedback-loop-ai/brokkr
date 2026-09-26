@@ -16,7 +16,8 @@ The measurements every code-moving story in epic #330 is judged against. #335 re
 | `ceilings.json` | The ceilings decision 0071 ruling 4 ruled: CC 15 for a new function, 800 lines per production file, 2,000 per test file |
 | `lib.sh` | One home for every measuring command, shared by the two scripts below |
 | `measure.sh` | Regenerates every baseline except `duplicate-skips.txt`, which is edited by hand beside `deny.toml` |
-| `ratchet.sh` | Holds the tree to the baselines |
+| `ratchet.sh` | Holds the tree to the baselines. Its one table names every file under `quality/` (`ratchet.sh table`, `ratchet.sh listings`) |
+| `mutants/*.missed.txt` | #289's mutation allow-lists, which `ratchet.sh baselines` also holds: a new miss needs a ruling |
 
 Every baseline names the tool and version that produced it: a `producedBy` object in each JSON file, and a first `# produced by` line in each text file.
 
@@ -35,10 +36,23 @@ Every baseline names the tool and version that produced it: a `producedBy` objec
 
 **Matching.** cargo-crap matches a function to its baseline by file and name, not by line, so an edit above a function does not make it new. A function moved to another file, or renamed, is new. If it is over CC 15, its baseline entry moves with a ruling (see below).
 
+**Every listing, and when it may be empty.** `ratchet.sh`'s one table names every file under `quality/` as a rule, a doc or a listing. `baselines` iterates that table, and the tests enumerate it through `ratchet.sh listings`, so a new baseline cannot arrive unguarded. Each listing has an entry counter and an empty policy:
+
+| Listing | Empty policy |
+|---|---|
+| `crap-baseline.json`, `file-lines.txt`, `public-api/*.txt` | never: a tree always has functions, Rust files and public items, so zero entries is a measurement that failed |
+| `too-many-lines.txt`, `jscpd-baseline-*.json`, `suppressions.txt`, `duplicate-skips.txt`, `mutants/*.missed.txt` | from-empty: zero entries is allowed only where the base was already empty or absent. Today `mutants/brokkr-core.missed.txt` is the one listing empty at the base |
+
+A from-empty listing that genuinely reaches zero (the last long function split, the last clone removed) is read as a failed measurement, like one that silently printed nothing. Letting it through is a ruled change to the table.
+
+`measure.sh` also refuses at the source:
+- it writes `too-many-lines.txt` only from a clippy run whose JSON stream reports `build-finished` with `success: true`, and that raised no unknown-lint (`E0602`) or renamed-lint diagnostic for the forced lint;
+- every jscpd scan runs with `--fail-on-empty`.
+
 **Moving a baseline.** Run `measure.sh` and commit the result (edit `duplicate-skips.txt` by hand with `deny.toml`):
 - a lowered number is always welcome;
 - a raised one fails `ratchet.sh baselines` unless the pull request carries a line of its own reading `Ruling: <where it was ruled>`, naming something after the colon (line ends are read with any `\r` dropped);
-- a baseline the check cannot read fails, and no ruling passes it: a listing with no entry, a line that is not an entry, a file listed under the section its path does not belong to, a CRAP entry without its file, function, line and complexity, a clone count that is not a number, a public-API snapshot that lists no public item, or a baseline emptied on either side.
+- a baseline the check cannot read fails, and no ruling passes it: a file under `quality/` that the table does not name, a listing whose head reads zero entries where the base had some, a line that is not an entry, a file listed under the section its path does not belong to, a CRAP entry without its file, function, line and complexity, a clone count that is not a number, a public-API snapshot that lists no public item, or a baseline emptied on either side.
 
 "Raised" means any of these:
 - a function over CC 15 that is new or grew;
