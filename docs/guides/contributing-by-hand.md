@@ -37,7 +37,7 @@ a stable toolchain.
 | Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
 | The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
 | `cargo-llvm-cov` at the pinned version | the coverage gate | `cargo llvm-cov --version` |
-| `jq` | the coverage gate (the script refuses without it) | `jq --version` |
+| `jq` | the coverage gate and the mutants gate (both scripts refuse without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
@@ -94,6 +94,16 @@ pull request. This is the full list, in CI's own order:
 | 6 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses` |
 | 7 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
 | 8 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli` |
+
+A ninth check lives in
+[`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml):
+`mutants in the diff: brokkr-core` fails a pull request that adds a
+mutant no test catches to brokkr-core. The operator ruled it required on
+#289, and it binds once branch protection names it. Reproduce it with
+`bash scripts/mutants.sh gate origin/main brokkr-core` (cargo-mutants
+27.1.0). A miss that shares a committed miss's file and mutation, in
+`quality/mutants/brokkr-core.missed.txt`, is accounted for once; any
+other miss fails, and the fix is a test that catches it.
 
 The sections below are in a different order on purpose: run them from
 the repository root in the order written, cheapest refusal first, so a

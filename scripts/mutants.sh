@@ -1,26 +1,36 @@
 #!/usr/bin/env bash
-# Mutation testing (#289), report only. The exact coverage gate proves
-# every production line runs; a surviving mutant is a line no test checks.
+# Mutation testing (#289). The exact coverage gate proves every
+# production line runs; a surviving mutant is a line no test checks.
 # The scope and the committed misses have one home: this script and
 # quality/mutants/.
 #
-#   scripts/mutants.sh baseline <crate>   measure <crate>'s scope; rewrite its allow-list
-#   scripts/mutants.sh in-diff <base>     mutate what this branch changed since <base>
-#   scripts/mutants.sh shard <k>          one of eight weekly shards of the whole scope
-#   scripts/mutants.sh weekly <dir>       the eight shards' outputs, compared once
+#   scripts/mutants.sh baseline <crate>        measure <crate>'s scope; rewrite its allow-list
+#   scripts/mutants.sh gate <base> brokkr-core fail on a miss this branch adds to brokkr-core
+#   scripts/mutants.sh in-diff <base> [crate]  report what this branch changed since <base>
+#   scripts/mutants.sh shard <k>               one of eight weekly shards of the whole scope
+#   scripts/mutants.sh weekly <dir>            the eight shards' outputs, compared once
 #
-# MUTANTS_OUT names the output directory (target/mutants by default) and
-# MUTANTS_JOBS the parallel jobs (cargo-mutants' own default of one).
+# MUTANTS_OUT names the output directory (target/mutants by default),
+# MUTANTS_JOBS the parallel jobs (cargo-mutants' own default of one), and
+# MUTANTS_ALLOW the directory of committed misses (quality/mutants by
+# default; crates/brokkr-cli/tests/mutants_gate.rs plants its own).
 #
-# A miss is reported, never failed on: the operator rules a gate from the
-# baseline. Anything that stops the report from being true fails instead:
-# a tool error, a failing unmutated tree, an unreadable diff, a run that
-# tested nothing, a missing allow-list, shard or output.
+# The operator ruled on #289 (2026-09-26): brokkr-core's diff is gated, and
+# a pull request that adds a miss there fails. Every other mode reports a
+# miss and never fails on it. Anything that stops a verdict or a report
+# from being true fails in every mode: a tool error, a failing unmutated
+# tree, a diff that does not carry every change in the scope as a hunk, a
+# run that tested nothing, an output jq cannot read as one, a missing
+# allow-list, shard or output.
 set -euo pipefail
 export LC_ALL=C
+command -v jq > /dev/null 2>&1 || {
+  printf 'mutants: jq is required to read what cargo-mutants wrote\n' >&2
+  exit 1
+}
 cd "$(git rev-parse --show-toplevel)"
 
-allow=quality/mutants
+allow="${MUTANTS_ALLOW:-quality/mutants}"
 out="${MUTANTS_OUT:-target/mutants}"
 shards=8
 
@@ -56,7 +66,7 @@ scope_args() {
 # cargo-mutants also exits 0 when it finds nothing to mutate and writes
 # nothing, so the output must be this run's and must hold a mutant.
 measure() {
-  local status=0 written
+  local status=0
   local jobs=()
   [ -z "${MUTANTS_JOBS:-}" ] || jobs=(--jobs "$MUTANTS_JOBS")
   rm -rf "$out/mutants.out"
@@ -65,16 +75,35 @@ measure() {
     0 | 2 | 3) ;;
     *) printf 'mutants: cargo mutants exited %s\n' "$status" >&2 && return "$status" ;;
   esac
+  readable "$status"
+}
+
+# Refuse an output that does not say what the run measured, exit $1's.
+# What is accepted is named, not what is refused: exit 2 (misses) needs a
+# missed.txt with a miss in it, and mutants.json must parse, as one JSON
+# document, into a non-empty array of objects, one per mutant. jq reads
+# it, so a 0-byte, truncated, foreign or well-bracketed but unparseable
+# file (`[{bad}]`) is none of these, and fails.
+readable() {
+  local written shape
   for written in missed.txt mutants.json; do
     [ -f "$out/mutants.out/$written" ] || {
       printf 'mutants: %s/mutants.out/%s is missing\n' "$out" "$written" >&2
       return 1
     }
   done
-  [ "$(tr -d '[:space:]' < "$out/mutants.out/mutants.json")" != '[]' ] || {
-    printf 'mutants: the run found no mutant to test\n' >&2
+  [ "$1" != 2 ] || grep -q '[^[:space:]]' "$out/mutants.out/missed.txt" || {
+    printf 'mutants: cargo mutants exited 2, but %s/mutants.out/missed.txt names no miss\n' "$out" >&2
     return 1
   }
+  shape="$(jq -r 'if type == "array" and length > 0 and all(.[]; type == "object") then "mutants"
+    elif . == [] then "none" else "other" end' "$out/mutants.out/mutants.json" 2> /dev/null)" ||
+    shape=unparsed
+  case "$shape" in
+    mutants) ;;
+    none) printf 'mutants: the run found no mutant to test\n' >&2 && return 1 ;;
+    *) printf 'mutants: %s/mutants.out/mutants.json is not a list of mutants\n' "$out" >&2 && return 1 ;;
+  esac
 }
 
 # A miss's identity is its file and mutation, without line and column,
@@ -96,6 +125,9 @@ known() {
 
 summary() { tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"; }
 
+# The lines in $1. macOS's wc pads its count with spaces; GNU's does not.
+count() { wc -l < "$1" | tr -d ' '; }
+
 # Print the misses in $1 that no committed allow-list names. Identities
 # are counted, so a second miss of a committed file and mutation is new.
 # Only a run over the whole scope may subtract: a run over part of it
@@ -106,7 +138,7 @@ report_scope() {
   known > "$committed"
   identity "$1" | comm -23 - "$committed" > "$fresh"
   {
-    printf '### Mutants no committed miss names: %s\n\n' "$(wc -l < "$fresh")"
+    printf '### Mutants no committed miss names: %s\n\n' "$(count "$fresh")"
     sed 's/^/- /' "$fresh"
   } | summary
   rm -f "$committed" "$fresh"
@@ -119,7 +151,7 @@ report_diff() {
   committed="$(mktemp)"
   known > "$committed"
   {
-    printf '### Mutants missed in this diff: %s\n\n' "$(wc -l < "$1")"
+    printf '### Mutants missed in this diff: %s\n\n' "$(count "$1")"
     while IFS= read -r line; do
       id="$(printf '%s\n' "$line" | identity)"
       if grep -qxF -e "$id" "$committed"; then
@@ -136,9 +168,133 @@ report_diff() {
 timeouts() {
   [ -s "$1" ] || return 0
   {
-    printf '\n### Timeouts, each a possible hidden miss: %s\n\n' "$(wc -l < "$1")"
+    printf '\n### Timeouts, each a possible hidden miss: %s\n\n' "$(count "$1")"
     sed 's/^/- /' "$1"
   } | summary
+}
+
+# Write the diff since $1 and list the mutants it touches in the scope of
+# the crates that follow. A diff with no mutant in the scope makes
+# cargo-mutants exit 0 and write nothing, which measure() refuses as a run
+# that measured nothing. Listing first names that case: only an empty list,
+# from a clean exit, means zero; any other list must be measured. A diff
+# that does not apply to the tree exits non-zero and ends the script.
+#
+# cargo-mutants lists nothing for a change it cannot read, so the diff is
+# rendered for it, whatever git is configured to do: every file as text (a
+# NUL byte in a comment, or a `-diff` attribute, would otherwise print
+# `Binary files ... differ` and no hunk), no external diff or textconv, no
+# colour, the a/ and b/ prefixes, and a renamed file as the deletion and
+# the addition it is (a pure rename has no hunk). hunks_cover() then
+# refuses, before anything is listed, whatever that still leaves out.
+diff_mutants() {
+  local base="$1"
+  shift
+  mkdir -p "$out"
+  git -c core.quotePath=false diff --text --no-ext-diff --no-textconv --no-color \
+    --no-renames --src-prefix=a/ --dst-prefix=b/ "$base...HEAD" > "$out/branch.diff"
+  scope_args "$@"
+  hunks_cover "$base"
+  cargo mutants --list --in-diff "$out/branch.diff" "${args[@]}" > "$out/listed.txt"
+}
+
+# Refuse a diff that does not carry, as a hunk, every change in the scope
+# `args` names. A marker git prints in place of a hunk is refused wherever
+# it appears. Then every path under a `--file` glob whose content changed
+# since $1 must head a hunk, as `--- a/` or `+++ b/`: a path that drops out
+# of the diff any other way is refused by name. A path whose content did
+# not change (a mode change), or that is empty on both sides (an empty
+# file added or deleted), has nothing to mutate and needs no hunk. Only an
+# addition, deletion, modification or type change is read: any other
+# status (a rename carries two paths) is refused, not misread.
+hunks_cover() {
+  local status=0 previous="" arg meta path old new change empty
+  local globs=()
+  grep -E '^(Binary files |GIT binary patch$)' "$out/branch.diff" > "$out/markers.txt" || status=$?
+  case "$status" in
+    0)
+      printf 'mutants: the diff shows no hunk where git printed:\n' >&2
+      sed 's/^/  /' "$out/markers.txt" >&2
+      return 1
+      ;;
+    1) ;;
+    *) return "$status" ;;
+  esac
+  awk '
+    /^diff --git / { header = 1; old = ""; new = ""; next }
+    header && /^--- / { old = substr($0, 5); next }
+    header && /^\+\+\+ / { new = substr($0, 5); next }
+    header && /^@@ / {
+      header = 0
+      sub(/\t$/, "", old); sub(/\t$/, "", new)
+      if (old ~ /^a\//) print substr(old, 3)
+      if (new ~ /^b\//) print substr(new, 3)
+    }
+  ' "$out/branch.diff" > "$out/carried.txt"
+  for arg in "${args[@]}"; do
+    [ "$previous" != --file ] || globs+=(":(glob)$arg")
+    previous="$arg"
+  done
+  empty="$(git hash-object -t blob --stdin < /dev/null)"
+  git diff --raw -z --no-renames --no-abbrev --no-color "$base...HEAD" -- ${globs[@]+"${globs[@]}"} \
+    > "$out/changed.raw"
+  : > "$out/uncarried.txt"
+  while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+    read -r _ _ old new change <<< "$meta"
+    case "$change" in
+      A | D | M | T) ;;
+      *) printf '%s (status %s)\n' "$path" "$change" >> "$out/uncarried.txt" && continue ;;
+    esac
+    [ "$old" != "$new" ] || continue
+    if { [ -z "${old//0/}" ] || [ "$old" = "$empty" ]; } &&
+      { [ -z "${new//0/}" ] || [ "$new" = "$empty" ]; }; then
+      continue
+    fi
+    grep -qxF -e "$path" "$out/carried.txt" || printf '%s\n' "$path" >> "$out/uncarried.txt"
+  done < "$out/changed.raw"
+  [ ! -s "$out/uncarried.txt" ] || {
+    printf 'mutants: the diff carries no hunk for these changes in the scope:\n' >&2
+    sed 's/^/  /' "$out/uncarried.txt" >&2
+    return 1
+  }
+}
+
+# The gate's verdict: print, and fail on, each miss in $2 whose file and
+# mutation occur more often than in the committed list $1. A committed
+# miss at a moved line is accounted for; a second one of the same file
+# and mutation is not. A diff mutates only part of the scope, so a new
+# miss that shares a committed one's file and mutation, where the diff
+# did not reach the committed one, passes here: the weekly report over
+# the whole scope names it.
+gate_misses() {
+  local fresh
+  fresh="$(mktemp)"
+  # The committed list is picked out by name, not by NR == FNR: an empty
+  # list has no records, so that idiom would read every fresh miss as
+  # committed and pass the gate. id() is identity()'s anchored rule.
+  sort "$2" | awk -v committed="$1" '
+    function id(line,   file) {
+      if (!match(line, /^[^:]+:[0-9]+:[0-9]+: /)) return line
+      file = line
+      sub(/:.*/, "", file)
+      return file ": " substr(line, RLENGTH + 1)
+    }
+    FILENAME == committed { have[id($0)]++; next }
+    { key = id($0); if (++seen[key] > have[key]) print }
+  ' "$1" - > "$fresh"
+  if [ -s "$fresh" ]; then
+    {
+      printf '### brokkr-core misses this diff adds: %s\n\n' "$(count "$fresh")"
+      sed 's/^/- /' "$fresh"
+    } | summary
+    printf 'mutants: this diff adds %s brokkr-core miss(es); a test must catch each (the #289 gate)\n' \
+      "$(count "$fresh")" >&2
+    rm -f "$fresh"
+    return 1
+  fi
+  printf '### brokkr-core misses this diff adds: 0 (%s missed, each a committed miss)\n' \
+    "$(count "$2")" | summary
+  rm -f "$fresh"
 }
 
 case "${1:-}" in
@@ -150,16 +306,32 @@ case "${1:-}" in
     # the jobs happened to finish in.
     sort "$out/mutants.out/missed.txt" > "$allow/$crate.missed.txt"
     ;;
+  gate)
+    base="${2:?usage: scripts/mutants.sh gate <base commit> brokkr-core}"
+    crate="${3:?usage: scripts/mutants.sh gate <base commit> brokkr-core}"
+    [ "$crate" = brokkr-core ] || {
+      printf 'mutants: only brokkr-core is gated (the operator ruling on #289); %s reports\n' "$crate" >&2
+      exit 1
+    }
+    [ -f "$allow/$crate.missed.txt" ] || {
+      printf 'mutants: %s/%s.missed.txt is missing\n' "$allow" "$crate" >&2
+      exit 1
+    }
+    diff_mutants "$base" "$crate"
+    if [ ! -s "$out/listed.txt" ]; then
+      rm -rf "$out/mutants.out"
+      printf '### brokkr-core mutants in this diff: 0\n' | summary
+      exit 0
+    fi
+    measure --in-diff "$out/branch.diff" "${args[@]}"
+    timeouts "$out/mutants.out/timeout.txt"
+    gate_misses "$allow/$crate.missed.txt" "$out/mutants.out/missed.txt"
+    ;;
   in-diff)
-    base="${2:?usage: scripts/mutants.sh in-diff <base commit>}"
-    mkdir -p "$out"
-    git diff "$base...HEAD" > "$out/branch.diff"
-    scope_args "${crates[@]}"
-    # A diff with no mutant in the scope makes cargo-mutants exit 0 and
-    # write nothing, which measure() refuses as a run that measured
-    # nothing. Listing first names that case: only an empty list, from a
-    # clean exit, reports zero; any other list must be measured.
-    cargo mutants --list --in-diff "$out/branch.diff" "${args[@]}" > "$out/listed.txt"
+    base="${2:?usage: scripts/mutants.sh in-diff <base commit> [crate...]}"
+    shift 2
+    if [ "$#" -eq 0 ]; then set -- "${crates[@]}"; fi
+    diff_mutants "$base" "$@"
     if [ ! -s "$out/listed.txt" ]; then
       rm -rf "$out/mutants.out"
       printf '### Mutants in this diff: 0\n' | summary
@@ -195,5 +367,5 @@ case "${1:-}" in
     report_scope "$out/week.missed.txt"
     timeouts "$out/week.timeout.txt"
     ;;
-  *) printf 'usage: scripts/mutants.sh baseline <crate> | in-diff <base> | shard <k> | weekly <dir>\n' >&2 && exit 1 ;;
+  *) printf 'usage: scripts/mutants.sh baseline <crate> | gate <base> brokkr-core | in-diff <base> [crate...] | shard <k> | weekly <dir>\n' >&2 && exit 1 ;;
 esac
