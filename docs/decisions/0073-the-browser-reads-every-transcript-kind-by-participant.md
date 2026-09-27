@@ -30,7 +30,11 @@ reads what the command reads.
    --json` document byte for byte (the command adds a trailing newline),
    read through the one local read and masked against the store beside the
    journal: HTTP 200 when readable, HTTP 404 carrying the refused document
-   otherwise. `/sse/transcript/<run>/<key>` watches the same source. An
+   otherwise. `/sse/transcript/<run>/<key>` watches the same source. The
+   watch and the participant presentation admit that source by its
+   reference and discovery and read no body, as the living spec's
+   admission rule records: a body-stage refusal of an admitted source
+   (`unreadable`, `unsupported-format`) is the body route's alone. An
    unparsable route or unknown participant is refused before any read. A
    run whose journal loads and does not fold is refused by the body route,
    the watch and the participant presentation in the fold's own words, as

@@ -474,6 +474,46 @@ fn lookup_refusals_are_the_exact_envelope_on_both_routes() {
     assert!(sse.contains("Content-Type: text/event-stream"), "{sse}");
 }
 
+/// A body-stage refusal belongs to the body route (decision 0073 ruling 1,
+/// the living spec's admission rule): for an admitted source whose bytes
+/// are not UTF-8, the body route answers the command's `unreadable`
+/// document under a 404, while the presentation, which reads no body,
+/// keeps the source admitted and the watch, which sends sizes only, opens.
+#[test]
+fn a_body_stage_refusal_is_the_body_routes_alone() {
+    let mut env = EnvGuard::lock();
+    let (home, projects) = claude_projects_home();
+    std::fs::write(projects.join("seat/dead-beef.jsonl"), [0xff, 0xfe]).unwrap();
+    let rollouts = home.path().join("codex/sessions");
+    std::fs::create_dir_all(&rollouts).unwrap();
+    std::fs::write(rollouts.join("rollout-0199dead.jsonl"), [0xff, 0xfe]).unwrap();
+    env.set("HOME", home.path());
+    let codex = json!({"kind": "codex-thread", "locator": "0199dead",
+                       "home": home.path().join("codex").to_str().unwrap()});
+    for (reference, session) in [(None, Some("dead-beef")), (Some(codex), None)] {
+        let (_dir, db, key) = participant_fixture(reference, session.map(|_| "claude"), session);
+        let route = format!("r1/{}", percent_encode(&key));
+        let body = handle(&db, &format!("/api/transcript/{route}"));
+        assert_eq!(body.status, "404 Not Found", "{key}: {}", body.body);
+        let document: Value = serde_json::from_str(&body.body).unwrap();
+        assert_eq!(document["unavailable"], "unreadable", "{key}");
+        let presentation: Value =
+            serde_json::from_str(&handle(&db, &format!("/api/presentation/{route}")).body).unwrap();
+        assert_eq!(
+            (
+                &presentation["admitted"],
+                &presentation["reason"],
+                &presentation["drill_eligible"]
+            ),
+            (&json!(true), &Value::Null, &json!(true)),
+            "{key}: {presentation}"
+        );
+        let watch = exchange(db, &watch_request(&route), Some(1));
+        assert!(watch.starts_with("HTTP/1.1 200 OK"), "{key}: {watch}");
+        assert!(watch.ends_with("\r\n\r\n: ping\n\n"), "{key}: {watch}");
+    }
+}
+
 /// A bounded growth watch reads the source and writes nothing: the
 /// journal is untouched and the retained file keeps every byte.
 #[test]

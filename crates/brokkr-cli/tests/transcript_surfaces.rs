@@ -2,7 +2,7 @@
 //! 0055; design D11). A synthetic source of each kind is read once
 //! through `brokkr_cli::read_local`; the command's text and JSON, the
 //! TUI pane keys and both doors, the browser's transcript route (the
-//! command's JSON, byte for byte, #352) and the browser participant
+//! command's JSON less its trailing newline, #352) and the browser participant
 //! presentation are then compared against that one result. The
 //! presentation transport is asserted prose-free.
 
@@ -189,6 +189,97 @@ fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, stat
         "{}",
         world.reference.kind
     );
+}
+
+/// A `brokkr ui` child serving `world`'s journal on an ephemeral port. It is
+/// killed when dropped, so a failed assertion leaves no server behind; its
+/// stderr stays open for the child's lifetime.
+struct Server {
+    child: std::process::Child,
+    _stderr: std::io::BufReader<std::process::ChildStderr>,
+    port: u16,
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Server {
+    fn start(world: &World) -> Self {
+        use std::io::BufRead;
+        let mut child = Command::new(brokkr_bin())
+            .args(["ui", "--port", "0", "--db"])
+            .arg(&world.db)
+            .env("HOME", &world.home)
+            .current_dir(world.dir.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
+        // "brokkr ui: http://127.0.0.1:<port>/ (read-only; Ctrl-C to stop)"
+        let mut line = String::new();
+        let _ = stderr.read_line(&mut line);
+        let port = line
+            .split_once("127.0.0.1:")
+            .and_then(|(_, rest)| rest.split_once('/'))
+            .and_then(|(port, _)| port.parse().ok());
+        let server = Server {
+            child,
+            _stderr: stderr,
+            port: port.unwrap_or_default(),
+        };
+        assert!(port.is_some(), "no bound url: {line}");
+        server
+    }
+
+    /// The raw response to one GET, split at the blank line.
+    fn get(&self, path: &str) -> (String, Vec<u8>) {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let split = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("a head and a body");
+        let head = String::from_utf8(response[..split].to_vec()).unwrap();
+        (head, response[split + 4..].to_vec())
+    }
+}
+
+/// Decision 0073 ruling 1 on the wire: `/api/transcript/<run>/<key>`,
+/// served by `brokkr ui` over TCP, carries exactly the document `brokkr
+/// transcript --json` prints, which ends in the one newline the command
+/// adds, readable (Claude, 200) or refused (non-UTF-8 Codex, 404).
+#[test]
+fn the_wire_body_is_the_commands_stdout_without_its_newline() {
+    let _env = EnvGuard::lock();
+    let claude = make_world(
+        "claude-session",
+        "abcd-1234",
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"on the wire\"}}\n",
+    );
+    let codex = make_world("codex-thread", "0199wire", "");
+    std::fs::write(&codex.path, [0xff, 0xfe]).unwrap();
+    for (world, exit, status) in [(&claude, 0, "200 OK"), (&codex, 1, "404 Not Found")] {
+        let stdout = command(world, &["--json"]);
+        assert_eq!(stdout.status.code(), Some(exit), "{}", world.reference.kind);
+        let (head, body) = Server::start(world).get("/api/transcript/r222/eff1");
+        assert!(
+            head.starts_with(&format!("HTTP/1.1 {status}\r\n")),
+            "{head}"
+        );
+        assert_eq!([&body[..], b"\n"].concat(), stdout.stdout, "{head}");
+        assert!(
+            head.contains(&format!("\r\nContent-Length: {}\r\n", body.len())),
+            "{head}"
+        );
+    }
 }
 
 /// Compare every surface against one shared read, for one source.

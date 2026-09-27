@@ -174,8 +174,8 @@ require an eligible drill as well as an admitted source. The server SHALL
 decide eligibility by one function, which the presentation reports and the
 growth route opens by; the page SHALL drill on that answer and keep no rule
 of its own. The body route SHALL answer every reference with the command's
-document, readable or refused, so its bytes and `brokkr transcript --json`'s
-never differ.
+document, readable or refused, so its bytes are what `brokkr transcript
+--json` prints, less the one trailing newline the command adds.
 
 A run whose journal loads and does not fold SHALL be refused, as `brokkr
 transcript` refuses it: the body route, the growth route and the participant
