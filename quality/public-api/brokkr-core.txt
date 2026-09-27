@@ -157,6 +157,7 @@ impl brokkr_core::envelope::EventEnvelope
 pub fn brokkr_core::envelope::EventEnvelope::compute_hash(&self) -> alloc::string::String
 pub fn brokkr_core::envelope::EventEnvelope::sealed(self) -> Self
 pub fn brokkr_core::envelope::verify_chain(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_core::envelope::ChainError>
+pub fn brokkr_core::envelope::verify_chain_after(&str, u64, &str, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_core::envelope::ChainError>
 pub mod brokkr_core::fold
 pub enum brokkr_core::fold::Cursor
 pub brokkr_core::fold::Cursor::Decide
@@ -244,6 +245,7 @@ pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub mod brokkr_core::keep_refs
 pub fn brokkr_core::keep_refs::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub mod brokkr_core::policy

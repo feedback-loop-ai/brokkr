@@ -65,3 +65,39 @@ fn chain_refuses_every_identity_and_sequence_defect() {
         Err(ChainError::ForeignRun { seq: 2 })
     );
 }
+
+#[test]
+fn a_suffix_verifies_against_the_head_it_continues() {
+    let e1 = envelope(1, ZERO_HASH);
+    let e2 = envelope(2, &e1.event_hash);
+    let e3 = envelope(3, &e2.event_hash);
+    let suffix = [e2.clone(), e3.clone()];
+    let last = std::slice::from_ref(&e3);
+    assert_eq!(verify_chain_after("r1", 1, &e1.event_hash, &suffix), Ok(()));
+    assert_eq!(verify_chain_after("r1", 3, &e3.event_hash, &[]), Ok(()));
+    assert_eq!(
+        verify_chain_after("r1", 1, &e1.event_hash, last),
+        Err(ChainError::SeqGap {
+            seq: 3,
+            expected: 2
+        })
+    );
+    assert_eq!(
+        verify_chain_after("r1", 1, ZERO_HASH, &suffix),
+        Err(ChainError::BrokenChain {
+            seq: 2,
+            prev_seq: 1
+        })
+    );
+    assert_eq!(
+        verify_chain_after("r1", 2, &e1.event_hash, last),
+        Err(ChainError::BrokenChain {
+            seq: 3,
+            prev_seq: 2
+        })
+    );
+    assert_eq!(
+        verify_chain_after("r2", 1, &e1.event_hash, &suffix),
+        Err(ChainError::ForeignRun { seq: 2 })
+    );
+}

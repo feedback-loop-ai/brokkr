@@ -2,10 +2,9 @@ use super::*;
 use serde_json::json;
 
 #[path = "../../../tests/support/env_guard.rs"]
-mod env_guard;
+pub(crate) mod env_guard;
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
-use env_guard::EnvGuard;
 use envelope_builder::EnvelopeBuilder;
 
 fn store() -> (tempfile::TempDir, Store) {
@@ -523,6 +522,52 @@ fn append_refuses_a_nonconforming_seat_record_and_writes_nothing() {
         .unwrap();
     assert_eq!(store.head_hash("r1").unwrap().0, 2);
     store.export_ndjson("r1").unwrap();
+}
+
+/// The fence judges a record by the engine its run's manifest names,
+/// extracted by SQLite rather than parsed whole under the lock (#354). A
+/// manifest naming an older engine, none, a non-string, or not JSON at
+/// all reads as v1, which admits strictly less.
+#[test]
+fn the_append_fence_reads_the_engine_its_runs_manifest_names() {
+    let (_dir, mut store) = store();
+    let checkpoint = json!({"effect_id":"fx", "checkpoint":{
+        "step":"seat-turn", "turn":1, "model":"claude-opus-5", "effort":"high"
+    }});
+    for (run_id, manifest) in [
+        ("new", json!({"engine": "0.8.0"})),
+        ("old", json!({"engine": "0.4.0"})),
+        ("none", json!({})),
+        ("number", json!({"engine": 8})),
+    ] {
+        store.create_run(run_id, "feat", "self", &manifest).unwrap();
+    }
+    store
+        .conn
+        .execute(
+            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+             VALUES ('malformed', 'feat', 'self', '{\"engine\": \"0.8.0\"', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    let append = |store: &mut Store, run_id: &str| {
+        store.append_next(
+            run_id,
+            EventType::EffectCheckpointed,
+            checkpoint.clone(),
+            None,
+            None,
+        )
+    };
+    assert_eq!(append(&mut store, "new").unwrap().seq, 1);
+    for run_id in ["old", "none", "number", "malformed"] {
+        let error = append(&mut store, run_id).unwrap_err();
+        let StoreError::SeatRecord(refusal) = error else {
+            panic!("{run_id}: {error}");
+        };
+        let judged = (refusal.seq, refusal.contract);
+        assert_eq!(judged, (1, SeatRecordVersion::V1.contract()), "{run_id}");
+    }
 }
 
 #[test]
@@ -1538,102 +1583,6 @@ fn a_run_is_started_here_only_on_the_machine_and_account_that_created_it() {
     // And an installation that cannot place itself at all: no session
     // is anyone's, including its own.
     assert!(!store.started_under("r1", None).unwrap());
-}
-
-/// What a machine is allowed to be identified by, and what is not an
-/// identity at all. The fingerprint is opaque and stable: the same
-/// machine twice is the same token, a different one is not, and neither
-/// the hostname nor the home path it was made from can be read back out
-/// of it.
-#[test]
-fn a_machine_fingerprint_needs_a_source_that_says_something() {
-    let dir = tempfile::tempdir().unwrap();
-    let named = dir.path().join("machine-id");
-    let blank = dir.path().join("blank");
-    let missing = dir.path().join("absent");
-    std::fs::write(&named, "d9b1e0c4f1a24e0e8b3c\n").unwrap();
-    std::fs::write(&blank, "  \n").unwrap();
-    let path = |p: &std::path::Path| p.to_str().unwrap().to_string();
-
-    // The first source that can be read wins, and a missing one is
-    // simply skipped.
-    let first = host_from(&[&path(&missing), &path(&named)], None).unwrap();
-    assert_eq!(first.len(), 16);
-    assert_eq!(host_from(&[&path(&named)], None), Some(first.clone()));
-    assert!(
-        !first.contains("d9b1e0c4"),
-        "the source is not readable back"
-    );
-
-    // No source at all falls back to what the caller was given, and a
-    // caller with nothing to give gets nothing.
-    assert_eq!(
-        host_from(&[&path(&missing)], Some("a-hostname".into())),
-        host_from(&[], Some("a-hostname".into()))
-    );
-    assert_ne!(host_from(&[], Some("a-hostname".into())), Some(first));
-    assert_eq!(host_from(&[&path(&missing)], None), None);
-
-    // A source that reads as whitespace says nothing, and saying
-    // nothing is not an identity.
-    assert_eq!(host_from(&[&path(&blank)], None), None);
-    assert_eq!(host_from(&[], Some(String::new())), None);
-
-    // And the real one exists, on the machine running this test — on
-    // every released platform, not only the one with /etc/machine-id.
-    assert!(local_host().is_some());
-}
-
-/// Where no identity file exists (macOS, Windows), the machine's name
-/// comes from the environment the platform actually exports, and as a
-/// last resort from `hostname` itself. Blank answers are no answer.
-#[test]
-fn a_machine_without_an_identity_file_still_names_itself() {
-    let mut env = EnvGuard::lock();
-    let variable = "BROKKR_TEST_MACHINE_NAME_7f3c";
-    env.remove(variable);
-    // Nothing set: the command is asked, and asked once.
-    let mut asked = 0;
-    let answered = machine_name(&[variable], || {
-        asked += 1;
-        Some("bench-host".to_string())
-    });
-    assert_eq!(answered.as_deref(), Some("bench-host"));
-    assert_eq!(asked, 1);
-    // A blank command answer is none.
-    assert_eq!(machine_name(&[variable], || Some("  \n".to_string())), None);
-    assert_eq!(machine_name(&[variable], || None), None);
-    // A set variable wins without asking.
-    env.set(variable, "exported-name");
-    assert_eq!(
-        machine_name(&[variable], || panic!("the command must not be asked")).as_deref(),
-        Some("exported-name")
-    );
-    // A blank variable does not win.
-    env.set(variable, "   ");
-    assert_eq!(
-        machine_name(&[variable], || Some("fallback".to_string())).as_deref(),
-        Some("fallback")
-    );
-
-    // The real command answers on the machine running this test; a
-    // missing program and a failing one are both no answer.
-    let printed = hostname_command().expect("hostname prints on every released platform");
-    assert!(!printed.trim().is_empty());
-    assert_eq!(hostname_from("brokkr-no-such-program-7f3c"), None);
-    assert_eq!(hostname_from("false"), None);
-
-    // And the home half follows the platform's spelling: the first set
-    // variable wins, and none set is empty rather than a panic.
-    let home_variable = "BROKKR_TEST_HOME_7f3c";
-    env.remove(home_variable);
-    assert_eq!(home_from(&[home_variable]), "");
-    env.set(home_variable, "/somewhere");
-    assert_eq!(
-        home_from(&["BROKKR_TEST_UNSET_7f3c", home_variable]),
-        "/somewhere"
-    );
-    let _ = account_home();
 }
 
 /// One broken link refuses the WHOLE import. No prefix of good events

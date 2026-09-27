@@ -8,7 +8,7 @@ use std::hint::black_box;
 use std::path::PathBuf;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::fold::{fold, RunState};
+use brokkr_core::fold::{fold, fold_onto, RunState};
 use brokkr_core::realms::Boundary;
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
@@ -63,6 +63,15 @@ fn journal() -> Vec<EventEnvelope> {
     grown
 }
 
+/// The state the grown journal's first 7,509 events fold to, and its last
+/// event: what one engine turn folds since #354, which carries the state
+/// it holds over what landed since instead of folding the run again.
+fn turn() -> (RunState, Vec<EventEnvelope>) {
+    let mut events = journal();
+    let last = events.split_off(EVENTS - 1);
+    (fold(&events).expect("the grown journal folds"), last)
+}
+
 fn folded() -> (Vec<EventEnvelope>, RunState) {
     let events = journal();
     let state = fold(&events).expect("the grown journal folds");
@@ -81,6 +90,13 @@ fn self_bundle() -> (PathBuf, Dialect) {
 #[bench::events_7510(setup = journal)]
 fn fold_journal(events: Vec<EventEnvelope>) -> RunState {
     black_box(fold(black_box(&events)).expect("the grown journal folds"))
+}
+
+#[library_benchmark]
+#[bench::events_7510(setup = turn)]
+fn fold_turn(turn: (RunState, Vec<EventEnvelope>)) -> RunState {
+    let (state, suffix) = turn;
+    black_box(fold_onto(black_box(state), black_box(&suffix)).expect("the last event folds"))
 }
 
 #[library_benchmark]
@@ -122,7 +138,7 @@ fn tui_frame(events: Vec<EventEnvelope>) -> ratatui::buffer::Buffer {
 
 library_benchmark_group!(
     name = hot_paths;
-    benchmarks = fold_journal, run_view, compile_bundle, tui_frame
+    benchmarks = fold_journal, fold_turn, run_view, compile_bundle, tui_frame
 );
 
 main!(library_benchmark_groups = hot_paths);

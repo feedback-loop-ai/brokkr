@@ -69,6 +69,7 @@ pub fn brokkr_store::Store::head_hash(&self, &str) -> core::result::Result<(u64,
 pub fn brokkr_store::Store::import_run(&mut self, &str, &serde_json::value::Value, &std::path::Path) -> core::result::Result<brokkr_store::Adoption, brokkr_store::ImportError>
 pub fn brokkr_store::Store::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::load(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::StoreError>
 pub fn brokkr_store::Store::open(&std::path::Path) -> core::result::Result<brokkr_store::Store, brokkr_store::StoreError>
 pub fn brokkr_store::Store::open_read_only(&std::path::Path) -> core::result::Result<brokkr_store::Store, brokkr_store::StoreError>

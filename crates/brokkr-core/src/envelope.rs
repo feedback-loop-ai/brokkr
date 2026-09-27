@@ -100,10 +100,24 @@ impl EventEnvelope {
 /// Verify sequence continuity, hash chain, per-event hashes, schema
 /// version, and run identity. Fails closed on the first defect.
 pub fn verify_chain(events: &[EventEnvelope]) -> Result<(), ChainError> {
-    let mut prev_hash = ZERO_HASH.to_string();
-    let run_id = events.first().map(|e| e.run_id.clone());
-    for (i, event) in events.iter().enumerate() {
-        let expected_seq = (i + 1) as u64;
+    let Some(first) = events.first() else {
+        return Ok(());
+    };
+    verify_chain_after(&first.run_id, 0, ZERO_HASH, events)
+}
+
+/// [`verify_chain`] for what landed after a head the caller already
+/// verified: `events` must continue `run_id`'s chain from seq `seq`, whose
+/// hash is `hash`, with every check [`verify_chain`] makes. A whole
+/// journal is the suffix of the empty head, `(0, ZERO_HASH)`.
+pub fn verify_chain_after(
+    run_id: &str,
+    seq: u64,
+    hash: &str,
+    events: &[EventEnvelope],
+) -> Result<(), ChainError> {
+    let mut prev_hash = hash;
+    for (expected_seq, event) in (seq + 1..).zip(events) {
         if event.seq != expected_seq {
             return Err(ChainError::SeqGap {
                 seq: event.seq,
@@ -116,7 +130,7 @@ pub fn verify_chain(events: &[EventEnvelope]) -> Result<(), ChainError> {
                 found: event.event_schema_version,
             });
         }
-        if Some(&event.run_id) != run_id.as_ref() {
+        if event.run_id != run_id {
             return Err(ChainError::ForeignRun { seq: event.seq });
         }
         if event.previous_hash != prev_hash {
@@ -128,7 +142,7 @@ pub fn verify_chain(events: &[EventEnvelope]) -> Result<(), ChainError> {
         if event.compute_hash() != event.event_hash {
             return Err(ChainError::BadHash { seq: event.seq });
         }
-        prev_hash = event.event_hash.clone();
+        prev_hash = &event.event_hash;
     }
     Ok(())
 }

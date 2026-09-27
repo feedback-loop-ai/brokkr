@@ -113,6 +113,15 @@ impl SeatRecordVersion {
         }
     }
 
+    /// The contract a run writes under, from the `engine` its manifest
+    /// names. The append fence and the export and verify sweeps all ask
+    /// this, so they cannot read one run two ways. A manifest that names
+    /// no engine is read under v1: the older contract is the safe
+    /// reading, because it admits strictly less.
+    pub(crate) fn of_manifest(engine: Option<&str>) -> SeatRecordVersion {
+        engine.map_or(SeatRecordVersion::V1, SeatRecordVersion::of_engine)
+    }
+
     /// The published file this version validates against, named in the
     /// refusal so a reader knows which contract was applied.
     pub fn contract(self) -> &'static str {
@@ -224,20 +233,6 @@ pub fn validate_seat_record(
     Ok(())
 }
 
-/// The contract this run's engine wrote its records under, read from the
-/// `run/started` manifest. A journal that names no engine at all is read
-/// under v1: the older contract is the safe reading, because it admits
-/// strictly less.
-fn version_of(events: &[EventEnvelope]) -> SeatRecordVersion {
-    events
-        .iter()
-        .find(|event| event.event_type == EventType::RunStarted)
-        .and_then(|event| event.payload.pointer("/manifest/engine"))
-        .and_then(Value::as_str)
-        .map(SeatRecordVersion::of_engine)
-        .unwrap_or(SeatRecordVersion::V1)
-}
-
 /// The seat record an event carries, if its type carries one: a
 /// checkpoint's `checkpoint`, a successful result's `result`. This is
 /// the one place that knows which events are seat records. The append
@@ -252,7 +247,12 @@ pub(crate) fn record_of(event_type: EventType, payload: &Value) -> Option<&Value
 }
 
 pub(crate) fn validate_events(events: &[EventEnvelope]) -> Result<(), SeatRecordError> {
-    let version = version_of(events);
+    // The contract this run's engine wrote its records under.
+    let engine = events
+        .iter()
+        .find(|event| event.event_type == EventType::RunStarted)
+        .and_then(|event| event.payload.pointer("/manifest/engine"));
+    let version = SeatRecordVersion::of_manifest(engine.and_then(Value::as_str));
     for event in events {
         if let Some(record) = record_of(event.event_type, &event.payload) {
             validate_seat_record(record, event.seq, version)?;
