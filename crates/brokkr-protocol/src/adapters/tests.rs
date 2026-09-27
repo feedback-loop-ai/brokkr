@@ -1968,7 +1968,8 @@ fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_fin
 
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let workdir = dir.path().to_string_lossy().into_owned();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.to_string_lossy().into_owned();
     for (case, extra, expected, refusal) in [
         (
             "image-value",
@@ -2028,15 +2029,15 @@ fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_fin
             Some("sandbox-unavailable"),
         ),
     ] {
-        let argv = dir.path().join(format!("argv-{case}"));
-        let shim = codex_shim(dir.path(), &format!("codex-{case}"), &argv);
+        let argv = root.join(format!("argv-{case}"));
+        let shim = codex_shim(&root, &format!("codex-{case}"), &argv);
         let mut emitted = Vec::new();
         with_codex_bin(&shim, || {
             invoke(
                 AdapterKind::Codex,
                 &extra,
                 "prompt",
-                &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                &enabled_input(CODEX_SHAPE, CODEX_VERSION, &root),
                 Some(THREAD),
                 &[],
                 &mut |event| emitted.push(event.clone()),
@@ -13282,6 +13283,56 @@ fn the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes() {
     let (route, rest) = split_dsh_patch(&["--patch".into(), "a.yml".into(), "b".into()]).unwrap();
     assert_eq!(route.as_deref(), Some("a.yml"));
     assert_eq!(rest, vec!["b".to_string()]);
+}
+
+/// Rebuild unit 13 (13.2; review F5): where the DSH driver input parses,
+/// the model and the overlay are the grammar's own `--model` and `--patch`
+/// nodes, every other part passing through in order; and the joined
+/// spellings neither reader admits are refused by both, the grammar and
+/// each splitter's own fixed cause.
+#[test]
+fn the_dsh_splitters_read_the_grammar_parse_and_agree_with_it() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let whole = s(&["--effort", "high", "--model", "p/m", "--patch", "a.yml"]);
+    assert!(crate::native_controls::grammar::parse("dsh", &whole)
+        .unwrap()
+        .is_ok());
+    let (model, rest) = split_dsh_model(&whole).unwrap();
+    assert_eq!(model.as_deref(), Some("p/m"));
+    assert_eq!(rest, s(&["--effort", "high", "--patch", "a.yml"]));
+    let (route, rest) = split_dsh_patch(&rest).unwrap();
+    assert_eq!(route.as_deref(), Some("a.yml"));
+    assert_eq!(rest, s(&["--effort", "high"]));
+    assert_eq!(split_dsh_model(&rest).unwrap(), (None, rest.clone()));
+    for (joined, refusal) in [
+        (
+            "--model=p/m",
+            "dsh driver: --model needs a model id after it",
+        ),
+        (
+            "--patch=a.yml",
+            "dsh driver: only the one separate `--patch <overlay>` spelling is admitted",
+        ),
+    ] {
+        assert!(crate::native_controls::grammar::parse("dsh", &s(&[joined]))
+            .unwrap()
+            .is_err());
+        let split = match joined.starts_with("--model") {
+            true => split_dsh_model(&s(&[joined])),
+            false => split_dsh_patch(&s(&[joined])),
+        };
+        assert_eq!(split, Err(refusal.to_string()), "{joined}");
+    }
+    // Where the argv does not parse, each splitter's own reading still
+    // refuses an empty value.
+    assert_eq!(
+        split_dsh_model(&s(&["--x", "--model", ""])),
+        Err("dsh driver: --model needs a model id after it".to_string())
+    );
+    assert_eq!(
+        split_dsh_patch(&s(&["--x", "--patch", ""])),
+        Err("dsh driver: --patch needs an overlay path after it".to_string())
+    );
 }
 
 #[test]

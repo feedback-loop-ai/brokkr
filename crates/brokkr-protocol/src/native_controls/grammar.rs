@@ -525,15 +525,21 @@ static CLAUDE: &[Spec] = &[
 /// and the one bound route overlay; every other argument is already
 /// refused before any provider work, so the grammar is exactly those
 /// three and nothing else — there is no forwarded remainder, and LaneTally
-/// inherits nothing from Claude here.
+/// inherits nothing from Claude here. The model and the overlay take only
+/// their separate spelling, which is the one the DSH driver extracts
+/// (rebuild unit 13): a joined `--model=m` or `--patch=p` is a spelling no
+/// reader of this argv admits.
 static DSH: &[Spec] = &[
-    inert("--model", &[]),
+    Spec {
+        equals: false,
+        ..inert("--model", &[])
+    },
     inert("--effort", &[]),
     Spec {
         canonical: "--patch",
         aliases: &[],
         arity: Arity::One,
-        equals: true,
+        equals: false,
         attached: false,
         repeat: false,
         effect: Effect::Route,
@@ -803,12 +809,14 @@ impl Grammar {
     /// grammar. Codex opens with `exec`; a rejoin is `exec resume`, and
     /// ends with exactly the plain session identifier and the stdin `-`,
     /// which no option's value can reach. Claude and LaneTally select a
-    /// session by option and DSH's argv is its driver's input, so neither
-    /// carries a positional. Nothing else is a position: an unexpected
-    /// word refuses, and `--image resume` stays an image's value. A token
-    /// refused at one of these reserved positions is labelled as the
-    /// positional it stands for, whatever it spells, so a misplaced
-    /// option-looking payload is not echoed as an option name (design D6).
+    /// session by option, so neither carries a positional. DSH's serving
+    /// command is the driver's own, every part at a fixed position
+    /// ([`Grammar::parse_dsh_final`]). Nothing else is a position: an
+    /// unexpected word refuses, and `--image resume` stays an image's
+    /// value. A token refused at one of these reserved positions is
+    /// labelled as the positional it stands for, whatever it spells, so a
+    /// misplaced option-looking payload is not echoed as an option name
+    /// (design D6).
     pub fn parse_final(&self, argv: &[String]) -> Result<Final, Problem> {
         let word = |at: usize| argv.get(at).map(String::as_str);
         let refuse = |at: usize, cause: &str| {
@@ -817,12 +825,17 @@ impl Grammar {
                 ..self.problem(at, word(at).unwrap_or_default(), cause)
             })
         };
-        if self.harness != "codex" {
-            return Ok(Final {
-                subcommands: Vec::new(),
-                command: self.parse(argv)?,
-                session: None,
-            });
+        match self.harness {
+            "codex" => {}
+            "dsh" => return self.parse_dsh_final(argv),
+            _ => {
+                return Ok(Final {
+                    subcommands: Vec::new(),
+                    command: self.parse(argv)?,
+                    session: None,
+                    overlay: None,
+                })
+            }
         }
         if word(0) != Some("exec") {
             return refuse(
@@ -835,6 +848,7 @@ impl Grammar {
                 subcommands: vec!["exec"],
                 command: self.parse_span(argv, 1, argv.len())?,
                 session: None,
+                overlay: None,
             });
         }
         if argv.len() < 4 {
@@ -862,7 +876,73 @@ impl Grammar {
             subcommands: vec!["exec", "resume"],
             command: self.parse_span(argv, 2, session)?,
             session: Some(argv[session].clone()),
+            overlay: None,
         })
+    }
+
+    /// DSH's complete serving command after its binary (rebuild unit 13;
+    /// design D6), exactly as its driver builds it: `--profile headless
+    /// --patch <overlay>`, and after it nothing, or `--output-format
+    /// stream-json` and then `--new` or `--session <id>`. The seat's model,
+    /// effort and route ride the one staged overlay, never an argument, so
+    /// every part stands at a fixed position and no option is parsed: a
+    /// part anywhere else, or of any other spelling, refuses at its
+    /// position with the positional label. The overlay is a path that does
+    /// not read as an option, and the session a plain identifier.
+    fn parse_dsh_final(&self, argv: &[String]) -> Result<Final, Problem> {
+        let word = |at: usize| argv.get(at).map(String::as_str);
+        let refuse = |at: usize, cause: &str| {
+            Err(Problem {
+                label: POSITIONAL_LABEL.to_string(),
+                ..self.problem(at, word(at).unwrap_or_default(), cause)
+            })
+        };
+        for (at, fixed) in ["--profile", "headless", "--patch"].into_iter().enumerate() {
+            if word(at) != Some(fixed) {
+                return refuse(
+                    at,
+                    "stands where the '--profile headless --patch' lead a dsh serving command \
+                     opens with belongs",
+                );
+            }
+        }
+        let overlay = match word(3) {
+            Some(path) if !path.is_empty() && !reads_as_option(path) => path.to_string(),
+            _ => {
+                return refuse(
+                    3,
+                    "stands where the path of the one staged overlay belongs, and is none",
+                )
+            }
+        };
+        let placed = |session: Option<String>| {
+            Ok(Final {
+                subcommands: Vec::new(),
+                command: Command::default(),
+                session,
+                overlay: Some(overlay.clone()),
+            })
+        };
+        if argv.len() == 4 {
+            return placed(None);
+        }
+        for (at, fixed) in [(4, "--output-format"), (5, "stream-json")] {
+            if word(at) != Some(fixed) {
+                return refuse(
+                    at,
+                    "stands after the overlay, where only '--output-format stream-json' belongs",
+                );
+            }
+        }
+        match &argv[6..] {
+            [new] if new == "--new" => placed(None),
+            [flag, id] if flag == "--session" && plain_session(id) => placed(Some(id.clone())),
+            _ => refuse(
+                6,
+                "stands where '--new', or '--session' and a plain session identifier of ASCII \
+                 letters, digits and dashes, ends a dsh serving command",
+            ),
+        }
     }
 }
 
@@ -874,8 +954,11 @@ pub struct Final {
     pub subcommands: Vec<&'static str>,
     /// The options between the subcommands and the trailing positionals.
     pub command: Command,
-    /// The session a codex rejoin names, before its stdin `-`.
+    /// The session a codex rejoin names, before its stdin `-`, or a dsh
+    /// rejoin names after `--session`.
     pub session: Option<String>,
+    /// The one overlay a dsh serving command patches its profile with.
+    pub overlay: Option<String>,
 }
 
 /// A codex thread identifier as a rejoin may carry it positionally.

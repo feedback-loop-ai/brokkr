@@ -12397,3 +12397,235 @@ On the final tree, after every restore:
 
 **Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
 macOS, remote CI and the full engine council.
+
+### Review return, 2026-09-27 (F1–F8 of the reviewed `67571c3b..202adc7f`)
+
+The review of run `0065-rebuild-unit-13-see-the-uni-9db14032` returned
+this unit as `residual` (high) with findings F1–F8. This visit answers
+them within the unit's three production files and two test files; it
+supersedes the section above where they differ: `native_controls/grammar.rs`
+now changes, and DSH's final command has a grammar.
+
+#### Baseline reds on `202adc7f`
+
+A scratch integration test, `.forge/u13r-baseline-probe.rs` (removed from
+the tree after the run; output in `.forge/u13r-baseline.log`), drove the
+unchanged public API with the composition and the command wrong alike:
+
+| | Case | Observed at `202adc7f` |
+|---|---|---|
+| B1 (F1) | Codex denial, `-c web_search="disabled"` then `-c web_search="live"` | `Ok` |
+| B2 (F1) | `--search` beside the OFF | `Ok` |
+| B3 (F1) | `--dangerously-bypass-approvals-and-sandbox` beside `read-only` | `Ok` |
+| B4 (F2) | Claude: `Read` added to the include and allow lists | `Ok` |
+| B5 (F2) | `Bash(*)` beside `Direct([Bash(git log:*)])` | `Ok` |
+| B6 (F2) | template `[--tools, ""]`, `--tools` dropped from both | `Ok` |
+| B7 (F3) | no `--mcp-config`, the hands tool also denied | `Ok` |
+| B8 (F3) | Codex hands required, `mcp_servers.unrelated.enabled=false` | `Ok` |
+| B9 (F4) | `dsh --profile headless --patch /o.yml` | refused: `'--profile': it names no option` |
+| B10 (F5) | `grammar::parse("dsh", ["--model=m"])`, `["--patch=/r.yml"]` | both parse, while the splitters refuse them |
+
+#### What changed
+
+- **`check_final` (13.1; F1–F4).** Its signature is now
+  `check_final(harness, command, composed, controls, record, session,
+  overlay)`: it takes the sealed `LaunchRecord`, not only its `Expected`,
+  and the path of the one overlay a DSH driver staged. Steps 1–3 are as
+  before, plus: the parsed command's overlay must equal `overlay` (both
+  absent for every other harness). Step 4 is the new private `authority`,
+  which derives the complete authority from the record alone:
+  - the plan's inventory, holdings, denials and admissions against the
+    record (as before), and no nonempty restriction;
+  - `AllowIntent` and `Application` agree: unspecified is unrestricted,
+    a listed allow applies directly without hands and is dormant beside
+    them (F2: `Expected.local.allow` is now read);
+  - the engine's boundary is the record's trailing run of `hands`
+    segments (what the driver receives as `managed`); the plan's
+    `Provenance::hands` must fit it, hands are required exactly where it
+    types some, and those must be the engine's workspace hands
+    (`workspace_hands`): for Claude/LaneTally an empty include list,
+    `--strict-mcp-config`, one `--mcp-config` document and the hands tool
+    alone allowed; for Codex a class and exactly
+    `mcp_servers.brokkr.{command,args,default_tools_approval_mode}` once
+    each, spelled canonically, with `"approve"` (F3);
+  - every capability-bearing option the command carries is accounted
+    for once by the template, the hands or the rest of the boundary, or
+    is Codex's measured OFF (`launch_setting` on `LAUNCH_SETTINGS`) for a
+    power the plan holds or denies; anything else refuses naming the
+    option and, for an assignment, its capability table; and whatever the
+    template, the hands or the boundary contribute must be carried (F1,
+    F3);
+  - Codex: each denial has its OFF, no holding is switched off, and the
+    class is exactly the hands' class, else the site's typed class, else
+    the boundary's (F3);
+  - Claude/LaneTally: held tools available and denied guard tools not;
+    the hands tool allowed and denied neither by name nor by its server's
+    name; an include list present exactly where the template, the hands,
+    the boundary or the plan's own argv writes one, naming held tools
+    alone; the allow list only held tools, the required hands tool and
+    the directly applied local limits, exactly; the deny list only the
+    denied capabilities' guard tools, the plan's selection and the
+    template's; and the template's allow and deny lists carried (F2);
+  - every directly applied local limit carried (every harness).
+- **The DSH serving command (13.1; F4).** `Grammar::parse_final("dsh")`
+  reads the driver's own command at fixed positions: `--profile headless
+  --patch <overlay>`, then nothing, or `--output-format stream-json` and
+  `--new` or `--session <plain id>`. `Final` gains `overlay`. Any other
+  part refuses at its position under the positional label.
+- **DSH extraction (13.2; F5).** `split_dsh_model` and `split_dsh_patch`
+  read the grammar's `--model` and `--patch` nodes where the argv parses
+  (`dsh_placed`), keeping the empty-value refusal. The DSH grammar now
+  admits only the separate `--model` and `--patch` spellings, which is
+  what both splitters always admitted, so the grammar and the extraction
+  agree. Where the argv does not parse, the splitters' own readings still
+  refuse (`dsh_input_boundaries` and `dsh_control_conflict` are refusal
+  categorisers and are unchanged).
+- **F7.** The shim fixture of `an_inert_resume_value_…` canonicalises its
+  temporary root once and uses that root for the workdir, the shims, the
+  logs and the input.
+- **F8** is a panel-output defect the review itself rejected; it asks
+  nothing of the code.
+
+#### Tests
+
+`native_controls/tests.rs`:
+
+- New `a_claude_command_wrong_alike_with_its_composition_still_refuses`
+  (`:7612`): each case composed and served alike. Refused exactly: `Read`
+  included; `Read` allowed; `Bash` denied; the hands' `--mcp-config`
+  dropped; the hands tool unallowed, denied, or its server denied; three
+  records whose hands are not the workspace hands; `Bash(*)` beside the
+  lowered `Bash(git log:*)`; an include list nothing writes; an
+  `--mcp-config` without hands; a template's include, deny and allow lists
+  dropped. Checked: the hands plan, the unboxed plan, a plan-argv include
+  limit, and a template allow list carried.
+- New `a_codex_command_wrong_alike_with_its_composition_still_refuses`
+  (`:7805`). Refused exactly: `web_search="live"` after the OFF, `--search`,
+  `--dangerously-bypass-approvals-and-sandbox`, an unrelated disabled
+  server, an OFF for a power the plan never answered for,
+  `mcp_servers.brokkr.enabled=false` beside the hands, a hands assignment
+  dropped, `danger-full-access` beside read-only hands, three substituted
+  hands records and hands with no class, another class than the boundary's,
+  a boundary effect dropped, an unreadable boundary, hands typed beyond the
+  boundary, and hands typed where the record requires none. Checked: the
+  cold command and the rejoin under the workspace hands, and an agent
+  site's boundary class.
+- New `a_dsh_serving_command_parses_only_at_its_fixed_positions`
+  (`:8184`): the three shapes, twelve refusals at their exact positions,
+  and the joined `--model=`/`--patch=` refused by the driver-input grammar.
+- `an_unmeasured_dsh_command_checks_only_under_its_own_reason` (`:8019`)
+  now checks the real serving command, cold and rejoined, with its staged
+  overlay; refuses another reason, a known inventory, another overlay, no
+  overlay, a session mismatch, the driver-input argv and dsh hands; and a
+  Claude command given an overlay.
+- Changed with the record-based signature: `claude_final` and
+  `codex_final` return a `LaunchRecord`; new fixtures `sealed`,
+  `claude_local`, `codex_hands` and `alike`. In
+  `the_sealed_record_is_checked_independently_of_both_commands` (`:7006`)
+  the local-permission cases moved to the unboxed `claude_local` plan,
+  because `Direct` beside required hands is now the contradiction it is
+  (three contradiction rows and a dormant positive added), and new rows
+  refuse another plan harness, another record harness, other denials and
+  other admissions. In `a_codex_cold_command_and_its_rejoin_…` the old
+  hands positive (a lone `mcp_servers.brokkr.command` assignment with no
+  hands in the record) is removed: it is exactly F3's defect, and the
+  workspace-hands positive now lives in the new Codex test.
+- **Assertions moved with the intended change (F5):** in
+  `every_table_is_inventoried_with_its_forms_and_effects` the DSH `--model`
+  and `--patch` rows now read `equals: false`; in
+  `a_grammar_refusal_names_a_bounded_label_and_never_a_payload` the row
+  `--patch /tmp/route.json --patch=REVIEW_SENTINEL` now meets the
+  no-joined-spelling cause at argument 3 (it still echoes no payload); in
+  the DSH inventory test the repeated-`--patch` case is written split
+  (`--patch /a.json --patch /b.json`, argument 3); and the `parse_final`
+  sweep's DSH row now parses the serving command and reads its overlay.
+
+`adapters/tests.rs`:
+
+- New `the_dsh_splitters_read_the_grammar_parse_and_agree_with_it`
+  (`:13294`): the parsed extraction of `--effort high --model p/m --patch
+  a.yml`, the joined spellings refused by the grammar and by each splitter
+  with its own cause, and the fallback's empty-value refusals.
+- F7: `an_inert_resume_value_…` (`:1946`) uses one canonicalised root.
+
+No fixture migration and no standing-admission line: every changed test
+line is in the unit's two named test files.
+
+#### Mutations (each compiled, was caught, then restored)
+
+Line numbers are the test files' as observed.
+
+| | Mutation | Caught by |
+|---|---|---|
+| M1 | `authority`: an unaccounted effect `continue`s instead of refusing | Codex `:7840` (`web_search="live"`) and Claude `:7726` (`--mcp-config`) |
+| M2 | `measured_off`: any OFF counted, answered or not | Codex `:7861` |
+| M3 | include contents check `&& false` | Claude `:7629` (`Read` included) |
+| M4 | allow authority `\|\| true` | Claude `:7633` (`Read` allowed) |
+| M5 | lowered limit matched by tool name only | Claude `:7708` (`Bash(*)`) |
+| M6 | deny authority `&& false` | Claude `:7640` (`Bash` denied) |
+| M7 | include presence `&& false` | Claude `:7722` |
+| M8 | the template's include list not a limit | Claude `:7764` (`--tools ""` dropped) |
+| M9 | template lists `\|\| true` | Claude `:7769` |
+| M10 | `workspace_hands` guard `&& false` | Claude `:7688`, Codex `:7935`, DSH `:8158` |
+| M11 | Claude hands availability `&& false` | Claude `:7657` (unallowed) |
+| M12 | server-level hands denial ignored | Claude `:7657` (the `WebFetch,mcp__brokkr` row) |
+| M13 | Codex hands class read from the command | Codex `:7918` |
+| M14 | a missing hands effect ignored | Codex `:7912`, Claude `:7648` |
+| M15 | a missing boundary effect ignored | Codex `:7975` |
+| M16 | local consistency `&& false` | `the_sealed_record_…` `:7185` |
+| M17 (F6) | the unmeasured reason not compared (`\|\| true`) | `an_unmeasured_dsh_…` `:8103` |
+| M18 | the overlay comparison `&& false` | `an_unmeasured_dsh_…` `:8110` |
+| M19 | the plan's harness not compared | `the_sealed_record_…` `:7057` |
+| M20 | the plan's denials not compared | `the_sealed_record_…` `:7080` |
+| M21 | `parse_dsh_final`: any single closing token | `a_dsh_serving_…` `:8267` (`--resume`) |
+| M22 | DSH `--model` `equals: true` | `adapters/tests.rs:13317`, `every_table_…` `:5762`, `a_dsh_serving_…` `:5794` |
+| M23 | `dsh_placed`: the taken option passed through | `adapters/tests.rs:13302` |
+
+Logs: `.forge/u13r-mut-M1.log` … `u13r-mut-M23.log`. After the restores
+each production file is byte-identical to its saved clean copy (`cmp`).
+
+**F7's removal control does not discriminate on this host.** With the
+canonicalisation removed and `TMPDIR` set to a path holding `..` (cargo
+`--config env.TMPDIR`), `an_inert_resume_value_…` still passed
+(`.forge/u13r-mut-M24.log`), and passed again restored
+(`.forge/u13r-M24-restored.log`): this Codex path neither resolves nor
+compares the root. The fix is conformance with the fixture rule; no test
+here observes it.
+
+#### Gates (final tree)
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: no warning or error.
+- `cargo test -p brokkr-protocol --all-features --locked`: 513 unit, 99
+  integration (2 ignored) and 1 doctest passed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+  `test result: ok` summaries, no `FAILED`, `panicked` or `error` line.
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled,
+  empty stderr.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- Coverage diagnostic (`cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-protocol --all-features --locked --lcov`): no unhit line or
+  branch in `check_final`, `boundary`, `workspace_hands` or `authority`,
+  in `parse_final`/`parse_dsh_final`, or in the DSH splitters and
+  `dsh_placed`. The protocol lib's remaining unhit records are in
+  functions this change does not touch (`authored_conflict`,
+  `opaque_conflict`, `pin_fault`, `declared_values`, `plain_option`,
+  `plain_written`, `plain_reason`, `judge_inline_codex_*`), which earlier
+  units recorded as reached by the runtime and CLI suites.
+
+#### Assumptions and follow-ups
+
+- The hands authority is the record's engine-composed boundary, typed by
+  origin, checked for the workspace-hands shape. The hands' command and
+  argument values (engine paths) are compared with the record's, not
+  derived independently.
+- The DSH overlay is bound by the path of the one overlay the driver
+  staged; its rows are validated by `route_overlay::claim` and the typed
+  row writers before staging. Reading the staged bytes back into the pure
+  check is not done here (a file outside this unit's inventory).
+- Serving integration (14.1, 15.1, 15.2) is unchanged: `check_final`
+  still has no production caller.
+
+**Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
+macOS, remote CI and the council.

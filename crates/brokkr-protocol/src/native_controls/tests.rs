@@ -3728,19 +3728,20 @@ fn every_refusal_line_is_one_bounded_line_naming_no_payload() {
         refusals.push(exclusion.refusal);
         // The final check (rebuild unit 13), with the value as the harness
         // and as a held capability.
-        let (controls, mut expected, _) = claude_final();
+        let (controls, mut record, _) = claude_final();
         refusals.push(
             check_final(
                 v,
                 argv(&[v]),
                 &Composed::default(),
                 &controls,
-                &expected,
+                &record,
+                None,
                 None,
             )
             .unwrap_err(),
         );
-        expected.native = NativeExpectation::Known {
+        record.expected.native = NativeExpectation::Known {
             held: vec![HeldPower {
                 capability: v.to_string(),
                 tools: Vec::new(),
@@ -3760,7 +3761,8 @@ fn every_refusal_line_is_one_bounded_line_naming_no_payload() {
                 argv(&["claude"]),
                 &Composed::default(),
                 &controls,
-                &expected,
+                &record,
+                None,
                 None,
             )
             .unwrap_err(),
@@ -5461,7 +5463,7 @@ fn a_grammar_refusal_names_a_bounded_label_and_never_a_payload() {
             argv(&["--patch", "/tmp/route.json", "--patch=REVIEW_SENTINEL"]),
             3,
             "'--patch'",
-            repeats("--patch"),
+            NO_JOINED.to_string(),
         ),
         (
             "codex",
@@ -5746,10 +5748,12 @@ fn every_table_is_inventoried_with_its_forms_and_effects() {
             Effect::Session,
         ),
     ];
+    // The model and the overlay in their separate spelling alone, the one
+    // the DSH driver extracts (rebuild unit 13).
     let dsh: Vec<Row> = vec![
-        inert("--model"),
+        ("--model", vec![], One, false, false, false, Effect::Inert),
         inert("--effort"),
-        ("--patch", vec![], One, true, false, false, Effect::Route),
+        ("--patch", vec![], One, false, false, false, Effect::Route),
     ];
     let tables: Vec<(&str, Vec<Row>)> = grammar::TABLES
         .iter()
@@ -6113,10 +6117,10 @@ fn dsh_places_its_route_overlay_once_and_nothing_beside_it() {
         ]
     );
     assert_eq!(
-        problem_of("dsh", &argv(&["--patch=/a.json", "--patch", "/b.json"])),
+        problem_of("dsh", &argv(&["--patch", "/a.json", "--patch", "/b.json"])),
         grammar_problem(
             "dsh",
-            2,
+            3,
             "'--patch'",
             "repeats option '--patch', which the grammar admits once; a CLI that resolves a \
              duplicate last-wins would resolve it against the control the engine composed"
@@ -6597,13 +6601,15 @@ fn a_final_command_places_its_positions_and_nothing_else() {
         );
     }
     assert_eq!(
-        grammar::parse_final("dsh", &argv(&["--model", "m", "--patch", "/r.json"]))
-            .expect("a modelled harness")
-            .expect("the dsh input parses")
-            .command
-            .nodes
-            .len(),
-        2
+        grammar::parse_final(
+            "dsh",
+            &argv(&["--profile", "headless", "--patch", "/o.yml"])
+        )
+        .expect("a modelled harness")
+        .expect("the dsh serving command parses")
+        .overlay
+        .as_deref(),
+        Some("/o.yml")
     );
     assert!(grammar::parse_final("exec", &argv(&["bash"])).is_none());
 }
@@ -6639,10 +6645,33 @@ fn final_refusal(harness: &str, problem: &str) -> Refusal {
     }
 }
 
+/// The box's workspace hands as the Claude adapter composes them.
+const CLAUDE_HANDS: [&str; 7] = [
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "/w/hands.json",
+    "--allowedTools",
+    "mcp__brokkr__workspace",
+];
+
+/// A sealed record: the adapter's template, then the engine's boundary as
+/// its trailing `hands` segment, beside `expected`.
+fn sealed(template: &[&str], boundary: &[&str], expected: Expected) -> LaunchRecord {
+    LaunchRecord {
+        segments: vec![
+            Segment::new(Origin::Template, &argv(template)),
+            Segment::new(Origin::Hands, &argv(boundary)),
+        ],
+        expected,
+    }
+}
+
 /// A Claude plan holding web-search and denying web-fetch under the box's
 /// hands and the adapter's permission template, its sealed record, and
 /// what the one production composer composes from them.
-fn claude_final() -> (Controls, Expected, Composed) {
+fn claude_final() -> (Controls, LaunchRecord, Composed) {
     let guard = |capability: &str, tool: &str| Guard {
         capability: capability.into(),
         tools: argv(&[tool]),
@@ -6671,15 +6700,7 @@ fn claude_final() -> (Controls, Expected, Composed) {
     let composed = compose_for_provider(
         "claude",
         &argv(&["--permission-mode", "acceptEdits"]),
-        &argv(&[
-            "--tools",
-            "",
-            "--strict-mcp-config",
-            "--mcp-config",
-            "/w/hands.json",
-            "--allowedTools",
-            "mcp__brokkr__workspace",
-        ]),
+        &argv(&CLAUDE_HANDS),
         &controls,
     )
     .unwrap();
@@ -6705,7 +6726,46 @@ fn claude_final() -> (Controls, Expected, Composed) {
         hands: HandsIntent::Required,
         template: TemplateExpectation::Declared(argv(&["--permission-mode", "acceptEdits"])),
     };
-    (controls, expected, composed)
+    let record = sealed(
+        &["--permission-mode", "acceptEdits"],
+        &CLAUDE_HANDS,
+        expected,
+    );
+    (controls, record, composed)
+}
+
+/// [`claude_final`]'s plan at an unboxed site whose typed allow lowered
+/// `Bash(git log:*)`: no hands, no include list, the local permission
+/// carried beside the holding's own.
+fn claude_local() -> (Controls, LaunchRecord, Composed) {
+    let (controls, record, _) = claude_final();
+    let controls = Controls {
+        provenance: typed(0, &["Bash(git log:*)"]),
+        ..controls
+    };
+    let authored = argv(&[
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        "Bash(git log:*)",
+    ]);
+    let composed = compose_for_provider("claude", &authored, &[], &controls).unwrap();
+    let record = LaunchRecord {
+        segments: vec![
+            Segment::new(Origin::Template, &authored[..2]),
+            Segment::new(Origin::Local, &authored[2..]),
+        ],
+        expected: Expected {
+            local: LocalExpectation {
+                allow: AllowIntent::Listed(argv(&["git"])),
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Direct(argv(&["Bash(git log:*)"])),
+            },
+            hands: HandsIntent::None,
+            ..record.expected
+        },
+    };
+    (controls, record, composed)
 }
 
 /// The cold Claude command [`claude_final`] composes, as a literal.
@@ -6736,7 +6796,7 @@ const CLAUDE_COLD: [&str; 16] = [
 /// is another command its own check refuses.
 #[test]
 fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() {
-    let (controls, expected, composed) = claude_final();
+    let (controls, record, composed) = claude_final();
     let head = argv(&CLAUDE_COLD[..5]);
     let cold = [head, composed.extra.clone()].concat();
     assert_eq!(cold, argv(&CLAUDE_COLD));
@@ -6763,8 +6823,9 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
             command.to_vec(),
             &composed,
             &controls,
-            &expected,
+            &record,
             session,
+            None,
         )
     };
     let checked = check(&cold, None).unwrap();
@@ -6812,12 +6873,12 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
 /// supported spelling carries it.
 #[test]
 fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
-    let (controls, expected, composed) = claude_final();
+    let (controls, record, composed) = claude_final();
     let cold = argv(&CLAUDE_COLD);
     let edited = |edit: &dyn Fn(&mut Vec<String>)| {
         let mut command = cold.clone();
         edit(&mut command);
-        check_final("claude", command, &composed, &controls, &expected, None)
+        check_final("claude", command, &composed, &controls, &record, None, None)
     };
     let departed = |what: &str| {
         Err(final_refusal(
@@ -6900,23 +6961,19 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
         },
         ..controls
     };
-    let expected = Expected {
-        native: NativeExpectation::Known {
-            held: Vec::new(),
-            denied: argv(&["web-search", "web-fetch"]),
+    let record = sealed(
+        &[],
+        &CLAUDE_HANDS,
+        Expected {
+            native: NativeExpectation::Known {
+                held: Vec::new(),
+                denied: argv(&["web-search", "web-fetch"]),
+            },
+            template: TemplateExpectation::None,
+            ..record.expected
         },
-        template: TemplateExpectation::None,
-        ..expected
-    };
-    let fragment = argv(&[
-        "--tools",
-        "",
-        "--strict-mcp-config",
-        "--mcp-config",
-        "/w/hands.json",
-        "--allowedTools",
-        "mcp__brokkr__workspace",
-    ]);
+    );
+    let fragment = argv(&CLAUDE_HANDS);
     let composed = compose_for_provider("claude", &[], &fragment, &controls).unwrap();
     assert_eq!(
         composed.extra,
@@ -6927,7 +6984,7 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
         .concat()
     );
     let check = |command: Vec<String>| {
-        check_final("claude", command, &composed, &controls, &expected, None)
+        check_final("claude", command, &composed, &controls, &record, None, None)
     };
     let split = [argv(&["claude"]), composed.extra.clone()].concat();
     assert_eq!(check(split.clone()).unwrap().into_argv(), split);
@@ -6947,16 +7004,22 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
 /// harness with no grammar or a command with no program is not read.
 #[test]
 fn the_sealed_record_is_checked_independently_of_both_commands() {
-    let (controls, expected, composed) = claude_final();
+    let (controls, record, composed) = claude_final();
+    let expected = record.expected.clone();
     let cold = argv(&CLAUDE_COLD);
     let check =
         |command: &[String], composed: &Composed, controls: &Controls, expected: &Expected| {
+            let record = LaunchRecord {
+                segments: record.segments.clone(),
+                expected: expected.clone(),
+            };
             check_final(
                 "claude",
                 command.to_vec(),
                 composed,
                 controls,
-                expected,
+                &record,
+                None,
                 None,
             )
         };
@@ -6981,6 +7044,47 @@ fn the_sealed_record_is_checked_independently_of_both_commands() {
         }),
         refused("was planned for another harness or provider than its sealed record names")
     );
+    assert_eq!(
+        with(Expected {
+            identity: Identity {
+                harness: "lanetally".into(),
+                ..expected.identity.clone()
+            },
+            ..expected.clone()
+        }),
+        refused("was planned for another harness or provider than its sealed record names")
+    );
+    assert_eq!(
+        check(
+            &cold,
+            &composed,
+            &Controls {
+                harness: "lanetally".into(),
+                ..controls.clone()
+            },
+            &expected
+        ),
+        refused("was planned for another harness or provider than its sealed record names")
+    );
+    // The plan denies or admits otherwise than the record.
+    for other in [
+        Controls {
+            denied: Vec::new(),
+            ..controls.clone()
+        },
+        Controls {
+            admits: admits(&[("web-search", &["WebSearch", "WebFetch"])]),
+            ..controls.clone()
+        },
+    ] {
+        assert_eq!(
+            check(&cold, &composed, &other, &expected),
+            refused(
+                "was planned holding, denying or admitting other native powers than its sealed \
+                 record expects"
+            )
+        );
+    }
     assert_eq!(
         with(Expected {
             native: NativeExpectation::Unmeasured("not measured".into()),
@@ -7062,27 +7166,102 @@ fn the_sealed_record_is_checked_independently_of_both_commands() {
         check(&command, &templateless, &controls, &expected),
         refused("does not carry the permission template its sealed record declares, once")
     );
-    assert_eq!(
-        with(Expected {
-            local: LocalExpectation {
-                allow: AllowIntent::Listed(argv(&["Bash(git log:*)"])),
-                sandbox: SandboxIntent::Unspecified,
-                application: Application::Direct(argv(&["Bash(git log:*)"])),
-            },
-            ..expected.clone()
-        }),
-        refused("does not carry the local permission for tool 'Bash' its sealed record lowered")
-    );
-    // A lowered local permission the allow list carries is carried.
-    let lowered = Expected {
+    // A declared allow applies directly without hands and is dormant
+    // beside them; an unspecified one is unrestricted.
+    let contradicted = "is sealed with a local declaration its application contradicts: \
+                        unspecified is unrestricted, and a listed one applies directly without \
+                        hands and is dormant beside them";
+    for (allow, application) in [
+        (
+            AllowIntent::Listed(argv(&["git"])),
+            Application::Direct(argv(&["Bash(git log:*)"])),
+        ),
+        (AllowIntent::Unspecified, Application::Dormant),
+        (
+            AllowIntent::Listed(argv(&["git"])),
+            Application::Unrestricted,
+        ),
+    ] {
+        assert_eq!(
+            with(Expected {
+                local: LocalExpectation {
+                    allow,
+                    sandbox: SandboxIntent::Unspecified,
+                    application,
+                },
+                ..expected.clone()
+            }),
+            refused(contradicted)
+        );
+    }
+    let dormant = Expected {
         local: LocalExpectation {
-            allow: AllowIntent::Listed(argv(&["WebSearch"])),
+            allow: AllowIntent::Listed(argv(&["git"])),
             sandbox: SandboxIntent::Unspecified,
-            application: Application::Direct(argv(&["WebSearch"])),
+            application: Application::Dormant,
         },
         ..expected.clone()
     };
-    assert_eq!(with(lowered).unwrap().into_argv(), cold);
+    assert_eq!(with(dormant).unwrap().into_argv(), cold);
+    // Without hands, the lowered local permission is carried, or refused.
+    let (local, lowered, composed_local) = claude_local();
+    let local_cold = [argv(&["claude"]), composed_local.extra.clone()].concat();
+    assert_eq!(
+        local_cold,
+        argv(&[
+            "claude",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash(git log:*),WebSearch",
+            "--disallowedTools",
+            "WebFetch",
+        ])
+    );
+    let unlocal = |command: &[String], composed: &Composed| {
+        check_final(
+            "claude",
+            command.to_vec(),
+            composed,
+            &local,
+            &lowered,
+            None,
+            None,
+        )
+    };
+    assert_eq!(
+        unlocal(&local_cold, &composed_local).unwrap().into_argv(),
+        local_cold
+    );
+    let mut parts = local_cold[1..].to_vec();
+    parts[3] = "WebSearch".into();
+    let bare = Composed {
+        extra: parts.clone(),
+        managed: Vec::new(),
+    };
+    assert_eq!(
+        unlocal(&[argv(&["claude"]), parts].concat(), &bare),
+        refused("does not carry the local permission for tool 'Bash' its sealed record lowered")
+    );
+    assert_eq!(
+        check_final(
+            "claude",
+            local_cold.clone(),
+            &composed_local,
+            &local,
+            &LaunchRecord {
+                expected: Expected {
+                    hands: HandsIntent::Required,
+                    local: expected.local.clone(),
+                    ..lowered.expected.clone()
+                },
+                ..lowered.clone()
+            },
+            None,
+            None,
+        ),
+        refused("does not carry the hands its sealed record requires")
+    );
     assert_eq!(
         with(Expected {
             template: TemplateExpectation::Declared(argv(&["hello"])),
@@ -7116,7 +7295,15 @@ fn the_sealed_record_is_checked_independently_of_both_commands() {
         );
     }
     assert_eq!(
-        check_final("exec", cold.clone(), &composed, &controls, &expected, None),
+        check_final(
+            "exec",
+            cold.clone(),
+            &composed,
+            &controls,
+            &record,
+            None,
+            None
+        ),
         Err(final_refusal(
             "exec",
             "has no modelled grammar, so no capability state can be read from it"
@@ -7132,7 +7319,7 @@ fn the_sealed_record_is_checked_independently_of_both_commands() {
 /// web-search or denying it, with its measured OFF or without, its sealed
 /// record, and its composition, with `--image resume` among the seat's own
 /// arguments.
-fn codex_final(held: bool, off: bool) -> (Controls, Expected, Composed) {
+fn codex_final(held: bool, off: bool) -> (Controls, LaunchRecord, Composed) {
     let capability = argv(&["web-search"]);
     let (holds, denies) = match held {
         true => (capability, Vec::new()),
@@ -7195,7 +7382,53 @@ fn codex_final(held: bool, off: bool) -> (Controls, Expected, Composed) {
         hands: HandsIntent::None,
         template: TemplateExpectation::None,
     };
-    (controls, expected, composed)
+    let record = LaunchRecord {
+        segments: vec![Segment::new(
+            Origin::Local,
+            &argv(&["--sandbox", "read-only"]),
+        )],
+        expected,
+    };
+    (controls, record, composed)
+}
+
+/// The box's workspace hands as the Codex adapter composes them.
+const CODEX_HANDS: [&str; 8] = [
+    "--sandbox",
+    "read-only",
+    "-c",
+    "mcp_servers.brokkr.command=\"/bin/brokkr\"",
+    "-c",
+    "mcp_servers.brokkr.args=[\"hands\"]",
+    "-c",
+    "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+];
+
+/// [`codex_final`]'s denying plan at an agent-backed site under the box's
+/// `hands`, whose class the hands carry, its record and its composition.
+fn codex_hands(hands: &[&str]) -> (Controls, LaunchRecord, Composed) {
+    let (controls, record, _) = codex_final(false, true);
+    let controls = Controls {
+        provenance: typed(hands.len(), &[]),
+        ..controls
+    };
+    let authored = argv(&["--model", "gpt", "--image", "resume"]);
+    let composed = compose_for_provider("codex", &authored, &argv(hands), &controls).unwrap();
+    let record = LaunchRecord {
+        segments: vec![
+            Segment::new(Origin::Template, &authored),
+            Segment::new(Origin::Hands, &argv(hands)),
+        ],
+        expected: Expected {
+            local: LocalExpectation {
+                sandbox: SandboxIntent::Unspecified,
+                ..record.expected.local
+            },
+            hands: HandsIntent::Required,
+            ..record.expected
+        },
+    };
+    (controls, record, composed)
 }
 
 const CODEX_THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
@@ -7210,7 +7443,7 @@ const CODEX_THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
 /// another class than the record's and missing hands.
 #[test]
 fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
-    let (controls, expected, composed) = codex_final(false, true);
+    let (controls, record, composed) = codex_final(false, true);
     let cold = argv(&[
         "codex",
         "exec",
@@ -7252,8 +7485,9 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
             command.to_vec(),
             &composed,
             &controls,
-            &expected,
+            &record,
             session,
+            None,
         )
     };
     assert_eq!(check(&cold, None).unwrap().into_argv(), cold);
@@ -7301,82 +7535,480 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
         departed("the session it rejoins")
     );
 
-    let (controls, expected, composed) = codex_final(true, true);
+    let plan =
+        |record: &LaunchRecord, command: Vec<String>, composed: &Composed, controls: &Controls| {
+            check_final("codex", command, composed, controls, record, None, None)
+        };
+    let (controls, record, composed) = codex_final(true, true);
     assert_eq!(
-        check_final("codex", cold.clone(), &composed, &controls, &expected, None),
+        plan(&record, cold.clone(), &composed, &controls),
         refused("switches OFF native capability 'web-search', which its plan holds")
     );
-    let (controls, expected, composed) = codex_final(false, false);
+    let (controls, record, composed) = codex_final(false, false);
     assert_eq!(
-        check_final(
-            "codex",
-            cold[..13].to_vec(),
-            &composed,
-            &controls,
-            &expected,
-            None
-        ),
+        plan(&record, cold[..13].to_vec(), &composed, &controls),
         refused(
             "carries no measured OFF for native capability 'web-search', which its plan denies"
         )
     );
-    let (controls, expected, composed) = codex_final(false, true);
-    let other_class = Expected {
-        local: LocalExpectation {
-            sandbox: SandboxIntent::WorkspaceWrite,
-            ..expected.local.clone()
+    let (controls, record, composed) = codex_final(false, true);
+    let other_class = LaunchRecord {
+        expected: Expected {
+            local: LocalExpectation {
+                sandbox: SandboxIntent::WorkspaceWrite,
+                ..record.expected.local.clone()
+            },
+            ..record.expected.clone()
         },
-        ..expected.clone()
+        ..record.clone()
     };
     assert_eq!(
-        check_final(
-            "codex",
-            cold.clone(),
-            &composed,
-            &controls,
-            &other_class,
-            None
-        ),
+        plan(&other_class, cold.clone(), &composed, &controls),
         refused("does not carry the sandbox class its sealed record expects")
     );
-    let handed = Expected {
-        hands: HandsIntent::Required,
-        ..expected.clone()
+    let handed = LaunchRecord {
+        expected: Expected {
+            hands: HandsIntent::Required,
+            ..record.expected.clone()
+        },
+        ..record.clone()
     };
     assert_eq!(
-        check_final("codex", cold.clone(), &composed, &controls, &handed, None),
+        plan(&handed, cold.clone(), &composed, &controls),
         refused("does not carry the hands its sealed record requires")
     );
     // An assignment with no bounded meaning is not read as inert.
     let unclassified = [cold.clone(), argv(&["-c", "foo=bar"])].concat();
     assert_eq!(
-        check_final("codex", unclassified, &composed, &controls, &expected, None),
+        plan(&record, unclassified, &composed, &controls),
         refused(
             "cannot be read: it carries '--config' (argument 15), whose value assigns a key no \
              bounded meaning is modelled for, so it is refused rather than passed through as \
              opaque configuration"
         )
     );
-    // Hands are a server the command configures; with them the site's
-    // class rides the hands and is not the record's local class.
-    let server = argv(&["-c", "mcp_servers.brokkr.command=\"brokkr\""]);
-    let served = Composed {
-        extra: [composed.extra.clone(), server.clone()].concat(),
-        managed: composed.managed.clone(),
+}
+
+/// `extra` composed and served alike after `program`, so that only the
+/// sealed record can refuse it (rebuild unit 13, the review's F1-F3).
+fn alike(program: &[&str], extra: &[&str]) -> (Composed, Vec<String>) {
+    let composed = Composed {
+        extra: argv(extra),
+        managed: Vec::new(),
     };
-    let command = [cold[..13].to_vec(), server, cold[13..].to_vec()].concat();
-    let handed = Expected {
-        local: LocalExpectation {
-            sandbox: SandboxIntent::WorkspaceWrite,
-            ..handed.local.clone()
-        },
-        ..handed
+    (composed, [argv(program), argv(extra)].concat())
+}
+
+/// NCC "Managed effects and expected state remain independent" and NCT
+/// (rebuild unit 13, review F2 and F3): a Claude composition and command
+/// that are wrong ALIKE still refuse, because the authority is derived
+/// from the sealed record. An included or allowed tool nothing holds, a
+/// wider local permission beside the lowered one, a denial nothing denies,
+/// a template's lists dropped, an include list nothing writes, a server
+/// without hands, and hands that are missing, unallowed, denied by name or
+/// by server, or sealed as something other than the workspace hands, each
+/// refuse exactly.
+#[test]
+fn a_claude_command_wrong_alike_with_its_composition_still_refuses() {
+    let (controls, record, _) = claude_final();
+    let refused = |problem: &str| Err(final_refusal("claude", problem));
+    let check = |extra: &[&str], controls: &Controls, record: &LaunchRecord| {
+        let (composed, command) = alike(&["claude"], extra);
+        check_final("claude", command, &composed, controls, record, None, None)
+    };
+    let cold = &CLAUDE_COLD[1..];
+    assert_eq!(
+        check(cold, &controls, &record).map(|c| c.into_argv().len()),
+        Ok(16)
+    );
+    let with = |at: usize, value: &str| {
+        let mut parts = cold.to_vec();
+        parts[at] = value;
+        check(&parts, &controls, &record)
     };
     assert_eq!(
-        check_final("codex", command.clone(), &served, &controls, &handed, None)
-            .unwrap()
-            .into_argv(),
-        command
+        with(7, "WebSearch,Read"),
+        refused("includes tool 'Read', which its sealed record does not hold")
+    );
+    assert_eq!(
+        with(12, "mcp__brokkr__workspace,WebSearch,Read"),
+        refused(
+            "allows tool 'Read' beyond its sealed holdings, its hands and its lowered local \
+             permissions"
+        )
+    );
+    assert_eq!(
+        with(14, "WebFetch,Bash"),
+        refused("denies tool 'Bash', which neither its sealed record nor its plan denies")
+    );
+    // The hands: missing their document, unallowed, denied by name or by
+    // server.
+    let mut parts = cold.to_vec();
+    parts.drain(9..11);
+    assert_eq!(
+        check(&parts, &controls, &record),
+        refused("does not carry the hands its sealed record requires")
+    );
+    for (at, value) in [
+        (12, "WebSearch"),
+        (14, "WebFetch,mcp__brokkr__workspace"),
+        (14, "WebFetch,mcp__brokkr"),
+    ] {
+        assert_eq!(
+            with(at, value),
+            refused("does not carry the hands its sealed record requires"),
+            "{value}"
+        );
+    }
+    // Hands sealed as anything but the workspace hands are not hands.
+    for hands in [
+        ["--tools", "Read"].as_slice(),
+        &[
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--allowedTools",
+            "mcp__brokkr__workspace",
+        ],
+        &[
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "/w/hands.json",
+            "--allowedTools",
+            "mcp__brokkr__workspace,Read",
+        ],
+    ] {
+        let unhanded = sealed(
+            &["--permission-mode", "acceptEdits"],
+            hands,
+            record.expected.clone(),
+        );
+        assert_eq!(
+            check(
+                cold,
+                &Controls {
+                    provenance: typed(hands.len(), &[]),
+                    ..controls.clone()
+                },
+                &unhanded
+            ),
+            refused("is sealed with hands that are not the engine's workspace hands"),
+            "{hands:?}"
+        );
+    }
+    let (local, lowered, composed) = claude_local();
+    let unboxed: Vec<&str> = composed.extra.iter().map(String::as_str).collect();
+    assert_eq!(
+        check(&unboxed, &local, &lowered).map(|c| c.into_argv().len()),
+        Ok(7)
+    );
+    let widened = |parts: &[&str]| check(parts, &local, &lowered);
+    assert_eq!(
+        widened(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash(git log:*),Bash(*),WebSearch",
+            "--disallowedTools",
+            "WebFetch",
+        ]),
+        refused(
+            "allows tool 'Bash' beyond its sealed holdings, its hands and its lowered local \
+             permissions"
+        )
+    );
+    assert_eq!(
+        widened(&[&unboxed[..], &["--tools", "WebSearch"]].concat()),
+        refused("carries an include list that nothing its sealed record composed writes")
+    );
+    assert_eq!(
+        widened(&[&unboxed[..], &["--mcp-config", "/x.json"]].concat()),
+        refused(
+            "carries '--mcp-config', a capability-bearing effect its sealed record does not \
+             account for: only its permission template, its hands, its boundary and a measured \
+             OFF for a power its plan answers for may carry one"
+        )
+    );
+    assert_eq!(
+        check(
+            &[&unboxed[..], &["--tools", "WebSearch"]].concat(),
+            &Controls {
+                argv: argv(&["--tools", "WebSearch"]),
+                ..local.clone()
+            },
+            &lowered
+        )
+        .map(|c| c.into_argv().len()),
+        Ok(9)
+    );
+    // A template's lists are carried: its include list, its allow list and
+    // its deny list, each dropped from both commands alike.
+    let templated = |template: &[&str]| LaunchRecord {
+        segments: vec![
+            Segment::new(Origin::Template, &argv(template)),
+            Segment::new(Origin::Local, &argv(&["--allowedTools", "Bash(git log:*)"])),
+        ],
+        expected: Expected {
+            template: TemplateExpectation::Declared(argv(template)),
+            ..lowered.expected.clone()
+        },
+    };
+    let bare = [
+        "--allowedTools",
+        "Bash(git log:*),WebSearch",
+        "--disallowedTools",
+        "WebFetch",
+    ];
+    assert_eq!(
+        check(&bare, &local, &templated(&["--tools", ""])),
+        refused("carries no include list, which its sealed hands or limits write")
+    );
+    let template = "does not carry the permission template its sealed record declares, once";
+    assert_eq!(
+        check(
+            &bare,
+            &local,
+            &templated(&["--disallowedTools", "WebFetch,Bash"])
+        ),
+        refused(template)
+    );
+    assert_eq!(
+        check(
+            &bare,
+            &local,
+            &templated(&["--allowedTools", "WebSearch,Bash(git log:*)"])
+        )
+        .map(|c| c.into_argv().len()),
+        Ok(5)
+    );
+    assert_eq!(
+        check(
+            &["--disallowedTools", "WebFetch"],
+            &local,
+            &templated(&["--allowedTools", "WebSearch"])
+        ),
+        refused(template)
+    );
+}
+
+/// NCC "Codex managed argv has no unchecked path", NC2 and NCR (rebuild
+/// unit 13, review F1 and F3): a Codex composition and command wrong ALIKE
+/// still refuse. A web-search value contradicting the measured OFF, a
+/// search or sandbox-bypass switch, an OFF for a power the plan never
+/// answered for, an unrelated or disabled server, required hands that are
+/// not the engine's own server, another class than the hands', and a
+/// boundary's effect dropped each refuse exactly; the workspace hands, and
+/// an agent site's boundary class, check.
+#[test]
+fn a_codex_command_wrong_alike_with_its_composition_still_refuses() {
+    let (controls, record, _) = codex_final(false, true);
+    let refused = |problem: &str| Err(final_refusal("codex", problem));
+    let unaccounted = |effect: &str| {
+        refused(&format!(
+            "carries {effect}, a capability-bearing effect its sealed record does not account \
+             for: only its permission template, its hands, its boundary and a measured OFF for a \
+             power its plan answers for may carry one"
+        ))
+    };
+    let lead = ["codex", "exec", "--json", "-C", "/w"];
+    let check = |extra: &[&str], controls: &Controls, record: &LaunchRecord| {
+        let (composed, command) = alike(&lead, extra);
+        check_final("codex", command, &composed, controls, record, None, None)
+    };
+    let off = ["--sandbox", "read-only", "-c", "web_search=\"disabled\""];
+    assert_eq!(
+        check(&off, &controls, &record).map(|c| c.into_argv().len()),
+        Ok(9)
+    );
+    for (extra, effect) in [
+        (
+            &["-c", "web_search=\"live\""][..],
+            "'--config' into the 'web_search' configuration",
+        ),
+        (&["--search"][..], "'--search'"),
+        (
+            &["--dangerously-bypass-approvals-and-sandbox"][..],
+            "'--dangerously-bypass-approvals-and-sandbox'",
+        ),
+        (
+            &["-c", "mcp_servers.unrelated.enabled=false"][..],
+            "'--config' into the 'mcp_servers' configuration",
+        ),
+    ] {
+        assert_eq!(
+            check(&[&off[..], extra].concat(), &controls, &record),
+            unaccounted(effect),
+            "{extra:?}"
+        );
+    }
+    // An OFF for a power the plan never answered for accounts for nothing.
+    let unanswered = Controls {
+        denied: Vec::new(),
+        ..controls.clone()
+    };
+    let silent = LaunchRecord {
+        expected: Expected {
+            native: NativeExpectation::Known {
+                held: Vec::new(),
+                denied: Vec::new(),
+            },
+            ..record.expected.clone()
+        },
+        ..record.clone()
+    };
+    assert_eq!(
+        check(&off, &unanswered, &silent),
+        unaccounted("'--config' into the 'web_search' configuration")
+    );
+
+    // The box's hands carry the class and the engine's own server.
+    let (handed, hands, composed) = codex_hands(&CODEX_HANDS);
+    let served: Vec<&str> = composed.extra.iter().map(String::as_str).collect();
+    let cold = [&served[..], &off[2..]].concat();
+    assert_eq!(
+        check(&cold, &handed, &hands).map(|c| c.into_argv().len()),
+        Ok(19)
+    );
+    let rejoin: Vec<String> = [
+        argv(&[
+            "codex",
+            "exec",
+            "resume",
+            "--json",
+            "-c",
+            "sandbox_mode=\"read-only\"",
+        ]),
+        argv(&cold[..4]),
+        argv(&cold[6..]),
+        argv(&[CODEX_THREAD, "-"]),
+    ]
+    .concat();
+    let (rejoined, _) = alike(&[], &cold);
+    assert_eq!(
+        check_final(
+            "codex",
+            rejoin.clone(),
+            &rejoined,
+            &handed,
+            &hands,
+            Some(CODEX_THREAD),
+            None
+        )
+        .map(|c| c.into_argv()),
+        Ok(rejoin)
+    );
+    assert_eq!(
+        check(
+            &[&cold[..], &["-c", "mcp_servers.brokkr.enabled=false"]].concat(),
+            &handed,
+            &hands
+        ),
+        unaccounted("'--config' into the 'mcp_servers' configuration")
+    );
+    let mut dropped = cold.clone();
+    dropped.drain(10..12);
+    assert_eq!(
+        check(&dropped, &handed, &hands),
+        refused("does not carry the hands its sealed record requires")
+    );
+    let mut widened = cold.clone();
+    widened[5] = "danger-full-access";
+    assert_eq!(
+        check(&widened, &handed, &hands),
+        refused("does not carry the sandbox class its sealed record expects")
+    );
+    let substitutes = [
+        "mcp_servers.evil.command=\"/bin/brokkr\"",
+        "mcp_servers.brokkr.default_tools_approval_mode=\"prompt\"",
+        "mcp_servers.brokkr.enabled=false",
+    ];
+    for (at, substitute) in [
+        (3, substitutes[0]),
+        (7, substitutes[1]),
+        (5, substitutes[2]),
+    ] {
+        let mut hands = CODEX_HANDS;
+        hands[at] = substitute;
+        let (handed, record, _) = codex_hands(&hands);
+        assert_eq!(
+            check(&cold, &handed, &record),
+            refused("is sealed with hands that are not the engine's workspace hands"),
+            "{substitute}"
+        );
+    }
+    let (handed, record, _) = codex_hands(&CODEX_HANDS[2..]);
+    assert_eq!(
+        check(&cold[..4], &handed, &record),
+        refused("is sealed with hands that are not the engine's workspace hands")
+    );
+
+    // An agent site's boundary gives the class where the site declares
+    // none, and whatever it composed is carried.
+    let boundary = |fragment: &[&str]| LaunchRecord {
+        segments: vec![Segment::new(Origin::Hands, &argv(fragment))],
+        expected: Expected {
+            local: LocalExpectation {
+                sandbox: SandboxIntent::Unspecified,
+                ..record.expected.local.clone()
+            },
+            hands: HandsIntent::None,
+            ..record.expected.clone()
+        },
+    };
+    let work = ["--sandbox", "workspace-write"];
+    let (unhanded, _, _) = codex_final(false, true);
+    assert_eq!(
+        check(
+            &[&work[..], &off[2..]].concat(),
+            &unhanded,
+            &boundary(&work)
+        )
+        .map(|c| c.into_argv().len()),
+        Ok(9)
+    );
+    assert_eq!(
+        check(&off, &unhanded, &boundary(&work)),
+        refused("does not carry the sandbox class its sealed record expects")
+    );
+    assert_eq!(
+        check(
+            &off,
+            &unhanded,
+            &boundary(&["--sandbox", "read-only", "--ask-for-approval", "never"])
+        ),
+        refused("does not carry the boundary its sealed record composed")
+    );
+    // The record's own parts are read, or refused.
+    assert_eq!(
+        check(&off, &unhanded, &boundary(&["--bogus"])),
+        refused("is sealed with a boundary that cannot be read")
+    );
+    assert_eq!(
+        check(
+            &off,
+            &Controls {
+                provenance: typed(3, &[]),
+                ..unhanded.clone()
+            },
+            &boundary(&["--json"])
+        ),
+        refused(
+            "was planned typing more of its boundary as the box's hands than its sealed record \
+             carries"
+        )
+    );
+    assert_eq!(
+        check(
+            &[&work[..], &off[2..]].concat(),
+            &Controls {
+                provenance: typed(2, &[]),
+                ..unhanded.clone()
+            },
+            &boundary(&work)
+        ),
+        refused("was planned with hands its sealed record does not require")
     );
 }
 
@@ -7406,27 +8038,61 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
         hands: HandsIntent::None,
         template: TemplateExpectation::None,
     };
+    // The driver's input, whose model, effort and route ride the overlay.
     let composed = Composed {
-        extra: argv(&["--model", "m", "--effort", "high"]),
+        extra: argv(&[
+            "--model",
+            "m",
+            "--effort",
+            "high",
+            "--patch",
+            "/r/route.yml",
+        ]),
         managed: Vec::new(),
     };
-    let command = argv(&["dsh", "--model", "m", "--effort", "high"]);
-    let check = |native| {
+    let overlay = "/t/brokkr-dsh-seat-1.yml";
+    let cold = argv(&["dsh", "--profile", "headless", "--patch", overlay]);
+    let rejoin = [
+        cold.clone(),
+        argv(&["--output-format", "stream-json", "--session", "session-1"]),
+    ]
+    .concat();
+    let unmeasured = NativeExpectation::Unmeasured("not measured".into());
+    let check = |command: &[String],
+                 native: NativeExpectation,
+                 session: Option<&str>,
+                 staged: Option<&str>| {
         check_final(
             "dsh",
-            command.clone(),
+            command.to_vec(),
             &composed,
             &controls,
-            &expected(native),
-            None,
+            &LaunchRecord {
+                segments: Vec::new(),
+                expected: expected(native),
+            },
+            session,
+            staged,
         )
     };
     assert_eq!(
-        check(NativeExpectation::Unmeasured("not measured".into()))
+        check(&cold, unmeasured.clone(), None, Some(overlay))
             .unwrap()
             .into_argv(),
-        command
+        cold
     );
+    assert_eq!(
+        check(
+            &rejoin,
+            unmeasured.clone(),
+            Some("session-1"),
+            Some(overlay)
+        )
+        .unwrap()
+        .into_argv(),
+        rejoin
+    );
+    let refused = |problem: &str| Err(final_refusal("dsh", problem));
     for native in [
         NativeExpectation::Unmeasured("other".into()),
         NativeExpectation::Known {
@@ -7435,11 +8101,186 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
         },
     ] {
         assert_eq!(
-            check(native),
-            Err(final_refusal(
+            check(&cold, native, None, Some(overlay)),
+            refused("was planned under another native inventory than its sealed record expects")
+        );
+    }
+    // Exactly the one overlay the driver staged, and the session it chose.
+    let restaged = "does not patch its profile with exactly the one overlay its driver staged";
+    assert_eq!(
+        check(&cold, unmeasured.clone(), None, Some("/t/other.yml")),
+        refused(restaged)
+    );
+    assert_eq!(
+        check(&cold, unmeasured.clone(), None, None),
+        refused(restaged)
+    );
+    assert_eq!(
+        check(&rejoin, unmeasured.clone(), None, Some(overlay)),
+        refused(
+            "expresses the session it rejoins otherwise than the plan composed it: missing, extra \
+             and contradictory state are refused alike"
+        )
+    );
+    // The driver-input grammar is not the serving one.
+    assert_eq!(
+        check(
+            &argv(&["dsh", "--model", "m", "--effort", "high"]),
+            unmeasured.clone(),
+            None,
+            Some(overlay)
+        ),
+        refused(
+            "cannot be read whole (argument 1, a positional argument, whose text is not echoed: \
+             it stands where the '--profile headless --patch' lead a dsh serving command opens \
+             with belongs)"
+        )
+    );
+    // No hands are the engine's workspace hands at dsh.
+    let handed = check_final(
+        "dsh",
+        cold.clone(),
+        &composed,
+        &Controls {
+            provenance: typed(2, &[]),
+            ..controls.clone()
+        },
+        &LaunchRecord {
+            segments: vec![Segment::new(Origin::Hands, &argv(&["--effort", "high"]))],
+            expected: Expected {
+                hands: HandsIntent::Required,
+                ..expected(unmeasured.clone())
+            },
+        },
+        None,
+        Some(overlay),
+    );
+    assert_eq!(
+        handed,
+        refused("is sealed with hands that are not the engine's workspace hands")
+    );
+    // Another harness patches nothing.
+    let (claude, record, composed) = claude_final();
+    assert_eq!(
+        check_final(
+            "claude",
+            argv(&CLAUDE_COLD),
+            &composed,
+            &claude,
+            &record,
+            None,
+            Some(overlay)
+        ),
+        Err(final_refusal("claude", restaged))
+    );
+}
+
+/// DSH's serving command at its fixed positions (rebuild unit 13; design
+/// D6): the lead, the one overlay path, and nothing or the stream output
+/// with `--new` or a plain `--session`; every other part refuses at its
+/// position under the positional label. The driver's input keeps only the
+/// separate `--model` and `--patch` spellings its extraction admits.
+#[test]
+fn a_dsh_serving_command_parses_only_at_its_fixed_positions() {
+    let placed = |parts: &[&str]| {
+        grammar::parse_final("dsh", &argv(parts))
+            .expect("a modelled harness")
+            .map(|parsed| (parsed.overlay, parsed.session, parsed.command.nodes.len()))
+            .map_err(|problem| problem.to_string())
+    };
+    let lead = ["--profile", "headless", "--patch", "/o.yml"];
+    assert_eq!(placed(&lead), Ok((Some("/o.yml".into()), None, 0)));
+    assert_eq!(
+        placed(&[&lead[..], &["--output-format", "stream-json", "--new"]].concat()),
+        Ok((Some("/o.yml".into()), None, 0))
+    );
+    assert_eq!(
+        placed(
+            &[
+                &lead[..],
+                &["--output-format", "stream-json", "--session", "session-1"]
+            ]
+            .concat()
+        ),
+        Ok((Some("/o.yml".into()), Some("session-1".into()), 0))
+    );
+    let positional = "a positional argument, whose text is not echoed";
+    let opening = "stands where the '--profile headless --patch' lead a dsh serving command opens \
+                   with belongs";
+    let tail = "stands after the overlay, where only '--output-format stream-json' belongs";
+    let ending = "stands where '--new', or '--session' and a plain session identifier of ASCII \
+                  letters, digits and dashes, ends a dsh serving command";
+    for (parts, at, cause) in [
+        (&["--model", "m"][..], 1, opening),
+        (&["--profile", "work", "--patch", "/o.yml"][..], 2, opening),
+        (&["--profile", "headless", "--model", "m"][..], 3, opening),
+        (
+            &["--profile", "headless", "--patch"][..],
+            4,
+            "stands where the path of the one staged overlay belongs, and is none",
+        ),
+        (
+            &["--profile", "headless", "--patch", "--new"][..],
+            4,
+            "stands where the path of the one staged overlay belongs, and is none",
+        ),
+        (
+            &["--profile", "headless", "--patch", ""][..],
+            4,
+            "stands where the path of the one staged overlay belongs, and is none",
+        ),
+        (&[&lead[..], &["--new"]].concat()[..], 5, tail),
+        (
+            &[&lead[..], &["--output-format", "json", "--new"]].concat()[..],
+            6,
+            tail,
+        ),
+        (
+            &[&lead[..], &["--output-format", "stream-json"]].concat()[..],
+            7,
+            ending,
+        ),
+        (
+            &[&lead[..], &["--output-format", "stream-json", "--resume"]].concat()[..],
+            7,
+            ending,
+        ),
+        (
+            &[
+                &lead[..],
+                &["--output-format", "stream-json", "--session", "--new"],
+            ]
+            .concat()[..],
+            7,
+            ending,
+        ),
+        (
+            &[
+                &lead[..],
+                &["--output-format", "stream-json", "--new", "--verbose"],
+            ]
+            .concat()[..],
+            7,
+            ending,
+        ),
+    ] {
+        assert_eq!(
+            placed(parts),
+            Err(grammar_problem("dsh", at, positional, cause)),
+            "{parts:?}"
+        );
+    }
+    // The driver's input: the separate spellings alone.
+    for joined in [&["--model=m"][..], &["--patch=/r.yml"][..]] {
+        assert_eq!(
+            problem_of("dsh", &argv(joined)),
+            grammar_problem(
                 "dsh",
-                "was planned under another native inventory than its sealed record expects"
-            ))
+                1,
+                &format!("'{}'", &joined[0][..7]),
+                "names no option, or names one that has no equals-joined spelling"
+            ),
+            "{joined:?}"
         );
     }
 }

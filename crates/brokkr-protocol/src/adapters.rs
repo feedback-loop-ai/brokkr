@@ -5305,7 +5305,20 @@ fn parse_dsh_model(pinned: &str) -> Result<DshModel<'_>, String> {
 /// every provider shares — and this driver is where `--model <id>`
 /// becomes the overlay dsh actually reads. Everything after `--` that
 /// is not that pair passes through to the launcher unchanged.
+///
+/// Where the argv parses under the dsh grammar the model is its one
+/// `--model` node, read from the grammar's parse (rebuild unit 13); the
+/// grammar admits the same separate spelling alone, so both readings agree
+/// on every argv both accept.
 fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), String> {
+    if let Some(command) = placed("dsh", extra) {
+        return dsh_placed(
+            extra,
+            &command,
+            "--model",
+            "dsh driver: --model needs a model id after it",
+        );
+    }
     let mut model = None;
     let mut passthrough = Vec::with_capacity(extra.len());
     let mut parts = extra.iter();
@@ -5380,7 +5393,17 @@ fn dsh_input_boundaries(extra: &[String]) -> Result<(), String> {
 /// shape; a second `--patch`, a bare `--patch` and any other `--patch…`
 /// spelling are refused by arity before staging, never forwarded and never
 /// dropped to make the launch admissible (AS3; design D6 mechanism 1).
+/// Where the argv parses under the dsh grammar the overlay is its one
+/// `--patch` node, as [`split_dsh_model`] reads the model (rebuild unit 13).
 fn split_dsh_patch(extra: &[String]) -> Result<(Option<String>, Vec<String>), String> {
+    if let Some(command) = placed("dsh", extra) {
+        return dsh_placed(
+            extra,
+            &command,
+            "--patch",
+            "dsh driver: --patch needs an overlay path after it",
+        );
+    }
     let mut route = None;
     let mut passthrough = Vec::with_capacity(extra.len());
     let mut parts = extra.iter();
@@ -5410,6 +5433,30 @@ fn split_dsh_patch(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
         }
     }
     Ok((route, passthrough))
+}
+
+/// The value of the one dsh option `name` in a parsed argv, and the parts
+/// that pass through, which are every part the option did not occupy
+/// (rebuild unit 13). The grammar places the option once, in its separate
+/// spelling, with a value that does not read as an option; an empty value
+/// is refused as the splitter always refused it.
+fn dsh_placed(
+    extra: &[String],
+    command: &crate::native_controls::grammar::Command,
+    name: &str,
+    refusal: &str,
+) -> Result<(Option<String>, Vec<String>), String> {
+    let node = command.nodes.iter().find(|node| node.name() == name);
+    let taken = node.map_or(0..0, |node| node.at..node.at + node.tokens);
+    let value = node.map(|node| node.values[0].clone());
+    if value.as_deref() == Some("") {
+        return Err(refusal.to_string());
+    }
+    let passthrough = (0..extra.len())
+        .filter(|at| !taken.contains(at))
+        .map(|at| extra[at].clone())
+        .collect();
+    Ok((value, passthrough))
 }
 
 /// The pinned-model row of the seat overlay, in the loader-patch

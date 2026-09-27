@@ -2056,8 +2056,40 @@ based on `67571c3b`; evidence.md, "Unit 13"):
   --no-fail-fast`: exit 0, 77 `ok` summaries. `bundles/self` and
   `bundles/verify` both compile.
 - Fixture migrations and standing-admission lines: none.
-- **Follow-ups.** The composer's `node_patterns` readers, `bundle.rs`'s
-  `config_key` and the DSH-specific splitters are unchanged (evidence.md).
+- **Follow-ups.** The composer's `node_patterns` readers and `bundle.rs`'s
+  `config_key` are unchanged (evidence.md).
+- **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
+  box, macOS, remote CI and the council.
+
+Unit 13 review return (2026-09-27, same run, reviewed `67571c3b..202adc7f`;
+evidence.md, "Review return"):
+
+- **F1–F3.** `check_final` now takes the sealed `LaunchRecord` and derives
+  the whole authority from it (`authority`): every capability-bearing
+  option is accounted for once by the template, the typed hands, the
+  boundary or a measured Codex OFF for a power the plan answers for;
+  Claude's include, allow and deny lists are exact against the holdings,
+  the hands tool and the lowered limits; `AllowIntent` and `Application`
+  must agree; required hands must be the engine's workspace hands, carried
+  whole, allowed and undenied; Codex runs the hands', site's or boundary's
+  class. Baseline reds B1–B8 on `202adc7f`.
+- **F4.** `parse_final("dsh")` reads the real serving command at fixed
+  positions, and `check_final` binds its one staged overlay (B9).
+- **F5.** `split_dsh_model` and `split_dsh_patch` read the grammar's nodes
+  where the argv parses; the DSH grammar admits only their separate
+  spellings (B10).
+- **F6.** M17 binds the DSH inventory test at `:8103`. **F7.** The shim
+  fixture uses one canonicalised root; its removal control does not
+  discriminate on this host (evidence.md). **F8** asks nothing of the
+  code.
+- **Proof.** M1–M23 each compiled, were caught and restored. Four existing
+  grammar assertions moved with F5's intended change; the unit's own
+  record-based fixtures replaced the `Expected`-only ones.
+- **Gates.** fmt, `git diff --check`, clippy `-D warnings`: clean.
+  Protocol: 513 + 99 + 1 passed. Workspace `--all-features --locked`: 77
+  `ok` summaries. Both bundles compile. Strict OpenSpec 18/18. The
+  protocol coverage diagnostic leaves no unhit record in the changed code.
+- Fixture migrations and standing-admission lines: none.
 - **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
   box, macOS, remote CI and the council.
 
