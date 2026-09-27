@@ -46,8 +46,8 @@ failure that leaves the version visible, never evidence that the binary
 is missing.
 
 Resolving the seam once means resolving it the way the child would —
-the platform's rule and nothing else. On Unix a program is a path if and
-only if it contains `/`; a backslash, a drive-like spelling, an extension
+the platform's rule and nothing else. On Linux and macOS, the supported
+hosts (decision 0063), a program is a path if and only if it contains `/`; a backslash, a drive-like spelling, an extension
 or a space is an ordinary filename byte, so an override spelled
 `C:\Tools\dsh.exe` is a NAME searched on `PATH`, never a file in the
 working directory. A bare name is searched along `PATH` under the
@@ -58,8 +58,7 @@ cannot pair B's version with A's digest. With no `PATH` in the
 environment at all, the C library's own default search path is consulted,
 exactly as `execvp` does: a name that sits there is selected, a name that
 does not is reported as missing from that default search, and the
-working directory is never searched. On Windows the search is the one
-the standard library's `Command` runs. The line then names the FILE the
+working directory is never searched. The line then names the FILE the
 search chose, not the word that was looked up; a name that resolves to
 nothing keeps its declared spelling, so a missing provider still reports
 what was looked for.

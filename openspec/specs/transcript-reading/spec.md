@@ -1710,7 +1710,7 @@ accept no error, no injected error reaches the platform code that classifies
 absence, unsafety or a file type. The seam
 SHALL NOT give the reader a handle, path, name, file type or identity value.
 It SHALL NOT change the canonical root, the handle-relative opening, the
-no-follow and non-blocking flags, or the regular-file and reparse checks that
+no-follow and non-blocking flags, or the regular-file checks that
 any real operation applies. Absence, replacement and a changed identity SHALL
 come only from real filesystem changes that the production code then observes.
 
@@ -1722,10 +1722,10 @@ error. That covers the release binary, packages and integration-test builds.
 A scripted plan SHALL be visible only to the thread that installed it and
 SHALL end with the test that installed it. An entry that never fires SHALL
 fail that test. No entry SHALL be disarmed, and no test SHALL be exempted from
-that check. The unix and Windows implementations SHALL share the seam
-through the platform-independent helper, and each SHALL carry the point
-between its directory and file attempts. No pathname fallback implementation
-exists to carry it.
+that check. The one implementation, for Linux and macOS (decision 0063),
+SHALL reach the seam through the platform-independent helper and SHALL
+carry the point between its directory and file attempts. No pathname
+fallback implementation exists to carry it.
 
 The unchanged exact-coverage gate SHALL count the seam's own code. A handling
 arm that no ordinary input, real change or scripted I/O error can reach SHALL
@@ -1800,3 +1800,4 @@ thresholds, or edits to `scripts/coverage-exact.sh`.
 - `2026-09-13-dsh-session-v3` — folded 2026-09-14
 - `2026-09-14-admit-dsh-session-v3` — folded 2026-09-14
 - `2026-09-27-352-browser-reads-by-participant` — folded 2026-09-27
+- `2026-09-27-356-windows-is-not-a-host` — folded 2026-09-27

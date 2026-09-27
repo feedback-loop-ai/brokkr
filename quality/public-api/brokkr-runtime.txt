@@ -522,7 +522,6 @@ pub brokkr_runtime::engine::FencedCommand::reason: &'a str
 pub struct brokkr_runtime::engine::SiteSpawn
 pub brokkr_runtime::engine::SiteSpawn::argv: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::engine::SiteSpawn::env: brokkr_protocol::process::SpawnEnv
-pub brokkr_runtime::engine::SiteSpawn::refusal: core::option::Option<alloc::string::String>
 pub brokkr_runtime::engine::SiteSpawn::rewalk: core::option::Option<std::path::PathBuf>
 impl brokkr_runtime::engine::SiteSpawn
 pub fn brokkr_runtime::engine::SiteSpawn::inherit(alloc::vec::Vec<alloc::string::String>) -> brokkr_runtime::engine::SiteSpawn

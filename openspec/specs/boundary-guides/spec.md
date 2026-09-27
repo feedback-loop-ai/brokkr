@@ -6,7 +6,9 @@ what each word means, the platform paragraph stops saying Linux only,
 the readouts' unboxed rendering is documented, and the decision carries
 its one-line erratum. Reference sections are updated, never removed
 (decision 0046 rulings 1 to 5 and consequences; the commission's
-erratum).
+erratum). Where a requirement below names a Windows realm, it is
+historical: the hosts are Linux and macOS (decision 0063), and the
+quickstart names WSL2 as the Windows operator's Linux.
 
 ## Requirements
 

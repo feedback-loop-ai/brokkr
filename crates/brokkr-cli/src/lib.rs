@@ -923,18 +923,11 @@ fn dsh_sandbox_runner(args: Vec<String>) -> ExitCode {
     }
 }
 
-#[cfg(unix)]
 fn exec_bwrap(argv: &[String], signature: &str) -> ExitCode {
     use std::os::unix::process::CommandExt;
     let (program, rest) = (&argv[0], &argv[1..]);
     let error = std::process::Command::new(program).args(rest).exec();
     eprintln!("{signature}{error}");
-    ExitCode::from(127)
-}
-
-#[cfg(not(unix))]
-fn exec_bwrap(_argv: &[String], signature: &str) -> ExitCode {
-    eprintln!("{signature}the dsh sandbox runner is Linux-only");
     ExitCode::from(127)
 }
 

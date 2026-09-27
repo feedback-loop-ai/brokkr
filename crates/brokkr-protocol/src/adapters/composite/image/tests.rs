@@ -208,14 +208,9 @@ fn this_test_binary_is_this_targets_native_image() {
     assert_eq!(native.kind, NATIVE);
     assert_eq!(native.kind.to_string(), NATIVE.to_string());
     // A Rust test binary is dynamically linked on Linux and macOS, and
-    // its loader is a real absolute path; a PE names none.
-    match NATIVE {
-        Kind::Pe => assert_eq!(native.loader, None),
-        Kind::Elf | Kind::MachO => {
-            let loader = native.loader.expect("a dynamic image names its loader");
-            assert_eq!(loader[0], b'/', "{}", String::from_utf8_lossy(&loader));
-        }
-    }
+    // its loader is a real absolute path.
+    let loader = native.loader.expect("a dynamic image names its loader");
+    assert_eq!(loader[0], b'/', "{}", String::from_utf8_lossy(&loader));
 }
 
 #[test]
@@ -513,6 +508,13 @@ fn segment() -> Vec<u8> {
 const MH_EXECUTE: u32 = 2;
 const MH_DYLINKER: u32 = 7;
 
+/// A well-formed Mach-O executable of this target's CPU type with no
+/// load commands, for the parent module's tests that plant another
+/// format's image as a loader, and never execute it.
+pub(in crate::adapters::composite) fn synthetic_macho() -> Vec<u8> {
+    macho(ARCH.macho, MH_EXECUTE, &[])
+}
+
 #[test]
 fn a_macho_declares_its_dynamic_linker_or_is_one() {
     let executable = macho(
@@ -759,233 +761,6 @@ fn a_universal_image_is_read_at_this_targets_slice() {
     }
 }
 
-/// A PE image: a DOS stub pointing at 64, the signature, a COFF header
-/// naming `sections` sections, an optional header of `magic` and
-/// `subsystem` whose declared header size ends the section table, then
-/// the section table itself — every section's raw data the 16 bytes
-/// after the headers — and those 16 bytes.
-fn pe_image_with(
-    machine: u16,
-    characteristics: u16,
-    magic: u16,
-    subsystem: u16,
-    sections: u16,
-) -> Vec<u8> {
-    let mut bytes = vec![b'M', b'Z'];
-    bytes.resize(60, 0);
-    le32(&mut bytes, 64);
-    bytes.extend_from_slice(b"PE\0\0");
-    le16(&mut bytes, machine);
-    le16(&mut bytes, sections);
-    le32(&mut bytes, 0);
-    le32(&mut bytes, 0);
-    le32(&mut bytes, 0);
-    let optional_size: u16 = if magic == 0x20b { 240 } else { 224 };
-    le16(&mut bytes, optional_size);
-    le16(&mut bytes, characteristics);
-    let optional_at = bytes.len();
-    le16(&mut bytes, magic);
-    bytes.resize(optional_at + 60, 0);
-    let headers_end = optional_at + usize::from(optional_size) + 40 * usize::from(sections);
-    le32(&mut bytes, headers_end as u32);
-    bytes.resize(optional_at + 68, 0);
-    le16(&mut bytes, subsystem);
-    bytes.resize(optional_at + usize::from(optional_size), 0);
-    for _ in 0..sections {
-        let section_at = bytes.len();
-        bytes.resize(section_at + 16, 0);
-        le32(&mut bytes, 16);
-        le32(&mut bytes, headers_end as u32);
-        bytes.resize(section_at + 40, 0);
-    }
-    assert_eq!(bytes.len(), headers_end);
-    bytes.resize(headers_end + 16, 0);
-    bytes
-}
-
-fn pe_image(machine: u16, characteristics: u16, magic: u16, subsystem: u16) -> Vec<u8> {
-    pe_image_with(machine, characteristics, magic, subsystem, 1)
-}
-
-/// A well-formed console PE of this target's machine and word size, for
-/// the parent module's tests that plant another format's image as a
-/// candidate or as a loader, and never execute it.
-pub(in crate::adapters::composite) fn synthetic_pe() -> Vec<u8> {
-    pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3)
-}
-
-#[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
-fn a_pe_image_is_admitted_by_its_bounded_header() {
-    assert_eq!(
-        inspected(&synthetic_pe()).unwrap(),
-        Native {
-            kind: Kind::Pe,
-            loader: None,
-            loads: false,
-        }
-    );
-    assert!(inspected(&pe_image(ARCH.pe, 0x0002, PE_MAGIC, 2)).is_ok());
-    assert!(inspected(&pe_image_with(
-        ARCH.pe,
-        0x0022,
-        PE_MAGIC,
-        3,
-        PE_SECTIONS_BOUND
-    ))
-    .is_ok());
-    // A section with no raw data (`.bss`) declares no range in the file
-    // and is admitted whatever its pointer says.
-    assert!(inspected(&{
-        let mut bytes = pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3);
-        let section_at = bytes.len() - 16 - 40;
-        bytes[section_at + 16..section_at + 20].copy_from_slice(&0u32.to_le_bytes());
-        bytes[section_at + 20..section_at + 24].copy_from_slice(&u32::MAX.to_le_bytes());
-        bytes
-    })
-    .is_ok());
-    let other_magic: u16 = if PE_MAGIC == 0x20b { 0x10b } else { 0x20b };
-    let cases: Vec<(Vec<u8>, String)> = vec![
-        (
-            pe_image(ARCH.pe, 0x0022, other_magic, 3),
-            format!(
-                "PE optional header magic {other_magic:#x}, which is not this target's {PE_MAGIC:#x}"
-            ),
-        ),
-        (
-            pe_image_with(ARCH.pe, 0x0022, PE_MAGIC, 3, 0),
-            format!("a PE image with 0 sections, outside the loader's 1 to {PE_SECTIONS_BOUND}"),
-        ),
-        (
-            pe_image_with(ARCH.pe, 0x0022, PE_MAGIC, 3, PE_SECTIONS_BOUND + 1),
-            format!(
-                "a PE image with {} sections, outside the loader's 1 to {PE_SECTIONS_BOUND}",
-                PE_SECTIONS_BOUND + 1
-            ),
-        ),
-        (
-            {
-                // Two sections declared, one written: the table runs past
-                // the file.
-                let mut bytes = pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3);
-                bytes[70..72].copy_from_slice(&2u16.to_le_bytes());
-                bytes
-            },
-            "a PE section table beyond the end of the file".into(),
-        ),
-        (
-            {
-                // The one section's raw data reaches past the file.
-                let mut bytes = pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3);
-                let section_at = bytes.len() - 16 - 40;
-                bytes[section_at + 16..section_at + 20].copy_from_slice(&17u32.to_le_bytes());
-                bytes
-            },
-            "a PE section beyond the end of the file".into(),
-        ),
-        (
-            {
-                // A declared header size larger than the whole file.
-                let mut bytes = pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3);
-                let len = bytes.len() as u32;
-                bytes[88 + 60..88 + 64].copy_from_slice(&(len + 1).to_le_bytes());
-                bytes
-            },
-            format!(
-                "a PE header size of {} bytes where the headers end at {} in a file of {}",
-                pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3).len() + 1,
-                pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3).len() - 16,
-                pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3).len()
-            ),
-        ),
-        (
-            {
-                // A declared header size that stops short of the section
-                // table.
-                let mut bytes = pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3);
-                bytes[88 + 60..88 + 64].copy_from_slice(&64u32.to_le_bytes());
-                bytes
-            },
-            format!(
-                "a PE header size of 64 bytes where the headers end at {} in a file of {}",
-                pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3).len() - 16,
-                pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3).len()
-            ),
-        ),
-        (
-            {
-                let mut bytes = pe_image(ARCH.pe, 0x0022, 0x20b, 3);
-                bytes[64..68].copy_from_slice(b"PE\0\x01");
-                bytes
-            },
-            "no PE signature".into(),
-        ),
-        (
-            pe_image(ARCH.pe.wrapping_add(1), 0x0022, 0x20b, 3),
-            format!(
-                "PE machine {:#x}, which is not this target's {:#x}",
-                ARCH.pe.wrapping_add(1),
-                ARCH.pe
-            ),
-        ),
-        (
-            pe_image(ARCH.pe, 0x0020, 0x20b, 3),
-            "a PE image that is not marked executable".into(),
-        ),
-        (
-            pe_image(ARCH.pe, 0x2002, 0x20b, 3),
-            "a PE DLL, not an executable".into(),
-        ),
-        (
-            {
-                let mut bytes = pe_image(ARCH.pe, 0x0022, 0x20b, 3);
-                bytes[84..86].copy_from_slice(&69u16.to_le_bytes());
-                bytes
-            },
-            "a PE optional header of 69 bytes".into(),
-        ),
-        (
-            {
-                let mut bytes = pe_image(ARCH.pe, 0x0022, 0x20b, 3);
-                bytes[84..86].copy_from_slice(&4097u16.to_le_bytes());
-                bytes
-            },
-            "a PE optional header of 4097 bytes".into(),
-        ),
-        (
-            {
-                let mut bytes = pe_image(ARCH.pe, 0x0022, 0x20b, 3);
-                bytes[84..86].copy_from_slice(&4096u16.to_le_bytes());
-                bytes
-            },
-            "a PE optional header beyond the end of the file".into(),
-        ),
-        (
-            pe_image(ARCH.pe, 0x0022, 0x107, 3),
-            "PE optional header magic 0x107".into(),
-        ),
-        (
-            pe_image(ARCH.pe, 0x0022, PE_MAGIC, 1),
-            "PE subsystem 1, which is neither the console nor the GUI subsystem".into(),
-        ),
-        (
-            {
-                let mut bytes = pe_image(ARCH.pe, 0x0022, PE_MAGIC, 3);
-                bytes[60..64].copy_from_slice(&u32::MAX.to_le_bytes());
-                bytes
-            },
-            "a PE header beyond the end of the file".into(),
-        ),
-        (
-            b"MZ\0\0".to_vec(),
-            "a DOS header beyond the end of the file".into(),
-        ),
-    ];
-    for (bytes, reason) in cases {
-        assert_eq!(inspected(&bytes).unwrap_err(), reason);
-    }
-}
-
 #[test]
 fn an_unknown_head_and_a_failing_device_are_refused_by_name() {
     assert_eq!(
@@ -998,6 +773,12 @@ fn an_unknown_head_and_a_failing_device_are_refused_by_name() {
     );
     assert_eq!(
         inspected(b"MZ").unwrap_err(),
+        "neither a #! script nor a native image"
+    );
+    // A PE's magic is not a native image's: no supported host loads one
+    // (decision 0063).
+    assert_eq!(
+        inspected(b"MZ\x90\0").unwrap_err(),
         "neither a #! script nor a native image"
     );
     let dynamic = elf64(

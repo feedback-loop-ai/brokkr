@@ -55,8 +55,8 @@ cargo-mutants 27.1.0 with `.cargo/mutants.toml`: test paths excluded, `timeout_m
 - **Six of protocol's 28 misses were caught only in another crate.** cargo-mutants runs only the mutated package's tests by default, and `run_boxed` and `run_boxed_in` were exercised only from `crates/brokkr-cli/tests/hands.rs`. #419 holds them in brokkr-protocol's own `tests/hands_exits.rs`, with stand-ins for `bwrap` and `git`, so a package-scoped run catches them, and `hands.rs:1189` too.
 - **#419 closed 26 of the misses and left seven.** 25 are caught by a test written for each; the table above is the `155aa5f0` measurement.
   - The 26th, `secret.rs:227` (`search = name_end + 2` becoming `name_end - 2` in `scan_secret_refs`), was equivalent and could not be caught. The closing `}}` cannot begin `secret:`, so the search now resumes at `name_end` and the `+ 2` it mutated is gone.
-- **Seven of the misses cannot be caught by any test here.**
+- **Seven of the misses could not be caught by any test here; four remain on the allow-list.**
   - Two are `secret.rs:498` and `:499` (`|` becoming `^` in `b64`). They are equivalent: the three shifted bytes never overlap, so OR and XOR are the same value.
-  - Three are at `hands.rs:678`, the `cfg(not(unix))` twin of `ids()`, which neither supported host compiles. Decision 0063 retires it when the file is next edited.
+  - Three were at `hands.rs:678`, the not-unix twin of `ids()`, which neither supported host compiled. #356 deleted it under decision 0063, and the three left the allow-list with it.
   - Two are at `hands.rs:56` (`boundary_evidence_required`). They are equivalent on a host whose boundary proofs never skip.
 - **The rest of brokkr-protocol is unmeasured.** That is 1,907 mutants, in `adapters.rs`, `adapters/composite.rs`, `adapters/route_overlay.rs`, `dsh_sandbox.rs`, `adapters/composite/image.rs` and the small files. At 8 to 43 seconds a suite, the whole crate is several hours at `-j 3` to `-j 6`, and it is left for a measured-later follow-up. The weekly shards cover only the measured scope until it grows.

@@ -16,6 +16,9 @@
 
 use std::path::PathBuf;
 
+#[path = "support/tracked.rs"]
+mod tracked_files;
+
 /// Paths whose prose is a record, each with the reason it is not rewritten.
 const RECORDS: [(&str, &str); 9] = [
     ("contracts/", "frozen contract bodies"),
@@ -54,18 +57,7 @@ fn workspace() -> PathBuf {
 
 /// Every tracked Markdown file, as git lists it.
 fn tracked_markdown() -> Vec<String> {
-    let output = std::process::Command::new("git")
-        .current_dir(workspace())
-        .args(["ls-files", "-z", "--", "*.md"])
-        .output()
-        .expect("git ls-files");
-    assert!(output.status.success(), "git ls-files failed: {output:?}");
-    String::from_utf8(output.stdout)
-        .expect("UTF-8 paths")
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(str::to_string)
-        .collect()
+    tracked_files::tracked(&workspace(), &["*.md"])
 }
 
 /// Whether a line opens a new unit: a heading, a list item, a table row or

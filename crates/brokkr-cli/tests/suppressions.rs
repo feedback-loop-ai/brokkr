@@ -11,20 +11,24 @@
 //! base commit: a new suppression of a ratcheted lint in production code
 //! must name a ruling (an issue `#N` or a `decision NNNN`) in its reason.
 //!
-//! Attributes are read by a lexer that skips comments and every string and
-//! char literal, so `#[expect(` inside a string is not an attribute, and a
-//! multi-line attribute, a `cfg_attr` and an inner `#![expect]` all count.
-//! Text it cannot read is refused rather than skipped.
+//! Attributes are read by the shared lexer in `support/rust_source.rs`,
+//! which skips comments and every string and char literal, so
+//! `#[expect(` inside a string is not an attribute, and a multi-line
+//! attribute, a `cfg_attr` and an inner `#![expect]` all count. Text it
+//! cannot read is refused rather than skipped.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
+#[path = "support/rust_source.rs"]
+mod rust_source;
 #[path = "support/test_paths.rs"]
 mod test_paths;
 #[path = "support/workspace.rs"]
 mod workspace_root;
 
+use rust_source::{skip_literal, units};
 use test_paths::is_gate_test_path as is_test_path;
 use workspace_root::{read, workspace};
 
@@ -64,153 +68,6 @@ struct Suppression {
     lints: Vec<String>,
     reason: Option<String>,
     predicate: Option<String>,
-}
-
-/// Advances past one string or char literal starting at `at`, or returns
-/// `at` unchanged when there is none (a lifetime is not a literal).
-fn skip_literal(s: &[char], at: usize) -> Result<usize, String> {
-    if at >= s.len() {
-        return Ok(at);
-    }
-    let mut i = at;
-    if s[i] == 'b' && i + 1 < s.len() && matches!(s[i + 1], '"' | '\'' | 'r') {
-        i += 1;
-    }
-    if s[i] == 'r' && i + 1 < s.len() && matches!(s[i + 1], '"' | '#') {
-        let hashes = s[i + 1..].iter().take_while(|&&c| c == '#').count();
-        let open = i + 1 + hashes;
-        if s.get(open) != Some(&'"') {
-            return Ok(at);
-        }
-        let close: String = std::iter::once('"')
-            .chain("#".repeat(hashes).chars())
-            .collect();
-        let rest: String = s[open + 1..].iter().collect();
-        let end = rest.find(&close).ok_or("an unterminated raw string")?;
-        return Ok(open + 1 + rest[..end].chars().count() + close.chars().count());
-    }
-    match s[i] {
-        '"' => {
-            let mut j = i + 1;
-            while j < s.len() && s[j] != '"' {
-                j += if s[j] == '\\' { 2 } else { 1 };
-            }
-            if j >= s.len() {
-                return Err("an unterminated string".into());
-            }
-            Ok(j + 1)
-        }
-        '\'' if s.get(i + 1) == Some(&'\\') => {
-            let end = s
-                .get(i + 3..)
-                .and_then(|rest| rest.iter().position(|&c| c == '\''));
-            Ok(i + 4 + end.ok_or("an unterminated char literal")?)
-        }
-        '\'' if s.get(i + 2) == Some(&'\'') => Ok(i + 3),
-        _ => Ok(at),
-    }
-}
-
-/// Advances past a comment at `at`, or returns `at` when there is none.
-fn skip_comment(s: &[char], at: usize) -> Result<usize, String> {
-    let Some(&first) = s.get(at) else {
-        return Ok(at);
-    };
-    match (first, s.get(at + 1)) {
-        ('/', Some('/')) => Ok(s[at..]
-            .iter()
-            .position(|&c| c == '\n')
-            .map_or(s.len(), |p| at + p)),
-        ('/', Some('*')) => {
-            let (mut depth, mut i) = (1, at + 2);
-            while depth > 0 {
-                match (s.get(i), s.get(i + 1)) {
-                    (Some('/'), Some('*')) => (depth, i) = (depth + 1, i + 2),
-                    (Some('*'), Some('/')) => (depth, i) = (depth - 1, i + 2),
-                    (Some(_), _) => i += 1,
-                    (None, _) => return Err("an unterminated block comment".into()),
-                }
-            }
-            Ok(i)
-        }
-        _ => Ok(at),
-    }
-}
-
-/// Advances past whitespace and comments at `at`.
-fn skip_trivia(s: &[char], at: usize) -> Result<usize, String> {
-    let mut i = at;
-    loop {
-        let next = skip_comment(s, i)?;
-        if next != i {
-            i = next;
-        } else if s.get(i).is_some_and(|c| c.is_whitespace()) {
-            i += 1;
-        } else {
-            return Ok(i);
-        }
-    }
-}
-
-/// The index just past the `[` that opens an attribute at `at`: `#`, an
-/// optional `!`, and whitespace or comments between any of them, as rustc
-/// reads the three tokens. `None` when no attribute starts there.
-fn attribute_open(s: &[char], at: usize) -> Result<Option<usize>, String> {
-    if s[at] != '#' {
-        return Ok(None);
-    }
-    let mut i = skip_trivia(s, at + 1)?;
-    if s.get(i) == Some(&'!') {
-        i = skip_trivia(s, i + 1)?;
-    }
-    Ok((s.get(i) == Some(&'[')).then_some(i + 1))
-}
-
-/// Every attribute's inner text (`expect(..)` of `#[expect(..)]`), with
-/// each comment inside it read as a space.
-fn attributes(source: &str) -> Result<Vec<String>, String> {
-    let s: Vec<char> = source.chars().collect();
-    let (mut out, mut i) = (Vec::new(), 0);
-    while i < s.len() {
-        let next = skip_literal(&s, skip_comment(&s, i)?)?;
-        if next != i {
-            i = next;
-            continue;
-        }
-        let Some(open) = attribute_open(&s, i)? else {
-            i += 1;
-            continue;
-        };
-        let (mut text, mut depth, mut j) = (String::new(), 1, open);
-        while depth > 0 {
-            if j >= s.len() {
-                return Err("an unterminated attribute".into());
-            }
-            let past_comment = skip_comment(&s, j)?;
-            if past_comment != j {
-                text.push(' ');
-                j = past_comment;
-                continue;
-            }
-            let past_literal = skip_literal(&s, j)?;
-            if past_literal != j {
-                text.extend(&s[j..past_literal]);
-                j = past_literal;
-                continue;
-            }
-            depth += match s[j] {
-                '[' => 1,
-                ']' => -1,
-                _ => 0,
-            };
-            text.push(s[j]);
-            j += 1;
-        }
-        text.pop();
-        out.push(text);
-        i = j;
-    }
-    Ok(out)
 }
 
 /// Splits `text` at commas outside brackets and strings.
@@ -344,7 +201,7 @@ fn attribute_suppressions(
 /// Every `expect` and `allow` in a source, `cfg_attr` ones included.
 fn suppressions(source: &str) -> Result<Vec<Suppression>, String> {
     let mut out = Vec::new();
-    for attribute in attributes(source)? {
+    for (_, attribute) in units(source)? {
         out.extend(attribute_suppressions(&attribute, None)?);
     }
     Ok(out)

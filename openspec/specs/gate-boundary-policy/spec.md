@@ -9,6 +9,14 @@ ruling 4; decision 0043 rulings 2 and 3; decision 0021 rulings 2 and 7).
 The pinned-script rule always checks integrity over the bundle's own bytes;
 its execution guarantee requires a boundary supplying the filesystem and
 `PATH`, and does not hold under `harness` or `open` (decision 0049 ruling 3).
+The hosts are Linux and macOS (decision 0063, 2026-09-21). Where a scenario
+below still names Windows or its script-argument conversion, it is
+historical: it binds no supported host, the conversion and its tests left the
+tree with #356, and a spawned exec argv is compile's exact bytes. So is the
+pinned-script requirement's sentence that decision 0049 names Windows
+best-effort: decision 0063 supersedes that tier, and its SHALL binds Linux
+and macOS only. The text stays until `boundary-seatbelt-slice-ii`, whose
+delta restates the same requirement, folds it.
 
 ## Requirements
 
@@ -490,32 +498,25 @@ table with the paths a namespace would remap replaced by the paths that
 stand outside one (design DD10): `HOME` and `TMPDIR`, two private
 directories created for the attempt under the run's scratch and never
 the operator's; `PATH`, `USER` and `LOGNAME`, inherited verbatim from
-the engine's own environment, each only when set there (on Windows,
-these names SHALL match without ASCII case and be emitted with the
-stated uppercase spelling, so `Path` supplies `PATH`); `CARGO_HOME`,
+the engine's own environment, each only when set there and matched by
+its exact name; `CARGO_HOME`,
 `RUSTUP_HOME` and `NPM_CONFIG_CACHE`, set to the operator's `~/.cargo`,
 `~/.rustup` and `~/.npm` — `~` the engine's home as `expand_home` reads
 it — exactly when the site's `hands.binds` declare that path, as the box
 sets them, and absent otherwise, a bind's `mask` being declared and not
 enforced outside a namespace; the in-box marker `BROKKR_HANDS_BOX` —
 true of the child exactly when the engine itself already stands inside
-a box; and, on Windows only, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`,
-`SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `PATHEXT`, `TEMP`,
-`TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA`,
-the closed Windows process-startup list, each inherited verbatim only
-when set in the engine's environment, matching names without ASCII
-case and preserving their spelling and values (`SystemRoot`, `windir`
-and `ComSpec` therefore match the stated names). No absent startup
-variable SHALL be synthesized, and Linux and macOS SHALL inherit none
-of these Windows-only names; fixed as the box
+a box. No other inherited name SHALL be carried, the process-startup
+names a Windows host sets included, because the hosts are Linux and
+macOS (decision 0063); fixed as the box
 sets them, `LANG` and `LC_ALL` as `C.UTF-8`, `CI` as `true`,
 `DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`, and
 `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as the
 `commit.gpgsign=false` triple; and the bundle's `git.identity` entries.
 The engine SHALL never set the in-box marker on the dispatch, because
 no box stands and the marker is what every box-building test skips on.
-An inherited marker SHALL use the same platform name matching as
-`PATH`, with the stated uppercase spelling and its value unchanged.
+An inherited marker SHALL be matched by its exact name, with its value
+unchanged.
 The environment SHALL be composed by one pure function of the engine's
 environment, the engine's home, the site's spec, the identity and the
 two scratch paths, which the tests read directly; the network probe
@@ -544,11 +545,11 @@ from which the table is taken).
 - **WHEN** the engine's environment carries `BROKKR_HANDS_BOX`, and again when it does not
 - **THEN** the composed environment carries it in the first case and not in the second
 
-#### Scenario: Windows starts its processes
-- **GIVEN** an engine environment with `Path` locating the script's shell, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `SystemRoot`, `SYSTEMDRIVE`, `windir`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA` set, alongside `GH_TOKEN`, `ANTHROPIC_API_KEY` and `SSH_AUTH_SOCK`
-- **WHEN** an unboxed exec dispatch is composed on Windows from an empty environment
-- **THEN** `PATH` holds `Path`'s value verbatim, all fourteen named Windows startup variables retain their spelling and values (including a set but empty value), and the driver can resolve the shell on that path and start its script; an unset startup variable remains absent, and none of the three secrets travels
-- **AND** the exact composed key set contains only this requirement's fixed, inherited, bind-gated and identity entries; composing the same input for Linux or macOS carries none of the Windows-only names and does not treat `Path` as `PATH`; a unit test exercises both complete platform tables on Linux as well as the native platform selection
+#### Scenario: Only the named keys are carried
+- **GIVEN** an engine environment that also sets `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `SystemRoot`, `SYSTEMDRIVE`, `windir`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA`, alongside `GH_TOKEN`, `ANTHROPIC_API_KEY` and `SSH_AUTH_SOCK`
+- **WHEN** an unboxed exec dispatch is composed
+- **THEN** the exact composed key set contains only this requirement's fixed, inherited, bind-gated and identity entries: none of those names travels
+- **AND** a `Path`, `User`, `LogName` or `brokkr_hands_box` spelling is not the name it resembles and is not carried
 
 ### Requirement: A judge under harness still delivers its result file
 Under `harness` a gate-class model site SHALL be able to deliver exactly
@@ -586,3 +587,4 @@ amended by the boxed-marker fix).
 ## Provenance
 
 - `2026-09-06-boundary-named-slice-i` — folded 2026-09-06
+- `2026-09-27-356-windows-is-not-a-host` — folded 2026-09-27

@@ -26,10 +26,9 @@ use serde_json::Value;
 
 use crate::{Body, Message, ResultStatus};
 
-/// Seat keys carry ':' member separators (`seat:step:member`), which
-/// Windows cannot spell in a file name — NTFS reads ':' as a stream
-/// separator, and a second one is an outright error. State files use a
-/// sanitized spelling; a hash of the original key keeps distinct seats
+/// Seat keys carry ':' member separators (`seat:step:member`). State
+/// files use a sanitized spelling of the key, alphanumerics, `-`, `_`
+/// and `.` only; a hash of the original key keeps distinct seats
 /// distinct after sanitizing.
 fn attempt_file_name(seat: &str) -> String {
     let safe: String = seat

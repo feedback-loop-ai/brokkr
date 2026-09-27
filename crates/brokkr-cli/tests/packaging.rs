@@ -1086,12 +1086,17 @@ fn the_packaging_readme_names_the_secrets_and_the_out_of_scope_channels() {
             "no {secret} in packaging/README.md"
         );
     }
-    for channel in ["AUR", "winget", "snap", "flatpak"] {
+    for channel in ["AUR", "snap", "flatpak"] {
         assert!(
             readme.contains(channel),
             "no {channel} in packaging/README.md"
         );
     }
+    // winget is out of scope because Windows is not a host, not deferred.
+    assert!(
+        readme.contains("- **winget.** Windows is not a host (decision 0063)"),
+        "{readme}"
+    );
     // The accuracy law after v0.9.0 and v0.9.1: rows name the release
     // that lit them, and the bench label survives only as history.
     assert!(readme.contains("live from v0.9."), "{readme}");

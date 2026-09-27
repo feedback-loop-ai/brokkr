@@ -1891,7 +1891,6 @@ fn current_uid() -> u32 {
         .unwrap_or(u32::MAX)
 }
 
-#[cfg(unix)]
 fn process_group() -> u32 {
     extern "C" {
         fn getpgid(pid: i32) -> i32;
@@ -1906,11 +1905,6 @@ fn process_group() -> u32 {
             pgid as u32
         }
     }
-}
-
-#[cfg(not(unix))]
-fn process_group() -> u32 {
-    0
 }
 
 fn run(program: &str, args: &[&str], env: Option<&[(&str, &str)]>) -> Result<(), String> {
@@ -2020,7 +2014,6 @@ fn nonce_of(argv: &[String]) -> Option<&str> {
 /// Create a directory exclusively with owner-only permissions. It fails when
 /// the path already exists, so a pre-existing host object is never accepted as
 /// observer-created state.
-#[cfg(unix)]
 fn create_private_dir(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::DirBuilderExt;
     let mut builder = fs::DirBuilder::new();
@@ -2030,18 +2023,10 @@ fn create_private_dir(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("exclusive create {}: {error}", path.display()))
 }
 
-#[cfg(not(unix))]
-fn create_private_dir(path: &Path) -> Result<(), String> {
-    fs::DirBuilder::new()
-        .create(path)
-        .map_err(|error| format!("exclusive create {}: {error}", path.display()))
-}
-
 /// Stage the committed helper build as one exclusively created, regular,
 /// single-link file under `<probe-root>/bin`, outside every cell root, and
 /// confirm its bytes equal the build's. The build's own possibly hard-linked
 /// file is never used as `<helper>`.
-#[cfg(unix)]
 fn stage_helper(probe_root: &Path, build: &Path) -> Result<StagedHelper, String> {
     use std::io::Write as _;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -2140,11 +2125,6 @@ pub(super) fn verify_staged_helper(
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn stage_helper(_probe_root: &Path, _build: &Path) -> Result<StagedHelper, String> {
-    Err("native helper staging requires a Unix host".to_string())
-}
-
 /// Create a cell root and its fixed `payload` and `inputs` layout with
 /// exclusive owner-only creates, then canonicalize the cell root and require
 /// exactly the input spelling.
@@ -2230,7 +2210,6 @@ fn wait_for_job(domain_target: &str, wanted: bool, timeout: Duration) -> Result<
 /// The guard opens the read end early; until it does, a non-blocking write
 /// open returns `ENXIO` (6), so this polls in bounded fashion and fails rather
 /// than leaking a thread that blocks on a reader that never appears.
-#[cfg(unix)]
 fn open_writer(liveness: &Path) -> Result<fs::File, String> {
     use std::os::unix::fs::OpenOptionsExt;
     // O_NONBLOCK: 0x0004 on Darwin, 0x800 on Linux. The native adapter only
@@ -2257,11 +2236,6 @@ fn open_writer(liveness: &Path) -> Result<fs::File, String> {
             Err(error) => return Err(format!("liveness channel: {error}")),
         }
     }
-}
-
-#[cfg(not(unix))]
-fn open_writer(_liveness: &Path) -> Result<fs::File, String> {
-    Err("the liveness channel is Unix-only".to_string())
 }
 
 /// Owns the supervisor holder child and guarantees it is killed and waited on
@@ -2408,7 +2382,6 @@ fn read_stages(path: &Path) -> Vec<String> {
         .collect()
 }
 
-#[cfg(unix)]
 fn exit_of(status: &std::process::ExitStatus) -> HelperExit {
     if status.success() {
         return HelperExit::Clean;
@@ -2416,15 +2389,6 @@ fn exit_of(status: &std::process::ExitStatus) -> HelperExit {
     std::os::unix::process::ExitStatusExt::signal(status)
         .map(HelperExit::Signal)
         .unwrap_or_else(|| HelperExit::NonZero(status.code().unwrap_or(1)))
-}
-
-#[cfg(not(unix))]
-fn exit_of(status: &std::process::ExitStatus) -> HelperExit {
-    if status.success() {
-        HelperExit::Clean
-    } else {
-        HelperExit::NonZero(status.code().unwrap_or(1))
-    }
 }
 
 fn bound(text: &str) -> String {

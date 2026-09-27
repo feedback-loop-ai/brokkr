@@ -68,16 +68,6 @@ ratatui = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", default-features = false, features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_Storage_FileSystem",
-    "Win32_System_IO",
-    "Wdk_Foundation",
-    "Wdk_Storage_FileSystem",
-] }
-
 [dev-dependencies]
 rusqlite = { workspace = true }
 # The layering test parses `cargo metadata` into types (decision 0071
