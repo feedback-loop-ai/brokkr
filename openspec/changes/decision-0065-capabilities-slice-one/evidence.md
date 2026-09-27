@@ -13483,3 +13483,255 @@ Every new or rewritten test fails under at least one of these.
 
 **Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
 macOS, remote CI, serving integration (14.1, 15.1, 15.2) and the council.
+
+## Unit 13-fix-c — one equality and one complete composer, 2026-09-27
+
+Run `0065-rebuild-unit-13-see-the-uni-8ad71c84`, based on `bcd7272c`. It
+answers the chief's security hold on unit 13-fix-b (R1–R6; G1 asks nothing
+of the code). **Result: oversized on one out-of-inventory test file.** The
+repair is built and proved inside the unit's three production files and
+`native_controls/tests.rs`, but it is not committed, because three
+`brokkr-runtime` tests plant an incomplete hands transport that R1 now
+refuses, and moving them changes assertion values in a file outside the
+unit. The code is saved as `.forge/unit-13-fix-c/full.patch` (sha256
+`81a36445…93178`); the proposed runtime change is
+`.forge/unit-13-fix-c/agent-tests.proposed.patch` (sha256
+`10ea757c…c9060`). Both apply cleanly to `bcd7272c` (`git apply --check`).
+The working tree was restored to `bcd7272c` after the proofs below.
+
+### Why it stops
+
+With `full.patch` alone, `cargo test --workspace --all-features --locked
+--no-fail-fast` gives 76 `ok` summaries and one failure: the
+`brokkr-runtime` lib, 562 passed and 3 failed
+(`.forge/unit-13-fix-c/workspace-1.log`):
+
+- `bundle::agent_tests::a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly`,
+- `bundle::agent_tests::a_seat_narrows_a_boxed_office_and_admission_judges_the_effective_class`,
+- `bundle::agent_tests::a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution`.
+
+Each compile refuses with the new R1 refusal: "the capability plan for
+provider 'codex' types 4 arguments of the engine's fragment as the box's
+hands, but they carry no server command binding
+('mcp_servers.brokkr.command') …". The fixture constant `CODEX_WORKSPACE`
+(`crates/brokkr-runtime/src/bundle/agent_tests.rs:967`) declares the class
+and the arguments binding only. The shipped `adapters/codex.json` declares
+all three bindings. The proposed patch:
+
+1. Re-plants `CODEX_WORKSPACE` as the shipped eight-token fragment.
+2. Adds `--strict-mcp-config` to the Claude hands fixture at `:4063`,
+   which the same R1 rule then refuses.
+3. Moves one assertion with the re-plant: `:4497` becomes `argv.len() ==
+   16` instead of 12, and the argv literal at `:4499-4512` gains the two
+   new `-c` pairs.
+
+Item 3 changes assertion values, and items 1–2 re-plant adapter hands data
+rather than an inline authored option. Neither the forced-lines admission
+(2026-09-25) nor the fixture-migration admission (2026-09-26) covers that,
+so the unit stops. With both patches applied, the workspace run exits 0
+with 77 `ok` summaries and no `FAILED` or `panicked` line
+(`.forge/unit-13-fix-c/workspace-2.log`), and the runtime `bundle::` tests
+pass 204 of 204. **Ruling asked for:** admit the proposed patch for this
+unit, as fixture re-plants and one assertion update only.
+
+### What the change does (on `full.patch`)
+
+- **R1, one complete composer.** `compose_or_exclude` takes the box's hands
+  where the plan types them (`provenance.hands > 0`), never from an
+  include node. Typed hands must carry their whole transport
+  (`untransported`). For Claude and LaneTally that is strict MCP and the MCP
+  document. For Codex it is the `--sandbox` class and the server's
+  `command`, `args` and `default_tools_approval_mode` bindings. A missing
+  part refuses whole under `Why::Provenance`. The composer itself writes the
+  include restriction (the held and lowered tools, empty where there are
+  none), and `final_tools` puts the hands tool in the allow list whether or
+  not the fragment spelled it. A denial of the hands tool or of its server
+  therefore refuses as both admitted and denied.
+- **R3, held tools stay available.** The composer's admitted set now
+  includes every tool a holding admits, so any denial that removes a held
+  tool refuses, even with empty selection lists.
+- **R2, one encoder.** `toml_basic` is the one TOML basic-string encoder.
+  It escapes `\`, `"`, U+0000–U+001F and U+007F, and passes every other
+  scalar value through. `Transport::expand` and `Transport::effects` take
+  the executable and every server argument through it, so the emitted and
+  the expected values are one encoder's. `expand` returns `None` for an
+  executable or workdir that is not UTF-8, and the check refuses that
+  transport.
+- **R4, one equality.** `check_final` rebuilds the complete serving argv
+  with the drivers' own builders, which `adapters.rs` now shares:
+  `serving_command` calls `claude_serving`, `codex_cold`, `codex_rejoin`
+  and `dsh_command`. The launch paths `claude_launch`, `codex_plan` and
+  `dsh_launch_with` call the same functions, and their decline order is
+  unchanged. `command` must equal the rebuilt argv token for token,
+  counted from the executable as argument 0. The effect comparison,
+  `State::rejoined` and the separate overlay, session and prompt checks are
+  gone. `Serving` gains the engine's serving choices: `program`, `workdir`,
+  `authored` (the recipe's words, which lead), `pins` (the adapter's model
+  and effort, after the template), `output` (the result path) and `stream`
+  (DSH). The words and pins must read with no capability-bearing effect or
+  session. `Dialect` gains `sandbox`, the adapter's harness fragment a
+  typed local class lowers onto; that fragment must express the class.
+  `{result_path}` in the local and boundary fragments is filled from
+  `output`. A fragment that captures with no chosen path refuses, and so
+  does a chosen path no fragment captures into.
+- **Found by the rebuild.** A boxed Codex rejoin is one the driver never
+  spawns: `codex_resume_blocker` declines the hands' `-c` bindings
+  (`incompatible-argv`), so the launch goes cold. 13-fix-b's check accepted
+  that rejoin. The rebuild now refuses it ("a rejoin its driver declines,
+  an argument a rejoin cannot carry").
+
+### Tests (`native_controls/tests.rs`)
+
+- **New tests.** `every_codex_transport_value_decodes_as_toml_to_exactly_itself`
+  (R2) round-trips 12 values through a test-side TOML v1.0.0 decoder,
+  written from the specification's escape table, in the executable and in
+  the arguments array. It shows the raw `/` decoding as a slash, and
+  that a non-UTF-8 executable or workdir refuses.
+  `typed_hands_carry_their_whole_transport_through_the_composer` (R1).
+  `a_held_tool_no_emitted_list_names_is_never_denied` (R3, the chief's exact
+  reproduction, plus a specifier denial that composes).
+  `a_codex_gate_captures_into_exactly_the_result_path_the_engine_chose` and
+  `the_recipes_words_and_the_adapters_pins_carry_nothing_capability_bearing`
+  (R4).
+- **Property 1 (R5).** `every_generated_sealed_state_checks_or_refuses_exactly`
+  covers 1,600 launches. Each has a complete expectation written by the
+  generator's own model: a command, or the check's `Refusal` beside the
+  composer's own. Claude: 456 check and 306 refuse. LaneTally: 472 check and
+  290 refuse. Codex: 22 check and 50 refuse. DSH: 3 check and 1 refuses.
+  The space adds hands that leave the lists to the composer; the known-empty
+  floor (a power unanswered) and the unmeasured floor; the exact permission
+  conflicts (a held tool, the hands tool, the hands' server and a lowered
+  local tool, each denied by the boundary or the plan, with the selection
+  naming the held tools or empty); an escaped Codex transport; Codex hands
+  without a class or an arguments binding; a gate's result path; an agent
+  site served from another workdir; and an unstreamed DSH rejoin. No
+  composer or builder output serves as an oracle.
+- **Property 2 (R4, R5).** `every_single_mutation_of_a_checked_command_refuses`
+  runs 30,167 mutations of the independent commands: Claude 14,594,
+  LaneTally 15,000, Codex 557 and DSH 16. It replaces the executable; drops
+  and alters every option, inert ones included; respells each split list
+  `--flag=value`; shrinks and reorders lists; swaps every two consecutive
+  options; alters the session and thread; and adds foreign effects. Each
+  mutation is asserted against its complete `Refusal`, departing at the
+  first differing argument or refused as read. None survived.
+- **Assertions moved with the intended change** (R4: token positions
+  replace effect indices; the rebuild carries the lead, pins and the local
+  fragment). The tests are `a_complete_claude_command_…`,
+  `every_departure_of_a_final_claude_command_…`,
+  `the_final_command_keeps_every_effect_…`,
+  `the_sealed_inputs_are_checked_…`, `a_codex_cold_command_and_its_rejoin_…`,
+  `the_hands_are_bound_…`, `a_sealed_contribution_…`,
+  `every_sealed_sandbox_contribution_…`,
+  `a_codex_web_assignment_…`, `the_plan_native_contribution_…`,
+  `every_sealed_include_limit_…`, `the_plan_selection_…`,
+  `a_boundary_denial_…`, `a_compatible_local_permission_…`,
+  `an_unmeasured_dsh_command_…` and `every_known_native_power_…`. The old
+  acceptance of `--tools=` for `--tools ""` is now `departs at argument 5`,
+  and the boxed Codex rejoin's positive is now its refusal.
+- **Fixture repairs in the unit's own test file.** `claude_controls` held
+  both powers while its selection denied their tools, which R3 now refuses
+  ("Nothing held" held both). A power whose tool the selection denies is
+  now the plan's denial. Two `authority_follows_…` rows and the folding
+  test's boxed fragment planted hands without strict MCP or the MCP
+  document. They are re-planted with the whole transport, and each still
+  reaches the behaviour it tests.
+- Standing-admission lines and fixture migrations outside the unit's
+  files: none on `full.patch`. The runtime change is the proposed patch.
+
+### Baseline reds on `bcd7272c` (R6)
+
+The probes (`.forge/unit-13-fix-c/baseline-probes.rs`) were appended to the
+old test file, run, and removed by restoring it from its saved copy. Each
+asserts a complete value or `Refusal`, never `is_err()`. All 7 failed
+(`baseline-reds.txt`):
+
+| Probe | Observed on `bcd7272c` |
+|---|---|
+| R1 Claude lists | `Ok` without `--tools WebSearch` and without the hands tool in `--allowedTools` |
+| R1 Claude transport | `Ok` for hands without `--strict-mcp-config` (the MCP-document row was not reached) |
+| R1 hands tool denial | `Ok`, composing `--disallowedTools mcp__brokkr__workspace,WebFetch` |
+| R1 Codex transport | `Ok` for hands without `--sandbox` |
+| R2 | `mcp_servers.brokkr.command="/opt/a/b/brokkr"`, raw |
+| R3 | `Ok`, composing `--disallowedTools WebSearch,WebFetch` beside the held WebSearch |
+| R4 | `Ok(Checked)` for `--tools=` in place of `--tools ""` |
+
+### Correction to unit 13-fix-b's record (R6)
+
+The rows under "Baseline reds on `e61185f9`" above stand as observed, but
+they prove less than their preamble says. The probes in
+`.forge/unit-13-fix-b/baseline-probes.rs` assert `is_err()` for R1–R4 and
+for composition, so those reds establish polarity only: the old check
+returned `Ok`. They do not establish that the correct refusals were
+expected. The mutation table's M2 (floor) and M3 (conflict) rows were
+caught only by dedicated tests, never by a generated property. Unit
+13-fix-c's reds and mutations above supply the complete refusals and the
+generated catches.
+
+### Mutations (each compiled, was caught, then restored)
+
+Each mutation was one Edit to a production file on the patched tree.
+`cargo test -p brokkr-protocol --lib native_controls::tests` then ran
+(M15 ran the whole lib), and the file was copied back from
+`.forge/unit-13-fix-c/final/`. `cmp` confirmed each restoration. Logs are
+`.forge/unit-13-fix-c/M*.log`. P1 and P2 are the two generated properties.
+
+| | Mutation | Caught by |
+|---|---|---|
+| M1 | R1: the transport presence check off | P1 (`codex, held, boxed, classless`), the R1 test |
+| M2 | R1: hands inferred from the include node again | P1 and P2 (`listless`), the R1 test |
+| M3 | R1: the hands tool left out of the allow list | P1 and P2 (`listless`), the R1 test |
+| M4 | R3: held tools left out of the admitted set | P1 (the chief's reproduction, `named: false`), the R3 test |
+| M5 | R2: the executable interpolated raw, emitted and expected alike | P1 and P2 (`boxed, escaped`), the R2 test |
+| M5b | R2: arguments escaped for `"` only | P1 and P2 (`boxed, escaped`), the R2 test |
+| M6 | R4: the executable not compared | P2 (`replace the executable`), the departure test |
+| M7 | R4: `--tools=` read as `--tools ""` | P2 (`respell --tools`), the departure test |
+| M8 | R4: the Claude session dropped from the rebuild | P1 and P2 (`rejoin: true`), the Claude test |
+| M9 | R4: the workdir fixed at `/w` | P1 and P2 (`agent work`). It survived until the generator served that site from `/srv/site`. |
+| M10 | the unmeasured floor off | P1 (`unmeasured: true`), three floor tests |
+| M11 | the known-empty floor off | P1 (`fetch: Unanswered`), two floor tests |
+| M12 | "both admitted and denied" off | P1 (`denies held`), six tests |
+| M13 | a server-wide denial no longer removes its tools | P1 (`denies server`), two tests |
+| M14 | DSH's stream shape dropped for `--new` | P1 and P2 (`dsh, new`), the DSH test |
+| M15 | the Codex rejoin's stdin `-` dropped | P1, two native_controls tests and the driver's own resume tests. The other 73 adapters failures are `PoisonError` cascades from the shared test lock. |
+
+### Gates (on the tree with both patches applied)
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean. One `type_complexity` hit in the test helper was fixed
+  first.
+- `cargo test -p brokkr-protocol`: 531 unit, 99 integration (2 ignored)
+  and 1 doctest passed (`protocol-final.log`).
+- Workspace, `--all-features --locked --no-fail-fast`: exit 0 with 77 `ok`
+  summaries (`workspace-2.log`). The only later edits were in
+  `native_controls/tests.rs`, and the protocol suite was re-run after them.
+- `compile --bundle bundles/self` and `bundles/verify`: both exited 0.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+
+### Assumptions, follow-ups and pending
+
+- **Reading of "composition itself emits the whole transport".** The
+  composer's signature is shared with `brokkr-runtime` and cannot take a
+  `Transport` inside this unit. So it writes the parts it owns (the
+  include restriction and the allowance), and it refuses typed hands
+  without the parts only the engine can bind (strict MCP, the MCP document,
+  the Codex class and bindings). The check binds those values to the
+  `Transport`.
+- **The spawn still interpolates raw.** `engine::hands_command` (outside
+  this unit) substitutes `{brokkr}` unencoded. Until units 14–15 make it
+  call `Transport::expand`, a path that needs TOML escaping fails closed
+  at the check.
+- **Integration.** The engine must supply `Serving`'s new choices and
+  `Dialect::sandbox` when units 14–15 wire the check in. A DSH seat's
+  composed argv still rides its staged overlay rather than its command, as
+  before.
+- **Codex OFF for a held power** refuses in `sealed_inputs`. R3's repair is
+  the composer's list path, which Codex does not have.
+- **Not run.** The Python `tomllib` cross-check
+  (`.forge/unit-13-fix-c/tomllib-check.py`) needs approval in this seat,
+  so it is pending. The spec-written decoder above is the proof here. The
+  coverage diagnostic was not run this visit.
+
+**Pending:** the ruling on the proposed patch, then both patches; serving
+integration (14.1, 15.1, 15.2), exact coverage outside the box, macOS,
+remote CI and the council.

@@ -2023,9 +2023,9 @@ Result: **complete** (evidence.md, "Unit 12-fix-f").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
-- [x] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
+- [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
 
-- [x] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
+- [ ] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
 
 Unit 13 (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-9db14032`,
 based on `67571c3b`; evidence.md, "Unit 13"):
@@ -2253,6 +2253,57 @@ council.
   predates this change.
 - **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
   box, macOS, remote CI and the council.
+
+Unit 13-fix-c (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-8ad71c84`,
+based on `bcd7272c`; answers the chief's security hold R1–R6; evidence.md,
+"Unit 13-fix-c"). **Result: oversized on one out-of-inventory test file.**
+The repair is built and proved in `native_controls.rs`, `adapters.rs` and
+`native_controls/tests.rs`, and saved uncommitted as
+`.forge/unit-13-fix-c/full.patch`. R1 refuses typed hands without their
+whole transport, so three `brokkr-runtime` tests that plant an incomplete
+Codex hands fragment (`bundle/agent_tests.rs:967`, a Claude one at
+`:4063`) fail. Moving them changes one assertion (`:4497`, 12 → 16, and
+its argv literal), which neither standing admission covers. The proposed
+change is `.forge/unit-13-fix-c/agent-tests.proposed.patch`. 13.1 and 13.2
+are unticked here, as at 13-fix, until the patches land and are reviewed.
+
+- **R1.** The composer takes hands from the plan's typed count, never from
+  an include node. It writes the include restriction and the hands
+  allowance itself, and refuses typed hands without strict MCP or the MCP
+  document, or without the Codex class or any of the server's three
+  bindings. A denial of the hands tool or its server refuses.
+- **R3.** Every held tool is in the composer's admitted set, so any denial
+  that removes one refuses, even with empty selection lists.
+- **R2.** `toml_basic` is the one encoder for the executable and every
+  server argument, expected and emitted alike. A non-UTF-8 path refuses.
+- **R4.** `check_final` rebuilds the complete serving argv with the
+  drivers' own builders (`serving_command`, which calls `claude_serving`,
+  `codex_cold`, `codex_rejoin` and `dsh_command`; the launch calls them
+  too). It compares the argv token for token from the executable.
+  `Serving` carries the engine's choices; `Dialect::sandbox` is the typed
+  class's local fragment, and `{result_path}` is filled from the chosen
+  path. The rebuild found that a boxed Codex rejoin is one the driver
+  declines, and it now refuses it.
+- **R5.** Property 1 covers 1,600 launches, each against its own model's
+  complete command or `Refusal`, floors and exact permission conflicts
+  included. Property 2 covers 30,167 mutations, none surviving. M1–M15 each
+  fail a generated property and were restored (`cmp`). M9 survived once,
+  until an agent site was served from another workdir.
+- **R6.** Baseline reds on `bcd7272c` assert complete values and refusals.
+  The note on 13-fix-b's `is_err()` baselines is in evidence.md, and the
+  historical rows are unchanged.
+- **Assertions moved with the intended change** in the unit's own tests,
+  and `native_controls/tests.rs` fixture repairs (`claude_controls`, two
+  authority rows and the folding test's hands), are listed in evidence.md.
+  Standing-admission lines and fixture migrations on `full.patch`: none.
+- **Gates (both patches applied).** fmt, `git diff --check` and clippy
+  `-D warnings` are clean. Protocol: 531 + 99 + 1 passed. Workspace: exit
+  0, 77 `ok` summaries. Both bundles compile. Strict OpenSpec: 18/18.
+- **Ruling asked for:** admit `agent-tests.proposed.patch` for this unit,
+  as fixture re-plants and one assertion update only.
+- **Pending.** The ruling, then both patches; the `tomllib` cross-check
+  (needs approval in the seat); integration (14.1, 15.1, 15.2), exact
+  coverage outside the box, macOS, remote CI and the council.
 
 ## 14. Unit 14 — Integrate checked cold commands
 
