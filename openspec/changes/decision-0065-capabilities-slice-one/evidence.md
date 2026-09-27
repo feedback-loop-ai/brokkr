@@ -15380,3 +15380,101 @@ diff byte for byte (`cmp` of `unit-14a4b-full.patch` and
 **Pending.** 14b, re-run from its saved patch: `:3752` (now `:3960`) and
 `driver_conformance.rs:2781`. Also pending: exact coverage outside the box,
 macOS, remote CI and the council.
+
+## Unit 14a4b — the review's return: oversized on `engine.rs`, 2026-09-28
+
+Run `0065-rebuild-unit-14-see-the-uni-8b6d5d16`, the review's return on
+`d460e7cf`. Named production files: `native_controls.rs` and `agents.rs`.
+**Result: oversized.** No production or test file moved. The "complete"
+recorded above for 14a4b is withdrawn: ruling (2) is not fully built.
+
+The review returned two medium findings. F3 (a gate-directed instruction
+in the panel prose) was rejected by the chief and asks nothing of this seat.
+
+- **F1.** R1's harness path (`native_controls.rs:2343`) requires a
+  nonempty boundary fragment. It therefore refuses a seat whose adapter
+  declares an empty `hands.harness.work` or `.gate`. Ruling (2) admits
+  that fragment under `harness`, whatever its length.
+- **F2.** The two tests and helper `d460e7cf` added to
+  `native_controls/tests.rs` (186 lines) sit outside the unit's named
+  suites, and no standing admission covers new assertions there.
+
+### F1 cannot be closed in the named files
+
+Ruling (2) admits the harness fragment "under harness, and nowhere else".
+`check_final` must therefore tell `harness` from `open` for a seat with
+hands. Nothing it receives can. A scratch probe showed this; it was
+appended to `capability_launch.rs`, run, and reverted with `git checkout`,
+and its output is in `.forge/unit-14a4b-f1-probe.txt`.
+
+- The fixture: one work agent with workspace hands, no grants, and the
+  shipped Claude adapter with `hands.harness = {"work": []}`. It was
+  compiled once under `harness` and once under `open`.
+- Both compositions carry the same serving inputs: `dialect.hands=[]`,
+  `dialect.boundary=BoundaryFragments { gate: [], work: [] }`, and a typed
+  `HandsSpec`.
+- Both sealed commands are identical, token for token:
+  `claude -p --output-format stream-json --verbose --permission-mode
+  acceptEdits --model claude-opus-5-5 --effort high --disallowedTools
+  WebFetch,WebSearch`.
+- `checked_launch` refuses both the same way: "is sealed with hands that
+  are not the engine's workspace hands".
+- `open` admits a work seat with hands at compile time
+  (`bundle.rs:4206-4208`), so this pair is reachable. An absent fragment
+  under `harness` is already refused at compile (`bundle.rs:4183-4205`).
+
+So neither a length test nor any other test on these inputs can admit the
+first and refuse the second. The boundary has to reach `check_final` as a
+typed fact, sealed where the engine seals the serving inputs:
+
+- `crates/brokkr-runtime/src/engine.rs`, `serving_inputs` (`:4703-4748`),
+  builds `SealedDialect` with every field named (`:4739-4744`). A new
+  typed member forces a line there.
+- Its `None if dialect.boundary == Default::default()` arm (`:4728`)
+  compares fragments by value, so a declared-empty pair already reads as
+  "no boundary".
+
+`engine.rs` is a production file outside this unit, and the standing
+admissions cover test lines only. The unit stops here.
+
+### F2 waits for the same split
+
+The harness rows in the two tests F2 names build `Dialect` without a
+boundary fact. F1's fix changes that shape, so relocating the tests now
+would mean moving them twice. They stay where `d460e7cf` put them until
+the split below rules on both.
+
+### The split needed
+
+One unit, **14a4c**. Production (three files, at the ceiling):
+
+- `native_controls.rs`: `SealedDialect` and `Dialect` carry the typed
+  boundary fact, with its closed JSON member and decoder. R1 reads that
+  fact, not fragment lengths.
+- `agents.rs`: the composition records the `harness` boundary as typed,
+  whatever the fragments' lengths.
+- `engine.rs` (`serving_inputs`): seals the fact.
+
+Tests in `adapters/tests.rs` and `capability_launch.rs`:
+
+- a compiled empty-fragment positive under `harness`;
+- an `open` negative with the same fixture;
+- the boxed negatives;
+- F2's rows, relocated from `native_controls/tests.rs`.
+
+Questions for the ruling:
+
+- `decode_serving` (`native_controls.rs:1352`) takes an exact member set.
+  Serving inputs sealed before the new member would stop decoding. Is
+  that intended, or is it unit 15's resume work?
+- 14b's saved patch builds `Dialect` in `adapters.rs` (patch line 94). It
+  will need the new field, which is 14b's own file.
+
+### Gates
+
+- `openspec validate --all --strict` and `git diff --check`, on these two
+  documents only. No code moved.
+- Fixture migrations and standing-admission lines: none.
+
+**Pending.** The ruling and 14a4c, then 14b. Also exact coverage outside
+the box, macOS, remote CI and the council.

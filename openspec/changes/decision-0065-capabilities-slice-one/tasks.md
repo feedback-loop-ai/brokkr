@@ -2693,6 +2693,27 @@ only.
 - **Pending.** 14b, exact coverage outside the box, macOS, remote CI and
   the council.
 
+Unit 14a4b, the review's return (2026-09-28, same run, on `d460e7cf`;
+evidence.md, "Unit 14a4b — the review's return"). **Result: oversized.**
+Nothing but these records moved. The "complete" above is withdrawn.
+
+- **F1.** R1 admits the harness fragment only when it is nonempty. A
+  declared-empty fragment under `harness` and a seat with hands under
+  `open` are indistinguishable: a scratch probe (reverted) showed they seal
+  the same serving inputs and the same command. Ruling (2) needs a typed
+  boundary fact, and only `engine.rs` (`serving_inputs`, `:4739`) can
+  seal one. That file is outside the unit.
+- **F2.** The two `native_controls/tests.rs` tests move with F1's fix,
+  because their harness rows change shape.
+- **Split needed.** One unit, 14a4c: `native_controls.rs`, `agents.rs` and
+  `engine.rs`. Its tests are the empty-fragment positive, the `open` and
+  boxed negatives, and F2's relocated rows, all in the named suites. The
+  ruling should also say whether older sealed serving inputs must still
+  decode.
+- Fixture migrations and standing-admission lines: none.
+- **Pending.** The ruling, 14a4c, 14b, exact coverage outside the box,
+  macOS, remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
