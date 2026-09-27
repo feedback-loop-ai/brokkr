@@ -40,7 +40,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use brokkr_core::fold::{fold, RunState, Status};
+use brokkr_core::fold::{fold, OperatorCommand, RunState, Status};
 use brokkr_runtime::realms::{Hearth, World, WorldError};
 use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
@@ -2305,10 +2305,6 @@ fn run_with(
             by_realm,
             journal,
         }) => {
-            anyhow::ensure!(
-                command == "retry" || command == "stop" || command == brokkr_view::SUPERSEDE,
-                "operator command must be 'retry', 'stop' or 'supersede'"
-            );
             // Whether any argument that belongs to `supersede` alone
             // was typed. Asked HERE, before the branch below takes
             // those arguments, because on a `retry` or a `stop` one of
@@ -2331,6 +2327,9 @@ fn run_with(
                     journal.db,
                 );
             }
+            let Some(verb) = OperatorCommand::parse(&command) else {
+                anyhow::bail!("operator command must be 'retry', 'stop' or 'supersede'");
+            };
             anyhow::ensure!(
                 !cited,
                 "--findings, --by-run, --by-seq and --by-realm belong to \
@@ -2344,7 +2343,7 @@ fn run_with(
             // engine, so it can come back refused. Saying "recorded"
             // there would tell the operator the opposite of what the
             // journal says.
-            match operator_command(&mut store, &run, &command, &operator, &reason)? {
+            match operator_command(&mut store, &run, verb, &operator, &reason)? {
                 FencedCommandOutcome::Accepted { .. } => {
                     eprintln!(
                         "recorded operator {command}; continue with: brokkr resume --run {run}"

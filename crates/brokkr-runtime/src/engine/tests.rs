@@ -2363,7 +2363,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // stop is legal, it is accepted.
     assert!(
         matches!(
-            operator_command(&mut store, "raced", "stop", "operator", "enough").unwrap(),
+            operator_command(&mut store, "raced", Stop, "operator", "enough").unwrap(),
             FencedCommandOutcome::Accepted { .. }
         ),
         "a stop on a parked run is still accepted",
@@ -2373,10 +2373,10 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // running, and `retry` is legal only on a parked run. The run did not
     // move under this command — it was in the wrong state before the
     // command was even journaled — so the refusal says which state.
-    let refused = operator_command(&mut store, "raced", "retry", "operator", "once more").unwrap();
+    let refused = operator_command(&mut store, "raced", Retry, "operator", "once more").unwrap();
     assert!(
         matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
-            if reason == RUN_NOT_AWAITING_OPERATOR),
+            if reason == Refusal::RunNotAwaitingOperator.word()),
         "{refused:?}",
     );
 
@@ -2394,13 +2394,13 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
             None,
         )
         .unwrap();
-    for command in ["retry", "stop"] {
+    for command in OperatorCommand::ALL {
         let refused = operator_command(&mut store, "raced", command, "operator", "too late")
-            .unwrap_or_else(|error| panic!("{command} errored instead of refusing: {error}"));
+            .unwrap_or_else(|error| panic!("{command:?} errored instead of refusing: {error}"));
         assert!(
             matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
-                if reason == AFTER_TERMINAL),
-            "{command}: {refused:?}",
+                if reason == Refusal::AfterTerminal.word()),
+            "{command:?}: {refused:?}",
         );
     }
 
@@ -2427,8 +2427,8 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
         .filter(|event| event.event_type == EventType::OperatorRejected)
     {
         assert!(
-            rejected.payload["reason"] == json!(RUN_NOT_AWAITING_OPERATOR)
-                || rejected.payload["reason"] == json!(AFTER_TERMINAL),
+            rejected.payload["reason"] == json!(Refusal::RunNotAwaitingOperator.word())
+                || rejected.payload["reason"] == json!(Refusal::AfterTerminal.word()),
             "a refusal that was not a race must not claim one: {}",
             rejected.payload["reason"],
         );
@@ -2443,7 +2443,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // the unfenced path used to write into this position — the journal
     // stops folding, permanently, because events are immutable.
     let mut poisoned = parked_store(&dir.path().join("poisoned.db"), "poisoned");
-    operator_command(&mut poisoned, "poisoned", "stop", "operator", "enough").unwrap();
+    operator_command(&mut poisoned, "poisoned", Stop, "operator", "enough").unwrap();
     poisoned
         .append_next(
             "poisoned",
@@ -2473,20 +2473,54 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     );
     // And a fenced command arriving at that already-broken journal
     // refuses to add to it rather than folding it again.
-    assert!(operator_command(&mut poisoned, "poisoned", "stop", "operator", "later").is_err());
+    assert!(operator_command(&mut poisoned, "poisoned", Stop, "operator", "later").is_err());
 }
 
 /// A command the vocabulary does not know is refused by NAME before any
-/// question of fences or cursors: `refusal_for` closes the verb set.
+/// question of fences or cursors: `OperatorCommand` closes the verb set,
+/// and the bridge's door, which journals the word it was sent, refuses
+/// one it does not parse even under a cursor that still holds.
 #[test]
 fn a_command_outside_the_vocabulary_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = parked_store(&dir.path().join("verbs.db"), "verbs");
-    let refused = operator_command(&mut store, "verbs", "dance", "operator", "please").unwrap();
+    assert_eq!(OperatorCommand::parse("dance"), None);
+    let (seq, hash) = store.head_hash("verbs").unwrap();
+    let dance = FencedCommand {
+        operator: "op",
+        reason: "please",
+        ..looper("d", "dance", seq, &hash)
+    };
+    let refused = apply_fenced_operator_command(&mut store, "verbs", &dance).unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == COMMAND_NOT_ALLOWED),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::CommandNotAllowed.word()),
         "{refused:?}"
     );
+    let events = store.load("verbs").unwrap();
+    let commanded = events
+        .iter()
+        .find(|event| event.event_type == EventType::OperatorCommanded)
+        .unwrap();
+    assert_eq!(commanded.payload["command"], "dance");
+}
+
+/// A Looper command whose word is parsed the way the bridge parses it,
+/// asked by "operator" for "reason" against the head `seq`/`hash`.
+pub(super) fn looper<'a>(
+    command_id: &'a str,
+    word: &'a str,
+    seq: u64,
+    hash: &'a str,
+) -> FencedCommand<'a> {
+    FencedCommand {
+        command_id,
+        command: CommandWord::parse(word),
+        operator: "operator",
+        reason: "reason",
+        expected_seq: seq,
+        expected_hash: hash,
+    }
 }
 
 /// A contender that NEVER yields: the head moves in every window the
@@ -2501,7 +2535,7 @@ fn a_fence_lost_every_round_is_refused_not_spun_forever() {
     let refused = operator_command_racing(
         &mut store,
         "relentless",
-        "stop",
+        Stop,
         "operator",
         "enough",
         |store: &mut Store| {
@@ -2522,7 +2556,8 @@ fn a_fence_lost_every_round_is_refused_not_spun_forever() {
     )
     .unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::LostFence.word()),
         "{refused:?}"
     );
     assert!(
@@ -2530,6 +2565,26 @@ fn a_fence_lost_every_round_is_refused_not_spun_forever() {
         "the bound was reached, not merely approached: {checkpoints}"
     );
     fold(&store.load("relentless").unwrap()).unwrap();
+}
+
+/// A second operator, at another terminal, who commands once: in the first
+/// window a fence opens, and never again.
+fn a_peer_commands_once(run_id: &'static str) -> impl FnMut(&mut Store) {
+    let mut peers = 1;
+    move |store: &mut Store| {
+        if peers > 0 {
+            peers -= 1;
+            store
+                .append_next(
+                    run_id,
+                    EventType::OperatorCommanded,
+                    json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+    }
 }
 
 /// The fenced path's own append-time race: the cursor check passed, the
@@ -2541,30 +2596,15 @@ fn a_fenced_acceptance_beaten_to_the_head_reports_a_stale_cursor() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = parked_store(&dir.path().join("beaten.db"), "beaten");
     let (seq, hash) = store.head_hash("beaten").unwrap();
-    let mut peers = 1;
+    let once_more = FencedCommand {
+        reason: "once more",
+        ..looper("looper-command", "retry", seq, &hash)
+    };
     let refused = apply_fenced_racing(
         &mut store,
         "beaten",
-        "looper-command",
-        "retry",
-        "operator",
-        "once more",
-        seq,
-        &hash,
-        |store: &mut Store| {
-            if peers > 0 {
-                peers -= 1;
-                store
-                    .append_next(
-                        "beaten",
-                        EventType::OperatorCommanded,
-                        json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
-                        None,
-                        None,
-                    )
-                    .unwrap();
-            }
-        },
+        &once_more,
+        a_peer_commands_once("beaten"),
     )
     .unwrap();
     assert!(
@@ -2612,7 +2652,7 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
     let refused = operator_command_racing(
         &mut store,
         "raced",
-        "stop",
+        Stop,
         "operator",
         "enough",
         |store: &mut Store| {
@@ -2638,7 +2678,8 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
     )
     .unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::LostFence.word()),
         "a command that WAS legal when it was decided reports the race: {refused:?}",
     );
 
@@ -2677,7 +2718,7 @@ fn a_command_still_legal_after_the_head_moved_is_decided_again_and_accepted() {
     let accepted = operator_command_racing(
         &mut store,
         "checkpointed",
-        "stop",
+        Stop,
         "operator",
         "enough",
         |store: &mut Store| {
@@ -2733,31 +2774,18 @@ fn a_second_operators_command_in_the_window_takes_the_acceptance_with_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = parked_store(&dir.path().join("two-terminals.db"), "two-terminals");
 
-    let mut peers = 1;
     let refused = operator_command_racing(
         &mut store,
         "two-terminals",
-        "retry",
+        Retry,
         "operator",
         "once more",
-        |store: &mut Store| {
-            if peers > 0 {
-                peers -= 1;
-                store
-                    .append_next(
-                        "two-terminals",
-                        EventType::OperatorCommanded,
-                        json!({"command_id":"peer","command":"stop","args":{},"operator":"other"}),
-                        None,
-                        None,
-                    )
-                    .unwrap();
-            }
-        },
+        a_peer_commands_once("two-terminals"),
     )
     .unwrap();
     assert!(
-        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. } if reason == LOST_FENCE),
+        matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
+            if reason == Refusal::LostFence.word()),
         "{refused:?}",
     );
     let events = store.load("two-terminals").unwrap();
@@ -2774,33 +2802,14 @@ fn a_second_operators_command_in_the_window_takes_the_acceptance_with_it() {
 fn operator_and_fenced_replay_cover_every_disposition() {
     let dir = tempfile::tempdir().unwrap();
     let mut ordinary = parked_store(&dir.path().join("ordinary.db"), "ordinary");
-    operator_command(&mut ordinary, "ordinary", "retry", "operator", "reason").unwrap();
+    operator_command(&mut ordinary, "ordinary", Retry, "operator", "reason").unwrap();
 
     let mut accepted = parked_store(&dir.path().join("accepted.db"), "accepted");
     let (seq, hash) = accepted.head_hash("accepted").unwrap();
-    let first = apply_fenced_operator_command(
-        &mut accepted,
-        "accepted",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
-    )
-    .unwrap();
+    let command = looper("command", "retry", seq, &hash);
+    let first = apply_fenced_operator_command(&mut accepted, "accepted", &command).unwrap();
     assert!(matches!(first, FencedCommandOutcome::Accepted { .. }));
-    let replay = apply_fenced_operator_command(
-        &mut accepted,
-        "accepted",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
-    )
-    .unwrap();
+    let replay = apply_fenced_operator_command(&mut accepted, "accepted", &command).unwrap();
     assert!(matches!(replay, FencedCommandOutcome::Accepted { .. }));
 
     let mut incomplete = parked_store(&dir.path().join("incomplete.db"), "incomplete");
@@ -2826,12 +2835,7 @@ fn operator_and_fenced_replay_cover_every_disposition() {
         apply_fenced_operator_command(
             &mut incomplete,
             "incomplete",
-            "incomplete-command",
-            "retry",
-            "operator",
-            "reason",
-            0,
-            ZERO_HASH,
+            &looper("incomplete-command", "retry", 0, ZERO_HASH),
         )
         .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "incomplete_command_replay"
@@ -2840,10 +2844,8 @@ fn operator_and_fenced_replay_cover_every_disposition() {
     let mut forbidden = parked_store(&dir.path().join("forbidden.db"), "forbidden");
     let (seq, hash) = forbidden.head_hash("forbidden").unwrap();
     assert!(matches!(
-        apply_fenced_operator_command(
-            &mut forbidden, "forbidden", "bad", "widen", "operator", "reason", seq, &hash,
-        )
-        .unwrap(),
+        apply_fenced_operator_command(&mut forbidden, "forbidden", &looper("bad", "widen", seq, &hash))
+            .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "command_not_allowed"
     ));
 
@@ -2853,12 +2855,7 @@ fn operator_and_fenced_replay_cover_every_disposition() {
         apply_fenced_operator_command(
             &mut stale_hash,
             "stale-hash",
-            "stale",
-            "retry",
-            "operator",
-            "reason",
-            seq,
-            &"f".repeat(64),
+            &looper("stale", "retry", seq, &"f".repeat(64)),
         )
         .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "stale_cursor"
@@ -2872,7 +2869,9 @@ fn operator_and_fenced_replay_cover_every_disposition() {
     let run_id = running_engine.run_id.clone();
     assert!(matches!(
         apply_fenced_operator_command(
-            &mut running_engine.store, &run_id, "early", "stop", "operator", "reason", seq, &hash,
+            &mut running_engine.store,
+            &run_id,
+            &looper("early", "stop", seq, &hash),
         )
         .unwrap(),
         FencedCommandOutcome::Rejected { reason, .. } if reason == "run_not_awaiting_operator"
@@ -2962,14 +2961,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
             .append_next("mid", event_type, payload, None, None)
             .unwrap();
     }
-    operator_command(
-        &mut store,
-        "mid",
-        "stop",
-        "vyanakiev",
-        "the mock reads wrong",
-    )
-    .unwrap();
+    operator_command(&mut store, "mid", Stop, "vyanakiev", "the mock reads wrong").unwrap();
     for (event_type, payload) in [
         (
             EventType::EffectCheckpointed,
@@ -3010,7 +3002,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         &manifest,
         &in_flight,
     );
-    operator_command(&mut store, "boundary", "stop", "vyanakiev", "enough").unwrap();
+    operator_command(&mut store, "boundary", Stop, "vyanakiev", "enough").unwrap();
     let events = drive(store, "boundary");
     let types: Vec<EventType> = events.iter().rev().take(2).map(|e| e.event_type).collect();
     assert_eq!(
@@ -3028,14 +3020,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         &manifest,
         &in_flight[..2],
     );
-    operator_command(
-        &mut store,
-        "between",
-        "stop",
-        "vyanakiev",
-        "between effects",
-    )
-    .unwrap();
+    operator_command(&mut store, "between", Stop, "vyanakiev", "between effects").unwrap();
     let events = drive(store, "between");
     assert_eq!(
         events.len(),
@@ -3843,7 +3828,6 @@ fn panel_and_sequence_storage_failures_propagate() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn decision_and_operator_storage_failures_propagate() {
     let (_kept, mut decision) = engine_failing("transition/decided");
     assert!(decision
@@ -3854,12 +3838,12 @@ fn decision_and_operator_storage_failures_propagate() {
     let first_path = dir.path().join("operator-commanded.db");
     let mut first = parked_store(&first_path, "first");
     fail_event(&first_path, "operator/commanded");
-    assert!(operator_command(&mut first, "first", "retry", "operator", "reason").is_err());
+    assert!(operator_command(&mut first, "first", Retry, "operator", "reason").is_err());
 
     let second_path = dir.path().join("operator-accepted.db");
     let mut second = parked_store(&second_path, "second");
     fail_event(&second_path, "operator/accepted");
-    assert!(operator_command(&mut second, "second", "retry", "operator", "reason").is_err());
+    assert!(operator_command(&mut second, "second", Retry, "operator", "reason").is_err());
 
     let incomplete_path = dir.path().join("incomplete-failure.db");
     let mut incomplete = parked_store(&incomplete_path, "incomplete-failure");
@@ -3876,12 +3860,7 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut incomplete,
         "incomplete-failure",
-        "incomplete",
-        "retry",
-        "operator",
-        "reason",
-        0,
-        ZERO_HASH,
+        &looper("incomplete", "retry", 0, ZERO_HASH),
     )
     .is_err());
 
@@ -3892,12 +3871,7 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut commanded,
         "fenced-commanded",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
+        &looper("command", "retry", seq, &hash),
     )
     .is_err());
 
@@ -3908,12 +3882,7 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut rejected,
         "fenced-rejected",
-        "command",
-        "widen",
-        "operator",
-        "reason",
-        seq,
-        &hash,
+        &looper("command", "widen", seq, &hash),
     )
     .is_err());
 
@@ -3924,42 +3893,19 @@ fn decision_and_operator_storage_failures_propagate() {
     assert!(apply_fenced_operator_command(
         &mut accepted,
         "fenced-accepted",
-        "command",
-        "retry",
-        "operator",
-        "reason",
-        seq,
-        &hash,
+        &looper("command", "retry", seq, &hash),
     )
     .is_err());
 
     let replay_path = dir.path().join("replayed-rejection.db");
     let mut replayed = parked_store(&replay_path, "replayed-rejection");
     let (seq, hash) = replayed.head_hash("replayed-rejection").unwrap();
-    let rejected = apply_fenced_operator_command(
-        &mut replayed,
-        "replayed-rejection",
-        "same-command",
-        "widen",
-        "operator",
-        "reason",
-        seq,
-        &hash,
-    )
-    .unwrap();
+    let widen = looper("same-command", "widen", seq, &hash);
+    let rejected =
+        apply_fenced_operator_command(&mut replayed, "replayed-rejection", &widen).unwrap();
     assert!(matches!(rejected, FencedCommandOutcome::Rejected { .. }));
     assert!(matches!(
-        apply_fenced_operator_command(
-            &mut replayed,
-            "replayed-rejection",
-            "same-command",
-            "widen",
-            "operator",
-            "reason",
-            seq,
-            &hash,
-        )
-        .unwrap(),
+        apply_fenced_operator_command(&mut replayed, "replayed-rejection", &widen).unwrap(),
         FencedCommandOutcome::Rejected { .. }
     ));
 }

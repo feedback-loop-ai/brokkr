@@ -1,14 +1,14 @@
 # produced by quality/measure.sh with clippy 0.1.98 (88d9e12ae1 2026-08-18)
 # production
- 120 crates/brokkr-bridge/src/lib.rs:595 sync_once
+ 111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
  118 crates/brokkr-cli/src/init.rs:1599 init
- 751 crates/brokkr-cli/src/lib.rs:1973 run_with
+ 750 crates/brokkr-cli/src/lib.rs:1971 run_with
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  105 crates/brokkr-cli/src/tui.rs:2396 plan
  104 crates/brokkr-cli/src/tui.rs:3068 draw_participant
  140 crates/brokkr-core/src/dispatch.rs:241 verify
- 268 crates/brokkr-core/src/fold.rs:214 apply
+ 266 crates/brokkr-core/src/fold.rs:330 apply
  113 crates/brokkr-core/src/policy.rs:304 parse_rule
  109 crates/brokkr-core/src/policy.rs:432 parse_condition
  204 crates/brokkr-core/src/realms.rs:443 of
@@ -29,14 +29,13 @@
  215 crates/brokkr-runtime/src/bundle.rs:3392 parse_sequence
  366 crates/brokkr-runtime/src/bundle/compose.rs:416 merge_layer
  127 crates/brokkr-runtime/src/dialect.rs:320 check
- 163 crates/brokkr-runtime/src/engine.rs:778 seat_input
- 144 crates/brokkr-runtime/src/engine.rs:996 execute
- 386 crates/brokkr-runtime/src/engine.rs:2180 execute_sequence
- 191 crates/brokkr-runtime/src/engine.rs:2609 decide
- 109 crates/brokkr-runtime/src/engine.rs:3535 apply_fenced_racing
+ 159 crates/brokkr-runtime/src/engine.rs:802 seat_input
+ 143 crates/brokkr-runtime/src/engine.rs:1016 execute
+ 385 crates/brokkr-runtime/src/engine.rs:2104 execute_sequence
+ 191 crates/brokkr-runtime/src/engine.rs:2532 decide
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
- 177 crates/brokkr-view/src/lib.rs:1098 scan_participants
- 150 crates/brokkr-view/src/lib.rs:1901 participants
+ 177 crates/brokkr-view/src/lib.rs:1097 scan_participants
+ 150 crates/brokkr-view/src/lib.rs:1900 participants
  120 crates/brokkr-view/src/transcript.rs:2462 project_dsh
  126 crates/brokkr-view/src/transcript.rs:3082 dsh_row
 # test
@@ -52,11 +51,11 @@
  136 crates/brokkr-cli/src/tests.rs:3513 import_adopts_an_export_and_the_readouts_cannot_tell_it_apart
  134 crates/brokkr-cli/src/tests.rs:4281 the_supersede_verb_records_one_annotation_and_refuses_the_rest
  108 crates/brokkr-cli/src/tui/tests.rs:67 journal
- 103 crates/brokkr-cli/src/tui/tests.rs:3160 enter_with_no_turn_selected_opens_the_whole_transcript
+ 103 crates/brokkr-cli/src/tui/tests.rs:3156 enter_with_no_turn_selected_opens_the_whole_transcript
  120 crates/brokkr-cli/src/ui/tests.rs:768 the_console_serves_the_boundary_and_paints_the_pair
  108 crates/brokkr-cli/tests/boundary_verbs.rs:288 init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes
  153 crates/brokkr-cli/tests/boundary_verbs.rs:593 a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word
- 149 crates/brokkr-cli/tests/contributing.rs:205 the_boundary_guides_keep_every_section_and_gained_the_rows
+ 149 crates/brokkr-cli/tests/contributing.rs:1582 the_boundary_guides_keep_every_section_and_gained_the_rows
  143 crates/brokkr-cli/tests/delivered_by_brokkr.rs:441 the_gate_cuts_the_tier_by_the_delta_since_the_judgment
  161 crates/brokkr-cli/tests/delivered_by_brokkr.rs:709 a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so
  185 crates/brokkr-cli/tests/doctor_dsh_selection.rs:444 absent_path_default_search_matches_native_dsh_and_node
@@ -74,8 +73,8 @@
  110 crates/brokkr-cli/tests/machine_proof.rs:2335 compare_aligns_two_runs_and_finds_the_review_divergence
  148 crates/brokkr-cli/tests/transcript_command.rs:1110 packed_dsh_members_coalesce_into_selectable_chunks
  119 crates/brokkr-cli/tests/transcript_privacy.rs:818 a_read_leaves_an_existing_frame_bearing_wal_as_it_found
- 145 crates/brokkr-cli/tests/transcript_surfaces.rs:185 compare
- 103 crates/brokkr-cli/tests/transcript_surfaces.rs:424 one_derivation_reaches_every_surface
+ 145 crates/brokkr-cli/tests/transcript_surfaces.rs:287 compare
+ 103 crates/brokkr-cli/tests/transcript_surfaces.rs:526 one_derivation_reaches_every_surface
  109 crates/brokkr-core/src/dispatch/tests.rs:354 manifest_conversion_refuses_every_malformed_boundary
  117 crates/brokkr-core/src/policy/tests.rs:535 every_finding_edge_and_bound_has_a_table_arm
  103 crates/brokkr-core/src/policy/tests.rs:662 the_shipped_sdd_table_rules_every_artifact_and_loop_arm
@@ -145,12 +144,12 @@
  120 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3934 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
  154 crates/brokkr-runtime/src/bundle/tests.rs:594 panel_and_sequence_parsers_refuse_every_ambiguous_shape
  101 crates/brokkr-runtime/src/dialect/tests.rs:108 every_checked_dialect_boundary_is_named
- 248 crates/brokkr-runtime/src/engine/boundary_tests.rs:295 compose_site_follows_the_boundary_and_the_class
- 178 crates/brokkr-runtime/src/engine/boundary_tests.rs:944 an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved
- 139 crates/brokkr-runtime/src/engine/boundary_tests.rs:1146 effect_started_carries_the_boundary_beside_provenance
- 110 crates/brokkr-runtime/src/engine/boundary_tests.rs:1308 the_stamp_rides_beside_the_model_and_replaces_a_drivers_word
- 113 crates/brokkr-runtime/src/engine/boundary_tests.rs:1441 a_panels_members_and_a_sequences_steps_carry_their_own_word
- 114 crates/brokkr-runtime/src/engine/boundary_tests.rs:1703 the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin
+ 248 crates/brokkr-runtime/src/engine/boundary_tests.rs:304 compose_site_follows_the_boundary_and_the_class
+ 178 crates/brokkr-runtime/src/engine/boundary_tests.rs:953 an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved
+ 139 crates/brokkr-runtime/src/engine/boundary_tests.rs:1155 effect_started_carries_the_boundary_beside_provenance
+ 110 crates/brokkr-runtime/src/engine/boundary_tests.rs:1317 the_stamp_rides_beside_the_model_and_replaces_a_drivers_word
+ 113 crates/brokkr-runtime/src/engine/boundary_tests.rs:1450 a_panels_members_and_a_sequences_steps_carry_their_own_word
+ 114 crates/brokkr-runtime/src/engine/boundary_tests.rs:1697 the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin
  232 crates/brokkr-runtime/src/engine/notice_tests.rs:1180 a_recipe_cannot_declare_or_suppress_the_notice_structurally
  111 crates/brokkr-runtime/src/engine/notice_tests.rs:1518 inputs_house_feature_and_charter_text_neither_replace_nor_create_the_notice
  103 crates/brokkr-runtime/src/engine/resume_tests.rs:936 every_fact_the_offer_rests_on_can_refuse_it_alone
@@ -164,14 +163,13 @@
  123 crates/brokkr-runtime/src/engine/tests.rs:1013 compiled_two_step_sequence
  104 crates/brokkr-runtime/src/engine/tests.rs:1721 single_conclusion_driver_and_checkpoint_failures_cover_every_outcome
  111 crates/brokkr-runtime/src/engine/tests.rs:1832 panel_sequence_and_aggregation_cover_all_terminal_shapes
- 122 crates/brokkr-runtime/src/engine/tests.rs:2907 an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it
- 120 crates/brokkr-runtime/src/engine/tests.rs:3067 start_append_and_running_cursor_storage_failures_propagate
- 298 crates/brokkr-runtime/src/engine/tests.rs:3534 panel_and_sequence_storage_failures_propagate
- 110 crates/brokkr-runtime/src/engine/tests.rs:3847 decision_and_operator_storage_failures_propagate
- 104 crates/brokkr-runtime/src/engine/tests.rs:4408 realm_facts_key_two_repositories_by_their_own_realm_and_never_cross
- 105 crates/brokkr-runtime/src/engine/tests.rs:4660 a_sequence_fake_driver_sees_step_results_then_the_seat_results
- 207 crates/brokkr-runtime/src/engine/tests.rs:4962 compiled_loop_check_failure_cannot_be_judged_away
- 111 crates/brokkr-runtime/src/engine/tests.rs:5187 chief_synthesis_carries_a_panel_security_hold_to_the_machine
+ 108 crates/brokkr-runtime/src/engine/tests.rs:2906 an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it
+ 120 crates/brokkr-runtime/src/engine/tests.rs:3052 start_append_and_running_cursor_storage_failures_propagate
+ 298 crates/brokkr-runtime/src/engine/tests.rs:3519 panel_and_sequence_storage_failures_propagate
+ 104 crates/brokkr-runtime/src/engine/tests.rs:4354 realm_facts_key_two_repositories_by_their_own_realm_and_never_cross
+ 105 crates/brokkr-runtime/src/engine/tests.rs:4606 a_sequence_fake_driver_sees_step_results_then_the_seat_results
+ 207 crates/brokkr-runtime/src/engine/tests.rs:4908 compiled_loop_check_failure_cannot_be_judged_away
+ 111 crates/brokkr-runtime/src/engine/tests.rs:5133 chief_synthesis_carries_a_panel_security_hold_to_the_machine
  108 crates/brokkr-runtime/tests/roster.rs:288 every_shipped_verify_and_ship_office_is_a_boxed_exec_script
  119 crates/brokkr-runtime/tests/table_lints.rs:352 sweep
  158 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs:460 build_ledger

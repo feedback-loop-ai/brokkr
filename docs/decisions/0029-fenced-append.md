@@ -123,3 +123,25 @@ whether every remaining control-plane `append_next` moves behind the
 fence. The identity residual (a self-asserted `$USER`) is decision
 0025's, not this one's.
 
+
+## Addendum — 2026-09-27, a retry before any phase is refused by name (#344), operator ruling
+
+#344 moved the operator verbs into one module and gave the acceptance
+rule one home, `brokkr_core::fold::acceptance_refusal`. Both doors, the
+CLI's `brokkr operator` and the bridge's fenced command, and `fold`
+itself now call it, where the engine used to keep a hand-written mirror
+of `fold`'s rule. Making it one rule exposed a state the mirror had
+wrong. A run can park before it enters any phase:
+`Engine::enter_phase` appends `run/parked` (`SELECT-NO-DEFAULT`) before
+any `phase/entered`, and `fold` admits that park. A `retry` there used
+to be journaled as `operator/accepted`, which `fold` then refused as
+out of place, so the journal stopped folding for good.
+
+Ruled 2026-09-27: such a retry is refused, before any append, with the
+refusal word `no_phase_to_retry` (`Refusal::NoPhaseToRetry`). A `stop`
+is still accepted in that state. The word joins the refusal vocabulary
+as a new, additive `operator/rejected` reason. `contracts/` leaves that
+reason an open string, so no frozen byte moves. Every other refusal
+word and payload is unchanged. The operator ruled the typed
+`OperatorCommand`, `Refusal` and `Head` into brokkr-core's public
+surface in the same ruling.

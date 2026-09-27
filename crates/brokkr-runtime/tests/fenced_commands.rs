@@ -1,6 +1,8 @@
 use brokkr_core::fold::{fold, Cursor, Status};
 use brokkr_core::EventType;
-use brokkr_runtime::{apply_fenced_operator_command, FencedCommandOutcome};
+use brokkr_runtime::{
+    apply_fenced_operator_command, CommandWord, FencedCommand, FencedCommandOutcome,
+};
 use brokkr_store::Store;
 use serde_json::json;
 
@@ -22,20 +24,24 @@ fn started_store() -> (tempfile::TempDir, Store) {
     (dir, store)
 }
 
+/// Looper's `stop`, asked by operator-1 for `reason` against `seq`/`hash`.
+fn stop<'a>(command_id: &'a str, reason: &'a str, seq: u64, hash: &'a str) -> FencedCommand<'a> {
+    FencedCommand {
+        command_id,
+        command: CommandWord::parse("stop"),
+        operator: "user:operator-1",
+        reason,
+        expected_seq: seq,
+        expected_hash: hash,
+    }
+}
+
 #[test]
 fn stale_command_is_durably_rejected_without_changing_control_state() {
     let (_dir, mut store) = started_store();
-    let outcome = apply_fenced_operator_command(
-        &mut store,
-        "run-1",
-        "command-1",
-        "stop",
-        "user:operator-1",
-        "cancel",
-        99,
-        &"f".repeat(64),
-    )
-    .unwrap();
+    let stale = "f".repeat(64);
+    let command = stop("command-1", "cancel", 99, &stale);
+    let outcome = apply_fenced_operator_command(&mut store, "run-1", &command).unwrap();
     assert!(
         matches!(outcome, FencedCommandOutcome::Rejected { reason, .. } if reason == "stale_cursor")
     );
@@ -49,29 +55,11 @@ fn stale_command_is_durably_rejected_without_changing_control_state() {
 #[test]
 fn command_receipt_replay_is_idempotent_after_bridge_uncertainty() {
     let (_dir, mut store) = started_store();
-    let first = apply_fenced_operator_command(
-        &mut store,
-        "run-1",
-        "command-replay",
-        "stop",
-        "user:operator-1",
-        "cancel",
-        99,
-        &"f".repeat(64),
-    )
-    .unwrap();
+    let stale = "f".repeat(64);
+    let command = stop("command-replay", "cancel", 99, &stale);
+    let first = apply_fenced_operator_command(&mut store, "run-1", &command).unwrap();
     let count = store.load("run-1").unwrap().len();
-    let second = apply_fenced_operator_command(
-        &mut store,
-        "run-1",
-        "command-replay",
-        "stop",
-        "user:operator-1",
-        "cancel",
-        99,
-        &"f".repeat(64),
-    )
-    .unwrap();
+    let second = apply_fenced_operator_command(&mut store, "run-1", &command).unwrap();
     assert_eq!(first, second);
     assert_eq!(store.load("run-1").unwrap().len(), count);
 }
@@ -107,17 +95,8 @@ fn correctly_fenced_stop_is_accepted_only_from_a_safe_parked_boundary() {
             .unwrap();
     }
     let (seq, hash) = store.head_hash("run-1").unwrap();
-    let outcome = apply_fenced_operator_command(
-        &mut store,
-        "run-1",
-        "command-2",
-        "stop",
-        "user:operator-1",
-        "cancel after executor loss",
-        seq,
-        &hash,
-    )
-    .unwrap();
+    let command = stop("command-2", "cancel after executor loss", seq, &hash);
+    let outcome = apply_fenced_operator_command(&mut store, "run-1", &command).unwrap();
     assert!(matches!(outcome, FencedCommandOutcome::Accepted { .. }));
     let state = fold(&store.load("run-1").unwrap()).unwrap();
     assert_eq!(state.status, Status::Running);

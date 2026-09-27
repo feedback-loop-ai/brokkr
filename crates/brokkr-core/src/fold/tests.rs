@@ -175,6 +175,77 @@ fn operator_and_terminal_refusals_are_explicit() {
     }
 }
 
+/// `acceptance_refusal` is the one rule the fold and the engine both
+/// read: it names each condition an acceptance would fail on, and every
+/// word the journal records for a command or a refusal is pinned here.
+#[test]
+fn the_acceptance_rule_names_each_condition_and_pins_its_word() {
+    use OperatorCommand::{Retry, Stop};
+    let parked = Status::AwaitingOperator;
+    for (status, phase, command, expected) in [
+        (
+            Status::Completed,
+            Some("work"),
+            Stop,
+            Some(Refusal::AfterTerminal),
+        ),
+        (
+            Status::Stopped,
+            Some("work"),
+            Retry,
+            Some(Refusal::AfterTerminal),
+        ),
+        (
+            Status::Running,
+            Some("work"),
+            Retry,
+            Some(Refusal::RunNotAwaitingOperator),
+        ),
+        (parked, None, Retry, Some(Refusal::NoPhaseToRetry)),
+        (parked, Some("work"), Retry, None),
+        (parked, None, Stop, None),
+        (Status::Running, None, Stop, None),
+    ] {
+        let mut current = state(Cursor::Idle);
+        current.status = status;
+        current.phase = phase.map(str::to_string);
+        let refusal = acceptance_refusal(&current, command);
+        assert_eq!(refusal, expected, "{status:?} {phase:?} {command:?}");
+    }
+
+    assert_eq!(
+        OperatorCommand::ALL.map(OperatorCommand::as_str),
+        ["retry", "stop"]
+    );
+    for command in OperatorCommand::ALL {
+        assert_eq!(OperatorCommand::parse(command.as_str()), Some(command));
+    }
+    assert_eq!(OperatorCommand::parse("supersede"), None);
+    let refusals = [
+        Refusal::CommandNotAllowed,
+        Refusal::AfterTerminal,
+        Refusal::RunNotAwaitingOperator,
+        Refusal::NoPhaseToRetry,
+        Refusal::LostFence,
+        Refusal::StaleCursor,
+        Refusal::IncompleteCommandReplay,
+        Refusal::PreviouslyRejected,
+    ];
+    assert_eq!(
+        refusals.map(Refusal::word),
+        [
+            "command_not_allowed",
+            "after_terminal",
+            "run_not_awaiting_operator",
+            "no_phase_to_retry",
+            "lost_fence",
+            "stale_cursor",
+            "incomplete_command_replay",
+            "previously_rejected",
+        ]
+    );
+}
+
 /// Every refusal names the position it refused at. A fleet read cites
 /// that number as the quarantined run's one stated fact, so a reader —
 /// or the operator's aide — can go to the journal and check it.

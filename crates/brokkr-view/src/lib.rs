@@ -30,7 +30,7 @@ pub mod transcript;
 
 use std::collections::BTreeMap;
 
-use brokkr_core::fold::{RunState, Status};
+use brokkr_core::fold::{OperatorCommand, RunState, Status};
 use brokkr_core::realms::Boundary;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
@@ -682,16 +682,12 @@ pub fn clamp(text: &str, width: usize) -> String {
 
 // -------------------------------------- operator commands and residuals
 
-/// The two commands `brokkr operator` accepts, in the order it names
-/// them.
-pub const OPERATOR_COMMANDS: [&str; 2] = ["retry", "stop"];
-
 /// The phases whose rulings carry residual findings.
 pub const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
 
 /// The command word of the operator annotation that closes a residual
-/// finding (decision 0047 ruling 1). Deliberately NOT in
-/// [`OPERATOR_COMMANDS`]: that list is what a PARKED run admits, and a
+/// finding (decision 0047 ruling 1). Deliberately NOT an
+/// [`OperatorCommand`]: those are what a PARKED run admits, and a
 /// supersede is only ever written on a terminal one.
 pub const SUPERSEDE: &str = "supersede";
 
@@ -702,7 +698,10 @@ pub const SUPERSEDE: &str = "supersede";
 /// rather than one it invented.
 pub fn operator_commands(status: &str) -> Vec<String> {
     match status {
-        "awaiting_operator" => OPERATOR_COMMANDS.iter().map(|c| c.to_string()).collect(),
+        "awaiting_operator" => OperatorCommand::ALL
+            .iter()
+            .map(|command| command.as_str().to_string())
+            .collect(),
         _ => Vec::new(),
     }
 }

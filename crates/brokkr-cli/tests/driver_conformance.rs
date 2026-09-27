@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use brokkr_core::realms::Boundary;
+use brokkr_core::{fold::OperatorCommand::Retry, realms::Boundary};
 use brokkr_runtime::agents::{Adapters, Availability, Library};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::engine::{compose_site, BuiltBoundary};
@@ -3282,7 +3282,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             "{shape:?} wrapped={wrapped}: a resolved no-hands site is affirmative"
         );
 
-        operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+        operator_command(&mut store, &run_id, Retry, "operator", "once more").unwrap();
         let mut engine =
             Engine::resume(store, bundle, &run_id, Some(run_dir.path().join("work"))).unwrap();
         engine.drive().unwrap();

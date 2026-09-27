@@ -327,7 +327,6 @@ pub brokkr_view::What::problem: core::option::Option<alloc::string::String>
 pub brokkr_view::What::text: alloc::string::String
 pub const brokkr_view::ABSENT: &str
 pub const brokkr_view::NO_BOUNDARY: &str
-pub const brokkr_view::OPERATOR_COMMANDS: [&str; 2]
 pub const brokkr_view::RESIDUAL_PHASES: [&str; 2]
 pub const brokkr_view::SUPERSEDE: &str
 pub const brokkr_view::VIEW_VERSION: u32

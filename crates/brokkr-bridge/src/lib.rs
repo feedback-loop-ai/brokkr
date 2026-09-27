@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 use brokkr_core::canonical;
 use brokkr_core::dispatch::{bundle_manifest_from_run, dispatch_from_run, DispatchEnvelopeV2};
 use brokkr_core::{EventEnvelope, EventType};
-use brokkr_runtime::{apply_fenced_operator_command, FencedCommandOutcome};
+use brokkr_runtime::{
+    apply_fenced_operator_command, CommandWord, FencedCommand, FencedCommandOutcome,
+};
 use brokkr_store::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -84,6 +86,22 @@ pub struct ProducerCommand {
     pub expected_event_hash: String,
     pub actor: String,
     pub reason: String,
+}
+
+impl ProducerCommand {
+    /// The command as the engine's fenced door takes it, its word parsed
+    /// here at the edge. A word outside the verb set stays as sent, so the
+    /// journal records it before the door refuses it.
+    fn fenced(&self) -> FencedCommand<'_> {
+        FencedCommand {
+            command_id: &self.id,
+            command: CommandWord::parse(&self.command),
+            operator: &self.actor,
+            reason: &self.reason,
+            expected_seq: self.expected_forge_sequence,
+            expected_hash: &self.expected_event_hash,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -661,16 +679,7 @@ impl<T: ProducerTransport> Bridge<T> {
                 return Err(BridgeError::RegistrationMismatch);
             }
             last_command_cursor = command.cursor;
-            let result = apply_fenced_operator_command(
-                store,
-                run_id,
-                &command.id,
-                &command.command,
-                &command.actor,
-                &command.reason,
-                command.expected_forge_sequence,
-                &command.expected_event_hash,
-            )?;
+            let result = apply_fenced_operator_command(store, run_id, &command.fenced())?;
             // A one-shot bridge invocation is still a complete round trip: send
             // the durable command/disposition evidence before acknowledging it.
             let command_start = submitted_through;
