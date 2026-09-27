@@ -11718,3 +11718,168 @@ the one proof and the one gate they left unrecorded.
 
 **Pending:** external exact coverage (`scripts/coverage-exact.sh` outside
 the box), macOS, remote CI and the full engine council.
+
+## Unit 12-fix-e — one sink and bounded source pieces, oversized on one expectation, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-72e4162a`, based on `1b2df47b`. This
+is the diagnostic-sink split of 12-fix-d, answering the chief's C1, S1 and
+SC-D2. The chief's LOW (the panel's "hence medium, not hold") needs no
+change. Result: **oversized**. The fix is built and proved, but not
+committed. It is saved as `.forge/unit-12-fix-e/full.patch` (sha256
+`ee3e77e5fff1ef4bcd89331a08760442c252ba6ba71a5648e516304e169ab1a5`).
+
+### Why it stops
+
+The sink bounds the whole driver line to 512 scalar values. One existing
+assertion outside this unit's files asserts a longer line:
+`crates/brokkr-protocol/src/adapters/tests.rs:15027`
+(`an_authored_plugin_or_later_list_value_is_refused_at_the_final_command`).
+Its authored grammar refusal, "… do not parse: the 'claude' command grammar
+cannot place argument 2 …", is 520 scalar values, a D6 violation the sink
+now cuts. With the patch, the protocol lib run gave 500 passed and 1 failed
+on that assertion: left `… can rule on (decision 0066 …`, right `… (decision
+0066 ruling 6)`.
+
+A changed expectation is not a line the compiler forces, and it is not a
+fixture swap. So the standing admission (2026-09-25) does not cover it, and
+neither does fixture migration (2026-09-26). No compliant change keeps that
+assertion: any line within 512 differs from the 520-scalar one it expects.
+
+**The ruling asked for:** admit that one expectation for this unit, as an
+assertion update only. It becomes the line's first 511 scalar values and
+`…`. The change is saved as `.forge/unit-12-fix-e/adapters-tests.proposed.patch`
+(sha256 `0f18e8bd2a7eec16bbf34eed92ab41e4bf39df24f48793a7cc400a223fbea238`).
+As a scratch check it was applied, and protocol lib gave 501 passed and 0
+failed. It was then reverted.
+
+### What the patch changes
+
+Production files are `native_controls.rs` and `bundle.rs`. `engine.rs` is
+not needed, because the launch refusal renders in `native_controls.rs`.
+
+- **Source.** Every `Refusal` is made by `refused(why, pieces)`; the only
+  `Refusal {` literal left is inside it. `Piece::Words` is now
+  `&'static str`, so no raw string can be interpolated into words. Untrusted
+  text is only a typed identity:
+  - `Provider`, `Harness`, `Flag` (S1's selection flag), `Written`, `Reason`
+    (SC-D2's inventory reason), `Tool` and `Capability`;
+  - `Count`, `Names` (a limit's bounded `naming`) and `Grammar` (the
+    grammar's own bounded rendering).
+
+  Each identity is spelled only where it is plain for its kind, and a fixed
+  label is used otherwise. Plain means: ASCII names without `/`, spaces or
+  control characters; options start with `-`; reasons are words. Each is
+  cut to 128 scalar values, or 64 for a name the engine resolves. Payload
+  identities are then cut, the last first, to the cause bound. The seat
+  label in `at_launch` gets the same treatment.
+- **`Why`.** This private enum names every constructor: `Server`,
+  `Authored`, `Contender`, `Unparsed{authored}`, `Provenance`, `Unready`,
+  `Unanswered`, `Unconsumed`, `Unheld`, `Carried`, `Outside`, `Excluded` and
+  `Clause`. It says whose voice each constructor speaks in. Under
+  `cfg(test)`, `refused` records it on a thread-local list.
+- **Sink.** `pub fn bounded_line` escapes every control character with
+  Rust's debug escape, then cuts the line to 512 scalar values ending in
+  `…`. It is applied in `Refusal::at_launch`, `conflict_refusal` (now built
+  by `refused`), and the `managed` and `launch_arguments` lines. In
+  `bundle.rs`, `CompileError::Capability` renders through it
+  (`capability_line`). The chain wrap now keeps the raw reason, so the
+  whole `bundle: bundle: … (composed: …)` line is bounded once, and it
+  reads as before.
+- `managed`'s decode no longer echoes an unknown `inventory` value or an
+  unplain `admits` key.
+
+### Tests
+
+- Protocol `native_controls/tests.rs`, all new:
+  - `every_refusal_line_is_one_bounded_line_naming_no_payload`, the
+    invariant. It drives every constructor through the public functions
+    with five adversarial values: 1000 scalar values, an embedded newline,
+    `/private/REVIEW_SENTINEL`, `Bash(/private/…:*)`, and all of them at
+    once. Each value goes in every untrusted input: provider, harness, seat,
+    capability, tool, option, reason and written argument. Every line must
+    be at most 512, have no newline and carry no sentinel. That covers the
+    driver line with and without a seat, and the compiler line through the
+    sink with a doubled `bundle: `, a 300-scalar realm and a chain note. It
+    also covers the clause, `conflict_refusal`, and the `managed` and
+    `launch_arguments` lines. It asserts that all 14 constructor positions
+    are reached. `constructor(Why)` is an exhaustive match, so a new variant
+    fails to compile until it is listed.
+  - `a_selection_mapping_is_refused_by_its_bounded_option` (S1, through
+    `claude_command`).
+  - `an_unready_or_unanswered_plan_is_refused_in_bounded_identities` (SC-D2:
+    reason, harness, a 250-scalar held capability, an unplain one).
+  - `the_refusal_sink_keeps_one_line_within_512_scalar_values`.
+- `capability_launch.rs`, new:
+  `a_composed_capability_refusal_renders_as_one_bounded_line` (C1). It
+  compiles `derived` extending `solo` with SC-2's case. The independently
+  written whole line is asserted to be 533 scalar values. The rendered line
+  is exactly its first 511 and `…`, and it is still
+  `CompileError::Capability`.
+- One moved expectation, in this unit's own file: `tests.rs:189`,
+  `'inventory' is 'empty', not known or unmeasured` became `'inventory' is
+  not known or unmeasured`, because the value is no longer echoed.
+
+### Baseline reds on `1b2df47b`
+
+For this run, the production files were checked out at HEAD, and the tests
+that name new items were gated with `cfg(any())`.
+
+- S1 FAILED at `tests.rs:3693`: the 1000-scalar flag spelled whole.
+- SC-D2 FAILED at `tests.rs:3735`: left `… unmeasured (see
+  /private/REVIEW_SENTINEL\nrrr…`.
+- C1 FAILED at `capability_launch.rs:7124`, after the 533-count assertion
+  had passed. That confirms the chief's count.
+- `tests.rs:273` also failed, on the moved decode text.
+
+The patch was then re-applied, and `git diff` hashed to the saved patch.
+
+### Mutations (each compiled, was caught, then restored)
+
+- M1: reason plainness bypassed. Caught by the invariant (`tests.rs:3444`,
+  the sentinel assertion) and SC-D2 (`:3732`).
+- M2: option plainness bypassed. Caught by the invariant (`:3444`) and S1
+  (`:3695`).
+- M3: `plain_label` always true. Caught by the invariant (`:3444`) and SC-D2
+  (`:3749`).
+- M4: capability plainness bypassed. Caught by the invariant (`:3444`),
+  SC-D2 (`:3777`) and 12-fix-d's `:3256`.
+- M5: `bounded_line` returns its input. Caught by the invariant (`:3438`,
+  the length assertion) and the sink test (`:3789`).
+- M6: `capability_line` skips the sink. Caught by C1
+  (`capability_launch.rs:7124`).
+- M7: a new `Why::Probe` variant. `tests.rs:3412` fails to compile with
+  E0004, `Why::Probe` not covered.
+- M8: `Provenance` recorded as `Unready`. The invariant FAILED at `:3650`:
+  the reached set lacks 5.
+
+After the restores, `git diff | sha256sum` equals the saved patch.
+
+### Gates on the patched tree
+
+- `cargo fmt --all -- --check` is clean, and so is `git diff --check`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings` finished with no warning.
+- `native_controls`: 49 passed. `capability_launch`: 52 passed.
+- Crate runs with `--no-fail-fast`:
+  - `brokkr-protocol --tests`: 1 failed, the `adapters/tests.rs:15027`
+    assertion above.
+  - `brokkr-runtime` and `brokkr-cli`: every binary 0 failed.
+- `compile --bundle bundles/self` compiled, and `openspec validate --all
+  --strict` gave 18 passed.
+- No workspace-wide run: the tree is red on the out-of-file assertion.
+
+Standing-admission lines: none. 12.1 and 12.2 stay ticked; 15.2 stays open.
+
+**Follow-ups, not this unit's files:**
+
+- `capabilities.rs`'s opaque contender line (`{who}: its arguments carry
+  '{written}' …`) interpolates guard data outside the renderer. It is
+  bounded only by the compile sink.
+- `brokkr-cli`'s resume door (`unreproducible`) renders the raw `reason`
+  inside a manifest mismatch, not through the sink.
+- Launch refusals built in `adapters.rs` itself do not pass through the
+  sink.
+
+**Pending:** the operator's ruling on the one expectation; then the
+workspace run, exact coverage outside the box, macOS, remote CI and the
+full engine council.

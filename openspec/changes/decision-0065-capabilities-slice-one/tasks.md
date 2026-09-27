@@ -1934,6 +1934,34 @@ pattern) and SC-2 (`Excluded` had no total bound). Both are **repaired**
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
 
+Unit 12-fix-e (2026-09-27, run `0065-rebuild-unit-12-see-the-uni-72e4162a`,
+based on `1b2df47b`), the diagnostic sink split from 12-fix-d, answering the
+chief's C1, S1 and SC-D2. Result: **oversized**. The fix is built and proved,
+and saved as a patch rather than committed (evidence.md, "Unit 12-fix-e").
+
+- **Why it stops.** The one sink bounds the whole driver line to 512. One
+  existing assertion outside this unit's files asserts a longer line:
+  `crates/brokkr-protocol/src/adapters/tests.rs:15027`, an authored grammar
+  refusal of 520 scalar values. That is a D6 violation the sink now cuts, so
+  its expectation must move. A changed expectation is not a forced line, so
+  the standing admission does not cover it.
+- **The ruling asked for.** Admit that one expectation for this unit, as an
+  assertion update only. It becomes its first 511 scalar values and `…`,
+  ending `(decision 0066 …`. The proposed change is saved beside the patch.
+- **Saved:** `.forge/unit-12-fix-e/full.patch` (sha256 `ee3e77e5…`) and
+  `adapters-tests.proposed.patch` (sha256 `0f18e8bd…`). Both apply clean on
+  this unit's docs commit.
+- Production files: `native_controls.rs` and `bundle.rs`. `engine.rs` is not
+  needed: the launch refusal renders in `native_controls.rs`.
+- Proved on the patched tree: baseline reds on `1b2df47b` for C1, S1 and
+  SC-D2; mutations M1–M8 each compiled (M7 fails to compile, as intended)
+  and was caught, then restored.
+- Standing-admission lines: none. 12.1 and 12.2 stay ticked. 15.2 stays
+  open.
+- **Pending:** the operator's ruling on the one expectation; then the
+  workspace run, exact coverage outside the box, macOS, remote CI and the
+  council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
