@@ -12,7 +12,7 @@ use brokkr_core::dispatch::{
     build_run_manifest_v2, bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError,
 };
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{computed_inputs, fold, Cursor, RunState, Status};
+use brokkr_core::fold::{computed_inputs, Cursor, RunState, Status};
 use brokkr_core::policy::Outcome;
 use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
@@ -41,11 +41,13 @@ mod marks;
 #[doc(hidden)]
 pub use marks::SiteMarks;
 mod operator;
+mod replay;
 use operator::operator_stop_reason;
-// The test modules reach the racing twins, and the vocabulary they
-// command and refuse in, through `use super::*`.
+// The test modules reach the racing twins, the fold, and the vocabulary
+// they command and refuse in, through `use super::*`.
 #[cfg(test)]
 use brokkr_core::fold::{
+    fold,
     OperatorCommand::{self, Retry, Stop},
     Refusal,
 };
@@ -239,6 +241,7 @@ pub struct Engine {
     /// engine process at the first unboxed exec dispatch and remembered
     /// (decision 0046 ruling 4; design DD15). Never journaled.
     network_prefix: Option<bool>,
+    replay: replay::Replay,
 }
 
 fn verify_dispatch_bundle_bounds(
@@ -394,6 +397,7 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
+            replay: Default::default(),
         })
     }
 
@@ -436,6 +440,7 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
+            replay: Default::default(),
         })
     }
 
@@ -463,14 +468,14 @@ impl Engine {
                 detail,
             });
         }
-        let events = store.load(run_id)?;
-        let feature = fold(&events)?.feature.unwrap_or("unknown".to_string());
+        let mut replay = replay::Replay::default();
+        let feature = replay.caught_up(&store, run_id)?.feature;
         Ok(Engine {
             store,
             boundary: bundle.boundary,
             bundle,
             run_id: run_id.to_string(),
-            feature,
+            feature: feature.unwrap_or("unknown".to_string()),
             repo: operated_repo(repo),
             // Resume takes no map — and needs none. The world this run
             // believed in is pinned in the manifest just read, content
@@ -483,6 +488,7 @@ impl Engine {
             secrets_file: None,
             active_gate_head: None,
             network_prefix: None,
+            replay,
         })
     }
 
@@ -504,9 +510,10 @@ impl Engine {
     /// One turn of the loop: `Some(end)` when the run has reached its
     /// conclusion, `None` when there is more to do.
     fn drive_once(&mut self) -> Result<Option<DriveEnd>, EngineError> {
-        let events = self.store.load(&self.run_id)?;
-        self.current_cause = events.last().map(|e| e.event_id.clone());
-        let state = fold(&events)?;
+        // Lent to the turn, and handed back only by a turn that ends well.
+        let mut replay = std::mem::take(&mut self.replay);
+        let state = replay.caught_up(&self.store, &self.run_id)?;
+        self.current_cause = replay.events.last().map(|e| e.event_id.clone());
         match (&state.status, &state.cursor) {
             (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
                 // Best-effort tamper-evidence: anchor the journal head
@@ -531,9 +538,10 @@ impl Engine {
                 return Ok(Some(DriveEnd { state }));
             }
             (Status::Running, _) => {
-                self.advance_running(&events, state)?;
+                self.advance_running(&replay.events, state)?;
             }
         }
+        self.replay = replay;
         Ok(None)
     }
 
@@ -562,18 +570,17 @@ impl Engine {
             return Err(error);
         }
         let reason = format!("journal contention: {store_error}");
-        let events = self.store.load(&self.run_id)?;
-        let state = fold(&events)?;
+        let state = self.replay.caught_up(&self.store, &self.run_id)?;
         if !matches!(
             state.cursor,
             Cursor::Park { .. } | Cursor::ExecuteEffect { .. }
         ) {
             return Err(error);
         }
-        self.current_cause = events.last().map(|e| e.event_id.clone());
+        self.current_cause = self.replay.events.last().map(|e| e.event_id.clone());
         let parked = json!({"reason": reason, "evidence": {}});
         self.append(EventType::RunParked, parked, None)?;
-        let state = fold(&self.store.load(&self.run_id)?)?;
+        let state = self.replay.caught_up(&self.store, &self.run_id)?;
         Ok(DriveEnd { state })
     }
 

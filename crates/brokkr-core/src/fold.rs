@@ -286,12 +286,16 @@ fn conclude(state: &mut RunState, normal: Cursor) {
 
 /// Fold a verified journal into state. Callers verify the hash chain
 /// first (`envelope::verify_chain`); fold checks protocol shape only.
+///
+/// It is the state `run/started` opens, carried by [`fold_onto`] over the
+/// whole journal, so `fold(prefix ++ suffix)` and
+/// `fold_onto(fold(prefix)?, suffix)` are one state, byte for byte.
 pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
     let first = events.first().ok_or(FoldError::Empty)?;
     if first.event_type != EventType::RunStarted {
         return Err(FoldError::FirstEventNotRunStarted { seq: first.seq });
     }
-    let mut state = RunState {
+    let state = RunState {
         run_id: first.run_id.clone(),
         seq: 0,
         last_hash: String::new(),
@@ -314,12 +318,22 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         pending_command: None,
         riding_stop: false,
     };
+    fold_onto(state, events)
+}
 
-    for event in events {
+/// Carry a fold forward over what landed after it: `state` is what
+/// [`fold`] or `fold_onto` returned for the journal up to `state.seq`,
+/// and `suffix` is the events after it, so a reader that already folded
+/// a prefix pays only for the suffix. Callers verify the suffix against
+/// the head the state names first (`envelope::verify_chain_after` with
+/// `state.seq` and `state.last_hash`); like [`fold`], this checks
+/// protocol shape only.
+pub fn fold_onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunState, FoldError> {
+    for event in suffix {
         state.seq = event.seq;
         state.last_hash = event.event_hash.clone();
         if event.seq == 1 {
-            continue; // run/started consumed above
+            continue; // run/started opened the state in `fold`
         }
         apply(&mut state, event)?;
     }

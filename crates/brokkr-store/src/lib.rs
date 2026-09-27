@@ -71,6 +71,8 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod origin;
+mod read;
 mod seat_record;
 
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
@@ -129,6 +131,14 @@ pub enum StoreError {
     AppendConflict { seq: u64 },
     #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
     HeadMoved { expected_seq: u64, found_seq: u64 },
+    /// [`Store::load_after`] was handed a head the run never had: no
+    /// event at that seq, or one with another hash.
+    #[error("unknown head: the run holds no event {seq} with the hash given")]
+    UnknownHead { seq: u64 },
+    /// [`Store::load_after`] found a row below seq 1, which no suffix read
+    /// selects; [`Store::load`] refuses the same journal whole.
+    #[error("run '{run_id}' holds a row at seq {seq}, before its chain's first event")]
+    RowBeforeChain { run_id: String, seq: i64 },
     /// A peer still held the journal's write lock when this operation's
     /// whole patience ran out. **Nothing was written.**
     ///
@@ -294,6 +304,10 @@ CREATE TRIGGER IF NOT EXISTS events_append_only_update
 CREATE TRIGGER IF NOT EXISTS events_append_only_delete
     BEFORE DELETE ON events
     BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS events_seq_is_a_position
+    BEFORE INSERT ON events
+    WHEN typeof(NEW.seq) != 'integer' OR NEW.seq < 1
+    BEGIN SELECT RAISE(ABORT, 'events.seq is an integer from 1'); END;
 CREATE TRIGGER IF NOT EXISTS runs_manifest_immutable
     BEFORE UPDATE OF manifest, run_id ON runs
     BEGIN SELECT RAISE(ABORT, 'run manifests are immutable'); END;
@@ -336,95 +350,6 @@ const SIDECAR_COLUMNS: [(&str, &str); 3] = [
     ),
 ];
 
-/// Where a machine says who it is, in the order asked. The machine id
-/// where the OS publishes one; the kernel's hostname where it does not.
-const MACHINE_SOURCES: [&str; 3] = [
-    "/etc/machine-id",
-    "/var/lib/dbus/machine-id",
-    "/proc/sys/kernel/hostname",
-];
-
-/// An opaque fingerprint of the machine and the account this process is
-/// running as: the first `sources` entry that can be read, else
-/// `fallback`, folded together with the account's home directory — which
-/// is where every driver brokkr ships keeps the credential that OWNS a
-/// provider session (`~/.codex`, `~/.claude`). Hashed and clipped, so
-/// what lands in the journal file is an equality token rather than an
-/// operator's hostname and home path.
-///
-/// `None` when nothing identifying can be read, and a `None` is never
-/// equal to anything — an installation that cannot say where it is
-/// hands out no sessions, which is exactly what brokkr did before
-/// decision 0030.
-fn host_from(sources: &[&str], fallback: Option<String>) -> Option<String> {
-    let machine = sources
-        .iter()
-        .find_map(|path| std::fs::read_to_string(path).ok())
-        .or(fallback)?;
-    let machine = machine.trim();
-    if machine.is_empty() {
-        return None;
-    }
-    let home = account_home();
-    let digest = brokkr_core::canonical::sha256_hex(&serde_json::json!([machine, home]));
-    Some(digest[..16].to_string())
-}
-
-/// The account's home directory, spelled the way each platform exports
-/// it: `HOME` on unix, `USERPROFILE` on Windows. Empty when neither is
-/// set, so the fingerprint still folds and the machine half decides.
-fn account_home() -> String {
-    home_from(&["HOME", "USERPROFILE"])
-}
-
-/// The first of `variables` that is set, else empty.
-fn home_from(variables: &[&str]) -> String {
-    variables
-        .iter()
-        .find_map(|variable| std::env::var(variable).ok())
-        .unwrap_or_default()
-}
-
-/// The machine's name where no identity file can be read — the case on
-/// every released platform but Linux. The first of `variables` that is
-/// set and non-blank wins (`HOSTNAME`, which POSIX shells set but rarely
-/// export; `COMPUTERNAME`, which Windows always publishes); failing
-/// both, `ask` is consulted once. Blank answers count as none.
-fn machine_name(variables: &[&str], ask: impl FnOnce() -> Option<String>) -> Option<String> {
-    variables
-        .iter()
-        .find_map(|variable| std::env::var(variable).ok())
-        .filter(|name| !name.trim().is_empty())
-        .or_else(ask)
-        .filter(|name| !name.trim().is_empty())
-}
-
-/// What `hostname` prints: the same spelling `/proc/sys/kernel/hostname`
-/// carries on Linux, and the one thing macOS ships that names the
-/// machine without a daemon or a crate. `None` when the command is
-/// missing or fails, and a `None` hands out no sessions.
-fn hostname_command() -> Option<String> {
-    hostname_from("hostname")
-}
-
-/// `program`'s standard output when it runs and succeeds; `None` when
-/// it is missing or exits nonzero.
-fn hostname_from(program: &str) -> Option<String> {
-    let out = std::process::Command::new(program).output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-/// This machine and this account, as [`host_from`] fingerprints them.
-fn local_host() -> Option<String> {
-    host_from(
-        &MACHINE_SOURCES,
-        machine_name(&["HOSTNAME", "COMPUTERNAME"], hostname_command),
-    )
-}
-
 /// Add the sidecar columns to a journal that predates them. SQLite has
 /// no `ADD COLUMN IF NOT EXISTS`, so presence is asked rather than an
 /// error swallowed — a swallowed error is how a real migration failure
@@ -458,12 +383,15 @@ fn migrate_sidecar_columns(conn: &Connection) -> Result<(), StoreError> {
 /// [`Store::create_run`]'s one transaction, as a body [`patiently`] may
 /// run again. It reads and writes only inside that transaction, so an
 /// attempt that ends busy has left the journal exactly as it found it.
+/// The origin arrives already computed: nothing is asked of the machine
+/// while the write lock is held.
 fn create_run_once(
     conn: &mut Connection,
     run_id: &str,
     feature: &str,
     bundle_name: &str,
     manifest: &str,
+    origin: Option<&str>,
 ) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let existing: Option<String> = tx
@@ -485,12 +413,28 @@ fn create_run_once(
             bundle_name,
             manifest,
             now_rfc3339(),
-            local_host()
+            origin
         ],
     )?;
     tx.commit()?;
     Ok(())
 }
+
+/// The `engine` a run's manifest names, or NULL where it names none: a
+/// manifest that is not JSON, or whose `engine` is not a string, names
+/// none, as the whole-manifest parse this replaced read it. `CASE` runs
+/// only the branch it takes, so `json_each` never meets invalid JSON,
+/// which it would raise on. Of two `engine` keys the LAST answers, as
+/// serde reads it at export; `json_extract` would answer the first.
+const ENGINE_OF_RUN: &str = "SELECT CASE WHEN json_valid(manifest) THEN
+         (SELECT CASE type WHEN 'text' THEN atom END FROM json_each(manifest)
+          WHERE key = 'engine' ORDER BY id DESC LIMIT 1)
+     END FROM runs WHERE run_id = ?1";
+
+/// The hash of a run's event at a seq (NULL where it has none) and its
+/// lowest seq, one primary-key seek each; no row for a run the journal lacks.
+const HEAD_OF_RUN: &str = "SELECT (SELECT event_hash FROM events WHERE run_id = ?1 AND seq = ?2),
+     (SELECT MIN(seq) FROM events WHERE run_id = ?1) FROM runs WHERE run_id = ?1";
 
 /// [`Store::append_next`]'s one transaction, as a body [`patiently`] may
 /// run again.
@@ -551,27 +495,14 @@ fn append_once(
         // `run/started`, and `runs.manifest` is immutable by trigger —
         // so the engine named there is the same answer the export and
         // verify sweeps reach through the journal, read here inside the
-        // same transaction the row would be sealed in. A run whose
-        // manifest names no engine is read under v1, the safe reading:
-        // it admits strictly less.
+        // same transaction the row would be sealed in. SQLite extracts
+        // the one string, so the manifest is not parsed whole under the
+        // lock on every record (#354).
         let engine: Option<String> = tx
-            .query_row(
-                "SELECT manifest FROM runs WHERE run_id = ?1",
-                params![run_id],
-                |r| r.get::<_, String>(0),
-            )
+            .query_row(ENGINE_OF_RUN, params![run_id], |r| r.get(0))
             .optional()?
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-            .and_then(|manifest| {
-                manifest
-                    .pointer("/engine")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            });
-        let version = engine
-            .as_deref()
-            .map(SeatRecordVersion::of_engine)
-            .unwrap_or(SeatRecordVersion::V1);
+            .flatten();
+        let version = SeatRecordVersion::of_manifest(engine.as_deref());
         seat_record::validate_seat_record(record, last_seq + 1, version)?;
     }
     let envelope = EventEnvelope {
@@ -773,10 +704,33 @@ impl Store {
         bundle_name: &str,
         manifest: &Value,
     ) -> Result<(), StoreError> {
+        self.create_run_from(run_id, feature, bundle_name, manifest, origin::local_host)
+    }
+
+    /// [`Store::create_run`] with where the run is driven from asked of
+    /// `origin` — once, and before the transaction begins, so no process
+    /// the fingerprint spawns runs under the journal's write lock or
+    /// again on a busy retry.
+    fn create_run_from(
+        &mut self,
+        run_id: &str,
+        feature: &str,
+        bundle_name: &str,
+        manifest: &Value,
+        origin: impl FnOnce() -> Option<String>,
+    ) -> Result<(), StoreError> {
         let manifest = serde_json::to_string(manifest)?;
+        let origin = origin();
         let conn = &mut self.conn;
         patiently("create_run", self.patience, || {
-            create_run_once(conn, run_id, feature, bundle_name, &manifest)
+            create_run_once(
+                conn,
+                run_id,
+                feature,
+                bundle_name,
+                &manifest,
+                origin.as_deref(),
+            )
         })
     }
 
@@ -799,7 +753,7 @@ impl Store {
     /// can see it. It is a fact about this journal file's relationship
     /// to this machine, which is why it lives here and not in the chain.
     pub fn started_here(&self, run_id: &str) -> Result<bool, StoreError> {
-        self.started_under(run_id, local_host())
+        self.started_under(run_id, origin::local_host())
     }
 
     /// [`Store::started_here`] against a given fingerprint, so the
@@ -961,15 +915,9 @@ impl Store {
     }
 
     fn load_once(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?;
-        let events = stmt
-            .query_map(params![run_id], |r| r.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .map(|raw| serde_json::from_str::<EventEnvelope>(&raw))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Every row of the run, at whatever seq the table holds it: a row
+        // the chain does not cover is refused, never skipped.
+        let events = self.rows(run_id, None)?;
         if events.is_empty() {
             // Distinguish "no such run" from "run without events".
             let _ = self.manifest(run_id)?;
@@ -1610,9 +1558,10 @@ fn patiently<T>(
 /// The append-only and immutability triggers `MIGRATION_V1` installs, by
 /// name. Named here so [`Store::migrate`] can ask whether a journal still
 /// carries all of them.
-const GUARD_TRIGGERS: [&str; 3] = [
+const GUARD_TRIGGERS: [&str; 4] = [
     "events_append_only_update",
     "events_append_only_delete",
+    "events_seq_is_a_position",
     "runs_manifest_immutable",
 ];
 
@@ -1621,8 +1570,13 @@ const GUARD_TRIGGERS: [&str; 3] = [
 fn guards_intact(conn: &Connection) -> Result<bool, StoreError> {
     let present: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type = 'trigger'
-         AND name IN (?1, ?2, ?3)",
-        params![GUARD_TRIGGERS[0], GUARD_TRIGGERS[1], GUARD_TRIGGERS[2]],
+         AND name IN (?1, ?2, ?3, ?4)",
+        params![
+            GUARD_TRIGGERS[0],
+            GUARD_TRIGGERS[1],
+            GUARD_TRIGGERS[2],
+            GUARD_TRIGGERS[3]
+        ],
         |row| row.get(0),
     )?;
     Ok(present == GUARD_TRIGGERS.len() as i64)
