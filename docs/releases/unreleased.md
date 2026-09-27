@@ -16,7 +16,8 @@ Changes merged since v0.11.0 that the next release's notes carry.
   for a true grant, `"uncontracted"` for a false one).
 - **An override whose value is not UTF-8 is refused.** A `BROKKR_*`
   override that holds bytes that are not UTF-8 was read as unset, so the
-  built-in ran in place of the pin. The seat, `brokkr doctor`'s DSH
+  built-in ran in place of the pin. The seat, a linked-worktree DSH
+  seat's scoped runner (`BROKKR_DSH_RUNNER`), `brokkr doctor`'s DSH
   selection and `brokkr ui`'s browser now refuse it by name (#355).
 - **`python3` and `pytest` leave the shipped allow-lists** (decision 0041
   ruling 2): the claude and lanetally adapters no longer map them, and

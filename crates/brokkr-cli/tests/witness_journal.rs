@@ -268,15 +268,14 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
 
 /// The engine returns a conclusion's gaps and writes to no stream; the CLI
 /// prints them after the run's start (#355). A workspace that is no git
-/// repository leaves exactly the anchor gap, whose tail is git's own text.
+/// repository leaves exactly the anchor gap. Its tail is git's own
+/// failure, which races: git can exit before its stdin is written, so the
+/// tail reads either git's refusal or the broken pipe, and is not pinned.
 #[test]
 fn a_conclusions_gaps_reach_stderr() {
     let ws = Workspace::new();
     let (run_id, stderr) = ws.run();
-    let head = format!(
-        "run started: {run_id}\nanchor gap for {run_id}: git command failed: \
-         [\"hash-object\", \"-w\", \"--stdin\"]: fatal: not a git repository"
-    );
+    let head = format!("run started: {run_id}\nanchor gap for {run_id}: git ");
     assert!(stderr.starts_with(&head), "{stderr}");
     assert_eq!(stderr.matches(" gap for ").count(), 1, "{stderr}");
 }

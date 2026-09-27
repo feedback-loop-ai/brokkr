@@ -557,7 +557,7 @@ fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
     // A driver whose override is set only by its retired spelling (#355):
     // the charter reads, so the spelling is the only reason.
     let refusal = OverrideError::Retired {
-        retired: Override::ClaudeBin.retired(),
+        retired: Override::ClaudeBin.retired().unwrap(),
         current: "BROKKR_CLAUDE_BIN",
     };
     assert_eq!(
@@ -8224,12 +8224,11 @@ fn a_failure_before_the_promotion_keeps_the_private_store_and_names_it() {
     std::fs::remove_dir_all(&store).unwrap();
 }
 
-/// The whole driver decision on a real linked worktree: the row is built
-/// where bubblewrap can stand in, and the refusal names the reason where
-/// it cannot.
+/// A real repository under `dir/main` with one commit, its linked
+/// worktree `dir/wt` on branch `slice` and that worktree's git facts, and
+/// the directory holding both.
 #[cfg(target_os = "linux")]
-#[test]
-fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+fn real_linked_worktree() -> (tempfile::TempDir, PathBuf, GitFacts) {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");
     std::fs::create_dir_all(&main).unwrap();
@@ -8268,6 +8267,39 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
     );
 
     let facts = crate::hands::git_facts(&worktree);
+    (dir, worktree, facts)
+}
+
+/// A runner override that is not UTF-8 refuses a real linked worktree's
+/// seat by name, with or without bubblewrap, and never falls to this
+/// binary (#355).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_runner_override_that_is_not_unicode_refuses_the_row_by_name() {
+    let (_dir, worktree, facts) = real_linked_worktree();
+    let mut env = EnvGuard::lock();
+    env.set(
+        "BROKKR_DSH_RUNNER",
+        std::ffi::OsStr::from_bytes(b"/opt/\xff/brokkr"),
+    );
+    let not_unicode = OverrideError::NotUnicode {
+        variable: "BROKKR_DSH_RUNNER",
+    };
+    assert_eq!(
+        dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write").unwrap_err(),
+        format!("dsh driver: {not_unicode}")
+    );
+}
+
+/// The whole driver decision on a real linked worktree: the row is built
+/// where bubblewrap can stand in, and the refusal names the reason where
+/// it cannot.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+    // Held so the runner override another test sets is not read here.
+    let _env = EnvGuard::lock();
+    let (dir, worktree, facts) = real_linked_worktree();
     match dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write") {
         Ok(Some((row, _, staged))) => {
             assert!(row.contains("- id: sandbox\n"), "{row}");
@@ -13138,7 +13170,8 @@ fn a_session_file_whose_first_row_is_not_the_header_is_unreadable() {
 /// directly, so this covers the real call.
 #[test]
 fn the_runner_program_resolves_a_nonempty_program() {
-    assert!(!dsh_runner_program().is_empty());
+    let _env = EnvGuard::lock();
+    assert!(!dsh_runner_program().unwrap().is_empty());
 }
 
 /// A route whose bytes are not UTF-8 is refused by name after the model
@@ -13343,11 +13376,10 @@ fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-real-seams", "0.1.5-rc.1");
-    // The closure's seam resolver reads this home and this override, not
-    // the `bin` argument; the home is a bare directory, so the composite
-    // read is refused and the cold route ships.
+    // The closure's seam resolver reads this home and the `bin` argument,
+    // the override `run_seat` already read (#355); the home is a bare
+    // directory, so the composite read is refused and the cold route ships.
     env.set("DSH_HOME", dir.path());
-    env.set("BROKKR_DSH_BIN", &shim);
     let launch = dsh_launch(
         &shim.to_string_lossy(),
         &[],

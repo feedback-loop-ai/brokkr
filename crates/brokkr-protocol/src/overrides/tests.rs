@@ -25,9 +25,26 @@ fn every_override_pairs_its_name_with_the_one_it_retired() {
     ];
     for (what, stem, fallback) in all {
         assert_eq!(what.name(), format!("BROKKR_{stem}"));
-        assert_eq!(what.retired(), format!("{}{stem}", concat!("FOR", "GE_")));
+        assert_eq!(
+            what.retired(),
+            Some(format!("{}{stem}", concat!("FOR", "GE_")))
+        );
         assert_eq!(read_with(what, environment(&[])), Ok(fallback.to_string()));
     }
+    // The runner was only ever read by its current name: it retired no
+    // spelling, so the prefixed one is nobody's and refuses nothing.
+    let runner = Override::DshRunner;
+    assert_eq!(runner.name(), "BROKKR_DSH_RUNNER");
+    assert_eq!(runner.retired(), None);
+    let never = format!("{}DSH_RUNNER", concat!("FOR", "GE_"));
+    assert_eq!(
+        read_set_with(runner, environment(&[(&never, "/old/brokkr")])),
+        Ok(None)
+    );
+    assert_eq!(
+        read_with(runner, environment(&[])),
+        Ok("brokkr".to_string())
+    );
     let drivers = [
         AdapterKind::Claude,
         AdapterKind::Lanetally,
@@ -41,7 +58,7 @@ fn every_override_pairs_its_name_with_the_one_it_retired() {
 
 #[test]
 fn a_retired_spelling_alone_is_refused_by_both_names() {
-    let retired = Override::ClaudeBin.retired();
+    let retired = Override::ClaudeBin.retired().unwrap();
     let refused = read_with(
         Override::ClaudeBin,
         environment(&[(&retired, "/pinned/claude")]),
@@ -77,7 +94,7 @@ fn a_retired_spelling_alone_is_refused_by_both_names() {
 #[test]
 fn a_current_value_that_is_not_unicode_is_refused_by_name() {
     let pinned = OsStr::from_bytes(b"/opt/\xffpinned/claude");
-    let retired = Override::ClaudeBin.retired();
+    let retired = Override::ClaudeBin.retired().unwrap();
     for retired_too in [false, true] {
         let refused = read_with(Override::ClaudeBin, |name| {
             if name == "BROKKR_CLAUDE_BIN" {
@@ -103,7 +120,7 @@ fn a_current_value_that_is_not_unicode_is_refused_by_name() {
 
 #[test]
 fn the_current_name_answers_and_absence_reads_as_the_fallback() {
-    let retired = Override::DshBin.retired();
+    let retired = Override::DshBin.retired().unwrap();
     assert_eq!(
         read_with(
             Override::DshBin,
@@ -112,7 +129,7 @@ fn the_current_name_answers_and_absence_reads_as_the_fallback() {
         Ok("/new/dsh".to_string())
     );
     // Another override's retired spelling is not this one's.
-    let codex = Override::CodexBin.retired();
+    let codex = Override::CodexBin.retired().unwrap();
     assert_eq!(
         read_with(Override::DshBin, environment(&[(&codex, "x")])),
         Ok("dsh".to_string())

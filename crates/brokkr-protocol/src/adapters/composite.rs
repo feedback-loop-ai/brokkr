@@ -1911,6 +1911,17 @@ impl DshSeams {
         DshSeams::resolved(DshSeams::located())
     }
 
+    /// `resolve` over the value a seat already read: `run_seat` reads
+    /// the override once and the launch resolves what it read, never the
+    /// environment a second time (#355).
+    pub(crate) fn resolve_declared(declared: &str) -> Result<DshSeams, CompositeError> {
+        DshSeams::resolved(DshSeams::located_from(
+            declared.to_string(),
+            select,
+            crate::transcript::dsh_home(),
+        ))
+    }
+
     /// `resolve` over an injected location: the located seams, or the
     /// cause the selection did not happen by. The planner has no use for
     /// a declared spelling without a file behind it, so a failed selection

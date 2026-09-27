@@ -7,8 +7,8 @@
 //! current value that is not UTF-8. Either way an operator who pinned an
 //! executable would otherwise get the built-in one, holding the seat's
 //! grants, with no line on stderr (landing reviews of #355, 2026-09-27).
-//! Both spellings of all six names, and what each falls back to, live
-//! here, once.
+//! Every name, the spelling it retired, and what each falls back to,
+//! live here, once.
 
 use std::ffi::OsString;
 
@@ -28,6 +28,8 @@ pub enum Override {
     DshBin,
     ExecName,
     BrowserBin,
+    /// The program a linked-worktree DSH seat's scoped sandbox row runs.
+    DshRunner,
 }
 
 /// An override that cannot be read as the value it names.
@@ -61,10 +63,13 @@ impl Override {
             Override::DshBin => "BROKKR_DSH_BIN",
             Override::ExecName => "BROKKR_EXEC_NAME",
             Override::BrowserBin => "BROKKR_BROWSER_BIN",
+            Override::DshRunner => "BROKKR_DSH_RUNNER",
         }
     }
 
     /// What the harness runs, or names itself, when the override is unset.
+    /// The DSH runner falls to this binary first, and to this name only
+    /// when the host cannot say which binary that is.
     pub(crate) const fn fallback(self) -> &'static str {
         match self {
             Override::ClaudeBin => "claude",
@@ -73,12 +78,25 @@ impl Override {
             Override::DshBin => "dsh",
             Override::ExecName => "exec",
             Override::BrowserBin => "xdg-open",
+            Override::DshRunner => "brokkr",
         }
     }
 
-    /// The same name under the retired prefix.
-    pub(crate) fn retired(self) -> String {
-        format!("{RETIRED_PREFIX}{}", &self.name()[CURRENT_PREFIX.len()..])
+    /// The same name under the retired prefix, or `None` for the runner,
+    /// which was only ever read by its current name.
+    pub(crate) fn retired(self) -> Option<String> {
+        match self {
+            Override::ClaudeBin
+            | Override::LanetallyBin
+            | Override::CodexBin
+            | Override::DshBin
+            | Override::ExecName
+            | Override::BrowserBin => Some(format!(
+                "{RETIRED_PREFIX}{}",
+                &self.name()[CURRENT_PREFIX.len()..]
+            )),
+            Override::DshRunner => None,
+        }
     }
 
     /// The override that names what a driver of `kind` runs as.
@@ -102,24 +120,40 @@ pub fn read(what: Override) -> Result<String, OverrideError> {
     read_with(what, |name| std::env::var_os(name))
 }
 
-/// `read` over an injected environment. A retired spelling refuses
-/// whatever its value, since what it names is never used.
+/// `read` for a consumer whose fallback is not a fixed name: the value,
+/// `None` when neither spelling is set, or the refusal.
+pub(crate) fn read_set(what: Override) -> Result<Option<String>, OverrideError> {
+    read_set_with(what, |name| std::env::var_os(name))
+}
+
+/// `read` over an injected environment.
 fn read_with(
     what: Override,
     lookup: impl Fn(&str) -> Option<OsString>,
 ) -> Result<String, OverrideError> {
+    read_set_with(what, lookup).map(|set| set.unwrap_or_else(|| what.fallback().to_string()))
+}
+
+/// `read_set` over an injected environment. A retired spelling refuses
+/// whatever its value, since what it names is never used.
+fn read_set_with(
+    what: Override,
+    lookup: impl Fn(&str) -> Option<OsString>,
+) -> Result<Option<String>, OverrideError> {
     if let Some(value) = lookup(what.name()) {
-        return value.into_string().map_err(|_| OverrideError::NotUnicode {
-            variable: what.name(),
-        });
+        return value
+            .into_string()
+            .map(Some)
+            .map_err(|_| OverrideError::NotUnicode {
+                variable: what.name(),
+            });
     }
-    let retired = what.retired();
-    match lookup(&retired) {
-        Some(_) => Err(OverrideError::Retired {
+    match what.retired() {
+        Some(retired) if lookup(&retired).is_some() => Err(OverrideError::Retired {
             retired,
             current: what.name(),
         }),
-        None => Ok(what.fallback().to_string()),
+        _ => Ok(None),
     }
 }
 

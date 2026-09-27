@@ -2710,7 +2710,7 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
 fn a_dsh_override_that_cannot_be_read_selects_nothing() {
     use std::os::unix::ffi::OsStrExt;
     let mut env = crate::env_guard::EnvGuard::lock();
-    let retired = Override::DshBin.retired();
+    let retired = Override::DshBin.retired().unwrap();
     env.remove("BROKKR_DSH_BIN");
     env.set(&retired, "/pinned/dsh");
     let retired = OverrideError::Retired {
@@ -2735,6 +2735,13 @@ fn a_dsh_override_that_cannot_be_read_selects_nothing() {
             std::ffi::OsStr::from_bytes(b"/opt/\xff/dsh"),
         );
     }
+    // A seat resolves the value `run_seat` already read, so the refusal
+    // above is not met a second time: the lookup answers for `declared`.
+    let declared = "/nonexistent/brokkr-355/dsh";
+    assert_eq!(
+        DshSeams::resolve_declared(declared),
+        Err(resolve_executable(declared).unwrap_err())
+    );
 }
 
 /// Executable selection and home availability are INDEPENDENT

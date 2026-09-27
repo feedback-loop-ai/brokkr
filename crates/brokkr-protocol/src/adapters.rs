@@ -3725,7 +3725,9 @@ fn dsh_launch(
     session: Option<&str>,
     input: &Value,
 ) -> Result<DshLaunch, String> {
-    dsh_launch_resolving(bin, extra, workdir, session, input, DshSeams::resolve)
+    dsh_launch_resolving(bin, extra, workdir, session, input, || {
+        DshSeams::resolve_declared(bin)
+    })
 }
 
 /// `dsh_launch` over an injected seam resolver, so the unreadable-seams
@@ -5368,8 +5370,10 @@ fn dsh_sandbox_row_for(
     if let Some(problem) = dsh_sandbox::scope_refusal(&scope) {
         return Err(format!("dsh driver: {problem}"));
     }
+    // An override that cannot be read refuses by name before anything is
+    // looked up (#355).
+    let program = dsh_runner_program().map_err(|refused| format!("dsh driver: {refused}"))?;
     let bwrap = dsh_bwrap()?;
-    let program = dsh_runner_program();
     let staged = dsh_sandbox::stage_seat_store(&scope)?;
     let row = dsh_sandbox::sandbox_row(&program, &bwrap, &staged, &scope)?;
     Ok(Some((row, scope, staged)))
@@ -5424,15 +5428,18 @@ fn dsh_runner_program_from(
     }
     match executable {
         Ok(path) => path.to_string_lossy().into_owned(),
-        Err(_) => "brokkr".to_string(),
+        Err(_) => Override::DshRunner.fallback().to_string(),
     }
 }
 
-fn dsh_runner_program() -> String {
-    dsh_runner_program_from(
-        std::env::var("BROKKR_DSH_RUNNER").ok(),
+/// The runner program, or the refusal of an override that cannot be read
+/// (#355): unreadable is never unset, which would run this binary in
+/// place of the pin.
+fn dsh_runner_program() -> Result<String, OverrideError> {
+    Ok(dsh_runner_program_from(
+        crate::overrides::read_set(Override::DshRunner)?,
         std::env::current_exe(),
-    )
+    ))
 }
 
 /// The seat overlay with the scoped sandbox row a linked-worktree seat
