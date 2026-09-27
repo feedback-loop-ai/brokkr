@@ -137,11 +137,16 @@ any `phase/entered`, and `fold` admits that park. A `retry` there used
 to be journaled as `operator/accepted`, which `fold` then refused as
 out of place, so the journal stopped folding for good.
 
-Ruled 2026-09-27: such a retry is refused, before any append, with the
-refusal word `no_phase_to_retry` (`Refusal::NoPhaseToRetry`). A `stop`
-is still accepted in that state. The word joins the refusal vocabulary
-as a new, additive `operator/rejected` reason. `contracts/` leaves that
-reason an open string, so no frozen byte moves. Every other refusal
-word and payload is unchanged. The operator ruled the typed
-`OperatorCommand`, `Refusal` and `Head` into brokkr-core's public
-surface in the same ruling.
+Ruled 2026-09-27: such a retry is refused with the refusal word
+`no_phase_to_retry` (`Refusal::NoPhaseToRetry`). Both doors journal the
+command as `operator/commanded` and then refuse it as
+`operator/rejected` with that reason, so the journal keeps what the
+operator asked; only the acceptance is never written. A `stop` is still
+accepted in that state. The word joins the refusal vocabulary as a new,
+additive `operator/rejected` reason. `contracts/` leaves that reason an
+open string, so no frozen byte moves. Every other refusal word and
+payload is unchanged. The operator ruled the typed `OperatorCommand`,
+`Refusal` and `acceptance_refusal` into brokkr-core's public surface,
+and `CommandWord` and `FencedCommand` into brokkr-runtime's, in the
+same ruling. The fence's `Head` stays private to brokkr-runtime's
+`engine/operator.rs`.
