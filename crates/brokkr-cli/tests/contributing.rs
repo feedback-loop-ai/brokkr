@@ -196,15 +196,112 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
 }
 
 /// One leg of a workflow job: the check it reports (one per `matrix.os`
-/// entry when the job's name carries the matrix), and what the steps its
-/// runner takes run: every one-line command, every command line of a
-/// multi-line block, and whether it demands boundary evidence.
+/// entry when the job's name carries the matrix), its runner, and the
+/// steps that runner takes.
 struct WorkflowLeg {
     check: String,
     id: String,
     file: &'static str,
+    runner: &'static str,
+    steps: Vec<Step>,
+}
+
+/// One step a leg takes: the variables it sets (its job's first), and
+/// every one-line command and every command line of a multi-line block it
+/// runs.
+struct Step {
+    env: Vec<(String, String)>,
     commands: Vec<String>,
-    requires_boundary_evidence: bool,
+}
+
+impl WorkflowLeg {
+    /// The leg's commands as a local run writes them: each carries its
+    /// step's variables that `LOCAL_ENV` carries, in their local form.
+    fn local_commands(&self) -> Vec<String> {
+        let mut commands = Vec::new();
+        for step in &self.steps {
+            let mut prefix = String::new();
+            for (name, value) in &step.env {
+                let carried = LOCAL_ENV
+                    .iter()
+                    .find(|(listed, _)| listed == name)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "LOCAL_ENV does not rule on {name}, which {} sets",
+                            self.check
+                        )
+                    })
+                    .1;
+                let value = local_value(value, self.runner);
+                if matches!(carried, Local::Carried) && !value.is_empty() {
+                    prefix.push_str(&format!("{name}={value} "));
+                }
+            }
+            commands.extend(step.commands.iter().map(|run| format!("{prefix}{run}")));
+        }
+        commands
+    }
+}
+
+/// Whether a local run sets a variable a checked step sets.
+#[derive(Clone, Copy)]
+enum Local {
+    Carried,
+    Omitted,
+}
+
+/// Every variable a checked step sets, ruled on once: a variable no row
+/// has ruled on fails the test rather than dropping out of the guide.
+const LOCAL_ENV: [(&str, Local); 6] = [
+    ("BROKKR_REQUIRE_BOUNDARY_EVIDENCE", Local::Carried),
+    ("BROKKR_SUPPRESSION_BASE", Local::Carried),
+    ("PR_BODY", Local::Carried),
+    // The mutants gate's base: its command names it as an argument.
+    ("BASE", Local::Omitted),
+    // CI's runner has two cores; unset, cargo-mutants runs one job.
+    ("MUTANTS_JOBS", Local::Omitted),
+    // `npm ci --ignore-scripts` runs no download script either way.
+    ("PUPPETEER_SKIP_DOWNLOAD", Local::Omitted),
+];
+
+/// A variable's value on a local run of `runner`'s leg: a literal
+/// unquoted, a test of the runner decided, the pull request's base as
+/// `origin/main` and its body as a placeholder. Any other expression
+/// fails the test.
+fn local_value(value: &str, runner: &str) -> String {
+    if let Some(test) = value.strip_prefix("${{ runner.os == '") {
+        let (os, arms) = test.split_once("' && ").expect("a runner test");
+        let (then, other) = arms
+            .trim_end_matches(" }}")
+            .split_once(" || ")
+            .expect("both arms of a runner test");
+        return if os == runner { then } else { other }
+            .trim_matches('\'')
+            .to_string();
+    }
+    match value {
+        "${{ github.event.pull_request.base.sha }}" => "origin/main".to_string(),
+        "${{ github.event.pull_request.body }}" => "\"<your pull request's body>\"".to_string(),
+        _ if !value.contains("${{") => value.trim_matches('\'').to_string(),
+        _ => panic!("no local form for `{value}`"),
+    }
+}
+
+/// The `NAME: value` pairs of the `env:` map among `lines`, if any.
+fn env_map(lines: &[&str]) -> Vec<(String, String)> {
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let Some(at) = lines.iter().position(|line| line.trim() == "env:") else {
+        return Vec::new();
+    };
+    lines[at + 1..]
+        .iter()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .take_while(|line| indent(line) > indent(lines[at]))
+        .map(|line| {
+            let (name, value) = line.trim().split_once(": ").expect("a NAME: value pair");
+            (name.to_string(), value.to_string())
+        })
+        .collect()
 }
 
 fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
@@ -241,6 +338,12 @@ fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
             |list| list.trim_end_matches(']').split(", ").collect(),
         );
     let steps = job_steps(body);
+    let job_env: Vec<&str> = body
+        .iter()
+        .copied()
+        .take_while(|line| *line != "    steps:")
+        .collect();
+    let job_env = env_map(&job_env);
     oses.into_iter()
         .map(|os| {
             let runner = if os.starts_with("macos") {
@@ -264,12 +367,14 @@ fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
                 check: name.replace("${{ matrix.os }}", os),
                 id: id.to_string(),
                 file,
-                commands: taken.iter().flat_map(|step| step_commands(step)).collect(),
-                requires_boundary_evidence: taken
-                    .iter()
-                    .copied()
-                    .flatten()
-                    .any(|line| line.contains("BROKKR_REQUIRE_BOUNDARY_EVIDENCE:") && on_leg(line)),
+                runner,
+                steps: taken
+                    .into_iter()
+                    .map(|step| Step {
+                        env: job_env.iter().cloned().chain(env_map(step)).collect(),
+                        commands: step_commands(step),
+                    })
+                    .collect(),
             }
         })
         .collect()
@@ -351,8 +456,9 @@ fn block_commands(block: &str) -> Vec<String> {
 /// A block line that does no check of its own, so no row carries it:
 /// - blank lines and comments;
 /// - output and exits: `echo`, `printf`, `exit`;
-/// - shell structure: `set -` options, `if`/`then`/`else`/`elif`/`fi`,
-///   `case`/`esac` and their arms, and braces;
+/// - shell structure: `if`/`then`/`else`/`elif`/`fi`, `case`/`esac` and
+///   their arms, and braces (a `set` line is a command: it decides whether
+///   a failure stops the block);
 /// - a `git fetch` of the pull request's base, which a local clone has;
 /// - the ratchets job's check that its checkout is a merge commit
 ///   (`git rev-parse --verify --quiet 'HEAD^2'`), which only a pull
@@ -368,7 +474,6 @@ fn scaffolding(line: &str) -> bool {
             "echo"
                 | "printf"
                 | "exit"
-                | "set"
                 | "if"
                 | "then"
                 | "else"
@@ -389,14 +494,19 @@ fn scaffolding(line: &str) -> bool {
         || line == "test -x /usr/bin/sandbox-exec"
 }
 
-/// A row's command cell and the guide sections it links to: a command
-/// written out once in the section a row links counts as the row's own.
-fn row_reach(guide: &str, cell: &str) -> String {
-    let mut reach = cell.to_string();
-    for section in linked_sections(guide, cell) {
-        reach.push_str(section);
-    }
-    reach
+/// The commands a row writes: its cell's code spans, and every line of a
+/// code block in a section it links.
+fn written_commands(guide: &str, cell: &str) -> Vec<String> {
+    cell.split('`')
+        .skip(1)
+        .step_by(2)
+        .chain(
+            linked_sections(guide, cell)
+                .into_iter()
+                .flat_map(code_lines),
+        )
+        .map(str::to_string)
+        .collect()
 }
 
 /// The guide sections a row's command cell links to.
@@ -427,11 +537,20 @@ fn code_lines(section: &str) -> Vec<&str> {
 
 /// Code-block lines in a linked section that no CI leg runs, each with
 /// the reason it is there: a local extra, not a check a job makes.
-const LOCAL_ONLY: [&str; 1] = [
+const LOCAL_ONLY: [&str; 3] = [
     // "If you touched a recipe … compile that one too": CI compiles the
     // two shipped bundles; a contributor compiles the one they changed.
     "cargo run --locked -p brokkr-cli -- compile --bundle recipes/<name>",
+    // The directory the coverage script keeps its warm build in: a path
+    // the section names, not a command.
+    "${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}}/brokkr-coverage-cache",
+    // The same gate with its temporary directories moved off a small tmpfs.
+    "TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh",
 ];
+
+/// Checks with no local form, so their rows write no command: the gate
+/// judges a pull request's own evidence with its base branch's verifier.
+const CI_ONLY: [&str; 1] = ["delivered by brokkr"];
 
 /// The anchor GitHub gives the heading a section starts with.
 fn heading_anchor(section: &str) -> String {
@@ -520,9 +639,9 @@ const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
 
 /// The by-hand guide's check table is exactly the twelve checks main
 /// requires, and every row is a check the workflows define: its name and
-/// job as the job states them, in the workflows' order, and a local
-/// command that carries (itself or in a section it links) each command its
-/// leg of the job runs, with the boundary evidence that leg requires.
+/// job as the job states them, in the workflows' order, and, line for
+/// line, the commands its leg of the job runs with the variables they run
+/// under, written in the row's code spans and the sections it links.
 #[test]
 fn the_by_hand_checks_are_the_workflows_checks() {
     let root = workspace();
@@ -560,42 +679,121 @@ fn the_by_hand_checks_are_the_workflows_checks() {
             (at + 1).to_string(),
             "{check} is numbered in order"
         );
-        if row.command.starts_with('—') {
+        let written = written_commands(&guide, &row.command);
+        if CI_ONLY.contains(&check.as_str()) {
+            assert_eq!(written, Vec::<String>::new(), "{check} has no local form");
             continue;
         }
         let leg = legs
             .iter()
             .find(|leg| (&leg.check, &leg.id, leg.file) == (&row.check, &row.job, row.file))
             .expect("a defined leg");
-        let reach = row_reach(&guide, &row.command);
-        for run in &leg.commands {
+        let runs = leg.local_commands();
+        for run in &runs {
             assert!(
-                reach.contains(run.as_str()),
-                "{check}'s local command lacks `{run}`"
+                written.contains(run),
+                "{check}'s row does not write `{run}`"
             );
         }
-        // And the other way: a command the guide writes out for this row
-        // is one its leg runs, so a step deleted from the workflow cannot
-        // leave the guide promising it.
-        for line in linked_sections(&guide, &row.command)
-            .into_iter()
-            .flat_map(code_lines)
-        {
+        // And the other way: a command the row writes is one its leg runs,
+        // so a step deleted from the workflow cannot leave the guide
+        // promising it.
+        for line in &written {
             assert!(
-                LOCAL_ONLY.contains(&line)
-                    || leg.commands.iter().any(|run| line.contains(run.as_str())),
-                "{check}'s section writes `{line}`, which its job does not run"
+                LOCAL_ONLY.contains(&line.as_str()) || runs.contains(line),
+                "{check}'s row writes `{line}`, which its job does not run"
             );
         }
-        assert_eq!(
-            row.command.contains("BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1"),
-            leg.requires_boundary_evidence,
-            "{check}'s local command and its job disagree on boundary evidence"
-        );
     }
     let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
     assert!(contributing.contains("preserves the twelve exact checks"));
     assert!(guide.contains("twelve required checks"));
+}
+
+/// Every version the by-hand guide states for a pinned tool is its pin:
+/// each `tool: name@version` the workflows install, the MSRV toolchain,
+/// the Node they set up, the cargo-public-api they build, jscpd's action, the cargo-deny the
+/// licence action's image carries, and the release of each action the
+/// guide names. A pin moved without its copy in the guide fails here.
+#[test]
+fn the_by_hand_tool_versions_are_the_pins() {
+    let root = workspace();
+    let guide = std::fs::read_to_string(root.join("docs/guides/contributing-by-hand.md")).unwrap();
+    let mut pins = Vec::new();
+    for file in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/mutants.yml",
+        ".github/actions/setup-jscpd/action.yml",
+    ] {
+        let text = std::fs::read_to_string(root.join(file)).unwrap();
+        pins.extend(text.lines().flat_map(|line| line_pins(line.trim(), &guide)));
+    }
+    assert!(pins.len() >= 12, "the pins were read: {pins:?}");
+    for (name, version) in &pins {
+        let stated: Vec<&str> = guide
+            .match_indices(&format!("{name} "))
+            .map(|(at, _)| version_token(&guide[at + name.len() + 1..]))
+            .filter(|token| {
+                token
+                    .trim_start_matches('v')
+                    .starts_with(|c: char| c.is_ascii_digit())
+            })
+            .collect();
+        assert!(!stated.is_empty(), "the guide states no version of {name}");
+        for token in stated {
+            assert_eq!(token, version, "the guide states {name} {token}");
+        }
+    }
+}
+
+/// The pins one workflow line makes, named as the guide names the tool.
+fn line_pins(line: &str, guide: &str) -> Vec<(String, String)> {
+    if let Some(tools) = line.strip_prefix("tool: ") {
+        return tools
+            .split(',')
+            .filter(|tool| !tool.contains("${{"))
+            .map(|tool| {
+                let (name, version) = tool.split_once('@').expect("a tool@version pin");
+                (name.to_string(), version.to_string())
+            })
+            .collect();
+    }
+    let action = line
+        .trim_start_matches("- ")
+        .strip_prefix("uses: ")
+        .and_then(|uses| uses.split_once('@'))
+        .map(|(action, rest)| (format!("`{action}`"), rest.split_once(" # ")))
+        .filter(|(action, _)| guide.contains(action.as_str()));
+    let pin = if let Some((action, release)) = action {
+        Some((action, release.expect("an action's release comment").1))
+    } else if let Some(msrv) = line
+        .strip_prefix("toolchain: ")
+        .filter(|pin| pin.contains("# the MSRV"))
+    {
+        Some(("Rust".to_string(), version_token(msrv)))
+    } else if let Some(version) = line.strip_prefix("node-version: ") {
+        Some(("Node".to_string(), version))
+    } else if let Some(version) = line.strip_prefix("JSCPD_VERSION: ") {
+        Some(("jscpd".to_string(), version))
+    } else if let Some(built) = line.strip_prefix("run: cargo install --locked ") {
+        built
+            .split_once(" --version ")
+            .map(|(name, version)| (name.to_string(), version))
+    } else {
+        line.split_once("image carries cargo-deny ")
+            .map(|(_, version)| ("cargo-deny".to_string(), version_token(version)))
+    };
+    pin.into_iter()
+        .map(|(name, version)| (name, version.to_string()))
+        .collect()
+}
+
+/// The version that starts `text`, without the punctuation after it.
+fn version_token(text: &str) -> &str {
+    let end = text
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '.')
+        .unwrap_or(text.len());
+    text[..end].trim_end_matches('.')
 }
 
 /// Decision 0046's guides (boundary-guides / The guides document the

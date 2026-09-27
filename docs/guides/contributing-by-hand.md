@@ -40,7 +40,7 @@ pin.
 | Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
 | The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
 | `cargo-llvm-cov` at the pinned version | the coverage gate | `cargo llvm-cov --version` |
-| `jq` | the coverage gate and the mutants gate (both scripts refuse without it) | `jq --version` |
+| `jq` | the coverage gate, the ratchets, the binary size budget and the mutants gate (their scripts fail without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
 | cargo-crap 0.5.0 and cargo-public-api 0.52.0 | the complexity and public-API ratchets, inside the coverage job | `cargo crap --version`, `cargo public-api --version` |
 | jscpd 5.3.2 and cargo-shear 1.14.0 | the baseline ratchets | `jscpd --version`, `cargo shear --version` |
@@ -98,16 +98,16 @@ each local command is the job's own, and the sections below explain them:
 | # | CI check | Job | Local command |
 |---|---|---|---|
 | 1 | `delivered by brokkr` | `delivered-by-brokkr` | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
-| 2 | `MSRV (1.88)` | `msrv` | `cargo +1.88.0 check --workspace --all-targets --all-features --locked` |
-| 3 | `format, clippy, contracts` | `quality` | `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
-| 4 | `test (ubuntu-latest)` | `engine` | `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 cargo test --workspace --all-features --locked --no-fail-fast` with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
+| 2 | `MSRV (1.88)` | `msrv` | [`cargo +1.88.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
+| 3 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
+| 4 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 cargo test --workspace --all-features --locked --no-fail-fast`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
 | 5 | `test (macos-latest)` | `engine` | on a Mac, `cargo test --workspace --all-features --locked --no-fail-fast`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
-| 6 | `exact coverage gate` | `coverage` | `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`, then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
-| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses bans sources` |
+| 6 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
 | 8 | `non-Rust lints` | `lint-non-rust` | `bash scripts/lint-non-rust.sh`, then [the diagram render and Renovate's validator](#the-non-rust-lints) |
 | 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
 | 10 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
-| 11 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli`, then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
+| 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
 | 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
 
 The four checks the list above adds to the older eight:
@@ -214,10 +214,16 @@ change needs its lockfile update committed too.
 ### The macOS startup gate
 
 ```
+set -euo pipefail
 cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe -- --ignored --exact --nocapture seatbelt_probe::native::native_startup_feasibility_probe 2>&1 | tee target/r3-startup.log
 grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
 grep -q 'Gate A startup verdict' target/r3-startup-report.txt
 ```
+
+Paste it into a shell of its own (start `bash` first): its first line ends
+that shell at the first failure, as it ends CI's step. Without it, `tee`
+masks a failed probe, and the quiet `grep`s fail silently while the last
+one can pass against a report an earlier run left.
 
 The macOS leg of the `engine` job runs one step the Linux leg does not:
 Seatbelt's Gate A, the startup matrix of decision
