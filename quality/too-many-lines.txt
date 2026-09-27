@@ -3,7 +3,6 @@
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
  118 crates/brokkr-cli/src/init.rs:1599 init
- 750 crates/brokkr-cli/src/lib.rs:1971 run_with
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  105 crates/brokkr-cli/src/tui.rs:2396 plan
  104 crates/brokkr-cli/src/tui.rs:3068 draw_participant

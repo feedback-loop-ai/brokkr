@@ -3804,7 +3804,7 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     let reason =
         "closed\u{061c}\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
     let mut store = Store::open(&db).unwrap();
-    let state = conclude(&mut store, run_id, operator, reason).unwrap();
+    let state = brokkr_runtime::conclude(&mut store, run_id, operator, reason).unwrap();
     assert_eq!(state.status, Status::Stopped);
 
     // Verbatim in the journal: the citation names the operator as given,
