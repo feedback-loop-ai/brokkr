@@ -8,13 +8,21 @@ on:
     # operator's by-hand label re-runs the gate on the same head, with no
     # close-and-reopen ceremony.
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  # The merge queue (#451): the required checks run again on the commit
+  # that lands, main plus the queued pull requests, so two green pull
+  # requests first meet here rather than on main. A job that judges a pull
+  # request's own head skips here; contributing.rs pins which, and why.
+  merge_group:
+    types: [checks_requested]
 
 # A new event on a pull request supersedes the run still going on its
 # older one. Any other run is grouped by its own commit, so a later push
 # to main neither cancels nor queues behind it, and every main commit
-# keeps its verdict (issue #340).
+# keeps its verdict (issue #340). The event is in the group too, so a
+# merge group's run and the push of the commit it lands stay apart
+# (#451).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Every job reads the repository and nothing more unless it names what else
@@ -417,7 +425,8 @@ jobs:
       contents: read
     steps:
       # The pull request's merge commit, and its first parent: the base a
-      # raised baseline is judged against.
+      # raised baseline is judged against. In a merge group it is the
+      # queue's commit, whose files and clones are judged in full.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false

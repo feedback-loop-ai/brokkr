@@ -1258,6 +1258,234 @@ fn the_required_jobs_run_every_step_unsoftened() {
     }
 }
 
+/// What a job or a step does on `merge_group`, the event the merge queue
+/// raises for the commit it would land: `main` plus the queued pull
+/// requests (#451).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InTheQueue {
+    /// Nothing stops it, so it judges the combined tree.
+    Runs,
+    /// It judges a pull request's own head or description, and skips. A
+    /// skipped job or step reports success, which satisfies a required
+    /// check, so each is named with its reason.
+    PullRequestOnly,
+    /// It runs on its schedule or by hand, never in the queue.
+    Scheduled,
+}
+
+/// The `if:` conditions this test reads, and what each does in a merge
+/// group. Any other condition fails the test rather than being guessed at.
+const CONDITIONS: [(&str, InTheQueue); 6] = [
+    (
+        "github.event_name == 'pull_request'",
+        InTheQueue::PullRequestOnly,
+    ),
+    (
+        "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+        InTheQueue::Scheduled,
+    ),
+    ("runner.os == 'Linux'", InTheQueue::Runs),
+    ("runner.os == 'macOS'", InTheQueue::Runs),
+    ("always()", InTheQueue::Runs),
+    ("always() && runner.os == 'macOS'", InTheQueue::Runs),
+];
+
+/// Every job of the workflows the required checks live in, in file order,
+/// and what it does in a merge group.
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 20] = [
+    // It judges the run that the pull request's own description names for
+    // its own head (decisions 0033, 0038), and a merge group carries no
+    // description, labels or head repository. The queue lands that head's
+    // patch, which the judgment bound.
+    ("ci.yml", "delivered-by-brokkr", InTheQueue::PullRequestOnly),
+    ("ci.yml", "msrv", InTheQueue::Runs),
+    ("ci.yml", "quality", InTheQueue::Runs),
+    ("ci.yml", "engine", InTheQueue::Runs),
+    ("ci.yml", "seatbelt-lifetime", InTheQueue::Runs),
+    ("ci.yml", "coverage", InTheQueue::Runs),
+    ("ci.yml", "license-compliance", InTheQueue::Runs),
+    ("ci.yml", "lint-non-rust", InTheQueue::Runs),
+    ("ci.yml", "ratchets", InTheQueue::Runs),
+    ("ci.yml", "dependency-audit", InTheQueue::Runs),
+    ("ci.yml", "bootstrap-budgets", InTheQueue::Runs),
+    ("ci.yml", "bootstrap-budgets-macos", InTheQueue::Runs),
+    ("ci.yml", "packaging", InTheQueue::Runs),
+    ("ci.yml", "flake", InTheQueue::Runs),
+    ("ci.yml", "release-binary", InTheQueue::Runs),
+    // In no required check: it measures the pull request's merge against
+    // the base its event names, and a rise is ruled on the pull request.
+    ("ci.yml", "cpu-budgets", InTheQueue::PullRequestOnly),
+    // It judges the mutants of the pull request's own diff against its
+    // base, and the queue lands that diff. A miss two pull requests make
+    // only together is left to the weekly run.
+    ("mutants.yml", "core-gate", InTheQueue::PullRequestOnly),
+    // In no required check: brokkr-protocol's report on the pull
+    // request's own diff.
+    ("mutants.yml", "in-diff", InTheQueue::PullRequestOnly),
+    ("mutants.yml", "weekly", InTheQueue::Scheduled),
+    ("mutants.yml", "weekly-report", InTheQueue::Scheduled),
+];
+
+/// Every step that does not run in a merge group, as (workflow, job,
+/// step): the rest of its job judges the combined tree.
+const STEPS_OUT_OF_THE_QUEUE: [(&str, &str, &str, InTheQueue); 2] = [
+    // It reads the suppressions the pull request's own diff adds against
+    // its base. The tree's counts, which two pull requests could raise
+    // together, ride the test jobs (quality/suppressions.txt).
+    (
+        "ci.yml",
+        "quality",
+        "an added suppression names a ruling",
+        InTheQueue::PullRequestOnly,
+    ),
+    // It reads the `Ruling:` line of the pull request's description, which
+    // a merge group does not carry. The file-size and duplication ratchets
+    // before it judge the combined tree against the baselines.
+    (
+        "ci.yml",
+        "ratchets",
+        "a raised baseline names its ruling (quality/)",
+        InTheQueue::PullRequestOnly,
+    ),
+];
+
+/// What `condition`, an `if:` at `site`, does in a merge group.
+fn in_the_queue(condition: Option<&str>, site: &str) -> InTheQueue {
+    condition.map_or(InTheQueue::Runs, |condition| {
+        CONDITIONS
+            .iter()
+            .find(|(known, _)| *known == condition)
+            .map(|(_, queue)| *queue)
+            .unwrap_or_else(|| panic!("{site} runs `if: {condition}`, which this test cannot read"))
+    })
+}
+
+/// What the job `id` of `jobs` does in a merge group: its own `if:`, and
+/// then the job it `needs:`, which a skip carries into it.
+fn job_in_the_queue(file: &str, jobs: &[(String, String)], id: &str) -> InTheQueue {
+    let site = format!("{file}'s {id}");
+    let body = jobs
+        .iter()
+        .find_map(|(job, body)| (job == id).then_some(body))
+        .unwrap_or_else(|| panic!("{file} has no {id} job"));
+    let own = in_the_queue(
+        body.lines().find_map(|line| line.strip_prefix("    if: ")),
+        &site,
+    );
+    let needs = body
+        .lines()
+        .find_map(|line| line.strip_prefix("    needs:"))
+        .map(str::trim);
+    match needs {
+        Some(needed) => {
+            assert!(
+                !needed.is_empty()
+                    && needed
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+                "{site} needs `{needed}`, which this test cannot read"
+            );
+            let upstream = job_in_the_queue(file, jobs, needed);
+            if own == InTheQueue::Runs {
+                upstream
+            } else {
+                own
+            }
+        }
+        None => own,
+    }
+}
+
+/// The steps of the job `id` that do not run in a merge group, each named
+/// by its `name:`, or by its first line when it has none.
+fn steps_out_of_the_queue(
+    file: &'static str,
+    id: &str,
+    body: &str,
+) -> Vec<(&'static str, String, String, InTheQueue)> {
+    let site = format!("a step of {file}'s {id}");
+    job_steps(&body.lines().collect::<Vec<_>>())
+        .into_iter()
+        .filter_map(|step| {
+            let key = |key: &str| {
+                step.iter().find_map(|line| {
+                    line.strip_prefix(&format!("      - {key}: "))
+                        .or_else(|| line.strip_prefix(&format!("        {key}: ")))
+                })
+            };
+            let queue = in_the_queue(key("if"), &site);
+            let name = key("name").unwrap_or_else(|| step[0].trim());
+            (queue != InTheQueue::Runs).then(|| (file, id.to_string(), name.to_string(), queue))
+        })
+        .collect()
+}
+
+/// The lines under `event` in a workflow's `on:` map, comments dropped.
+fn event_lines<'a>(workflow: &'a str, event: &str) -> Vec<&'a str> {
+    let (_, on) = workflow.split_once("\non:\n").expect("an on: map");
+    let key = format!("  {event}:");
+    on.lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .take_while(|line| line.starts_with("  "))
+        .skip_while(|line| *line != key)
+        .skip(1)
+        .take_while(|line| line.starts_with("    "))
+        .collect()
+}
+
+/// The merge queue re-runs the required checks on the commit that lands
+/// (#451): each workflow a required check lives in runs on `merge_group`,
+/// every job and step of it does in a queue what `JOBS_IN_THE_QUEUE` and
+/// `STEPS_OUT_OF_THE_QUEUE` hold, each skip with its reason, and no
+/// required check's job waits on a schedule that a queue never raises.
+#[test]
+fn every_job_behaves_deliberately_in_a_merge_group() {
+    let root = workspace();
+    let mut files: Vec<&str> = MAIN_REQUIRES.iter().map(|&(_, _, file)| file).collect();
+    files.dedup();
+    assert_eq!(files, ["ci.yml", "mutants.yml"]);
+    let (mut jobs_seen, mut steps_seen) = (Vec::new(), Vec::new());
+    for file in files {
+        let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+        assert_eq!(
+            event_lines(&text, "merge_group"),
+            ["    types: [checks_requested]"],
+            "{file} does not run on the merge queue's event"
+        );
+        let jobs = workflow::jobs(&text);
+        for (id, body) in &jobs {
+            jobs_seen.push((file, id.clone(), job_in_the_queue(file, &jobs, id)));
+            steps_seen.extend(steps_out_of_the_queue(file, id, body));
+        }
+    }
+    let jobs_held: Vec<(&str, String, InTheQueue)> = JOBS_IN_THE_QUEUE
+        .iter()
+        .map(|&(file, id, queue)| (file, id.to_string(), queue))
+        .collect();
+    assert_eq!(
+        jobs_seen, jobs_held,
+        "a job's part in the merge queue changed: re-read JOBS_IN_THE_QUEUE's reasons"
+    );
+    let steps_held: Vec<(&str, String, String, InTheQueue)> = STEPS_OUT_OF_THE_QUEUE
+        .iter()
+        .map(|&(file, id, step, queue)| (file, id.to_string(), step.to_string(), queue))
+        .collect();
+    assert_eq!(
+        steps_seen, steps_held,
+        "a step's part in the merge queue changed: re-read STEPS_OUT_OF_THE_QUEUE's reasons"
+    );
+    for (check, id, file) in MAIN_REQUIRES {
+        let queue = jobs_seen
+            .iter()
+            .find_map(|(seen, job, queue)| (*seen == file && job == id).then_some(*queue))
+            .unwrap_or_else(|| panic!("{file} has no {id} job"));
+        assert!(
+            matches!(queue, InTheQueue::Runs | InTheQueue::PullRequestOnly),
+            "{check} neither runs nor skips deliberately in a merge group: {queue:?}"
+        );
+    }
+}
+
 /// Every version the by-hand guide states for a pinned tool is its pin:
 /// each `tool: name@version` the workflows install, the MSRV toolchain,
 /// the Node they set up, the cargo-public-api they build, jscpd's action, the cargo-deny the

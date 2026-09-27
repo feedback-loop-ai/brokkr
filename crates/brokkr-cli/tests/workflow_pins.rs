@@ -1489,16 +1489,19 @@ fn run_steps(job: &str) -> Vec<String> {
 /// The rest of issue #340's CI shape: superseded pull request runs are
 /// cancelled, every job is bounded, the Linux release binary is built
 /// once and shared, and the reporting Gate B probe is off the required
-/// macOS job's critical path.
+/// macOS job's critical path. A merge group's run is grouped by its event
+/// as well as its commit, so it neither cancels nor queues behind a pull
+/// request's run or the push of the commit it lands (#451).
 #[test]
 fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
-    let workflow = read(".github/workflows/ci.yml");
-    assert!(
-        workflow.contains(
-            "concurrency:\n  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
-        ),
-        "ci.yml does not cancel a superseded pull request run, or groups a main one with another commit"
-    );
+    for file in [".github/workflows/ci.yml", ".github/workflows/mutants.yml"] {
+        assert!(
+            read(file).contains(
+                "concurrency:\n  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
+            ),
+            "{file} does not cancel a superseded pull request run, or groups a run with another event's or another commit's"
+        );
+    }
 
     let jobs = ci_jobs();
     let ids: Vec<&str> = jobs.iter().map(|(id, _)| id.as_str()).collect();
