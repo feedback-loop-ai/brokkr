@@ -1767,7 +1767,14 @@ impl Bundle {
                 // segment is expanded against (review return F1).
                 let dir = &resolved.roots[resolved.seat_origin[phase]];
                 record_capabilities(
-                    &authority, library, adapters, boundary, dir, phase, raw, &mut sites,
+                    &authority,
+                    library,
+                    adapters,
+                    boundary,
+                    (dir, &resolved.roots, &resolved.case_origin),
+                    phase,
+                    raw,
+                    &mut sites,
                 )?;
             }
         }
@@ -1901,7 +1908,7 @@ impl Bundle {
                     library,
                     adapters,
                     boundary,
-                    law.dir,
+                    (law.dir, &resolved.roots, &resolved.case_origin),
                     dialect_site,
                     &synthetic,
                     &mut sites,
@@ -4761,14 +4768,16 @@ fn site_capabilities(
 /// agent's minus what the site subtracts; an inline site's map is its own
 /// office's asks. A wanted capability a candidate lost is a notice in that
 /// site's agent record, where a skipped model link already is. `dir` is
-/// the directory an inline site's command was expanded against.
+/// the directory an inline site's command was expanded against; a select
+/// case a later layer wrote by `override.cases` is walked in that layer's
+/// root, from `roots` by `case_origin`, as `parse_select` parses it.
 #[allow(clippy::too_many_arguments)]
 fn record_capabilities(
     authority: &crate::capabilities::Authority,
     library: Option<&Library>,
     adapters: CapabilityAdapters<'_>,
     boundary: Boundary,
-    dir: &Path,
+    (dir, roots, case_origin): (&Path, &[PathBuf], &BTreeMap<String, usize>),
     what: &str,
     raw: &Value,
     sites: &mut BTreeMap<String, SiteFacts>,
@@ -4930,35 +4939,50 @@ fn record_capabilities(
         }
         return Ok(());
     }
-    let mut nested: Vec<(String, &Value)> = Vec::new();
+    let mut nested: Vec<(String, &Value, &Path)> = Vec::new();
     if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
         nested.extend(
             panel
                 .iter()
-                .map(|(member, raw)| (format!("{what}:{member}"), raw)),
+                .map(|(member, raw)| (format!("{what}:{member}"), raw, dir)),
         );
     }
     if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
         for (index, step) in sequence.iter().enumerate() {
-            nested.push((format!("{what}:{}", step_label(index, step)), step));
+            nested.push((format!("{what}:{}", step_label(index, step)), step, dir));
         }
     }
     if let Some(select) = raw.get("select").and_then(Value::as_object) {
+        // Each case in the layer that wrote it (second review return C1);
+        // the default stays with the seat's owner.
         nested.extend(
             select
                 .get("cases")
                 .and_then(Value::as_object)
                 .into_iter()
                 .flatten()
-                .map(|(case, raw)| (format!("{what}:{case}"), raw)),
+                .map(|(case, raw)| {
+                    let label = format!("{what}:{case}");
+                    let owner = case_origin
+                        .get(&label)
+                        .map_or(dir, |&index| roots[index].as_path());
+                    (label, raw, owner)
+                }),
         );
         if let Some(body) = select.get("default") {
-            nested.push((format!("{what}:default"), body));
+            nested.push((format!("{what}:default"), body, dir));
         }
     }
-    for (label, raw) in nested {
+    for (label, raw, dir) in nested {
         record_capabilities(
-            authority, library, adapters, boundary, dir, &label, raw, sites,
+            authority,
+            library,
+            adapters,
+            boundary,
+            (dir, roots, case_origin),
+            &label,
+            raw,
+            sites,
         )?;
     }
     Ok(())

@@ -15159,3 +15159,62 @@ are in `.forge/unit-14a4a/return-f/`.
 
 **Pending.** 14a4b (`:6457` and `:6751`), then 14b re-run from its saved
 patch, exact coverage outside the box, macOS, remote CI and the council.
+
+### Second review return, 2026-09-27: C1 (a select case's owning layer)
+
+Same run, returned from review (residual, medium) at `61b9554a`.
+Production: `record_capabilities` in `crates/brokkr-runtime/src/bundle.rs`.
+`engine.rs` did not move. The logs are in `.forge/unit-14a4a-c1/`.
+
+- **C1.** The nested walk handed the seat's directory to every selected
+  case. A case a later layer wrote by `override.cases` moves
+  `case_origin` and not `seat_origin`, so a leaf-written inline case
+  expanded its hands against the base. `parse_select` already parses that
+  case in `roots[case_origin]` (`bundle.rs:5231`), so the leaf's
+  agent-backed case got the leaf's expansion.
+  - Fix. `record_capabilities` now takes `roots` and `case_origin` beside
+    `dir`. It walks each select case in the root `case_origin` names for
+    `<seat>:<case>` (`bundle.rs:4956`). A case with no entry keeps `dir`,
+    and the default keeps the seat's `dir`. Panel members and steps are
+    unchanged. The lookup is applied only to select cases, so a stale
+    case entry cannot move a same-named panel member. The dialect site
+    passes the same maps and has no select.
+  - New test:
+    `bundle/agent_tests.rs::a_mixed_origin_selects_inline_hands_expand_against_each_cases_owning_layer`
+    (`:2749`). A base writes a `review` select whose `feature` and `chore`
+    cases and default are inline Codex bodies with boxed hands. The leaf
+    overrides `review:feature` (inline) and `review:chore` (agent `boxed`)
+    by `override.cases`. The fragment ends in `--output-schema
+    ./schema.json`. The test asserts three values at once: the leaf's
+    inline `feature` and the leaf's agent `chore` hands segment are both
+    `expand_command(leaf, fragment)`, and the inherited default is
+    `expand_command(base, fragment)`. It also asserts that the two
+    expansions differ (`:2829`).
+  - Baseline red on `61b9554a` (`baseline-red.txt`). The test failed at
+    `:2817`. The inline `feature` case got `/tmp/…/base/schema.json` while
+    the agent `chore` case got `/tmp/…/bundle/schema.json`, which is C1.
+  - Mutation 1: `.map_or(dir, |&_index| dir)`, every case in the seat's
+    directory (`mutation-1.txt`). It failed at `:2817` with the same
+    `base/schema.json` for the inline case.
+  - Mutation 2: the default walked in `roots[0]`, the leaf
+    (`mutation-2.txt`). It failed at `:2817`: the default got
+    `bundle/schema.json` where `base/schema.json` was expected.
+  - Restored, it passes.
+- Fixture migrations and standing-admission lines: none.
+- **Gates.**
+  - `cargo fmt --all -- --check` is clean.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings` is clean.
+  - `cargo test -p brokkr-runtime --all-features --locked
+    --no-fail-fast`: all 25 summaries are `ok`, with 574 lib tests and 55
+    in `capability_launch` (`runtime-suite.txt`).
+  - `cargo test -p brokkr-cli --test driver_conformance`: 24 passed.
+  - `bundles/self` and `bundles/verify` compile.
+  - `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+    summaries, all `ok`, and no `FAILED` or `panicked` line
+    (`workspace.txt`, exit 0).
+  - `openspec validate --all --strict`: 18 passed, 0 failed
+    (`openspec.txt`). `git diff --check` is clean.
+
+**Pending.** 14a4b (`:6457` and `:6751`), then 14b re-run from its saved
+patch, exact coverage outside the box, macOS, remote CI and the council.

@@ -2740,6 +2740,95 @@ fn an_inherited_inline_sites_hands_expand_against_its_owning_layer_as_an_agents_
     assert_ne!(expanded, expand_command(&fixture.bundle(), &workspace));
 }
 
+/// Second review return of rebuild unit 14a4a (C1): a select case the leaf
+/// overrides by `override.cases` is owned by the leaf while its seat and
+/// default stay the base's. The leaf's inline case expands its hands
+/// against the leaf, as the leaf's agent-backed case does, and the
+/// inherited inline default against the base that wrote it.
+#[test]
+fn a_mixed_origin_selects_inline_hands_expand_against_each_cases_owning_layer() {
+    use brokkr_protocol::native_controls::{Origin, Segment};
+    let fixture = AgentFixture::new();
+    let workspace = with_schema(&CODEX_WORKSPACE);
+    let mut codex = codex();
+    codex["hands"]["workspace"] = json!(workspace);
+    fixture.write("adapters/codex.json", codex);
+    declare_sandbox(&fixture, "read-only");
+    let base = fixture.root.join("base");
+    std::fs::create_dir_all(base.join("roles")).unwrap();
+    std::fs::copy(
+        fixture.bundle().join("roles/work.md"),
+        base.join("roles/work.md"),
+    )
+    .unwrap();
+    std::fs::write(
+        base.join("policy.json"),
+        serde_json::to_vec(&policy()).unwrap(),
+    )
+    .unwrap();
+    let inline = json!({
+        "role": "roles/work.md",
+        "driver": {"command": codex_inline(&[])},
+        "hands": {"kind": "workspace", "network": false, "binds": []},
+    });
+    let mut config = sandbox_seat(&fixture, None);
+    config["name"] = json!("base");
+    config["seats"]["review"] = json!({
+        "results": ["clean"],
+        "select": {
+            "on": "strategy",
+            "cases": {"feature": inline, "chore": inline},
+            "default": inline,
+        },
+    });
+    std::fs::write(
+        base.join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.bundle().join("bundle.json"),
+        serde_json::to_vec(&json!({
+            "name": "fixture",
+            "extends": "base",
+            "override": {"cases": ["review:feature", "review:chore"]},
+            "seats": {"review": {"select": {"cases": {
+                "feature": inline,
+                "chore": {"agent": "boxed"},
+            }}}},
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let bundle =
+        Bundle::compile_with(&fixture.bundle(), &fixture.library(), &fixture.adapters()).unwrap();
+    let agent = match &bundle.sites["review:chore"].chain[0].lowering {
+        crate::agents::Lowering::Composed(composition) => composition
+            .segments
+            .iter()
+            .find(|segment| segment.origin == Origin::Hands)
+            .cloned(),
+        other => panic!("review:chore composes: {other:?}"),
+    };
+    let (leaf, inherited) = (
+        expand_command(&fixture.bundle(), &workspace),
+        expand_command(&base, &workspace),
+    );
+    assert_eq!(
+        (
+            bundle.sites["review:feature"].inline_hands.clone(),
+            agent,
+            bundle.sites["review:default"].inline_hands.clone(),
+        ),
+        (
+            Some(Segment::new(Origin::Hands, &leaf)),
+            Some(Segment::new(Origin::Hands, &leaf)),
+            Some(Segment::new(Origin::Hands, &inherited)),
+        )
+    );
+    assert_ne!(leaf, inherited);
+}
+
 /// The fixture codex's fragments followed by `--output-schema
 /// ./schema.json`: an inert option whose bundle-relative value the
 /// compile's expansion rewrites, so a carrier expanded with its segment is

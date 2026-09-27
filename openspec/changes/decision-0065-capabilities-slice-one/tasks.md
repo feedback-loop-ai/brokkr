@@ -2637,6 +2637,26 @@ return, 2026-09-27"). **Result: complete.** 14.1 stays open until 14b.
 - **Pending.** 14a4b, 14b, exact coverage outside the box, macOS, remote
   CI and the council.
 
+Unit 14a4a, second review return (same run, from `61b9554a`; evidence.md,
+"Second review return, 2026-09-27"). **Result: complete.** 14.1 stays open
+until 14b.
+
+- C1: `record_capabilities` in `bundle.rs` now walks each select case in
+  the layer that wrote it (`roots[case_origin]`), as `parse_select`
+  parses it. The default stays with the seat's owner. Before, a
+  leaf-written inline case expanded its hands against the base.
+- The new mixed-origin regression in `bundle/agent_tests.rs` was red on
+  `61b9554a`: the inline case got `base/schema.json` and the agent case
+  got `bundle/schema.json`. Two compiling mutations each fail it (cases
+  in the seat's directory; the default in the leaf), and it passes
+  restored.
+- Fixture migrations and standing-admission lines: none.
+- **Gates.** fmt, clippy, the runtime suite, `driver_conformance` and both
+  bundles are clean. The workspace suite, strict OpenSpec and `git diff
+  --check` are recorded in evidence.md.
+- **Pending.** 14a4b, 14b, exact coverage outside the box, macOS, remote
+  CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
