@@ -11986,3 +11986,65 @@ open.
 **Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
 macOS, remote CI and the full engine council. The three follow-ups above
 still stand.
+
+### Fourth visit: the council's return needs two more files, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-2986103d`, returned from review at
+`0ff4caa7` with residual MEDIUM. Result: **oversized**. No production or
+test file moved; this record is the only change. The preamble says a unit
+whose file budget is exceeded is split before implementation. Both surviving
+findings need a file outside 12-fix-e's inventory (`native_controls.rs`,
+`bundle.rs`, and `engine.rs` only where the launch refusal renders).
+
+**C-E1 (MEDIUM): the compiler site is spelled raw.** Source read in this
+visit:
+
+- `Refusal::at_compile` (`native_controls.rs:579-588`) takes the site as
+  one preformatted `who: &str` and interpolates `shortened(who, room)`.
+  It cuts the site but never redacts it.
+- `who` is built in `capabilities.rs:1601-1606` as `seat '{label}'
+  (office '{office}') in realm '{realm}'`, from author-written labels. It
+  reaches `at_compile` at `capabilities.rs:1782`, `:1796` and `:1948`.
+  The same raw `who` also opens the seven other capability refusals at
+  `:422`, `:1761`, `:1765`, `:1833`, `:1873`, `:1952` and `:2000`.
+- The invariant's compiler site is benign (`native_controls/tests.rs:3467`,
+  `seat 'work' (office 'o') …`), so it cannot see this input.
+
+The reviewer's current-CLI probe (a seat labelled
+`/private/REVIEW_SENTINEL\nwork`: 417 scalar values, the newline escaped,
+the sentinel named twice) was not re-run here.
+
+Inside the inventory, `at_compile` could only redact the site by matching
+characters in an already-formatted string. That covers the three
+`native_controls` paths and leaves the seven raw `{who}` refusals. The site
+is a carried fact, so the proposed repair types it:
+
+- `native_controls.rs` gains a typed site (seat, office, realm), each part
+  rendered as an identity: quoted whole where plain and bounded, and
+  otherwise bounded and never echoed in full, as `bundle.rs::bounded_site`
+  (`bundle.rs:2378`) already renders a site. `at_compile` takes that site.
+- `capabilities.rs` builds `who` from it (`:1601-1606`) and passes it at
+  `:1782`, `:1796` and `:1948`.
+- Tests: the invariant is driven with adversarial sites (a 1000-character
+  label, embedded newlines, the sentinel path), plus an exact compiled
+  regression in `capability_launch.rs` for the reviewer's seat, each with a
+  baseline red and a compiling mutation.
+
+**A-E1 (LOW): resume re-wraps the raw reason.** In `brokkr-cli/src/lib.rs`,
+`unreproducible` (`:2057-2075`) downcasts `CompileError::Capability(reason)`
+and puts the raw `reason` into `EngineError::ManifestMismatch.detail`.
+`engine.rs:71-72` renders that detail without the sink, and `resume`
+reaches it at `lib.rs:2306`. `lib.rs` is outside the inventory. `engine.rs`
+is admitted only where the launch refusal renders, and this is the resume
+refusal. The proposed repair renders the detail so that the whole resume
+line leaves through the sink: at most 512 scalar values and control-free.
+It adds an exact regression on the rendered line with a compiling mutation.
+
+**The ruling asked for.** Admit `crates/brokkr-runtime/src/capabilities.rs`
+(C-E1) and `crates/brokkr-cli/src/lib.rs` (A-E1), with their tests, to
+12-fix-e. `bundle.rs` needs no change for either finding, so the unit stays
+at three production files: `native_controls.rs`, `capabilities.rs` and
+`lib.rs`. Or split A-E1 into its own unit, 12-fix-f.
+
+Standing-admission lines: none. 12.1 and 12.2 stay ticked; 15.2 stays
+open.

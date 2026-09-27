@@ -1979,6 +1979,13 @@ and saved as a patch rather than committed (evidence.md, "Unit 12-fix-e").
   12.2 stay ticked; 15.2 stays open.
 - **Pending:** exact coverage outside the box, macOS, remote CI and the
   council.
+- **Fourth visit (same run, returned from review at `0ff4caa7`).** Result:
+  **oversized**, and nothing but this record moved. C-E1 (MEDIUM): the
+  compiler site is formatted raw in `capabilities.rs:1601-1606`, and
+  `at_compile` only cuts it. C-E1 needs `capabilities.rs`. A-E1 (LOW):
+  resume re-wraps the raw capability reason, and fixing that needs
+  `brokkr-cli/src/lib.rs`. The ruling asked for is to admit both files, or
+  to split A-E1 into 12-fix-f (evidence.md, "Fourth visit").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
