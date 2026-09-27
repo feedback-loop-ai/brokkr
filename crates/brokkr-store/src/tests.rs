@@ -1483,6 +1483,49 @@ fn a_moved_head_is_a_refusal_and_is_never_retried_into_place() {
     assert_eq!(store.head_hash("r1").unwrap().0, 2);
 }
 
+/// A seq is a position in the chain: an integer from 1. The column's
+/// INTEGER affinity stores `'3'` and `4.0` as integers, but a table that is
+/// not STRICT keeps `1.5`, `'abc'` or a blob as they are, and a suffix read
+/// past a held head never selects a row below it. So the journal refuses
+/// every other seq at insert (#354), and reopening a journal whose guard
+/// has gone missing restores it, as it restores the append-only guards.
+#[test]
+fn a_seq_that_is_not_a_position_is_refused_at_insert() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let insert = |conn: &rusqlite::Connection, seq: &str| {
+        conn.execute(
+            &format!("INSERT INTO events VALUES ('r1', {seq}, 'h', 'e')"),
+            [],
+        )
+    };
+    {
+        let mut store = Store::open(&db).unwrap();
+        store.create_run("r1", "feat", "self", &json!({})).unwrap();
+        for seq in ["1.5", "'1.5'", "0.5", "0", "-5", "'abc'", "x'00'", "1e300"] {
+            let refused = insert(&store.conn, seq).unwrap_err().to_string();
+            assert!(
+                refused.contains("events.seq is an integer from 1"),
+                "{seq}: {refused}"
+            );
+        }
+        for seq in ["1", "'2'", "3.0"] {
+            insert(&store.conn, seq).unwrap();
+        }
+        store
+            .conn
+            .execute_batch("DROP TRIGGER events_seq_is_a_position")
+            .unwrap();
+        insert(&store.conn, "1.5").unwrap();
+    }
+    let store = Store::open(&db).unwrap();
+    let refused = insert(&store.conn, "2.5").unwrap_err().to_string();
+    assert!(
+        refused.contains("events.seq is an integer from 1"),
+        "{refused}"
+    );
+}
+
 /// The guard question is a question, not an assumption: asked of a file
 /// that is not a database at all, it fails with the real error instead
 /// of reporting the guards absent and re-running a migration into ruin.

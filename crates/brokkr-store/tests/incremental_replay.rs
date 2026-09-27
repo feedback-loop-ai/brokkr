@@ -215,13 +215,17 @@ fn a_suffix_is_refused_unless_it_chains_onto_the_callers_head() {
 /// the schema admits any integer seq, and the append-only triggers guard
 /// UPDATE and DELETE, not INSERT.
 fn plant(dir: &Path, run_id: &str, seq: i64, envelope: &str) {
-    rusqlite::Connection::open(dir.join("forge.db"))
-        .unwrap()
-        .execute(
-            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, 'x', ?3)",
-            rusqlite::params![run_id, seq, envelope],
-        )
+    // The journal refuses such a row at insert (#354); a journal written
+    // before that guard existed may still hold one, and that is the
+    // journal these reads must refuse. So the plant drops the guard first.
+    let conn = rusqlite::Connection::open(dir.join("forge.db")).unwrap();
+    conn.execute_batch("DROP TRIGGER IF EXISTS events_seq_is_a_position")
         .unwrap();
+    conn.execute(
+        "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, 'x', ?3)",
+        rusqlite::params![run_id, seq, envelope],
+    )
+    .unwrap();
 }
 
 /// The whole read judges every row of the run, whatever seq the table

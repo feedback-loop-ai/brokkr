@@ -304,6 +304,10 @@ CREATE TRIGGER IF NOT EXISTS events_append_only_update
 CREATE TRIGGER IF NOT EXISTS events_append_only_delete
     BEFORE DELETE ON events
     BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS events_seq_is_a_position
+    BEFORE INSERT ON events
+    WHEN typeof(NEW.seq) != 'integer' OR NEW.seq < 1
+    BEGIN SELECT RAISE(ABORT, 'events.seq is an integer from 1'); END;
 CREATE TRIGGER IF NOT EXISTS runs_manifest_immutable
     BEFORE UPDATE OF manifest, run_id ON runs
     BEGIN SELECT RAISE(ABORT, 'run manifests are immutable'); END;
@@ -1554,9 +1558,10 @@ fn patiently<T>(
 /// The append-only and immutability triggers `MIGRATION_V1` installs, by
 /// name. Named here so [`Store::migrate`] can ask whether a journal still
 /// carries all of them.
-const GUARD_TRIGGERS: [&str; 3] = [
+const GUARD_TRIGGERS: [&str; 4] = [
     "events_append_only_update",
     "events_append_only_delete",
+    "events_seq_is_a_position",
     "runs_manifest_immutable",
 ];
 
@@ -1565,8 +1570,13 @@ const GUARD_TRIGGERS: [&str; 3] = [
 fn guards_intact(conn: &Connection) -> Result<bool, StoreError> {
     let present: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type = 'trigger'
-         AND name IN (?1, ?2, ?3)",
-        params![GUARD_TRIGGERS[0], GUARD_TRIGGERS[1], GUARD_TRIGGERS[2]],
+         AND name IN (?1, ?2, ?3, ?4)",
+        params![
+            GUARD_TRIGGERS[0],
+            GUARD_TRIGGERS[1],
+            GUARD_TRIGGERS[2],
+            GUARD_TRIGGERS[3]
+        ],
         |row| row.get(0),
     )?;
     Ok(present == GUARD_TRIGGERS.len() as i64)
