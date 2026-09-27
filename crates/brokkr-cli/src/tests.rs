@@ -13,6 +13,28 @@ use time::format_description::well_known::Rfc3339;
 /// the whole binary, named where both surfaces' test modules can see it.
 pub(crate) static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Rebuild unit 12-fix-f, the council's A-E1 (design D6): a resume whose
+/// capability authority cannot be reproduced re-wraps the compiler's raw
+/// reason, so the whole line the engine renders is made through the one
+/// refusal sink — one line, its newline escaped, cut to 512 scalar values.
+#[test]
+fn an_unreproducible_resume_leaves_through_the_one_refusal_sink() {
+    let reason = format!("realm 'a\nb': {}", "x".repeat(600));
+    let line = unreproducible(
+        "run-1",
+        brokkr_runtime::bundle::CompileError::Capability(reason).into(),
+    )
+    .to_string();
+    let head = "run 'run-1' pins a different bundle: capabilities differ: the capability \
+                authority the run was started under cannot be reproduced here — realm \
+                'a\\nb': ";
+    assert_eq!(
+        line,
+        format!("{head}{}…", "x".repeat(511 - head.chars().count()))
+    );
+    assert_eq!(line.chars().count(), 512);
+}
+
 #[test]
 fn the_command_tree_builds_on_a_small_stack() {
     use clap::CommandFactory;

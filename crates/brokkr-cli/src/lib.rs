@@ -2054,17 +2054,23 @@ fn compile_from_manifest(
 /// grant needs — is the run pinning a different bundle, and is refused
 /// through that door with capabilities named (decision 0065 ruling 8;
 /// design D7), not as a compile failure that reads like a broken recipe.
-/// Every other failure passes through untouched.
+/// Every other failure passes through untouched. The reason is the
+/// compiler's raw words, so the whole line the engine renders — its `run
+/// '{run}' pins a different bundle: ` and this detail — is made through the
+/// protocol's one refusal sink: one line, at most 512 scalar values
+/// (rebuild unit 12-fix-f; design D6). The run id is the engine's own.
 fn unreproducible(run: &str, error: anyhow::Error) -> anyhow::Error {
     match error.downcast_ref::<brokkr_runtime::bundle::CompileError>() {
         Some(brokkr_runtime::bundle::CompileError::Capability(reason)) => {
+            let head = format!("run '{run}' pins a different bundle: ");
+            let line = brokkr_protocol::native_controls::bounded_line(&format!(
+                "{head}capabilities differ: the capability authority the run was started under \
+                 cannot be reproduced here — {reason}; a grant, an abstract definition or a \
+                 tool dialect was removed or edited since the run started"
+            ));
             brokkr_runtime::engine::EngineError::ManifestMismatch {
                 run_id: run.to_string(),
-                detail: format!(
-                    "capabilities differ: the capability authority the run was started under \
-                     cannot be reproduced here — {reason}; a grant, an abstract definition or a \
-                     tool dialect was removed or edited since the run started"
-                ),
+                detail: line.chars().skip(head.chars().count()).collect(),
             }
             .into()
         }

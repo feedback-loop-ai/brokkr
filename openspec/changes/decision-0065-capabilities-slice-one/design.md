@@ -1449,6 +1449,14 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     protocol native_controls/tests.rs and brokkr-runtime/tests/capability_launch.rs;
     every harness/form, grant state, counterfeit origin, managed hard limit and
     migrated shipped positive.
+    Split under this preamble (2026-09-27): **12-fix-f** answers 12-fix-e's
+    council return (C-E1, A-E1). The compiler's site becomes typed (seat,
+    office, realm), each part a bounded identity, and it opens every
+    capability refusal. `resume`'s unreproducible detail leaves through the
+    one refusal sink. Production: `crates/brokkr-protocol/src/native_controls.rs`,
+    `crates/brokkr-runtime/src/capabilities.rs` and
+    `crates/brokkr-cli/src/lib.rs`. Tests: their owning suites and
+    brokkr-runtime/tests/capability_launch.rs.
 13. **Build pure final assessment and share structural consumers.** Close 13.1
     and 13.2. Production: `crates/brokkr-protocol/src/native_controls.rs`,
     `native_controls/grammar.rs`, `adapters.rs` in the same src root. Finish the

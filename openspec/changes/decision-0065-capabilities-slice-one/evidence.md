@@ -12078,3 +12078,122 @@ because its content has not changed since `0ff4caa7`. The fourth visit's
 request stands: admit `capabilities.rs` and `lib.rs` to 12-fix-e, or split
 A-E1 into 12-fix-f. Standing-admission lines: none. 12.1 and 12.2 stay
 ticked; 15.2 stays open.
+
+## Unit 12-fix-f — a typed compiler site and a bounded resume detail, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-d31110e4`, based on `2088a97a`. This
+unit is split from 12-fix-e under the preamble and answers the fourth
+visit's C-E1 and A-E1 as that record proposed. The split is recorded
+under unit 12 in design.md's Rebuild units. Production files:
+`native_controls.rs`, `capabilities.rs` and `brokkr-cli/src/lib.rs`.
+Result: **complete**.
+
+### What changes
+
+- **C-E1.** `native_controls.rs` gains `Site { seat, office, realm }`. Its
+  `Display` renders `seat {} (office {}) in realm {}`, and each part goes
+  through `site_identity`. That function quotes a part whole where it is a
+  `plain_label` of at most 64 bytes. Any other part is rendered as
+  `'{lead}…' ({n} bytes, not echoed in full)`, where the lead is at most 32
+  leading plain characters, the same shape as `bundle.rs::bounded_site`.
+  `Refusal::at_compile` now takes `&Site`. In `capabilities.rs`, `who()`
+  returns that `Site`. `Definitions::require` takes `impl Display`, and
+  `native_plan` takes the `Site`. All ten raw-`{who}` openings now render
+  it: `:422`, `:1761`, `:1765`, `:1782`, `:1796`, `:1833`, `:1873`,
+  `:1948`, `:1952` and `:2000` (lines as numbered at `2088a97a`). A plain
+  site renders byte for byte as before.
+- **A-E1.** `unreproducible` (`lib.rs`) builds the whole line the engine
+  renders, `run '{run}' pins a different bundle: ` plus the detail, and
+  passes it through `bounded_line`. The detail is what follows the head.
+  The engine's line is therefore at most 512 scalar values and
+  control-free. The run id is the engine's own, so the head is plain.
+
+### Tests
+
+- Protocol `native_controls/tests.rs`:
+  - New: `a_compiled_site_names_each_label_as_a_bounded_identity`. It
+    checks exact renderings for the reviewer's seat
+    `/private/REVIEW_SENTINEL\nwork`, a 64-byte part, a 65-byte part,
+    `web\nsearch`, an empty office and `<custom>`, and one exact
+    `at_compile` line.
+  - The invariant `every_refusal_line_is_one_bounded_line_naming_no_payload`
+    now renders every refusal's compiler line with each adversary as the
+    seat, the office, the realm, and all three. The adversaries are 1000
+    scalars, a newline, the private path, the pattern around it, the
+    reviewer's `{PRIVATE}\nwork` (new), and the combination.
+  - Forced by the signature change: five `at_compile("…")` calls now take
+    a `Site`. The two no-site renderings use the new `unsited` helper,
+    which strips a plain site the refusal names whole, so they measure the
+    same portion.
+- `capability_launch.rs`:
+  - New: `a_compiled_capability_refusal_names_an_unplain_seat_without_echoing_it`.
+    It relabels the boxed seat and its phase to the reviewer's label. The
+    exact compiled lines are the authored `--search` refusal (through
+    `at_compile`) and the ungranted requirement (a `{who}` refusal).
+  - **One expectation moved with the fix.**
+    `a_compiled_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity`
+    pinned the raw 300-scalar realm, cut to 102 (Claude) or 99 (LaneTally)
+    scalars, and a 512-scalar line. It now pins the realm's bounded
+    identity, `'r…(32)…' (300 bytes, not echoed in full)`, whole, in lines
+    of 475 and 478 scalars. Those are the exact counts asserted in place of
+    512. This file is in the unit's inventory, and this is the behaviour
+    C-E1 changes.
+- CLI `src/tests.rs`: new `an_unreproducible_resume_leaves_through_the_one_refusal_sink`.
+  A reason with a newline and 600 scalar values renders as the exact
+  512-scalar line, with `\n` escaped and the line ending in `…`.
+
+### Baseline reds on `2088a97a`
+
+The three production files were checked out at `2088a97a`, with the new
+tests in place, and the production diff was saved to
+`.forge/unit-12-fix-f/prod.patch`.
+
+- `a_compiled_capability_refusal_names_an_unplain_seat_without_echoing_it`
+  FAILED at `capability_launch.rs:4113`. The left side was
+  `bundle: seat '/private/REVIEW_SENTINEL\\nwork' (office
+  '/private/REVIEW_SENTINEL\\nwork') in realm 'private': its arguments
+  carry '--search' …`, which names the sentinel twice.
+- `an_unreproducible_resume_leaves_through_the_one_refusal_sink` FAILED at
+  `src/tests.rs:31`. The left side was the raw line, with a literal newline
+  and all 600 `x`s, ending `…since the run started`.
+- The protocol tests name `Site`, which does not exist at `2088a97a`, so
+  they cannot compile there. Their raw-echo baseline is reproduced by M1.
+
+The patch was then re-applied with `git apply`.
+
+### Mutations (each compiled, was caught, then restored)
+
+| | Mutation | Caught by |
+|---|---|---|
+| M1 | `site_identity` guard `true \|\|` (every part echoed raw) | `native_controls/tests.rs:2997` (the new site test); the invariant at `:3521` (`REVIEW_SENTINEL` named); `capability_launch.rs:4113` (the new compiled test) and `:7286` (the moved expectation) |
+| M2 | `unreproducible` skips `bounded_line` (`std::convert::identity`) | CLI `src/tests.rs:31` |
+
+After the restores, `git diff` of the three production files hashes to
+`abf48857…022fb`.
+
+### Gates
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning.
+- `cargo test -p brokkr-protocol --all-features --locked --no-fail-fast`:
+  lib 502 passed, `seatbelt_lifetime_probe` 99 passed and 2 ignored, 0
+  failed.
+- `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast`:
+  25 `test result: ok` summaries (lib 565, `capability_launch` 53), and no
+  `FAILED`, `panicked at` or `error` line.
+- `cargo test -p brokkr-cli --all-features --locked --no-fail-fast`: 33
+  `ok` summaries (lib 482), and no `FAILED`, `panicked at` or `error` line.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: exit 0,
+  77 `test result: ok` summaries, and no `FAILED`, `panicked at` or
+  `error` line.
+- `compile --bundle bundles/self` and `compile --bundle bundles/verify`
+  both compiled.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+
+Standing-admission lines: none. Every changed test line is in the unit's
+own suites or in `capability_launch.rs`. 12.1 and 12.2 stay ticked; 15.2
+stays open.
+
+**Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
+macOS, remote CI and the full engine council.

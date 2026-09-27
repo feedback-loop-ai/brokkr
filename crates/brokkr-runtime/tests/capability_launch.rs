@@ -4057,6 +4057,78 @@ fn an_authored_search_control_is_refused_at_compile_naming_the_seat() {
     );
 }
 
+/// Rebuild unit 12-fix-f, the council's C-E1 (design D6): the site a
+/// compiled capability refusal opens with is typed, so an author's seat
+/// label is an identity and never spelled. The reviewer's seat
+/// `/private/REVIEW_SENTINEL\nwork` was named twice, as seat and office,
+/// in a 417-scalar line — through the composition refusal and through the
+/// runtime's own refusals alike.
+#[test]
+fn a_compiled_capability_refusal_names_an_unplain_seat_without_echoing_it() {
+    const LABEL: &str = "/private/REVIEW_SENTINEL\nwork";
+    const SITE: &str = "seat '…' (29 bytes, not echoed in full) (office '…' (29 bytes, not \
+                        echoed in full)) in realm 'private'";
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    operator
+        .compile(&context, Boundary::Namespace, None, None)
+        .unwrap();
+    let sound: Value =
+        serde_json::from_slice(&std::fs::read(operator.root().join("bundle/bundle.json")).unwrap())
+            .unwrap();
+    let policy = std::fs::read_to_string(operator.root().join("bundle/policy.json")).unwrap();
+    std::fs::write(
+        operator.root().join("bundle/policy.json"),
+        policy.replace("\"boxed\"", &serde_json::to_string(LABEL).unwrap()),
+    )
+    .unwrap();
+    let refused = |authored: &[&str], asks: Option<Value>| {
+        let mut bundle = sound.clone();
+        let mut seat = bundle["seats"]
+            .as_object_mut()
+            .unwrap()
+            .remove("boxed")
+            .unwrap();
+        seat["driver"]["command"]
+            .as_array_mut()
+            .unwrap()
+            .extend(authored.iter().map(|part| json!(part)));
+        if let Some(asks) = asks {
+            seat["capabilities"] = asks;
+        }
+        bundle["seats"][LABEL] = seat;
+        write(operator.root(), "bundle/bundle.json", &bundle);
+        Bundle::compile_with_capabilities(
+            &operator.root().join("bundle"),
+            &operator.root().join("agents"),
+            &workspace().join("adapters"),
+            Some("private"),
+            None,
+            Boundary::Namespace,
+            &context,
+        )
+        .unwrap_err()
+        .to_string()
+    };
+    assert_eq!(
+        refused(&["--search"], None),
+        format!(
+            "bundle: {SITE}: its arguments carry '--search' (argument 5), a \
+             capability-bearing option of harness 'codex'. A recipe authors no \
+             capability-bearing option, whatever its value, polarity or grant: tools come \
+             from typed declarations and the realm's grant, composed by the engine alone \
+             (operator ruling 1 of 2026-09-23)"
+        )
+    );
+    assert_eq!(
+        refused(&[], Some(json!({"web-search": "requires"}))),
+        format!(
+            "bundle: {SITE}: requires capability 'web-search' but the realm does not grant it \
+             to this office"
+        )
+    );
+}
+
 /// A requirement the realm does not grant refuses compilation naming the
 /// seat, the office, the capability and the realm — at every executable
 /// form, in the same voice.
@@ -7136,8 +7208,9 @@ fn a_composed_capability_refusal_renders_as_one_bounded_line() {
 /// entry that admits `Bash` and a `Bash(/private/…:*)` its ON selection both
 /// allows and denies is refused at compile by its tool name alone, on
 /// Claude and LaneTally; the longest grammar-valid pattern, at a site whose
-/// realm is 300 scalar values long, is refused with the site cut to what
-/// the cause leaves it, the compiler's whole line within 512.
+/// realm is 300 scalar values long, is refused with that realm named as a
+/// bounded identity (rebuild unit 12-fix-f), the compiler's whole line
+/// within 512.
 #[test]
 fn a_compiled_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity() {
     const SENTINEL: &str = "REVIEW_SENTINEL";
@@ -7196,9 +7269,10 @@ fn a_compiled_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity()
         line
     };
     let long = "r".repeat(300);
-    // The site keeps what the cause leaves it: LaneTally's name is three
+    // The realm is a bounded identity (rebuild unit 12-fix-f): its lead
+    // and its length, whole beside either cause. LaneTally's name is three
     // scalar values longer than Claude's.
-    for (driver, kept) in [("claude", 102), ("lanetally", 99)] {
+    for (driver, scalars) in [("claude", 475), ("lanetally", 478)] {
         assert_eq!(
             compiled(driver, &sentinel, "private"),
             refused(
@@ -7213,15 +7287,15 @@ fn a_compiled_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity()
             line,
             refused(
                 &format!(
-                    "seat 'work' (office 'work') in realm '{}…",
-                    "r".repeat(kept)
+                    "seat 'work' (office 'work') in realm '{}…' (300 bytes, not echoed in full)",
+                    "r".repeat(32)
                 ),
                 &tool,
                 driver
             ),
             "{driver}"
         );
-        assert_eq!(line.chars().count(), 512, "{driver}");
+        assert_eq!(line.chars().count(), scalars, "{driver}");
     }
 }
 

@@ -416,7 +416,7 @@ impl Definitions {
 
     /// CQ2: a request for a capability nobody defined is an invalid
     /// declaration — before requires/wants, before any grant.
-    pub fn require(&self, who: &str, name: &str) -> Result<&Definition, String> {
+    pub fn require(&self, who: impl std::fmt::Display, name: &str) -> Result<&Definition, String> {
         self.get(name).ok_or_else(|| {
             format!(
                 "{who}: capability '{name}' has no abstract definition at '{}' in the operator \
@@ -1598,11 +1598,14 @@ impl Authority {
             .map(|(provider, key)| (provider.as_str(), key.as_str()))
     }
 
-    fn who(&self, site: &SiteAsks) -> String {
-        format!(
-            "seat '{}' (office '{}') in realm '{}'",
-            site.label, site.office, self.context.realm
-        )
+    /// The site every capability refusal and notice opens with, typed so
+    /// that no author's label is ever spelled raw (rebuild unit 12-fix-f).
+    fn who<'a>(&'a self, site: &'a SiteAsks) -> brokkr_protocol::native_controls::Site<'a> {
+        brokkr_protocol::native_controls::Site {
+            seat: &site.label,
+            office: &site.office,
+            realm: &self.context.realm,
+        }
     }
 
     /// Why this candidate cannot hold `capability`, or the holding and
@@ -1731,7 +1734,7 @@ impl Authority {
     pub fn resolve(&self, site: &SiteAsks, serving: &Serving<'_>) -> Result<Outcome, String> {
         let who = self.who(site);
         for name in site.asks.keys().chain(&site.subtracted) {
-            self.definitions.require(&who, name)?;
+            self.definitions.require(who, name)?;
         }
         let mut held = BTreeMap::new();
         let mut keys: BTreeMap<String, String> = BTreeMap::new();
@@ -1785,7 +1788,7 @@ impl Authority {
         // and the plan is resolved again without it; a required one refuses
         // the whole conflict. Each pass holds one capability fewer.
         let native = loop {
-            let native = self.native_plan(&who, serving, &held, &keys, &mut not_held)?;
+            let native = self.native_plan(who, serving, &held, &keys, &mut not_held)?;
             let exclusion = match admit(serving, &native) {
                 Ok(()) => break native,
                 Err(launch::Failure::Excluded(exclusion))
@@ -1851,7 +1854,7 @@ impl Authority {
     /// refuses the seat (ruling 4).
     fn native_plan(
         &self,
-        who: &str,
+        who: brokkr_protocol::native_controls::Site<'_>,
         serving: &Serving<'_>,
         held: &BTreeMap<String, Holding>,
         keys: &BTreeMap<String, String>,
@@ -1945,7 +1948,7 @@ impl Authority {
                 serving.authored,
                 &guards,
             )
-            .map_err(|refusal| refusal.at_compile(who))?,
+            .map_err(|refusal| refusal.at_compile(&who))?,
             false => None,
         } {
             return Err(format!(

@@ -1992,6 +1992,35 @@ and saved as a patch rather than committed (evidence.md, "Unit 12-fix-e").
   still stand at the same sites. No addendum admits `capabilities.rs` or
   `lib.rs` (evidence.md, "Fifth visit").
 
+Unit 12-fix-f (2026-09-27, run `0065-rebuild-unit-12-see-the-uni-d31110e4`,
+based on `2088a97a`) is split from 12-fix-e under the preamble and recorded
+under unit 12 in design.md's Rebuild units. It answers C-E1 and A-E1.
+Result: **complete** (evidence.md, "Unit 12-fix-f").
+
+- **C-E1.** The compiler's site is now a typed `Site` (seat, office,
+  realm) in `native_controls.rs`. Each part is quoted whole where it is a
+  plain label of at most 64 bytes, and is otherwise rendered by its plain
+  lead and its length, never echoed. `at_compile` takes the `Site`.
+  `capabilities.rs` builds it in `who()`, and it opens all ten capability
+  refusals and notices.
+- **A-E1.** `unreproducible` in `brokkr-cli/src/lib.rs` makes the whole
+  resume line through `bounded_line`: at most 512 scalar values and
+  control-free.
+- **Tests.** New: an exact `Site` test, the invariant driven with
+  adversarial seats, offices and realms, a compiled regression for the
+  reviewer's seat, and a CLI resume regression. One expectation moved in
+  `capability_launch.rs`: the 300-scalar realm is now named by its bounded
+  identity.
+- **Proof.** Baseline reds on `2088a97a` for the compiled and resume
+  regressions. M1 (site echoed raw) and M2 (sink skipped) each compiled and
+  were caught, then restored. fmt, clippy, the protocol, runtime and CLI
+  suites, the workspace run (77 ok, 0 failed), `bundles/self`,
+  `bundles/verify`, strict OpenSpec (18/18) and the diff check all passed.
+- Standing-admission lines: none. 12.1 and 12.2 stay ticked; 15.2 stays
+  open.
+- **Pending:** exact coverage outside the box, macOS, remote CI and the
+  council.
+
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
 - [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)

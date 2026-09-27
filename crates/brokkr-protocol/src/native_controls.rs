@@ -576,7 +576,7 @@ impl Refusal {
     /// compiler's own [`COMPILER`] words, never below [`SITE`] — which every
     /// composition refusal's cause leaves ([`CAUSE`]; design D6) — and the
     /// cause is never cut here.
-    pub fn at_compile(&self, who: &str) -> String {
+    pub fn at_compile(&self, site: &Site<'_>) -> String {
         let words = match self.authored {
             false => "",
             true => "its arguments ",
@@ -584,8 +584,47 @@ impl Refusal {
         let room = 512usize
             .saturating_sub(COMPILER.len() + ": ".len() + words.len() + self.cause.chars().count())
             .max(SITE);
-        format!("{}: {words}{}", shortened(who, room), self.cause)
+        format!(
+            "{}: {words}{}",
+            shortened(&site.to_string(), room),
+            self.cause
+        )
     }
+}
+
+/// Where a compiled capability refusal stands (rebuild unit 12-fix-f;
+/// design D6): the seat, its office and its realm. Each is an author's
+/// label and so an identity, never echoed raw: quoted whole where it is a
+/// plain label of at most [`NAME`] bytes, and otherwise by its plain lead,
+/// cut to 32, and its length — as the bundle compiler names a site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Site<'a> {
+    pub seat: &'a str,
+    pub office: &'a str,
+    pub realm: &'a str,
+}
+
+impl std::fmt::Display for Site<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "seat {} (office {}) in realm {}",
+            site_identity(self.seat),
+            site_identity(self.office),
+            site_identity(self.realm)
+        )
+    }
+}
+
+/// One part of a [`Site`], bounded whatever the label: a plain label of at
+/// most [`NAME`] bytes whole, and any other by at most 32 plain characters
+/// and its length.
+fn site_identity(label: &str) -> String {
+    if plain_label(label) && label.len() <= NAME {
+        return format!("'{label}'");
+    }
+    let lead: String = label.chars().take_while(label_char).take(32).collect();
+    format!("'{lead}…' ({} bytes, not echoed in full)", label.len())
 }
 
 /// "the arguments of seat 'x'", or what can be said of a plan run by hand.
@@ -1929,10 +1968,12 @@ fn capability_name(name: &str) -> bool {
 /// letters, digits, `.`, `_`, `-`, `:`, `<` and `>` — `<custom>` included —
 /// and never a path, a space or a control character.
 fn plain_label(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._-:<>".contains(c))
+    !name.is_empty() && name.chars().all(|c| label_char(&c))
+}
+
+/// One character [`plain_label`] admits.
+fn label_char(c: &char) -> bool {
+    c.is_ascii_alphanumeric() || "._-:<>".contains(*c)
 }
 
 /// An option's spelling: a leading `-`, then ASCII letters, digits and `-`.

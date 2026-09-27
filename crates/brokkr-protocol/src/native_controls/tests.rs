@@ -1140,7 +1140,11 @@ fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes
         )
     );
     assert_eq!(
-        refusal.at_compile("seat 'review' (office 'review') in realm 'private'"),
+        refusal.at_compile(&Site {
+            seat: "review",
+            office: "review",
+            realm: "private"
+        }),
         format!(
             "seat 'review' (office 'review') in realm 'private': its arguments {}",
             refusal.cause
@@ -1409,8 +1413,8 @@ fn a_known_native_power_is_composed_only_under_a_plan_that_answers_for_it() {
         format!("refusing to invoke the agent CLI: {}", refusal.cause)
     );
     assert_eq!(
-        refusal.at_compile("seat 'x'"),
-        format!("seat 'x': {}", refusal.cause)
+        refusal.at_compile(&PLAIN_SITE),
+        format!("seat 'work' (office 'o') in realm 'r': {}", refusal.cause)
     );
 }
 
@@ -2963,9 +2967,78 @@ fn an_authored_refusal_stays_bounded_wherever_the_option_stands() {
     );
     // Rendered as compilation renders it, with no site: the portion D6
     // bounds, and seventeen more digits than argument 101 has.
-    let rendered = refusal.at_compile("");
+    let rendered = unsited(&refusal);
     let scalars = rendered.chars().count();
     assert!(scalars + 17 <= 512, "{scalars}: {rendered}");
+}
+
+/// A plain site, which a compiled refusal names whole.
+const PLAIN_SITE: Site<'static> = Site {
+    seat: "work",
+    office: "o",
+    realm: "r",
+};
+
+/// Rebuild unit 12-fix-f, the council's C-E1 (design D6): a compiled
+/// refusal's site is typed, and each of its seat, office and realm is an
+/// identity — quoted whole where it is a plain label of at most 64 bytes,
+/// and otherwise by its plain lead and length, never echoed. The reviewer's
+/// seat `/private/REVIEW_SENTINEL\nwork` was spelled twice, its newline
+/// escaped, in a 417-scalar line.
+#[test]
+fn a_compiled_site_names_each_label_as_a_bounded_identity() {
+    let reviewer = format!("{PRIVATE}\nwork");
+    let edge = "a".repeat(64);
+    let over = "a".repeat(65);
+    assert_eq!(
+        PLAIN_SITE.to_string(),
+        "seat 'work' (office 'o') in realm 'r'"
+    );
+    assert_eq!(
+        Site {
+            seat: &reviewer,
+            office: &edge,
+            realm: &over
+        }
+        .to_string(),
+        format!(
+            "seat '…' (29 bytes, not echoed in full) (office '{edge}') in realm '{}…' (65 \
+             bytes, not echoed in full)",
+            "a".repeat(32)
+        )
+    );
+    assert_eq!(
+        Site {
+            seat: "web\nsearch",
+            office: "",
+            realm: "<custom>"
+        }
+        .to_string(),
+        "seat 'web…' (10 bytes, not echoed in full) (office '…' (0 bytes, not echoed in full)) \
+         in realm '<custom>'"
+    );
+    let refusal = Refusal {
+        authored: true,
+        cause: "carry '--x'".to_string(),
+    };
+    assert_eq!(
+        refusal.at_compile(&Site {
+            seat: &reviewer,
+            ..PLAIN_SITE
+        }),
+        "seat '…' (29 bytes, not echoed in full) (office 'o') in realm 'r': its arguments \
+         carry '--x'"
+    );
+}
+
+/// A refusal as compilation renders it after its site: the portion design
+/// D6 bounds.
+fn unsited(refusal: &Refusal) -> String {
+    refusal
+        .at_compile(&PLAIN_SITE)
+        .strip_prefix(&PLAIN_SITE.to_string())
+        .expect("a plain site is named whole")
+        .to_string()
 }
 
 /// Rebuild unit 12-fix-c, the returned review's finding (design D6: a
@@ -3025,7 +3098,7 @@ fn a_carried_refusal_names_its_tool_and_never_its_permission_payload() {
         // Both renderings, with no site: the portion D6 bounds, with room
         // for the longest owner (the managed fragment's, 19 scalar values
         // longer than the template's).
-        for rendered in [refusal.at_compile(""), launched.unwrap_err()] {
+        for rendered in [unsited(&refusal), launched.unwrap_err()] {
             let scalars = rendered.chars().count();
             assert!(!rendered.contains(SENTINEL), "{rendered}");
             assert!(scalars + 19 <= 512, "{scalars}: {rendered}");
@@ -3129,7 +3202,7 @@ fn a_limit_refusal_names_bounded_identities_and_never_a_payload() {
         // Both renderings, with no site: the portion D6 bounds, with room
         // for the longest owner (the managed fragment's, 19 scalar values
         // longer than the template's).
-        for rendered in [refusal.at_compile(""), launched.unwrap_err()] {
+        for rendered in [unsited(&refusal), launched.unwrap_err()] {
             let scalars = rendered.chars().count();
             assert!(!rendered.contains(SENTINEL), "{rendered}");
             assert!(scalars + 19 <= 512, "{scalars}: {rendered}");
@@ -3282,7 +3355,11 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
         authored: false,
         cause: full.clone(),
     };
-    let site = format!("seat 'work' (office 'o') in realm '{}'", "r".repeat(300));
+    let realm = "r".repeat(300);
+    let site = Site {
+        realm: &realm,
+        ..PLAIN_SITE
+    };
     let compiled = format!("bundle: {}", refusal.at_compile(&site));
     assert_eq!(
         compiled,
@@ -3295,8 +3372,8 @@ fn every_composition_conflict_is_refused_in_bounded_identities() {
     // A site that fits is whole; one beside a cause that leaves it less
     // keeps 64 scalar values, and the cause is never cut.
     assert_eq!(
-        refusal.at_compile("seat 'work'"),
-        format!("seat 'work': {full}")
+        refusal.at_compile(&PLAIN_SITE),
+        format!("seat 'work' (office 'o') in realm 'r': {full}")
     );
     let long = Refusal {
         authored: true,
@@ -3453,8 +3530,9 @@ fn bounded(line: &str) {
 /// most 512 scalar values naming no private path. Each is checked as the
 /// driver states it and as the compiler's line renders through the same
 /// sink with a doubled `bundle: `, a 300-scalar realm and a composition
-/// note; the clause a dropped holding carries, and the plan and provenance
-/// readers' lines, too. Every [`Why`] is reached.
+/// note, and with the value as its seat, office or realm (rebuild unit
+/// 12-fix-f); the clause a dropped holding carries, and the plan and
+/// provenance readers' lines, too. Every [`Why`] is reached.
 #[test]
 fn every_refusal_line_is_one_bounded_line_naming_no_payload() {
     let adversaries = [
@@ -3463,15 +3541,46 @@ fn every_refusal_line_is_one_bounded_line_naming_no_payload() {
         PRIVATE.to_string(),
         format!("Bash({PRIVATE}:*)"),
         format!("{PRIVATE}\n{}", "a".repeat(1000)),
+        format!("{PRIVATE}\nwork"),
     ];
-    let site = format!("seat 'work' (office 'o') in realm '{}'", "r".repeat(300));
-    let lines = |refusal: &Refusal, seat: &str| {
-        let compiled = format!("bundle: {}", refusal.at_compile(&site));
-        vec![
-            refusal.at_launch(&json!({"seat": seat})),
+    let realm = "r".repeat(300);
+    // The compiler's line at every site the value can stand in (rebuild
+    // unit 12-fix-f): as the seat, the office, the realm and all three, as
+    // the sink renders it.
+    let lines = |refusal: &Refusal, v: &str| {
+        let mut lines = vec![
+            refusal.at_launch(&json!({"seat": v})),
             refusal.at_launch(&json!({})),
-            bounded_line(&format!("bundle: {compiled} (composed: derived -> solo)")),
-        ]
+        ];
+        for site in [
+            Site {
+                realm: &realm,
+                ..PLAIN_SITE
+            },
+            Site {
+                seat: v,
+                ..PLAIN_SITE
+            },
+            Site {
+                office: v,
+                ..PLAIN_SITE
+            },
+            Site {
+                realm: v,
+                ..PLAIN_SITE
+            },
+            Site {
+                seat: v,
+                office: v,
+                realm: v,
+            },
+        ] {
+            let compiled = format!("bundle: {}", refusal.at_compile(&site));
+            lines.push(bounded_line(&format!(
+                "bundle: {compiled} (composed: derived -> solo)"
+            )));
+        }
+        lines
     };
     let flags = |deny: &str| {
         let flag = |flag: &str| ListFlag {
