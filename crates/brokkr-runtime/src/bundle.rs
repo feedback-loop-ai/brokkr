@@ -462,6 +462,13 @@ pub struct SiteFacts {
     /// `Some` at every inline site [`record_inline_tools`] visited, `None`
     /// at every other; read through [`SiteFacts::inline_serving`].
     pub inline_dialect: Option<crate::agents::DeclaredDialect>,
+    /// Rebuild unit 14a4a (operator ruling (B) of 2026-09-27): an inline
+    /// site's hands, served like an agent's — the `hands.workspace` fragment
+    /// its dialect carries, through the compile's expansion as an agent's
+    /// `hands` segment is. The engine appends it behind every other segment
+    /// of the site's command at dispatch, and the box expands its tokens.
+    /// `None` at a site whose dialect carries no hands fragment.
+    pub inline_hands: Option<Segment>,
 }
 
 /// One inline Codex seat's lowered sandbox (rebuild unit 5d): the class
@@ -1757,7 +1764,7 @@ impl Bundle {
             };
             for (phase, raw) in &resolved.seats {
                 record_capabilities(
-                    &authority, library, adapters, boundary, phase, raw, &mut sites,
+                    &authority, library, adapters, boundary, dir, phase, raw, &mut sites,
                 )?;
             }
         }
@@ -1891,6 +1898,7 @@ impl Bundle {
                     library,
                     adapters,
                     boundary,
+                    law.dir,
                     dialect_site,
                     &synthetic,
                     &mut sites,
@@ -4634,6 +4642,7 @@ fn site_capabilities(
     inline_driver: Option<&str>,
     inline_argv: &[String],
     inline_local: &[String],
+    inline_hands: &[String],
 ) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
     use brokkr_protocol::native_controls::{Application, Provenance};
     let native = |provider: &str| {
@@ -4675,7 +4684,9 @@ fn site_capabilities(
     // 12-fix-c): the box's hands `compose` recorded from the agent's typed
     // hands, which open the fragment, and the limits its typed allow lowered
     // to — never read back from the argv. An inline site's typed allow is
-    // lowered where its facts were recorded, and it has no hands fragment.
+    // lowered where its facts were recorded, and its hands fragment is the
+    // one the engine appends behind its command, served like an agent's
+    // (operator ruling (B) of 2026-09-27; rebuild unit 14a4a).
     let provenances: Vec<Provenance> = chain
         .iter()
         .map(|candidate| Provenance {
@@ -4690,7 +4701,7 @@ fn site_capabilities(
         })
         .collect();
     let inline_provenance = Provenance {
-        hands: 0,
+        hands: inline_hands.len(),
         local: inline_local.to_vec(),
     };
     let servings: Vec<crate::capabilities::Serving<'_>> = match chain.is_empty() {
@@ -4701,7 +4712,7 @@ fn site_capabilities(
             native: native(inline),
             unloaded: adapters.unloaded,
             authored: inline_argv,
-            fragment: &[],
+            fragment: inline_hands,
             provenance: &inline_provenance,
             written: inline_argv,
         }],
@@ -4746,12 +4757,15 @@ fn site_capabilities(
 /// executable site's capabilities. An agent-backed site's asks are its
 /// agent's minus what the site subtracts; an inline site's map is its own
 /// office's asks. A wanted capability a candidate lost is a notice in that
-/// site's agent record, where a skipped model link already is.
+/// site's agent record, where a skipped model link already is. `dir` is
+/// the directory an inline site's command was expanded against.
+#[allow(clippy::too_many_arguments)]
 fn record_capabilities(
     authority: &crate::capabilities::Authority,
     library: Option<&Library>,
     adapters: CapabilityAdapters<'_>,
     boundary: Boundary,
+    dir: &Path,
     what: &str,
     raw: &Value,
     sites: &mut BTreeMap<String, SiteFacts>,
@@ -4785,7 +4799,17 @@ fn record_capabilities(
                 fragment.unwrap_or_default().to_vec()
             })
             .collect();
-        let site = site_capabilities(authority, adapters, asks, &chain, &managed, None, &[], &[])?;
+        let site = site_capabilities(
+            authority,
+            adapters,
+            asks,
+            &chain,
+            &managed,
+            None,
+            &[],
+            &[],
+            &[],
+        )?;
         let facts = site_facts(sites, what);
         // The EFFECTIVE class, an inherited office class included, as the
         // local admission recorded it (design D5.6).
@@ -4822,21 +4846,6 @@ fn record_capabilities(
             .map_err(CompileError::Invalid)?;
         let parts = command_parts(raw);
         let driver = dispatch_driver(&parts);
-        let local = site_facts(sites, what)
-            .inline_local
-            .as_ref()
-            .map(|lowered| lowered.limits.clone())
-            .unwrap_or_default();
-        let site = site_capabilities(
-            authority,
-            adapters,
-            asks,
-            &[],
-            &[],
-            driver.as_deref(),
-            &parts,
-            &local,
-        )?;
         let facts = site_facts(sites, what);
         // Operator ruling (B) of 2026-09-27: an inline site with hands is
         // served like an agent, so its dialect carries the `hands.workspace`
@@ -4851,7 +4860,32 @@ fn record_capabilities(
             .filter(|_| facts.hands_spec().is_some());
         if let (Some(dialect), Some(fragment)) = (facts.inline_dialect.as_mut(), declared) {
             dialect.hands = fragment.clone();
+            // Rebuild unit 14a4a: the engine emits that fragment, expanded
+            // as an agent's `hands` segment is, and the plan types it.
+            facts.inline_hands = Some(Segment::new(Origin::Hands, &expand_command(dir, fragment)));
         }
+        let hands = facts
+            .inline_hands
+            .as_ref()
+            .map(|segment| segment.argv.clone())
+            .unwrap_or_default();
+        let local = facts
+            .inline_local
+            .as_ref()
+            .map(|lowered| lowered.limits.clone())
+            .unwrap_or_default();
+        let site = site_capabilities(
+            authority,
+            adapters,
+            asks,
+            &[],
+            &[],
+            driver.as_deref(),
+            &parts,
+            &local,
+            &hands,
+        )?;
+        let facts = site_facts(sites, what);
         // Rebuild unit 5d-fix-b: an inline class the engine lowered is
         // judged with its whole launch, the resolved native plan included.
         admit_inline_launch(what, &parts, facts, &site)?;
@@ -4878,8 +4912,17 @@ fn record_capabilities(
                 office: what.to_string(),
                 ..Default::default()
             };
-            let site =
-                site_capabilities(authority, adapters, asks, &[], &[], Some("exec"), &[], &[])?;
+            let site = site_capabilities(
+                authority,
+                adapters,
+                asks,
+                &[],
+                &[],
+                Some("exec"),
+                &[],
+                &[],
+                &[],
+            )?;
             site_facts(sites, what).capabilities = Some(site);
         }
         return Ok(());
@@ -4911,7 +4954,9 @@ fn record_capabilities(
         }
     }
     for (label, raw) in nested {
-        record_capabilities(authority, library, adapters, boundary, &label, raw, sites)?;
+        record_capabilities(
+            authority, library, adapters, boundary, dir, &label, raw, sites,
+        )?;
     }
     Ok(())
 }

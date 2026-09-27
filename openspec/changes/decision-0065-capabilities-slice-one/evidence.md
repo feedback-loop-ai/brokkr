@@ -14900,3 +14900,153 @@ After those, 14b re-runs from the saved patch and moves `:3752`.
 
 **Pending.** Those rulings and units, then 14b; exact coverage outside the
 box, macOS, remote CI and the council.
+
+## Unit 14a4a — an inline site's hands are typed and emitted like an agent's, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-fee33bd3`, based on `24c51d8f`. This
+unit follows through on operator ruling (B) of 2026-09-27 ("an inline site
+with hands is served like an agent"). Production:
+`crates/brokkr-runtime/src/bundle.rs` and `crates/brokkr-runtime/src/engine.rs`
+only. **Result: complete.** It closes the count refusal that 14b's third
+visit met at `driver_conformance.rs:2781`. 14.1 stays open until 14b. The
+other two refusals (`capability_launch.rs:6457` and `:6751`) were not
+touched. They belong to 14a4b.
+
+### Production
+
+- `bundle.rs:471`: a new site fact, `SiteFacts::inline_hands: Option<Segment>`.
+  It holds the inline site's `hands.workspace` fragment as a `hands`
+  segment, through the compile's `expand_command`, exactly as an agent's
+  `hands` segment is expanded. It is recorded in `record_capabilities`
+  (`:4865`), under the same condition 14a3 used to set
+  `inline_dialect.hands`, and now **before** the site's plan is resolved.
+  So the dialect, the plan and the emission all read one fact.
+  `record_capabilities` takes the directory the inline command was expanded
+  against: `dir` for the seats and `law.dir` for the dialect wrapper's
+  synthetic site.
+- `bundle.rs:4704`, `:4715` (`site_capabilities`): the inline serving's
+  `Provenance.hands` is that segment's length, and its `fragment` is the
+  segment. This is what a candidate's plan gets from `hands_fragment` and
+  `parts().1`. It was `hands: 0` with an empty fragment.
+- `engine.rs:5287`, `:5308` (`compose_site_at`): an inline site with that
+  fact takes the segment-composing arm, and the segment follows every other
+  segment, as `agents::compose` appends an agent's last. `hands_command`
+  then expands its tokens through `Transport::expand` under the box, the
+  same as an agent's.
+
+### Tests, baseline reds on `24c51d8f`, and removals
+
+The baseline was the new and changed tests with `24c51d8f`'s production
+(`.forge/unit-14a4a/base-bundle.log` and `base-launch.log`).
+
+- `bundle/agent_tests.rs::an_inline_sites_plan_types_its_hands_as_an_agent_backed_sites_plan_does`
+  (`:2641`) is new, in the compile's owning suite. The fixture codex
+  declares ten `hands.workspace` tokens, ending in `./schema.json`. An
+  inline codex site with boxed hands is compiled beside a boxed
+  agent-backed codex seat (`work`). Both plans type `10`. The inline
+  site's fact is exactly `Segment::new(Hands, expand_command(bundle,
+  fragment))`, and the expanded fragment differs from the declared one.
+  Without hands, the inline site types `0` and has no fact.
+  - Baseline red: `left: (Number(0), Number(10))`,
+    `right: (Number(10), Number(10))`. That was before the segment
+    column was added, and the old code has no field to name.
+- `capability_launch.rs::a_boxed_inline_seats_hands_are_emitted_and_typed_as_an_agent_backed_seats_are`
+  (`:817`) is new. This is the conformance path through the engine's own
+  `compose_site_at`, the seal, `verify_record` and the driver's
+  `codex_command` (`sealed` and `sealed_launch`). The boxed inline Codex
+  seat's sealed record ends in the `hands` segment. That segment equals
+  `boxed_hands` (`:795`): the shipped adapter's fragment put through
+  `Transport::expand` for `/w`, computed independently. Its plan types that
+  length (`8`). Its (hands segment, typed count, launched command) equals
+  the agent-backed Codex fallback's (`chain`, candidate 1).
+  - Baseline red: `:836`, where the last segment was the authored one.
+- Two assertions in the same suite encoded the inline seat served without
+  hands. They changed because ruling (B) changes what they observe:
+  - `:734`, `a_compiled_links_origins_…`: the boxed inline seat's segments
+    are now its authored words, then `{"origin": "hands", "argv":
+    boxed_hands(..)}`. Baseline red at `:730`.
+  - `:483`, `assert_intact`: every seat launches with exactly one
+    `--sandbox`. The boxed inline seat's comes from its hands. It was
+    `usize::from(label != "boxed")`. Baseline red at `:482` (`left: 0,
+    right: 1`), in both OFF-pair tests.
+- **Mutations.** Each was compiled, run and restored. Afterwards the
+  production diff held all three lines again (`prod-restored.diff`).
+  - M1, `bundle.rs` `hands: 0` (`mut-m1.log`): the agent_tests test fails
+    at `:2668` (`left: (Number(0), …)`), and the conformance test fails at
+    `:837` (`left: Number(0)`, `right: Number(8)`).
+  - M2, `engine.rs` without `.chain(handed.cloned())` (`mut-m2.log`): four
+    tests fail. The new test fails at `:836` and the segments assertion at
+    `:730`. Both OFF-pair tests fail at `:229`, where the driver refuses:
+    "the capability plan for provider 'codex' types 8 arguments of the
+    engine's fragment as the box's hands, but the fragment carries 0".
+  - M3, `bundle.rs` storing the fragment unexpanded (`mut-m3.log`): the
+    agent_tests test fails at `:2668` with `./schema.json` against
+    `/tmp/…/bundle/schema.json`.
+
+### Standing admission (operator ruling 2026-09-25)
+
+- `crates/brokkr-cli/tests/driver_conformance.rs:3341-3350`: one statement
+  replaces `let driver = proof_codex_driver();` in
+  `the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement`.
+  This test swaps the shipped driver for a recorder fixture, captures the
+  engine's `start`, and replays it to the real driver under a hard-coded
+  argv. My change reaches it: the engine now composes the member's hands.
+  With the old argv, the driver refused, "the engine's record of this
+  site's arguments does not reassemble the arguments the driver was
+  handed" (`after-conformance.log`, first run). The statement hands the
+  driver `driver codex --` and then the captured
+  `launch_arguments.authored` and `.managed`, which is the extras the
+  engine composed. No assertion was added or removed, and the tested
+  behaviour is unchanged: the gate still says `restrictions-unavailable`
+  and falls back to cold.
+- Fixture migrations: none.
+
+### What 14b meets next (scratch, not committed)
+
+The saved seams patch still applies (`git apply --check`). It was applied
+on top of this unit, run, and reverted with `git apply -R`. The tree was
+then byte-identical to this unit's diff (`git diff --no-index` of
+`unit-14a4a.diff` and `after-revert.diff`).
+
+- `capability_launch.rs` (`with-14b-launch.log`): 51 passed and 3 failed.
+  These are exactly the three refusals the third visit recorded, shifted by
+  this unit's 52 inserted lines: `:3804` (the unpaired record), `:6509`
+  (the plan denies `web-fetch`) and `:6803` (not the engine's workspace
+  hands). No count refusal remains. The new parity test, and both OFF-pair
+  tests' boxed inline seat, pass `check_final` in `served_cold`.
+- `driver_conformance.rs` (`with-14b-conformance.log`): 22 passed and 2
+  failed. `:2781` no longer meets the count check. It now departs later:
+  "the final command of harness 'codex' departs at argument 12 from the
+  complete command its sealed inputs and the engine's serving choices
+  rebuild". `:3209` is the `PoisonError` that follows.
+  - A probe (reverted) wrote the captured `launch_arguments`. The engine ran
+    inside the test binary, so the box's
+    `mcp_servers.brokkr.command="…/deps/driver_conformance-…"` names the
+    test executable. The driver is a separate process
+    (`target/debug/brokkr`), and `served_cold` rebuilds the transport with
+    its own `current_exe()`.
+  - In production, the engine and its driver are the same executable, so
+    this departure comes from the fixture: an engine in-process with a
+    subprocess driver. It is recorded for 14b's re-run, which owns
+    `served_cold`'s integration with this test. This unit did not change
+    it.
+
+### Gates
+
+- `cargo fmt --all -- --check` is clean after `cargo fmt --all`, and
+  `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings` is clean (`clippy.log`).
+- `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast`:
+  every summary `ok`, including 572 lib tests and 54 in
+  `capability_launch` (`gate-runtime.log`).
+- `cargo test -p brokkr-cli --all-features --locked --no-fail-fast`: every
+  summary `ok`, including 482 lib tests and 24 in `driver_conformance`
+  (`gate-cli.log`).
+- `compile --bundle bundles/self` and `bundles/verify` both compile.
+- `openspec validate --all --strict` and `git diff --check` are recorded in
+  tasks.md.
+
+**Pending.** 14a4b (`:6457` and `:6751`, each awaiting a ruling). Then 14b,
+re-run from its saved patch, which will also meet the `:2781` fixture
+departure above. Also pending: exact coverage outside the box, macOS,
+remote CI and the council.

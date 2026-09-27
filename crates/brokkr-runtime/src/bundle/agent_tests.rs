@@ -2631,6 +2631,53 @@ fn an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declare
     each_row(rows);
 }
 
+/// Rebuild unit 14a4a (operator ruling (B) of 2026-09-27): an inline site
+/// with hands is served like an agent, so its plan types the whole
+/// `hands.workspace` fragment its driver's adapter declares as the box's
+/// hands, the count a boxed agent-backed site's plan types for the same
+/// adapter, and the engine's segment for them is that fragment through the
+/// compile's expansion. An inline site without hands has neither.
+#[test]
+fn an_inline_sites_plan_types_its_hands_as_an_agent_backed_sites_plan_does() {
+    use brokkr_protocol::native_controls::{Origin, Segment};
+    let fixture = AgentFixture::new();
+    let workspace = with_schema(&CODEX_WORKSPACE);
+    let mut codex = codex();
+    codex["hands"]["workspace"] = json!(workspace);
+    fixture.write("adapters/codex.json", codex);
+    declare_sandbox(&fixture, "read-only");
+    let typed = |hands: Option<Value>| {
+        let mut config = sandbox_seat(&fixture, None);
+        config["seats"]["review"]["driver"]["command"] = codex_inline(&[]);
+        if let Some(hands) = hands {
+            config["seats"]["review"]["hands"] = hands;
+        }
+        let bundle = fixture.compile(config).unwrap();
+        let count = |label: &str| {
+            bundle.sites[label].capabilities.as_ref().unwrap().outcomes[0].controls()["hands"]
+                .clone()
+        };
+        (
+            count("review"),
+            count("work"),
+            bundle.sites["review"].inline_hands.clone(),
+        )
+    };
+    let hands = json!({"kind": "workspace", "network": false, "binds": []});
+    let expanded = expand_command(&fixture.bundle(), &workspace);
+    assert_eq!(
+        typed(Some(hands)),
+        (
+            json!(10),
+            json!(10),
+            Some(Segment::new(Origin::Hands, &expanded))
+        )
+    );
+    assert_eq!(workspace.len(), 10);
+    assert_ne!(expanded, workspace);
+    assert_eq!(typed(None), (json!(0), json!(10), None));
+}
+
 /// The fixture codex's fragments followed by `--output-schema
 /// ./schema.json`: an inert option whose bundle-relative value the
 /// compile's expansion rewrites, so a carrier expanded with its segment is

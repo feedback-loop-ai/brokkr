@@ -2572,6 +2572,45 @@ was applied, run and reverted, and it still applies.
 - **Pending.** Those rulings and units, 14b, exact coverage outside the
   box, macOS, remote CI and the council.
 
+Unit 14a4a (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-fee33bd3`,
+based on `24c51d8f`; evidence.md, "Unit 14a4a"). **Result: complete.** This
+follows through on ruling (B). 14.1 stays open until 14b. Production:
+`bundle.rs` and `engine.rs` only.
+
+- An inline site with hands records its `hands.workspace` fragment,
+  expanded as an agent's `hands` segment is, as `SiteFacts::inline_hands`.
+  It is recorded before its plan resolves, so the plan types its length
+  (it was `0`) and composes with it. `compose_site_at` appends it last as
+  the engine's `hands` segment, and `hands_command` expands it through
+  `Transport::expand`.
+- Tests:
+  - A new compiled regression in `bundle/agent_tests.rs`: inline and agent
+    both type `10`, and the segment is exact and expanded.
+  - A new conformance path in `capability_launch.rs`: the boxed inline
+    seat's sealed hands segment, typed count and launched command equal its
+    agent-backed Codex fallback's.
+  - Two assertions in `capability_launch.rs` that encoded the old
+    emission: the boxed inline seat's segments (`:734`), and
+    `assert_intact`'s one `--sandbox` (`:483`).
+  - All four were red on `24c51d8f`. Mutations M1 (`hands: 0`), M2 (no
+    emission) and M3 (unexpanded) each fail named tests.
+- Standing-admission line: `driver_conformance.rs:3341-3350`. It hands the
+  recorder-replayed driver the extras the engine composed
+  (`launch_arguments`) in place of a hard-coded no-hands argv, which the
+  driver refused as not reassembling the record. No assertion or tested
+  behaviour changed. Fixture migrations: none.
+- **Scratch with 14b's patch** (applied, run and reverted, and it still
+  applies): the `:2781` count refusal is gone, and `capability_launch`
+  shows only the three recorded refusals. `:2781` now departs at argument
+  12, because the in-process engine binds the test executable into the
+  box's transport while the subprocess driver rebuilds it with
+  `target/debug/brokkr`. This is left for 14b's re-run.
+- **Gates.** fmt, clippy, the runtime suite and the CLI suite (every
+  summary `ok`), both bundles, strict OpenSpec (18 passed) and `git diff
+  --check` are clean.
+- **Pending.** 14a4b (`:6457`, `:6751`), then 14b, exact coverage outside
+  the box, macOS, remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

@@ -3338,7 +3338,16 @@ fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
         patch_proof_bundle(&mut bundle, &from, &recorder.to_string_lossy());
         let input = capture_proof_input(run_dir.path(), bundle, proof_seat_label(shape, wrapped));
 
-        let driver = proof_codex_driver();
+        // The member's hands are served like an agent's (rebuild unit
+        // 14a4a): the driver is handed the extras the engine composed.
+        let driver: Vec<String> = proof_codex_driver()[..3]
+            .iter()
+            .cloned()
+            .chain(["authored", "managed"].iter().flat_map(|part| {
+                let parts = input["launch_arguments"][part].as_array().unwrap();
+                parts.iter().map(|part| part.as_str().unwrap().to_string())
+            }))
+            .collect();
         let shim = make_shim(
             run_dir.path(),
             &proof_shim_body(run_dir.path(), PROOF_OFFER),

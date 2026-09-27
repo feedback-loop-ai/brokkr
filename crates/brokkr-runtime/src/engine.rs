@@ -5263,8 +5263,12 @@ pub fn compose_site(
 /// them — each carried as the compiler recorded it and never recognised in
 /// the argv. Rebuild unit 5d: an inline Codex seat's lowered sandbox class
 /// is the engine's own `local` segment in the same place, the result path
-/// filled into it as it is into a harness fragment. Every other site is
-/// [`compose_site`] exactly.
+/// filled into it as it is into a harness fragment. Rebuild unit 14a4a
+/// (operator ruling (B) of 2026-09-27): an inline site with hands is served
+/// like an agent — its recorded `hands.workspace` fragment follows every
+/// other segment as the engine's own `hands` segment, as `agents::compose`
+/// appends an agent's last, and [`hands_command`] expands its tokens. Every
+/// other site is [`compose_site`] exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn compose_site_at(
     facts: Option<&SiteFacts>,
@@ -5280,8 +5284,9 @@ pub fn compose_site_at(
 ) -> SiteSpawn {
     let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
     let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
+    let handed = facts.and_then(|facts| facts.inline_hands.as_ref());
     match candidate {
-        None if lowered.is_some() || sandboxed.is_some() => SiteSpawn {
+        None if lowered.is_some() || sandboxed.is_some() || handed.is_some() => SiteSpawn {
             class: Some(class),
             ..compose_segments(
                 boundary,
@@ -5300,6 +5305,7 @@ pub fn compose_site_at(
                                 .collect(),
                         }
                     }))
+                    .chain(handed.cloned())
                     .collect(),
                 hands,
                 None,
@@ -5358,7 +5364,9 @@ fn compose_segments(
         // `hands_command` expands every token in place, behind the box's
         // own prefix for an exec dispatch, so each segment maps onto its
         // own tokens. An inline site — an exec dispatch included — has no
-        // candidate: its argv is all the author's.
+        // candidate: its argv is the author's, and a model site's hands are
+        // the recorded fragment `compose_site_at` appended last (rebuild
+        // unit 14a4a).
         BuiltBoundary::Namespace => match hands_command(command, Some(spec), workdir, roots) {
             Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
             Err(reason) => {

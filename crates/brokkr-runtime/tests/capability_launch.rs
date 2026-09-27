@@ -465,9 +465,10 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
 }
 
 /// The seat's own controls survive beside the managed one. A sandbox is
-/// the engine's alone: the inline seat's lowered class, an agent's hands;
-/// the boxed inline seat, confined by the box, authors none and is given
-/// none (fixture migration of 2026-09-26).
+/// the engine's alone, exactly one: the inline seat's lowered class, an
+/// agent's hands; the boxed inline seat authors none (fixture migration of
+/// 2026-09-26) and is served its hands like an agent (operator ruling (B)
+/// of 2026-09-27; rebuild unit 14a4a).
 fn assert_intact(argv: &[String], label: &str) {
     for expected in [
         ["--model", "gpt-6-astra"],
@@ -480,7 +481,7 @@ fn assert_intact(argv: &[String], label: &str) {
     }
     assert_eq!(
         argv.iter().filter(|part| *part == "--sandbox").count(),
-        usize::from(label != "boxed"),
+        1,
         "{label}: {argv:?}"
     );
 }
@@ -721,14 +722,16 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
     let boxed = operator
         .compile(&context, Boundary::Namespace, None, Some(json!({})))
         .unwrap();
-    // The boxed inline seat's arguments are all its author's, its hands
-    // the site's own declaration; it authors no sandbox (fixture migration
-    // of 2026-09-26).
+    // The boxed inline seat's arguments are its author's, then the box's
+    // workspace fragment as the engine's hands (operator ruling (B) of
+    // 2026-09-27; rebuild unit 14a4a); it authors no sandbox (fixture
+    // migration of 2026-09-26).
     let (_, input) = sealed(&boxed, "boxed", 0);
     assert_eq!(
         input["launch_record"]["segments"],
         json!([{"origin": "authored",
-                "argv": ["--model", "gpt-6-astra", "--effort", "high"]}])
+                "argv": ["--model", "gpt-6-astra", "--effort", "high"]},
+               {"origin": "hands", "argv": boxed_hands(&boxed, "boxed")}])
     );
     assert_eq!(
         input["launch_record"]["expected"]["hands"],
@@ -784,6 +787,54 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
         fallback["expected"]["native"],
         json!({"kind": "known", "held": [], "denied": ["web-search"]})
     );
+}
+
+/// The shipped Codex adapter's `hands.workspace` fragment, expanded as the
+/// box expands it for `label`'s hands at `/w`: the independent value an
+/// emitted hands segment is compared with.
+fn boxed_hands(bundle: &Bundle, label: &str) -> Vec<String> {
+    let adapter: Value =
+        serde_json::from_slice(&std::fs::read(workspace().join("adapters/codex.json")).unwrap())
+            .unwrap();
+    let fragment: Vec<String> =
+        serde_json::from_value(adapter["hands"]["workspace"].clone()).unwrap();
+    brokkr_protocol::native_controls::Transport {
+        brokkr: &std::env::current_exe().unwrap(),
+        workdir: Path::new("/w"),
+        spec: &bundle.hands[label],
+    }
+    .expand(&fragment)
+    .unwrap()
+}
+
+/// Rebuild unit 14a4a (operator ruling (B) of 2026-09-27): the boxed inline
+/// Codex seat is served like its agent-backed Codex fallback. Its sealed
+/// launch ends in its adapter's `hands.workspace` fragment as the engine's
+/// `hands` segment, expanded for the box exactly as the fallback's is; its
+/// plan types that segment's whole length as the box's hands, as the
+/// fallback's does; and the driver composes the same launch from both.
+#[test]
+fn a_boxed_inline_seats_hands_are_emitted_and_typed_as_an_agent_backed_seats_are() {
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let bundle = operator
+        .compile(&context, Boundary::Namespace, None, Some(json!({})))
+        .unwrap();
+    let served = |label: &str, candidate: usize| {
+        let (_, input) = sealed(&bundle, label, candidate);
+        let segments = input["launch_record"]["segments"].as_array().unwrap();
+        let outcome = &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate];
+        (
+            segments.last().unwrap().clone(),
+            outcome.controls()["hands"].clone(),
+            sealed_launch(&bundle, label, candidate),
+        )
+    };
+    let expanded = boxed_hands(&bundle, "boxed");
+    let (hands, typed, launched) = served("boxed", 0);
+    assert_eq!(hands, json!({"origin": "hands", "argv": expanded}));
+    assert_eq!(typed, json!(expanded.len()));
+    assert_eq!((hands, typed, launched), served("chain", 1));
 }
 
 /// Unit 4 (design D5.7): an office's direct allow list, compiled for an
