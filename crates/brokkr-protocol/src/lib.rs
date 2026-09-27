@@ -11,6 +11,7 @@ pub mod dsh_sandbox;
 pub mod fake;
 pub mod hands;
 pub mod oneshot;
+pub mod overrides;
 pub mod process;
 pub mod secret;
 mod transcript;

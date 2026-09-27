@@ -4,11 +4,13 @@ Changes merged since v0.11.0 that the next release's notes carry.
 
 ## Breaking
 
-- **The pre-rename names are no longer read.** Decision 0019's
+- **The pre-rename names no longer configure anything.** Decision 0019's
   one-release window closed (#355). The `FORGE_*` environment overrides
   (`FORGE_CLAUDE_BIN`, `FORGE_LANETALLY_BIN`, `FORGE_CODEX_BIN`,
-  `FORGE_DSH_BIN`, `FORGE_EXEC_NAME`, `FORGE_BROWSER_BIN`) are ignored:
-  set the `BROKKR_*` name instead. The `{forge}` bundle argv token no
+  `FORGE_DSH_BIN`, `FORGE_EXEC_NAME`, `FORGE_BROWSER_BIN`) are refused
+  when set without their `BROKKR_*` name: the seat fails to start naming
+  both, and neither the pinned binary nor the built-in one runs. Set the
+  `BROKKR_*` name instead, or unset the old one. The `{forge}` bundle argv token no
   longer expands; write `{brokkr}`. An adapter file that still declares
   `binding_grant` is refused at load; declare `egress` (`"contracted"`
   for a true grant, `"uncontracted"` for a false one).

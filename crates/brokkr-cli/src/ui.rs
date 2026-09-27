@@ -19,6 +19,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::fold::{fold, Status};
+use brokkr_protocol::overrides::{self, Override, OverrideError};
 use brokkr_store::Store;
 use brokkr_view::transcript::{
     LegacyProvenance, Selection, Snapshot, TranscriptKind, TranscriptRead, Unavailable,
@@ -1258,9 +1259,17 @@ fn watch_transcript(db: &Path, rest: &str, stream: &mut impl Write, sse_limit: O
     }
 }
 
+/// The browser `open_system_browser` runs, apart from the spawn so a test
+/// can hold the refusal without racing a child.
+fn browser_program() -> Result<String, OverrideError> {
+    Ok(overrides::read(Override::BrowserBin)?.unwrap_or_else(|| "xdg-open".to_string()))
+}
+
 fn open_system_browser(url: &str) {
-    let program = std::env::var("BROKKR_BROWSER_BIN").unwrap_or("xdg-open".to_string());
-    let _ = std::process::Command::new(program).arg(url).spawn();
+    match browser_program() {
+        Ok(program) => drop(std::process::Command::new(program).arg(url).spawn()),
+        Err(retired) => eprintln!("brokkr ui: no browser opened: {retired}"),
+    }
 }
 
 fn serve_listener(

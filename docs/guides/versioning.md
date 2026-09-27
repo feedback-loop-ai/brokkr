@@ -236,9 +236,12 @@ current names.
 
 - **Environment overrides.** `BROKKR_CLAUDE_BIN`, `BROKKR_LANETALLY_BIN`,
   `BROKKR_CODEX_BIN`, `BROKKR_DSH_BIN`, `BROKKR_EXEC_NAME` and
-  `BROKKR_BROWSER_BIN` are the only names read. The pre-rename prefix is
-  no longer read, and no longer denied as a secret name either, since
-  nothing it spells configures the harness.
+  `BROKKR_BROWSER_BIN` are the only names that configure anything. A
+  pre-rename spelling set where its current name is not is refused by
+  both names: the seat fails to start, `brokkr doctor` reports the DSH
+  selection refused, and `brokkr ui` opens no browser. Nothing runs in
+  its place. The prefix is no longer denied as a secret name, since a
+  name read only to refuse it cannot aim the harness anywhere.
 - **The bundle argv token.** Only `{brokkr}` expands to the engine's own
   executable. A command still written with `{forge}` passes it through
   as a literal argument, and the spawn fails on it.

@@ -11,8 +11,8 @@
 //!
 //! Env overrides for conformance shims: BROKKR_CLAUDE_BIN,
 //! BROKKR_LANETALLY_BIN, BROKKR_CODEX_BIN, BROKKR_DSH_BIN,
-//! BROKKR_EXEC_NAME. Their pre-rename spellings (decision 0019) are no
-//! longer read (#355).
+//! BROKKR_EXEC_NAME. A pre-rename spelling (decision 0019) set alone
+//! refuses the seat (`overrides`).
 
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
@@ -33,6 +33,7 @@ pub use composite::{
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
+use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
@@ -312,6 +313,9 @@ pub enum StartRefusal {
     /// The charter at `path` could not be read.
     #[error("seat refused to start: charter '{path}' is unreadable: {error}")]
     UnreadableCharter { path: String, error: String },
+    /// The driver's override is set only by its retired spelling.
+    #[error("seat refused to start: {0}")]
+    RetiredOverride(OverrideError),
 }
 
 /// The seat's charter text. A model kind must be able to read it. An exec
@@ -629,8 +633,8 @@ fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String>
     }
 }
 
-/// One reader for every override: the variable when it is set, the
-/// fallback when it is not.
+/// An override's current value, or the fallback. `run_seat` refused a retired
+/// spelling first: `a_retired_override_alone_runs_neither_its_pin_nor_the_built_in`.
 fn adapter_binary(variable: &str, fallback: &str) -> String {
     std::env::var(variable).unwrap_or_else(|_| fallback.to_string())
 }
@@ -5728,8 +5732,9 @@ fn run_seat(
     session: Option<&str>,
     send: &mut impl FnMut(Body),
 ) {
-    run_seat_with(kind, start, send, |prompt, input, bindings, mut emit| {
-        invoke(kind, extra, prompt, input, session, bindings, &mut emit)
+    let gate = crate::overrides::read(Override::of_driver(kind)).map(drop);
+    run_seat_with(kind, gate, start, send, |prompt, input, bound, mut emit| {
+        invoke(kind, extra, prompt, input, session, bound, &mut emit)
     });
 }
 
@@ -5742,6 +5747,7 @@ fn run_seat(
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn run_seat_with(
     kind: AdapterKind,
+    gate: Result<(), OverrideError>,
     start: &Value,
     send: &mut impl FnMut(Body),
     invoke: impl FnOnce(
@@ -5754,15 +5760,17 @@ fn run_seat_with(
     let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
-    // #372: a start with no correlation, or a model seat whose charter
-    // cannot be read, launches nothing. The refusal is `result: failed` with NO
-    // `accepted` and NO checkpoint — decision 0053's failure to start —
-    // and it comes before the secret store is opened, so no other
-    // refusal can put an `accepted` ahead of it.
+    // #372: a start with no correlation, a retired override (#355) or a
+    // model seat whose charter cannot be read launches nothing. The refusal
+    // is `result: failed` with NO `accepted` and NO checkpoint — decision
+    // 0053's failure to start — and it comes before the secret store is
+    // opened, so no other refusal can put an `accepted` ahead of it.
     let prompt = if effect_id.is_empty() {
         Err(StartRefusal::MissingCorrelation("effect_id"))
     } else if attempt_id.is_empty() {
         Err(StartRefusal::MissingCorrelation("attempt_id"))
+    } else if let Err(retired) = gate {
+        Err(StartRefusal::RetiredOverride(retired))
     } else {
         render_prompt(&input, kind)
     };

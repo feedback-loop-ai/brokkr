@@ -21,8 +21,8 @@ pub const DENYLIST: [&str; 4] = ["PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH"]
 
 /// The harness-owned prefix: `BROKKR_*` names configure the harness
 /// itself (BROKKR_CODEX_BIN and friends) and are never bindable. The
-/// pre-rename spelling left the denylist when the harness stopped
-/// reading it (#355): a name nothing reads configures nothing.
+/// pre-rename spelling left the denylist (#355): the harness reads it
+/// only to refuse it (`overrides`), so it can stop a seat, never aim one.
 pub const DENYLIST_PREFIXES: [&str; 1] = ["BROKKR_"];
 
 /// Values shorter than this are refused at `set`: masking a 2-byte

@@ -33,6 +33,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::overrides::{Override, OverrideError};
+
 /// The plugin's committed six-file set, in bytewise path order.
 const PLUGIN_FILES: [&str; 6] = [
     "LICENSE",
@@ -92,6 +94,9 @@ pub enum CompositeError {
     },
     #[error("the DSH layout is unreadable: {0}")]
     Config(String),
+    /// The executable's override is set only by its retired spelling.
+    #[error(transparent)]
+    RetiredOverride(OverrideError),
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1720,8 +1725,9 @@ fn canonical_composite(
 }
 
 /// The two seams the DSH adapter resolves, exactly as it resolves them:
-/// the executable through `BROKKR_DSH_BIN`, then `dsh` on `PATH`, and the home through `$DSH_HOME` when set and
-/// non-empty, otherwise `$HOME/.dsh`.
+/// the executable through `BROKKR_DSH_BIN` (its retired spelling set
+/// alone is refused), then `dsh` on `PATH`, and the home through
+/// `$DSH_HOME` when set and non-empty, otherwise `$HOME/.dsh`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshSeams {
     pub executable: String,
@@ -1940,12 +1946,18 @@ impl DshSeams {
     }
 
     /// The environment's one resolution, before anything is admitted.
+    /// A retired override is refused here, before any lookup.
     fn located() -> Result<Located, DshUnselected> {
-        DshSeams::located_from(
-            super::adapter_binary("BROKKR_DSH_BIN", "dsh"),
-            select,
-            crate::transcript::dsh_home(),
-        )
+        let declared = match crate::overrides::read(Override::DshBin) {
+            Ok(declared) => declared.unwrap_or_else(|| "dsh".to_string()),
+            Err(retired) => {
+                return Err(DshUnselected {
+                    declared: "dsh".to_string(),
+                    cause: CompositeError::RetiredOverride(retired),
+                })
+            }
+        };
+        DshSeams::located_from(declared, select, crate::transcript::dsh_home())
     }
 
     /// `selected` over an injected resolver and home, so the resolved,

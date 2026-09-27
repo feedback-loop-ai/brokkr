@@ -289,6 +289,29 @@ fn listener_open_hook_is_testable_and_public_bind_errors_return() {
     open_system_browser("http://127.0.0.1:9/");
 }
 
+/// A browser pinned by the retired spelling alone opens nothing: neither
+/// the pin nor `xdg-open` in its place (#355).
+#[test]
+fn a_retired_browser_override_is_refused_by_name() {
+    let retired = concat!("FOR", "GE_BROWSER_BIN");
+    let mut env = EnvGuard::lock();
+    env.remove("BROKKR_BROWSER_BIN");
+    env.set(retired, "true");
+    assert_eq!(
+        browser_program(),
+        Err(OverrideError::Retired {
+            retired: retired.to_string(),
+            current: "BROKKR_BROWSER_BIN",
+        })
+    );
+    open_system_browser("http://127.0.0.1:9/");
+    env.set("BROKKR_BROWSER_BIN", "true");
+    assert_eq!(browser_program(), Ok("true".to_string()));
+    env.remove("BROKKR_BROWSER_BIN");
+    env.remove(retired);
+    assert_eq!(browser_program(), Ok("xdg-open".to_string()));
+}
+
 #[test]
 fn the_view_endpoint_serves_the_models_the_page_paints() {
     let (_dir, db) = fixture();

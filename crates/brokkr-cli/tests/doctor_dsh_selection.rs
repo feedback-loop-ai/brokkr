@@ -2993,3 +2993,20 @@ fn an_env_launcher_without_a_program_is_refused_before_any_probe() {
         "{line}"
     );
 }
+
+/// A DSH pinned only by the retired spelling (#355) is refused by name,
+/// and neither the pin nor the `dsh` on `PATH` is probed.
+#[test]
+fn a_retired_dsh_override_is_refused_before_any_probe() {
+    let workspace = shipped_workspace();
+    let (cwd, retired) = (workspace.path(), concat!("FOR", "GE_DSH_BIN"));
+    let doctor_marks = marks(cwd, "doctor");
+    let pinned = version_script(&cwd.join("pinned"), "dsh", "9.9.9-pinned");
+    version_script(&cwd.join("bin"), "dsh", "9.9.9-path");
+    let mut command = doctor(cwd);
+    command.env(retired, &pinned).env("PATH", cwd.join("bin"));
+    let stdout = stdout_of(command.env("BROKKR_MARKS", &doctor_marks));
+    assert_eq!(executed(&doctor_marks), Vec::<String>::new(), "{stdout}");
+    let line = format!("warn     dsh: binary 'dsh' not found: {retired} is set but");
+    assert!(dsh_line(&stdout).starts_with(&line), "{stdout}");
+}

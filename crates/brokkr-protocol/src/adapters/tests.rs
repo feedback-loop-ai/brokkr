@@ -472,16 +472,18 @@ fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
             .starts_with("\n\n---\n## Task"));
     }
 
-    let refused = |start: Value| {
+    let admitted_as = |start: Value, admitted: Result<(), OverrideError>| {
         let mut bodies = Vec::new();
         run_seat_with(
             AdapterKind::Claude,
+            admitted,
             &start,
             &mut |body| bodies.push(serde_json::to_value(body).unwrap()),
             |_, _, _, _| panic!("a refused seat never invokes its driver"),
         );
         bodies
     };
+    let refused = |start: Value| admitted_as(start, Ok(()));
     let full = json!({"effect_id": "fx", "attempt_id": "a1", "input": input});
     let failed = |effect_id: &str, attempt_id: &str, error: String| {
         serde_json::to_value(Body::Result {
@@ -520,6 +522,20 @@ fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
             )]
         );
     }
+    // A driver whose override is set only by its retired spelling (#355):
+    // the charter reads, so the spelling is the only reason.
+    let refusal = OverrideError::Retired {
+        retired: Override::ClaudeBin.retired(),
+        current: "BROKKR_CLAUDE_BIN",
+    };
+    assert_eq!(
+        admitted_as(chartered, Err(refusal.clone())),
+        vec![failed(
+            "fx",
+            "a1",
+            format!("seat refused to start: {refusal}")
+        )]
+    );
     assert!(
         !dir.path().join("result.json").exists(),
         "a refused seat writes nothing"
@@ -5948,6 +5964,7 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
     let mut acknowledged = 0usize;
     run_seat_with(
         AdapterKind::Dsh,
+        Ok(()),
         &start,
         &mut |body| bodies.push(body),
         |prompt, input, _bindings, mut emit| {
@@ -13955,6 +13972,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
         let mut stderr: Option<String> = None;
         run_seat_with(
             AdapterKind::Dsh,
+            Ok(()),
             &start,
             &mut |body| messages.push(body),
             |prompt, input, _, emit| {

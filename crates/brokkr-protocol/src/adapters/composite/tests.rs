@@ -2703,6 +2703,28 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
     assert!(refusal(dir.path().join("absent")).contains("node --version:"));
 }
 
+/// A DSH pinned only by the retired spelling (#355) selects nothing: the
+/// selection and the planner's resolution carry the refusal, by name.
+#[test]
+fn a_retired_dsh_override_selects_nothing() {
+    let mut env = crate::env_guard::EnvGuard::lock();
+    let retired = Override::DshBin.retired();
+    env.remove("BROKKR_DSH_BIN");
+    env.set(&retired, "/pinned/dsh");
+    let refusal = CompositeError::RetiredOverride(OverrideError::Retired {
+        retired,
+        current: "BROKKR_DSH_BIN",
+    });
+    assert_eq!(
+        DshSeams::selected(),
+        Err(DshUnselected {
+            declared: "dsh".to_string(),
+            cause: refusal.clone(),
+        })
+    );
+    assert_eq!(DshSeams::resolve(), Err(refusal));
+}
+
 /// Executable selection and home availability are INDEPENDENT
 /// requirements, and combined resolution needs both. The inherited
 /// premise `resolve().is_ok() == dsh_home().is_some()` equated a home
