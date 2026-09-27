@@ -101,6 +101,22 @@ fn run_boxed_returns_the_exit_code_of_the_box() {
     assert_eq!(run("signal"), Ok(-1));
 }
 
+/// A session tree that cannot be made refuses the box before it spawns,
+/// in the session's own words (#415).
+#[test]
+fn run_boxed_refuses_when_its_session_cannot_be_made() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    env.set("PATH", stand_ins(dir.path(), 1));
+    let file = dir.path().join("not-a-directory");
+    std::fs::write(&file, "").unwrap();
+    env.set("TMPDIR", &file);
+    assert_eq!(
+        run_boxed(&HandsSpec::default(), dir.path(), None, &command("0")),
+        Err("hands session: Not a directory (os error 20)".to_string())
+    );
+}
+
 /// A `git rev-parse` that fails names no directory, whatever it printed
 /// before failing; the same output from a `git` that succeeds does.
 #[test]

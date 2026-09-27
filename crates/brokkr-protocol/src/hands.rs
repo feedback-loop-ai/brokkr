@@ -31,6 +31,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
+mod session;
+pub use session::{reap_dead_sessions, Session, SessionError};
+
 /// The one tool the model sees. Claude Code names it `mcp__brokkr__workspace`.
 pub const SERVER_NAME: &str = "brokkr";
 pub const TOOL_NAME: &str = "workspace";
@@ -943,18 +946,6 @@ fn rendered(bytes: &[u8], truncated: bool) -> String {
     text
 }
 
-/// A session directory for what outlives one call — overlay upper
-/// layers — created for the server's or the exec verb's lifetime.
-pub fn session_dir(label: &str) -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join(format!(
-        "brokkr-hands-{label}-{}-{}",
-        std::process::id(),
-        uuid::Uuid::new_v4()
-    ));
-    io_context(std::fs::create_dir_all(&dir), "session")?;
-    Ok(dir)
-}
-
 /// Run one `bash -lc <command>` inside the box, bounded in time and
 /// output. This call's scratch is removed afterwards; `session` is the
 /// caller's.
@@ -1047,20 +1038,18 @@ pub fn run_boxed(
 ) -> Result<i32, String> {
     let bwrap = require_bwrap_for(spec)?;
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let session = session_dir("exec")?;
+    let session = Session::create("exec")?;
     let git = git_facts(workdir);
-    let result = run_boxed_in(
+    run_boxed_in(
         &bwrap,
         spec,
         workdir,
         &home,
-        &session,
+        session.path(),
         &git,
         bundle_root,
         command,
-    );
-    let _ = std::fs::remove_dir_all(&session);
-    result
+    )
 }
 
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]

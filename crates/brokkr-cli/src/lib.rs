@@ -747,19 +747,14 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
         HandsCommand::Serve { workdir, spec } => {
             let spec = parse_spec(&spec)?;
             // The session outlives every call: overlay upper layers live
-            // here until the harness closes the server's stdin.
-            let session = hands::session_dir("serve").map_err(anyhow::Error::msg)?;
+            // here until the harness closes the server's stdin, or a
+            // termination signal ends the server (#415).
+            let session = hands::Session::create("serve")?;
+            session.remove_on_termination()?;
             let stdin = std::io::stdin();
-            let served = hands::serve(
-                stdin.lock(),
-                std::io::stdout(),
-                &workdir,
-                &session,
-                &spec,
-                &hands::execute,
-            );
-            let _ = std::fs::remove_dir_all(&session);
-            served?;
+            let (input, output) = (stdin.lock(), std::io::stdout());
+            let path = session.path();
+            hands::serve(input, output, &workdir, path, &spec, &hands::execute)?;
             Ok(ExitCode::SUCCESS)
         }
         HandsCommand::Exec {
