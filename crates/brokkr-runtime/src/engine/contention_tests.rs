@@ -54,13 +54,7 @@ fn write_lock_on(db: &Path) -> rusqlite::Connection {
         .busy_timeout(std::time::Duration::from_secs(30))
         .unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    holder
-        .execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES ('peer', 'feat', 'self', '{}', '2026-01-01T00:00:00Z')",
-            [],
-        )
-        .unwrap();
+    brokkr_store::test_support::plant_run(&holder, "peer", "{}").unwrap();
     holder
 }
 

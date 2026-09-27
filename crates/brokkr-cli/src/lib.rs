@@ -838,22 +838,26 @@ pub const CONTENDED_EXIT: u8 = 4;
 /// Did this error come from a peer holding the journal's lock?
 ///
 /// Asked of the whole chain and answered by the store's own typed
-/// predicate — never by matching error text. Both shapes it arrives in
-/// are asked: a `StoreError` raised straight out of a store call, and
-/// one an `EngineError` carries — the latter needs asking separately
-/// because that variant is `transparent`, which puts the store error's
-/// own source in the chain and the store error itself nowhere in it.
+/// predicate — never by matching error text. It asks all three shapes: a
+/// `StoreError` straight out of a store call, and one an `EngineError` or
+/// an `ImportError` carries, asked separately because their store variants
+/// are `transparent`, which puts the store error's own source in the chain
+/// and the store error itself nowhere in it.
 ///
 /// A contention that reached here wrote nothing, so there is no
 /// half-done work to describe.
 fn contention(error: &anyhow::Error) -> Option<&brokkr_store::StoreError> {
     error.chain().find_map(|link| {
-        link.downcast_ref::<brokkr_store::StoreError>()
-            .filter(|store| store.is_contention())
-            .or_else(|| {
-                link.downcast_ref::<brokkr_runtime::EngineError>()
-                    .and_then(brokkr_runtime::EngineError::contention)
-            })
+        let store = link.downcast_ref::<brokkr_store::StoreError>().or_else(|| {
+            match link.downcast_ref::<brokkr_store::ImportError>() {
+                Some(brokkr_store::ImportError::Store(store)) => Some(store),
+                _ => None,
+            }
+        });
+        store.filter(|store| store.is_contention()).or_else(|| {
+            link.downcast_ref::<brokkr_runtime::EngineError>()
+                .and_then(brokkr_runtime::EngineError::contention)
+        })
     })
 }
 

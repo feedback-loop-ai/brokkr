@@ -659,16 +659,8 @@ fn journal_run(db: &Path, run_id: &str, broken: bool) {
     }
     if broken {
         let events = store.load(run_id).unwrap();
-        let mut tampered = serde_json::to_value(&events[1]).unwrap();
-        tampered["seq"] = json!(3);
-        tampered["previous_hash"] = json!(brokkr_core::canonical::ZERO_HASH);
-        rusqlite::Connection::open(db)
-            .unwrap()
-            .execute(
-                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, 3, ?2, ?3)",
-                rusqlite::params![run_id, events[1].event_hash, tampered.to_string()],
-            )
-            .unwrap();
+        let conn = rusqlite::Connection::open(db).unwrap();
+        brokkr_store::test_support::plant_broken_link(&conn, &events[1], 3).unwrap();
     }
 }
 

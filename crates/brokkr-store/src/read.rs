@@ -78,3 +78,6 @@ impl Store {
         Ok(events)
     }
 }
+
+#[cfg(test)]
+mod tests;

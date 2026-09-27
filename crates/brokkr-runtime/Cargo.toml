@@ -23,6 +23,7 @@ uuid = { workspace = true }
 time = { workspace = true }
 
 [dev-dependencies]
+brokkr-store = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 rusqlite = { workspace = true }
 jsonschema = { workspace = true }

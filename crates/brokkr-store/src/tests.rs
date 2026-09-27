@@ -1,4 +1,9 @@
 use super::*;
+use crate::import::RUN_ID_MAX;
+use crate::schema::{
+    ensure_wal_by, guards_intact, sidecar_columns_missing, MIGRATION_V1, SIDECAR_COLUMNS,
+};
+use crate::test_support::{drop_seq_guard, plant_envelope, plant_event, plant_run};
 use serde_json::json;
 
 #[path = "../../../tests/support/env_guard.rs"]
@@ -163,13 +168,7 @@ fn opening_a_journal_a_peer_is_writing_takes_no_write_lock() {
     // as this lives, nobody else can write this file.
     let holder = Connection::open(&db).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    holder
-        .execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES ('holder', 'feat', 'self', '{}', '2026-01-01T00:00:00Z')",
-            [],
-        )
-        .unwrap();
+    plant_run(&holder, "holder", "{}").unwrap();
 
     // Opening is a read, so it does not queue behind that lock. Asked on
     // another thread with a deadline far below the busy timeout, because
@@ -435,18 +434,7 @@ fn plant_unfenced(store: &mut Store, run_id: &str, event_type: EventType, payloa
         .at(now_rfc3339())
         .previous(previous_hash)
         .sealed();
-    store
-        .conn
-        .execute(
-            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![
-                run_id,
-                envelope.seq as i64,
-                envelope.event_hash,
-                serde_json::to_string(&envelope).unwrap()
-            ],
-        )
-        .unwrap();
+    plant_envelope(&store.conn, &envelope).unwrap();
 }
 
 #[test]
@@ -544,19 +532,21 @@ fn the_append_fence_reads_the_engine_its_runs_manifest_names() {
     ] {
         store.create_run(run_id, "feat", "self", &manifest).unwrap();
     }
-    store
-        .conn
-        .execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at) VALUES
-             ('malformed', 'feat', 'self', '{\"engine\": \"0.8.0\"', '2026-01-01T00:00:00Z'),
-             ('new-last', 'feat', 'self', '{\"engine\": \"0.4.0\", \"engine\": \"0.8.0\"}', ''),
-             ('old-last', 'feat', 'self', '{\"engine\": \"0.8.0\", \"engine\": \"0.4.0\"}', ''),
-             ('escaped', 'feat', 'self', '{\"engine\": \"0.4.0\", \"eng\\u0069ne\": \"0.8.0\"}', ''),
-             ('text-last', 'feat', 'self', '{\"engine\": 8, \"engine\": \"0.8.0\"}', ''),
-             ('number-last', 'feat', 'self', '{\"engine\": \"0.8.0\", \"engine\": 8}', '')",
-            [],
-        )
-        .unwrap();
+    for (run_id, manifest) in [
+        ("malformed", r#"{"engine": "0.8.0""#),
+        ("new-last", r#"{"engine": "0.4.0", "engine": "0.8.0"}"#),
+        ("old-last", r#"{"engine": "0.8.0", "engine": "0.4.0"}"#),
+        // The second key spells the i of engine as a JSON unicode escape,
+        // built from its backslash so no editor or transport decodes it.
+        (
+            "escaped",
+            concat!(r#"{"engine": "0.4.0", "eng"#, '\\', r#"u0069ne": "0.8.0"}"#),
+        ),
+        ("text-last", r#"{"engine": 8, "engine": "0.8.0"}"#),
+        ("number-last", r#"{"engine": "0.8.0", "engine": 8}"#),
+    ] {
+        plant_run(&store.conn, run_id, manifest).unwrap();
+    }
     for (run_id, serde_reads) in [
         ("new-last", json!("0.8.0")),
         ("old-last", json!("0.4.0")),
@@ -1258,7 +1248,8 @@ fn ensure_wal_retries_past_a_reader_that_eventually_leaves() {
 }
 
 /// And patience is finite: still locked at the deadline, the loop stops
-/// sleeping and returns the lock as the error it is.
+/// sleeping and returns the lock as the contention it is, typed like
+/// every other operation's since the conversion runs under `patiently`.
 #[test]
 fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
     let dir = tempfile::tempdir().unwrap();
@@ -1271,8 +1262,11 @@ fn a_lock_still_held_at_the_deadline_is_returned_not_slept_on() {
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     holder.execute_batch("INSERT INTO seed VALUES (1)").unwrap();
     let conn = rusqlite::Connection::open(&path).unwrap();
-    let expired = std::time::Instant::now() - std::time::Duration::from_millis(1);
-    assert!(ensure_wal_by(&conn, expired).is_err());
+    let refused = ensure_wal_by(&conn, std::time::Duration::ZERO).unwrap_err();
+    assert!(
+        matches!(&refused, StoreError::Contended { operation, .. } if *operation == "ensure_wal"),
+        "{refused:?}"
+    );
 }
 
 /// An error that is not contention does not get patience: a file the
@@ -1311,13 +1305,7 @@ fn write_lock_on(db: &std::path::Path) -> Connection {
         .busy_timeout(std::time::Duration::from_secs(30))
         .unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
-    holder
-        .execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES ('holder', 'feat', 'self', '{}', '2026-01-01T00:00:00Z')",
-            [],
-        )
-        .unwrap();
+    plant_run(&holder, "holder", "{}").unwrap();
     holder
 }
 
@@ -1493,33 +1481,36 @@ fn a_moved_head_is_a_refusal_and_is_never_retried_into_place() {
 fn a_seq_that_is_not_a_position_is_refused_at_insert() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
-    let insert = |conn: &rusqlite::Connection, seq: &str| {
-        conn.execute(
-            &format!("INSERT INTO events VALUES ('r1', {seq}, 'h', 'e')"),
-            [],
-        )
-    };
+    use rusqlite::types::Value as Sql;
+    let insert = |conn: &rusqlite::Connection, seq: Sql| plant_event(conn, "r1", &seq, "h", "e");
     {
         let mut store = Store::open(&db).unwrap();
         store.create_run("r1", "feat", "self", &json!({})).unwrap();
-        for seq in ["1.5", "'1.5'", "0.5", "0", "-5", "'abc'", "x'00'", "1e300"] {
+        for seq in [
+            Sql::Real(1.5),
+            Sql::Text("1.5".into()),
+            Sql::Real(0.5),
+            Sql::Integer(0),
+            Sql::Integer(-5),
+            Sql::Text("abc".into()),
+            Sql::Blob(vec![0]),
+            Sql::Real(1e300),
+        ] {
+            let shown = format!("{seq:?}");
             let refused = insert(&store.conn, seq).unwrap_err().to_string();
             assert!(
                 refused.contains("events.seq is an integer from 1"),
-                "{seq}: {refused}"
+                "{shown}: {refused}"
             );
         }
-        for seq in ["1", "'2'", "3.0"] {
+        for seq in [Sql::Integer(1), Sql::Text("2".into()), Sql::Real(3.0)] {
             insert(&store.conn, seq).unwrap();
         }
-        store
-            .conn
-            .execute_batch("DROP TRIGGER events_seq_is_a_position")
-            .unwrap();
-        insert(&store.conn, "1.5").unwrap();
+        drop_seq_guard(&store.conn).unwrap();
+        insert(&store.conn, Sql::Real(1.5)).unwrap();
     }
     let store = Store::open(&db).unwrap();
-    let refused = insert(&store.conn, "2.5").unwrap_err().to_string();
+    let refused = insert(&store.conn, Sql::Real(2.5)).unwrap_err().to_string();
     assert!(
         refused.contains("events.seq is an integer from 1"),
         "{refused}"
@@ -1966,12 +1957,7 @@ fn arrival_columns_are_added_once_and_an_older_journal_migrates() {
         [],
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-         VALUES ('old', 'before import existed', 'self', '{}', '2026-01-01T00:00:00Z')",
-        [],
-    )
-    .unwrap();
+    plant_run(&conn, "old", "{}").unwrap();
     drop(conn);
 
     // Opening it migrates; the pre-existing run reads as native.

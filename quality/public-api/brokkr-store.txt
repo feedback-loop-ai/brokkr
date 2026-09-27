@@ -67,11 +67,9 @@ pub struct brokkr_store::Store
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
-pub fn brokkr_store::Store::arrival(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Arrival>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::create_run(&mut self, &str, &str, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::export_ndjson(&self, &str) -> core::result::Result<alloc::string::String, brokkr_store::StoreError>
 pub fn brokkr_store::Store::head_hash(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>
-pub fn brokkr_store::Store::import_run(&mut self, &str, &serde_json::value::Value, &std::path::Path) -> core::result::Result<brokkr_store::Adoption, brokkr_store::ImportError>
 pub fn brokkr_store::Store::list_runs(&self) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::load(&self, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::manifest(&self, &str) -> core::result::Result<serde_json::value::Value, brokkr_store::StoreError>
@@ -80,6 +78,9 @@ pub fn brokkr_store::Store::open_read_only(&std::path::Path) -> core::result::Re
 pub fn brokkr_store::Store::path(&self) -> &std::path::Path
 pub fn brokkr_store::Store::set_patience(&mut self, core::time::Duration) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::started_here(&self, &str) -> core::result::Result<bool, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::arrival(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Arrival>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::import_run(&mut self, &str, &serde_json::value::Value, &std::path::Path) -> core::result::Result<brokkr_store::Adoption, brokkr_store::ImportError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub const brokkr_store::DATABASE_SCHEMA: u32

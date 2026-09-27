@@ -677,12 +677,8 @@ fn a_run_the_journal_cannot_read_names_itself_rather_than_vanishing() {
         .unwrap();
     drop(store);
     let conn = rusqlite::Connection::open(broken.db()).unwrap();
-    conn.execute(
-        "INSERT INTO events (run_id, seq, event_hash, envelope)
-         VALUES ('broken-run', 1, 'x', 'not an envelope')",
-        [],
-    )
-    .unwrap();
+    brokkr_store::test_support::plant_event(&conn, "broken-run", &1, "x", "not an envelope")
+        .unwrap();
     drop(conn);
     let reader = Store::open_read_only(&broken.db()).unwrap();
     let derived = dossier(&reader, NOW).unwrap();
