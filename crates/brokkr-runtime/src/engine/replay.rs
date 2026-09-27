@@ -17,6 +17,12 @@ use super::EngineError;
 /// The events of one run and the state they fold to, as of the last
 /// turn. Empty until the first turn, and again after a turn that failed
 /// to catch up: an empty replay reads its run whole.
+///
+/// By design (#354, ask 3) a replay trusts the prefix it already read and
+/// verified: a turn reads and verifies only what lies past its head, so a
+/// row planted at or below that head after the read is not seen until the
+/// run is read whole again: [`Store::load`], and so every export, judges
+/// every row of the run.
 #[derive(Default)]
 pub(super) struct Replay {
     pub(super) events: Vec<EventEnvelope>,

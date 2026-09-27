@@ -76,6 +76,8 @@ pub enum ChainError {
     BadSchemaVersion { seq: u64, found: u32 },
     #[error("event {seq}: run_id differs from the journal's run")]
     ForeignRun { seq: u64 },
+    #[error("event after {after}: seq has no successor")]
+    SeqOverflow { after: u64 },
 }
 
 impl EventEnvelope {
@@ -109,15 +111,19 @@ pub fn verify_chain(events: &[EventEnvelope]) -> Result<(), ChainError> {
 /// [`verify_chain`] for what landed after a head the caller already
 /// verified: `events` must continue `run_id`'s chain from seq `seq`, whose
 /// hash is `hash`, with every check [`verify_chain`] makes. A whole
-/// journal is the suffix of the empty head, `(0, ZERO_HASH)`.
+/// journal is the suffix of the empty head, `(0, ZERO_HASH)`. A seq with
+/// no successor in `u64` refuses rather than wrapping.
 pub fn verify_chain_after(
     run_id: &str,
     seq: u64,
     hash: &str,
     events: &[EventEnvelope],
 ) -> Result<(), ChainError> {
-    let mut prev_hash = hash;
-    for (expected_seq, event) in (seq + 1..).zip(events) {
+    let (mut prev_seq, mut prev_hash) = (seq, hash);
+    for event in events {
+        let expected_seq = prev_seq
+            .checked_add(1)
+            .ok_or(ChainError::SeqOverflow { after: prev_seq })?;
         if event.seq != expected_seq {
             return Err(ChainError::SeqGap {
                 seq: event.seq,
@@ -142,7 +148,7 @@ pub fn verify_chain_after(
         if event.compute_hash() != event.event_hash {
             return Err(ChainError::BadHash { seq: event.seq });
         }
-        prev_hash = &event.event_hash;
+        (prev_seq, prev_hash) = (expected_seq, &event.event_hash);
     }
     Ok(())
 }

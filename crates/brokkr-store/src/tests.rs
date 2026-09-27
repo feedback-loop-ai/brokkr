@@ -527,7 +527,9 @@ fn append_refuses_a_nonconforming_seat_record_and_writes_nothing() {
 /// The fence judges a record by the engine its run's manifest names,
 /// extracted by SQLite rather than parsed whole under the lock (#354). A
 /// manifest naming an older engine, none, a non-string, or not JSON at
-/// all reads as v1, which admits strictly less.
+/// all reads as v1, which admits strictly less. Of two `engine` keys the
+/// fence reads the one serde reads, the last, so fence and export cannot
+/// read one run two ways.
 #[test]
 fn the_append_fence_reads_the_engine_its_runs_manifest_names() {
     let (_dir, mut store) = store();
@@ -545,11 +547,25 @@ fn the_append_fence_reads_the_engine_its_runs_manifest_names() {
     store
         .conn
         .execute(
-            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
-             VALUES ('malformed', 'feat', 'self', '{\"engine\": \"0.8.0\"', '2026-01-01T00:00:00Z')",
+            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at) VALUES
+             ('malformed', 'feat', 'self', '{\"engine\": \"0.8.0\"', '2026-01-01T00:00:00Z'),
+             ('new-last', 'feat', 'self', '{\"engine\": \"0.4.0\", \"engine\": \"0.8.0\"}', ''),
+             ('old-last', 'feat', 'self', '{\"engine\": \"0.8.0\", \"engine\": \"0.4.0\"}', ''),
+             ('escaped', 'feat', 'self', '{\"engine\": \"0.4.0\", \"eng\\u0069ne\": \"0.8.0\"}', ''),
+             ('text-last', 'feat', 'self', '{\"engine\": 8, \"engine\": \"0.8.0\"}', ''),
+             ('number-last', 'feat', 'self', '{\"engine\": \"0.8.0\", \"engine\": 8}', '')",
             [],
         )
         .unwrap();
+    for (run_id, serde_reads) in [
+        ("new-last", json!("0.8.0")),
+        ("old-last", json!("0.4.0")),
+        ("escaped", json!("0.8.0")),
+        ("text-last", json!("0.8.0")),
+        ("number-last", json!(8)),
+    ] {
+        assert_eq!(store.manifest(run_id).unwrap()["engine"], serde_reads);
+    }
     let append = |store: &mut Store, run_id: &str| {
         store.append_next(
             run_id,
@@ -559,8 +575,17 @@ fn the_append_fence_reads_the_engine_its_runs_manifest_names() {
             None,
         )
     };
-    assert_eq!(append(&mut store, "new").unwrap().seq, 1);
-    for run_id in ["old", "none", "number", "malformed"] {
+    for run_id in ["new", "new-last", "escaped", "text-last"] {
+        assert_eq!(append(&mut store, run_id).unwrap().seq, 1, "{run_id}");
+    }
+    for run_id in [
+        "old",
+        "none",
+        "number",
+        "malformed",
+        "old-last",
+        "number-last",
+    ] {
         let error = append(&mut store, run_id).unwrap_err();
         let StoreError::SeatRecord(refusal) = error else {
             panic!("{run_id}: {error}");

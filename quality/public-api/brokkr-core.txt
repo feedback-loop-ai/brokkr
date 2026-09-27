@@ -124,6 +124,8 @@ pub brokkr_core::envelope::ChainError::ForeignRun::seq: u64
 pub brokkr_core::envelope::ChainError::SeqGap
 pub brokkr_core::envelope::ChainError::SeqGap::expected: u64
 pub brokkr_core::envelope::ChainError::SeqGap::seq: u64
+pub brokkr_core::envelope::ChainError::SeqOverflow
+pub brokkr_core::envelope::ChainError::SeqOverflow::after: u64
 pub enum brokkr_core::envelope::EventType
 pub brokkr_core::envelope::EventType::EffectCheckpointed
 pub brokkr_core::envelope::EventType::EffectFailed

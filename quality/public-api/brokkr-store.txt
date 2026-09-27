@@ -34,6 +34,8 @@ pub brokkr_store::StoreError::SchemaMismatch
 pub brokkr_store::StoreError::SchemaMismatch::found: u32
 pub brokkr_store::StoreError::SeatRecord(brokkr_store::SeatRecordError)
 pub brokkr_store::StoreError::Sqlite(rusqlite::error::Error)
+pub brokkr_store::StoreError::UnknownHead
+pub brokkr_store::StoreError::UnknownHead::seq: u64
 impl brokkr_store::StoreError
 pub fn brokkr_store::StoreError::is_contention(&self) -> bool
 pub enum brokkr_store::VerifyError

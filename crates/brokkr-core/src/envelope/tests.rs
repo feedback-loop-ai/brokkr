@@ -101,3 +101,21 @@ fn a_suffix_verifies_against_the_head_it_continues() {
         Err(ChainError::ForeignRun { seq: 2 })
     );
 }
+
+/// A head at the top of `u64` has no successor: the suffix refuses
+/// rather than panicking or wrapping to seq 0, and so does the event
+/// after one that took the last seq.
+#[test]
+fn a_suffix_past_the_last_seq_refuses_instead_of_wrapping() {
+    let wrapped = envelope(0, ZERO_HASH);
+    assert_eq!(
+        verify_chain_after("r1", u64::MAX, ZERO_HASH, std::slice::from_ref(&wrapped)),
+        Err(ChainError::SeqOverflow { after: u64::MAX })
+    );
+    let last = envelope(u64::MAX, ZERO_HASH);
+    let after = envelope(0, &last.event_hash);
+    assert_eq!(
+        verify_chain_after("r1", u64::MAX - 1, ZERO_HASH, &[last, after]),
+        Err(ChainError::SeqOverflow { after: u64::MAX })
+    );
+}

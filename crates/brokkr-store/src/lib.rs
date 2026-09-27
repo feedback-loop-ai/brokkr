@@ -132,6 +132,10 @@ pub enum StoreError {
     AppendConflict { seq: u64 },
     #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
     HeadMoved { expected_seq: u64, found_seq: u64 },
+    /// [`Store::load_after`] was handed a head the run never had: no
+    /// event at that seq, or one with another hash.
+    #[error("unknown head: the run holds no event {seq} with the hash given")]
+    UnknownHead { seq: u64 },
     /// A peer still held the journal's write lock when this operation's
     /// whole patience ran out. **Nothing was written.**
     ///
@@ -412,11 +416,18 @@ fn create_run_once(
 /// The `engine` a run's manifest names, or NULL where it names none: a
 /// manifest that is not JSON, or whose `engine` is not a string, names
 /// none, as the whole-manifest parse this replaced read it. `CASE` runs
-/// only the branch it takes, so `json_type` never meets invalid JSON,
-/// which it would raise on.
+/// only the branch it takes, so `json_each` never meets invalid JSON,
+/// which it would raise on. Of two `engine` keys the LAST answers, as
+/// serde reads it at export; `json_extract` would answer the first.
 const ENGINE_OF_RUN: &str = "SELECT CASE WHEN json_valid(manifest) THEN
-         CASE json_type(manifest, '$.engine') WHEN 'text' THEN json_extract(manifest, '$.engine') END
+         (SELECT CASE type WHEN 'text' THEN atom END FROM json_each(manifest)
+          WHERE key = 'engine' ORDER BY id DESC LIMIT 1)
      END FROM runs WHERE run_id = ?1";
+
+/// The hash of a run's event at a seq, NULL where it has none, and no
+/// row at all for a run the journal lacks.
+const HEAD_OF_RUN: &str = "SELECT (SELECT event_hash FROM events WHERE run_id = ?1 AND seq = ?2)
+     FROM runs WHERE run_id = ?1";
 
 /// [`Store::append_next`]'s one transaction, as a body [`patiently`] may
 /// run again.
@@ -897,7 +908,9 @@ impl Store {
     }
 
     fn load_once(&self, run_id: &str) -> Result<Vec<EventEnvelope>, StoreError> {
-        let events = self.events_after(run_id, 0)?;
+        // Every row of the run, at whatever seq the table holds it: a row
+        // the chain does not cover is refused, never skipped.
+        let events = self.rows(run_id, None)?;
         if events.is_empty() {
             // Distinguish "no such run" from "run without events".
             let _ = self.manifest(run_id)?;
@@ -913,28 +926,49 @@ impl Store {
     /// suffix rather than the run. Events are append-only by trigger, so
     /// the prefix the caller holds is still the journal's; a suffix that
     /// does not chain onto `hash` refuses like a broken chain in
-    /// [`Store::load`]. Empty when nothing has landed since.
+    /// [`Store::load`]. Empty when nothing has landed since, the head
+    /// confirmed even then: a run the journal lacks is `RunNotFound`, and
+    /// a head not its row at `seq` with `hash` is `UnknownHead`.
     pub fn load_after(
         &self,
         run_id: &str,
         seq: u64,
         hash: &str,
     ) -> Result<Vec<EventEnvelope>, StoreError> {
+        let head = i64::try_from(seq).map_err(|_| StoreError::UnknownHead { seq })?;
         patiently("load", self.patience, || {
-            let events = self.events_after(run_id, seq)?;
+            let stored: Option<String> = self
+                .conn
+                .query_row(HEAD_OF_RUN, params![run_id, head], |r| r.get(0))
+                .optional()?
+                .ok_or_else(|| StoreError::RunNotFound(run_id.to_string()))?;
+            // The empty head at 0 is every run's, and is no row.
+            let stored = (head == 0).then(|| ZERO_HASH.into()).or(stored);
+            if stored.as_deref() != Some(hash) {
+                return Err(StoreError::UnknownHead { seq });
+            }
+            let events = self.rows(run_id, Some(head))?;
             verify_chain_after(run_id, seq, hash, &events)?;
             Ok(events)
         })
     }
 
-    /// A run's events past `seq`, in order, parsed and not yet verified.
-    fn events_after(&self, run_id: &str, seq: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT envelope FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq")?;
-        let events = stmt
-            .query_map(params![run_id, seq as i64], |r| r.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+    /// A run's rows in order, parsed and not yet verified: every row of
+    /// it, or those past `after`.
+    fn rows(&self, run_id: &str, after: Option<i64>) -> Result<Vec<EventEnvelope>, StoreError> {
+        let texts = match after {
+            None => self
+                .conn
+                .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?
+                .query_map(params![run_id], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(seq) => self
+                .conn
+                .prepare("SELECT envelope FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq")?
+                .query_map(params![run_id, seq], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+        let events = texts
             .into_iter()
             .map(|raw| serde_json::from_str::<EventEnvelope>(&raw))
             .collect::<Result<Vec<_>, _>>()?;

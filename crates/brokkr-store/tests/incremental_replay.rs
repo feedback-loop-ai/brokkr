@@ -10,9 +10,12 @@
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::envelope::{verify_chain, verify_chain_after, ChainError, EventEnvelope};
+use brokkr_core::envelope::{
+    verify_chain, verify_chain_after, ChainError, EventEnvelope, EventType,
+};
 use brokkr_core::fold::{fold, fold_onto, FoldError, RunState};
 use brokkr_store::{Store, StoreError};
+use serde_json::error::Category;
 use serde_json::json;
 
 /// Every committed fixture journal, by name, with its text. The walk
@@ -151,8 +154,11 @@ fn every_adoptable_fixture_replays_byte_identically_and_incrementally() {
     );
 }
 
-/// A head the journal did not grow from is not continued: the suffix is
-/// refused as a broken chain at its first event, and the caller never
+/// A head the journal did not grow from is not continued, even when
+/// nothing follows it: a run the journal lacks is not found, a head that
+/// is not the run's row at its seq with its hash is unknown (a seq no row
+/// could hold before the journal is asked), and a stored suffix that does
+/// not chain onto the head refuses as a broken chain. The caller never
 /// folds another history onto its state.
 #[test]
 fn a_suffix_is_refused_unless_it_chains_onto_the_callers_head() {
@@ -169,15 +175,113 @@ fn a_suffix_is_refused_unless_it_chains_onto_the_callers_head() {
     assert_eq!(after_first.len(), 104);
     let after_last = store.load_after(&run, last.seq, &last.event_hash);
     assert_eq!(after_last.unwrap().len(), 0);
-    let error = store.load_after(&run, 1, ZERO_HASH).unwrap_err();
-    let StoreError::Chain(chain) = error else {
-        panic!("{error}");
+    assert_eq!(store.load_after(&run, 0, ZERO_HASH).unwrap().len(), 105);
+    let missing = store.load_after("no-such-run", 0, ZERO_HASH);
+    assert!(
+        matches!(&missing, Err(StoreError::RunNotFound(id)) if id == "no-such-run"),
+        "{missing:?}"
+    );
+    let unknown = [
+        (run.as_str(), 1, ZERO_HASH),
+        (&run, 0, &first.event_hash),
+        (&run, last.seq, "garbage"),
+        (&run, last.seq + 1, &last.event_hash),
+        ("no-such-run", 1 << 63, ZERO_HASH),
+        (&run, u64::MAX, &last.event_hash),
+    ]
+    .map(
+        |(run_id, seq, hash)| match store.load_after(run_id, seq, hash) {
+            Err(StoreError::UnknownHead { seq }) => seq,
+            other => panic!("{other:?}"),
+        },
+    );
+    assert_eq!(unknown, [1, 0, 105, 106, 1 << 63, u64::MAX]);
+    let orphan = serde_json::to_string(&events[0]).unwrap();
+    plant(dir.path(), &run, 106, &orphan);
+    let error = store.load_after(&run, last.seq, &last.event_hash);
+    let Err(StoreError::Chain(chain)) = error else {
+        panic!("{error:?}");
     };
     assert_eq!(
         chain,
-        ChainError::BrokenChain {
-            seq: 2,
-            prev_seq: 1
+        ChainError::SeqGap {
+            seq: 1,
+            expected: 106
         }
     );
+}
+
+/// Seal a row straight into the table, past every fence the store keeps:
+/// the schema admits any integer seq, and the append-only triggers guard
+/// UPDATE and DELETE, not INSERT.
+fn plant(dir: &Path, run_id: &str, seq: i64, envelope: &str) {
+    rusqlite::Connection::open(dir.join("forge.db"))
+        .unwrap()
+        .execute(
+            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, 'x', ?3)",
+            rusqlite::params![run_id, seq, envelope],
+        )
+        .unwrap();
+}
+
+/// The whole read judges every row of the run, whatever seq the table
+/// holds it at: a row below seq 1 is refused as it was before the
+/// incremental read (#354), never skipped, and export refuses alike.
+#[test]
+fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    for run_id in ["copy-at-zero", "unparseable", "negative"] {
+        store
+            .create_run(run_id, "feat", "self", &json!({}))
+            .unwrap();
+        let started = json!({"feature": "feat", "manifest": {}});
+        store
+            .append_next(run_id, EventType::RunStarted, started, None, None)
+            .unwrap();
+        let entered = json!({"phase": "intake"});
+        store
+            .append_next(run_id, EventType::PhaseEntered, entered, None, None)
+            .unwrap();
+        assert_eq!(store.load(run_id).unwrap().len(), 2);
+    }
+    let text = |run_id: &str, seq: usize| {
+        serde_json::to_string(&store.load(run_id).unwrap()[seq - 1]).unwrap()
+    };
+    let (first, second) = (text("copy-at-zero", 1), text("negative", 2));
+    plant(dir.path(), "copy-at-zero", 0, &first);
+    plant(dir.path(), "unparseable", 0, "not an envelope");
+    plant(dir.path(), "negative", -5, &second);
+    for (run_id, refusal) in [
+        (
+            "copy-at-zero",
+            Ok(ChainError::SeqGap {
+                seq: 1,
+                expected: 2,
+            }),
+        ),
+        ("unparseable", Err((Category::Syntax, 1, 2))),
+        (
+            "negative",
+            Ok(ChainError::SeqGap {
+                seq: 2,
+                expected: 1,
+            }),
+        ),
+    ] {
+        let load = judged(store.load(run_id).unwrap_err());
+        assert_eq!(load, refusal, "{run_id}");
+        let export = judged(store.export_ndjson(run_id).unwrap_err());
+        assert_eq!(export, refusal, "{run_id}");
+    }
+}
+
+/// A whole read's refusal, comparable: the chain defect, or where and
+/// how the JSON of a row broke.
+fn judged(error: StoreError) -> Result<ChainError, (Category, usize, usize)> {
+    match error {
+        StoreError::Chain(chain) => Ok(chain),
+        StoreError::Json(json) => Err((json.classify(), json.line(), json.column())),
+        other => panic!("{other:?}"),
+    }
 }
