@@ -226,9 +226,9 @@ fn plant(dir: &Path, run_id: &str, seq: i64, envelope: &str) {
 
 /// The whole read judges every row of the run, whatever seq the table
 /// holds it at: a row below seq 1 is refused as it was before the
-/// incremental read (#354), never skipped. Export refuses alike, and so
-/// does the suffix of the empty head, the whole journal read through
-/// `load_after`.
+/// incremental read (#354), never skipped. Export refuses alike, and a
+/// suffix read at any head refuses the run by name: a Replay holding
+/// seq 2 when the row lands must not keep appending to it.
 #[test]
 fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
     let dir = tempfile::tempdir().unwrap();
@@ -251,6 +251,18 @@ fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
         serde_json::to_string(&store.load(run_id).unwrap()[seq - 1]).unwrap()
     };
     let (first, second) = (text("copy-at-zero", 1), text("negative", 2));
+    // Each run's head at seq 2, taken before any row is planted: the head
+    // a Replay would hold when the row lands.
+    let heads: std::collections::HashMap<&str, String> =
+        ["copy-at-zero", "unparseable", "negative"]
+            .into_iter()
+            .map(|run_id| (run_id, store.load(run_id).unwrap()[1].event_hash.clone()))
+            .collect();
+    let planted = std::collections::HashMap::from([
+        ("copy-at-zero", 0),
+        ("unparseable", 0),
+        ("negative", -5),
+    ]);
     plant(dir.path(), "copy-at-zero", 0, &first);
     plant(dir.path(), "unparseable", 0, "not an envelope");
     plant(dir.path(), "negative", -5, &second);
@@ -275,8 +287,23 @@ fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
         assert_eq!(load, refusal, "{run_id}");
         let export = judged(store.export_ndjson(run_id).unwrap_err());
         assert_eq!(export, refusal, "{run_id}");
-        let whole_suffix = judged(store.load_after(run_id, 0, ZERO_HASH).unwrap_err());
-        assert_eq!(whole_suffix, refusal, "{run_id}");
+        // A suffix read never selects a row below seq 1, so at every head,
+        // the empty one included, the row is refused by name.
+        for (seq, hash) in [(0, ZERO_HASH), (2, heads[run_id].as_str())] {
+            match store.load_after(run_id, seq, hash).unwrap_err() {
+                StoreError::RowBeforeChain {
+                    run_id: found,
+                    seq: row,
+                } => {
+                    assert_eq!(
+                        (found.as_str(), row),
+                        (run_id, planted[run_id]),
+                        "{run_id} at {seq}"
+                    );
+                }
+                other => panic!("{run_id} at {seq}: {other:?}"),
+            }
+        }
     }
 }
 
