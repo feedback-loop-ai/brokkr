@@ -1310,11 +1310,13 @@ pub fn native_segment(harness: &str, controls: &Controls) -> Result<Segment, Ref
 // ------------------------------------------------ final assessment
 
 /// The capability state one command expresses (rebuild unit 13; operator
-/// ruling 2 of 2026-09-23; design D6), read from the ONE parse its
-/// harness's grammar gives it and never by searching a value for an
-/// option's spelling. An absent include list and an explicitly empty one
-/// stay apart, and a Codex sandbox class is one effect whether a cold
-/// `--sandbox` or a rejoin's `sandbox_mode` assignment expresses it.
+/// ruling 2 of 2026-09-23; design D6): the ONE state model the composer
+/// writes, the final check reads back and [`check_final`] derives from the
+/// sealed record. It is read from the ONE parse its harness's grammar gives
+/// a command and never by searching a value for an option's spelling. An
+/// absent include list and an explicitly empty one stay apart, and a Codex
+/// sandbox class is one effect whether a cold `--sandbox` or a rejoin's
+/// `sandbox_mode` assignment expresses it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
     /// The include list: `None` where no `--tools` stands and the harness
@@ -1325,13 +1327,76 @@ pub struct State {
     pub deny: Vec<String>,
     /// Codex's sandbox class.
     pub sandbox: Option<String>,
+    /// The native capabilities a measured OFF switches off, in command
+    /// order (rebuild unit 13-fix, F3): Codex's `web_search="disabled"`,
+    /// spelled exactly as the adapter declares it. An ON is Codex's
+    /// measured default and has no argument.
+    pub off: Vec<&'static str>,
     /// Every other capability-bearing option, by canonical name and exact
-    /// values, in command order: an assignment into a capability table, a
-    /// loaded document or a catalogue control.
+    /// values, in command order: a loaded document, a capability server's
+    /// assignment or a catalogue control. Whether each has a meaning the
+    /// sealed record establishes is judged where the state is derived.
     pub controls: Vec<(&'static str, Vec<String>)>,
-    /// The session the command rejoins: Codex's positional identifier or
-    /// Claude's `--resume` value.
+    /// The session the command rejoins: Codex's or DSH's positional
+    /// identifier or Claude's `--resume` value.
     pub session: Option<String>,
+    /// The prompt the command carries as data: DSH's last positional. The
+    /// other harnesses read theirs on stdin.
+    pub prompt: Option<String>,
+}
+
+impl State {
+    /// The state by meaning alone: each list a set, and the OFF switches
+    /// and other controls in one order. Two commands that express the same
+    /// capabilities in another order or with a repeated pattern mean the
+    /// same; a repeated control does not, and is kept.
+    fn meaning(&self) -> State {
+        let set = |names: &[String]| {
+            let mut names = names.to_vec();
+            names.sort();
+            names.dedup();
+            names
+        };
+        let mut meaning = State {
+            include: self.include.as_deref().map(set),
+            allow: set(&self.allow),
+            deny: set(&self.deny),
+            ..self.clone()
+        };
+        meaning.off.sort();
+        meaning.controls.sort();
+        meaning
+    }
+
+    /// The first field in which `self` and `other` differ, in the words a
+    /// refusal names it by.
+    fn departure(&self, other: &State) -> Option<&'static str> {
+        [
+            (self.include != other.include, "its include list"),
+            (self.allow != other.allow, "its allow list"),
+            (self.deny != other.deny, "its deny list"),
+            (self.sandbox != other.sandbox, "its sandbox class"),
+            (self.off != other.off, "its OFF switches"),
+            (
+                self.controls != other.controls,
+                "its other capability-bearing options",
+            ),
+            (self.session != other.session, "the session it rejoins"),
+            (self.prompt != other.prompt, "the prompt it carries"),
+        ]
+        .into_iter()
+        .find_map(|(differs, what)| differs.then_some(what))
+    }
+}
+
+/// What the engine chose for one serving command beside its plan: the
+/// session it rejoins, the one overlay its driver staged and the prompt it
+/// carries as data (rebuild unit 13-fix, F5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Serving<'a> {
+    pub session: Option<&'a str>,
+    pub overlay: Option<&'a str>,
+    pub prompt: Option<&'a str>,
 }
 
 /// A command whose capability state [`check_final`] proved equal to its
@@ -1356,24 +1421,55 @@ impl Checked {
     }
 }
 
+/// The three sandbox classes a command can name, by their words.
+const CLASSES: [SandboxIntent; 3] = [
+    SandboxIntent::ReadOnly,
+    SandboxIntent::WorkspaceWrite,
+    SandboxIntent::DangerFullAccess,
+];
+
+/// The native capability one assignment switches OFF, where it is exactly
+/// a declared, measured OFF: on [`grammar::LAUNCH_SETTINGS`] in the one
+/// canonical spelling [`grammar::launch_setting`] reads, with the admitted
+/// value a declared OFF argv's.
+fn measured_off(assignment: &str) -> Option<&'static str> {
+    let key = grammar::launch_setting(assignment).ok()?;
+    grammar::LAUNCH_SETTINGS
+        .iter()
+        .find(|admitted| admitted.key == key)
+        .and_then(|admitted| admitted.denies)
+}
+
 /// Read one parsed command's [`State`], or the fixed words of what cannot
 /// be read: a list value outside the managed grammar, an assignment with
-/// no bounded meaning, a class expressed twice, or a session selector
-/// other than a rejoin's. Nothing read is echoed.
+/// no bounded meaning, an assignment into a capability table whose meaning
+/// is not established, a class that is none or is expressed twice, or a
+/// session selector other than a rejoin's. Nothing read is echoed.
+///
+/// An assignment into a capability table is read by meaning or refused
+/// (rebuild unit 13-fix, F3): exactly a rejoin's class, exactly a measured
+/// OFF, or a capability server's entry, which the sealed record then has
+/// to establish. Any other spelling or value — a spaced key, a trailing
+/// space, `web_search="live"`, `web_search=garbage`, a web search mode, a
+/// sandbox or approval table — is read as neither ON nor OFF, and refuses.
 fn read_state(command: &Command) -> Result<State, String> {
     let mut state = State::default();
-    let classes = [
-        SandboxIntent::ReadOnly,
-        SandboxIntent::WorkspaceWrite,
-        SandboxIntent::DangerFullAccess,
-    ];
     for node in &command.nodes {
         let at = node.at + 1;
-        let mut class = |class: String| match state.sandbox.replace(class) {
-            None => Ok(()),
-            Some(_) => Err(format!(
-                "expresses the sandbox class a second time (argument {at})"
-            )),
+        let mut class = |word: &str| {
+            let Some(class) = CLASSES.iter().find(|class| class.word() == word) else {
+                return Err(format!(
+                    "carries '{}' (argument {at}), whose value names no sandbox class: \
+                     read-only, workspace-write or danger-full-access",
+                    node.name()
+                ));
+            };
+            match state.sandbox.replace(class.word().to_string()) {
+                None => Ok(()),
+                Some(_) => Err(format!(
+                    "expresses the sandbox class a second time (argument {at})"
+                )),
+            }
         };
         let selector = || {
             Err(format!(
@@ -1403,13 +1499,22 @@ fn read_state(command: &Command) -> Result<State, String> {
                 for value in &node.values {
                     match grammar::setting(value) {
                         Ok(grammar::Setting::Inert(_)) => {}
-                        Ok(grammar::Setting::Capability(_)) => {
-                            match classes
+                        Ok(grammar::Setting::Capability(table)) => {
+                            if let Some(known) = CLASSES
                                 .iter()
                                 .find(|known| grammar::rejoin_class(**known) == *value)
                             {
-                                Some(known) => class(known.word().to_string())?,
-                                None => state.controls.push((node.name(), vec![value.clone()])),
+                                class(known.word())?
+                            } else if let Some(capability) = measured_off(value) {
+                                state.off.push(capability)
+                            } else if table == "mcp_servers" {
+                                state.controls.push((node.name(), vec![value.clone()]))
+                            } else {
+                                return Err(format!(
+                                    "carries '--config' (argument {at}) into the '{table}' \
+                                     configuration in a spelling or with a value whose meaning is \
+                                     not established, so it is read as neither ON nor OFF"
+                                ));
                             }
                         }
                         Err(cause) => {
@@ -1421,7 +1526,7 @@ fn read_state(command: &Command) -> Result<State, String> {
                 }
             }
             Effect::Control(grammar::Power::Permission) if node.name() == "--sandbox" => {
-                class(node.values[0].clone())?
+                class(&node.values[0])?
             }
             Effect::Control(_) | Effect::Load => {
                 state.controls.push((node.name(), node.values.clone()))
@@ -1469,28 +1574,27 @@ fn unchecked<'a>(harness: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
 }
 
 /// The ONE pure check of a complete serving command before its spawn
-/// (rebuild unit 13; operator ruling 2 of 2026-09-23; design D6): the whole
-/// `command`, its program first, after every engine prefix, wrapper option,
-/// expansion and session argument, parsed back at its fixed positions and
-/// compared with the sealed plan. A success is the private [`Checked`]
-/// value the spawn consumes; every departure refuses with a bounded cause
-/// that echoes no value.
+/// (rebuild units 13 and 13-fix; operator ruling 2 of 2026-09-23; design
+/// D6): the whole `command`, its program first, after every engine prefix,
+/// wrapper option, expansion, session argument and prompt, parsed back at
+/// its fixed positions into a [`State`] and compared for exact equality,
+/// twice. A success is the private [`Checked`] value the spawn consumes;
+/// every departure refuses with a bounded cause that echoes no value.
 ///
 /// 1. The plan, the record and the launch name one harness and provider.
 /// 2. The command parses whole under the harness's grammar
 ///    ([`grammar::Grammar::parse_final`]), so a duplicated prefix option,
 ///    a terminator, a dangling value or a misplaced positional refuses, and
 ///    an inert value such as `--image resume` stays a value. A DSH command
-///    patches its profile with exactly the one `overlay` its driver staged
-///    from the seat's bound route and typed rows, and nothing else.
-/// 3. Its [`State`] equals, field by field, the state of the arguments
-///    [`compose_for_provider`] composed from the sealed plan, with the
-///    rejoin the engine chose as `session`: nothing is dropped, added or
+///    patches its profile with exactly the one `overlay` its driver staged,
+///    and ends with its prompt as data.
+/// 3. Its [`State`] equals, field by field and in order, the state of the
+///    arguments [`compose_for_provider`] composed, with the rejoin and the
+///    prompt the engine chose: nothing is dropped, added, reordered or
 ///    contradicted, and an empty include list is not an absent one.
-/// 4. That state holds exactly the authority the sealed `record` gives,
-///    read from its typed expectation and its engine-composed boundary,
-///    and never from either command ([`authority`]): a composition and a
-///    command that are wrong alike still refuse.
+/// 4. Its [`State`] equals, by meaning, the state [`derive`] derives from
+///    the sealed `record` and the plan alone — never from either command —
+///    so a composition and a command that are wrong alike still refuse.
 ///
 /// A harness with no modelled grammar has no final command this can read,
 /// and an opaque driver acquires no guarantee from it.
@@ -1500,8 +1604,7 @@ pub fn check_final(
     composed: &Composed,
     controls: &Controls,
     record: &LaunchRecord,
-    session: Option<&str>,
-    overlay: Option<&str>,
+    serving: Serving<'_>,
 ) -> Result<Checked, Refusal> {
     let refuse = |problem: Vec<Piece<'_>>| unchecked(harness, problem);
     let expected = &record.expected;
@@ -1533,7 +1636,8 @@ pub fn check_final(
     if parsed.session.is_some() {
         observed.session = parsed.session;
     }
-    if parsed.overlay.as_deref() != overlay {
+    observed.prompt = parsed.prompt;
+    if parsed.overlay.as_deref() != serving.overlay {
         return Err(refuse(vec![Piece::Words(
             "does not patch its profile with exactly the one overlay its driver staged",
         )]));
@@ -1556,117 +1660,37 @@ pub fn check_final(
             "was planned from a composition that selects a session itself",
         )]));
     }
-    planned.session = session.map(str::to_string);
-    let departed = [
-        (observed.include != planned.include, "its include list"),
-        (observed.allow != planned.allow, "its allow list"),
-        (observed.deny != planned.deny, "its deny list"),
-        (observed.sandbox != planned.sandbox, "its sandbox class"),
-        (
-            observed.controls != planned.controls,
-            "its other capability-bearing options",
-        ),
-        (
-            observed.session != planned.session,
-            "the session it rejoins",
-        ),
-    ]
-    .into_iter()
-    .find_map(|(differs, what)| differs.then_some(what));
-    if let Some(what) = departed {
-        return Err(refuse(vec![
+    planned.session = serving.session.map(str::to_string);
+    planned.prompt = serving.prompt.map(str::to_string);
+    let departed = |what: &'static str, from: &'static str| {
+        refuse(vec![
             Piece::Words("expresses "),
             Piece::Words(what),
-            Piece::Words(
-                " otherwise than the plan composed it: missing, extra and contradictory state are \
-                 refused alike",
-            ),
-        ]));
+            Piece::Words(from),
+            Piece::Words(": missing, extra and contradictory state are refused alike"),
+        ])
+    };
+    if let Some(what) = observed.departure(&planned) {
+        return Err(departed(what, " otherwise than the plan composed it"));
     }
-    authority(table, &observed, controls, record)?;
+    let derived = derive(table, controls, record, serving)?;
+    if let Some(what) = observed.meaning().departure(&derived.meaning()) {
+        return Err(departed(
+            what,
+            " otherwise than its sealed record derives it",
+        ));
+    }
     Ok(Checked { argv: command })
 }
 
-/// Where one capability-bearing effect of the sealed record comes from:
-/// what [`authority`] accounts a command's effects to, and what it names
-/// when one is missing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Source {
-    Template,
-    Hands,
-    Boundary,
-    /// The plan's own native argv (review F5).
-    Native,
-}
-
-/// What one Codex effect does, read from the grammar's class for its
-/// option and the bounded meaning of an assignment, never from who
-/// supplied it (rebuild unit 13, review F1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Meaning {
-    /// A measured OFF: an assignment on [`grammar::LAUNCH_SETTINGS`] whose
-    /// admitted value is a declared OFF argv's.
-    Off(&'static str),
-    /// A web switch, or any other assignment into a web search table,
-    /// which switches web search on or leaves it to its value.
-    On(&'static str),
-    /// A switch or table that lifts or replaces the sandbox class: the
-    /// bypass, `--full-auto`, and a `sandbox_mode` or
-    /// `sandbox_workspace_write` assignment not read as the class itself.
-    Lifts,
-    /// Anything else, or any effect of another harness.
-    Other,
-}
-
-/// The native capability Codex's web search tables and `--search` reach:
-/// the one its measured OFF denies.
-const CODEX_WEB: &str = "web-search";
-
-/// [`Meaning`] of one effect of a [`State`] read under `table`.
-fn codex_meaning(
-    table: &grammar::Grammar,
-    (name, values): &(&'static str, Vec<String>),
-) -> Meaning {
-    if table.harness != "codex" {
-        return Meaning::Other;
-    }
-    let effect = table
-        .options
-        .iter()
-        .find(|spec| spec.canonical == *name)
-        .map(|spec| spec.effect);
-    match (effect, values.first()) {
-        (Some(Effect::Config), Some(value)) => {
-            let off = grammar::launch_setting(value).ok().and_then(|key| {
-                grammar::LAUNCH_SETTINGS
-                    .iter()
-                    .find(|admitted| admitted.key == key)
-                    .and_then(|admitted| admitted.denies)
-            });
-            match (off, grammar::setting(value)) {
-                (Some(capability), _) => Meaning::Off(capability),
-                (None, Ok(grammar::Setting::Capability("web_search" | "web_search_mode"))) => {
-                    Meaning::On(CODEX_WEB)
-                }
-                (
-                    None,
-                    Ok(grammar::Setting::Capability("sandbox_mode" | "sandbox_workspace_write")),
-                ) => Meaning::Lifts,
-                _ => Meaning::Other,
-            }
-        }
-        (Some(Effect::Control(grammar::Power::Web)), _) => Meaning::On(CODEX_WEB),
-        (Some(Effect::Control(grammar::Power::Permission)), _)
-            if matches!(
-                *name,
-                "--dangerously-bypass-approvals-and-sandbox" | "--full-auto"
-            ) =>
-        {
-            Meaning::Lifts
-        }
-        _ => Meaning::Other,
-    }
-}
+/// Where one sealed contribution stands, in the words a refusal names it
+/// by.
+const TEMPLATE: &str = "its permission template";
+const HANDS: &str = "its hands";
+const BOUNDARY: &str = "its boundary";
+const NATIVE: &str = "its plan's native controls";
+const LOCAL: &str = "its typed local declaration";
+const LOWERED: &str = "its local fragment";
 
 /// The engine's boundary contribution the sealed record carries: its
 /// trailing run of `hands` segments, which the driver receives as the
@@ -1686,7 +1710,7 @@ fn boundary(record: &LaunchRecord) -> Vec<String> {
 /// Whether `state` is the engine's workspace hands for `harness`, as its
 /// adapter composes them: for Claude and LaneTally an empty include list,
 /// strict MCP, exactly one MCP document and the hands tool alone allowed;
-/// for Codex a sandbox class and exactly the engine's own server's
+/// for Codex a sandbox class, no OFF, and exactly the engine's own server's
 /// command, arguments and approving tool mode, each once and spelled
 /// canonically. Anything else — another or a second server, a disabled
 /// one, a server-level denial — is not the hands the record requires.
@@ -1724,67 +1748,77 @@ fn workspace_hands(harness: &str, state: &State, tool: &str) -> bool {
             )
         }
         "codex" => {
-            (state.sandbox.is_some(), approving, effects)
-                == (
-                    true,
-                    true,
-                    vec![
-                        key("args"),
-                        key("command"),
-                        key("default_tools_approval_mode"),
-                    ],
-                )
+            (
+                state.sandbox.is_some(),
+                state.off.is_empty(),
+                approving,
+                effects,
+            ) == (
+                true,
+                true,
+                true,
+                vec![
+                    key("args"),
+                    key("command"),
+                    key("default_tools_approval_mode"),
+                ],
+            )
         }
         _ => false,
     }
 }
 
-/// Step 4 of [`check_final`]: the complete authority the sealed `record`
-/// gives the command, derived from its typed expectation and its
-/// engine-composed boundary — never from the composition or the command,
-/// so both being wrong alike still refuses (design D6: "a round-trip
-/// preserving the same wrong string is insufficient").
+/// Whether one deny pattern denies `tool` outright: a bare name denies
+/// that tool, and a server's own name every tool the server serves. A
+/// pattern with a specifier denies only the calls it matches, so the tool
+/// stays available (rebuild unit 13-fix, F6: the composer and the check
+/// read a denial alike).
+fn denies(pattern: &str, tool: &str) -> bool {
+    !pattern.contains('(')
+        && (pattern == tool
+            || (pattern.starts_with("mcp__")
+                && tool
+                    .strip_prefix(pattern)
+                    .is_some_and(|rest| rest.starts_with("__"))))
+}
+
+/// Step 4 of [`check_final`]: the complete final [`State`] the sealed
+/// `record` and its plan derive, by meaning (rebuild unit 13-fix; design
+/// D6: "a round-trip preserving the same wrong string is insufficient").
+/// Neither command is read. Every sealed contribution is owed, and every
+/// effect is owed by what it means, never accepted for who supplied it.
 ///
 /// - The plan holds, denies and admits exactly the record's native powers,
-///   under its inventory, with no nonempty restriction (D11).
-/// - The local declaration and its application agree: unspecified and
-///   unrestricted, listed and directly applied without hands, or listed
-///   and dormant beside them; and hands are required exactly where the
-///   plan types the box's hands, which are the engine's workspace hands.
-/// - The plan's own native contribution is read whole, independently of
-///   both commands (review F5): a terminator, a positional word, an
-///   unknown option, a dangling value or a session selector in it refuses
-///   even where neither command carries it.
-/// - Every capability-bearing option the command carries is accounted for
-///   once, by the declared permission template, the box's hands, the rest
-///   of the boundary or the plan's native contribution; everything each of
-///   those contributes is carried. An unrelated or disabled server, or any
-///   effect nothing sealed accounts for, refuses.
-/// - Every Codex effect is then judged by its meaning, whoever supplied it
-///   (review F1): an OFF for a held or unanswered power, a web switch or
-///   assignment for a power the plan does not hold, and a switch or table
-///   that lifts or replaces the sandbox class each refuse. Codex denies
-///   each denied power by its OFF and runs exactly the class the hands, the
-///   site or the boundary gives.
-/// - Claude and LaneTally make each held tool, the required hands tool and
-///   each lowered local permission's tool available, and neither a denied
-///   capability's tools nor a held capability's tools its holding does not
-///   admit (review F3); carry an include list exactly where the hands or a
-///   limit writes one, naming held and lowered local tools alone
-///   ([`final_tools`]'s I1), under every sealed limit —
-///   the template's, the boundary's and the plan's own, empty or not —
-///   which must name every held, hands and lowered tool (review F2); allow
-///   only held tools, the hands tool and the lowered local permissions;
-///   deny only what the plan denies; and carry the template's lists and
-///   every name the plan's selection and native lists allow or deny
-///   (review F3).
-/// - Every directly applied local permission is carried.
-fn authority(
+///   under its inventory, with no nonempty restriction (D11); its local
+///   permissions are the ones the record lowered, and its hands are typed
+///   exactly where the record requires them.
+/// - Every contribution is read whole: the declared permission template,
+///   the engine's `local` fragment, which says no more than the typed
+///   local declaration, the box's hands, the rest of the boundary and the
+///   plan's native controls. Each carries only effects whose meaning is
+///   established:
+///   tool lists, one sandbox class, the template's `acceptEdits` mode, a
+///   measured OFF in the plan's own controls, and the hands, which must be
+///   the engine's workspace hands whole. An opaque load, a capability
+///   server outside the hands and any other control refuse (F4).
+/// - Every sandbox contribution — the typed local class, the template's,
+///   the hands', the boundary's and the plan's — names the one class the
+///   launch runs: `danger-full-access` refuses everywhere, two classes
+///   refuse, and a class refuses on a harness with no mapping for it (F2).
+/// - Codex switches OFF exactly the powers its plan denies, by the plan's
+///   own measured OFF.
+/// - Claude and LaneTally carry every contribution's allow and deny lists,
+///   boundary narrowing included (F1), and the selection's and the plan's;
+///   an include list, where the hands or any limit writes one, naming the
+///   held and the lowered local tools (F6), inside every limit with the
+///   required hands tool. Each held, hands and lowered tool stays
+///   available, and each denied or unadmitted guard tool unavailable.
+fn derive(
     table: &grammar::Grammar,
-    observed: &State,
     controls: &Controls,
     record: &LaunchRecord,
-) -> Result<(), Refusal> {
+    serving: Serving<'_>,
+) -> Result<State, Refusal> {
     let harness = table.harness;
     let refuse = |problem: Vec<Piece<'_>>| Err(unchecked(harness, problem));
     let expected = &record.expected;
@@ -1839,8 +1873,30 @@ fn authority(
              them",
         )]);
     }
-    // What the record itself composed, read under the same grammar.
-    let read = |argv: &[String]| table.parse(argv).ok().and_then(|c| read_state(&c).ok());
+    let direct: &[String] = match &local.application {
+        Application::Direct(limits) => limits,
+        _ => &[],
+    };
+    if controls.provenance.local != direct {
+        return refuse(vec![Piece::Words(
+            "was planned with local permissions other than the ones its sealed record lowered",
+        )]);
+    }
+    let lists = matches!(harness, "claude" | "lanetally");
+    if !lists && !direct.is_empty() {
+        return refuse(vec![Piece::Words(
+            "is sealed with local permissions its harness has no tool list for",
+        )]);
+    }
+    // What the record itself composed, each part read whole under the
+    // same grammar; a part that selects a session is not read.
+    let read = |argv: &[String]| {
+        table
+            .parse(argv)
+            .ok()
+            .and_then(|c| read_state(&c).ok())
+            .filter(|state| state.session.is_none())
+    };
     let fragment = boundary(record);
     let typed = controls.provenance.hands;
     if typed > fragment.len() {
@@ -1863,8 +1919,35 @@ fn authority(
             "is sealed with a permission template that cannot be read",
         )]);
     };
+    // The engine's `local` fragment: the lowered permissions and the
+    // inline class, which say no more than the typed declaration does.
+    let lowering: Vec<Segment> = record
+        .segments
+        .iter()
+        .filter(|segment| segment.origin == Origin::Local)
+        .cloned()
+        .collect();
+    let lowering = match read(&flatten(&lowering)) {
+        Some(lowering)
+            if lowering.include.is_none()
+                && lowering.deny.is_empty()
+                && lowering.off.is_empty()
+                && lowering.controls.is_empty()
+                && lowering
+                    .allow
+                    .iter()
+                    .all(|pattern| direct.contains(pattern)) =>
+        {
+            lowering
+        }
+        _ => {
+            return refuse(vec![Piece::Words(
+                "is sealed with a local fragment that says more than its typed local declaration",
+            )])
+        }
+    };
     // The plan's own native contribution, read whole under the same
-    // grammar whether or not either command carries it (review F5).
+    // grammar whether or not either command carries it.
     let native = match table.parse(&controls.argv) {
         Ok(native) => native,
         Err(problem) => {
@@ -1913,369 +1996,335 @@ fn authority(
         _ => {}
     }
 
-    // Every capability-bearing option, accounted for once.
-    let mut owed: Vec<(Source, &(&'static str, Vec<String>))> = [
-        (Source::Template, &template),
-        (Source::Hands, &hands),
-        (Source::Boundary, &rest),
-        (Source::Native, &native),
-    ]
-    .into_iter()
-    .flat_map(|(source, state)| state.controls.iter().map(move |effect| (source, effect)))
-    .collect();
-    let holds = |capability: &str| held.iter().any(|power| power.capability == capability);
-    let mut off: Vec<&'static str> = Vec::new();
-    for effect in &observed.controls {
-        let (name, values) = effect;
-        // "carries '<option>'", and for an assignment its capability table.
-        let mut pieces = vec![Piece::Words("carries "), Piece::Flag(name)];
-        if let Some(Ok(grammar::Setting::Capability(configured))) =
-            values.first().map(|value| grammar::setting(value))
+    // Each contribution carries only effects whose meaning is established
+    // (F4): the template's one permission mode; a measured OFF in the
+    // plan's own controls; and, in the lists and classes judged below,
+    // nothing else. The hands were judged whole above.
+    let contributions = [(TEMPLATE, &template), (BOUNDARY, &rest), (NATIVE, &native)];
+    for (source, state) in contributions {
+        let mode = ("--permission-mode", vec!["acceptEdits".to_string()]);
+        if let Some((name, values)) = state
+            .controls
+            .iter()
+            .find(|effect| !(source == TEMPLATE && lists && **effect == mode))
         {
-            pieces.extend([
-                Piece::Words(" into the '"),
-                Piece::Words(configured),
-                Piece::Words("' configuration"),
-            ]);
-        }
-        let Some(at) = owed.iter().position(|(_, owed)| *owed == effect) else {
-            pieces.push(Piece::Words(
-                ", a capability-bearing effect its sealed record does not account for: only its \
-                 permission template, its hands, its boundary and its plan's native controls may \
-                 carry one",
-            ));
-            return refuse(pieces);
-        };
-        owed.remove(at);
-        // Accounted for by origin, the effect is still judged by what it
-        // does, whoever supplied it (review F1).
-        match codex_meaning(table, effect) {
-            Meaning::Off(capability) if holds(capability) => {
-                return refuse(vec![
-                    Piece::Words("switches OFF "),
-                    Piece::Capability(capability),
-                    Piece::Words(", which its plan holds"),
-                ])
-            }
-            Meaning::Off(capability) if !denied.iter().any(|name| name == capability) => {
-                return refuse(vec![
-                    Piece::Words("switches OFF "),
-                    Piece::Capability(capability),
-                    Piece::Words(", which its plan neither holds nor denies"),
-                ])
-            }
-            Meaning::Off(capability) => off.push(capability),
-            Meaning::On(capability) if !holds(capability) => {
+            let mut pieces = vec![Piece::Words("is sealed with "), Piece::Flag(name)];
+            if let Some(Ok(grammar::Setting::Capability(configured))) =
+                values.first().map(|value| grammar::setting(value))
+            {
                 pieces.extend([
-                    Piece::Words(", switching on "),
-                    Piece::Capability(capability),
-                    Piece::Words(", which its plan does not hold"),
+                    Piece::Words(" into the '"),
+                    Piece::Words(configured),
+                    Piece::Words("' configuration"),
                 ]);
-                return refuse(pieces);
             }
-            Meaning::Lifts => {
-                pieces.push(Piece::Words(
-                    ", which lifts or replaces the sandbox class its sealed record expects",
-                ));
-                return refuse(pieces);
-            }
-            Meaning::On(_) | Meaning::Other => {}
+            pieces.extend([
+                Piece::Words(" in "),
+                Piece::Words(source),
+                Piece::Words(", an effect whose meaning its sealed record does not establish"),
+            ]);
+            return refuse(pieces);
         }
-    }
-    match owed.first().map(|(source, _)| *source) {
-        None => {}
-        Some(Source::Template) => {
-            return refuse(vec![Piece::Words(
-                "does not carry the permission template its sealed record declares, once",
-            )])
-        }
-        Some(Source::Hands) => return hands_missing(),
-        Some(Source::Boundary) => {
-            return refuse(vec![Piece::Words(
-                "does not carry the boundary its sealed record composed",
-            )])
-        }
-        Some(Source::Native) => {
-            return refuse(vec![Piece::Words(
-                "does not carry the native controls its plan composed",
-            )])
+        if let Some(capability) = state.off.first().filter(|_| source != NATIVE) {
+            return refuse(vec![
+                Piece::Words("is sealed with an OFF for "),
+                Piece::Capability(capability),
+                Piece::Words(" in "),
+                Piece::Words(source),
+                Piece::Words(", where only its plan's native controls switch a power OFF"),
+            ]);
         }
     }
 
-    let named = |list: &[String], name: &str| list.iter().any(|pattern| pattern == name);
-    match harness {
-        "codex" => {
-            if let Some(capability) = denied
-                .iter()
-                .find(|capability| !off.contains(&capability.as_str()))
-            {
-                return refuse(vec![
-                    Piece::Words("carries no measured OFF for "),
-                    Piece::Capability(capability),
-                    Piece::Words(", which its plan denies"),
-                ]);
-            }
-            let class = match (required, local.sandbox) {
-                (true, _) => hands.sandbox.clone(),
-                (false, SandboxIntent::Unspecified) => rest.sandbox.clone(),
-                (false, class) => Some(class.word().to_string()),
-            };
-            if observed.sandbox != class {
-                return refuse(vec![Piece::Words(
-                    "does not carry the sandbox class its sealed record expects",
-                )]);
-            }
-        }
-        "claude" | "lanetally" => {
-            // A bare name in the deny list denies the tool, and the
-            // server's own name every tool it serves; a pattern with a
-            // specifier denies only the calls it matches.
-            let available = |tool: &str| {
-                observed.include.as_ref().is_none_or(|include| {
-                    include
-                        .iter()
-                        .any(|pattern| grammar::tool_name(pattern) == tool)
-                }) && !named(&observed.deny, tool)
-            };
-            for power in held {
-                if let Some(tool) = power.tools.iter().find(|tool| !available(tool)) {
-                    return refuse(vec![
-                        Piece::Words("does not make "),
-                        Piece::Tool(tool),
-                        Piece::Words(" available, which its plan holds for "),
-                        Piece::Capability(&power.capability),
-                    ]);
-                }
-            }
-            // A holding admits a subset of its capability's tools, and the
-            // rest stay unavailable (review F3).
-            let held_tools: Vec<&String> = held.iter().flat_map(|power| &power.tools).collect();
-            for power in held {
-                if let Some(tool) = controls
-                    .guards
-                    .iter()
-                    .filter(|guard| guard.capability == power.capability)
-                    .flat_map(|guard| &guard.tools)
-                    .find(|tool| !held_tools.contains(tool) && available(tool))
-                {
-                    return refuse(vec![
-                        Piece::Words("leaves "),
-                        Piece::Tool(tool),
-                        Piece::Words(" available, which its plan's holding of "),
-                        Piece::Capability(&power.capability),
-                        Piece::Words(" does not admit"),
-                    ]);
-                }
-            }
-            let mut forbidden: Vec<&String> = Vec::new();
-            for capability in denied {
-                let tools: Vec<&String> = controls
-                    .guards
-                    .iter()
-                    .filter(|guard| &guard.capability == capability)
-                    .flat_map(|guard| &guard.tools)
-                    .collect();
-                if tools.is_empty() {
-                    return refuse(vec![
-                        Piece::Words("cannot be read for the denial of "),
-                        Piece::Capability(capability),
-                        Piece::Words(", for which its plan names no tool"),
-                    ]);
-                }
-                if let Some(tool) = tools.iter().find(|tool| available(tool)) {
-                    return refuse(vec![
-                        Piece::Words("leaves "),
-                        Piece::Tool(tool),
-                        Piece::Words(" available, which its plan denies as "),
-                        Piece::Capability(capability),
-                    ]);
-                }
-                forbidden.extend(tools);
-            }
-            let server = format!("mcp__{}", crate::hands::SERVER_NAME);
-            let hands_denied = observed
-                .deny
-                .iter()
-                .any(|pattern| *pattern == hands_tool || *pattern == server);
-            if required && (hands_denied || !named(&observed.allow, &hands_tool)) {
-                return hands_missing();
-            }
-            let limited = [&template, &hands, &rest, &native]
-                .iter()
-                .any(|state| state.include.is_some());
-            if observed.include.is_some() != limited {
-                return refuse(vec![Piece::Words(match limited {
-                    true => "carries no include list, which its sealed hands or limits write",
-                    false => {
-                        "carries an include list that nothing its sealed record composed writes"
-                    }
-                })]);
-            }
-            let direct: &[String] = match &local.application {
-                Application::Direct(limits) => limits,
-                _ => &[],
-            };
-            // Every sealed limit but the hands' own base, empty or not,
-            // names every tool the command must make available: a hard
-            // limit is never widened by union (review F2; design D6).
-            let limits = [
-                ("the permission template's", &template.include),
-                ("the boundary's", &rest.include),
-                ("the plan's native", &native.include),
-            ];
-            for (owner, limit) in limits
-                .iter()
-                .filter_map(|(owner, include)| include.as_ref().map(|limit| (*owner, limit)))
-            {
-                let out = |tool: &&str| !named(limit, tool);
-                let left = held
-                    .iter()
-                    .find_map(|power| {
-                        let tool = power.tools.iter().map(String::as_str).find(out)?;
-                        Some((
-                            tool,
-                            vec![
-                                Piece::Words(" that its plan holds for "),
-                                Piece::Capability(&power.capability),
-                            ],
-                        ))
-                    })
-                    .or_else(|| {
-                        let tool =
-                            Some(hands_tool.as_str()).filter(|tool| required && out(tool))?;
-                        Some((tool, vec![Piece::Words(" that its sealed hands require")]))
-                    })
-                    .or_else(|| {
-                        let tool = direct
-                            .iter()
-                            .map(|pattern| grammar::tool_name(pattern))
-                            .find(out)?;
-                        let why = " that its sealed record lowered as a local permission";
-                        Some((tool, vec![Piece::Words(why)]))
-                    });
-                if let Some((tool, why)) = left {
-                    let mut pieces = vec![
-                        Piece::Words("is sealed under "),
-                        Piece::Words(owner),
-                        Piece::Words(" include list, which leaves out "),
-                        Piece::Tool(tool),
-                    ];
-                    pieces.extend(why);
-                    return refuse(pieces);
-                }
-            }
-            if let Some(tool) = direct
-                .iter()
-                .map(|pattern| grammar::tool_name(pattern))
-                .find(|tool| !available(tool))
-            {
-                return refuse(vec![
-                    Piece::Words("does not make "),
-                    Piece::Tool(tool),
-                    Piece::Words(
-                        " available, which its sealed record lowered as a local permission",
-                    ),
-                ]);
-            }
-            // What the include list names is held or a lowered local
-            // permission's tool, which it must name to leave that
-            // permission available (above).
-            if let Some(pattern) = observed.include.iter().flatten().find(|pattern| {
-                !held_tools.contains(pattern)
-                    && !direct
-                        .iter()
-                        .any(|limit| grammar::tool_name(limit) == pattern.as_str())
-            }) {
-                return refuse(vec![
-                    Piece::Words("includes "),
-                    Piece::Tool(pattern),
-                    Piece::Words(
-                        ", which its sealed record neither holds nor lowered as a local permission",
-                    ),
-                ]);
-            }
-            let permitted = |pattern: &String| {
-                held_tools.contains(&pattern)
-                    || named(direct, pattern)
-                    || (required && *pattern == hands_tool)
-            };
-            if let Some(pattern) = observed.allow.iter().find(|pattern| !permitted(pattern)) {
-                return refuse(vec![
-                    Piece::Words("allows "),
-                    Piece::Tool(pattern),
-                    Piece::Words(
-                        " beyond its sealed holdings, its hands and its lowered local permissions",
-                    ),
-                ]);
-            }
-            let denies: Vec<&String> = forbidden
-                .into_iter()
-                .chain(&controls.selection.deny)
-                .chain(&native.deny)
-                .chain(&template.deny)
-                .collect();
-            if let Some(pattern) = observed
-                .deny
-                .iter()
-                .find(|pattern| !denies.contains(pattern))
-            {
-                return refuse(vec![
-                    Piece::Words("denies "),
-                    Piece::Tool(pattern),
-                    Piece::Words(", which neither its sealed record nor its plan denies"),
-                ]);
-            }
-            let listed = |template: &[String], observed: &[String]| {
-                template.iter().all(|pattern| named(observed, pattern))
-            };
-            if !listed(&template.allow, &observed.allow) || !listed(&template.deny, &observed.deny)
-            {
-                return refuse(vec![Piece::Words(
-                    "does not carry the permission template its sealed record declares, once",
-                )]);
-            }
-            // What the plan's selection and its native lists admit and deny
-            // is carried, so an admission or a narrowing denial dropped from
-            // both commands alike still refuses (review F3).
-            if let Some(pattern) = controls
-                .selection
-                .allow
-                .iter()
-                .chain(&native.allow)
-                .find(|pattern| !named(&observed.allow, pattern))
-            {
-                return refuse(vec![
-                    Piece::Words("does not allow "),
-                    Piece::Tool(pattern),
-                    Piece::Words(", which its plan's selection or native controls admit"),
-                ]);
-            }
-            if let Some(pattern) = controls
-                .selection
-                .deny
-                .iter()
-                .chain(&native.deny)
-                .find(|pattern| !named(&observed.deny, pattern))
-            {
-                return refuse(vec![
-                    Piece::Words("does not deny "),
-                    Piece::Tool(pattern),
-                    Piece::Words(", which its plan's selection or native controls deny"),
-                ]);
-            }
-        }
-        _ => {}
+    // One sandbox class, from every sealed contribution (F2).
+    let mut classes: Vec<(&'static str, SandboxIntent)> = Vec::new();
+    if local.sandbox != SandboxIntent::Unspecified {
+        classes.push((LOCAL, local.sandbox));
     }
-    if let Application::Direct(limits) = &local.application {
-        if let Some(limit) = limits.iter().find(|limit| !named(&observed.allow, limit)) {
+    for (source, state) in [
+        (LOWERED, &lowering),
+        (TEMPLATE, &template),
+        (HANDS, &hands),
+        (BOUNDARY, &rest),
+        (NATIVE, &native),
+    ] {
+        if let Some(word) = &state.sandbox {
+            let class = *CLASSES
+                .iter()
+                .find(|class| class.word() == word)
+                .expect("a read class is one of the three");
+            classes.push((source, class));
+        }
+    }
+    if let Some((source, _)) = classes.first().filter(|_| harness != "codex") {
+        return refuse(vec![
+            Piece::Words("is sealed with a sandbox class in "),
+            Piece::Words(source),
+            Piece::Words(", which its harness has no established mapping for (design D5.3)"),
+        ]);
+    }
+    if let Some((source, _)) = classes
+        .iter()
+        .find(|(_, class)| *class == SandboxIntent::DangerFullAccess)
+    {
+        return refuse(vec![
+            Piece::Words("is sealed with the 'danger-full-access' sandbox class in "),
+            Piece::Words(source),
+            Piece::Words(
+                ", which no path admits (operator ruling of 2026-09-25, \"narrow\"; design D5.3)",
+            ),
+        ]);
+    }
+    if let Some(((first, one), (second, other))) = classes.first().and_then(|first| {
+        classes
+            .iter()
+            .find(|(_, class)| *class != first.1)
+            .map(|other| (*first, *other))
+    }) {
+        return refuse(vec![
+            Piece::Words("is sealed with a '"),
+            Piece::Words(one.word()),
+            Piece::Words("' sandbox class in "),
+            Piece::Words(first),
+            Piece::Words(" and a '"),
+            Piece::Words(other.word()),
+            Piece::Words("' one in "),
+            Piece::Words(second),
+            Piece::Words(", and one launch runs one class"),
+        ]);
+    }
+    let sandbox = classes.first().map(|(_, class)| class.word().to_string());
+
+    // Codex denies each denied power by the plan's own measured OFF.
+    let holds = |capability: &str| held.iter().any(|power| power.capability == capability);
+    for capability in &native.off {
+        if holds(capability) {
             return refuse(vec![
-                Piece::Words("does not carry the local permission for "),
-                Piece::Tool(limit),
-                Piece::Words(" its sealed record lowered"),
+                Piece::Words("switches OFF "),
+                Piece::Capability(capability),
+                Piece::Words(", which its plan holds"),
+            ]);
+        }
+        if !denied.iter().any(|name| name == capability) {
+            return refuse(vec![
+                Piece::Words("switches OFF "),
+                Piece::Capability(capability),
+                Piece::Words(", which its plan neither holds nor denies"),
             ]);
         }
     }
-    Ok(())
+    if harness == "codex" {
+        if let Some(capability) = denied
+            .iter()
+            .find(|capability| !native.off.contains(&capability.as_str()))
+        {
+            return refuse(vec![
+                Piece::Words("carries no measured OFF for "),
+                Piece::Capability(capability),
+                Piece::Words(", which its plan denies"),
+            ]);
+        }
+    }
+
+    let mut state = State {
+        sandbox,
+        off: native.off.clone(),
+        controls: [template.controls.clone(), hands.controls.clone()].concat(),
+        session: serving.session.map(str::to_string),
+        prompt: serving.prompt.map(str::to_string),
+        ..State::default()
+    };
+    if !lists {
+        return Ok(state);
+    }
+
+    // Claude and LaneTally: every contribution's lists (F1), the
+    // selection's and the plan's.
+    let held_tools: Vec<&String> = held.iter().flat_map(|power| &power.tools).collect();
+    if let Some(tool) = controls
+        .selection
+        .include
+        .iter()
+        .find(|name| !held_tools.contains(name))
+    {
+        return refuse(vec![
+            Piece::Words("includes "),
+            Piece::Tool(tool),
+            Piece::Words(
+                ", which its sealed record neither holds nor lowered as a local permission",
+            ),
+        ]);
+    }
+    let allow = distinct(
+        template
+            .allow
+            .iter()
+            .chain(&lowering.allow)
+            .chain(&hands.allow)
+            .chain(&rest.allow)
+            .chain(direct)
+            .chain(&controls.selection.allow)
+            .chain(&native.allow),
+    );
+    let permitted = |pattern: &String| {
+        held_tools
+            .iter()
+            .any(|tool| tool.as_str() == grammar::tool_name(pattern))
+            || direct.contains(pattern)
+            || (required && *pattern == hands_tool)
+    };
+    if let Some(pattern) = allow.iter().find(|pattern| !permitted(pattern)) {
+        return refuse(vec![
+            Piece::Words("allows "),
+            Piece::Tool(pattern),
+            Piece::Words(
+                " beyond its sealed holdings, its hands and its lowered local permissions",
+            ),
+        ]);
+    }
+    let deny = distinct(
+        template
+            .deny
+            .iter()
+            .chain(&hands.deny)
+            .chain(&rest.deny)
+            .chain(&controls.selection.deny)
+            .chain(&native.deny),
+    );
+    let local_tools: Vec<&str> = direct
+        .iter()
+        .map(|limit| grammar::tool_name(limit))
+        .collect();
+    // Every sealed limit but the hands' own base, empty or not, names
+    // every tool the command must make available: a hard limit is never
+    // widened by union (design D6).
+    let limits = [
+        ("the permission template's", &template.include),
+        ("the boundary's", &rest.include),
+        ("the plan's native", &native.include),
+    ];
+    for (owner, limit) in limits
+        .iter()
+        .filter_map(|(owner, include)| include.as_ref().map(|limit| (*owner, limit)))
+    {
+        let out = |tool: &&str| !limit.iter().any(|named| named == tool);
+        let left = held
+            .iter()
+            .find_map(|power| {
+                let tool = power.tools.iter().map(String::as_str).find(out)?;
+                Some((
+                    tool,
+                    vec![
+                        Piece::Words(" that its plan holds for "),
+                        Piece::Capability(&power.capability),
+                    ],
+                ))
+            })
+            .or_else(|| {
+                let tool = Some(hands_tool.as_str()).filter(|tool| required && out(tool))?;
+                Some((tool, vec![Piece::Words(" that its sealed hands require")]))
+            })
+            .or_else(|| {
+                let tool = local_tools.iter().copied().find(out)?;
+                let why = " that its sealed record lowered as a local permission";
+                Some((tool, vec![Piece::Words(why)]))
+            });
+        if let Some((tool, why)) = left {
+            let mut pieces = vec![
+                Piece::Words("is sealed under "),
+                Piece::Words(owner),
+                Piece::Words(" include list, which leaves out "),
+                Piece::Tool(tool),
+            ];
+            pieces.extend(why);
+            return refuse(pieces);
+        }
+    }
+    let limited = [&template, &hands, &rest, &native]
+        .iter()
+        .any(|state| state.include.is_some());
+    let include = limited.then(|| {
+        distinct(
+            held_tools
+                .iter()
+                .map(|tool| tool.as_str())
+                .chain(local_tools.iter().copied()),
+        )
+    });
+    let available = |tool: &str| {
+        include
+            .as_ref()
+            .is_none_or(|include| include.iter().any(|named| named == tool))
+            && !deny.iter().any(|pattern| denies(pattern, tool))
+    };
+    for power in held {
+        if let Some(tool) = power.tools.iter().find(|tool| !available(tool)) {
+            return refuse(vec![
+                Piece::Words("does not make "),
+                Piece::Tool(tool),
+                Piece::Words(" available, which its plan holds for "),
+                Piece::Capability(&power.capability),
+            ]);
+        }
+    }
+    // A holding admits a subset of its capability's tools, and the rest
+    // stay unavailable.
+    for power in held {
+        if let Some(tool) = controls
+            .guards
+            .iter()
+            .filter(|guard| guard.capability == power.capability)
+            .flat_map(|guard| &guard.tools)
+            .find(|tool| !held_tools.contains(tool) && available(tool))
+        {
+            return refuse(vec![
+                Piece::Words("leaves "),
+                Piece::Tool(tool),
+                Piece::Words(" available, which its plan's holding of "),
+                Piece::Capability(&power.capability),
+                Piece::Words(" does not admit"),
+            ]);
+        }
+    }
+    for capability in denied {
+        let tools: Vec<&String> = controls
+            .guards
+            .iter()
+            .filter(|guard| &guard.capability == capability)
+            .flat_map(|guard| &guard.tools)
+            .collect();
+        if tools.is_empty() {
+            return refuse(vec![
+                Piece::Words("cannot be read for the denial of "),
+                Piece::Capability(capability),
+                Piece::Words(", for which its plan names no tool"),
+            ]);
+        }
+        if let Some(tool) = tools.iter().find(|tool| available(tool)) {
+            return refuse(vec![
+                Piece::Words("leaves "),
+                Piece::Tool(tool),
+                Piece::Words(" available, which its plan denies as "),
+                Piece::Capability(capability),
+            ]);
+        }
+    }
+    // The workspace hands allow their tool (judged above); no sealed
+    // denial may take it, by name or by server.
+    if required && deny.iter().any(|pattern| denies(pattern, &hands_tool)) {
+        return hands_missing();
+    }
+    if let Some(tool) = local_tools.iter().find(|tool| !available(tool)) {
+        return refuse(vec![
+            Piece::Words("does not make "),
+            Piece::Tool(tool),
+            Piece::Words(" available, which its sealed record lowered as a local permission"),
+        ]);
+    }
+    state.include = include;
+    state.allow = allow;
+    state.deny = deny;
+    Ok(state)
 }
 
 /// The engine-private input key carrying the charter text the dispatch
@@ -2775,8 +2824,10 @@ fn distinct<S: AsRef<str>>(names: impl IntoIterator<Item = S>) -> Vec<String> {
 ///   ([`Conflict::Outside`]). Where an include list is written it names
 ///   every held tool.
 /// - I3: with the box's hands, or under any limit, the include list is the
-///   held tools; the hands tool rides the hands' own allow list. A managed
-///   boundary fragment's list is one of the limits, never a base.
+///   held tools and the tools of the carried local permissions the engine
+///   lowered (rebuild unit 13-fix, F6), which every limit names (I2); the
+///   hands tool rides the hands' own allow list. A managed boundary
+///   fragment's list is one of the limits, never a base.
 pub fn final_tools(
     admits: &BTreeMap<String, Vec<String>>,
     sources: Sources<'_>,
@@ -2830,10 +2881,25 @@ pub fn final_tools(
         }
     }
     // Every name the selection includes is held (above), so it only orders
-    // the held tools.
+    // the held tools; a lowered local permission's tool follows them, so
+    // the include list leaves that permission available (rebuild unit
+    // 13-fix, F6).
+    let lowered = sources
+        .carried
+        .iter()
+        .filter(|name| sources.local.contains(name))
+        .map(|name| grammar::tool_name(name));
     Ok(Toolset {
-        include: (hands || !limits.is_empty())
-            .then(|| distinct(sources.include.iter().map(String::as_str).chain(held))),
+        include: (hands || !limits.is_empty()).then(|| {
+            distinct(
+                sources
+                    .include
+                    .iter()
+                    .map(String::as_str)
+                    .chain(held)
+                    .chain(lowered),
+            )
+        }),
         allow: distinct(sources.carried.iter().chain(sources.allow)),
     })
 }
@@ -3686,7 +3752,13 @@ pub fn compose_or_exclude(
                 .collect();
             // Named by its tool alone, through the one bounded renderer
             // (rebuild unit 12-fix-d): the pattern's payload is never said.
-            if let Some(tool) = folding[1].all().into_iter().find(|t| admitted.contains(t)) {
+            // A bare denial denies every pattern of its tool, as the final
+            // check reads it (rebuild unit 13-fix, F6).
+            if let Some(tool) = folding[1].all().into_iter().find(|denial| {
+                admitted.iter().any(|admission| {
+                    admission == denial || denies(denial, grammar::tool_name(admission))
+                })
+            }) {
                 return Err(unconsumed_naming(
                     provider,
                     vec![Piece::Tool(tool), Piece::Words(" both admitted and denied")],

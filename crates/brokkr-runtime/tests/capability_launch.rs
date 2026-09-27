@@ -6569,12 +6569,13 @@ fn a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened() {
          than unioned (design D6)"
     );
     // Dropped, the fetch leaves nothing held: the template's list is
-    // written empty in place, Read and Bash being names only the template
-    // gives (unit 12-fix-b, I1).
+    // written in place naming the typed local permission's Bash alone, Read
+    // being a name only the template gives (unit 12-fix-b, I1; unit 13-fix,
+    // F6).
     assert_eq!(
         templated("Read,Bash", "wants"),
         template(&[
-            "",
+            "Bash",
             "--model",
             "claude-opus-5-5",
             "--effort",
@@ -6985,7 +6986,7 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
             "--permission-mode",
             "acceptEdits",
             "--tools",
-            "",
+            "Bash",
             "--model",
             "claude-opus-5-5",
             "--effort",

@@ -2023,9 +2023,9 @@ Result: **complete** (evidence.md, "Unit 12-fix-f").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
-- [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
+- [x] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
 
-- [ ] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
+- [x] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
 
 Unit 13 (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-9db14032`,
 based on `67571c3b`; evidence.md, "Unit 13"):
@@ -2184,6 +2184,33 @@ until the patch lands and is reviewed.
   addendum since `be1f094d`, so the stop stands (evidence.md, "Unit
   13-fix re-fire"). Both saved patches still apply to `be1f094d` and still
   hold; 13.1 and 13.2 stay unticked.
+
+Unit 13-fix second visit (2026-09-27, run
+`0065-rebuild-unit-13-see-the-uni-e6795fae`, based on `90d49864`;
+evidence.md, "Unit 13-fix second visit"). **Result: complete.** The
+operator's 2026-09-27 ruling admits the two `capability_launch.rs`
+expectations as assertion updates only. It is appended verbatim to
+`operator-ruling-2026-09-23.md`. Both saved patches were applied unchanged,
+and their hashes match the record. 13.1 and 13.2 are ticked here; they are
+still subject to the council.
+
+- **Admitted changes** (`crates/brokkr-runtime/tests/capability_launch.rs`).
+  At `:6572-6578`, the comment is corrected and `""` becomes `"Bash"`; at
+  `:6989`, `""` becomes `"Bash"`. The reason is F6: the typed `Bash(ls:*)`
+  under the template's `Read,Bash` limit stays usable. The baseline red is
+  0 passed / 2 failed with only `full.patch`. The restored pass is 53
+  passed. Mutation N7 fails both again.
+- **Mutation proofs.** N1–N8 cover F1 (boundary deny), F2 (native class
+  and `danger-full-access`), F3 (unestablished assignment), F4 (unjudged
+  effects), F5 (missing DSH prompt), F6 (lowered tools) and the skipped
+  derived-state equality. Each compiled, was caught and was restored, and
+  `cmp` confirmed the restoration byte for byte.
+- **Gates.** fmt, `git diff --check`, workspace clippy with `-D warnings`,
+  the workspace tests (exit 0, 77 ok summaries), both bundles and strict
+  OpenSpec (18/18) are clean.
+- Fixture migrations and standing-admission lines: none.
+- **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
+  box, macOS, remote CI and the council.
 
 ## 14. Unit 14 — Integrate checked cold commands
 

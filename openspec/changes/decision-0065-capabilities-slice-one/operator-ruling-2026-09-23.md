@@ -182,3 +182,7 @@ OPERATOR RULING, 2026-09-26 (F2 option a): the re-planted panel-member rows, whi
 ## Addendum, 2026-09-27: rebuild unit 12-fix-e's one expectation
 
 OPERATOR RULING, 2026-09-27: admitted for this unit, as an assertion update only, the one expectation at crates/brokkr-protocol/src/adapters/tests.rs:15027 (an_authored_plugin_or_later_list_value_is_refused_at_the_final_command). It asserted a 520-scalar refusal, which breaches D6's 512-scalar bound. It becomes the line's first 511 scalars and "…", exactly as the proposed patch writes it. Apply full.patch and the proposed patch, re-verify the record in evidence.md, take the mutation proofs, and record the admitted change with its baseline red. Anything else outside the unit's files still stops.
+
+## Addendum, 2026-09-27: rebuild unit 13-fix's two expectations
+
+OPERATOR RULING, 2026-09-27: admitted for this unit, as assertion updates only, the two expectations in crates/brokkr-runtime/tests/capability_launch.rs at :6576 (a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened) and :6988 (every_position_reproduction_refuses_by_provenance_and_typed_origins_launch). Each `""` becomes `"Bash"`, because the typed local permission Bash(ls:*) under the template's --tools Read,Bash limit is usable (F6), and the first comment is corrected, exactly as the proposed patch writes it. Apply both patches, re-verify the record, take the mutation proofs, and record the admitted changes with their baseline reds. Anything else outside the unit's files still stops.

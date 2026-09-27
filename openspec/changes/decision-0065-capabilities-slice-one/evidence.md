@@ -13203,3 +13203,91 @@ admissions. This visit re-verified the saved work and did not rebuild it.
 
 **Pending:** the operator's ruling on the two expectations. After it, apply
 both patches, run the full gates, commit, then the council.
+
+## Unit 13-fix second visit — the patch lands under the 2026-09-27 ruling
+
+Run `0065-rebuild-unit-13-see-the-uni-e6795fae`, based on `90d49864`. The
+operator's ruling of 2026-09-27 admits the two `capability_launch.rs`
+expectations for this unit, as assertion updates only. It is appended
+verbatim to `operator-ruling-2026-09-23.md` as "2026-09-27: rebuild unit
+13-fix's two expectations". This visit applied both saved patches unchanged,
+re-verified the record, took the mutation proofs again and committed.
+
+- **The patches are the recorded ones.** `sha256sum` gave `dc9621e1…0619`
+  for `.forge/unit-13-fix/full.patch` and `0289eaa7…a83a8` for
+  `capability-launch.proposed.patch`. Both passed `git apply --check` on
+  `90d49864` and were applied as saved. The diff touches
+  `native_controls.rs`, `native_controls/grammar.rs`,
+  `native_controls/tests.rs`, the two admitted hunks of
+  `crates/brokkr-runtime/tests/capability_launch.rs`, and the ruling file.
+  `adapters.rs` did not change.
+- **The record re-verified.** `cargo test --locked -p brokkr-protocol
+  --all-features` passed 524 unit, 99 integration (2 ignored) and 1 doctest.
+  That is the count the first visit recorded.
+
+### The admitted expectations, with their baseline red
+
+`crates/brokkr-runtime/tests/capability_launch.rs`, assertion updates only:
+
+- `:6572-6578` in
+  `a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened`.
+  The comment now names `Bash` as the typed local permission's tool (F6),
+  and `""` becomes `"Bash"`.
+- `:6989` in
+  `every_position_reproduction_refuses_by_provenance_and_typed_origins_launch`.
+  `""` becomes `"Bash"`.
+
+The reason for both is F6: `Bash(ls:*)`, the typed local permission,
+stands under the template's `--tools Read,Bash` limit. An empty include
+would make it unusable.
+
+- **Baseline red.** With `full.patch` applied and the proposed patch
+  reversed, `cargo test --locked -p brokkr-runtime --test capability_launch
+  -- a_narrowed_grant_… every_position_reproduction_…` gave 0 passed and 2
+  failed. The panics were at `:6574` and `:6982`. The left side was `…
+  "--tools", "Bash", …` and the right side was `… "--tools", "", …`, both
+  beside `--allowedTools Bash(ls:*)`.
+- **Restored pass.** With the proposed patch re-applied, `capability_launch`
+  passed 53 and failed 0.
+- **Mutation.** N7 below, which leaves the lowered tools out of the include
+  list, fails both tests again: 51 passed and 2 failed, at `:6575` and
+  `:6983`.
+
+### Mutation proofs on the patched tree
+
+Each mutation was one Edit to a production file, then `cargo test --locked
+-p brokkr-protocol --lib`, then the reverse Edit. After the last mutation,
+`cmp` against the copies saved before the first one
+(`.forge/unit-13-fix/visit2/`) found both production files byte-identical.
+
+| | Mutation | Caught by (`native_controls/tests.rs`, panicking line) |
+|---|---|---|
+| N1 | F1: `.chain(&rest.deny)` removed from the derived deny union | 5 tests: `a_boundary_denial_is_owed_by_the_final_command:9060`, `a_claude_command_wrong_alike_…:7874`, `a_compatible_local_permission_…:9652`, property 1 `:10179`, property 2 `:10454` |
+| N2 | F2: the plan's native class removed from the class sources | `every_sealed_sandbox_contribution_names_one_admitted_class:9224` |
+| N3 | F2: `danger-full-access` admitted (`false &&` in its find) | `every_sealed_sandbox_contribution_…:9291` |
+| N4 | F3: an unestablished capability-table assignment read as nothing (`else if true {}` before its refusal) | 4 tests: `a_codex_command_wrong_alike_…:8053`, `a_codex_web_assignment_is_on_or_off_only_by_its_measured_meaning:9398`, `a_codex_effect_is_judged_by_its_meaning_…:8327`, property 2 `:10454` |
+| N5 | F4: sealed contributions' effects left unjudged (`false &&` in their find) | 4 tests: `a_codex_command_wrong_alike_…:8207`, `a_codex_effect_…:8352`, `an_opaque_load_or_unrelated_server_has_no_established_meaning:9510`, `the_plan_native_contribution_is_read_whole_and_carried:8680` (the replaced `--settings` positive) |
+| N6 | F5 (`grammar.rs`): a DSH command with no prompt no longer refused as missing one (`if false` on its arm) | `a_dsh_serving_command_parses_only_at_its_fixed_positions:8985` |
+| N7 | F6: `.chain(lowered.filter(\|_\| false))` in `final_tools` | 5 protocol tests: `a_compatible_local_permission_…:9562`, `authority_follows_the_selected_holding_…:2451`, `the_final_lists_hold_their_invariants_…:2879`, property 1 `:10179`, property 2 `:10455`; and both admitted `capability_launch` expectations |
+| N8 | exact equality with the derived state skipped (`.filter(\|_\| false)`) | 10 tests, including `the_sealed_record_is_checked_independently_of_both_commands` and property 2 |
+
+The F1–F6 baseline reds on `640b5b2e` are the first visit's
+(`.forge/unit-13-fix/baseline-640b5b2e.txt`; table under "Unit 13-fix").
+This visit did not re-run them.
+
+### Gates
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: exit 0, 77 `test result: ok` summaries, and no
+  `FAILED` or `panicked at` line (`.forge/unit-13-fix/visit2/workspace-tests.txt`).
+- `compile --bundle bundles/self` and `bundles/verify`: both printed their
+  compiled plan.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+
+Fixture migrations and standing-admission lines: none. The only lines
+outside the unit's files are the two ruled expectations.
+
+**Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
+macOS, remote CI, serving integration (14.1, 15.1, 15.2) and the council.

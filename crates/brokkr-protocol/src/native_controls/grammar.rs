@@ -232,10 +232,12 @@ pub const POSITIONAL_LABEL: &str = "a positional argument, whose text is not ech
 /// The longest unmodelled long option name a label spells, in bytes.
 const PLAIN_NAME_MAX: usize = 64;
 
-/// One harness's modelled options. No supported invocation carries a
-/// bare positional word: the prompt reaches every harness on stdin and
-/// the session identifiers are the engine's to place, so a bare word is
-/// a token the grammar cannot put anywhere.
+/// One harness's modelled options. No supported option span carries a
+/// bare positional word: the prompt reaches codex, claude and LaneTally
+/// on stdin, DSH's ends its serving command at a fixed position
+/// ([`Grammar::parse_final`]), and the session identifiers are the
+/// engine's to place, so a bare word among the options is a token the
+/// grammar cannot put anywhere.
 pub struct Grammar {
     pub harness: &'static str,
     pub options: &'static [Spec],
@@ -834,6 +836,7 @@ impl Grammar {
                     command: self.parse(argv)?,
                     session: None,
                     overlay: None,
+                    prompt: None,
                 })
             }
         }
@@ -849,6 +852,7 @@ impl Grammar {
                 command: self.parse_span(argv, 1, argv.len())?,
                 session: None,
                 overlay: None,
+                prompt: None,
             });
         }
         if argv.len() < 4 {
@@ -877,16 +881,21 @@ impl Grammar {
             command: self.parse_span(argv, 2, session)?,
             session: Some(argv[session].clone()),
             overlay: None,
+            prompt: None,
         })
     }
 
     /// DSH's complete serving command after its binary (rebuild unit 13;
-    /// design D6), exactly as its driver builds it: `--profile headless
-    /// --patch <overlay>`, and after it nothing, or `--output-format
-    /// stream-json` and then `--new` or `--session <id>`. The seat's model,
+    /// design D6), exactly as its driver builds and spawns it: `--profile
+    /// headless --patch <overlay>`, then nothing, or `--output-format
+    /// stream-json` and then `--new` or `--session <id>`, and last the
+    /// seat's prompt, which the driver appends as the one positional it
+    /// forwards (stdin is null; rebuild unit 13-fix, F5). The seat's model,
     /// effort and route ride the one staged overlay, never an argument, so
-    /// every part stands at a fixed position and no option is parsed: a
-    /// part anywhere else, or of any other spelling, refuses at its
+    /// every part stands at a fixed position and no option is parsed. The
+    /// shape is told by the command's length alone, so the prompt is data
+    /// whatever it spells — an option, a session flag or nothing — and any
+    /// other length, or a part of any other spelling, refuses at its
     /// position with the positional label. The overlay is a path that does
     /// not read as an option, and the session a plain identifier.
     fn parse_dsh_final(&self, argv: &[String]) -> Result<Final, Problem> {
@@ -915,32 +924,44 @@ impl Grammar {
                 )
             }
         };
-        let placed = |session: Option<String>| {
+        let placed = |session: Option<String>, prompt: &String| {
             Ok(Final {
                 subcommands: Vec::new(),
                 command: Command::default(),
                 session,
                 overlay: Some(overlay.clone()),
+                prompt: Some(prompt.clone()),
             })
         };
-        if argv.len() == 4 {
-            return placed(None);
+        match argv {
+            [_, _, _, _] => {
+                return refuse(
+                    4,
+                    "stands where the seat's prompt, the one positional a dsh serving command \
+                     ends with, belongs, and is none",
+                )
+            }
+            [_, _, _, _, prompt] => return placed(None, prompt),
+            _ => {}
         }
         for (at, fixed) in [(4, "--output-format"), (5, "stream-json")] {
             if word(at) != Some(fixed) {
                 return refuse(
                     at,
-                    "stands after the overlay, where only '--output-format stream-json' belongs",
+                    "stands after the overlay, where only the seat's prompt as the last argument, \
+                     or '--output-format stream-json', belongs",
                 );
             }
         }
         match &argv[6..] {
-            [new] if new == "--new" => placed(None),
-            [flag, id] if flag == "--session" && plain_session(id) => placed(Some(id.clone())),
+            [new, prompt] if new == "--new" => placed(None, prompt),
+            [flag, id, prompt] if flag == "--session" && plain_session(id) => {
+                placed(Some(id.clone()), prompt)
+            }
             _ => refuse(
                 6,
                 "stands where '--new', or '--session' and a plain session identifier of ASCII \
-                 letters, digits and dashes, ends a dsh serving command",
+                 letters, digits and dashes, and then the seat's prompt, end a dsh serving command",
             ),
         }
     }
@@ -959,6 +980,9 @@ pub struct Final {
     pub session: Option<String>,
     /// The one overlay a dsh serving command patches its profile with.
     pub overlay: Option<String>,
+    /// The prompt a dsh serving command ends with, as data; the others
+    /// read theirs on stdin and carry none.
+    pub prompt: Option<String>,
 }
 
 /// A codex thread identifier as a rejoin may carry it positionally.
