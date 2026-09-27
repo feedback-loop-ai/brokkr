@@ -7,8 +7,8 @@ use super::{render_prompt, AdapterKind, StartRefusal};
 use crate::overrides::OverrideError;
 
 /// The prompt a seat starts on, or why it launches nothing: a start with
-/// no correlation (#372), an override set only by its retired spelling
-/// (#355), or a model seat whose charter cannot be read.
+/// no correlation (#372), an override that cannot be read (#355), or a
+/// model seat whose charter cannot be read.
 pub(super) fn start_prompt(
     effect_id: &str,
     attempt_id: &str,
@@ -22,6 +22,6 @@ pub(super) fn start_prompt(
     if attempt_id.is_empty() {
         return Err(StartRefusal::MissingCorrelation("attempt_id"));
     }
-    gate.map_err(StartRefusal::RetiredOverride)?;
+    gate.map_err(StartRefusal::Override)?;
     render_prompt(input, kind)
 }

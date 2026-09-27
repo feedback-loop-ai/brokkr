@@ -2703,26 +2703,38 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
     assert!(refusal(dir.path().join("absent")).contains("node --version:"));
 }
 
-/// A DSH pinned only by the retired spelling (#355) selects nothing: the
-/// selection and the planner's resolution carry the refusal, by name.
+/// A DSH pinned only by the retired spelling, or by a value that is not
+/// UTF-8 (#355), selects nothing: the selection and the planner's
+/// resolution carry the refusal, by name.
 #[test]
-fn a_retired_dsh_override_selects_nothing() {
+fn a_dsh_override_that_cannot_be_read_selects_nothing() {
+    use std::os::unix::ffi::OsStrExt;
     let mut env = crate::env_guard::EnvGuard::lock();
     let retired = Override::DshBin.retired();
     env.remove("BROKKR_DSH_BIN");
     env.set(&retired, "/pinned/dsh");
-    let refusal = CompositeError::RetiredOverride(OverrideError::Retired {
+    let retired = OverrideError::Retired {
         retired,
         current: "BROKKR_DSH_BIN",
-    });
-    assert_eq!(
-        DshSeams::selected(),
-        Err(DshUnselected {
-            declared: "dsh".to_string(),
-            cause: refusal.clone(),
-        })
-    );
-    assert_eq!(DshSeams::resolve(), Err(refusal));
+    };
+    let not_unicode = OverrideError::NotUnicode {
+        variable: "BROKKR_DSH_BIN",
+    };
+    for refused in [retired, not_unicode] {
+        let refusal = CompositeError::Override(refused);
+        assert_eq!(
+            DshSeams::selected(),
+            Err(DshUnselected {
+                declared: "dsh".to_string(),
+                cause: refusal.clone(),
+            })
+        );
+        assert_eq!(DshSeams::resolve(), Err(refusal));
+        env.set(
+            "BROKKR_DSH_BIN",
+            std::ffi::OsStr::from_bytes(b"/opt/\xff/dsh"),
+        );
+    }
 }
 
 /// Executable selection and home availability are INDEPENDENT
@@ -2747,7 +2759,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // this test fail under any configured `BROKKR_DSH_BIN` — an
     // environment an operator running the suite may well have, and one
     // this seat reproduced (council return 2026-09-19, F11).
-    let declared = super::super::adapter_binary("BROKKR_DSH_BIN", "dsh");
+    let declared = crate::overrides::read(Override::DshBin).unwrap();
     let home = crate::transcript::dsh_home();
     match (DshSeams::selected(), resolve_executable(&declared)) {
         (Ok(selection), Ok(path)) => {

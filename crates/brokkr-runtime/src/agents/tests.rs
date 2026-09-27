@@ -1034,6 +1034,16 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
                    "egress": "local", "binding_grant": true}),
             "has unknown key 'binding_grant'",
         ),
+        // The shape an operator's pre-#355 adapter holds: `binding_grant`
+        // alone, no `egress`. Refused, never read as `uncontracted`.
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "binding_grant": false}),
+            "has unknown key 'binding_grant'",
+        ),
         (
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
                    "models": {}, "tool_permissions": "unsupported",

@@ -1262,13 +1262,21 @@ fn watch_transcript(db: &Path, rest: &str, stream: &mut impl Write, sse_limit: O
 /// The browser `open_system_browser` runs, apart from the spawn so a test
 /// can hold the refusal without racing a child.
 fn browser_program() -> Result<String, OverrideError> {
-    Ok(overrides::read(Override::BrowserBin)?.unwrap_or_else(|| "xdg-open".to_string()))
+    overrides::read(Override::BrowserBin)
 }
 
 fn open_system_browser(url: &str) {
+    open_browser_with(url, |program, url| {
+        drop(std::process::Command::new(program).arg(url).spawn());
+    });
+}
+
+/// `open_system_browser` over an injected spawn, so a test observes that
+/// an override that cannot be read runs nothing in its place.
+fn open_browser_with(url: &str, spawn: impl FnOnce(&str, &str)) {
     match browser_program() {
-        Ok(program) => drop(std::process::Command::new(program).arg(url).spawn()),
-        Err(retired) => eprintln!("brokkr ui: no browser opened: {retired}"),
+        Ok(program) => spawn(&program, url),
+        Err(refused) => eprintln!("brokkr ui: no browser opened: {refused}"),
     }
 }
 

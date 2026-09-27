@@ -14,9 +14,9 @@ pub brokkr_protocol::adapters::CompositeError::Component(&'static str, alloc::st
 pub brokkr_protocol::adapters::CompositeError::Config(alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::NpmKey(alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::NpmLock(alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::Override(brokkr_protocol::overrides::OverrideError)
 pub brokkr_protocol::adapters::CompositeError::Patch(&'static str, alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::PnpmLock(alloc::string::String)
-pub brokkr_protocol::adapters::CompositeError::RetiredOverride(brokkr_protocol::overrides::OverrideError)
 pub brokkr_protocol::adapters::CompositeError::Value
 pub brokkr_protocol::adapters::CompositeError::Value::component: &'static str
 pub brokkr_protocol::adapters::CompositeError::Value::reason: &'static str
@@ -30,7 +30,7 @@ impl brokkr_protocol::adapters::DshUnprepared
 pub fn brokkr_protocol::adapters::DshUnprepared::cause(&self) -> &brokkr_protocol::adapters::CompositeError
 pub enum brokkr_protocol::adapters::StartRefusal
 pub brokkr_protocol::adapters::StartRefusal::MissingCorrelation(&'static str)
-pub brokkr_protocol::adapters::StartRefusal::RetiredOverride(brokkr_protocol::overrides::OverrideError)
+pub brokkr_protocol::adapters::StartRefusal::Override(brokkr_protocol::overrides::OverrideError)
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::error: alloc::string::String
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::path: alloc::string::String
@@ -191,10 +191,12 @@ pub brokkr_protocol::overrides::Override::DshBin
 pub brokkr_protocol::overrides::Override::ExecName
 pub brokkr_protocol::overrides::Override::LanetallyBin
 pub enum brokkr_protocol::overrides::OverrideError
+pub brokkr_protocol::overrides::OverrideError::NotUnicode
+pub brokkr_protocol::overrides::OverrideError::NotUnicode::variable: &'static str
 pub brokkr_protocol::overrides::OverrideError::Retired
 pub brokkr_protocol::overrides::OverrideError::Retired::current: &'static str
 pub brokkr_protocol::overrides::OverrideError::Retired::retired: alloc::string::String
-pub fn brokkr_protocol::overrides::read(brokkr_protocol::overrides::Override) -> core::result::Result<core::option::Option<alloc::string::String>, brokkr_protocol::overrides::OverrideError>
+pub fn brokkr_protocol::overrides::read(brokkr_protocol::overrides::Override) -> core::result::Result<alloc::string::String, brokkr_protocol::overrides::OverrideError>
 pub mod brokkr_protocol::process
 pub enum brokkr_protocol::process::SpawnEnv
 pub brokkr_protocol::process::SpawnEnv::Exactly(alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>)

@@ -9,10 +9,8 @@
 //! the ENGINE parks with raw evidence (decision 0001). Adapters never
 //! repair anything.
 //!
-//! Env overrides for conformance shims: BROKKR_CLAUDE_BIN,
-//! BROKKR_LANETALLY_BIN, BROKKR_CODEX_BIN, BROKKR_DSH_BIN,
-//! BROKKR_EXEC_NAME. A pre-rename spelling (decision 0019) set alone
-//! refuses the seat (`overrides`).
+//! Env overrides for conformance shims are `overrides::Override`'s, read
+//! once per seat by `run_seat`. One that cannot be read refuses the seat.
 
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
@@ -123,7 +121,10 @@ impl AdapterKind {
             AdapterKind::Lanetally => "claude-lanetally".to_string(),
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
-            AdapterKind::Exec => adapter_binary("BROKKR_EXEC_NAME", "exec"),
+            // A name the reader refuses labels the driver `exec`, and
+            // `run_seat` refuses every start on it by that name.
+            AdapterKind::Exec => crate::overrides::read(Override::ExecName)
+                .unwrap_or_else(|_| Override::ExecName.fallback().to_string()),
         }
     }
 }
@@ -315,9 +316,10 @@ pub enum StartRefusal {
     /// The charter at `path` could not be read.
     #[error("seat refused to start: charter '{path}' is unreadable: {error}")]
     UnreadableCharter { path: String, error: String },
-    /// The driver's override is set only by its retired spelling.
+    /// The driver's override cannot be read: its value is not UTF-8, or
+    /// only its retired spelling is set.
     #[error("seat refused to start: {0}")]
-    RetiredOverride(OverrideError),
+    Override(OverrideError),
 }
 
 /// The seat's charter text. A model kind must be able to read it. An exec
@@ -635,10 +637,12 @@ fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String>
     }
 }
 
-/// An override's current value, or the fallback. `run_seat` refused a retired
-/// spelling first: `a_retired_override_alone_runs_neither_its_pin_nor_the_built_in`.
-fn adapter_binary(variable: &str, fallback: &str) -> String {
-    std::env::var(variable).unwrap_or_else(|_| fallback.to_string())
+/// The executable a seat runs, as `run_seat` read it through
+/// `overrides::read`, beside the argv its recipe added.
+#[derive(Clone, Copy)]
+struct Pinned<'a> {
+    binary: &'a str,
+    extra: &'a [String],
 }
 
 fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
@@ -2090,8 +2094,9 @@ fn fold_dsh_event(
             // applies and omits it when none does, so an absent field
             // leaves the seat saying `not reported`, honestly — for a
             // seat that pinned one. A seat that arrived with no pin
-            // carries invoke_dsh_with's seed (`not applicable`, by the
-            // compile law that only effortless routes compile pin-less),
+            // carries invoke_dsh_launch_observed's seed (`not
+            // applicable`, by the compile law that only effortless routes
+            // compile pin-less),
             // which an absent field leaves standing.
             if let Some(effort) = event
                 .pointer("/data/header/config/reasoningEffort")
@@ -2490,6 +2495,16 @@ const CODEX_SHAPE: &str = "work-site";
 const CLAUDE_SHAPE: &str = "boxed-workspace";
 const LANETALLY_SHAPE: &str = "wrapper-work-site";
 const DSH_SHAPE: &str = "headless-work";
+
+/// The shape a claude stream-json seat runs: the wrapper's own when it is
+/// LaneTally's, otherwise claude's.
+const fn claude_shape(wrapped: bool) -> &'static str {
+    if wrapped {
+        LANETALLY_SHAPE
+    } else {
+        CLAUDE_SHAPE
+    }
+}
 
 /// `codex exec` takes no effort FLAG: the level is a configuration key
 /// (`model_reasoning_effort`, verified against codex-cli 0.153.0, whose
@@ -3188,7 +3203,7 @@ fn invoke_codex(
 /// journaled. stderr is piped and drained on its own thread so a chatty
 /// session cannot deadlock the poll loop.
 fn invoke_dsh(
-    extra: &[String],
+    pinned: Pinned<'_>,
     prompt: &str,
     workdir: &str,
     input: &Value,
@@ -3196,20 +3211,12 @@ fn invoke_dsh(
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    invoke_dsh_with(
-        extra,
-        prompt,
-        workdir,
-        input,
-        session,
-        bindings,
-        emit,
-        |child| {
-            child
-                .try_wait()
-                .map(|status| status.map(|status| status.code().unwrap_or(-1)))
-        },
-    )
+    let launch = dsh_launch(pinned.binary, pinned.extra, workdir, session, input)?;
+    invoke_dsh_launch(launch, prompt, workdir, bindings, emit, |child| {
+        child
+            .try_wait()
+            .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+    })
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -4012,32 +4019,17 @@ fn owned_dsh_root(
     Ok((root, boundary))
 }
 
-/// The same invocation with the one question the OS answers — "is the
-/// child still running?" — injectable, the way `stage_prompt_with` and
+/// `invoke_dsh` over an already-settled launch, so the qualified
+/// stream-json arm is reachable from a test without a real composite
+/// install and its node probe. Production reaches it only through
+/// `dsh_launch`, which still performs every qualification check.
+///
+/// The one question the OS answers — "is the child still running?" — is
+/// injectable too, the way `stage_prompt_with` and
 /// `dsh_transcript_root_in` make their own syscalls injectable. A real
 /// `waitpid` failure cannot be provoked from a test, and the arm that
 /// handles it is the difference between a seat that reports a refusal
 /// and a seat that spins in silence forever, so it is reachable here.
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-fn invoke_dsh_with(
-    extra: &[String],
-    prompt: &str,
-    workdir: &str,
-    input: &Value,
-    session: Option<&str>,
-    bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
-) -> Result<Invocation, String> {
-    let bin = adapter_binary("BROKKR_DSH_BIN", "dsh");
-    let launch = dsh_launch(&bin, extra, workdir, session, input)?;
-    invoke_dsh_launch(launch, prompt, workdir, bindings, emit, wait)
-}
-
-/// `invoke_dsh_with` over an already-settled launch, so the qualified
-/// stream-json arm is reachable from a test without a real composite
-/// install and its node probe. Production reaches it only through
-/// `dsh_launch`, which still performs every qualification check.
 fn invoke_dsh_launch(
     launch: DshLaunch,
     prompt: &str,
@@ -4782,8 +4774,9 @@ fn finish_dsh(
         bindings,
     ));
     // The promotion that moves the seat's commits out of the private
-    // store happens in `invoke_dsh_with`, which owns the store for the
-    // seat's whole life and is the one place both routes return through.
+    // store happens in `invoke_dsh_launch_observed`, which owns the store
+    // for the seat's whole life and is the one place both routes return
+    // through.
     Ok(Invocation {
         exit_code,
         session_meta: session_meta.clone(),
@@ -4843,32 +4836,11 @@ fn redact_dsh_reasoning(stderr: &str) -> String {
     text
 }
 
-fn invoke(
-    kind: AdapterKind,
-    extra: &[String],
-    prompt: &str,
-    input: &Value,
-    session: Option<&str>,
-    bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
-) -> Result<Invocation, String> {
-    invoke_with_stager(
-        kind,
-        extra,
-        prompt,
-        input,
-        session,
-        bindings,
-        emit,
-        stage_prompt,
-    )
-}
-
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn invoke_with_stager(
     kind: AdapterKind,
-    extra: &[String],
+    pinned: Pinned<'_>,
     prompt: &str,
     input: &Value,
     session: Option<&str>,
@@ -4876,34 +4848,25 @@ fn invoke_with_stager(
     emit: &mut impl FnMut(&Value),
     mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
+    let Pinned { binary: bin, extra } = pinned;
     let workdir = input
         .get("workdir")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
     match kind {
-        AdapterKind::Claude => {
-            let bin = adapter_binary("BROKKR_CLAUDE_BIN", "claude");
-            let plan = claude_launch(&bin, extra, session, input, CLAUDE_SHAPE, None)?;
-            let command = plan.command.clone();
-            let mut hold = LaunchHold::new("claude", plan);
-            let mut invocation =
-                invoke_stream_json(&command, prompt, &workdir, bindings, &mut hold, emit)?;
-            hold.finish(emit);
-            invocation.launch = hold.terminal();
-            Ok(invocation)
-        }
         // Same harness, same stream: LaneTally's wrapper is
         // argv-compatible with claude (including stream-json), so the
-        // only difference IS the binary. No spawn-time fallback to plain
-        // `claude` when the wrapper is missing — that would silently
-        // un-capture sessions; doctor is the advisory surface, and
-        // substituting plain claude to make a resume work would be the
-        // same silent un-capture one ruling later (proposed decision
-        // 0056 ruling 5: a wrapper is qualified on its own wrapper).
-        AdapterKind::Lanetally => {
-            let bin = adapter_binary("BROKKR_LANETALLY_BIN", "claude-lanetally");
-            let plan = claude_launch(&bin, extra, session, input, LANETALLY_SHAPE, None)?;
+        // only differences ARE the binary and the shape it is measured
+        // under. No spawn-time fallback to plain `claude` when the
+        // wrapper is missing — that would silently un-capture sessions;
+        // doctor is the advisory surface, and substituting plain claude
+        // to make a resume work would be the same silent un-capture one
+        // ruling later (proposed decision 0056 ruling 5: a wrapper is
+        // qualified on its own wrapper).
+        AdapterKind::Claude | AdapterKind::Lanetally => {
+            let shape = claude_shape(kind == AdapterKind::Lanetally);
+            let plan = claude_launch(bin, extra, session, input, shape, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
             let mut invocation =
@@ -4913,8 +4876,7 @@ fn invoke_with_stager(
             Ok(invocation)
         }
         AdapterKind::Codex => {
-            let bin = adapter_binary("BROKKR_CODEX_BIN", "codex");
-            let plan = codex_launch(&bin, extra, &workdir, session, input)?;
+            let plan = codex_launch(bin, extra, &workdir, session, input)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
             let mut invocation =
@@ -4949,7 +4911,7 @@ fn invoke_with_stager(
                 // spawn — so a second builder guard here would repeat a
                 // check that cannot have become false.
                 let cold = LaunchPlan::cold(
-                    codex_cold(&bin, extra, &workdir),
+                    codex_cold(bin, extra, &workdir),
                     "codex-thread",
                     Some("harness-refused"),
                 );
@@ -4965,7 +4927,7 @@ fn invoke_with_stager(
             }
             Ok(invocation)
         }
-        AdapterKind::Dsh => invoke_dsh(extra, prompt, &workdir, input, session, bindings, emit),
+        AdapterKind::Dsh => invoke_dsh(pinned, prompt, &workdir, input, session, bindings, emit),
         AdapterKind::Exec => {
             if extra.is_empty() {
                 return Err("exec driver needs a command template after '--'".to_string());
@@ -5734,9 +5696,28 @@ fn run_seat(
     session: Option<&str>,
     send: &mut impl FnMut(Body),
 ) {
-    let gate = crate::overrides::read(Override::of_driver(kind)).map(drop);
+    // The driver's override is read once, here, and the launch runs what
+    // was read. A refused read never reaches the closure: `run_seat_with`
+    // fails the start before it invokes anything, so the empty default is
+    // never launched (`a_current_override_that_is_not_unicode_runs_nothing`).
+    let pin = crate::overrides::read(Override::of_driver(kind));
+    let gate = pin.clone().map(drop);
+    let binary = pin.unwrap_or_default();
     run_seat_with(kind, gate, start, send, |prompt, input, bound, mut emit| {
-        invoke(kind, extra, prompt, input, session, bound, &mut emit)
+        let pinned = Pinned {
+            binary: &binary,
+            extra,
+        };
+        invoke_with_stager(
+            kind,
+            pinned,
+            prompt,
+            input,
+            session,
+            bound,
+            &mut emit,
+            stage_prompt,
+        )
     });
 }
 

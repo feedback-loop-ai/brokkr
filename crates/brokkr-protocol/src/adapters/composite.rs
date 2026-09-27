@@ -94,9 +94,10 @@ pub enum CompositeError {
     },
     #[error("the DSH layout is unreadable: {0}")]
     Config(String),
-    /// The executable's override is set only by its retired spelling.
+    /// The executable's override cannot be read: its value is not UTF-8,
+    /// or only its retired spelling is set.
     #[error(transparent)]
-    RetiredOverride(OverrideError),
+    Override(OverrideError),
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1725,8 +1726,8 @@ fn canonical_composite(
 }
 
 /// The two seams the DSH adapter resolves, exactly as it resolves them:
-/// the executable through `BROKKR_DSH_BIN` (its retired spelling set
-/// alone is refused), then `dsh` on `PATH`, and the home through
+/// the executable through `BROKKR_DSH_BIN` (refused when it cannot be
+/// read), then `dsh` on `PATH`, and the home through
 /// `$DSH_HOME` when set and non-empty, otherwise `$HOME/.dsh`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshSeams {
@@ -1946,14 +1947,14 @@ impl DshSeams {
     }
 
     /// The environment's one resolution, before anything is admitted.
-    /// A retired override is refused here, before any lookup.
+    /// An override that cannot be read is refused here, before any lookup.
     fn located() -> Result<Located, DshUnselected> {
         let declared = match crate::overrides::read(Override::DshBin) {
-            Ok(declared) => declared.unwrap_or_else(|| "dsh".to_string()),
-            Err(retired) => {
+            Ok(declared) => declared,
+            Err(refused) => {
                 return Err(DshUnselected {
-                    declared: "dsh".to_string(),
-                    cause: CompositeError::RetiredOverride(retired),
+                    declared: Override::DshBin.fallback().to_string(),
+                    cause: CompositeError::Override(refused),
                 })
             }
         };

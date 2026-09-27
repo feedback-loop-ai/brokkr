@@ -1,7 +1,36 @@
 use super::*;
 use crate::env_guard::EnvGuard;
 use crate::transcript::{dsh_home, dsh_home_from};
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+
+/// One invocation of `kind` over its override as this test's environment
+/// holds it, read by the one reader the way `run_seat` reads it.
+fn invoke(
+    kind: AdapterKind,
+    extra: &[String],
+    prompt: &str,
+    input: &Value,
+    session: Option<&str>,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let binary = crate::overrides::read(Override::of_driver(kind)).unwrap();
+    let pinned = Pinned {
+        binary: &binary,
+        extra,
+    };
+    invoke_with_stager(
+        kind,
+        pinned,
+        prompt,
+        input,
+        session,
+        bindings,
+        emit,
+        stage_prompt,
+    )
+}
 
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
@@ -307,13 +336,13 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         .unwrap_err()
         .contains("not valid UTF-8"));
 
-    assert_eq!(
-        adapter_binary("BROKKR_TEST_BINARY_NEVER_DEFINED", "fallback"),
-        "fallback"
-    );
-    env.set("BROKKR_TEST_BINARY_SET", "set");
-    assert_eq!(adapter_binary("BROKKR_TEST_BINARY_SET", "fallback"), "set");
-    env.remove("BROKKR_TEST_BINARY_SET");
+    // Exec's driver name is its override's, and one the reader refuses
+    // labels it `exec`: `run_seat` refuses every start on it by name.
+    env.set("BROKKR_EXEC_NAME", "named");
+    assert_eq!(AdapterKind::Exec.driver_name(), "named");
+    env.set("BROKKR_EXEC_NAME", std::ffi::OsStr::from_bytes(b"\xff"));
+    assert_eq!(AdapterKind::Exec.driver_name(), "exec");
+    env.remove("BROKKR_EXEC_NAME");
     assert_eq!(io_context::<()>(Ok(()), "ok"), Ok(()));
     assert!(
         io_context::<()>(Err(std::io::Error::other("no")), "context")
@@ -334,7 +363,10 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     let prompt_template = vec!["true".into(), "{prompt_file}".into()];
     let staged = invoke_with_stager(
         AdapterKind::Exec,
-        &prompt_template,
+        Pinned {
+            binary: "exec",
+            extra: &prompt_template,
+        },
         "prompt",
         &json!({}),
         None,
@@ -8854,12 +8886,12 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
 
     let mut passes = 0;
     let mut emitted: Vec<Value> = Vec::new();
-    let refused = invoke_dsh_with(
-        &[],
+    let workdir = dir.path().to_str().unwrap();
+    let launch = dsh_launch(fake.to_str().unwrap(), &[], workdir, None, &json!({})).unwrap();
+    let refused = invoke_dsh_launch(
+        launch,
         "the prompt",
-        dir.path().to_str().unwrap(),
-        &json!({}),
-        None,
+        workdir,
         &[],
         &mut |event: &Value| emitted.push(event.clone()),
         |child| {

@@ -1,12 +1,14 @@
 //! The harness's environment overrides, and the spellings decision 0019
 //! retired.
 //!
-//! Each override is read by its current name only (#355). A retired
-//! spelling set where the current name is not is REFUSED by name, never
-//! ignored: an operator who pinned an executable through it would
-//! otherwise get the built-in one, holding the seat's grants, with no
-//! line on stderr (landing review of #355, 2026-09-27). Both spellings
-//! of all six names live here, once.
+//! Each override is read by its current name only (#355), here and
+//! nowhere else. What cannot be read is REFUSED by name, never taken as
+//! unset: a retired spelling set where the current name is not, and a
+//! current value that is not UTF-8. Either way an operator who pinned an
+//! executable would otherwise get the built-in one, holding the seat's
+//! grants, with no line on stderr (landing reviews of #355, 2026-09-27).
+//! Both spellings of all six names, and what each falls back to, live
+//! here, once.
 
 use std::ffi::OsString;
 
@@ -28,9 +30,17 @@ pub enum Override {
     BrowserBin,
 }
 
-/// A retired spelling met where its current name is unset.
+/// An override that cannot be read as the value it names.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum OverrideError {
+    /// The current name holds bytes that are not UTF-8. Refused whether
+    /// or not a retired spelling is also set, since the current name wins.
+    #[error(
+        "{variable} is set, but its value is not UTF-8, so what it names cannot \
+         be read; give {variable} a UTF-8 value, or unset it"
+    )]
+    NotUnicode { variable: &'static str },
+    /// A retired spelling met where its current name is unset.
     #[error(
         "{retired} is set but is no longer read: it was renamed {current}; \
          set {current} instead, or unset {retired}"
@@ -54,6 +64,18 @@ impl Override {
         }
     }
 
+    /// What the harness runs, or names itself, when the override is unset.
+    pub(crate) const fn fallback(self) -> &'static str {
+        match self {
+            Override::ClaudeBin => "claude",
+            Override::LanetallyBin => "claude-lanetally",
+            Override::CodexBin => "codex",
+            Override::DshBin => "dsh",
+            Override::ExecName => "exec",
+            Override::BrowserBin => "xdg-open",
+        }
+    }
+
     /// The same name under the retired prefix.
     pub(crate) fn retired(self) -> String {
         format!("{RETIRED_PREFIX}{}", &self.name()[CURRENT_PREFIX.len()..])
@@ -72,21 +94,24 @@ impl Override {
     }
 }
 
-/// The override's value from the process environment: `Ok(None)` when
-/// neither spelling is set, and the refusal when only the retired one is.
-pub fn read(what: Override) -> Result<Option<String>, OverrideError> {
+/// The override's value from the process environment, the fallback when
+/// neither spelling is set, and the refusal when it cannot be read. The
+/// one reader: every consumer takes the value it returns and reads the
+/// environment for it no second time.
+pub fn read(what: Override) -> Result<String, OverrideError> {
     read_with(what, |name| std::env::var_os(name))
 }
 
-/// `read` over an injected environment. A current value that is not
-/// UTF-8 reads as unset, as it did before #355. A retired spelling
-/// refuses whatever its value, since what it names is never used.
+/// `read` over an injected environment. A retired spelling refuses
+/// whatever its value, since what it names is never used.
 fn read_with(
     what: Override,
     lookup: impl Fn(&str) -> Option<OsString>,
-) -> Result<Option<String>, OverrideError> {
-    if let Some(value) = lookup(what.name()).and_then(|value| value.into_string().ok()) {
-        return Ok(Some(value));
+) -> Result<String, OverrideError> {
+    if let Some(value) = lookup(what.name()) {
+        return value.into_string().map_err(|_| OverrideError::NotUnicode {
+            variable: what.name(),
+        });
     }
     let retired = what.retired();
     match lookup(&retired) {
@@ -94,7 +119,7 @@ fn read_with(
             retired,
             current: what.name(),
         }),
-        None => Ok(None),
+        None => Ok(what.fallback().to_string()),
     }
 }
 
