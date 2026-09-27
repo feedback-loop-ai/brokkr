@@ -4,8 +4,8 @@
     1 expect clippy::disallowed_types
    15 expect clippy::excessive_nesting
     3 expect clippy::struct_excessive_bools
-   26 expect clippy::too_many_arguments
-   39 expect clippy::too_many_lines
+   24 expect clippy::too_many_arguments
+   38 expect clippy::too_many_lines
     1 allow  dead_code
     2 expect dead_code
 # test
