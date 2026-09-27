@@ -234,7 +234,9 @@ fn the_file_ratchet_reads_a_tree_with_no_test_file() {
 }
 
 /// An existing function may grow to the ceiling or its baseline, whichever
-/// is higher, and a new one only to the ceiling. A report this check cannot
+/// is higher. A new one, or one cargo-crap reports as moved to another file,
+/// grows only to the ceiling: a moved one over it moves its baseline entry
+/// with a ruling (quality/README.md). A report this check cannot
 /// read as cyclomatic complexity is refused, and so is an empty one.
 #[test]
 fn the_complexity_judge_holds_functions_to_their_allowance() {
@@ -264,6 +266,7 @@ fn the_complexity_judge_holds_functions_to_their_allowance() {
             entry("small_grew", 14, Some(3), "regressed", 100),
             entry("big_shrank", 30, Some(40), "improved", 100),
             entry("fresh", 15, None, "new", 100),
+            entry("moved_small", 15, Some(3), "moved", 100),
         ]),
         "ratchet: cyclomatic complexity holds",
     );
@@ -272,16 +275,20 @@ fn the_complexity_judge_holds_functions_to_their_allowance() {
             entry("big_grew", 41, Some(40), "regressed", 100),
             entry("fresh", 16, None, "new", 100),
             entry("half", 2, Some(2), "unchanged", 50),
-            entry("odd", 1, Some(1), "moved", 100),
+            entry("odd", 1, Some(1), "renamed", 100),
             entry("lost", 1, None, "unchanged", 100),
+            entry("moved_big", 25, Some(25), "moved", 100),
+            entry("moved_lost", 1, None, "moved", 100),
         ]),
         &[
             "lib.rs:1 big_grew: CC 41 over 40 (regressed)",
             "lib.rs:1 fresh: CC 16 over 15 (new)",
             "lib.rs:1 half: 50% covered, so CRAP is not cyclomatic complexity",
-            "lib.rs:1 odd: status moved is not one this check reads",
+            "lib.rs:1 odd: status renamed is not one this check reads",
             "lib.rs:1 lost: matched a baseline with no CRAP score",
-            "ratchet refusal: cyclomatic complexity: 5 finding(s)",
+            "lib.rs:1 moved_big: CC 25 over 15 (moved)",
+            "lib.rs:1 moved_lost: matched a baseline with no CRAP score",
+            "ratchet refusal: cyclomatic complexity: 7 finding(s)",
         ],
     );
     assert_refused(&report(vec![]), &["no function was measured"]);

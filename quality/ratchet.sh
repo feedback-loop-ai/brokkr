@@ -51,13 +51,16 @@ crap_judge() {
     refuse "the cargo-crap report at $report is not a JSON object"
   cc="$(ceiling ccNewFunction)"
   # cargo-crap matches a function to its baseline by file and name, not by
-  # line, so an edit above a function does not make it new. An existing
-  # function may grow to the ceiling or its baseline, whichever is higher;
-  # a new one only to the ceiling. At the gate's 100% coverage CRAP equals
+  # line, so an edit above a function does not make it new. It also
+  # matches by name alone across files and reports that as `moved`. A moved
+  # function is judged as new, as quality/README.md says: only to the
+  # ceiling, and one over it moves its baseline entry with a ruling. An
+  # existing function may grow to the ceiling or its baseline, whichever
+  # is higher. At the gate's 100% coverage CRAP equals
   # cyclomatic complexity, so anything less than 100% is refused.
   jq -r --argjson cc "$cc" '
-    def known: IN("new", "regressed", "unchanged", "improved");
-    def allowance: if .status == "new" then $cc else ([.baseline_crap, $cc] | max) end;
+    def known: IN("new", "regressed", "unchanged", "improved", "moved");
+    def allowance: if IN(.status; "new", "moved") then $cc else ([.baseline_crap, $cc] | max) end;
     if (.entries | type) != "array" or (.entries | length) == 0
     then "no function was measured"
     elif (.diagnostics.source_only.count | type) != "number" or (.diagnostics.lcov_only.count | type) != "number"
