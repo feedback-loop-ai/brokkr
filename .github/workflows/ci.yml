@@ -353,8 +353,8 @@ jobs:
   # The non-Rust half of the tree, linted (issue #339): the workflows and
   # their scripts, workflow security, shell, spelling, links and anchors,
   # and the diagrams. Every tool is pinned by version and verified by
-  # digest. NOT a required check until the operator adds it to branch
-  # protection.
+  # digest. A required check on main, by the operator's ruling of
+  # 2026-09-26.
   lint-non-rust:
     name: non-Rust lints
     runs-on: ubuntu-latest
@@ -407,8 +407,8 @@ jobs:
   # The committed baselines under quality/ may only shrink (issue #338):
   # file size, duplication, unused dependencies, and a raised baseline that
   # names its ruling. Complexity and the public API ride the coverage job,
-  # which has the LCOV and the pinned nightly. NOT a required check until the
-  # operator adds "baseline ratchets" to branch protection.
+  # which has the LCOV and the pinned nightly. A required check on main, by
+  # the operator's ruling of 2026-09-26.
   ratchets:
     name: baseline ratchets
     runs-on: ubuntu-latest

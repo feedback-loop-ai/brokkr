@@ -2,7 +2,7 @@
 
 This repository's engine forges its own changes and reviews them
 adversarially. The bar for a human contribution is the bar the machine
-is already held to — eight required checks, none of them a percentage you
+is already held to — twelve required checks, none of them a percentage you
 can nudge. This document is the whole walk from `git clone` to a green
 pull request, with every command written out.
 
@@ -14,7 +14,7 @@ ever looks at it.
 
 - [What you need installed](#what-you-need-installed)
 - [Fork, clone, branch](#fork-clone-branch)
-- [The eight checks](#the-eight-checks)
+- [The twelve checks](#the-twelve-checks)
 - [The pre-flight: let the machine review you first](#the-pre-flight-let-the-machine-review-you-first)
 - [The coverage gate, practically](#the-coverage-gate-practically)
 - [Commits, signing, and how your PR actually lands](#commits-signing-and-how-your-pr-actually-lands)
@@ -27,9 +27,12 @@ ever looks at it.
 
 The engine is Rust-only (decision
 [0009](../decisions/0009-rust-only.md)): no Python, no Node, no
-toolchain beyond cargo for the ordinary path. Three of the eight checks —
-the MSRV, the coverage gate and the licence gate — need something beyond
-a stable toolchain.
+toolchain beyond cargo for the ordinary path. The MSRV, the coverage
+gate, the licence gate, the ratchets, the mutants gate and the non-Rust
+lints need something beyond a stable toolchain; each tool is pinned in
+the workflow that runs it, in a `.github/actions/setup-*` action it
+calls, or in a version file at the root, and the version below is that
+pin.
 
 | Tool | Needed by | Check it is there |
 |---|---|---|
@@ -37,8 +40,13 @@ a stable toolchain.
 | Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
 | The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
 | `cargo-llvm-cov` at the pinned version | the coverage gate | `cargo llvm-cov --version` |
-| `jq` | the coverage gate and the mutants gate (both scripts refuse without it) | `jq --version` |
+| `jq` | the coverage gate, the ratchets, the binary size budget and the mutants gate (their scripts fail without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
+| cargo-crap 0.5.0 and cargo-public-api 0.52.0 | the complexity and public-API ratchets, inside the coverage job | `cargo crap --version`, `cargo public-api --version` |
+| jscpd 5.3.2 and cargo-shear 1.14.0 | the baseline ratchets | `jscpd --version`, `cargo shear --version` |
+| cargo-mutants 27.1.0 | the brokkr-core mutants gate | `cargo mutants --version` |
+| typos 1.50.2, shellcheck 0.11.0, zizmor 1.30.1, actionlint and lychee | the non-Rust lints (the last two at the digests in `.github/actions/setup-*`) | each tool's `--version` |
+| Node 22.23.3, with `npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund` | the non-Rust lints' diagram render (`scripts/lint-diagrams.sh`); only the lint needs it, never the engine | `node --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
 install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
@@ -51,7 +59,7 @@ dated-nightly prefixes are how the other two get selected.
 
 You do **not** need `cargo-audit`; the RustSec check runs only in CI.
 Installing it locally is a convenience, not a requirement — see
-[the two checks you cannot fully reproduce](#the-two-checks-you-cannot-fully-reproduce).
+[the checks you cannot fully reproduce](#the-checks-you-cannot-fully-reproduce).
 
 ## Fork, clone, branch
 
@@ -78,32 +86,65 @@ Two habits from the house flow that transfer directly:
   that adds behaviour and no test fails the coverage gate anyway (see
   below), so this is not a style preference.
 
-## The eight checks
+## The twelve checks
 
-All eight are required jobs in
-[`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml). They run on every
-pull request. This is the full list, in CI's own order:
+All twelve are required status checks on `main`. Eleven come from ten
+jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`engine`
+runs once per operating system), and one is in
+[`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
+every pull request. This is the full list, in the workflows' own order;
+each local command is the job's own, and the sections below explain them:
 
 | # | CI check | Job | Local command |
 |---|---|---|---|
-| 1 | `MSRV (1.88)` | `msrv` | `cargo +1.88.0 check --workspace --locked` |
-| 2 | `format, clippy, contracts` | `quality` | `cargo fmt`, `cargo clippy`, two `compile --bundle` runs |
-| 3 | `test (ubuntu-latest)` | `engine` | `cargo test --workspace --all-features --locked` |
-| 4 | `test (macos-latest)` | `engine` | — (your machine is one OS) |
-| 5 | `exact coverage gate` | `coverage` | `bash scripts/coverage-exact.sh` |
-| 6 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses` |
-| 7 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
-| 8 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli`; the size budget in `quality/binary-size.json` holds only for CI's build, whose embedded paths yours do not share |
+| 1 | `delivered by brokkr` | `delivered-by-brokkr` | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
+| 2 | `MSRV (1.88)` | `msrv` | [`cargo +1.88.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
+| 3 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
+| 4 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 cargo test --workspace --all-features --locked --no-fail-fast`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
+| 5 | `test (macos-latest)` | `engine` | on a Mac, `cargo test --workspace --all-features --locked --no-fail-fast`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
+| 6 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
+| 8 | `non-Rust lints` | `lint-non-rust` | `bash scripts/lint-non-rust.sh`, then [the diagram render and Renovate's validator](#the-non-rust-lints) |
+| 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
+| 10 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
+| 11 | `release binary artifact` | `release-binary` | [`cargo build --release --locked -p brokkr-cli`](#the-release-binary), then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
+| 12 | `mutants in the diff: brokkr-core` | `core-gate` (mutants.yml) | `bash scripts/mutants.sh gate origin/main brokkr-core` |
 
-A ninth check lives in
-[`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml):
-`mutants in the diff: brokkr-core` fails a pull request that adds a
-mutant no test catches to brokkr-core. The operator ruled it required on
-#289, and it binds once branch protection names it. Reproduce it with
-`bash scripts/mutants.sh gate origin/main brokkr-core` (cargo-mutants
-27.1.0). A miss that shares a committed miss's file and mutation, in
-`quality/mutants/brokkr-core.missed.txt`, is accounted for once; any
-other miss fails, and the fix is a test that catches it.
+The four checks the list above adds to the older eight:
+
+- **`delivered by brokkr`** (decision
+  [0033](../decisions/0033-contributing-through-brokkr.md), tiers from decision
+  [0038](../decisions/0038-evidence-follows-content.md)) passes when the `Brokkr-Run:` line in your
+  pull request names a run that shipped your head. The operator's `by-hand` label
+  is the visible exception.
+- **`non-Rust lints`** (#339) reads the workflows, shell scripts,
+  spelling, Markdown links and their anchors, the Mermaid diagrams and
+  Renovate's configuration. The offline part is one list,
+  `scripts/lint-non-rust.sh` (#427): typos, shellcheck, actionlint,
+  zizmor and lychee, each checked against its pin: typos, shellcheck
+  and zizmor in `ci.yml`, actionlint and lychee in
+  `.github/actions/setup-actionlint` and `.github/actions/setup-lychee`. A
+  landing's verify seat runs the same list with `--seat`, which names a
+  lint whose tool its box lacks as not run and runs the others; that
+  lint's only judge is then this check. The job then renders the
+  diagrams and validates Renovate's configuration; both are written out
+  in [the non-Rust lints](#the-non-rust-lints) below.
+- **`baseline ratchets`** (#338) holds file size and duplication to
+  `quality/`'s committed baselines, refuses an unused dependency, and
+  refuses any raised baseline unless the pull request body carries a
+  `Ruling:` line. CI reads that body from the pull request and judges
+  against the merge commit's first parent; locally, `origin/main` is the
+  base and `PR_BODY` carries the body, so a raised baseline without its
+  `Ruling:` line is refused here as it is there. `quality/README.md`
+  explains each baseline and how to refresh it. The complexity and
+  public-API ratchets run inside the coverage job, because they read its
+  LCOV and its pinned nightly.
+- **`mutants in the diff: brokkr-core`** (#289) fails a pull request that
+  adds a mutant no test catches to brokkr-core. Reproduce it with the
+  command in row 12 (cargo-mutants 27.1.0). A miss that shares a
+  committed miss's file and mutation, in
+  `quality/mutants/brokkr-core.missed.txt`, is accounted for once; any
+  other miss fails, and the fix is a test that catches it.
 
 The sections below are in a different order on purpose: run them from
 the repository root in the order written, cheapest refusal first, so a
@@ -138,13 +179,30 @@ An `#[allow(...)]` to silence a lint is a change with a reason, and the
 reason belongs in a comment beside it. A blanket crate-level allow will
 be a review finding.
 
+### An added suppression names a ruling
+
+```
+BROKKR_SUPPRESSION_BASE=origin/main cargo test --locked -p brokkr-cli --test suppressions -- --ignored --exact an_added_suppression_of_a_ratcheted_lint_names_a_ruling
+```
+
+The `quality` job runs this after Clippy, on pull requests only
+(decision 0071 ruling 4, #337). Its base is your pull request's base commit; `origin/main`
+stands in for it locally. A suppression of a ratcheted lint that your
+branch adds to production code must name a ruling in its `reason`, and
+the refusal lists each one that does not.
+
 ### The workspace suite
 
 ```
-cargo test --workspace --all-features --locked
+BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 cargo test --workspace --all-features --locked --no-fail-fast
 ```
 
-The full suite, untruncated. On this tree it builds and runs 45 test
+The full suite, untruncated. On Linux, install bubblewrap first: the
+hands tests build a real namespace (decision 0043), and a boundary proof
+that cannot open one skips, which a Rust test reports as `ok`.
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1` turns that skip into a failure, as
+CI's Linux leg does (decision 0054 ruling 9); on macOS, where there is no
+namespace to open, leave it unset. On this tree it builds and runs 45 test
 binaries; the last run before this document was written reported
 `test result: ok` for every one of them, 787 tests passing and none
 failing. Read the whole output rather than the last line: a suite can be
@@ -155,15 +213,44 @@ to update `Cargo.lock`, so your run uses the dependency graph CI will
 use; if it errors about the lockfile being out of date, your `Cargo.toml`
 change needs its lockfile update committed too.
 
+### The macOS startup gate
+
+```
+set -euo pipefail
+cargo test --locked -p brokkr-seatbelt-probe --test seatbelt_lifetime_probe -- --ignored --exact --nocapture seatbelt_probe::native::native_startup_feasibility_probe 2>&1 | tee target/r3-startup.log
+grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
+grep -q 'Gate A startup verdict' target/r3-startup-report.txt
+```
+
+Paste it into a shell of its own (start `bash` first): its first line ends
+that shell at the first failure, as it ends CI's step. Without it, `tee`
+masks a failed probe, and the quiet `grep`s fail silently while the last
+one can pass against a report an earlier run left.
+
+The macOS leg of the `engine` job runs one step the Linux leg does not:
+Seatbelt's Gate A, the startup matrix of decision
+[0046](../decisions/0046-the-boundary-is-named.md) slice II,
+against the real `/usr/bin/sandbox-exec` and your per-user `launchctl`. The
+probe is `#[ignore]`d, so the workspace suite above never runs it; CI selects
+it by name after the suite, and it is a hard gate. It passes only when the
+log reports exactly one test passed and the probe wrote its verdict to
+`target/r3-startup-report.txt`: a name that selects nothing still prints
+`test result: ok`, with none passed. Run it on a Mac, outside any sandbox,
+where a missing `sandbox-exec` or an outer box is a named failure. On Linux
+the probe returns before it runs a cell or writes a report, so it proves
+nothing there. CI prints `sw_vers` and `uname -m` first, and a step of its
+own, `R3 native diagnostics`, uploads an artifact whether the gate passes
+or not.
+
 ### The MSRV
 
 ```
-cargo +1.88.0 check --workspace --locked
+cargo +1.88.0 check --workspace --all-targets --all-features --locked
 ```
 
 The README's badge says 1.88+, and this check is what makes that a fact
-rather than prose. CI installs 1.88.0 and runs the same `cargo +1.88.0
-check`, across all targets and features. The explicit `+1.88.0` is needed
+rather than prose. CI installs 1.88.0 and runs this same command, across
+all targets and features. The explicit `+1.88.0` is needed
 in both places because `rust-toolchain.toml` selects the newer stable pin,
 which would not notice.
 
@@ -201,11 +288,14 @@ and expect a digest test to move — see
 ### Exact coverage
 
 ```
-bash scripts/coverage-exact.sh
+BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh
 ```
 
 Literal 100% of lines, branches and functions across the workspace, or
-refusal. There is no threshold to lower. This one has its own section:
+refusal. There is no threshold to lower. The script does not set
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE` itself; CI does, because the gate
+counts regions a skipped boundary proof never enters, so set it as the
+suite above does. This one has its own section:
 [the coverage gate, practically](#the-coverage-gate-practically).
 
 One operational note before you run it. The script builds a second,
@@ -236,7 +326,7 @@ The tests themselves still create ordinary temporary directories under
 any Git worktree:
 
 ```
-TMPDIR=/var/tmp bash scripts/coverage-exact.sh
+TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh
 ```
 
 The directory must be outside a Git worktree: tests that create ordinary
@@ -245,10 +335,15 @@ temporary directories expect Git discovery to find no parent repository.
 ### Dependency licences
 
 ```
-cargo deny check licenses
+cargo deny check licenses bans sources
 ```
 
-Prints `licenses ok` and exits 0 when every crate in `Cargo.lock`
+Prints `bans ok, licenses ok, sources ok` and exits 0 when all three
+hold. `sources` refuses a crate from an unknown registry or a git
+repository. `bans` refuses a second version of any crate beyond the
+listed skips, and any dependency edge that decision 0071 ruling 1's
+one-way crate graph does not allow; both are recorded in `deny.toml`
+with their reasons. `licenses` passes when every crate in `Cargo.lock`
 carries a licence on the allowlist in
 [`deny.toml`](../../deny.toml): MIT, Apache-2.0 (including the
 LLVM-exception form), BSD-2-Clause, BSD-3-Clause, ISC, Zlib,
@@ -268,13 +363,41 @@ tidy-up. Suppressing the check is never the fix.
 CI runs this through `EmbarkStudios/cargo-deny-action` v2.1.1, pinned by
 commit, whose image carries cargo-deny 0.20.2; a local binary of another
 version can disagree with it, so install that one to match. `cargo deny check
-licenses` locally is the same check reading the same `deny.toml`.
+licenses bans sources` locally is the same check reading the same `deny.toml`.
+
+### The non-Rust lints
+
+```
+bash scripts/lint-non-rust.sh
+```
+
+The offline list (#427), cheapest first: typos, shellcheck on every
+script and composite action, actionlint, zizmor and lychee. Each tool's
+version is checked against its pin before it runs, and a tool that is
+missing or off its pin is refused by name.
+
+The job then renders every Mermaid diagram, which needs Node 22.23.3
+and the Chrome that `.github/lint/puppeteer.json` names:
+
+```
+npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund
+bash scripts/lint-diagrams.sh
+```
+
+and validates Renovate's configuration with the image pinned in
+`.github/renovate-image.txt`, which needs docker:
+
+```
+image="$(tr -d '[:space:]' < .github/renovate-image.txt)"
+docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-config-validator "$image" --strict --no-global .github/renovate.json5
+docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-config-validator "$image" --strict .github/renovate-global.json5
+```
 
 ### The RustSec advisory audit
 
 CI runs `rustsec/audit-check` v2.0.0, pinned by commit, which fetches the RustSec advisory
-database and scans `Cargo.lock`. **This is the one check with no exact
-local equivalent** — the Action reports through the GitHub Checks API
+database and scans `Cargo.lock`. **It has no exact local
+equivalent** — the Action reports through the GitHub Checks API
 and reads its own copy of the database. The closest local approximation
 is `cargo install cargo-audit` and then:
 
@@ -297,6 +420,7 @@ ignore list in this repository and adding one would be a decision.
 
 ```
 cargo build --release --locked -p brokkr-cli
+bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json
 ```
 
 Builds `target/release/brokkr`, the only binary this repository ships.
@@ -306,19 +430,33 @@ conditioned on the debug profile: an item behind
 `#[cfg(debug_assertions)]` that non-debug code depends on, or a `cargo
 test`-only path that hid a warning.
 
-### The two checks you cannot fully reproduce
+The second line is the size budget (#342): the binary must stay within
+one per cent of `quality/binary-size.json`'s committed size, either way.
+Run it to see the number, but read it as a hint: the budget is measured
+on CI's build, whose embedded paths yours do not share.
 
-Be honest with yourself about these two, and say so in the pull request
+### The checks you cannot fully reproduce
+
+Be honest with yourself about these, and say so in the pull request
 if you think they are at risk:
 
-- **The two-OS matrix.** Checks 3–4 are the same command on Ubuntu
-  and macOS. You ran one. Anything touching the filesystem or the
+- **`delivered by brokkr`** has no local command: it reads a run that
+  shipped your head, or the operator's `by-hand` label. See
+  [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand).
+- **The two-OS matrix.** Checks 4–5 run the same suite on Ubuntu and
+  macOS, and the macOS leg adds [the startup gate](#the-macos-startup-gate),
+  which only a Mac can run. You ran one leg. Anything touching the filesystem or the
   platform's process lookup is where this bites. Windows is not a host
   (decision [0063](../decisions/0063-windows-is-not-a-host.md)); WSL2 is Linux. Note that
   [`.gitattributes`](../../.gitattributes) normalises every text file to LF in
   the working tree on every platform, precisely because bundle digests
   are taken over file bytes — so do not "fix" a line ending.
 - **The RustSec audit**, as above.
+- **The binary size budget**, as above.
+- **The diagram render and Renovate's validator.** `.github/lint/puppeteer.json`
+  names `/usr/bin/google-chrome`, a Linux path, so
+  `scripts/lint-diagrams.sh` does not run as written on a Mac. The
+  validator needs docker. See [the non-Rust lints](#the-non-rust-lints).
 
 ## The pre-flight: let the machine review you first
 
@@ -377,8 +515,22 @@ decision 0051 you do not have to run it yourself to propose the branch:
 light `brokkr run --recipe landing --repo . --feature "landing: <what
 the branch is>"` on it. A gate of seconds reads the branch's class
 against `.github/delivery-classes.json`; prose goes straight to the
-review seat, code goes through the verifier first — the same eight
-checks, boxed — and a failure or a finding above low comes back to an
+review seat, code goes through the verifier first — `cargo fmt --all
+-- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy
+--workspace --all-targets --all-features --locked -- -D warnings`,
+`cargo test --workspace` and `cargo run -p brokkr-cli -- compile
+--bundle bundles/self`, boxed and offline, in that order
+(`recipes/fast/scripts/verify-seat.sh`, #427). The rest of the twelve
+stay CI's to prove: the suite in CI's own form
+(`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, `--all-features`, `--locked` and
+`--no-fail-fast`; inside the box a boundary proof cannot open a
+namespace, and it skips), any non-Rust lint whose tool the box lacks
+(the seat names it `not run`), the MSRV, the suppression check and the
+`bundles/verify` compile, the other OS, the exact coverage gate,
+cargo-deny, the diagram render and Renovate's validator, the ratchets,
+the RustSec audit, the release build and its size budget, and the
+mutants gate. A failure or a finding
+above low comes back to an
 implement seat commissioned by that finding, twice at most. A clean
 judgment ships: the anchor carries the branch's patch map, and the
 contribution gate vouches for your pull request at tier `vouched`

@@ -280,7 +280,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/preflight",
-        "7cdfcc90bba5fcc1c26727145f524b730263f359889d01503f7663c00ba4a938",
+        "252eea4f30c9be0c393fc8d8f992fef83d9c1880b52a0ced75773a36cb16c2d4",
     ),
     (
         "recipes/night-shift",

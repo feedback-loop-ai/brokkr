@@ -202,7 +202,7 @@ old run is not retroactively declared boxed.
 
 Four verification layers back all of this, each mechanical: the 97-case
 differential corpus pins the evaluator; the machine-proof suite drives
-the real binary through every failure mode (30+ scenarios, three OSes,
+the real binary through every failure mode (30+ scenarios, Linux and macOS,
 coverage-gated CI); self-forge runs deliver changes under the full
 constitution; and the verify agents adversarially review every landed
 slice — their verdicts are journaled runs like any other.

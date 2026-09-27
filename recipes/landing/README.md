@@ -6,7 +6,8 @@
 already exists — you wrote it, a session wrote it with you, a ruling put
 it there — so nothing is commissioned and nothing is implemented first.
 `classify` answers in seconds whether the branch is prose or code; code
-is verified by the checks CI will run, prose goes straight to the judge;
+is verified first by the five commands in `verify`'s row below, and the
+rest of the checks main requires stay CI's; prose goes straight to the judge;
 `review` judges the diff; a failure or a finding above low sends the
 smith in to answer exactly what was named, bounded as decision 0022
 bounds every return; a clean judgment ships, and the shipped anchor

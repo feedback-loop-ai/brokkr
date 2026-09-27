@@ -15,6 +15,9 @@
 
 use std::path::{Path, PathBuf};
 
+#[path = "support/workflow.rs"]
+mod workflow;
+
 const BUBBLEWRAP_ACTION: &str = ".github/actions/setup-bubblewrap/action.yml";
 const BUBBLEWRAP: &str = "uses: ./.github/actions/setup-bubblewrap";
 const CARGO_AUDIT_ACTION: &str = ".github/actions/setup-cargo-audit/action.yml";
@@ -1412,24 +1415,7 @@ fn the_lint_tools_are_installed_from_releases_verified_by_digest() {
 
 /// The job bodies of ci.yml, keyed by job id, in file order.
 fn ci_jobs() -> Vec<(String, String)> {
-    let workflow = read(".github/workflows/ci.yml");
-    let (_, jobs) = workflow.split_once("\njobs:\n").expect("a jobs map");
-    let mut parsed: Vec<(String, String)> = Vec::new();
-    for line in jobs.lines() {
-        let id = line
-            .strip_prefix("  ")
-            .filter(|rest| !rest.starts_with([' ', '#']))
-            .and_then(|rest| rest.strip_suffix(':'));
-        match (id, parsed.last_mut()) {
-            (Some(id), _) => parsed.push((id.to_string(), String::new())),
-            (None, Some((_, body))) => {
-                body.push_str(line);
-                body.push('\n');
-            }
-            (None, None) => {}
-        }
-    }
-    parsed
+    workflow::jobs(&read(".github/workflows/ci.yml"))
 }
 
 /// The body of the job `wanted` among [`ci_jobs`].

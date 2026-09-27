@@ -4,10 +4,13 @@
 //! hatch in repository-owned platform data.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
+
+#[path = "support/workflow.rs"]
+mod workflow;
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -185,7 +188,7 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
         "the old handbook was not preserved whole"
     );
     for preserved in [
-        "## The eight checks",
+        "## The twelve checks",
         "## The coverage gate, practically",
         "## Commits, signing, and how your PR actually lands",
         "## The decision culture",
@@ -193,6 +196,1152 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
     ] {
         assert!(manual.contains(preserved), "manual guide lost {preserved}");
     }
+}
+
+/// One leg of a workflow job: the check it reports (one per `matrix.os`
+/// entry when the job's name carries the matrix), its runner, and the
+/// steps that runner takes.
+struct WorkflowLeg {
+    check: String,
+    id: String,
+    file: &'static str,
+    runner: &'static str,
+    steps: Vec<Step>,
+}
+
+/// One step a leg takes: the variables it sets (its job's first), and
+/// every line it runs: its one-line command, or each code line of its
+/// multi-line block.
+struct Step {
+    env: Vec<(String, String)>,
+    lines: Vec<String>,
+}
+
+impl WorkflowLeg {
+    /// The leg's commands as a local run writes them, read against the
+    /// lines `LEG_LINES` holds for it, in order: a line its row writes
+    /// carries its step's variables that `LOCAL_ENV` carries, in their
+    /// local form, and any other line must be the one the table holds in
+    /// its place. A line added, dropped or moved fails here.
+    fn local_commands(&self) -> Vec<String> {
+        let (_, held) = LEG_LINES
+            .iter()
+            .find(|(check, _)| *check == self.check)
+            .unwrap_or_else(|| panic!("LEG_LINES does not hold {}", self.check));
+        let mut held = held.iter();
+        let mut commands = Vec::new();
+        for step in &self.steps {
+            for line in &step.lines {
+                match held.next() {
+                    Some(Line::Written) => commands.push(format!("{}{line}", self.prefix(step))),
+                    Some(Line::Unwritten(text)) => {
+                        assert_eq!(
+                            line, text,
+                            "{} runs a line LEG_LINES does not hold",
+                            self.check
+                        );
+                    }
+                    None => panic!(
+                        "{} runs `{line}`, past the lines LEG_LINES holds",
+                        self.check
+                    ),
+                }
+            }
+        }
+        let missing: Vec<&Line> = held.collect();
+        assert!(
+            missing.is_empty(),
+            "{} no longer runs {missing:?}",
+            self.check
+        );
+        commands
+    }
+
+    /// The variables `step` sets that a local run carries, as a prefix.
+    fn prefix(&self, step: &Step) -> String {
+        let mut prefix = String::new();
+        for (name, value) in &step.env {
+            let carried = LOCAL_ENV
+                .iter()
+                .find(|(listed, _)| listed == name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "LOCAL_ENV does not rule on {name}, which {} sets",
+                        self.check
+                    )
+                })
+                .1;
+            let value = local_value(value, self.runner);
+            if matches!(carried, Local::Carried) && !value.is_empty() {
+                prefix.push_str(&format!("{name}={value} "));
+            }
+        }
+        prefix
+    }
+}
+
+/// A line a checked leg runs.
+#[derive(Debug)]
+enum Line {
+    /// A command its row writes.
+    Written,
+    /// A line its row leaves out, held word for word: output, exits and
+    /// shell structure, a fetch of the pull request's base (a local clone
+    /// has it), the ratchets job's check that its checkout is a pull
+    /// request's merge commit, the macOS host report and its check for
+    /// `/usr/bin/sandbox-exec`, the coverage job's pin reads and its
+    /// cargo-public-api install (`the_by_hand_tool_versions_are_the_pins`
+    /// holds its version), and every line of `delivered by brokkr`, which
+    /// has no local form: it judges a pull request's own evidence with its
+    /// base branch's verifier.
+    Unwritten(&'static str),
+}
+
+/// Every line each of the twelve checks' legs runs, in order: a skipped
+/// line such as an early `exit 0`, or a command moved into a branch that
+/// never runs, fails the test like a command the row left out.
+const LEG_LINES: [(&str, &[Line]); 12] = [
+    (
+        "delivered by brokkr",
+        &[
+            Line::Unwritten(
+                r#"git -C pr fetch --no-tags "$BASE_REPO" "${BASE_REF}:refs/remotes/base/${BASE_REF}""#,
+            ),
+            Line::Unwritten(
+                r#"cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli"#,
+            ),
+            Line::Unwritten("if [ ! -f base-verifier/scripts/delivered-by-brokkr.sh ]; then"),
+            Line::Unwritten(r#"case ",${LABELS}," in"#),
+            Line::Unwritten("*,by-hand,*)"),
+            Line::Unwritten(
+                r#"echo "delivered by brokkr: skipped — operator applied the by-hand label; the base branch carries no gate script yet""#,
+            ),
+            Line::Unwritten("exit 0 ;;"),
+            Line::Unwritten("esac"),
+            Line::Unwritten(
+                r#"echo "delivered by brokkr: the base branch carries no gate script" >&2"#,
+            ),
+            Line::Unwritten("exit 1"),
+            Line::Unwritten("fi"),
+            Line::Unwritten("bash base-verifier/scripts/delivered-by-brokkr.sh"),
+        ],
+    ),
+    ("MSRV (1.88)", &[Line::Written]),
+    (
+        "format, clippy, contracts",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Unwritten(r#"git fetch --no-tags --depth=1 origin "$BROKKR_SUPPRESSION_BASE""#),
+            Line::Written,
+            Line::Written,
+            Line::Written,
+        ],
+    ),
+    (
+        "test (ubuntu-latest)",
+        &[Line::Written, Line::Written, Line::Written],
+    ),
+    (
+        "test (macos-latest)",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Unwritten("sw_vers"),
+            Line::Unwritten("uname -m"),
+            Line::Unwritten("test -x /usr/bin/sandbox-exec"),
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+        ],
+    ),
+    (
+        "exact coverage gate",
+        &[
+            Line::Unwritten(
+                r#"echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT""#,
+            ),
+            Line::Unwritten(
+                r#"echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT""#,
+            ),
+            Line::Unwritten(
+                r#"echo "RUSTUP_TOOLCHAIN=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_ENV""#,
+            ),
+            Line::Written,
+            Line::Written,
+            Line::Unwritten("cargo install --locked cargo-public-api --version 0.52.0"),
+            Line::Written,
+        ],
+    ),
+    ("dependency licenses (cargo-deny)", &[Line::Written]),
+    (
+        "non-Rust lints",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+        ],
+    ),
+    (
+        "baseline ratchets",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Unwritten("git rev-parse --verify --quiet 'HEAD^2' > /dev/null || {"),
+            Line::Unwritten(
+                r#"echo "ratchet refusal: the checkout is not the pull request's merge commit" >&2"#,
+            ),
+            Line::Unwritten("exit 1"),
+            Line::Unwritten("}"),
+            Line::Written,
+        ],
+    ),
+    ("RustSec dependency audit", &[]),
+    ("release binary artifact", &[Line::Written, Line::Written]),
+    ("mutants in the diff: brokkr-core", &[Line::Written]),
+];
+
+/// Whether a local run sets a variable a checked step sets.
+#[derive(Clone, Copy)]
+enum Local {
+    Carried,
+    Omitted,
+}
+
+/// Every variable a step sets whose lines a row writes, ruled on once: a
+/// variable no row has ruled on fails the test rather than dropping out of
+/// the guide. A step no row writes, such as each of `delivered by
+/// brokkr`'s, has its variables held word for word by `JOB_LINES`.
+const LOCAL_ENV: [(&str, Local); 6] = [
+    ("BROKKR_REQUIRE_BOUNDARY_EVIDENCE", Local::Carried),
+    ("BROKKR_SUPPRESSION_BASE", Local::Carried),
+    ("PR_BODY", Local::Carried),
+    // The mutants gate's base: its command names it as an argument.
+    ("BASE", Local::Omitted),
+    // CI's runner has two cores; unset, cargo-mutants runs one job.
+    ("MUTANTS_JOBS", Local::Omitted),
+    // `npm ci --ignore-scripts` runs no download script either way.
+    ("PUPPETEER_SKIP_DOWNLOAD", Local::Omitted),
+];
+
+/// A variable's value on a local run of `runner`'s leg: a literal
+/// unquoted, a test of the runner decided, the pull request's base as
+/// `origin/main` and its body as a placeholder. Any other expression
+/// fails the test.
+fn local_value(value: &str, runner: &str) -> String {
+    if let Some(test) = value.strip_prefix("${{ runner.os == '") {
+        let (os, arms) = test.split_once("' && ").expect("a runner test");
+        let (then, other) = arms
+            .trim_end_matches(" }}")
+            .split_once(" || ")
+            .expect("both arms of a runner test");
+        return if os == runner { then } else { other }
+            .trim_matches('\'')
+            .to_string();
+    }
+    match value {
+        "${{ github.event.pull_request.base.sha }}" => "origin/main".to_string(),
+        "${{ github.event.pull_request.body }}" => "\"<your pull request's body>\"".to_string(),
+        _ if !value.contains("${{") => value.trim_matches('\'').to_string(),
+        _ => panic!("no local form for `{value}`"),
+    }
+}
+
+/// The `NAME: value` pairs of the `env:` map among `lines`, if any.
+fn env_map(lines: &[&str]) -> Vec<(String, String)> {
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let Some(at) = lines.iter().position(|line| line.trim() == "env:") else {
+        return Vec::new();
+    };
+    lines[at + 1..]
+        .iter()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .take_while(|line| indent(line) > indent(lines[at]))
+        .map(|line| {
+            let (name, value) = line.trim().split_once(": ").expect("a NAME: value pair");
+            (name.to_string(), value.to_string())
+        })
+        .collect()
+}
+
+fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
+    let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+    workflow::jobs(&text)
+        .into_iter()
+        .flat_map(|(id, body)| job_legs(file, &id, &body.lines().collect::<Vec<_>>()))
+        .collect()
+}
+
+fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
+    let field = |key: &str| body.iter().find_map(|line| line.strip_prefix(key));
+    let name = field("    name: ")
+        .unwrap_or_else(|| panic!("{file}'s {id} has no name"))
+        .trim_matches('\'');
+    let runs_on = field("    runs-on: ").unwrap_or_else(|| panic!("{file}'s {id} has no runner"));
+    let oses: Vec<&str> = body
+        .iter()
+        .find_map(|line| line.trim().strip_prefix("os: ["))
+        .map_or_else(
+            || vec![runs_on],
+            |list| list.trim_end_matches(']').split(", ").collect(),
+        );
+    let steps = job_steps(body);
+    let job_env: Vec<&str> = body
+        .iter()
+        .copied()
+        .take_while(|line| *line != "    steps:")
+        .collect();
+    let job_env = env_map(&job_env);
+    oses.into_iter()
+        .map(|os| {
+            let runner = if os.starts_with("macos") {
+                "macOS"
+            } else {
+                "Linux"
+            };
+            // A line that names a runner holds only on that runner's leg.
+            let on_leg = |line: &str| {
+                !line.contains("runner.os ==") || line.contains(&format!("runner.os == '{runner}'"))
+            };
+            let taken: Vec<&Vec<&str>> = steps
+                .iter()
+                .filter(|step| {
+                    step.iter()
+                        .filter(|line| line.trim().trim_start_matches("- ").starts_with("if: "))
+                        .all(|line| on_leg(line))
+                })
+                .collect();
+            WorkflowLeg {
+                check: name.replace("${{ matrix.os }}", os),
+                id: id.to_string(),
+                file,
+                runner,
+                steps: taken
+                    .into_iter()
+                    .map(|step| Step {
+                        env: job_env.iter().cloned().chain(env_map(step)).collect(),
+                        lines: step_lines(step),
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+/// A job's steps, each its own lines, comments dropped.
+fn job_steps<'a>(body: &[&'a str]) -> Vec<Vec<&'a str>> {
+    let mut steps: Vec<Vec<&str>> = Vec::new();
+    for &line in body
+        .iter()
+        .skip_while(|line| **line != "    steps:")
+        .skip(1)
+    {
+        if line.starts_with("      - ") {
+            steps.push(vec![line]);
+        } else if let Some(step) = steps
+            .last_mut()
+            .filter(|_| !line.trim_start().starts_with('#'))
+        {
+            step.push(line);
+        }
+    }
+    steps
+}
+
+/// What one step runs: its one-line command, or every code line of its
+/// multi-line block (continuations joined), a call to a function the block
+/// defines standing for that function's body with `"$@"` replaced by the
+/// call's arguments. A pull request's base stands as `origin/main`, the
+/// base a local clone has.
+fn step_lines(step: &[&str]) -> Vec<String> {
+    let mut commands = Vec::new();
+    for (at, line) in step.iter().enumerate() {
+        let key = line.trim_start().trim_start_matches("- ");
+        if key == "run: |" {
+            let indent = line.len() - key.len();
+            let block: Vec<&str> = step[at + 1..]
+                .iter()
+                .take_while(|line| {
+                    line.trim().is_empty() || line.len() - line.trim_start().len() > indent
+                })
+                .map(|line| line.trim())
+                .collect();
+            commands.extend(block_lines(&block.join("\n").replace(" \\\n", " ")));
+        } else if let Some(run) = key.strip_prefix("run: ") {
+            commands.push(run.replace("\"$BASE\"", "origin/main"));
+        } else if let Some(deny) = key.strip_prefix("command: ") {
+            commands.push(format!("cargo deny {deny}"));
+        }
+    }
+    commands
+}
+
+/// The code lines of one `run: |` block, its functions expanded.
+fn block_lines(block: &str) -> Vec<String> {
+    let mut functions: Vec<(&str, Vec<&str>)> = Vec::new();
+    let mut commands = Vec::new();
+    let mut lines = block.lines();
+    while let Some(line) = lines.next() {
+        if let Some(name) = line.strip_suffix("() {") {
+            functions.push((
+                name,
+                lines.by_ref().take_while(|line| *line != "}").collect(),
+            ));
+        } else if let Some((body, args)) = functions.iter().find_map(|(name, body)| {
+            line.strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix(' '))
+                .map(|args| (body, args))
+        }) {
+            commands.extend(body.iter().map(|call| call.replace("\"$@\"", args)));
+        } else if !line.is_empty() {
+            commands.push(line.replace("'HEAD^1'", "origin/main"));
+        }
+    }
+    commands
+}
+
+/// The commands a row writes: its cell's code spans, and every line of a
+/// code block in a section it links.
+fn written_commands(guide: &str, cell: &str) -> Vec<String> {
+    cell.split('`')
+        .skip(1)
+        .step_by(2)
+        .chain(
+            linked_sections(guide, cell)
+                .into_iter()
+                .flat_map(code_lines),
+        )
+        .map(str::to_string)
+        .collect()
+}
+
+/// The guide sections a row's command cell links to.
+fn linked_sections<'a>(guide: &'a str, cell: &str) -> Vec<&'a str> {
+    cell.split("](#")
+        .skip(1)
+        .map(|link| {
+            let anchor = link.split_once(')').expect("a closed link").0;
+            guide
+                .split("\n#")
+                .find(|section| heading_anchor(section) == anchor)
+                .unwrap_or_else(|| panic!("the guide has no section #{anchor}"))
+        })
+        .collect()
+}
+
+/// Every line of every fenced code block in `section`.
+fn code_lines(section: &str) -> Vec<&str> {
+    section
+        .split("```")
+        .skip(1)
+        .step_by(2)
+        .flat_map(str::lines)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+/// Code-block lines in a linked section that no CI leg runs, each with
+/// the reason it is there: a local extra, not a check a job makes.
+const LOCAL_ONLY: [&str; 3] = [
+    // "If you touched a recipe … compile that one too": CI compiles the
+    // two shipped bundles; a contributor compiles the one they changed.
+    "cargo run --locked -p brokkr-cli -- compile --bundle recipes/<name>",
+    // The directory the coverage script keeps its warm build in: a path
+    // the section names, not a command.
+    "${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}}/brokkr-coverage-cache",
+    // The same gate with its temporary directories moved off a small tmpfs.
+    "TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh",
+];
+
+/// The anchor GitHub gives the heading a section starts with.
+fn heading_anchor(section: &str) -> String {
+    let heading = section.lines().next().unwrap_or_default();
+    heading
+        .trim_start_matches('#')
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter_map(|c| match c {
+            ' ' => Some('-'),
+            c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
+            _ => None,
+        })
+        .collect()
+}
+
+/// One row of the by-hand guide's check table.
+#[derive(Debug)]
+struct CheckRow {
+    number: String,
+    check: String,
+    job: String,
+    file: &'static str,
+    command: String,
+}
+
+fn check_rows(guide: &str) -> Vec<CheckRow> {
+    let section = guide
+        .split_once("\n## The twelve checks\n")
+        .expect("the guide has its checks section")
+        .1
+        .split_once("\n## ")
+        .expect("a section follows the checks")
+        .0;
+    section
+        .lines()
+        .filter(|line| line.starts_with("| ") && line.as_bytes()[2].is_ascii_digit())
+        .map(|line| {
+            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+            assert_eq!(cells.len(), 4, "one four-column check row: {line}");
+            let file = if cells[2].ends_with(" (mutants.yml)") {
+                "mutants.yml"
+            } else {
+                "ci.yml"
+            };
+            CheckRow {
+                number: cells[0].to_string(),
+                check: cells[1].trim_matches('`').to_string(),
+                job: cells[2]
+                    .trim_end_matches(" (mutants.yml)")
+                    .trim_matches('`')
+                    .to_string(),
+                file,
+                command: cells[3].to_string(),
+            }
+        })
+        .collect()
+}
+
+/// The checks branch protection on main requires (operator rulings,
+/// 2026-09-26), as (context, job id, workflow). Branch protection lives
+/// outside the tree, so this list is its one home in the repository.
+const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
+    ("delivered by brokkr", "delivered-by-brokkr", "ci.yml"),
+    ("MSRV (1.88)", "msrv", "ci.yml"),
+    ("format, clippy, contracts", "quality", "ci.yml"),
+    ("test (ubuntu-latest)", "engine", "ci.yml"),
+    ("test (macos-latest)", "engine", "ci.yml"),
+    ("exact coverage gate", "coverage", "ci.yml"),
+    (
+        "dependency licenses (cargo-deny)",
+        "license-compliance",
+        "ci.yml",
+    ),
+    ("non-Rust lints", "lint-non-rust", "ci.yml"),
+    ("baseline ratchets", "ratchets", "ci.yml"),
+    ("RustSec dependency audit", "dependency-audit", "ci.yml"),
+    ("release binary artifact", "release-binary", "ci.yml"),
+    (
+        "mutants in the diff: brokkr-core",
+        "core-gate",
+        "mutants.yml",
+    ),
+];
+
+/// The by-hand guide's check table is exactly the twelve checks main
+/// requires, and every row is a check the workflows define: its name and
+/// job as the job states them, in the workflows' order, and, line for
+/// line, the commands its leg of the job runs with the variables they run
+/// under, written in the row's code spans and the sections it links.
+#[test]
+fn the_by_hand_checks_are_the_workflows_checks() {
+    let root = workspace();
+    let guide = std::fs::read_to_string(root.join("docs/guides/contributing-by-hand.md")).unwrap();
+    let rows = check_rows(&guide);
+    let listed: Vec<(String, String, &str)> = rows
+        .iter()
+        .map(|row| (row.check.clone(), row.job.clone(), row.file))
+        .collect();
+    let required: Vec<(String, String, &str)> = MAIN_REQUIRES
+        .iter()
+        .map(|&(check, job, file)| (check.to_string(), job.to_string(), file))
+        .collect();
+    assert_eq!(
+        listed, required,
+        "the guide lists the twelve checks main requires"
+    );
+    let legs: Vec<WorkflowLeg> = ["ci.yml", "mutants.yml"]
+        .into_iter()
+        .flat_map(|file| workflow_legs(&root, file))
+        .collect();
+    let defined: Vec<(String, String, &str)> = legs
+        .iter()
+        .map(|leg| (leg.check.clone(), leg.id.clone(), leg.file))
+        .filter(|check| listed.contains(check))
+        .collect();
+    assert_eq!(
+        listed, defined,
+        "a row names a check its workflow does not define"
+    );
+    for (at, row) in rows.iter().enumerate() {
+        let check = &row.check;
+        assert_eq!(
+            row.number,
+            (at + 1).to_string(),
+            "{check} is numbered in order"
+        );
+        let written = written_commands(&guide, &row.command);
+        let leg = legs
+            .iter()
+            .find(|leg| (&leg.check, &leg.id, leg.file) == (&row.check, &row.job, row.file))
+            .expect("a defined leg");
+        let runs = leg.local_commands();
+        for run in &runs {
+            assert!(
+                written.contains(run),
+                "{check}'s row does not write `{run}`"
+            );
+        }
+        // And the other way: a command the row writes is one its leg runs,
+        // so a step deleted from the workflow cannot leave the guide
+        // promising it.
+        for line in &written {
+            assert!(
+                LOCAL_ONLY.contains(&line.as_str()) || runs.contains(line),
+                "{check}'s row writes `{line}`, which its job does not run"
+            );
+        }
+    }
+    let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
+    assert!(contributing.contains("preserves the twelve exact checks"));
+    assert!(guide.contains("twelve required checks"));
+}
+
+/// Every line of each job behind the twelve checks, in `MAIN_REQUIRES`'s
+/// order, as its workflow writes it, but for comments, blank lines and the
+/// value of a `run:` or `command:` key, whose lines `LEG_LINES` holds. A
+/// skipped step or job reports success, which satisfies a required check,
+/// and a runner, an action, an input or a variable changed alters what a
+/// check proves while its commands stand, so each is held word for word:
+/// a `continue-on-error`, `if:`, `needs:`, `runs-on:`, `uses:`, `with:` or
+/// `env:` line added, dropped or changed fails the test. A line changed
+/// here is a line to re-read in the guide's row and the sections it links.
+/// A line that is a key of `SHARED_STEPS` stands for that step's lines.
+const JOB_LINES: [(&str, &str); 11] = [
+    (
+        "delivered-by-brokkr",
+        r#"
+    name: delivered by brokkr
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+<checkout>
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-verifier
+<checkout>
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+      - name: the base branch, for the merge-base
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REPO: https://github.com/${{ github.repository }}.git
+        run:
+<stable toolchain>
+      - name: build the base branch's offline verifier
+        run:
+      - name: the tier is cut by the delta since the judgment (decisions 0033, 0038)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: refs/remotes/base/${{ github.event.pull_request.base.ref }}
+          REPO: pr
+          EVIDENCE: https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git
+          VERIFIER: base-verifier/target/debug/brokkr
+          CLASSES: base-verifier/.github/delivery-classes.json
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run:
+"#,
+    ),
+    (
+        "msrv",
+        r#"
+    name: MSRV (1.88)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.88.0 # the MSRV, Cargo.toml's rust-version: moved by hand, never by Renovate
+      - run:
+"#,
+    ),
+    (
+        "quality",
+        r#"
+    name: format, clippy, contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+<stable toolchain>
+          components: rustfmt, clippy
+<rust-cache>
+      - name: formatting is canonical
+        run:
+      - name: clippy is warning-free across every target
+        run:
+      - name: an added suppression names a ruling
+        if: github.event_name == 'pull_request'
+        env:
+          BROKKR_SUPPRESSION_BASE: ${{ github.event.pull_request.base.sha }}
+        run:
+      - name: frozen and additive contracts compile
+        run:
+"#,
+    ),
+    (
+        "engine",
+        r#"
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+<checkout>
+<stable toolchain>
+<rust-cache>
+      - name: bubblewrap for the hands tests
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-bubblewrap
+      - run:
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+      - name: R3 native startup gate
+        if: runner.os == 'macOS'
+        run:
+      - name: R3 native diagnostics
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: r3-native-diagnostics
+          path: |
+            target/r3-startup.log
+            target/r3-startup-report.txt
+          if-no-files-found: warn
+      - name: self and verify bundles compile under the constitutional lint
+        run:
+"#,
+    ),
+    (
+        "coverage",
+        r#"
+    name: exact coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+      - name: the pinned coverage toolchain and its measuring tool
+        id: nightly
+        run:
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ steps.nightly.outputs.toolchain }}
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+          fallback: none
+<rust-cache>
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/brokkr-coverage-cache
+          key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
+      - name: bubblewrap for the hands tests
+        uses: ./.github/actions/setup-bubblewrap
+      - name: prove literal nonzero 100% source-line/branch/function coverage
+        run:
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-crap@0.5.0
+          fallback: none
+      - name: complexity ratchet (quality/crap-baseline.json)
+        run:
+      - name: cargo-public-api 0.52.0, pinned
+        run:
+      - name: public-API ratchet (quality/public-api/)
+        run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: coverage-exact
+          path: target/coverage/
+"#,
+    ),
+    (
+        "license-compliance",
+        r#"
+    name: dependency licenses (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+<checkout>
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command:
+"#,
+    ),
+    (
+        "lint-non-rust",
+        r#"
+    name: non-Rust lints
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+<checkout>
+      - name: actionlint, pinned by digest
+        uses: ./.github/actions/setup-actionlint
+      - name: lychee, pinned by digest
+        uses: ./.github/actions/setup-lychee
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: shellcheck@0.11.0,typos@1.50.2,zizmor@1.30.1
+          fallback: none
+      - name: the offline lints (scripts/lint-non-rust.sh)
+        run:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.3
+      - name: the diagrams render (mermaid-cli, from .github/lint's lockfile)
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: '1'
+        run:
+      - name: Renovate's configuration is valid (renovate-config-validator, the pinned image)
+        run:
+"#,
+    ),
+    (
+        "ratchets",
+        r#"
+    name: baseline ratchets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+<checkout>
+          fetch-depth: 2
+<stable toolchain>
+      - uses: ./.github/actions/setup-jscpd
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-shear@1.14.0
+          fallback: none
+      - name: file-size ratchet (quality/file-lines.txt)
+        run:
+      - name: duplication ratchet (quality/jscpd-baseline-*.json)
+        run:
+      - name: no unused dependency (cargo-shear)
+        run:
+      - name: a raised baseline names its ruling (quality/)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run:
+"#,
+    ),
+    (
+        "dependency-audit",
+        r#"
+    name: RustSec dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+<checkout>
+      - name: cargo-audit, pinned by digest
+        uses: ./.github/actions/setup-cargo-audit
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+"#,
+    ),
+    (
+        "release-binary",
+        r#"
+    name: release binary artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+<stable toolchain>
+<rust-cache>
+      - run:
+      - run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: brokkr-linux-x86_64
+          path: target/release/brokkr
+"#,
+    ),
+    (
+        "core-gate",
+        r#"
+    name: 'mutants in the diff: brokkr-core'
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+<stable toolchain>
+<rust-cache>
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-mutants@27.1.0
+          fallback: none
+      - name: no miss this pull request adds to brokkr-core
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          MUTANTS_JOBS: '2'
+        run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mutants-in-diff-brokkr-core
+          path: target/mutants/mutants.out/
+"#,
+    ),
+];
+
+/// The `key: value` pairs written at `indent` among `lines`, comments
+/// and deeper lines skipped.
+fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
+    lines
+        .iter()
+        .filter_map(|line| line.strip_prefix(indent))
+        .filter(|line| !line.starts_with([' ', '#']) && !line.is_empty())
+        .map(|line| {
+            let (key, value) = line.split_once(':').unwrap_or((line, ""));
+            (key, value.trim())
+        })
+        .collect()
+}
+
+/// The steps several required jobs take word for word, held once.
+const SHARED_STEPS: [(&str, &str); 3] = [
+    (
+        "<checkout>",
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false",
+    ),
+    (
+        "<stable toolchain>",
+        "      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0",
+    ),
+    (
+        "<rust-cache>",
+        "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+    ),
+];
+
+/// The lines `JOB_LINES` holds for one job, each shared step's name
+/// replaced by its lines.
+fn expected_lines(held: &str) -> Vec<&str> {
+    held.lines()
+        .skip(1)
+        .flat_map(|line| {
+            SHARED_STEPS
+                .iter()
+                .find(|(name, _)| *name == line)
+                .map_or_else(|| vec![line], |(_, step)| step.lines().collect())
+        })
+        .collect()
+}
+
+/// A job's lines as `JOB_LINES` holds them: comments and blank lines
+/// dropped, and a `run:` or `command:` key kept without its value, the
+/// block under it included.
+fn held_lines(body: &str) -> Vec<&str> {
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let mut held = Vec::new();
+    let mut value_under = None;
+    for line in body.lines() {
+        if value_under.is_some_and(|key| line.trim().is_empty() || indent(line) > key) {
+            continue;
+        }
+        value_under = None;
+        let key = line.trim_start().trim_start_matches("- ");
+        if key.is_empty() || key.starts_with('#') {
+            continue;
+        }
+        let at = line.len() - key.len();
+        match ["run:", "command:"]
+            .into_iter()
+            .find(|name| key.starts_with(name))
+        {
+            Some(name) => {
+                held.push(&line[..at + name.len()]);
+                value_under = Some(at);
+            }
+            None => held.push(line),
+        }
+    }
+    held
+}
+
+/// A skipped step or job reports success, which satisfies a required
+/// check, so the jobs behind the twelve are held whole: each workflow's
+/// top-level keys (a workflow-wide `defaults:` or `env:` would reach every
+/// step), and every line of each required job, as `JOB_LINES` holds it.
+#[test]
+fn the_required_jobs_run_every_step_unsoftened() {
+    let root = workspace();
+    let read =
+        |file: &str| std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+    for (file, top) in [
+        (
+            "ci.yml",
+            ["name", "on", "concurrency", "permissions", "jobs"],
+        ),
+        (
+            "mutants.yml",
+            ["name", "on", "permissions", "concurrency", "jobs"],
+        ),
+    ] {
+        let text = read(file);
+        let keys: Vec<&str> = keys_at(&text.lines().collect::<Vec<_>>(), "")
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        assert_eq!(keys, top, "{file}'s top-level keys");
+    }
+    let mut required: Vec<(&str, &str)> = MAIN_REQUIRES
+        .iter()
+        .map(|&(_, id, file)| (id, file))
+        .collect();
+    required.dedup();
+    let held: Vec<&str> = JOB_LINES.iter().map(|(id, _)| *id).collect();
+    let ids: Vec<&str> = required.iter().map(|(id, _)| *id).collect();
+    assert_eq!(
+        held, ids,
+        "JOB_LINES holds each required job once, in order"
+    );
+    for ((id, file), (_, lines)) in required.into_iter().zip(JOB_LINES) {
+        let body = workflow::jobs(&read(file))
+            .into_iter()
+            .find_map(|(job, body)| (job == id).then_some(body))
+            .unwrap_or_else(|| panic!("{file} has no {id} job"));
+        assert_eq!(
+            held_lines(&body),
+            expected_lines(lines),
+            "a line of {file}'s {id} changed: re-read its row and the sections the row links"
+        );
+    }
+}
+
+/// Every version the by-hand guide states for a pinned tool is its pin:
+/// each `tool: name@version` the workflows install, the MSRV toolchain,
+/// the Node they set up, the cargo-public-api they build, jscpd's action, the cargo-deny the
+/// licence action's image carries, and the release of each action the
+/// guide names. A pin moved without its copy in the guide fails here.
+#[test]
+fn the_by_hand_tool_versions_are_the_pins() {
+    let root = workspace();
+    let guide = std::fs::read_to_string(root.join("docs/guides/contributing-by-hand.md")).unwrap();
+    let mut pins = Vec::new();
+    for file in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/mutants.yml",
+        ".github/actions/setup-jscpd/action.yml",
+    ] {
+        let text = std::fs::read_to_string(root.join(file)).unwrap();
+        pins.extend(text.lines().flat_map(|line| line_pins(line.trim(), &guide)));
+    }
+    assert!(pins.len() >= 12, "the pins were read: {pins:?}");
+    for (name, version) in &pins {
+        let stated: Vec<&str> = guide
+            .match_indices(&format!("{name} "))
+            .map(|(at, _)| version_token(&guide[at + name.len() + 1..]))
+            .filter(|token| {
+                token
+                    .trim_start_matches('v')
+                    .starts_with(|c: char| c.is_ascii_digit())
+            })
+            .collect();
+        assert!(!stated.is_empty(), "the guide states no version of {name}");
+        for token in stated {
+            assert_eq!(token, version, "the guide states {name} {token}");
+        }
+    }
+}
+
+/// The pins one workflow line makes, named as the guide names the tool.
+fn line_pins(line: &str, guide: &str) -> Vec<(String, String)> {
+    if let Some(tools) = line.strip_prefix("tool: ") {
+        return tools
+            .split(',')
+            .filter(|tool| !tool.contains("${{"))
+            .map(|tool| {
+                let (name, version) = tool.split_once('@').expect("a tool@version pin");
+                (name.to_string(), version.to_string())
+            })
+            .collect();
+    }
+    let action = line
+        .trim_start_matches("- ")
+        .strip_prefix("uses: ")
+        .and_then(|uses| uses.split_once('@'))
+        .map(|(action, rest)| (format!("`{action}`"), rest.split_once(" # ")))
+        .filter(|(action, _)| guide.contains(action.as_str()));
+    let pin = if let Some((action, release)) = action {
+        Some((action, release.expect("an action's release comment").1))
+    } else if let Some(msrv) = line
+        .strip_prefix("toolchain: ")
+        .filter(|pin| pin.contains("# the MSRV"))
+    {
+        Some(("Rust".to_string(), version_token(msrv)))
+    } else if let Some(version) = line.strip_prefix("node-version: ") {
+        Some(("Node".to_string(), version))
+    } else if let Some(version) = line.strip_prefix("JSCPD_VERSION: ") {
+        Some(("jscpd".to_string(), version))
+    } else if let Some(built) = line.strip_prefix("run: cargo install --locked ") {
+        built
+            .split_once(" --version ")
+            .map(|(name, version)| (name.to_string(), version))
+    } else {
+        line.split_once("image carries cargo-deny ")
+            .map(|(_, version)| ("cargo-deny".to_string(), version_token(version)))
+    };
+    pin.into_iter()
+        .map(|(name, version)| (name, version.to_string()))
+        .collect()
+}
+
+/// The version that starts `text`, without the punctuation after it.
+fn version_token(text: &str) -> &str {
+    let end = text
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '.')
+        .unwrap_or(text.len());
+    text[..end].trim_end_matches('.')
 }
 
 /// Decision 0046's guides (boundary-guides / The guides document the
