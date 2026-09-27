@@ -6,7 +6,8 @@
 # read, or a measurement that produced nothing, is a refusal.
 #
 #   ratchet.sh crap [lcov]       cyclomatic complexity, after the exact gate
-#   ratchet.sh crap-judge <json> the verdict on a cargo-crap --baseline report
+#   ratchet.sh crap-judge <json> <baseline>
+#                                the verdict on a cargo-crap --baseline report
 #   ratchet.sh files             lines per Rust file
 #   ratchet.sh clones            jscpd fingerprints, per scope
 #   ratchet.sh api               the public-API snapshots, on the pinned nightly
@@ -42,26 +43,38 @@ verdict() {
 }
 
 crap_judge() {
-  local report="$1" cc
+  local report="$1" baseline="$2" cc
   [ -f "$report" ] || refuse "no cargo-crap report at $report"
   # A tool that wrote nothing measured nothing: jq reads no value from an
   # empty file and exits 0, so emptiness and shape are refused first.
   [ -s "$report" ] || refuse "the cargo-crap report at $report is empty"
   jq -e 'type == "object"' "$report" > /dev/null 2>&1 ||
     refuse "the cargo-crap report at $report is not a JSON object"
+  jq -e '(.entries | type) == "array" and (.entries | length) > 0
+    and all(.entries[]; (.file | type) == "string" and (.function | type) == "string"
+      and (.crap | type) == "number")' "$baseline" > /dev/null 2>&1 ||
+    refuse "the complexity baseline at $baseline is not one this check reads"
   cc="$(ceiling ccNewFunction)"
-  # cargo-crap matches a function to its baseline by file and name, not by
-  # line, so an edit above a function does not make it new. It also
-  # matches by name alone across files and reports that as `moved`. A moved
-  # function is judged as new, as quality/README.md says: only to the
-  # ceiling, and one over it moves its baseline entry with a ruling. An
-  # existing function may grow to the ceiling or its baseline, whichever
-  # is higher. At the gate's 100% coverage CRAP equals
+  # cargo-crap's pairing is not trusted for the allowance. It pairs a
+  # function with a same-named baseline entry in another file: as `moved`
+  # when its score did not change, and as `improved` or `regressed`, with
+  # `previous_file`, when it did. Two files that share only a filename
+  # (src/old/mod.rs, src/new/mod.rs) it pairs as one file, reporting
+  # `unchanged` with no `previous_file`. So the allowance is read from the
+  # committed baseline, keyed by the entry's own file and name. A function
+  # with no baseline entry at its own file is new, whatever its status: it
+  # may reach only the ceiling, and one over it moves its baseline entry
+  # with a ruling (quality/README.md). One with an entry may grow to the
+  # ceiling or its baseline, whichever is higher; cfg twins of one key share
+  # the higher score. Matching is not by line, so an edit above a function
+  # does not make it new. At the gate's 100% coverage CRAP equals
   # cyclomatic complexity, so anything less than 100% is refused.
-  jq -r --argjson cc "$cc" '
+  jq -r --argjson cc "$cc" --slurpfile base "$baseline" '
+    def key: [.file, .function] | tojson;
     def known: IN("new", "regressed", "unchanged", "improved", "moved");
-    def allowance: if IN(.status; "new", "moved") then $cc else ([.baseline_crap, $cc] | max) end;
-    if (.entries | type) != "array" or (.entries | length) == 0
+    ($base[0].entries | group_by(key) | map({key: (.[0] | key), value: (map(.crap) | max)})
+      | from_entries) as $was
+    | if (.entries | type) != "array" or (.entries | length) == 0
     then "no function was measured"
     elif (.diagnostics.source_only.count | type) != "number" or (.diagnostics.lcov_only.count | type) != "number"
     then "the report carries no source and LCOV match counts"
@@ -69,11 +82,13 @@ crap_judge() {
     then "the scan and the LCOV disagree: \(.diagnostics.source_only.count) source file(s) with no coverage, \(.diagnostics.lcov_only.count) covered file(s) not scored"
     else .entries[]
       | "\(.file):\(.line) \(.function)" as $at
+      | $was[key] as $old
       | if (.status | type) != "string" or (.status | known | not) then "\($at): status \(.status) is not one this check reads"
         elif .coverage != 100 then "\($at): \(.coverage)% covered, so CRAP is not cyclomatic complexity"
         elif (.crap | type) != "number" then "\($at): no CRAP score"
-        elif .status != "new" and (.baseline_crap | type) != "number" then "\($at): matched a baseline with no CRAP score"
-        elif .crap > allowance then "\($at): CC \(.crap) over \(allowance) (\(.status))"
+        elif $old == null then
+          if .crap > $cc then "\($at): CC \(.crap) over \($cc), new: no baseline entry at this file (\(.status))" else empty end
+        elif .crap > ([$old, $cc] | max) then "\($at): CC \(.crap) over its baseline \([$old, $cc] | max) (\(.status))"
         else empty end
     end' "$report" > "$scratch/crap.offenses" || refuse "the cargo-crap report is not readable JSON"
   verdict "cyclomatic complexity" "$scratch/crap.offenses"
@@ -84,7 +99,7 @@ crap() {
   [ -f "$lcov" ] || refuse "no LCOV at $lcov: run scripts/coverage-exact.sh first"
   [ -f "$out/crap-baseline.json" ] || refuse "no quality/crap-baseline.json"
   crap_report "$lcov" "$scratch/crap.json" --baseline "$out/crap-baseline.json"
-  crap_judge "$scratch/crap.json"
+  crap_judge "$scratch/crap.json" "$out/crap-baseline.json"
 }
 
 # parse_file_lines <file> <label> <noun> <dest>: the "<count> <path>" entries
@@ -506,12 +521,12 @@ baselines() {
 
 case "${1:-}" in
   crap) shift; crap "$@" ;;
-  crap-judge) shift; crap_judge "${1:?crap-judge needs a report}" ;;
+  crap-judge) shift; crap_judge "${1:?crap-judge needs a report}" "${2:?crap-judge needs the baseline}" ;;
   files) files ;;
   clones) clones ;;
   api) api ;;
   baselines) shift; baselines "$@" ;;
   listings) listings ;;
   table) quality_table ;;
-  *) refuse "usage: ratchet.sh crap [lcov] | crap-judge <report> | files | clones | api | baselines <rev> | listings | table" ;;
+  *) refuse "usage: ratchet.sh crap [lcov] | crap-judge <report> <baseline> | files | clones | api | baselines <rev> | listings | table" ;;
 esac
