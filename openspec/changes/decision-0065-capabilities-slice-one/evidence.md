@@ -12862,3 +12862,312 @@ marker.
 
 **Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
 macOS, remote CI, serving integration (14.1, 15.1, 15.2) and the council.
+
+## Unit 13-fix — one state, derived and read back, oversized on two expectations, 2026-09-27
+
+Run `0065-rebuild-unit-13-see-the-uni-7fa17ffb`, based on `640b5b2e`. This
+visit answers the chief's security hold on unit 13 (F1–F6) under the
+operator's directive for 13-fix. Result: **oversized**. The fix is built and
+proved, but not committed. It is saved as `.forge/unit-13-fix/full.patch`
+(sha256 `dc9621e1cd7302765149273ae207d8ed04d8c0e9700acb9851d104cd569b0619`).
+It touches only the unit's files: `native_controls.rs`,
+`native_controls/grammar.rs` and `native_controls/tests.rs`. `adapters.rs`
+needed no change.
+
+### Why it stops
+
+F6 requires the one builder to write an include list that the check reads
+back. `final_tools` now names the tools of the carried, lowered local
+permissions beside the held tools. Two existing assertions outside this
+unit's files expect the old, narrower list. Both are in
+`crates/brokkr-runtime/tests/capability_launch.rs`:
+
+- `:6576`, in `a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened`;
+- `:6988`, in `every_position_reproduction_refuses_by_provenance_and_typed_origins_launch`.
+
+Both cover the same shape: an office with a typed allow `[ls]`, lowered as
+`Bash(ls:*)`, behind the adapter template's `--tools Read,Bash` limit, with
+nothing held. The old composer wrote `--tools ""` there, which leaves the
+typed local permission unusable: it is exactly the disagreement F6 names.
+The fixed builder writes `--tools Bash`. On the patched tree, the workspace
+run (`.forge/unit-13-fix/workspace-tests.txt`) gave 76 `test result: ok`
+summaries and one failed target, `brokkr-runtime --test capability_launch`,
+with 51 passed and 2 failed. The failures are these two assertions: left
+`… "--tools", "Bash", …`, right `… "--tools", "", …`.
+
+A changed expectation is not a line the compiler forces, and it is not a
+fixture swap. So neither standing admission (2026-09-25, 2026-09-26)
+covers it. The checker cannot keep these expectations either: accepting the
+narrower list would make a lowered local permission unusable under a limit
+that names its tool, which is the defect.
+
+**The ruling asked for:** admit these two expectations for this unit, as
+assertion updates only. Each `""` becomes `"Bash"`, and the comment above
+the first is corrected: Bash is also the typed local permission's tool,
+not only a name the template gives. The change is saved as
+`.forge/unit-13-fix/capability-launch.proposed.patch` (sha256
+`0289eaa7b5cb29502aaa588ecaee3e502b4545556e940e34fe06c44bec3f83a8`). As a
+scratch check it was applied, and `capability_launch` gave 53 passed and 0
+failed. The workspace run with it applied is recorded under Gates. It was
+then reverted.
+
+### What the patch changes
+
+One state model, `State`, is what the composer writes, what the check reads
+back, and what the check derives from the record. It gains `off` (the
+measured OFF switches) and `prompt`. `check_final` now takes
+`Serving { session, overlay, prompt }`. It checks the command twice:
+
+1. It parses the complete command at its fixed positions and compares it
+   field by field, in order, with the state of the composition it was
+   given.
+2. It compares the command's state by meaning with `derive`: each list a
+   set, OFFs and controls sorted, and a repeated control kept.
+
+`derive` reads only the sealed record and the plan, never either command.
+The origin-consuming `authority`, `Source`, `Meaning` and `codex_meaning`
+are removed. No effect is accepted because of who supplied it.
+
+- **F1: every contribution is owed.** The derived allow and deny lists are
+  the union of the declared template's, the local fragment's, the hands',
+  the boundary's, the selection's and the plan's own lists. So a
+  boundary's narrowing denial is owed: the intact command checks, and the
+  denial removed from both commands departs from the derived state. Each
+  limit (template, boundary, native) must name every held tool, the
+  required hands tool and every lowered local tool.
+- **F2: one class from every contribution.** The typed local class, the
+  record's `local` fragment, and the template's, hands', boundary's and
+  plan's classes must all name the same class.
+  - `danger-full-access` refuses wherever it stands.
+  - Two different classes refuse, naming both sources.
+  - A class on a harness with no mapping refuses (D5.3).
+  - The derived class is the one the command must express, so a class
+    dropped from both commands departs.
+- **F3: meaning, not spelling.** `read_state` reads an assignment into a
+  capability table in only three ways:
+  - exactly a rejoin's class (`rejoin_class`);
+  - exactly the measured OFF (`launch_setting` plus a `LAUNCH_SETTINGS`
+    entry with `denies`);
+  - an `mcp_servers` entry, which only the typed workspace hands may carry.
+
+  Any other spelling or value refuses as it is read: "carries '--config'
+  (argument N) into the '<table>' configuration in a spelling or with a
+  value whose meaning is not established, so it is read as neither ON nor
+  OFF". That covers spaced or trailing-space keys, `garbage`, `live`, a
+  search mode, and sandbox tables. A `--sandbox` value that is not a class
+  refuses the same way.
+- **F4: no opaque effect.** A contribution may carry only these effects:
+  - tool lists;
+  - one class;
+  - the declared template's `--permission-mode acceptEdits` (Claude and
+    LaneTally);
+  - the plan's own measured OFF;
+  - the hands, judged whole by `workspace_hands`.
+
+  Anything else refuses as sealed: "is sealed with '<option>' [into the
+  '<table>' configuration] in <source>, an effect whose meaning its sealed
+  record does not establish". That covers `--settings`, `--mcp-config`,
+  `--plugin-dir` and `--agents` outside the hands, `--strict-mcp-config`
+  outside the hands, another permission mode, `--profile`, `--search`, the
+  bypass, `--full-auto`, `--ask-for-approval`, and a server outside the
+  hands. An OFF outside the plan's controls refuses too. The record's
+  `local` fragment may say no more than the typed declaration.
+- **F5: the complete DSH serving argv.** `parse_dsh_final` models the
+  prompt that the driver appends last (`adapters.rs:4345`, stdin null). The
+  command's length tells the three shapes apart, so the prompt is data
+  whatever it spells. A missing prompt refuses, and so does any extra
+  positional.
+- **F6: one builder.** `final_tools` adds the carried, lowered local
+  permissions' tools to the include list it writes (I3 updated). The
+  composer's "both admitted and denied" now reads a bare denial as the
+  check does, through the shared `denies`: a bare name denies every
+  pattern of its tool, and a server's name denies every tool it serves.
+
+### Tests
+
+New in `native_controls/tests.rs`, each through `compose_for_provider` and
+`check_final`:
+
+- `a_boundary_denial_is_owed_by_the_final_command` (F1), `:8920` at the
+  time of writing.
+- `every_sealed_sandbox_contribution_names_one_admitted_class` (F2).
+  - Checked: eight valid shapes (inline gate and work, agent gate and work
+    with the class unspecified or typed, boxed).
+  - Refused: four conflicts (native, template, hands, local fragment); two
+    danger positions; three classes dropped from both commands; Claude
+    with a class.
+- `a_codex_web_assignment_is_on_or_off_only_by_its_measured_meaning` (F3).
+  From the plan's own controls: the exact OFF checks, the held power's
+  absent OFF checks, the OFF where the power is held refuses, and five
+  uninterpretable spellings refuse, held or denied.
+- `an_opaque_load_or_unrelated_server_has_no_established_meaning` (F4).
+  Six Claude rows across the boundary, template and native controls; two
+  Codex rows.
+- `a_compatible_local_permission_composes_and_checks_under_a_limit` (F6).
+  - The chief's case composes `--tools WebSearch,Bash` and checks.
+  - `Bash` dropped from both commands departs.
+  - A bare `Bash` denial and a server denial beside the hands refuse in the
+    composer, and the same denial refuses in the check.
+  - A limit leaving `Bash` out refuses in the composer.
+- **Metamorphic property 1:** `every_generated_sealed_state_composes_and_checks`.
+  The generators cover:
+  - Claude and LaneTally: each native power ON or OFF; boxed, dormant,
+    unboxed and lowered sites; template limit; boundary narrowing or
+    limit; native narrowing or limit; cold and `--resume`;
+  - Codex: web search held or denied; inline gate and work, agent gate and
+    work, boxed; typed class unspecified or matching; cold and rejoin;
+  - DSH: cold, new and rejoin.
+
+  That is 1,187 states: 707 compose and check, and the other 480 (Claude
+  and LaneTally) refuse only as "repeats option '--tools'", a limit beside
+  the hands' own list. The tally is asserted exactly.
+- **Metamorphic property 2:** `every_single_mutation_of_a_checked_command_refuses`.
+  For every checked command, each capability-bearing option or rejoin
+  selector is dropped, altered, shrunk by one pattern and reordered; a
+  foreign effect is added; and two adjacent controls are swapped. Each
+  mutation is applied to the final command alone and, for a cold command,
+  to both it and its composition. That includes a denial or a class
+  removed from both. DSH parts are dropped or altered, and a positional is
+  added. 22,671 mutations (claude 11,004, lanetally 11,004, codex 616,
+  dsh 47) each refuse with a final-check refusal; the tally is asserted
+  exactly. "Reorder" means patterns within a list, and swaps of adjacent
+  controls the state keeps in order. Moving a whole list option means the
+  same thing to the harness, and the state does not tell it apart.
+
+Changed in `native_controls/tests.rs`: every `check_final` call now takes
+`Serving`, and the `State` literal names `off` and `prompt` (compiler
+forced). **Assertions moved with the intended change:**
+
+- *Departures from the derived state.* A wrong-alike command now refuses
+  as "expresses <what> otherwise than its sealed record derives it" where
+  it used to refuse with an authority message. The cases are: a held tool
+  denied; a denied tool included; the hands' or template's controls
+  dropped; a lowered permission dropped; `Read` included, allowed or
+  denied; the hands unallowed or denied; a widened local permission; an
+  include nothing writes; `--mcp-config`; a template's include, deny or
+  allow dropped; a selection or native list dropped; `Bash` left out of the
+  include; `--search`, the bypass or an unrelated or disabled server; the
+  hands' approval dropped; the class widened or dropped; the Codex OFF
+  dropped (now "its OFF switches").
+- *Re-planted, keeping what each test proves.*
+  - The empty template limit row uses `--tools WebSearch,Bash`, because an
+    empty limit now refuses first for leaving out the held tool.
+  - The template deny row uses `WebFetch,Read`; `WebFetch,Bash` now
+    refuses as the lowered tool made unavailable, and that is asserted.
+  - The WebPeek holding-subset row uses a selection that does not deny
+    WebPeek.
+  - The deny-only native positive allows only the lowered permission,
+    because nothing composes `WebSearch`'s allow; the extra allow is a new
+    refused row.
+  - The hands-missing row types no local permission.
+- *By meaning (`a_codex_effect_…`, rewritten).* `web_search="live"` from
+  the boundary, formerly `Ok(9)`, now refuses as read. `--ask-for-approval
+  never`, formerly `Ok(11)`, is unestablished. The boundary OFF is refused
+  as an OFF outside the plan.
+- *F4's named positive.* `the_plan_native_contribution_…:8410-8413`:
+  `--settings` carried, formerly `Ok(9)`, now refuses as unestablished.
+- *Sealed conflict.* The Codex `WorkspaceWrite` record is a class conflict
+  with its local fragment.
+- *DSH, both tests.* Commands carry the prompt, the causes name it, and
+  new rows cover a changed prompt, a missing prompt and extra positionals.
+- *Composer tests reached by F6.*
+  - `authority_follows_the_selected_holding_…:2451`: the include is
+    `["WebFetch", "Bash"]`.
+  - `the_final_lists_hold_their_invariants_…`: the I1/I3 oracle includes
+    the typed local permission's tool.
+- *New rows for refusals whose command-side tests became departures.* An
+  unheld selection include, a template allowing `Read`, the plan's own
+  denial of a held tool, a plan leaving a denied tool available, a local
+  fragment saying more (four shapes), a Codex local fragment carrying an
+  OFF, local permissions at Codex, and a `--sandbox` value that is no
+  class.
+
+No fixture migration and no standing-admission line.
+
+### Baseline reds on `640b5b2e`
+
+Before any production change, scratch tests against the unit-13 API
+reproduced each finding (`.forge/unit-13-fix/baseline-640b5b2e.txt`; the
+scratch tests were then removed):
+
+| Finding | Observed on `640b5b2e` |
+|---|---|
+| F1 | the intact command refused "denies tool 'Read', which neither its sealed record nor its plan denies"; `Read` removed from both commands `Ok` |
+| F2 | `Ok` for native read-only dropped beside a boundary's workspace-write; `Ok` for workspace hands with a typed read-only; `Ok` for boundary danger-full-access |
+| F3 | `Ok` for `web_search="disabled" `, `web_search = "disabled"` and `web_search=garbage` from a held plan's native controls |
+| F4 | `Ok` for a no-hands boundary's `mcp_servers.x.command`; `Ok` for native `--settings /s.json` carried |
+| F5 | `--profile headless --patch /o.yml --output-format stream-json --new "do the work"` refused at argument 7 |
+| F6 | the composer wrote `--tools WebSearch`, and the check refused "does not make tool 'Bash' available" |
+
+### Mutations (each compiled, was caught, then restored)
+
+Each mutation was a one-expression edit in the final code, followed by the
+protocol lib run and then the restoration. Afterwards the tree held no
+mutation marker (`grep -F` for `false &&`, `&& false`, `|| true`,
+`filter(|_| false)` and `if true` in both production files found none).
+Lines are the ones each run reported; rows added later moved some of them.
+
+| | Mutation | Caught by (`native_controls/tests.rs`) |
+|---|---|---|
+| M1 | F1: boundary deny left out of the union | `a_boundary_denial_…`, property 1, property 2 |
+| M2 | F2: the plan's class not a source | `every_sealed_sandbox_…:9074` |
+| M3 | F2: danger-full-access admitted | `every_sealed_sandbox_…:9141` |
+| M4 | F2: conflict not refused | `a_codex_cold_command_…:7628`, `every_sealed_sandbox_…:9074` |
+| M5 | F3: `web_search*` tables read as opaque controls | `a_codex_command_wrong_alike_…`, `a_codex_web_assignment_…`, `a_codex_effect_…` |
+| M6 | F4: native effects unjudged | `an_opaque_load_…`, `the_plan_native_contribution_…` |
+| M7 | F4: boundary effects unjudged | `a_codex_effect_…`, `a_codex_command_wrong_alike_…`, `an_opaque_load_…` |
+| M8 | F5 (`grammar.rs`): a cold prompt admitted only when empty | 4 tests, including both DSH tests and property 1 |
+| M9 | F6: lowered tools left out of the include | 5 tests, including `a_compatible_local_…`, both composer tests and both properties |
+| M10 | the derived comparison skipped | 10 tests |
+| M11 | the composition comparison skipped | 6 tests |
+| M12 | composer: exact denial matching only | `a_compatible_local_…:9472` (not caught before that row was added) |
+| M13 | local-fragment guard skipped | `the_sealed_record_…:7330` |
+| M14 | hands denial by name or server ignored | `a_claude_command_wrong_alike_…:7874` |
+| M15 | unheld selection include admitted | `the_sealed_record_…:7368` |
+| M16 | unpermitted allow admitted | `the_sealed_record_…:7376` |
+| M17 | held-tool availability skipped | `the_sealed_record_…:7392` |
+| M18 | denied-tool availability skipped | `the_sealed_record_…:7407` |
+| M19 | local permissions at Codex admitted | `a_codex_cold_command_…:7774` |
+| M20 | any `--sandbox` word read as a class | 5 tests, including both properties |
+
+### Gates (patched tree)
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning.
+- `cargo test -p brokkr-protocol --all-features --locked`: 524 unit, 99
+  integration (2 ignored) and 1 doctest passed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 76 `ok`
+  summaries, and `capability_launch` failed only the two assertions under
+  "Why it stops". With the proposed patch applied as a scratch check on
+  the final patch: exit 0, 77 `ok` summaries, and no `FAILED` or
+  `panicked` line (`.forge/unit-13-fix/workspace-tests-proposed.txt`).
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled
+  (`.forge/unit-13-fix/compile-*.json`).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- Coverage diagnostic (`cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-protocol --all-features --locked --lcov`): no unhit line or
+  branch in the code this visit wrote. The remaining unhit records in
+  `native_controls.rs` are `authored_conflict`/`opaque_conflict`,
+  `pin_fault`, `declared_values` and `plain_*`. In `grammar.rs` they are the
+  `judge_inline_codex_*` region. That is the set the previous visit
+  recorded, and the runtime suite covers it.
+
+### Assumptions and follow-ups
+
+- **Codex classes.** The generator admits the D5.3 shapes. The Codex
+  composer does not judge classes: compile-time admission does. So
+  property 1 is stated over admissible states, and the inadmissible ones
+  are exact refusals in the F2 test.
+- **The template's mode.** Only `acceptEdits` is established, because the
+  adapter declares it and the 2026-09-24 ruling names it.
+- **`--output-last-message`** is inert data in the grammar. The gate's
+  capture is D5.3's inline judgment, not this check's.
+- **Workspace hands for Codex** must carry a class, but not specifically
+  `read-only`. A typed class that disagrees refuses (F2).
+- **Recorded, not fixed.** The DSH driver's `invoke_dsh_launch` still
+  spawns without calling `check_final`. That is units 14–15.
+
+**Pending:** the operator's ruling on the two expectations, then the patch.
+After that: exact coverage outside the box, macOS, remote CI, serving
+integration (14.1, 15.1, 15.2) and the council.

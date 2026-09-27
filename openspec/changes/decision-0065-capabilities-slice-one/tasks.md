@@ -2023,9 +2023,9 @@ Result: **complete** (evidence.md, "Unit 12-fix-f").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
-- [x] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
+- [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
 
-- [x] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
+- [ ] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
 
 Unit 13 (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-9db14032`,
 based on `67571c3b`; evidence.md, "Unit 13"):
@@ -2128,6 +2128,58 @@ Unit 13 second review return (2026-09-27, same run, reviewed
   that command. Shipped adapters do not reach this shape.
 - **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
   box, macOS, remote CI and the council.
+
+Unit 13-fix (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-7fa17ffb`,
+based on `640b5b2e`; answers the chief's security hold F1–F6; evidence.md,
+"Unit 13-fix"). **Result: oversized on two out-of-file expectations.**
+The fix is built and proved but not committed; it is saved as
+`.forge/unit-13-fix/full.patch`. F6's builder names the typed local
+permission's tool in the include list it writes, so two literals in
+`crates/brokkr-runtime/tests/capability_launch.rs` (`:6576` and `:6988`,
+`--tools ""` behind the template's `Read,Bash` limit beside a lowered
+`Bash(ls:*)`) must become `--tools Bash`. A changed expectation is outside
+both standing admissions. The proposed change is
+`.forge/unit-13-fix/capability-launch.proposed.patch`. 13.1 and 13.2 are
+unticked here, because the council held unit 13's closure; they stay open
+until the patch lands and is reviewed.
+
+- **One state, derived and read back.** `State` gains `off` (measured OFF
+  switches) and `prompt`. `check_final(harness, command, composed,
+  controls, record, Serving { session, overlay, prompt })` compares the
+  parsed command with the composition in order, then by meaning with the
+  state `derive` builds from the sealed record and plan alone. The
+  origin-consuming `authority` and `codex_meaning` are gone.
+- **F1.** Every contribution's lists are owed: the boundary's denials
+  (and allows and limits) join the derived state.
+- **F2.** Every sandbox contribution (typed local class, local fragment,
+  template, hands, boundary, native) names one class;
+  `danger-full-access` anywhere, two classes, or a class at a harness
+  with no mapping refuse as sealed.
+- **F3.** A capability-table assignment is read as exactly a rejoin's
+  class, exactly the measured OFF, a server entry, or refused as read.
+- **F4.** Only the template's `acceptEdits` mode, the typed workspace
+  hands, tool lists, one class and the plan's own OFF are established;
+  `--settings`, other loads, servers outside the hands and other
+  controls refuse as sealed. Unit 13's `--settings` positive is replaced.
+- **F5.** The DSH final grammar models the terminal prompt as data and
+  refuses a missing prompt and extra positionals.
+- **F6.** `final_tools` names the carried lowered local tools in the
+  include list it writes; the composer reads a bare denial as the check
+  does ("both admitted and denied").
+- **Proof (on the patched tree).** Baseline reds for F1–F6 on
+  `640b5b2e`. New finding tests and two metamorphic properties: 1,187
+  generated sealed states (707 compose and check; 480 Claude/LaneTally
+  states refuse only as a list written twice) and 22,671 single
+  mutations, all refused. M1–M20 each compiled, were caught and restored.
+- **Assertions moved with the intended change** in unit 13's own tests
+  and two composer tests reached by F6 (evidence.md lists each).
+- Fixture migrations and standing-admission lines: none.
+  `adapters.rs` did not change.
+- **Ruling asked for:** admit the two `capability_launch.rs` expectations
+  for this unit, as assertion updates only (evidence.md, "Why it stops").
+- **Pending.** The ruling, then the patch; integration (14.1, 15.1,
+  15.2), exact coverage outside the box, macOS, remote CI and the
+  council.
 
 ## 14. Unit 14 — Integrate checked cold commands
 
