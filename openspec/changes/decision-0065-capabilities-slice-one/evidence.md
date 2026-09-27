@@ -14567,3 +14567,107 @@ In the owning suites of `engine.rs`:
 
 **Pending.** 14b; exact coverage outside the box; macOS; remote CI; the
 council.
+
+## Unit 14b — stopped: the check refuses two shapes the engine seals, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-f3db2206`, based on `e7267446`.
+Named production file: `crates/brokkr-protocol/src/adapters.rs`.
+**Result: oversized.** No production or test file moved in the commit.
+14.1 stays open. Scratch output is in `.forge/unit-14b/`.
+
+### What was built, and set aside
+
+The seams were built in `adapters.rs` and then reverted. The diff is saved
+as `.forge/unit-14b/unit-14b-seams.patch` (441 lines), and `git apply
+--check` passes on `e7267446`.
+
+- `served_cold` decodes `launch_record` and `serving_inputs` and calls
+  `check_final`. It passes the plan from `managed`, the sealed dialect,
+  the pins, and the recipe's words read from the record's `authored`
+  segments by origin. The output is the result path where
+  `result_delivery` is `last-message`. The hands transport is bound to
+  `current_exe()` and the workdir. The spawn takes
+  `Checked::into_argv`.
+- It is called at `codex_launch_and_cold` (cold plans only), at
+  `claude_launch`'s cold returns (Claude and LaneTally), and at DSH's
+  `dsh_served`. DSH also appends the prompt there, before
+  `invoke_dsh_launch_observed`.
+- A launch with no record and no serving inputs stays unchecked, as
+  5d-fix-c2 left it. One of the pair without the other, or either without
+  a plan, refuses.
+- Fixtures were updated to write `serving_inputs` beside every record they
+  seal: `inline_codex_input` in `adapters/tests.rs`; a `seal_serving`
+  helper that `sealed` and `inline_codex_launching` use in
+  `capability_launch.rs`; and the LaneTally serving-child input.
+
+On that patch, `cargo test --workspace --all-features --locked
+--no-fail-fast` gave 75 `ok` summaries and 4 failed tests
+(`workspace-first.txt`). The protocol suite passed whole. One failure is
+within scope: the "unmeasured, no plan" row of
+`an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial`
+(`capability_launch.rs:3752`) hands a record with no plan, and now meets the
+unpaired refusal. Its expectation would move. The other three are the two
+mismatches below, and none of them can be fixed in `adapters.rs`.
+
+### Mismatch A: an agent with hands and no allow
+
+`agents::compose` returns `Application::Dormant` whenever hands compose,
+whether or not the office declared an allow (`agents.rs:1198-1200`). The
+engine seals that as `local: {allow: unspecified, application: dormant}`
+with `hands: required`. `check_final`'s consistency table admits
+`unspecified` only with `unrestricted`, and `dormant` only with a listed
+allow (`native_controls.rs:2164-2176`). So it refuses: "is sealed with a
+local declaration its application contradicts".
+
+- A temporary probe in `served_cold` recorded, for the compiled Claude
+  `chain` seat: `hands=Required local={allow: Unspecified, application:
+  Dormant}`, with the adapter's 7-token `hands.workspace` fragment and a
+  typed spec (`probe-agent-hands.txt`).
+- Failing tests: `a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit`
+  (`capability_launch.rs:6457`, under `namespace`) and
+  `every_chief_reproduction_composes_inside_the_holdings_and_every_limit`
+  (`:6751`, under `harness`). Both are compiled agent-backed Claude seats,
+  sealed as dispatch seals them.
+
+### Mismatch B: an inline site with hands but no workspace fragment
+
+`expected_state` seals an inline site with hands as `hands: required`
+(`engine.rs:4940-4943`). `SiteFacts::inline_serving` seals that site's
+`HandsSpec` (`bundle.rs:505-511`), but an inline recipe authors no box
+tokens, so the inline dialect's `hands` is empty. `check_final` then
+expands no hands, and R1 requires the hands to carry exactly the
+transport's server (`native_controls.rs:2332-2347`). It refuses: "is sealed
+with hands that are not the engine's workspace hands".
+
+- The probe, written to a file because the driver's stderr is not kept,
+  recorded the real engine's Start for the compiled hands-bearing inline
+  Codex panel member under `namespace` (`probe-driver.txt`):
+  `hands=Required`, local unrestricted, dialect all empty, `spec=Some`,
+  one `authored` segment, and a command with no hands server.
+- Failing test: `driver_conformance.rs::the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement`
+  (`:2781`). It drives the real engine into the real driver, and the cold
+  launch it asserts is now refused. On the first run,
+  `the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root`
+  also failed, but only with a `PoisonError` from that panic on the shared
+  lock. It passed in the `--no-fail-fast` run.
+
+### Why this stops here
+
+Each mismatch needs one side to change, and neither side is
+`adapters.rs`. Either `check_final`'s table and R1 (`native_controls.rs`)
+admit these sealed shapes, or the engine seals them differently (`agents.rs`
+for A; `engine.rs` or `bundle.rs` for B). The alternative is that the
+refusal is right, and B's inline hands member stops launching. That changes
+the tested behaviour of `driver_conformance.rs`, which the standing
+admission does not cover. Rewriting the sealed expectation inside the driver
+would reconcile it, which the refusal ruling forbids. A needs a ruling on
+what `unspecified` beside hands means. B needs a ruling on whether an inline
+site with hands and no workspace fragment is served or refused.
+
+- Fixture migrations and standing-admission lines: none committed.
+- Gates: none, because only these two documents changed. The suite runs
+  above are on the set-aside patch.
+
+**Pending.** The operator's ruling on A and B, and the file that ruling
+names; then 14b re-run from the saved patch; exact coverage outside the
+box; macOS; remote CI; the council.

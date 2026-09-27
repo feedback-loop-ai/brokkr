@@ -2483,6 +2483,28 @@ based on `858e1077`; evidence.md, "Unit 14a2"). **Result: complete.**
 - **Pending.** 14b, exact coverage outside the box, macOS, remote CI and
   the council.
 
+Unit 14b (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-f3db2206`,
+based on `e7267446`; evidence.md, "Unit 14b — stopped"). **Result:
+oversized.** Nothing was committed but these records, and 14.1 stays open.
+
+- The seams were built in `adapters.rs` and set aside as
+  `.forge/unit-14b/unit-14b-seams.patch`, which applies cleanly. On that
+  patch the workspace suite had 4 failures; the protocol suite passed.
+- **A.** `check_final` refuses `unspecified` + `dormant` (`native_controls.rs:2164-2176`),
+  which `agents::compose` seals for every agent with hands and no allow
+  (`agents.rs:1198-1200`). Two compiled Claude seats in
+  `capability_launch.rs` fail at `:6457` and `:6751`.
+- **B.** `check_final` requires the hands to carry the transport's server
+  (`native_controls.rs:2332-2347`), but an inline hands site is sealed
+  `required` (`engine.rs:4940-4943`) with no workspace fragment
+  (`bundle.rs:505-511`). The real engine's inline Codex panel member is
+  refused in `driver_conformance.rs:2781`.
+- **Ruling needed.** Which side changes for A and for B, and the file each
+  ruling names; neither is `adapters.rs`. Then 14b re-runs from the patch.
+- Fixture migrations and standing-admission lines: none committed.
+- **Pending.** That ruling, then 14b, exact coverage outside the box,
+  macOS, remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
