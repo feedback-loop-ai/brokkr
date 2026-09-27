@@ -67,6 +67,7 @@ pub struct brokkr_store::Store
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_next(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_next_if_head(&mut self, &str, u64, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+pub fn brokkr_store::Store::append_next_without_waiting(&mut self, &str, brokkr_core::envelope::EventType, serde_json::value::Value, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub fn brokkr_store::Store::create_run(&mut self, &str, &str, &str, &serde_json::value::Value) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::export_ndjson(&self, &str) -> core::result::Result<alloc::string::String, brokkr_store::StoreError>
 pub fn brokkr_store::Store::head_hash(&self, &str) -> core::result::Result<(u64, alloc::string::String), brokkr_store::StoreError>

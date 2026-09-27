@@ -1379,6 +1379,29 @@ fn a_lock_held_past_all_patience_is_typed_contention_not_a_bare_sqlite_error() {
     holder.execute_batch("ROLLBACK").unwrap();
 }
 
+/// A row offered again later need not wait for a peer's lock: it is
+/// contended at once, and the store's patience is whole again after.
+#[test]
+fn an_append_without_waiting_meets_a_held_lock_at_once_and_keeps_the_patience() {
+    let (_dir, db, mut store) = contended_journal();
+    let patience = std::time::Duration::from_millis(400);
+    store.set_patience(patience).unwrap();
+    let holder = write_lock_on(&db);
+    let (phase, entered) = (EventType::PhaseEntered, json!({"phase": "implement"}));
+    let started = std::time::Instant::now();
+    let refused = store.append_next_without_waiting("r1", phase, entered.clone(), None, None);
+    assert!(started.elapsed() < patience, "{:?}", started.elapsed());
+    let refused = refused.unwrap_err();
+    assert!(matches!(refused, StoreError::Contended { operation, .. } if operation == "append"));
+    let started = std::time::Instant::now();
+    let refused = store.append_next("r1", phase, entered.clone(), None, None);
+    assert!(started.elapsed() >= patience, "{:?}", started.elapsed());
+    assert!(refused.unwrap_err().is_contention());
+    holder.execute_batch("ROLLBACK").unwrap();
+    let landed = store.append_next_without_waiting("r1", phase, entered, None, None);
+    assert_eq!(landed.unwrap().seq, 2);
+}
+
 /// The escape itself: a `SQLITE_BUSY` the busy handler is never asked
 /// about.
 ///

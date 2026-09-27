@@ -35,6 +35,8 @@ use crate::bundle::{
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
 
+mod checkpoints;
+use checkpoints::Checkpoints;
 mod marks;
 #[doc(hidden)]
 pub use marks::SiteMarks;
@@ -240,6 +242,9 @@ pub struct Engine {
     /// (decision 0046 ruling 4; design DD15). Never journaled.
     network_prefix: Option<bool>,
     replay: replay::Replay,
+    /// The attempt's terminal event a peer's lock kept out, carried to
+    /// the lawful end (#394). Never journaled as such.
+    held_outcome: Option<checkpoints::HeldOutcome>,
 }
 
 fn verify_dispatch_bundle_bounds(
@@ -400,6 +405,7 @@ impl Engine {
             active_gate_head: None,
             network_prefix: None,
             replay: Default::default(),
+            held_outcome: None,
         })
     }
 
@@ -443,6 +449,7 @@ impl Engine {
             active_gate_head: None,
             network_prefix: None,
             replay: Default::default(),
+            held_outcome: None,
         })
     }
 
@@ -491,6 +498,7 @@ impl Engine {
             active_gate_head: None,
             network_prefix: None,
             replay,
+            held_outcome: None,
         })
     }
 
@@ -504,7 +512,11 @@ impl Engine {
             match self.drive_once() {
                 Ok(Some(end)) => return Ok(end),
                 Ok(None) => {}
-                Err(error) => return self.lawful_end_under_contention(error),
+                Err(error) => {
+                    if let Some(end) = self.lawful_end_under_contention(error)? {
+                        return Ok(end);
+                    }
+                }
             }
         }
     }
@@ -565,7 +577,24 @@ impl Engine {
     /// that ends on contention must leave a journal that still folds.
     /// Either way the run is intact and `brokkr resume` picks it up:
     /// nothing was written, so nothing was lost.
-    fn lawful_end_under_contention(&mut self, error: EngineError) -> Result<DriveEnd, EngineError> {
+    ///
+    /// An attempt still open here has stopped — its seat has ended, and
+    /// its settlement could not land within
+    /// [`checkpoints::SETTLING_PATIENCES`] (#394). When the engine holds
+    /// the attempt's terminal event, that real outcome is tried again,
+    /// with the same patiences; once it lands the lock has let go, and
+    /// `None` says the drive goes on. Otherwise the attempt is settled
+    /// now, `effect/indeterminate` naming the lock and given the same
+    /// patiences, so the park that follows is lawful and the next resume
+    /// finds the attempt settled. A lock that outlasts this too leaves
+    /// nothing writable: the contention is handed back with the attempt
+    /// open, and the next resume settles it as restarted. A stop riding
+    /// the attempt keeps its own ending, and the contention is handed
+    /// back.
+    fn lawful_end_under_contention(
+        &mut self,
+        error: EngineError,
+    ) -> Result<Option<DriveEnd>, EngineError> {
         let EngineError::Store(store_error) = &error else {
             return Err(error);
         };
@@ -573,7 +602,24 @@ impl Engine {
             return Err(error);
         }
         let reason = format!("journal contention: {store_error}");
-        let state = self.replay.caught_up(&self.store, &self.run_id)?;
+        let held = self.held_outcome.take();
+        let mut state = self.replay.caught_up(&self.store, &self.run_id)?;
+        if let Cursor::EffectInFlight {
+            effect_id,
+            attempt_id,
+            ..
+        } = state.cursor
+        {
+            self.current_cause = self.replay.events.last().map(|e| e.event_id.clone());
+            if let Some(held) = held.filter(|held| held.attempt_id.as_ref() == Some(&attempt_id)) {
+                self.land_held_outcome(held, &effect_id)?;
+                return Ok(None);
+            }
+            let settled =
+                json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
+            self.append(EventType::EffectIndeterminate, settled, Some(attempt_id))?;
+            state = self.replay.caught_up(&self.store, &self.run_id)?;
+        }
         if !matches!(
             state.cursor,
             Cursor::Park { .. } | Cursor::ExecuteEffect { .. }
@@ -584,10 +630,34 @@ impl Engine {
         let parked = json!({"reason": reason, "evidence": {}});
         self.append(EventType::RunParked, parked, None)?;
         let state = self.replay.caught_up(&self.store, &self.run_id)?;
-        Ok(DriveEnd {
+        Ok(Some(DriveEnd {
             state,
             gaps: Vec::new(),
-        })
+        }))
+    }
+
+    /// Journal the attempt's held outcome. A result the seat-record fence
+    /// refuses now settles the attempt indeterminate with the refusal
+    /// named: the failure its seat would have built was not held, and a
+    /// park loses nothing.
+    fn land_held_outcome(
+        &mut self,
+        held: checkpoints::HeldOutcome,
+        effect_id: &str,
+    ) -> Result<(), EngineError> {
+        let attempt_id = held.attempt_id.clone();
+        match self.append_raw(held.event_type, held.payload, held.attempt_id) {
+            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
+                let reason = format!(
+                    "the journal refused the result a peer's lock had held back: {refusal}"
+                );
+                let settled =
+                    json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
+                self.append_raw(EventType::EffectIndeterminate, settled, attempt_id)
+            }
+            landed => landed,
+        }
+        .map(drop)
     }
 
     fn advance_running(
@@ -753,19 +823,48 @@ impl Engine {
         .map(Some)
     }
 
+    /// Append one event. An attempt's settlement — its terminal event, and
+    /// the checkpoints the engine journals with it once the seat has
+    /// stopped — is given [`checkpoints::SETTLING_PATIENCES`] against a
+    /// peer's lock, so the attempt's real outcome lands when the lock lets
+    /// go in time; every other event gets one patience (#394). A terminal
+    /// event the lock outlasts is held for the lawful end.
     fn append_raw(
         &mut self,
         event_type: EventType,
         payload: Value,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, EngineError> {
-        let envelope = self.store.append_next(
-            &self.run_id,
+        let terminal = matches!(
             event_type,
-            payload,
-            self.current_cause.clone(),
-            attempt_id,
-        )?;
+            EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
+        );
+        let patiences = if terminal || event_type == EventType::EffectCheckpointed {
+            checkpoints::SETTLING_PATIENCES
+        } else {
+            1
+        };
+        let appended = checkpoints::within_patiences(patiences, || {
+            self.store.append_next(
+                &self.run_id,
+                event_type,
+                payload.clone(),
+                self.current_cause.clone(),
+                attempt_id.clone(),
+            )
+        });
+        let envelope = match appended {
+            Ok(envelope) => envelope,
+            Err(contended) if terminal && contended.is_contention() => {
+                self.held_outcome = Some(checkpoints::HeldOutcome {
+                    event_type,
+                    payload,
+                    attempt_id,
+                });
+                return Err(contended.into());
+            }
+            Err(error) => return Err(error.into()),
+        };
         self.current_cause = Some(envelope.event_id.clone());
         Ok(envelope)
     }
@@ -1649,17 +1748,18 @@ impl Engine {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
             Ok(process) => process,
         };
-        let mut checkpoint_error: Option<EngineError> = None;
         // A checkpoint the journal refused under the seat-record fence
-        // (decision 0034, ruling 6). The driver keeps running — nothing
-        // here can stop it, and killing it would only lose its stderr —
-        // but the attempt is already lost: no later checkpoint is
-        // journaled, and the refusal becomes the attempt's outcome once
-        // the process ends.
-        let mut refusal: Option<SeatRecordError> = None;
-        let store = &mut self.store;
-        let current_cause = &mut self.current_cause;
+        // (decision 0034, ruling 6) does not stop the driver — nothing
+        // here can, and killing it would only lose its stderr — but the
+        // attempt is already lost: no later checkpoint is journaled, and
+        // the refusal becomes the attempt's outcome once the process ends.
         let run_id = self.run_id.clone();
+        let attempt = checkpoints::Attempt {
+            run_id: &run_id,
+            effect_id,
+            attempt_id,
+        };
+        let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let mut report = process.run_attempt_resuming(
             ENGINE_VERSION,
             effect_id,
@@ -1668,51 +1768,25 @@ impl Engine {
             input,
             session_ref,
             |data| {
-                if checkpoint_error.is_none() && refusal.is_none() {
-                    let checkpoint = match member_tag {
-                        None => data.clone(),
-                        Some(tag) => tag_member(data.clone(), tag),
-                    };
-                    let checkpoint = stamp_boundary(checkpoint, boundary);
-                    // The engine's two structural stamps, on the same
-                    // terms as the boundary: a record that names a model
-                    // carries them — every row a shipped driver forwards
-                    // does, the launch row with its root included — a
-                    // record that names none carries neither, and a
-                    // driver's value never survives.
-                    let checkpoint = match &stamp {
-                        Some(context) => context.stamp(checkpoint),
-                        None => resume::unstamped(checkpoint),
-                    };
-                    match store.append_next(
-                        &run_id,
-                        EventType::EffectCheckpointed,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "checkpoint": checkpoint,
-                        }),
-                        current_cause.clone(),
-                        Some(attempt_id.to_string()),
-                    ) {
-                        // Causal chain advances through checkpoints
-                        // too — the closing effect event names the
-                        // last checkpoint as its cause.
-                        Ok(envelope) => {
-                            *current_cause = Some(envelope.event_id);
-                        }
-                        Err(StoreError::SeatRecord(error)) => refusal = Some(error),
-                        Err(e) => checkpoint_error = Some(e.into()),
-                    }
-                }
+                let checkpoint = match member_tag {
+                    None => data.clone(),
+                    Some(tag) => tag_member(data.clone(), tag),
+                };
+                let checkpoint = stamp_boundary(checkpoint, boundary);
+                // The engine's two structural stamps, on the same terms
+                // as the boundary: a record that names a model carries
+                // them — every row a shipped driver forwards does, the
+                // launch row with its root included — a record that names
+                // none carries neither, and a driver's value never
+                // survives.
+                let checkpoint = match &stamp {
+                    Some(context) => context.stamp(checkpoint),
+                    None => resume::unstamped(checkpoint),
+                };
+                sink.offer("", checkpoint);
             },
         );
-        if let Some(e) = checkpoint_error {
-            return Err(e);
-        }
-        if let Some(refusal) = refusal {
-            report.outcome = refused_outcome(report.outcome, &refusal);
-        }
+        report.outcome = sink.settle()?.outcome("", report.outcome);
         Ok(DriverRun::Ran(report))
     }
 
@@ -1918,15 +1992,17 @@ impl Engine {
         // Split the borrows: member threads run drivers, while the
         // main-thread receive loop below needs the store and causal cursor.
         let bundle = &self.bundle;
-        let store = &mut self.store;
-        let current_cause = &mut self.current_cause;
         let run_id = self.run_id.clone();
-        let mut checkpoint_error: Option<EngineError> = None;
+        let attempt = checkpoints::Attempt {
+            run_id: &run_id,
+            effect_id,
+            attempt_id,
+        };
         // The member whose checkpoint the fence refused, if one was
-        // (decision 0034, ruling 6): the same latch a single driver
-        // carries, keyed by the tagged member name the checkpoint rode
-        // under, so the refusal lands on that member's report alone.
-        let mut refusal: Option<(String, SeatRecordError)> = None;
+        // (decision 0034, ruling 6), is the tagged member name the
+        // checkpoint rode under, so the refusal lands on that member's
+        // report alone.
+        let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
         let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::channel::<(String, Value)>();
             let handles: Vec<_> = runs
@@ -1979,14 +2055,11 @@ impl Engine {
             // The main thread journals live member checkpoints as they
             // arrive (wall-clock order — checkpoints are temporal evidence,
             // nothing aggregates from them). Dropping our sender makes the
-            // loop end when the last member finishes emitting. On append
-            // error, latch and keep draining — an abandoned channel must
-            // not deadlock the members.
+            // loop end when the last member finishes emitting. The sink
+            // latches on an append error and the loop keeps draining — an
+            // abandoned channel must not deadlock the members.
             drop(sender);
             for (member, checkpoint) in receiver {
-                if checkpoint_error.is_some() || refusal.is_some() {
-                    continue;
-                }
                 let owner = runs
                     .iter()
                     .find(|run| format!("{tag_prefix}{}", run.name) == member);
@@ -1998,41 +2071,18 @@ impl Engine {
                     Some(context) => context.stamp(checkpoint),
                     None => resume::unstamped(checkpoint),
                 };
-                match store.append_next(
-                    &run_id,
-                    EventType::EffectCheckpointed,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "checkpoint": checkpoint,
-                    }),
-                    current_cause.clone(),
-                    Some(attempt_id.to_string()),
-                ) {
-                    Ok(envelope) => {
-                        *current_cause = Some(envelope.event_id);
-                    }
-                    Err(StoreError::SeatRecord(error)) => refusal = Some((member, error)),
-                    Err(e) => checkpoint_error = Some(e.into()),
-                }
+                sink.offer(&member, checkpoint);
             }
             handles
                 .into_iter()
                 .map(|h| h.join().expect("panel member thread"))
                 .collect()
         });
-        if let Some(e) = checkpoint_error {
-            return Err(e);
-        }
-        let Some((refused, refusal)) = refusal else {
-            return Ok(reports);
-        };
+        let settled = sink.settle()?;
         Ok(reports
             .into_iter()
             .map(|(name, mut report)| {
-                if format!("{tag_prefix}{name}") == refused {
-                    report.outcome = refused_outcome(report.outcome, &refusal);
-                }
+                report.outcome = settled.outcome(&format!("{tag_prefix}{name}"), report.outcome);
                 (name, report)
             })
             .collect())
