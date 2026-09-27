@@ -1450,6 +1450,56 @@ fn installed_tools(job: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Every command a job's steps `run:`, in order, read in each form a step
+/// writes one (#444): `run: <command>` and `- run: <command>` inline, and
+/// a `|` or `>` block scalar as its lines, their indentation removed. A
+/// `run:` in any other form (empty, quoted, anchored, a flow mapping, an
+/// indentation indicator) panics, so a step this cannot read is refused
+/// rather than passed.
+fn run_steps(job: &str) -> Vec<String> {
+    let mut steps = Vec::new();
+    let mut lines = job.lines().peekable();
+    while let Some(line) = lines.next() {
+        let key = line.trim_start();
+        let key = key.strip_prefix("- ").unwrap_or(key);
+        if key.starts_with('#') || !line.contains("run:") {
+            continue;
+        }
+        let value = key
+            .strip_prefix("run:")
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.starts_with(['"', '\'', '&', '*', '!']))
+            .unwrap_or_else(|| panic!("a run: this guard cannot read: {line:?}"));
+        if !value.starts_with(['|', '>']) {
+            steps.push(value.to_string());
+            continue;
+        }
+        assert!(
+            ["|", "|-", "|+", ">", ">-", ">+"].contains(&value),
+            "a run: this guard cannot read: {line:?}"
+        );
+        let column = line.len() - key.len();
+        let mut block: Vec<&str> = Vec::new();
+        while let Some(next) = lines
+            .next_if(|next| next.trim().is_empty() || next.len() - next.trim_start().len() > column)
+        {
+            block.push(next);
+        }
+        let indent = block
+            .iter()
+            .map(|line| line.len() - line.trim_start().len())
+            .filter(|&indent| indent > column)
+            .min()
+            .unwrap_or_else(|| panic!("an empty run: block: {line:?}"));
+        let text: Vec<&str> = block
+            .iter()
+            .map(|line| line.get(indent..).unwrap_or(""))
+            .collect();
+        steps.push(text.join("\n").trim_end().to_string());
+    }
+    steps
+}
+
 /// The rest of issue #340's CI shape: superseded pull request runs are
 /// cancelled, every job is bounded, the Linux release binary is built
 /// once and shared, and the reporting Gate B probe is off the required
@@ -1572,24 +1622,26 @@ fn the_non_rust_lints_job_runs_every_check() {
             ),
         ]
     );
-    for tool in ["typos", "shellcheck", "actionlint", "zizmor", "lychee"] {
-        let direct: Vec<&str> = job
-            .lines()
-            .map(str::trim)
-            .filter(|line| line.starts_with("run: ") && line.contains(tool))
-            .collect();
-        assert_eq!(direct, Vec::<&str>::new(), "{tool} runs outside the list");
-    }
+    // Every run step, allowed by name (#444): a lint beside the list, in
+    // any form a step writes it, is one more step and fails here.
+    assert_eq!(
+        run_steps(job),
+        [
+            "bash scripts/lint-non-rust.sh",
+            "npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund\nbash scripts/lint-diagrams.sh",
+            "image=\"$(tr -d '[:space:]' < .github/renovate-image.txt)\"
+validate() {
+  docker run --rm -v \"$PWD\":/usr/src/app -w /usr/src/app \\
+    --entrypoint renovate-config-validator \"$image\" --strict \"$@\"
+}
+validate --no-global .github/renovate.json5
+validate .github/renovate-global.json5",
+        ]
+    );
     for step in [
         "uses: ./.github/actions/setup-actionlint\n",
         "uses: ./.github/actions/setup-lychee\n",
         "fallback: none\n",
-        "run: bash scripts/lint-non-rust.sh\n",
-        "npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund\n",
-        "bash scripts/lint-diagrams.sh\n",
-        "--entrypoint renovate-config-validator \"$image\" --strict \"$@\"\n",
-        "validate --no-global .github/renovate.json5\n",
-        "validate .github/renovate-global.json5\n",
     ] {
         assert!(job.contains(step), "lint-non-rust does not run {step:?}");
     }

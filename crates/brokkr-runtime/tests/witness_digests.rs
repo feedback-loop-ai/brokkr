@@ -264,10 +264,15 @@ fn workspace() -> PathBuf {
 /// `recipes/research-dsh` composes research.
 /// `bundles/verify` reported no movement; each value is the test's own
 /// reported digest.
+/// #444 moves five: `recipes/fast`'s verifier puts a failing lint's tail
+/// in its notes, which moves `recipes/triage`, `recipes/night-shift`,
+/// `recipes/gpt-flash` and `recipes/wager-harness` that compose it. The
+/// others reported no movement; each value is the test's own reported
+/// digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "bf8b0583a0e656d35c5f2707f182b869c014e99357a27ac8561ae496c0e4dab7",
+        "d242cc9a2b76a6b59b0ac69bb583a9abc488569ffb6d557d1873f2458bcac3b4",
     ),
     (
         "recipes/node",
@@ -279,15 +284,15 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "c800f21f5e5a23fa14fc9621ed78de9c66dd050c83df4abb4d03f49a9c102cc7",
+        "1c5a32fbeb499a3d6296bb168468d042708155576c867ea872d43ec17a225bd0",
     ),
     (
         "recipes/wager-harness",
-        "f687d7ae3e5f5151b806df6f1f02b898e2e07873b62fae6eeaff1813976938f9",
+        "d3237bbe52d44c7bb6d17fe1d09b3502fe248add0a3086b4c74ce40a4be2eadd",
     ),
     (
         "recipes/triage",
-        "6a09af070d2fb2266ca97c09a55176f1d2160e8f467e3565a011987edcc44e84",
+        "e3bc01e59fc2dcc039eca6aee2c058a0e745e4567a343a3827dc83d8305a779d",
     ),
     (
         "recipes/research",
@@ -299,7 +304,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "8a3c32f3ee050b0686e1dc566b53414cd5f06ad5374ae40d3c5e3dfac71ab60b",
+        "ecbe48a53bcd536db739bfb5e727c90c96669884e6c872ad56e2f2e37aec286d",
     ),
     (
         "bundles/verify",
