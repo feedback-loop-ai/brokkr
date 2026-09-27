@@ -46,7 +46,7 @@ pin.
 | jscpd 5.3.2 and cargo-shear 1.14.0 | the baseline ratchets | `jscpd --version`, `cargo shear --version` |
 | cargo-mutants 27.1.0 | the brokkr-core mutants gate | `cargo mutants --version` |
 | typos 1.50.2, shellcheck 0.11.0, zizmor 1.30.1, actionlint and lychee | the non-Rust lints (the last two at the digests in `.github/actions/setup-*`) | each tool's `--version` |
-| Node 22.23.3, with `npm ci --prefix .github/lint` | the non-Rust lints' diagram render (`scripts/lint-diagrams.sh`); only the lint needs it, never the engine | `node --version` |
+| Node 22.23.3, with `npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund` | the non-Rust lints' diagram render (`scripts/lint-diagrams.sh`); only the lint needs it, never the engine | `node --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
 install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
