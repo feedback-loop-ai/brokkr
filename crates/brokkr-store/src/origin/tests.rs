@@ -83,6 +83,13 @@ fn a_machine_without_an_identity_file_still_names_itself() {
     // missing program and a failing one are both no answer.
     let printed = hostname_command().expect("hostname prints on every released platform");
     assert!(!printed.trim().is_empty());
+    // The fallback `local_host` hands `host_from`: `hostname` when neither
+    // exported variable names the machine, else the variable.
+    env.remove("HOSTNAME");
+    env.remove("COMPUTERNAME");
+    assert_eq!(machine_fallback(), Some(printed));
+    env.set("HOSTNAME", "exported-host");
+    assert_eq!(machine_fallback().as_deref(), Some("exported-host"));
     assert_eq!(hostname_from("brokkr-no-such-program-7f3c"), None);
     assert_eq!(hostname_from("false"), None);
 

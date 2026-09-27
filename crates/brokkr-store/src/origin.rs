@@ -25,11 +25,7 @@ static LOCAL: OnceLock<Option<String>> = OnceLock::new();
 /// answer: it is computed once and every later caller reads it.
 pub(crate) fn local_host() -> Option<String> {
     LOCAL
-        .get_or_init(|| {
-            host_from(&MACHINE_SOURCES, || {
-                machine_name(&["HOSTNAME", "COMPUTERNAME"], hostname_command)
-            })
-        })
+        .get_or_init(|| host_from(&MACHINE_SOURCES, machine_fallback))
         .clone()
 }
 
@@ -78,6 +74,13 @@ fn home_from(variables: &[&str]) -> String {
         .iter()
         .find_map(|variable| std::env::var(variable).ok())
         .unwrap_or_default()
+}
+
+/// What names this machine when no identity file answers: the variables
+/// the platform exports, else `hostname`. Asked lazily, so a Linux host,
+/// whose `/etc/machine-id` answers first, never runs it.
+fn machine_fallback() -> Option<String> {
+    machine_name(&["HOSTNAME", "COMPUTERNAME"], hostname_command)
 }
 
 /// The machine's name where no identity file can be read — the case on

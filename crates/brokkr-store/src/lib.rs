@@ -947,7 +947,10 @@ impl Store {
             if stored.as_deref() != Some(hash) {
                 return Err(StoreError::UnknownHead { seq });
             }
-            let events = self.rows(run_id, Some(head))?;
+            // The empty head's suffix is the whole journal, so it is read
+            // and judged whole, as `load` reads it: every row the table
+            // holds, a row below seq 1 refused, never skipped.
+            let events = self.rows(run_id, (head != 0).then_some(head))?;
             verify_chain_after(run_id, seq, hash, &events)?;
             Ok(events)
         })

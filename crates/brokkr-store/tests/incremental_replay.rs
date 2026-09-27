@@ -226,7 +226,9 @@ fn plant(dir: &Path, run_id: &str, seq: i64, envelope: &str) {
 
 /// The whole read judges every row of the run, whatever seq the table
 /// holds it at: a row below seq 1 is refused as it was before the
-/// incremental read (#354), never skipped, and export refuses alike.
+/// incremental read (#354), never skipped. Export refuses alike, and so
+/// does the suffix of the empty head, the whole journal read through
+/// `load_after`.
 #[test]
 fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
     let dir = tempfile::tempdir().unwrap();
@@ -273,6 +275,8 @@ fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
         assert_eq!(load, refusal, "{run_id}");
         let export = judged(store.export_ndjson(run_id).unwrap_err());
         assert_eq!(export, refusal, "{run_id}");
+        let whole_suffix = judged(store.load_after(run_id, 0, ZERO_HASH).unwrap_err());
+        assert_eq!(whole_suffix, refusal, "{run_id}");
     }
 }
 
