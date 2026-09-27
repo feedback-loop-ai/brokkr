@@ -124,7 +124,9 @@ The four checks the list above adds to the older eight:
   zizmor and lychee, each checked against its pin: typos, shellcheck
   and zizmor in `ci.yml`, actionlint and lychee in
   `.github/actions/setup-actionlint` and `.github/actions/setup-lychee`. A
-  landing's verify seat runs the same list. The job then renders the
+  landing's verify seat runs the same list with `--seat`, which names a
+  lint whose tool its box lacks as not run and runs the others; that
+  lint's only judge is then this check. The job then renders the
   diagrams and validates Renovate's configuration; both are written out
   in [the non-Rust lints](#the-non-rust-lints) below.
 - **`baseline ratchets`** (#338) holds file size and duplication to
@@ -236,8 +238,9 @@ log reports exactly one test passed and the probe wrote its verdict to
 `test result: ok`, with none passed. Run it on a Mac, outside any sandbox,
 where a missing `sandbox-exec` or an outer box is a named failure. On Linux
 the probe returns before it runs a cell or writes a report, so it proves
-nothing there. CI prints `sw_vers` and `uname -m` first, and uploads both
-files as the `r3-native-diagnostics` artifact whether the step passes or not.
+nothing there. CI prints `sw_vers` and `uname -m` first, and a step of its
+own, `R3 native diagnostics`, uploads an artifact whether the gate passes
+or not.
 
 ### The MSRV
 
@@ -521,7 +524,8 @@ review seat, code goes through the verifier first — `cargo fmt --all
 stay CI's to prove: the suite in CI's own form
 (`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, `--all-features`, `--locked` and
 `--no-fail-fast`; inside the box a boundary proof cannot open a
-namespace, and it skips), the MSRV, the suppression check and the
+namespace, and it skips), any non-Rust lint whose tool the box lacks
+(the seat names it `not run`), the MSRV, the suppression check and the
 `bundles/verify` compile, the other OS, the exact coverage gate,
 cargo-deny, the diagram render and Renovate's validator, the ratchets,
 the RustSec audit, the release build and its size budget, and the

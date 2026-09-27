@@ -8,6 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[path = "support/workflow.rs"]
+mod workflow;
+
 /// A committed miss, and the same file and mutation at another line.
 const KNOWN: &str = "crates/brokkr-core/src/fold.rs:384:41: replace == with != in apply";
 const KNOWN_MOVED: &str = "crates/brokkr-core/src/fold.rs:390:41: replace == with != in apply";
@@ -664,15 +667,12 @@ fn conditions(job: &str) -> Vec<String> {
     found
 }
 
-/// The body of mutants.yml's job `id`: its lines indented under the id.
+/// The body of mutants.yml's job `id`.
 fn job(workflow: &str, id: &str) -> String {
-    let (_, rest) = workflow
-        .split_once(&format!("\n  {id}:\n"))
-        .unwrap_or_else(|| panic!("mutants.yml has no {id} job"));
-    rest.lines()
-        .take_while(|line| line.is_empty() || line.starts_with("    "))
-        .map(|line| format!("{line}\n"))
-        .collect()
+    workflow::jobs(workflow)
+        .into_iter()
+        .find_map(|(job, body)| (job == id).then_some(body))
+        .unwrap_or_else(|| panic!("mutants.yml has no {id} job"))
 }
 
 /// The check branch protection names runs the gate, whole and unsoftened,

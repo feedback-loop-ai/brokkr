@@ -25,7 +25,7 @@ faces, from the same two seats, before a human has read a line.
 
 | Seat | Class | Results | Runs |
 |---|---|---|---|
-| `verify` | `gate` | `pass`, `fail` | The gates CI will run, locally: format, clippy, the workspace suite, the MSRV check, both bundle compiles, the exact-coverage script, the licence allowlist, the release build. |
+| `verify` | `gate` | `pass`, `fail` | Eight commands, locally, in the forms `roles/verify-seat.sh` writes: format, clippy, the workspace suite, the MSRV check, both bundle compiles, the exact-coverage script, the licence check, the release build. Some are weaker than CI's; see [what a preflight cannot give you](#what-a-preflight-cannot-give-you). |
 | `review` | `gate` | `clean`, `residual`, `security-hold` | Adversarial read of `git diff main...HEAD` across correctness, fit and security. Read-only. |
 
 `verify` gets 5400 seconds because it runs the coverage gate, which
@@ -44,7 +44,7 @@ rule. What differs is what the seats are pointed at:
 | The change is | already delivered, named by merge commit or diff range (`git show <sha>`) | unmerged, found by diffing the branch against its base (`git diff main...HEAD`) |
 | Run by | the operator, after a slice lands | a contributor, before a pull request exists |
 | Driver tools | includes `gh pr view` / `gh run view` | no `gh` — there is nothing open to read |
-| `verify` runs | the suite plus the two bundle compiles | every gate in `.github/workflows/ci.yml` that a laptop can reproduce |
+| `verify` runs | the suite plus the two bundle compiles | the eight commands above |
 
 It is a standalone recipe with its own `policy.json`, not an `extends`
 of `bundles/verify`: `extends` names a recipe in the library, and the
@@ -57,12 +57,25 @@ Decision 0021: a judging seat stands on a compile-time gate check. Both
 seats here declare `"class": "gate"`: verify uses boxed `exec`, while
 review names the trusted model driver.
 
-## The two checks a preflight cannot give you
+## What a preflight cannot give you
 
 The RustSec advisory audit runs in CI against its own database, and the
 test matrix runs on Linux and macOS, the two hosts decision 0063 keeps. A preflight run has one
 machine and no advisory database of CI's vintage. The verifier script
 names both as unrun rather than imply they passed.
+
+Of the twelve checks main requires, a preflight runs no part of
+`delivered by brokkr`, `non-Rust lints`, `baseline ratchets` or
+`mutants in the diff: brokkr-core`, and of the rest it leaves out the
+suppression check, the complexity and public-API ratchets and the
+binary size budget. Four of its commands are weaker than CI's: the
+MSRV check omits `--all-targets --all-features`, the licence check is
+`cargo deny check licenses` without `bans sources`, the suite omits
+`--no-fail-fast`, and the suite and the coverage script run without
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, so a boundary proof that cannot
+open a namespace skips. [The by-hand guide's twelve
+checks](../../docs/guides/contributing-by-hand.md#the-twelve-checks) name
+each one's CI form.
 
 Of the checks #427 brought into `fast`'s verifier, this one runs
 `cargo fmt` and clippy with `-D warnings`, and not

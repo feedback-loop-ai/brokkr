@@ -9,6 +9,9 @@ use std::process::Command;
 
 use serde_json::Value;
 
+#[path = "support/workflow.rs"]
+mod workflow;
+
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -207,41 +210,202 @@ struct WorkflowLeg {
 }
 
 /// One step a leg takes: the variables it sets (its job's first), and
-/// every one-line command and every command line of a multi-line block it
-/// runs.
+/// every line it runs: its one-line command, or each code line of its
+/// multi-line block.
 struct Step {
     env: Vec<(String, String)>,
-    commands: Vec<String>,
+    lines: Vec<String>,
 }
 
 impl WorkflowLeg {
-    /// The leg's commands as a local run writes them: each carries its
-    /// step's variables that `LOCAL_ENV` carries, in their local form.
+    /// The leg's commands as a local run writes them, read against the
+    /// lines `LEG_LINES` holds for it, in order: a line its row writes
+    /// carries its step's variables that `LOCAL_ENV` carries, in their
+    /// local form, and any other line must be the one the table holds in
+    /// its place. A line added, dropped or moved fails here.
     fn local_commands(&self) -> Vec<String> {
+        let (_, held) = LEG_LINES
+            .iter()
+            .find(|(check, _)| *check == self.check)
+            .unwrap_or_else(|| panic!("LEG_LINES does not hold {}", self.check));
+        let mut held = held.iter();
         let mut commands = Vec::new();
         for step in &self.steps {
-            let mut prefix = String::new();
-            for (name, value) in &step.env {
-                let carried = LOCAL_ENV
-                    .iter()
-                    .find(|(listed, _)| listed == name)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "LOCAL_ENV does not rule on {name}, which {} sets",
+            for line in &step.lines {
+                match held.next() {
+                    Some(Line::Written) => commands.push(format!("{}{line}", self.prefix(step))),
+                    Some(Line::Unwritten(text)) => {
+                        assert_eq!(
+                            line, text,
+                            "{} runs a line LEG_LINES does not hold",
                             self.check
-                        )
-                    })
-                    .1;
-                let value = local_value(value, self.runner);
-                if matches!(carried, Local::Carried) && !value.is_empty() {
-                    prefix.push_str(&format!("{name}={value} "));
+                        );
+                    }
+                    None => panic!(
+                        "{} runs `{line}`, past the lines LEG_LINES holds",
+                        self.check
+                    ),
                 }
             }
-            commands.extend(step.commands.iter().map(|run| format!("{prefix}{run}")));
         }
+        let missing: Vec<&Line> = held.collect();
+        assert!(
+            missing.is_empty(),
+            "{} no longer runs {missing:?}",
+            self.check
+        );
         commands
     }
+
+    /// The variables `step` sets that a local run carries, as a prefix.
+    fn prefix(&self, step: &Step) -> String {
+        let mut prefix = String::new();
+        for (name, value) in &step.env {
+            let carried = LOCAL_ENV
+                .iter()
+                .find(|(listed, _)| listed == name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "LOCAL_ENV does not rule on {name}, which {} sets",
+                        self.check
+                    )
+                })
+                .1;
+            let value = local_value(value, self.runner);
+            if matches!(carried, Local::Carried) && !value.is_empty() {
+                prefix.push_str(&format!("{name}={value} "));
+            }
+        }
+        prefix
+    }
 }
+
+/// A line a checked leg runs.
+#[derive(Debug)]
+enum Line {
+    /// A command its row writes.
+    Written,
+    /// A line its row leaves out, held word for word: output, exits and
+    /// shell structure, a fetch of the pull request's base (a local clone
+    /// has it), the ratchets job's check that its checkout is a pull
+    /// request's merge commit, the macOS host report and its check for
+    /// `/usr/bin/sandbox-exec`, the coverage job's pin reads and its
+    /// cargo-public-api install (`the_by_hand_tool_versions_are_the_pins`
+    /// holds its version), and every line of `delivered by brokkr`, which
+    /// has no local form: it judges a pull request's own evidence with its
+    /// base branch's verifier.
+    Unwritten(&'static str),
+}
+
+/// Every line each of the twelve checks' legs runs, in order: a skipped
+/// line such as an early `exit 0`, or a command moved into a branch that
+/// never runs, fails the test like a command the row left out.
+const LEG_LINES: [(&str, &[Line]); 12] = [
+    (
+        "delivered by brokkr",
+        &[
+            Line::Unwritten(
+                r#"git -C pr fetch --no-tags "$BASE_REPO" "${BASE_REF}:refs/remotes/base/${BASE_REF}""#,
+            ),
+            Line::Unwritten(
+                r#"cargo build --locked --manifest-path "base-verifier/Cargo.toml" -p brokkr-cli"#,
+            ),
+            Line::Unwritten("if [ ! -f base-verifier/scripts/delivered-by-brokkr.sh ]; then"),
+            Line::Unwritten(r#"case ",${LABELS}," in"#),
+            Line::Unwritten("*,by-hand,*)"),
+            Line::Unwritten(
+                r#"echo "delivered by brokkr: skipped — operator applied the by-hand label; the base branch carries no gate script yet""#,
+            ),
+            Line::Unwritten("exit 0 ;;"),
+            Line::Unwritten("esac"),
+            Line::Unwritten(
+                r#"echo "delivered by brokkr: the base branch carries no gate script" >&2"#,
+            ),
+            Line::Unwritten("exit 1"),
+            Line::Unwritten("fi"),
+            Line::Unwritten("bash base-verifier/scripts/delivered-by-brokkr.sh"),
+        ],
+    ),
+    ("MSRV (1.88)", &[Line::Written]),
+    (
+        "format, clippy, contracts",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Unwritten(r#"git fetch --no-tags --depth=1 origin "$BROKKR_SUPPRESSION_BASE""#),
+            Line::Written,
+            Line::Written,
+            Line::Written,
+        ],
+    ),
+    (
+        "test (ubuntu-latest)",
+        &[Line::Written, Line::Written, Line::Written],
+    ),
+    (
+        "test (macos-latest)",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Unwritten("sw_vers"),
+            Line::Unwritten("uname -m"),
+            Line::Unwritten("test -x /usr/bin/sandbox-exec"),
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+        ],
+    ),
+    (
+        "exact coverage gate",
+        &[
+            Line::Unwritten(
+                r#"echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT""#,
+            ),
+            Line::Unwritten(
+                r#"echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT""#,
+            ),
+            Line::Unwritten(
+                r#"echo "RUSTUP_TOOLCHAIN=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_ENV""#,
+            ),
+            Line::Written,
+            Line::Written,
+            Line::Unwritten("cargo install --locked cargo-public-api --version 0.52.0"),
+            Line::Written,
+        ],
+    ),
+    ("dependency licenses (cargo-deny)", &[Line::Written]),
+    (
+        "non-Rust lints",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Written,
+        ],
+    ),
+    (
+        "baseline ratchets",
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Unwritten("git rev-parse --verify --quiet 'HEAD^2' > /dev/null || {"),
+            Line::Unwritten(
+                r#"echo "ratchet refusal: the checkout is not the pull request's merge commit" >&2"#,
+            ),
+            Line::Unwritten("exit 1"),
+            Line::Unwritten("}"),
+            Line::Written,
+        ],
+    ),
+    ("RustSec dependency audit", &[]),
+    ("release binary artifact", &[Line::Written, Line::Written]),
+    ("mutants in the diff: brokkr-core", &[Line::Written]),
+];
 
 /// Whether a local run sets a variable a checked step sets.
 #[derive(Clone, Copy)]
@@ -306,21 +470,9 @@ fn env_map(lines: &[&str]) -> Vec<(String, String)> {
 
 fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
     let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
-    let jobs = text.split_once("\njobs:\n").expect("a jobs map").1;
-    let mut blocks: Vec<(&str, Vec<&str>)> = Vec::new();
-    for line in jobs.lines() {
-        match line
-            .strip_prefix("  ")
-            .and_then(|key| key.strip_suffix(':'))
-        {
-            Some(id) if !id.starts_with([' ', '#']) => blocks.push((id, Vec::new())),
-            // A comment above the first job belongs to no job.
-            _ => blocks.last_mut().map_or((), |(_, body)| body.push(line)),
-        }
-    }
-    blocks
+    workflow::jobs(&text)
         .into_iter()
-        .flat_map(|(id, body)| job_legs(file, id, &body))
+        .flat_map(|(id, body)| job_legs(file, &id, &body.lines().collect::<Vec<_>>()))
         .collect()
 }
 
@@ -372,7 +524,7 @@ fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
                     .into_iter()
                     .map(|step| Step {
                         env: job_env.iter().cloned().chain(env_map(step)).collect(),
-                        commands: step_commands(step),
+                        lines: step_lines(step),
                     })
                     .collect(),
             }
@@ -400,12 +552,12 @@ fn job_steps<'a>(body: &[&'a str]) -> Vec<Vec<&'a str>> {
     steps
 }
 
-/// What one step runs: its one-line command, or every command line of its
+/// What one step runs: its one-line command, or every code line of its
 /// multi-line block (continuations joined), a call to a function the block
 /// defines standing for that function's body with `"$@"` replaced by the
 /// call's arguments. A pull request's base stands as `origin/main`, the
-/// base a local clone has. Only scaffolding is skipped, by `scaffolding`.
-fn step_commands(step: &[&str]) -> Vec<String> {
+/// base a local clone has.
+fn step_lines(step: &[&str]) -> Vec<String> {
     let mut commands = Vec::new();
     for (at, line) in step.iter().enumerate() {
         let key = line.trim_start().trim_start_matches("- ");
@@ -418,19 +570,18 @@ fn step_commands(step: &[&str]) -> Vec<String> {
                 })
                 .map(|line| line.trim())
                 .collect();
-            commands.extend(block_commands(&block.join("\n").replace(" \\\n", " ")));
+            commands.extend(block_lines(&block.join("\n").replace(" \\\n", " ")));
         } else if let Some(run) = key.strip_prefix("run: ") {
             commands.push(run.replace("\"$BASE\"", "origin/main"));
         } else if let Some(deny) = key.strip_prefix("command: ") {
             commands.push(format!("cargo deny {deny}"));
         }
     }
-    commands.retain(|run| !run.starts_with("cargo install "));
     commands
 }
 
-/// The command lines of one `run: |` block, its functions expanded.
-fn block_commands(block: &str) -> Vec<String> {
+/// The code lines of one `run: |` block, its functions expanded.
+fn block_lines(block: &str) -> Vec<String> {
     let mut functions: Vec<(&str, Vec<&str>)> = Vec::new();
     let mut commands = Vec::new();
     let mut lines = block.lines();
@@ -446,52 +597,11 @@ fn block_commands(block: &str) -> Vec<String> {
                 .map(|args| (body, args))
         }) {
             commands.extend(body.iter().map(|call| call.replace("\"$@\"", args)));
-        } else if !scaffolding(line) {
+        } else if !line.is_empty() {
             commands.push(line.replace("'HEAD^1'", "origin/main"));
         }
     }
     commands
-}
-
-/// A block line that does no check of its own, so no row carries it:
-/// - blank lines and comments;
-/// - output and exits: `echo`, `printf`, `exit`;
-/// - shell structure: `if`/`then`/`else`/`elif`/`fi`, `case`/`esac` and
-///   their arms, and braces (a `set` line is a command: it decides whether
-///   a failure stops the block);
-/// - a `git fetch` of the pull request's base, which a local clone has;
-/// - the ratchets job's check that its checkout is a merge commit
-///   (`git rev-parse --verify --quiet 'HEAD^2'`), which only a pull
-///   request's merge ref is;
-/// - the macOS leg's host report (`sw_vers`, `uname -m`) and its check
-///   that the runner carries `/usr/bin/sandbox-exec`.
-fn scaffolding(line: &str) -> bool {
-    let word = line.split_whitespace().next().unwrap_or_default();
-    line.is_empty()
-        || line.starts_with('#')
-        || matches!(
-            word,
-            "echo"
-                | "printf"
-                | "exit"
-                | "if"
-                | "then"
-                | "else"
-                | "elif"
-                | "fi"
-                | "case"
-                | "esac"
-                | ";;"
-                | "{"
-                | "}"
-                | "sw_vers"
-        )
-        || line.ends_with(')') && !line.contains(' ')
-        || line.starts_with("git fetch ")
-        || line.starts_with("git -C pr fetch ")
-        || line.starts_with("git rev-parse --verify --quiet 'HEAD^2'")
-        || line == "uname -m"
-        || line == "test -x /usr/bin/sandbox-exec"
 }
 
 /// The commands a row writes: its cell's code spans, and every line of a
@@ -547,10 +657,6 @@ const LOCAL_ONLY: [&str; 3] = [
     // The same gate with its temporary directories moved off a small tmpfs.
     "TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh",
 ];
-
-/// Checks with no local form, so their rows write no command: the gate
-/// judges a pull request's own evidence with its base branch's verifier.
-const CI_ONLY: [&str; 1] = ["delivered by brokkr"];
 
 /// The anchor GitHub gives the heading a section starts with.
 fn heading_anchor(section: &str) -> String {
@@ -680,10 +786,6 @@ fn the_by_hand_checks_are_the_workflows_checks() {
             "{check} is numbered in order"
         );
         let written = written_commands(&guide, &row.command);
-        if CI_ONLY.contains(&check.as_str()) {
-            assert_eq!(written, Vec::<String>::new(), "{check} has no local form");
-            continue;
-        }
         let leg = legs
             .iter()
             .find(|leg| (&leg.check, &leg.id, leg.file) == (&row.check, &row.job, row.file))
@@ -708,6 +810,210 @@ fn the_by_hand_checks_are_the_workflows_checks() {
     let contributing = std::fs::read_to_string(root.join("CONTRIBUTING.md")).unwrap();
     assert!(contributing.contains("preserves the twelve exact checks"));
     assert!(guide.contains("twelve required checks"));
+}
+
+/// The keys a step of a required job may carry. `continue-on-error` passes
+/// a failed step, and `working-directory` and `shell` change what its lines
+/// run without changing the lines, so none of them is here.
+const STEP_KEYS: [&str; 7] = ["name", "id", "if", "uses", "with", "env", "run"];
+
+/// A job's id, its keys, and its conditions, each with what it stands on.
+type JobShape = (
+    &'static str,
+    &'static [&'static str],
+    &'static [(&'static str, &'static str)],
+);
+
+/// The condition of a step or job that runs on pull requests only.
+const PR_ONLY: &str = "github.event_name == 'pull_request'";
+
+/// Each required ci.yml job's keys, and each of its conditions with what it
+/// stands on: the job's id, or its step's name and action. core-gate's are
+/// held by `mutants_gate.rs`.
+const JOB_SHAPES: [JobShape; 10] = [
+    (
+        "delivered-by-brokkr",
+        &[
+            "name",
+            "if",
+            "runs-on",
+            "timeout-minutes",
+            "permissions",
+            "steps",
+        ],
+        &[("delivered-by-brokkr", PR_ONLY)],
+    ),
+    (
+        "msrv",
+        &["name", "runs-on", "timeout-minutes", "steps"],
+        &[],
+    ),
+    (
+        "quality",
+        &["name", "runs-on", "timeout-minutes", "steps"],
+        &[("an added suppression names a ruling", PR_ONLY)],
+    ),
+    (
+        "engine",
+        &["name", "strategy", "runs-on", "timeout-minutes", "steps"],
+        &[
+            (
+                "bubblewrap for the hands tests (./.github/actions/setup-bubblewrap)",
+                "runner.os == 'Linux'",
+            ),
+            ("R3 native startup gate", "runner.os == 'macOS'"),
+            (
+                "R3 native diagnostics (actions/upload-artifact)",
+                "always() && runner.os == 'macOS'",
+            ),
+        ],
+    ),
+    (
+        "coverage",
+        &["name", "runs-on", "timeout-minutes", "steps"],
+        &[("actions/upload-artifact", "always()")],
+    ),
+    (
+        "license-compliance",
+        &["name", "runs-on", "timeout-minutes", "permissions", "steps"],
+        &[],
+    ),
+    (
+        "lint-non-rust",
+        &["name", "runs-on", "timeout-minutes", "steps"],
+        &[],
+    ),
+    (
+        "ratchets",
+        &["name", "runs-on", "timeout-minutes", "permissions", "steps"],
+        &[("a raised baseline names its ruling (quality/)", PR_ONLY)],
+    ),
+    (
+        "dependency-audit",
+        &["name", "runs-on", "timeout-minutes", "permissions", "steps"],
+        &[],
+    ),
+    (
+        "release-binary",
+        &["name", "runs-on", "timeout-minutes", "steps"],
+        &[],
+    ),
+];
+
+/// The `key: value` pairs written at `indent` among `lines`, comments
+/// and deeper lines skipped.
+fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
+    lines
+        .iter()
+        .filter_map(|line| line.strip_prefix(indent))
+        .filter(|line| !line.starts_with([' ', '#']) && !line.is_empty())
+        .map(|line| {
+            let (key, value) = line.split_once(':').unwrap_or((line, ""));
+            (key, value.trim())
+        })
+        .collect()
+}
+
+/// A step's own keys: its `- ` line's and those level with it.
+fn step_keys<'a>(step: &[&'a str]) -> Vec<(&'a str, &'a str)> {
+    let first = step[0]
+        .strip_prefix("      - ")
+        .expect("a step's `- ` line");
+    let mut keys = keys_at(&[first], "");
+    keys.extend(keys_at(&step[1..], "        "));
+    keys
+}
+
+/// A job's conditions, each with what it stands on: the job's id for its
+/// own `if:`, else its step's name and action, else its step's command.
+fn job_conditions(id: &str, body: &[&str]) -> Vec<(String, String)> {
+    let job = keys_at(body, "    ");
+    let own = job
+        .iter()
+        .filter(|(key, _)| *key == "if")
+        .map(|(_, value)| (id.to_string(), (*value).to_string()));
+    let steps = job_steps(body).into_iter().filter_map(|step| {
+        let keys = step_keys(&step);
+        let value = |wanted: &str| {
+            keys.iter()
+                .find(|(key, _)| *key == wanted)
+                .map(|(_, value)| *value)
+        };
+        let action = value("uses").map(|uses| uses.split_once('@').map_or(uses, |(name, _)| name));
+        let stands_on = match (value("name"), action) {
+            (Some(name), Some(action)) => format!("{name} ({action})"),
+            (Some(name), None) => name.to_string(),
+            (None, Some(action)) => action.to_string(),
+            (None, None) => value("run").unwrap_or_default().to_string(),
+        };
+        value("if").map(|condition| (stands_on, condition.to_string()))
+    });
+    own.chain(steps).collect()
+}
+
+/// A skipped step or job reports success, which satisfies a required
+/// check, so the jobs behind the twelve are held whole, as `mutants_gate.rs`
+/// holds core-gate: each workflow's top-level keys (a workflow-wide
+/// `defaults:` or `env:` would reach every step), each required ci.yml
+/// job's keys and conditions, and every required job's step keys.
+#[test]
+fn the_required_jobs_run_every_step_unsoftened() {
+    let root = workspace();
+    let read =
+        |file: &str| std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
+    for (file, top) in [
+        (
+            "ci.yml",
+            ["name", "on", "concurrency", "permissions", "jobs"],
+        ),
+        (
+            "mutants.yml",
+            ["name", "on", "permissions", "concurrency", "jobs"],
+        ),
+    ] {
+        let text = read(file);
+        let keys: Vec<&str> = keys_at(&text.lines().collect::<Vec<_>>(), "")
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        assert_eq!(keys, top, "{file}'s top-level keys");
+    }
+    let ci = workflow::jobs(&read("ci.yml"));
+    let body = |file: &str, id: &str| {
+        let jobs = if file == "ci.yml" {
+            ci.clone()
+        } else {
+            workflow::jobs(&read(file))
+        };
+        jobs.into_iter()
+            .find_map(|(job, body)| (job == id).then_some(body))
+            .unwrap_or_else(|| panic!("{file} has no {id} job"))
+    };
+    for (id, keys, conditions) in JOB_SHAPES {
+        let text = body("ci.yml", id);
+        let lines: Vec<&str> = text.lines().collect();
+        let found: Vec<&str> = keys_at(&lines, "    ")
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        assert_eq!(found, keys, "{id} gained or lost a job key");
+        let held: Vec<(String, String)> = conditions
+            .iter()
+            .map(|(on, condition)| ((*on).to_string(), (*condition).to_string()))
+            .collect();
+        assert_eq!(job_conditions(id, &lines), held, "{id}'s conditions moved");
+    }
+    for (check, id, file) in MAIN_REQUIRES {
+        let text = body(file, id);
+        for step in job_steps(&text.lines().collect::<Vec<_>>()) {
+            for (key, _) in step_keys(&step) {
+                assert!(
+                    STEP_KEYS.contains(&key),
+                    "a step of {check} carries `{key}`: {step:?}"
+                );
+            }
+        }
+    }
 }
 
 /// Every version the by-hand guide states for a pinned tool is its pin:

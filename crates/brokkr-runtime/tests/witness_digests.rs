@@ -275,7 +275,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/preflight",
-        "7a088feacab85bb785b2b9ad2f94fea44deab4e81494a8370b24b36f5bbf65c6",
+        "68b8e48e051495534e7f2de034c78f911f466448b704058cb1c62c89d2eb371e",
     ),
     (
         "recipes/night-shift",
