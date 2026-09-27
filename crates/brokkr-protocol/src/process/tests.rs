@@ -71,7 +71,7 @@ impl std::io::Write for BreakAfterFirstFlush {
     }
 }
 
-fn process_with_writer(writer: impl std::io::Write + 'static) -> DriverProcess {
+fn process_with_writer(writer: impl std::io::Write + Send + 'static) -> DriverProcess {
     let script = format!("printf '%s\\n' '{}'", capabilities());
     let mut process = DriverProcess::spawn(
         &command(&script),
@@ -533,12 +533,36 @@ fn deadline_failure(report: &AttemptReport, secs: u64) {
         report.outcome
     );
     assert!(report.deadline_killed);
+    assert_eq!(report.cleanup, Cleanup::Settled);
 }
 
-/// Is `pid` gone? A zombie is not: the kernel still answers for it.
+/// Is `pid` gone? A zombie is: it has exited, whoever still holds its
+/// pid (#403).
 fn gone(pid: i32) -> bool {
-    rustix::process::test_kill_process(Pid::from_raw(pid).unwrap()) == Err(rustix::io::Errno::SRCH)
+    !table::snapshot()
+        .unwrap()
+        .iter()
+        .any(|entry| entry.id.pid == pid && !entry.zombie)
 }
+
+/// Poll until every pid of `tree` is gone, for up to three seconds.
+fn all_gone(tree: [i32; 2]) -> bool {
+    let until = Instant::now() + Duration::from_secs(3);
+    while !tree.into_iter().all(gone) {
+        if Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    true
+}
+
+/// The environment variable that names the part this test binary plays
+/// when a test re-executes it, and the files that part is handed.
+const ROLE: &str = "BROKKR_PROCESS_TEST_ROLE";
+const ROLE_PID: &str = "BROKKR_PROCESS_TEST_PID";
+const ROLE_MARKER: &str = "BROKKR_PROCESS_TEST_MARKER";
+const ROLE_DIR: &str = "BROKKR_PROCESS_TEST_DIR";
 
 /// Seat stubs for #403, in one directory as concurrent runs in one
 /// checkout would be. A stub records its own pid, answers the handshake,
@@ -546,18 +570,29 @@ fn gone(pid: i32) -> bool {
 /// marker. The grandchild's stdio points away from the harness's pipes,
 /// so a kill that misses it fails an assertion rather than hanging.
 struct Seats {
-    dir: tempfile::TempDir,
+    dir: std::path::PathBuf,
+    _owned: Option<tempfile::TempDir>,
 }
 
 impl Seats {
     fn new() -> Seats {
+        let owned = tempfile::tempdir().unwrap();
         Seats {
-            dir: tempfile::tempdir().unwrap(),
+            dir: owned.path().to_path_buf(),
+            _owned: Some(owned),
+        }
+    }
+
+    /// The seats another test process owns, from inside a role.
+    fn at(dir: &str) -> Seats {
+        Seats {
+            dir: dir.into(),
+            _owned: None,
         }
     }
 
     fn file(&self, tag: &str, what: &str) -> std::path::PathBuf {
-        self.dir.path().join(format!("{tag}.{what}"))
+        self.dir.join(format!("{tag}.{what}"))
     }
 
     /// The stub `tag`: `handshake` after the greeting, then the
@@ -565,20 +600,46 @@ impl Seats {
     /// The grandchild stops when the directory goes, so a kill that
     /// misses it leaks nothing past the test.
     fn driver(&self, tag: &str, handshake: &str, then: &str) -> Vec<String> {
-        let grandchild = self.file(tag, "grandchild");
+        self.stub(
+            tag,
+            handshake,
+            "sh -c 'printf \"%s\\n\" \"$$\" > \"$1\"; \
+             while [ -d \"$3\" ]; do printf x >> \"$2\"; sleep 0.05; done' \
+             tree \"$GRANDCHILD\" \"$MARKER\" \"$DIR\"",
+            then,
+        )
+    }
+
+    /// The same stub, whose grandchild leaves the group and the session
+    /// (`setsid`, as Node's `detached` spawn does) before it records
+    /// itself: this test binary, re-executed in its `detached` role.
+    fn detached_driver(&self, tag: &str, handshake: &str, then: &str) -> Vec<String> {
+        let exe = std::env::current_exe().unwrap();
+        self.stub(
+            tag,
+            handshake,
+            &format!(
+                "{ROLE}=detached {ROLE_PID}=\"$GRANDCHILD\" {ROLE_MARKER}=\"$MARKER\" \
+                 {ROLE_DIR}=\"$DIR\" '{}' --exact process::tests::role --ignored",
+                exe.display()
+            ),
+            then,
+        )
+    }
+
+    fn stub(&self, tag: &str, handshake: &str, grandchild: &str, then: &str) -> Vec<String> {
         command(&format!(
-            "printf '%s\\n' \"$$\" > '{driver}'\n\
+            "GRANDCHILD='{grandchild_file}' MARKER='{marker}' DIR='{dir}'\n\
+             printf '%s\\n' \"$$\" > '{driver}'\n\
              read -r hello\n\
              {handshake}\n\
-             sh -c 'printf \"%s\\n\" \"$$\" > \"$1\"; \
-             while [ -d \"$3\" ]; do printf x >> \"$2\"; sleep 0.05; done' \
-             tree '{grandchild}' '{marker}' '{dir}' </dev/null >/dev/null 2>&1 &\n\
-             while [ ! -s '{grandchild}' ]; do sleep 0.01; done\n\
+             {grandchild} </dev/null >/dev/null 2>&1 &\n\
+             while [ ! -s \"$GRANDCHILD\" ]; do sleep 0.01; done\n\
              {then}\n",
             driver = self.file(tag, "driver").display(),
-            grandchild = grandchild.display(),
+            grandchild_file = self.file(tag, "grandchild").display(),
             marker = self.file(tag, "marker").display(),
-            dir = self.dir.path().display(),
+            dir = self.dir.display(),
         ))
     }
 
@@ -612,11 +673,7 @@ impl Seats {
 fn a_deadline_kill_ends_every_descendant_before_the_report_returns() {
     let seats = Seats::new();
     let driver = seats.driver("seat", &accepting(), "read -r never");
-    let report = attempt(spawned(
-        &driver,
-        seats.dir.path(),
-        Some(Duration::from_secs(1)),
-    ));
+    let report = attempt(spawned(&driver, &seats.dir, Some(Duration::from_secs(1))));
     let tree = seats.pids("seat");
     let survivors: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
     assert_eq!(survivors, Vec::<i32>::new(), "tree {tree:?}");
@@ -633,7 +690,7 @@ fn a_deadline_kill_ends_every_descendant_before_the_report_returns() {
 fn an_abrupt_driver_exit_takes_its_descendants_with_it() {
     let seats = Seats::new();
     let driver = seats.driver("seat", &accepting(), "exit 0");
-    let report = attempt(spawned(&driver, seats.dir.path(), None));
+    let report = attempt(spawned(&driver, &seats.dir, None));
     let tree = seats.pids("seat");
     assert_eq!(tree.map(gone), [true, true], "tree {tree:?}");
     assert!(
@@ -670,7 +727,7 @@ fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
         let handshake = format!("{}; {last_word}", accepting());
         let mut process = spawned(
             &seats.driver("seat", &handshake, "sleep 10"),
-            seats.dir.path(),
+            &seats.dir,
             None,
         );
         process.bounds.grace = Duration::from_millis(200);
@@ -707,26 +764,14 @@ fn a_grandchild_holding_the_pipes_does_not_outlast_the_deadline() {
     assert!(elapsed < Duration::from_secs(5), "took {elapsed:?}");
 }
 
-/// An end that cannot be proven — a group that will not empty, or a pipe
-/// something outside the group still holds — parks the attempt with the
-/// outcome it reached in the reason; it never certifies the attempt.
+/// An end that cannot be proven — a pipe something outside the tree
+/// still holds, a group the kernel would not signal, a leader that would
+/// not be reaped, a table that cannot be read — leaves the outcome the
+/// driver reached as it reached it, typed, and the cleanup unresolved
+/// beside it: the report never certifies the attempt (#403).
 #[test]
 fn an_attempt_whose_end_cannot_be_proven_parks() {
     let held = |process: &mut DriverProcess| process.bounds.drain = Duration::from_millis(200);
-    let mut process = spawned(
-        &command(&format!(
-            "read -r hello; {}; printf '%s\\n' '{}'",
-            accepting(),
-            succeeded()
-        )),
-        std::path::Path::new("."),
-        None,
-    );
-    process.alive = |_| true;
-    process.bounds.settle = Duration::from_millis(50);
-    let group = process.child.id();
-    let group_survived = attempt(process);
-
     let mut process = spawned(
         &command("read -r hello; read -r never"),
         std::path::Path::new("."),
@@ -746,33 +791,138 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
     process.stderr = stderr;
     let stderr_held = attempt(process);
 
-    for (report, expected) in [
+    let answering = format!("read -r hello; {}", capabilities());
+    let mut process = spawned(&command(&answering), std::path::Path::new("."), None);
+    process.host.kill_group = |_| Err(rustix::io::Errno::PERM);
+    let group = i32::try_from(process.child.id()).unwrap();
+    let kill_refused = attempt(process);
+
+    let mut process = spawned(&command("exit 0"), std::path::Path::new("."), None);
+    process.host.table = || Err(std::io::Error::other("no table"));
+    process.bounds.settle = Duration::from_millis(50);
+    let unreadable = attempt(process);
+
+    assert!(
+        matches!(&stdout_held.outcome, AttemptOutcome::Failed { error }
+        if error == "attempt exceeded its 1s deadline and was killed")
+    );
+    assert_eq!(unresolved(&stdout_held), Some(&Unsettled::Stdout));
+    assert!(
+        matches!(&stderr_held.outcome, AttemptOutcome::Indeterminate { reason }
+        if reason == "driver exited before accepting the attempt")
+    );
+    assert_eq!(unresolved(&stderr_held), Some(&Unsettled::Stderr));
+    assert_eq!(
+        unresolved(&kill_refused),
+        Some(&Unsettled::Kill {
+            group,
+            errno: rustix::io::Errno::PERM.raw_os_error(),
+        })
+    );
+    assert_eq!(
+        unresolved(&unreadable),
+        Some(&Unsettled::Table {
+            error: "no table".into()
+        })
+    );
+}
+
+fn unresolved(report: &AttemptReport) -> Option<&Unsettled> {
+    match &report.cleanup {
+        Cleanup::Settled => None,
+        Cleanup::Unresolved { reason } => Some(reason),
+    }
+}
+
+/// A leader the kill did not reach is not waited on without bound: the
+/// reap gives up at the settle bound, and the result the driver sent is
+/// kept, typed, beside the unresolved cleanup (#403).
+#[test]
+fn a_leader_that_outlives_the_kill_is_not_waited_on_past_the_settle_bound() {
+    let driver = format!(
+        "read -r hello; {}; printf '%s\\n' '{}'; exec sleep 30",
+        accepting(),
+        succeeded()
+    );
+    let mut process = spawned(&command(&driver), std::path::Path::new("."), None);
+    process.host.kill_group = |_| Ok(());
+    process.bounds.grace = Duration::from_millis(100);
+    process.bounds.settle = Duration::from_millis(200);
+    // The leader holds the pipes too; the reap is the first bound it meets.
+    process.bounds.drain = Duration::from_millis(200);
+    let leader = i32::try_from(process.child.id()).unwrap();
+    let started = Instant::now();
+    let report = attempt(process);
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(3), "took {elapsed:?}");
+    tree::kill_group(Pid::from_raw(leader).unwrap()).unwrap();
+    assert!(all_gone([leader, leader]), "the lingering leader {leader}");
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Succeeded { result }
+        if *result == json!({"result": "complete"}))
+    );
+    assert_eq!(unresolved(&report), Some(&Unsettled::Reap { pid: leader }));
+}
+
+/// What a caller acts on (#403): the outcome reached once the tree is
+/// settled, and `Indeterminate` naming that outcome while it is not; the
+/// terminal event's evidence carries the outcome typed beside the cleanup.
+#[test]
+fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
+    let report = |outcome: AttemptOutcome, cleanup: Cleanup| AttemptReport {
+        outcome,
+        cleanup,
+        session_ref: None,
+        checkpoints: Vec::new(),
+        stderr: String::new(),
+        accepted: true,
+        deadline_killed: false,
+    };
+    let stdout = || Cleanup::Unresolved {
+        reason: Unsettled::Stdout,
+    };
+    let succeeded = || AttemptOutcome::Succeeded {
+        result: json!({"result": "complete"}),
+    };
+    let settled = report(succeeded(), Cleanup::Settled);
+    assert!(matches!(
+        settled.settled_outcome(),
+        AttemptOutcome::Succeeded { .. }
+    ));
+    assert!(settled.cleanup_evidence().is_empty());
+    let not_over = "the attempt is not proven over: \
+                    a process outside its tree still held the driver's stdout";
+    for (outcome, reached) in [
+        (succeeded(), "the driver reported success"),
         (
-            group_survived,
-            format!(
-                "the driver reported success; the attempt is not proven over: \
-                 its process group {group} still had members after the kill"
-            ),
+            AttemptOutcome::Failed {
+                error: "boom".into(),
+            },
+            "boom",
         ),
         (
-            stdout_held,
-            "attempt exceeded its 1s deadline and was killed; the attempt is not proven \
-             over: a process outside its group still held the driver's stdout"
-                .to_string(),
-        ),
-        (
-            stderr_held,
-            "driver exited before accepting the attempt; the attempt is not proven over: \
-             a process outside its group still held the driver's stderr"
-                .to_string(),
+            AttemptOutcome::Indeterminate {
+                reason: "lost".into(),
+            },
+            "lost",
         ),
     ] {
+        let unresolved = report(outcome, stdout());
         assert!(
-            matches!(&report.outcome, AttemptOutcome::Indeterminate { reason } if *reason == expected),
-            "{:?}",
-            report.outcome
+            matches!(unresolved.settled_outcome(), AttemptOutcome::Indeterminate { reason }
+            if reason == format!("{reached}; {not_over}"))
         );
     }
+    assert_eq!(
+        Value::Object(report(succeeded(), stdout()).cleanup_evidence()),
+        json!({
+            "received": {"status": "succeeded", "result": {"result": "complete"}},
+            "cleanup": {
+                "state": "unresolved",
+                "reason": "a process outside its tree still held the driver's stdout",
+            },
+        })
+    );
 }
 
 /// Termination is by the attempt's own group, never by directory: a
@@ -781,7 +931,7 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
 #[test]
 fn a_concurrent_run_in_the_same_directory_is_never_signalled() {
     let seats = Seats::new();
-    let dir = seats.dir.path().to_path_buf();
+    let dir = seats.dir.clone();
     let done = seats.file("a", "done");
     let other = seats.driver(
         "b",
@@ -800,19 +950,357 @@ fn a_concurrent_run_in_the_same_directory_is_never_signalled() {
 
     let killed = seats.driver("a", &accepting(), "read -r never");
     deadline_failure(
-        &attempt(spawned(
-            &killed,
-            seats.dir.path(),
-            Some(Duration::from_secs(1)),
-        )),
+        &attempt(spawned(&killed, &seats.dir, Some(Duration::from_secs(1)))),
         1,
     );
     assert_eq!(seats.pids("a").map(gone), [true, true]);
     assert_eq!(other_tree.map(gone), [false, false]);
-    assert!(tree::group_alive(Pid::from_raw(other_tree[0]).unwrap()));
 
     std::fs::write(&done, "").unwrap();
     let report = other.join().unwrap();
     assert!(matches!(report.outcome, AttemptOutcome::Succeeded { .. }));
     assert_eq!(other_tree.map(gone), [true, true]);
+}
+
+/// The parts this test binary plays when a test re-executes it (#403).
+/// Run on its own, it plays none.
+#[test]
+#[ignore = "played only when a test re-executes this binary"]
+fn role() {
+    let var = |name: &str| std::env::var(name).unwrap_or_default();
+    match var(ROLE).as_str() {
+        "detached" => detached(&var(ROLE_PID), &var(ROLE_MARKER), &var(ROLE_DIR)),
+        "engine" => stopped_engine(&var(ROLE_DIR), false),
+        "nohup-engine" => stopped_engine(&var(ROLE_DIR), true),
+        _ => {}
+    }
+}
+
+/// A descendant that leaves the attempt's group and session, as Node's
+/// `detached` spawn does, its stdio already pointed away from the
+/// driver's pipes. It records its pid only once it has left, then appends
+/// to its marker for as long as the seats' directory lasts.
+fn detached(pid_file: &str, marker: &str, dir: &str) {
+    rustix::process::setsid().expect("a detached descendant leaves the session");
+    std::fs::write(pid_file, format!("{}\n", std::process::id())).unwrap();
+    while std::path::Path::new(dir).is_dir() {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(marker)
+            .unwrap();
+        file.write_all(b"x").unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// An engine running one attempt whose driver has a detached grandchild,
+/// with the stop signals at their defaults whatever launched the test,
+/// or with hangup ignored as under `nohup`. It ends only by a signal.
+fn stopped_engine(dir: &str, nohup: bool) {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    for signal in [SIGINT, SIGTERM, SIGHUP] {
+        // SAFETY: setting a default disposition, before any handler exists.
+        unsafe { libc::signal(signal, libc::SIG_DFL) };
+    }
+    if nohup {
+        // SAFETY: as above, the disposition `nohup` leaves.
+        unsafe { libc::signal(SIGHUP, libc::SIG_IGN) };
+    }
+    let seats = Seats::at(dir);
+    let driver = seats.detached_driver("seat", &accepting(), "read -r never");
+    attempt(spawned(&driver, &seats.dir, None));
+    unreachable!("the driver never ends on its own");
+}
+
+/// This test binary as an engine in a process group of its own, playing
+/// `role` over `seats`, once its attempt's tree has formed and the
+/// tracker has had time to record the detached grandchild.
+fn engine_in_its_own_group(seats: &Seats, role: &str) -> (Child, [i32; 2]) {
+    let engine = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "process::tests::role", "--ignored"])
+        .env(ROLE, role)
+        .env(ROLE_DIR, &seats.dir)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let tree = seats.pids("seat");
+    std::thread::sleep(Duration::from_millis(500));
+    (engine, tree)
+}
+
+fn signal_group(engine: &Child, signal: i32) {
+    let group = Pid::from_raw(i32::try_from(engine.id()).unwrap()).unwrap();
+    rustix::process::kill_process_group(
+        group,
+        rustix::process::Signal::from_named_raw(signal).unwrap(),
+    )
+    .unwrap();
+}
+
+/// The engine's exit status, waited on for up to ten seconds.
+fn exit_code(engine: &mut Child) -> Option<i32> {
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = engine.try_wait().unwrap() {
+            return status.code();
+        }
+        if Instant::now() >= until {
+            engine.kill().unwrap();
+            engine.wait().unwrap();
+            panic!("the engine did not exit on its stop signal");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The attempt's driver and its grandchild are gone, and the marker has
+/// stopped.
+fn assert_ended(seats: &Seats, tree: [i32; 2], signal: i32) {
+    assert!(all_gone(tree), "signal {signal}: tree {tree:?} survived");
+    let marker = seats.marker("seat");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        seats.marker("seat"),
+        marker,
+        "signal {signal}: the marker moved"
+    );
+}
+
+/// #403: the driver leads a group of its own, so a signal to the engine's
+/// group (a terminal's Ctrl-C or hangup, a supervisor's SIGTERM) does not
+/// reach its tree. The engine ends every live attempt, the detached
+/// grandchild included, and exits 128 plus the signal.
+#[test]
+fn a_stopped_engine_ends_its_attempts_before_it_exits() {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    for signal in [SIGINT, SIGTERM, SIGHUP] {
+        let seats = Seats::new();
+        let (mut engine, tree) = engine_in_its_own_group(&seats, "engine");
+        signal_group(&engine, signal);
+        assert_eq!(
+            exit_code(&mut engine),
+            Some(128 + signal),
+            "signal {signal}"
+        );
+        assert_ended(&seats, tree, signal);
+    }
+}
+
+/// A hangup the engine inherited as ignored, as under `nohup`, stays
+/// ignored: its attempt runs on through one, and SIGTERM still ends it.
+#[test]
+fn an_engine_that_inherited_hangup_ignored_runs_on_through_one() {
+    use signal_hook::consts::{SIGHUP, SIGTERM};
+    let seats = Seats::new();
+    let (mut engine, tree) = engine_in_its_own_group(&seats, "nohup-engine");
+    signal_group(&engine, SIGHUP);
+    let marker = seats.marker("seat");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(engine.try_wait().unwrap().is_none(), "the engine hung up");
+    assert!(seats.marker("seat") > marker, "the attempt stopped");
+    signal_group(&engine, SIGTERM);
+    assert_eq!(exit_code(&mut engine), Some(128 + SIGTERM));
+    assert_ended(&seats, tree, SIGTERM);
+}
+
+/// #403: a grandchild that calls `setsid` and points its stdio away from
+/// the driver's pipes is out of the group signal's reach and invisible on
+/// the pipes; it is ended by its recorded identity, before the report
+/// returns, and the kill is certified only because it is gone.
+#[test]
+fn a_deadline_kill_ends_a_descendant_that_left_the_group_and_its_pipes() {
+    let seats = Seats::new();
+    let driver = seats.detached_driver("seat", &accepting(), "read -r never");
+    let report = attempt(spawned(&driver, &seats.dir, Some(Duration::from_secs(3))));
+    let tree = seats.pids("seat");
+    let survivors: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
+    assert_eq!(survivors, Vec::<i32>::new(), "tree {tree:?}");
+    deadline_failure(&report, 3);
+    let marker = seats.marker("seat");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        seats.marker("seat"),
+        marker,
+        "the detached grandchild kept writing"
+    );
+}
+
+/// A pipe, and how many bytes it holds before a write blocks, handed back
+/// empty. Measured on the pipe itself: the kernel sizes each pipe as it
+/// is made, smaller once a user's pipes pass their soft limit.
+fn measured_pipe() -> (std::io::PipeReader, std::io::PipeWriter, usize) {
+    let (mut reader, mut writer) = std::io::pipe().unwrap();
+    let written = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let (counter, stopped) = (Arc::clone(&written), Arc::clone(&stop));
+    let filler = std::thread::spawn(move || {
+        while !stopped.load(Ordering::SeqCst) {
+            writer.write_all(b"x").unwrap();
+            counter.fetch_add(1, Ordering::SeqCst);
+        }
+        writer
+    });
+    let mut capacity = usize::MAX;
+    while written.load(Ordering::SeqCst) != capacity {
+        capacity = written.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    // One read frees the byte the filler is blocked on; it then stops.
+    stop.store(true, Ordering::SeqCst);
+    let mut chunk = vec![0; capacity];
+    let mut drained = reader.read(&mut chunk).unwrap();
+    let writer = filler.join().unwrap();
+    while drained < written.load(Ordering::SeqCst) {
+        drained += reader.read(&mut chunk).unwrap();
+    }
+    (reader, writer, capacity)
+}
+
+/// #403: a driver that answered without draining its stdin cannot hold
+/// the report on the `shutdown` write. The start fills the pipe so the
+/// write blocks, and the report still returns within the grace.
+#[test]
+fn a_driver_that_stops_reading_cannot_hold_the_shutdown_write() {
+    let line = |body: Body| wire(body).len() + 1;
+    let start = |pad: &str| {
+        line(Body::Start {
+            effect_id: "effect".into(),
+            attempt_id: "attempt".into(),
+            seat: "seat".into(),
+            input: json!({"pad": pad}),
+        })
+    };
+    // The driver's stdin is a pipe measured here. The greeting is read
+    // off it, and then nothing: the start leaves half a shutdown line of
+    // room.
+    let (reader, writer, capacity) = measured_pipe();
+    let pad = capacity - start("") - line(Body::Shutdown) / 2;
+    let dir = tempfile::tempdir().unwrap();
+    let greeted = dir.path().join("greeted");
+    // The read end closes once the test is done, or after ten seconds, so
+    // a write left blocking on it fails the test rather than hanging it.
+    let (done, closing) = mpsc::channel::<()>();
+    let reading = {
+        let greeted = greeted.clone();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(reader);
+            reader.read_line(&mut String::new()).unwrap();
+            std::fs::write(greeted, "").unwrap();
+            let _ = closing.recv_timeout(Duration::from_secs(10));
+        })
+    };
+    let driver = command(&format!(
+        "while [ ! -e '{}' ]; do sleep 0.01; done; printf '%s\\n' '{}' '{}' '{}'; sleep 10",
+        greeted.display(),
+        capabilities(),
+        accepted(),
+        succeeded()
+    ));
+    let mut process = spawned(&driver, std::path::Path::new("."), None);
+    process.stdin = Box::new(writer);
+    process.bounds.grace = Duration::from_millis(500);
+    let group = i32::try_from(process.child.id()).unwrap();
+    let started = Instant::now();
+    let report = process.run_attempt(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        json!({"pad": "x".repeat(pad)}),
+        |_| {},
+    );
+    let elapsed = started.elapsed();
+    assert!(
+        matches!(report.outcome, AttemptOutcome::Succeeded { .. }),
+        "{:?} after {elapsed:?}",
+        report.outcome
+    );
+    assert!(elapsed < Duration::from_secs(3), "took {elapsed:?}");
+    assert_eq!(report.cleanup, Cleanup::Settled);
+    assert!(gone(group));
+    // Closing the read end releases the blocked write's thread.
+    drop(done);
+    reading.join().unwrap();
+}
+
+/// #403: once the stdout bound has passed, nothing more is read, however
+/// much a writer outside the tree keeps ready: the next read gives up and
+/// the drain reports the pipe held without consuming what is ready.
+#[test]
+fn stdout_is_not_read_past_its_bound_whatever_is_ready() {
+    let mut process = spawned(
+        &command("read -r hello"),
+        std::path::Path::new("."),
+        Some(Duration::from_secs(1)),
+    );
+    let (lines, stdout) = mpsc::sync_channel(8);
+    process.stdout = stdout;
+    for _ in 0..2 {
+        lines.send(Stdout::Line("x\n".into())).unwrap();
+    }
+    process.started = Instant::now().checked_sub(Duration::from_secs(2)).unwrap();
+    process.bounds.drain = Duration::ZERO;
+    assert!(
+        process.next_stdout().is_none(),
+        "a ready line was read past the bound"
+    );
+    assert_eq!(
+        process.stdout_closed(Instant::now()),
+        Err(Unsettled::Stdout)
+    );
+    assert!(
+        matches!(process.stdout.try_recv(), Ok(Stdout::Line(_))),
+        "the drain read a ready line past its bound"
+    );
+    // Something outside the tree holding stdout open parks the attempt
+    // within the drain bound.
+    process.bounds.drain = Duration::from_millis(100);
+    let started = Instant::now();
+    let report = attempt(process);
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(unresolved(&report), Some(&Unsettled::Stdout));
+    drop(lines);
+}
+
+/// #403: a flooding driver meets backpressure: its reader holds at most
+/// `STDOUT_LINES` unread, and once the engine stops listening, it reads
+/// nothing more.
+#[test]
+fn a_flooding_driver_meets_backpressure() {
+    struct Flood(Arc<std::sync::atomic::AtomicUsize>);
+    impl Read for Flood {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            buf[..2].copy_from_slice(b"x\n");
+            Ok(2)
+        }
+    }
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let stdout = read_stdout(Flood(Arc::clone(&reads)));
+    // The count once it stops moving, or after two seconds of moving.
+    let still = || {
+        let until = Instant::now() + Duration::from_secs(2);
+        let mut last = usize::MAX;
+        while reads.load(Ordering::SeqCst) != last && Instant::now() < until {
+            last = reads.load(Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        reads.load(Ordering::SeqCst)
+    };
+    assert_eq!(still(), STDOUT_LINES + 1);
+    drop(stdout);
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        still(),
+        STDOUT_LINES + 1,
+        "the reader went on after the refusal"
+    );
 }

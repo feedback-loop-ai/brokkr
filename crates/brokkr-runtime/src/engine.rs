@@ -33,7 +33,7 @@ use crate::bundle::{
     SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
-use brokkr_protocol::AttemptReport;
+use brokkr_protocol::{AttemptReport, Cleanup};
 
 mod checkpoints;
 use checkpoints::Checkpoints;
@@ -78,11 +78,42 @@ fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
         .collect()
 }
 
-fn dialect_attempt_outcome(run: DriverRun) -> AttemptOutcome {
+/// A dialect step's outcome, and into `evidence` the unresolved cleanup
+/// its terminal event carries (#403).
+fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Map<String, Value>) -> AttemptOutcome {
     match run {
         DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
-        DriverRun::Ran(report) => report.outcome,
+        DriverRun::Ran(report) => {
+            *evidence = report.cleanup_evidence();
+            report.settled_outcome()
+        }
     }
+}
+
+/// A terminal event's payload with the evidence of an unresolved cleanup
+/// beside its reason (#403): the outcome received, typed, and the cleanup.
+fn carrying(mut payload: Value, evidence: Map<String, Value>) -> Value {
+    payload
+        .as_object_mut()
+        .expect("a terminal payload is an object")
+        .extend(evidence);
+    payload
+}
+
+/// The unresolved cleanups of a panel's members, by member, for the
+/// attempt's terminal event (#403). The member's own marker is a closed
+/// seat record and carries none.
+fn panel_evidence(reports: &[(String, AttemptReport)]) -> Map<String, Value> {
+    let members: Map<String, Value> = reports
+        .iter()
+        .filter_map(|(name, report)| {
+            let evidence = report.cleanup_evidence();
+            (!evidence.is_empty()).then_some((name.clone(), Value::Object(evidence)))
+        })
+        .collect();
+    Map::from_iter(
+        (!members.is_empty()).then_some(("unresolved_members".to_string(), Value::Object(members))),
+    )
 }
 
 #[derive(Debug, Error)]
@@ -1657,7 +1688,8 @@ impl Engine {
         };
         let start_failure = failed_to_start(&report);
         let stderr_tail = stderr_tail(&report.stderr);
-        match report.outcome {
+        let evidence = report.cleanup_evidence();
+        match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
                 self.append_succeeded(effect_id, attempt_id, result, |refusal| {
@@ -1686,11 +1718,14 @@ impl Engine {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "reason": format!("{reason}; stderr tail: {stderr_tail}"),
-                    }),
+                    carrying(
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "reason": format!("{reason}; stderr tail: {stderr_tail}"),
+                        }),
+                        evidence,
+                    ),
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -1855,15 +1890,19 @@ impl Engine {
         let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         let start_failures = start_failure_sites(&reports, "");
+        let evidence = panel_evidence(&reports);
         match panel_outcome(aggregate, reports) {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id,
-                        "reason": reason,
-                    }),
+                    carrying(
+                        json!({
+                            "effect_id": effect_id,
+                            "attempt_id": attempt_id,
+                            "reason": reason,
+                        }),
+                        evidence,
+                    ),
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -2018,6 +2057,8 @@ impl Engine {
                                 outcome: AttemptOutcome::Failed {
                                     error: format!("member driver did not spawn: {e}"),
                                 },
+                                // Nothing was spawned, so nothing is left.
+                                cleanup: Cleanup::Settled,
                                 session_ref: None,
                                 checkpoints: Vec::new(),
                                 stderr: String::new(),
@@ -2195,6 +2236,9 @@ impl Engine {
             // Which sites of THIS step failed to start, if the step is
             // the one that fails the attempt.
             let mut start_failures: Vec<Site> = Vec::new();
+            // What this step's terminal event carries when its tree is
+            // not proven over (#403).
+            let mut evidence = Map::new();
             // The gate span inside a sequence is THIS step: armed here,
             // compared and cleared at this step's own end below, before
             // any later step gets to move the tree lawfully (decision
@@ -2267,7 +2311,8 @@ impl Engine {
                             if failed_to_start(&report) {
                                 start_failures.push(site);
                             }
-                            match report.outcome {
+                            evidence = report.cleanup_evidence();
+                            match report.settled_outcome() {
                                 AttemptOutcome::Succeeded { result } => {
                                     AttemptOutcome::Succeeded { result }
                                 }
@@ -2312,6 +2357,7 @@ impl Engine {
                         &tag_prefix,
                     )?;
                     start_failures = start_failure_sites(&reports, &tag_prefix);
+                    evidence = panel_evidence(&reports);
                     panel_outcome(*aggregate, reports)
                 }
                 StepBody::Dialect { execution } => {
@@ -2387,16 +2433,19 @@ impl Engine {
                         selection.get(&site),
                         input["result_path"].as_str().unwrap_or_default(),
                     );
-                    dialect_attempt_outcome(self.run_driver(
-                        effect_id,
-                        attempt_id,
-                        &driver_seat,
-                        &spawn,
-                        input,
-                        deadline,
-                        Some(&step.name),
-                        None,
-                    )?)
+                    dialect_attempt_outcome(
+                        self.run_driver(
+                            effect_id,
+                            attempt_id,
+                            &driver_seat,
+                            &spawn,
+                            input,
+                            deadline,
+                            Some(&step.name),
+                            None,
+                        )?,
+                        &mut evidence,
+                    )
                 }
             };
             if self
@@ -2428,11 +2477,14 @@ impl Engine {
                 AttemptOutcome::Indeterminate { reason } => {
                     self.append(
                         EventType::EffectIndeterminate,
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "reason": format!("sequence step '{}': {reason}", step.name),
-                        }),
+                        carrying(
+                            json!({
+                                "effect_id": effect_id,
+                                "attempt_id": attempt_id,
+                                "reason": format!("sequence step '{}': {reason}", step.name),
+                            }),
+                            evidence,
+                        ),
                         Some(attempt_id.to_string()),
                     )?;
                     return Ok(());
@@ -3241,8 +3293,11 @@ fn route_overlay_binding(
 /// this term a vendor that hangs a first turn would walk the chain down
 /// every link, each one hanging for a full deadline, and journal
 /// per-model start failures for one vendor-wide stall.
+///
+/// It reads the settled outcome (#403): an attempt whose tree is not
+/// proven over is indeterminate, and no fallback starts beside it.
 fn failed_to_start(report: &AttemptReport) -> bool {
-    matches!(report.outcome, AttemptOutcome::Failed { .. })
+    matches!(report.settled_outcome(), AttemptOutcome::Failed { .. })
         && !report.accepted
         && report.checkpoints.is_empty()
         && !report.deadline_killed
@@ -3518,7 +3573,7 @@ fn panel_outcome(aggregate: Aggregate, reports: Vec<(String, AttemptReport)>) ->
     let mut failures = Vec::new();
     let mut member_results = Vec::new();
     for (name, report) in reports {
-        match report.outcome {
+        match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => member_results.push((name, result)),
             AttemptOutcome::Failed { error } => failures.push(format!("{name}: {error}")),
             AttemptOutcome::Indeterminate { .. } => indeterminate.push(name),
@@ -3984,6 +4039,9 @@ mod agent_tests;
 
 #[cfg(test)]
 mod artifact_gate_tests;
+
+#[cfg(test)]
+mod cleanup_tests;
 
 #[cfg(test)]
 mod conclude_tests;

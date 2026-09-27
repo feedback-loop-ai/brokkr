@@ -355,14 +355,14 @@ fn an_undeclared_change_claim_is_dropped() {
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dialect_change_expands_from_typed_history_and_absence_parks() {
     assert!(matches!(
-        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into())),
+        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into()), &mut Map::new()),
         AttemptOutcome::Failed { error } if error == "gone"
     ));
     assert!(matches!(
         dialect_attempt_outcome(DriverRun::Ran(report(
             AttemptOutcome::Indeterminate { reason: "lost".into() },
             ""
-        ))),
+        )), &mut Map::new()),
         AttemptOutcome::Indeterminate { reason } if reason == "lost"
     ));
     let step = SequenceStep {
@@ -854,6 +854,7 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
 pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
     AttemptReport {
         outcome,
+        cleanup: Cleanup::Settled,
         session_ref: Some("session".into()),
         checkpoints: vec![json!({"step":"inner"})],
         stderr: stderr.into(),

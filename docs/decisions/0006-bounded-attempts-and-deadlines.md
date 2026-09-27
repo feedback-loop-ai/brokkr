@@ -69,20 +69,43 @@ journal recorded its attempt killed, and a retry could start beside it
 in the same worktree. The non-completion this decision calls
 determinate was not.
 
-- The driver leads a process group of its own, and the kill is SIGKILL
-  to the group. Nothing is chosen by working directory, so a concurrent
-  run in the same checkout is never signalled.
-- Every attempt ends the same way, whatever ended it: `shutdown`, a
-  bounded grace for the driver to exit, SIGKILL to the group, the reap,
-  and a bounded wait for the group to be empty. The group is signalled
-  only while its leader is unreaped, so its id cannot name another
-  process.
+- Two means reach the tree. The driver leads a process group of its
+  own, and the kill is SIGKILL to the group. While the attempt runs, the
+  engine also records every descendant by pid and start time, a
+  descendant that left the group (`setsid`, as Node's `detached` spawn
+  does) included, and the kill ends those identities too. A pid alone is
+  never signalled. Nothing is chosen by working directory, so a
+  concurrent run in the same checkout is never signalled.
+- On Linux the engine is a child subreaper, so an orphan of the tree is
+  adopted by the engine and not by init. An adopted orphan in a session of
+  its own that no attempt recorded cannot be attributed. While one is
+  running, the attempt that is ending is not proven over.
+- Every attempt ends the same way, whatever ended it: `shutdown`, written
+  without waiting past the grace; a bounded grace for the driver to exit;
+  SIGKILL to the group and the recorded descendants; a bounded reap; and
+  a bounded wait for the process table to show nothing of the tree
+  running. A zombie counts as gone. The group is signalled only while its
+  leader is unreaped, so its id cannot name another process.
+- The engine ends every live attempt the same way when SIGINT, SIGTERM or
+  SIGHUP tells it to stop, then exits with 128 plus the signal. The driver
+  no longer shares the engine's group, so a terminal's Ctrl-C or hangup
+  would not otherwise reach it. A signal the engine inherited as ignored
+  (`nohup`) stays ignored.
 - The report returns only once the tree is proven gone, so the retry
   this decision allows cannot overlap it.
-- An end that cannot be proven — a group that will not empty, or a pipe
-  something outside the group still holds — is `indeterminate`, by this
-  decision's own line: completion of the cleanup is not known. The
-  outcome the attempt had reached is kept in the reason.
-- A descendant that leaves the group and closes the attempt's pipes, as a
-  daemon does, is out of reach. It is the named residual on Linux and
-  macOS alike.
+- An end that cannot be proven is `indeterminate`, by this decision's own
+  line: completion of the cleanup is not known. That covers a group or a
+  recorded descendant still running, an unattributed adopted orphan, a
+  kill the kernel refused, a leader not reaped, a table that cannot be
+  read, and a pipe something outside the tree still holds. The report
+  keeps the outcome the attempt reached, typed, beside an unresolved
+  cleanup, and the engine journals both. It never certifies the outcome
+  or retries it.
+- The residual is a descendant that is born, leaves the group and loses
+  its parent between two reads of the table, and that also closes the
+  attempt's pipes. On Linux the engine adopts such an orphan, and the
+  attempt parks on it if it started a session of its own. One that left
+  only its group, as shell job control does, is not seen. On macOS,
+  where launchd adopts every orphan, neither is seen. On macOS a pid
+  reused between the read and the signal is also a residual, because
+  macOS has no pidfd.
