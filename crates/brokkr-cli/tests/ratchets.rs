@@ -238,27 +238,54 @@ const OLD: &str = "./crates/demo/src/old/mod.rs";
 const NEW: &str = "./crates/demo/src/new/mod.rs";
 const OTHER: &str = "./crates/demo/src/new/other.rs";
 
-/// The committed complexity baseline the judge reads: `(file, function,
-/// CRAP)` per entry, at 100% coverage.
-fn judged_baseline(entries: &[(&str, &str, i64)]) -> String {
-    let entries: Vec<_> = entries
-        .iter()
-        .map(|(file, function, crap)| {
-            serde_json::json!({"file": file, "function": function, "line": 1,
-                "cyclomatic": crap, "coverage": 100, "crap": crap})
-        })
-        .collect();
+/// One measured entry at line 1 and 100% coverage, whose CRAP is its
+/// cyclomatic complexity, as a committed baseline holds it.
+fn measured(file: &str, function: &str, cyclomatic: i64) -> serde_json::Value {
+    serde_json::json!({"file": file, "function": function, "line": 1,
+        "cyclomatic": cyclomatic, "coverage": 100, "crap": cyclomatic})
+}
+
+/// `entry` with each field set, or removed when its value is `None`, so a
+/// fixture can hold CRAP apart from cyclomatic complexity or break any field
+/// the contract reads.
+fn with(
+    mut entry: serde_json::Value,
+    fields: &[(&str, Option<serde_json::Value>)],
+) -> serde_json::Value {
+    let object = entry.as_object_mut().unwrap();
+    for (field, value) in fields {
+        match value {
+            Some(value) => object.insert((*field).to_owned(), value.clone()),
+            None => object.remove(*field),
+        };
+    }
+    entry
+}
+
+/// A complexity document holding `entries`.
+fn entries_of(entries: Vec<serde_json::Value>) -> String {
     serde_json::json!({ "entries": entries }).to_string()
 }
 
-/// One cargo-crap `--baseline` report entry, fully covered. Pairing fields
+/// The committed complexity baseline the judge reads: `(file, function,
+/// cyclomatic)` per entry, measured.
+fn judged_baseline(entries: &[(&str, &str, i64)]) -> String {
+    entries_of(
+        entries
+            .iter()
+            .map(|(f, n, cc)| measured(f, n, *cc))
+            .collect(),
+    )
+}
+
+/// One cargo-crap `--baseline` report entry, measured. Pairing fields
 /// (`baseline_crap`, `previous_file`) and other overrides are set on the
 /// value it returns.
-fn crap_entry(file: &str, function: &str, crap: i64, status: &str) -> serde_json::Value {
-    serde_json::json!({
-        "file": file, "function": function, "line": 1,
-        "cyclomatic": crap, "coverage": 100, "crap": crap, "status": status,
-    })
+fn crap_entry(file: &str, function: &str, cyclomatic: i64, status: &str) -> serde_json::Value {
+    with(
+        measured(file, function, cyclomatic),
+        &[("status", Some(status.into()))],
+    )
 }
 
 /// `entry` paired by cargo-crap with a baseline score, and with the file it
@@ -273,7 +300,12 @@ fn paired(mut entry: serde_json::Value, baseline: i64, from: Option<&str>) -> se
 
 /// Write `report` and `baseline`, and judge the one against the other.
 fn crap_judge(at: &Path, report: &serde_json::Value, baseline: &str) -> Output {
-    write(at, "report.json", &report.to_string());
+    crap_judge_text(at, &report.to_string(), baseline)
+}
+
+/// Judge a report written as text, which may hold what serde cannot write.
+fn crap_judge_text(at: &Path, report: &str, baseline: &str) -> Output {
+    write(at, "report.json", report);
     write(at, "baseline.json", baseline);
     ratchet(at, &["crap-judge", "report.json", "baseline.json"], None)
 }
@@ -286,13 +318,12 @@ fn matched_report(entries: Vec<serde_json::Value>) -> serde_json::Value {
 
 /// The allowance is read from the committed baseline by the entry's own file
 /// and name, never from cargo-crap's pairing. A function with an entry may
-/// grow to the ceiling or its baseline, whichever is higher, cfg twins
-/// sharing the higher score. One with no entry at its own file is new,
-/// whatever status the tool gives it, and grows only to the ceiling: a
-/// relocation over it moves its baseline entry with a ruling
-/// (quality/README.md). cargo-crap reports a relocation whose score changed
-/// as `improved` with `previous_file`, and one between two files sharing a
-/// filename as `unchanged` with none.
+/// grow to the ceiling or its baseline, whichever is higher. One with no
+/// entry at its own file is new, whatever status the tool gives it, and
+/// grows only to the ceiling: a relocation over it moves its baseline entry
+/// with a ruling (quality/README.md). cargo-crap reports a relocation whose
+/// score changed as `improved` with `previous_file`, and one between two
+/// files sharing a filename as `unchanged` with none.
 #[test]
 fn the_complexity_judge_reads_the_allowance_from_the_baseline() {
     let repo = scratch();
@@ -347,6 +378,116 @@ fn the_complexity_judge_reads_the_allowance_from_the_baseline() {
     );
 }
 
+/// Cfg twins of one file and name pair in line order, as `baselines` pairs
+/// them: each is judged against the baseline twin at its own place, and a
+/// twin with none there is new.
+#[test]
+fn cfg_twins_pair_in_line_order() {
+    let repo = scratch();
+    let at = repo.path();
+    let twin = |line: i64, cc: i64| with(measured(LIB, "twin", cc), &[("line", Some(line.into()))]);
+    let baseline = entries_of(vec![twin(9, 3), twin(1, 40)]);
+    let reported = |twins: &[(i64, i64)]| {
+        let entries = twins
+            .iter()
+            .map(|(line, cc)| with(twin(*line, *cc), &[("status", Some("unchanged".into()))]));
+        matched_report(entries.collect())
+    };
+    assert_holds(
+        &crap_judge(at, &reported(&[(1, 40), (9, 15)]), &baseline),
+        "ratchet: cyclomatic complexity holds",
+    );
+    assert_refused(
+        &crap_judge(at, &reported(&[(9, 40), (1, 40), (20, 16)]), &baseline),
+        &[
+            "lib.rs:9 twin: CC 40 over its baseline 15 (unchanged)",
+            "lib.rs:20 twin: CC 16 over 15, new: no baseline entry at this file for twin #2 (unchanged)",
+            "ratchet refusal: cyclomatic complexity: 2 finding(s)",
+        ],
+    );
+}
+
+/// Both documents are read by one contract: exactly one JSON object with
+/// entries, each naming its file, function and whole line, with a finite
+/// complexity from 1 and a finite CRAP that equals it at 100% coverage.
+/// Every shape that breaks it, in the report or in the baseline, is
+/// refused as unreadable, naming the entry and the field.
+#[test]
+fn the_complexity_judge_reads_both_documents_by_one_contract() {
+    let repo = scratch();
+    let at = repo.path();
+    let baseline = judged_baseline(&[(LIB, "big", 40)]);
+    let big = |fields: &[(&str, Option<serde_json::Value>)]| {
+        let entry = with(crap_entry(LIB, "big", 40, "regressed"), fields);
+        matched_report(vec![entry]).to_string()
+    };
+    let report = "the cargo-crap report at report.json is not one this check reads";
+    let base = "the complexity baseline at baseline.json is not one this check reads";
+    let nan = big(&[("crap", Some("NAN".into()))]).replace(r#""NAN""#, "NaN");
+    let wide = big(&[("cyclomatic", Some(200.into())), ("crap", Some(200.into()))]);
+    let loose =
+        judged_baseline(&[(LIB, "big", 500)]).replace(r#""coverage":100"#, r#""coverage":50"#);
+    let cases = [
+        (
+            big(&[("crap", Some(1.into()))]),
+            baseline.clone(),
+            "entry 0: crap 1 is not its cyclomatic 40 at 100% coverage",
+            report,
+        ),
+        (
+            big(&[("crap", Some((-1).into()))]),
+            baseline.clone(),
+            "entry 0: crap -1 is not its cyclomatic 40 at 100% coverage",
+            report,
+        ),
+        (
+            nan,
+            baseline.clone(),
+            "entry 0: crap NaN is not a finite number",
+            report,
+        ),
+        (
+            big(&[("file", None)]),
+            baseline.clone(),
+            "entry 0: file null is not a non-empty string",
+            report,
+        ),
+        (
+            big(&[("function", None)]),
+            baseline.clone(),
+            "entry 0: function null is not a non-empty string",
+            report,
+        ),
+        (
+            big(&[("line", Some(1.5.into()))]),
+            baseline.clone(),
+            "entry 0: line 1.5 is not a whole number from 1",
+            report,
+        ),
+        (
+            wide.clone(),
+            loose + &baseline,
+            "2 JSON documents, not one",
+            base,
+        ),
+        (
+            big(&[]).repeat(2),
+            baseline.clone(),
+            "2 JSON documents, not one",
+            report,
+        ),
+        (
+            wide,
+            baseline.replace(r#""cyclomatic":40"#, r#""cyclomatic":"x""#),
+            r#"entry 0: cyclomatic "x" is not a finite number from 1"#,
+            base,
+        ),
+    ];
+    for (report, baseline, entry, refusal) in cases {
+        assert_refused(&crap_judge_text(at, &report, &baseline), &[entry, refusal]);
+    }
+}
+
 /// A report or a baseline this check cannot read as cyclomatic complexity
 /// is refused, and so is an empty one.
 #[test]
@@ -356,18 +497,21 @@ fn the_complexity_judge_refuses_what_it_cannot_read() {
     let baseline = judged_baseline(&[(LIB, "big", 40)]);
     assert_refused(
         &crap_judge(at, &matched_report(vec![]), &baseline),
-        &["no function was measured"],
+        &["no entries: no function was measured"],
     );
     let one = || vec![crap_entry(LIB, "fresh", 1, "new")];
     write(at, "empty.json", "");
     assert_refused(
         &ratchet(at, &["crap-judge", "empty.json", "baseline.json"], None),
-        &["the cargo-crap report at empty.json is empty"],
+        &[
+            "0 JSON documents, not one",
+            "the cargo-crap report at empty.json is not one this check reads",
+        ],
     );
     write(at, "list.json", "[]");
     assert_refused(
         &ratchet(at, &["crap-judge", "list.json", "baseline.json"], None),
-        &["the cargo-crap report at list.json is not a JSON object"],
+        &["not a JSON object", "the cargo-crap report at list.json"],
     );
     assert_refused(
         &crap_judge(at, &serde_json::json!({ "entries": one() }), &baseline),
@@ -385,7 +529,10 @@ fn the_complexity_judge_refuses_what_it_cannot_read() {
     let no_cc = baseline.replace(r#""cyclomatic":40"#, r#""score":40"#);
     assert_refused(
         &crap_judge(at, &matched_report(one()), &no_cc),
-        &["the complexity baseline at baseline.json is not one this check reads"],
+        &[
+            "entry 0: cyclomatic null is not a finite number from 1",
+            "the complexity baseline at baseline.json is not one this check reads",
+        ],
     );
     // A baseline measured from a partial LCOV inflates CRAP past complexity
     // (CC squared plus CC): read as an allowance, it would pass anything.
@@ -397,24 +544,25 @@ fn the_complexity_judge_refuses_what_it_cannot_read() {
         &crap_judge(at, &matched_report(grew()), &inflated),
         &["the complexity baseline at baseline.json holds an entry below 100% coverage, whose CRAP is not its complexity"],
     );
-    // A hand-edited CRAP at full coverage is not the allowance either: the
+    // A hand-edited CRAP at full coverage is not a measurement: the
     // allowance is the cyclomatic complexity `baselines` guards.
     let edited = baseline.replace(r#""crap":40"#, r#""crap":1640"#);
     assert_refused(
         &crap_judge(at, &matched_report(grew()), &edited),
-        &["lib.rs:1 big: CC 200 over its baseline 40 (regressed)"],
+        &[
+            "entry 0: crap 1640 is not its cyclomatic 40 at 100% coverage",
+            "the complexity baseline",
+        ],
     );
 }
 
 fn crap_baseline(big: i64, small: i64, extra: &[(&str, i64)]) -> String {
-    let mut entries = vec![
-        serde_json::json!({"file": "./crates/demo/src/lib.rs", "function": "big", "line": 1, "cyclomatic": big}),
-        serde_json::json!({"file": "./crates/demo/src/lib.rs", "function": "small", "line": 9, "cyclomatic": small}),
-    ];
-    for (function, cc) in extra {
-        entries.push(serde_json::json!({"file": "./crates/demo/src/lib.rs", "function": function, "line": 20, "cyclomatic": cc}));
-    }
-    serde_json::json!({ "entries": entries }).to_string()
+    let at = |function: &str, line: i64, cc: i64| {
+        with(measured(LIB, function, cc), &[("line", Some(line.into()))])
+    };
+    let mut entries = vec![at("big", 1, big), at("small", 9, small)];
+    entries.extend(extra.iter().map(|(function, cc)| at(function, 20, *cc)));
+    entries_of(entries)
 }
 
 const VALUE: &str = "pub fn brokkr_core::f() -> serde_json::value::Value\n";
@@ -621,12 +769,18 @@ fn a_baseline_this_check_cannot_read_is_refused_under_any_ruling() {
 /// at a time on a baselined repository, is refused under a Ruling line.
 fn unreadable_shapes_are_refused(at: &Path, ruled: Option<&str>) {
     let no_cc = crap_baseline(21, 3, &[]).replace(r#""cyclomatic":21"#, r#""complexity":21"#);
+    let two = crap_baseline(21, 3, &[]).repeat(2);
     let not_counts = r#"{"version":1,"fingerprints":{"aa":"one"}}"#;
-    let cases: [(&str, &str, &str); 8] = [
+    let cases: [(&str, &str, &str); 9] = [
         (
             "quality/crap-baseline.json",
             &no_cc,
-            "without file, function, line and cyclomatic (here)",
+            "crap-baseline.json: entry 0: cyclomatic null is not a finite number from 1 (here)",
+        ),
+        (
+            "quality/crap-baseline.json",
+            &two,
+            "crap-baseline.json: 2 JSON documents, not one (here)",
         ),
         (
             "quality/jscpd-baseline-prod.json",
