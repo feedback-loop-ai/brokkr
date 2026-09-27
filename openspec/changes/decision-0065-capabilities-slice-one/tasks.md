@@ -2383,6 +2383,25 @@ ticked. The only production change is in `native_controls.rs`;
 
 - [ ] 14.1 Unit 14 parses full serialized cold commands and compares exact plan state. Verify dropped OFF/terminator/separator/prefix-duplicate refusal and typed positives. Requirements: [Codex web-search OFF uses the controller's measured fragment][NC2], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.1)
 
+Unit 14 (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-e639d515`,
+based on `22358e51`; evidence.md, "Unit 14 — stopped before
+implementation"). **Result: oversized.** Nothing was built, and 14.1 stays
+open.
+
+- `check_final` needs the adapter's declared dialect (the permission flag
+  and the unexpanded local sandbox, hands and boundary fragments), the
+  adapter's pins and the hands `Transport`. The driver input carries none
+  of them (`engine.rs:1307-1394`). The record's segments carry them only
+  expanded and merged, and D6 and D5.7 forbid recovering them by text.
+- **Split asked for.** 14a: the engine seals those typed serving inputs
+  and expands hands through `Transport::expand` (`engine.rs`,
+  `agents.rs`/`bundle.rs`, and `native_controls.rs` if the record carries
+  them; the operator names the three). 14b: this unit as written, in
+  `adapters.rs`.
+- Fixture migrations and standing-admission lines: none.
+- **Pending.** The operator's split, then 14a and 14b, exact coverage
+  outside the box, macOS, remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

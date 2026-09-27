@@ -14039,3 +14039,76 @@ answered in code and bound above.
 - Serving integration (14.1, 15.1, 15.2), exact coverage outside the box
   (`scripts/coverage-exact.sh` was not run in this seat), macOS, remote CI
   and the council.
+
+## Unit 14 — stopped before implementation: the seams lack the check's inputs, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-e639d515`, based on `22358e51`.
+Named production file: `crates/brokkr-protocol/src/adapters.rs`. **Result:
+oversized.** No production or test file moved. 14.1 stays open.
+
+### What the unit needs, and what the driver has
+
+Unit 14 obtains unit 13's `Checked` at the Codex, Claude/LaneTally child
+and DSH cold serving seams, which run in the driver process
+(`adapters.rs`). `check_final` recomposes the command from typed inputs
+and never reads the recorded argv (`native_controls.rs:1723-1730`,
+13-fix-b). Beside the plan and the sealed `Expected`, it takes:
+
+- `Dialect` (`native_controls.rs:1531-1536`): the adapter's
+  tool-permission flag and its measured local sandbox, `hands.workspace`
+  and boundary fragments, **as declared, tokens unexpanded**;
+- `Serving::pins` (`:1398`): the adapter's model and effort emissions,
+  apart from the template;
+- `Serving::hands`, a `Transport` (`:1441-1445`): the engine's
+  executable, the workdir and the typed `HandsSpec`.
+
+The driver input carries none of these. The engine writes exactly
+`boundary`, `hands` (`"boxed"`/`"none"`/null), `native_controls`,
+`capabilities`, `launch_arguments` and `launch_record`
+(`engine.rs:1307-1325` and `:1371-1394`; `grep -nE` in
+`.forge/unit-14/probe-engine.txt`). `grep -n check_final adapters.rs`
+finds only the two doc links at `:2976` and `:2981`
+(`.forge/unit-14/probe-adapters.txt`). The runtime's `Composition`
+(`agents.rs:891-905`) keeps segments, effort, intent, application and the
+template, but not the unexpanded dialect fragments or the permission flag.
+
+### Why adapters.rs cannot supply them
+
+The only other source is the record's segments. The design rules that out:
+
+- The `hands` segments are already expanded by `engine::hands_command`
+  (`engine.rs:5507-5523`), so the unexpanded fragment and the `HandsSpec`
+  can only be recovered by matching text. Provenance is "a carried fact,
+  never something recovered by matching text" (decision 0066 ruling 4,
+  `native_controls.rs:648-649`), and an origin is "never recovered by
+  matching its bytes" (D5.7, `:694-695`). That expansion also uses its own encoder, which escapes only `\`
+  and `"` (`:5512`), not `toml_basic`. This is the 13-fix-b follow-up
+  "`engine::hands_command` should call `Transport::expand`".
+- The trailing `hands` run holds both the hands and the boundary. The
+  `template` origin holds both the declared template and the pins
+  (`native_controls.rs:690-696`). Neither pair can be split without the
+  dialect.
+- Feeding the check the same record the argv came from is the round trip
+  D6 rejects: "A round-trip preserving the same wrong string is
+  insufficient."
+
+### The split this needs
+
+- **14a (carrier).** The engine seals the typed serving inputs beside the
+  record at the composition that knows them: the adapter's declared
+  permission flag, the local sandbox, hands and boundary fragments, the
+  pins, and the hands spec. The executable is the driver's own. It also
+  expands hands through `Transport::expand`. Production:
+  `crates/brokkr-runtime/src/agents.rs` (`Composition`) and/or `bundle.rs`
+  (the inline composition, `:4635`), `engine.rs` (`hands_command`, the
+  seal and the input), and `crates/brokkr-protocol/src/native_controls.rs`
+  if the closed `LaunchRecord` JSON carries them. The operator rules which
+  three.
+- **14b (seams).** This unit's text as written: in `adapters.rs`, decode
+  those inputs and call `check_final` on the final Codex cold, Claude and
+  LaneTally child, and DSH cold commands. Spawn only
+  `Checked::into_argv`. Tests: `adapters/tests.rs` and
+  `capability_launch.rs`.
+
+**Pending:** the operator's split; then 14a, 14b and their gates. No gate
+was run in this visit, because nothing but these two documents changed.
