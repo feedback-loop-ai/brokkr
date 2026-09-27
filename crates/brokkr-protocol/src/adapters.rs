@@ -22,6 +22,7 @@ use serde_json::{json, Map, Value};
 
 mod composite;
 mod route_overlay;
+mod start;
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
@@ -37,6 +38,7 @@ use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
+use start::start_prompt;
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MODEL_NOT_REPORTED: &str = "not reported";
@@ -5765,16 +5767,7 @@ fn run_seat_with(
     // is `result: failed` with NO `accepted` and NO checkpoint — decision
     // 0053's failure to start — and it comes before the secret store is
     // opened, so no other refusal can put an `accepted` ahead of it.
-    let prompt = if effect_id.is_empty() {
-        Err(StartRefusal::MissingCorrelation("effect_id"))
-    } else if attempt_id.is_empty() {
-        Err(StartRefusal::MissingCorrelation("attempt_id"))
-    } else if let Err(retired) = gate {
-        Err(StartRefusal::RetiredOverride(retired))
-    } else {
-        render_prompt(&input, kind)
-    };
-    let prompt = match prompt {
+    let prompt = match start_prompt(&effect_id, &attempt_id, gate, &input, kind) {
         Ok(prompt) => prompt,
         Err(refusal) => {
             send(Body::Result {
