@@ -414,8 +414,10 @@ enum Local {
     Omitted,
 }
 
-/// Every variable a checked step sets, ruled on once: a variable no row
-/// has ruled on fails the test rather than dropping out of the guide.
+/// Every variable a step sets whose lines a row writes, ruled on once: a
+/// variable no row has ruled on fails the test rather than dropping out of
+/// the guide. A step no row writes, such as each of `delivered by
+/// brokkr`'s, has its variables held word for word by `JOB_LINES`.
 const LOCAL_ENV: [(&str, Local); 6] = [
     ("BROKKR_REQUIRE_BOUNDARY_EVIDENCE", Local::Carried),
     ("BROKKR_SUPPRESSION_BASE", Local::Carried),
@@ -812,91 +814,318 @@ fn the_by_hand_checks_are_the_workflows_checks() {
     assert!(guide.contains("twelve required checks"));
 }
 
-/// The keys a step of a required job may carry. `continue-on-error` passes
-/// a failed step, and `working-directory` and `shell` change what its lines
-/// run without changing the lines, so none of them is here.
-const STEP_KEYS: [&str; 7] = ["name", "id", "if", "uses", "with", "env", "run"];
-
-/// A job's id, its keys, and its conditions, each with what it stands on.
-type JobShape = (
-    &'static str,
-    &'static [&'static str],
-    &'static [(&'static str, &'static str)],
-);
-
-/// The condition of a step or job that runs on pull requests only.
-const PR_ONLY: &str = "github.event_name == 'pull_request'";
-
-/// Each required ci.yml job's keys, and each of its conditions with what it
-/// stands on: the job's id, or its step's name and action. core-gate's are
-/// held by `mutants_gate.rs`.
-const JOB_SHAPES: [JobShape; 10] = [
+/// Every line of each job behind the twelve checks, in `MAIN_REQUIRES`'s
+/// order, as its workflow writes it, but for comments, blank lines and the
+/// value of a `run:` or `command:` key, whose lines `LEG_LINES` holds. A
+/// skipped step or job reports success, which satisfies a required check,
+/// and a runner, an action, an input or a variable changed alters what a
+/// check proves while its commands stand, so each is held word for word:
+/// a `continue-on-error`, `if:`, `needs:`, `runs-on:`, `uses:`, `with:` or
+/// `env:` line added, dropped or changed fails the test. A line changed
+/// here is a line to re-read in the guide's row and the sections it links.
+/// A line that is a key of `SHARED_STEPS` stands for that step's lines.
+const JOB_LINES: [(&str, &str); 11] = [
     (
         "delivered-by-brokkr",
-        &[
-            "name",
-            "if",
-            "runs-on",
-            "timeout-minutes",
-            "permissions",
-            "steps",
-        ],
-        &[("delivered-by-brokkr", PR_ONLY)],
+        r#"
+    name: delivered by brokkr
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+<checkout>
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-verifier
+<checkout>
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+      - name: the base branch, for the merge-base
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REPO: https://github.com/${{ github.repository }}.git
+        run:
+<stable toolchain>
+      - name: build the base branch's offline verifier
+        run:
+      - name: the tier is cut by the delta since the judgment (decisions 0033, 0038)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: refs/remotes/base/${{ github.event.pull_request.base.ref }}
+          REPO: pr
+          EVIDENCE: https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git
+          VERIFIER: base-verifier/target/debug/brokkr
+          CLASSES: base-verifier/.github/delivery-classes.json
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run:
+"#,
     ),
     (
         "msrv",
-        &["name", "runs-on", "timeout-minutes", "steps"],
-        &[],
+        r#"
+    name: MSRV (1.88)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.88.0 # the MSRV, Cargo.toml's rust-version: moved by hand, never by Renovate
+      - run:
+"#,
     ),
     (
         "quality",
-        &["name", "runs-on", "timeout-minutes", "steps"],
-        &[("an added suppression names a ruling", PR_ONLY)],
+        r#"
+    name: format, clippy, contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+<stable toolchain>
+          components: rustfmt, clippy
+<rust-cache>
+      - name: formatting is canonical
+        run:
+      - name: clippy is warning-free across every target
+        run:
+      - name: an added suppression names a ruling
+        if: github.event_name == 'pull_request'
+        env:
+          BROKKR_SUPPRESSION_BASE: ${{ github.event.pull_request.base.sha }}
+        run:
+      - name: frozen and additive contracts compile
+        run:
+"#,
     ),
     (
         "engine",
-        &["name", "strategy", "runs-on", "timeout-minutes", "steps"],
-        &[
-            (
-                "bubblewrap for the hands tests (./.github/actions/setup-bubblewrap)",
-                "runner.os == 'Linux'",
-            ),
-            ("R3 native startup gate", "runner.os == 'macOS'"),
-            (
-                "R3 native diagnostics (actions/upload-artifact)",
-                "always() && runner.os == 'macOS'",
-            ),
-        ],
+        r#"
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+<checkout>
+<stable toolchain>
+<rust-cache>
+      - name: bubblewrap for the hands tests
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-bubblewrap
+      - run:
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+      - name: R3 native startup gate
+        if: runner.os == 'macOS'
+        run:
+      - name: R3 native diagnostics
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: r3-native-diagnostics
+          path: |
+            target/r3-startup.log
+            target/r3-startup-report.txt
+          if-no-files-found: warn
+      - name: self and verify bundles compile under the constitutional lint
+        run:
+"#,
     ),
     (
         "coverage",
-        &["name", "runs-on", "timeout-minutes", "steps"],
-        &[("actions/upload-artifact", "always()")],
+        r#"
+    name: exact coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+      - name: the pinned coverage toolchain and its measuring tool
+        id: nightly
+        run:
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ steps.nightly.outputs.toolchain }}
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+          fallback: none
+<rust-cache>
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/brokkr-coverage-cache
+          key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
+      - name: bubblewrap for the hands tests
+        uses: ./.github/actions/setup-bubblewrap
+      - name: prove literal nonzero 100% source-line/branch/function coverage
+        run:
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-crap@0.5.0
+          fallback: none
+      - name: complexity ratchet (quality/crap-baseline.json)
+        run:
+      - name: cargo-public-api 0.52.0, pinned
+        run:
+      - name: public-API ratchet (quality/public-api/)
+        run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: coverage-exact
+          path: target/coverage/
+"#,
     ),
     (
         "license-compliance",
-        &["name", "runs-on", "timeout-minutes", "permissions", "steps"],
-        &[],
+        r#"
+    name: dependency licenses (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+<checkout>
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command:
+"#,
     ),
     (
         "lint-non-rust",
-        &["name", "runs-on", "timeout-minutes", "steps"],
-        &[],
+        r#"
+    name: non-Rust lints
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+<checkout>
+      - name: actionlint, pinned by digest
+        uses: ./.github/actions/setup-actionlint
+      - name: lychee, pinned by digest
+        uses: ./.github/actions/setup-lychee
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: shellcheck@0.11.0,typos@1.50.2,zizmor@1.30.1
+          fallback: none
+      - name: the offline lints (scripts/lint-non-rust.sh)
+        run:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.3
+      - name: the diagrams render (mermaid-cli, from .github/lint's lockfile)
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: '1'
+        run:
+      - name: Renovate's configuration is valid (renovate-config-validator, the pinned image)
+        run:
+"#,
     ),
     (
         "ratchets",
-        &["name", "runs-on", "timeout-minutes", "permissions", "steps"],
-        &[("a raised baseline names its ruling (quality/)", PR_ONLY)],
+        r#"
+    name: baseline ratchets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+<checkout>
+          fetch-depth: 2
+<stable toolchain>
+      - uses: ./.github/actions/setup-jscpd
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-shear@1.14.0
+          fallback: none
+      - name: file-size ratchet (quality/file-lines.txt)
+        run:
+      - name: duplication ratchet (quality/jscpd-baseline-*.json)
+        run:
+      - name: no unused dependency (cargo-shear)
+        run:
+      - name: a raised baseline names its ruling (quality/)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run:
+"#,
     ),
     (
         "dependency-audit",
-        &["name", "runs-on", "timeout-minutes", "permissions", "steps"],
-        &[],
+        r#"
+    name: RustSec dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+<checkout>
+      - name: cargo-audit, pinned by digest
+        uses: ./.github/actions/setup-cargo-audit
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+"#,
     ),
     (
         "release-binary",
-        &["name", "runs-on", "timeout-minutes", "steps"],
-        &[],
+        r#"
+    name: release binary artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+<checkout>
+<stable toolchain>
+<rust-cache>
+      - run:
+      - run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: brokkr-linux-x86_64
+          path: target/release/brokkr
+"#,
+    ),
+    (
+        "core-gate",
+        r#"
+    name: 'mutants in the diff: brokkr-core'
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+<stable toolchain>
+<rust-cache>
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-mutants@27.1.0
+          fallback: none
+      - name: no miss this pull request adds to brokkr-core
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          MUTANTS_JOBS: '2'
+        run:
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mutants-in-diff-brokkr-core
+          path: target/mutants/mutants.out/
+"#,
     ),
 ];
 
@@ -914,48 +1143,75 @@ fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
         .collect()
 }
 
-/// A step's own keys: its `- ` line's and those level with it.
-fn step_keys<'a>(step: &[&'a str]) -> Vec<(&'a str, &'a str)> {
-    let first = step[0]
-        .strip_prefix("      - ")
-        .expect("a step's `- ` line");
-    let mut keys = keys_at(&[first], "");
-    keys.extend(keys_at(&step[1..], "        "));
-    keys
+/// The steps several required jobs take word for word, held once.
+const SHARED_STEPS: [(&str, &str); 3] = [
+    (
+        "<checkout>",
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false",
+    ),
+    (
+        "<stable toolchain>",
+        "      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.98.0",
+    ),
+    (
+        "<rust-cache>",
+        "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+    ),
+];
+
+/// The lines `JOB_LINES` holds for one job, each shared step's name
+/// replaced by its lines.
+fn expected_lines(held: &str) -> Vec<&str> {
+    held.lines()
+        .skip(1)
+        .flat_map(|line| {
+            SHARED_STEPS
+                .iter()
+                .find(|(name, _)| *name == line)
+                .map_or_else(|| vec![line], |(_, step)| step.lines().collect())
+        })
+        .collect()
 }
 
-/// A job's conditions, each with what it stands on: the job's id for its
-/// own `if:`, else its step's name and action, else its step's command.
-fn job_conditions(id: &str, body: &[&str]) -> Vec<(String, String)> {
-    let job = keys_at(body, "    ");
-    let own = job
-        .iter()
-        .filter(|(key, _)| *key == "if")
-        .map(|(_, value)| (id.to_string(), (*value).to_string()));
-    let steps = job_steps(body).into_iter().filter_map(|step| {
-        let keys = step_keys(&step);
-        let value = |wanted: &str| {
-            keys.iter()
-                .find(|(key, _)| *key == wanted)
-                .map(|(_, value)| *value)
-        };
-        let action = value("uses").map(|uses| uses.split_once('@').map_or(uses, |(name, _)| name));
-        let stands_on = match (value("name"), action) {
-            (Some(name), Some(action)) => format!("{name} ({action})"),
-            (Some(name), None) => name.to_string(),
-            (None, Some(action)) => action.to_string(),
-            (None, None) => value("run").unwrap_or_default().to_string(),
-        };
-        value("if").map(|condition| (stands_on, condition.to_string()))
-    });
-    own.chain(steps).collect()
+/// A job's lines as `JOB_LINES` holds them: comments and blank lines
+/// dropped, and a `run:` or `command:` key kept without its value, the
+/// block under it included.
+fn held_lines(body: &str) -> Vec<&str> {
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let mut held = Vec::new();
+    let mut value_under = None;
+    for line in body.lines() {
+        if value_under.is_some_and(|key| line.trim().is_empty() || indent(line) > key) {
+            continue;
+        }
+        value_under = None;
+        let key = line.trim_start().trim_start_matches("- ");
+        if key.is_empty() || key.starts_with('#') {
+            continue;
+        }
+        let at = line.len() - key.len();
+        match ["run:", "command:"]
+            .into_iter()
+            .find(|name| key.starts_with(name))
+        {
+            Some(name) => {
+                held.push(&line[..at + name.len()]);
+                value_under = Some(at);
+            }
+            None => held.push(line),
+        }
+    }
+    held
 }
 
 /// A skipped step or job reports success, which satisfies a required
-/// check, so the jobs behind the twelve are held whole, as `mutants_gate.rs`
-/// holds core-gate: each workflow's top-level keys (a workflow-wide
-/// `defaults:` or `env:` would reach every step), each required ci.yml
-/// job's keys and conditions, and every required job's step keys.
+/// check, so the jobs behind the twelve are held whole: each workflow's
+/// top-level keys (a workflow-wide `defaults:` or `env:` would reach every
+/// step), and every line of each required job, as `JOB_LINES` holds it.
 #[test]
 fn the_required_jobs_run_every_step_unsoftened() {
     let root = workspace();
@@ -978,41 +1234,27 @@ fn the_required_jobs_run_every_step_unsoftened() {
             .collect();
         assert_eq!(keys, top, "{file}'s top-level keys");
     }
-    let ci = workflow::jobs(&read("ci.yml"));
-    let body = |file: &str, id: &str| {
-        let jobs = if file == "ci.yml" {
-            ci.clone()
-        } else {
-            workflow::jobs(&read(file))
-        };
-        jobs.into_iter()
-            .find_map(|(job, body)| (job == id).then_some(body))
-            .unwrap_or_else(|| panic!("{file} has no {id} job"))
-    };
-    for (id, keys, conditions) in JOB_SHAPES {
-        let text = body("ci.yml", id);
-        let lines: Vec<&str> = text.lines().collect();
-        let found: Vec<&str> = keys_at(&lines, "    ")
+    let mut required: Vec<(&str, &str)> = MAIN_REQUIRES
+        .iter()
+        .map(|&(_, id, file)| (id, file))
+        .collect();
+    required.dedup();
+    let held: Vec<&str> = JOB_LINES.iter().map(|(id, _)| *id).collect();
+    let ids: Vec<&str> = required.iter().map(|(id, _)| *id).collect();
+    assert_eq!(
+        held, ids,
+        "JOB_LINES holds each required job once, in order"
+    );
+    for ((id, file), (_, lines)) in required.into_iter().zip(JOB_LINES) {
+        let body = workflow::jobs(&read(file))
             .into_iter()
-            .map(|(key, _)| key)
-            .collect();
-        assert_eq!(found, keys, "{id} gained or lost a job key");
-        let held: Vec<(String, String)> = conditions
-            .iter()
-            .map(|(on, condition)| ((*on).to_string(), (*condition).to_string()))
-            .collect();
-        assert_eq!(job_conditions(id, &lines), held, "{id}'s conditions moved");
-    }
-    for (check, id, file) in MAIN_REQUIRES {
-        let text = body(file, id);
-        for step in job_steps(&text.lines().collect::<Vec<_>>()) {
-            for (key, _) in step_keys(&step) {
-                assert!(
-                    STEP_KEYS.contains(&key),
-                    "a step of {check} carries `{key}`: {step:?}"
-                );
-            }
-        }
+            .find_map(|(job, body)| (job == id).then_some(body))
+            .unwrap_or_else(|| panic!("{file} has no {id} job"));
+        assert_eq!(
+            held_lines(&body),
+            expected_lines(lines),
+            "a line of {file}'s {id} changed: re-read its row and the sections the row links"
+        );
     }
 }
 

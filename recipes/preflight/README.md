@@ -25,7 +25,7 @@ faces, from the same two seats, before a human has read a line.
 
 | Seat | Class | Results | Runs |
 |---|---|---|---|
-| `verify` | `gate` | `pass`, `fail` | Eight commands, locally, in the forms `roles/verify-seat.sh` writes: format, clippy, the workspace suite, the MSRV check, both bundle compiles, the exact-coverage script, the licence check, the release build. Some are weaker than CI's; see [what a preflight cannot give you](#what-a-preflight-cannot-give-you). |
+| `verify` | `gate` | `pass`, `fail` | Nine commands, locally, in the forms `roles/verify-seat.sh` writes: format, clippy, the workspace suite, the MSRV check, both bundle compiles, the exact-coverage script, the licence check, the release build. Some are weaker than CI's; see [what a preflight cannot give you](#what-a-preflight-cannot-give-you). |
 | `review` | `gate` | `clean`, `residual`, `security-hold` | Adversarial read of `git diff main...HEAD` across correctness, fit and security. Read-only. |
 
 `verify` gets 5400 seconds because it runs the coverage gate, which
@@ -44,7 +44,7 @@ rule. What differs is what the seats are pointed at:
 | The change is | already delivered, named by merge commit or diff range (`git show <sha>`) | unmerged, found by diffing the branch against its base (`git diff main...HEAD`) |
 | Run by | the operator, after a slice lands | a contributor, before a pull request exists |
 | Driver tools | includes `gh pr view` / `gh run view` | no `gh` — there is nothing open to read |
-| `verify` runs | the suite plus the two bundle compiles | the eight commands above |
+| `verify` runs | the suite plus the two bundle compiles | the nine commands above |
 
 It is a standalone recipe with its own `policy.json`, not an `extends`
 of `bundles/verify`: `extends` names a recipe in the library, and the
