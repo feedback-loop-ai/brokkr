@@ -838,12 +838,11 @@ pub const CONTENDED_EXIT: u8 = 4;
 /// Did this error come from a peer holding the journal's lock?
 ///
 /// Asked of the whole chain and answered by the store's own typed
-/// predicate — never by matching error text. All three shapes it arrives
-/// in are asked: a `StoreError` raised straight out of a store call, and
-/// one an `EngineError` or an `ImportError` carries — those need asking
-/// separately because their store variants are `transparent`, which puts
-/// the store error's own source in the chain and the store error itself
-/// nowhere in it.
+/// predicate — never by matching error text. It asks all three shapes: a
+/// `StoreError` straight out of a store call, and one an `EngineError` or
+/// an `ImportError` carries, asked separately because their store variants
+/// are `transparent`, which puts the store error's own source in the chain
+/// and the store error itself nowhere in it.
 ///
 /// A contention that reached here wrote nothing, so there is no
 /// half-done work to describe.
