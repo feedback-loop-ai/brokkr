@@ -839,15 +839,6 @@ function createTranscriptController(effects) {
       drillEligible: presentation ? !!presentation.drill_eligible : false,
       legacy: presentation ? !!presentation.legacy : false,
       reference: presentation ? (presentation.reference ?? null) : null,
-      // A valid Claude reference whose canonical home is not the local
-      // projects home: show the recorded-home explanation and drill
-      // nothing, whether or not shared lookup simultaneously refuses the
-      // source. The non-null shared hint is the shared proof that the
-      // reference itself validated; an invalid reference has none.
-      homeUnavailable: !!(presentation && presentation.reference
-        && presentation.reference.kind === 'claude-session'
-        && !presentation.drill_eligible
-        && (presentation.hint ?? null) !== null),
       bodyState: bodyState,
       body: body,
     };
@@ -1171,12 +1162,7 @@ function renderTranscriptView(view) {
       transcriptBox.appendChild(el('p', 'cause', view.explanation));
     }
   }
-  if (view.homeUnavailable) {
-    // A valid Claude reference under a foreign recorded home keeps this
-    // explanation beside any simultaneous shared lookup refusal.
-    transcriptBox.appendChild(el('p', 'cause',
-      'browser transcript unavailable for this recorded home'));
-  } else if (view.reason === null && view.drillEligible && view.admitted) {
+  if (view.reason === null && view.drillEligible && view.admitted) {
     transcriptBox.appendChild(el('p', 'cause', 'loading transcript…'));
   }
   if (transcriptPart) transcriptBox.appendChild(checkpointTable(transcriptPart));

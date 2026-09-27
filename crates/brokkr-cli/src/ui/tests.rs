@@ -1861,8 +1861,7 @@ function __newController() {
     render: function (view) {
       __t('render',
         view.phase + ' ' + (view.sessionId === null ? '-' : view.sessionId)
-        + ' ' + (view.reason === null ? '-' : view.reason)
-        + (view.homeUnavailable ? ' home' : ''));
+        + ' ' + (view.reason === null ? '-' : view.reason));
     }
   });
   return true;
@@ -2181,8 +2180,8 @@ fn admitted_sources_of_every_kind_drill_only_when_eligible() {
         );
     }
 
-    // A valid Claude reference whose recorded home is not the local
-    // projects home is admitted yet drills nothing.
+    // The page drills on the server's word alone: an admitted presentation
+    // the server does not call eligible drills nothing.
     let reference = claude_reference("abcd-1234", "/retained/claude");
     let pres = presentation(
         reference.clone(),
@@ -2579,44 +2578,6 @@ fn identical_subject_reselection_starts_a_fresh_interval() {
     assert_eq!(state["opens"], 3, "one eligible opening per interval");
 }
 
-#[test]
-fn a_foreign_home_shows_the_home_explanation_in_the_view() {
-    let reference = claude_reference("abcd-1234", "/retained/claude");
-    let pres = presentation(
-        reference.clone(),
-        true,
-        None,
-        Some("full session: claude --resume abcd-1234"),
-        false,
-    );
-    let mut boa = Boa::boot();
-    boa.select(&subject(
-        "r1",
-        "seat",
-        Some(reference),
-        None,
-        Some("claude"),
-        true,
-    ));
-    boa.resolve_presentation(&pres);
-    let trace = boa.trace();
-    assert!(
-        trace.iter().any(|entry| entry.ends_with(" home")),
-        "a foreign canonical home shows the recorded-home explanation: {trace:?}"
-    );
-    assert!(
-        !trace.iter().any(|entry| entry.starts_with("body ")),
-        "{trace:?}"
-    );
-    assert!(
-        !trace.iter().any(|entry| entry.starts_with("open ")),
-        "{trace:?}"
-    );
-    let state = boa.state();
-    assert_eq!(state["sessionId"], Value::Null);
-    assert_eq!(state["drillEligible"], false);
-}
-
 // =========================================================================
 // HTTP: the shared Claude routes and the participant-presentation route.
 
@@ -2927,8 +2888,12 @@ fn every_api_body_and_the_presentation_send_no_store() {
     assert!(missing.contains("{\"error\":\"participant not found\"}"));
 }
 
+/// Operator ruling 2026-09-27 (decision 0073 rulings 3 and 4): a Claude
+/// reference recorded under a home that is not the local projects home is
+/// drill-eligible like every other valid reference. The body route serves
+/// it, its watch opens, and the page keeps no recorded-home refusal.
 #[test]
-fn a_foreign_claude_home_admits_and_drills_nothing_over_http() {
+fn a_foreign_claude_home_drills_over_http() {
     let mut env = EnvGuard::lock();
     let (local_home, _local_projects) = claude_projects_home();
     env.set("HOME", local_home.path());
@@ -2944,21 +2909,21 @@ fn a_foreign_claude_home_admits_and_drills_nothing_over_http() {
 
     let parsed = presentation_route(&db, &key);
     assert_eq!(parsed["admitted"], true, "{parsed}");
-    assert_eq!(parsed["drill_eligible"], false, "{parsed}");
+    assert_eq!(parsed["drill_eligible"], true, "{parsed}");
     assert_eq!(parsed["hint"], "full session: claude --resume abcd-1234");
     assert_eq!(parsed["reason"], Value::Null);
 
-    // The server holds the same rule as the page: neither the body route
-    // nor the watch serves a reference the presentation calls ineligible.
     let body = transcript_route(&db, &key);
-    assert_eq!(body.status, "404 Not Found");
-    assert_eq!(body.body, "{\"error\":\"transcript not found\"}");
+    assert_eq!(body.status, "200 OK", "{}", body.body);
+    let document: Value = serde_json::from_str(&body.body).unwrap();
+    assert_eq!(document["turns"][0]["blocks"][0]["text"], "custom");
     let route = format!("r1/{}", percent_encode(&key));
     let watch = exchange(db, &watch_request(&route), Some(1));
-    assert!(watch.starts_with("HTTP/1.1 404 Not Found"), "{watch}");
+    assert!(watch.starts_with("HTTP/1.1 200 OK"), "{watch}");
+    assert!(watch.contains("Content-Type: text/event-stream"), "{watch}");
     assert!(
-        watch.ends_with("\r\n\r\n{\"error\":\"transcript not found\"}"),
-        "{watch}"
+        !PAGE.contains("homeUnavailable"),
+        "the page mirrors no home rule"
     );
 }
 
@@ -3152,42 +3117,6 @@ fn an_eligibility_change_restores_the_watch_budget() {
         1,
         "no watch opens while the drill is ineligible"
     );
-}
-
-/// A valid Claude reference under a foreign recorded home keeps the
-/// recorded-home explanation even when shared lookup refuses it at the
-/// same time, and still drives no body request or watch.
-#[test]
-fn a_foreign_home_shows_the_home_explanation_beside_a_discovery_refusal() {
-    let reference = claude_reference("abcd-1234", "/retained/claude");
-    let pres = presentation(
-        reference.clone(),
-        false,
-        Some("ambiguous-source"),
-        Some("full session: claude --resume abcd-1234"),
-        false,
-    );
-    let mut boa = Boa::boot();
-    boa.select(&subject(
-        "r1",
-        "seat",
-        Some(reference),
-        None,
-        Some("claude"),
-        true,
-    ));
-    boa.resolve_presentation(&pres);
-    let trace = boa.trace();
-    assert!(
-        trace.iter().any(|entry| entry.ends_with(" home")),
-        "a foreign home keeps its explanation beside the refusal: {trace:?}"
-    );
-    assert!(
-        trace.iter().any(|entry| entry.contains("ambiguous-source")),
-        "{trace:?}"
-    );
-    assert_eq!(boa.state()["bodies"], 0);
-    assert_eq!(boa.state()["opens"], 0);
 }
 
 /// A symlinked recorded home is canonicalized once and opened as the
@@ -4562,18 +4491,4 @@ fn a_missing_journal_gains_no_file_on_every_browser_route() {
         !PathBuf::from(format!("{}-shm", db.display())).exists(),
         "no -shm was created"
     );
-}
-
-/// The drill counts a recorded home as local only when both canonicalize
-/// to one directory. Both arms are held here directly, so the branch does
-/// not depend on whether the host running the suite has a
-/// `~/.claude/projects` of its own (a developer host does, CI does not).
-#[test]
-fn a_recorded_home_is_local_only_beside_a_local_projects_home() {
-    let dir = tempfile::tempdir().unwrap();
-    let recorded = dir.path().to_str().unwrap();
-    let local = Some(std::fs::canonicalize(dir.path()).unwrap());
-    assert!(same_canonical_home(recorded, &local));
-    assert!(!same_canonical_home(recorded, &None));
-    assert!(!same_canonical_home("/no/such/recorded/home", &local));
 }

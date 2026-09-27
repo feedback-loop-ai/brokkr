@@ -59,4 +59,3 @@ long path clipped in the participant header remains readable. The CLI JSON
 #### Scenario: Legacy Codex eligibility agrees across participant surfaces
 - **WHEN** a pre-0032 Codex participant has only a legacy session id and no common reference
 - **THEN** the TUI shows `no-reference` with no full-session line or active reading door, agreeing with the command, browser participant presentation and the participant's browser body route, none of which looks a Claude file up by that bare id
-

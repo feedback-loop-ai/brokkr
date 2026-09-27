@@ -1,6 +1,6 @@
-# 0072 — The browser reads every transcript kind by participant
+# 0073 — The browser reads every transcript kind by participant
 
-Status: proposed (implementer, 2026-09-27)
+Status: accepted — operator ruled 2026-09-27
 Date: 2026-09-27
 
 ## Context
@@ -19,6 +19,9 @@ The review of that change found the foreign-home Claude rule enforced by the
 page alone: the presentation answered `drill_eligible: false` while the new
 routes served the prose and opened the stream. On `main` no browser route
 could serve that file, because the id-only route read the local home only.
+The rule's original reason, the id-only route synthesizing the local home,
+is gone with ruling 2, and the operator ruled on 2026-09-27 that the browser
+reads what the command reads.
 
 ## Decision
 
@@ -28,40 +31,40 @@ could serve that file, because the id-only route read the local home only.
    read through the one local read and masked against the store beside the
    journal: HTTP 200 when readable, HTTP 404 carrying the refused document
    otherwise. `/sse/transcript/<run>/<key>` watches the same source. An
-   unparsable route or unknown participant is refused before any read.
+   unparsable route or unknown participant is refused before any read. A
+   run whose journal loads and does not fold is refused by the body route,
+   the watch and the participant presentation in the fold's own words, as
+   `brokkr transcript` refuses it, and no transcript is read.
 2. **The id-only routes retire.** `/api/session/<id>`, `/sse/session/<id>`
    and their three-field Claude envelope are removed. No browser route looks
    a transcript up by a bare id. This supersedes 0055 ruling 4's sentences
    "Existing id-only Claude HTTP routes retain successful envelopes and the
    specified 404/SSE-loss behavior; Codex/DSH body routes remain absent" and
    its requirement that "every session label, id-only body request and
-   growth watch" require a Claude kind. Nothing else in 0055 moves.
-3. **Eligibility: every kind, less a foreign Claude home.** A valid Codex or
-   DSH reference is drill-eligible. A Claude reference is eligible only when
-   its recorded home is canonically the local projects home, as before.
-4. **The server enforces eligibility, not only the page.** The presentation,
-   the body route and the watch answer by one function. An ineligible
-   reference gets HTTP 404 with `{"error":"transcript not found"}` from both
-   routes, before any transcript file is opened and before any event-stream
-   header is written.
+   growth watch" require a Claude kind.
+3. **Eligibility: every valid reference of every kind.** A Claude, Codex or
+   DSH reference that validates is drill-eligible, whatever home it was
+   recorded under. A Claude reference under a home that is not the local
+   projects home, and a legacy flat id under a local projects home that does
+   not exist, are read as the command reads them.
+4. **One function decides it.** The server computes eligibility by one
+   function, which the presentation reports and the watch opens by; the page
+   drills on that answer and keeps no rule of its own. The body route
+   serves the command's bytes for every reference, readable or refused,
+   behind the loopback Host guard.
 
 ## Consequences
 
-- The browser shows Codex and DSH transcripts. A foreign-home Claude
-  reference drills nothing on any surface of the browser, while `brokkr
-  transcript` and the TUI still read it from its recorded home. For that one
-  case the route's bytes differ from the command's by design.
+- The browser shows Claude, Codex and DSH transcripts, and for every
+  participant its body route answers what `brokkr transcript --json`
+  prints. No surface refuses a reference for the home it was recorded
+  under.
+- 0055 ruling 4's eligibility sentence ("a drill was eligible only for a
+  Claude reference recorded under that home") is superseded. Nothing else in
+  0055 moves.
 - The OpenSpec change
   `openspec/changes/archive/2026-09-27-352-browser-reads-by-participant/`
   restates `transcript-reading` for these routes and is folded into the
-  living spec, except four passages in two requirements that an active
-  change also restates; its proposal names them, and this decision
-  governs them until they are folded.
-
-## For the operator to rule
-
-Ruling 4 keeps a refusal whose original reason, the id-only route
-synthesizing the local home, is gone with ruling 2. The alternative is to
-retire the foreign-home rule on every surface, so the browser reads what the
-command reads. This decision takes the fail-closed choice and leaves the
-retirement to a ruling.
+  living spec.
+- `/api/view/<id>`, `/api/run/<id>` and the TUI pane still tolerate an
+  unfoldable journal; bringing them to ruling 1's refusal is a follow-up.

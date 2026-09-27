@@ -8,8 +8,8 @@ looked up by bare session id (`/api/session/<id>`), while the TUI and
 notes already claim all three kinds are readable in the browser. The
 implementation (commit on `story-352-one-transcript-path`) retired the
 id-only routes and serves every kind by participant; this delta brings the
-living `transcript-reading` spec to what the code does, as proposed
-decision 0072 rules.
+living `transcript-reading` spec to what the code does, as decision 0073
+rules.
 
 ## What Changes
 
@@ -20,11 +20,13 @@ decision 0072 rules.
   --json` document byte for byte (the command adds a trailing newline):
   HTTP 200 when readable, HTTP 404 carrying the refused document otherwise.
   `/sse/transcript/<run>/<key>` watches the same source grow.
-- Codex and DSH references become drill-eligible. A Claude reference whose
-  recorded home is not the local projects home stays ineligible, and the
-  server now refuses it on both participant routes (HTTP 404,
-  `{"error":"transcript not found"}`, before any transcript read), not only
-  the page.
+- Codex and DSH references become drill-eligible. As proposed here, a
+  Claude reference whose recorded home is not the local projects home
+  stayed ineligible and the server refused it on both participant routes.
+  The operator's ruling of 2026-09-27 (decision 0073 rulings 3 and 4)
+  retired that rule after this change was archived: every valid reference
+  of every kind drills, and a run whose journal does not fold is refused on
+  every participant route. Those edits went straight into the living spec.
 
 ## Capabilities
 
@@ -51,12 +53,13 @@ lookup refusals have fixed HTTP responses"). The still-active change
 `2026-09-17-bound-transcript-projector` restates both requirements in full,
 so editing them here and there makes new data clones that
 `quality/jscpd-baseline-data.json` must admit, and that baseline could not be
-regenerated from the implementing seat. Decision 0072 governs those
-passages until they are folded, together with the same edits to that
-change's copies.
+regenerated from the implementing seat. The remediation of the same story
+folded them, into the living spec and that change's copies alike, under
+decision 0073.
 
 ## Impact
 
 `crates/brokkr-cli/src/ui.rs`, `crates/brokkr-cli/src/ui.html` and their
 tests; `docs/guides/read-surfaces.md`. Decision 0055 ruling 4's route
-sentences are superseded by decision 0072; nothing else in 0055 moves.
+sentences, and its eligibility sentence, are superseded by decision 0073;
+nothing else in 0055 moves.

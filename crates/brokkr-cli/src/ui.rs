@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 use brokkr_core::fold::{fold, Status};
 use brokkr_store::Store;
 use brokkr_view::transcript::{
-    LegacyProvenance, Snapshot, TranscriptKind, TranscriptRead, Unavailable, ValidReference,
+    LegacyProvenance, Selection, Snapshot, TranscriptKind, TranscriptRead, Unavailable,
+    ValidReference,
 };
 use serde_json::{json, Value};
 
@@ -40,6 +41,15 @@ fn ok(content_type: &'static str, body: String) -> Response {
         status: "200 OK",
         content_type,
         body,
+    }
+}
+
+/// A read this surface could not make, in the refusal's own words.
+fn server_error(detail: String) -> Response {
+    Response {
+        status: "500 Internal Server Error",
+        content_type: "application/json",
+        body: json!({"error": detail}).to_string(),
     }
 }
 
@@ -85,13 +95,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
     }
     let store = match Store::open_read_only(db) {
         Ok(store) => store,
-        Err(e) => {
-            return Response {
-                status: "500 Internal Server Error",
-                content_type: "application/json",
-                body: json!({"error": e.to_string()}).to_string(),
-            }
-        }
+        Err(e) => return server_error(e.to_string()),
     };
     if let Some(rest) = path.strip_prefix("/api/presentation/") {
         return participant_presentation(&store, rest);
@@ -111,13 +115,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
         // empty fleet.
         let listed = match crate::fleet::read_hearth(&store).listed() {
             Ok(listed) => listed,
-            Err(detail) => {
-                return Response {
-                    status: "500 Internal Server Error",
-                    content_type: "application/json",
-                    body: json!({"error": detail}).to_string(),
-                }
-            }
+            Err(detail) => return server_error(detail),
         };
         let entries: Vec<brokkr_view::RunEntry> =
             listed.iter().map(crate::fleet::ListedRun::entry).collect();
@@ -171,12 +169,10 @@ pub fn handle(db: &Path, path: &str) -> Response {
 /// in a terminal. A refused read keeps its document under a 404, so the
 /// page falls back to the checkpoint stream.
 fn participant_transcript(db: &Path, store: &Store, rest: &str) -> Response {
-    let Some((run_id, participant)) = route_participant(store, rest) else {
-        return not_found("participant");
+    let (run_id, participant) = match route_participant(store, rest) {
+        Ok(found) => found,
+        Err(refusal) => return refusal.response("participant"),
     };
-    if participant_reference(&participant).is_ok_and(|valid| !drillable(&valid)) {
-        return not_found("transcript");
-    }
     let read = read_local(
         participant.transcript.as_ref(),
         crate::participant_legacy_provenance(&participant),
@@ -962,29 +958,11 @@ fn decode_component(component: &str) -> Option<String> {
     String::from_utf8(decoded).ok()
 }
 
-/// The server's local Claude projects root, canonicalized. Canonicalizing
-/// is the only way "the same recorded home" is established: a recorded
-/// home that cannot be canonicalized is not the local projects home.
-fn canonical_local_projects() -> Option<PathBuf> {
-    std::fs::canonicalize(local_projects_home()?).ok()
-}
-
-/// True only when the recorded home and the local projects home are the
-/// same canonical directory.
-fn same_canonical_home(recorded: &str, local: &Option<PathBuf>) -> bool {
-    let Some(local) = local else { return false };
-    std::fs::canonicalize(recorded)
-        .map(|path| path == *local)
-        .unwrap_or(false)
-}
-
-/// The one drill-eligibility rule the presentation, the body route and the
-/// watch all answer by: every kind is eligible, except a Claude reference
-/// recorded under a home that is not the local projects home (#352 keeps
-/// that rule, and the server enforces it, not only the page).
-fn drillable(valid: &ValidReference) -> bool {
-    valid.kind != TranscriptKind::ClaudeSession
-        || same_canonical_home(&valid.home, &canonical_local_projects())
+/// The one drill-eligibility rule the presentation reports, the page obeys
+/// and the watch opens by (decision 0073 rulings 3 and 4): every reference
+/// that validates is eligible, of every kind and under any recorded home.
+fn drillable(selection: &Selection) -> Option<&ValidReference> {
+    selection.outcome.as_ref().ok()
 }
 
 /// The CLI-private, prose-free participant presentation (D9): the
@@ -992,17 +970,8 @@ fn drillable(valid: &ValidReference) -> bool {
 /// unavailability, the shared hint and drill eligibility ([`drillable`]).
 /// It is constructed from selection, validation, bounded safe discovery and
 /// hint helpers only — never from body bytes or a content projector.
-fn presentation_payload(
-    common: Option<&brokkr_view::Transcript>,
-    provenance: LegacyProvenance,
-    legacy_id: Option<&str>,
-) -> Value {
-    let selection = brokkr_view::transcript::select_reference(
-        common,
-        provenance,
-        legacy_id,
-        local_projects_home().as_deref(),
-    );
+fn presentation_payload(participant: &brokkr_view::Participant) -> Value {
+    let selection = participant_selection(participant);
     let (admitted, reason, explanation, path, valid) = match &selection.outcome {
         Ok(valid) => match discover(valid) {
             Discovery::Admitted(source) => (
@@ -1033,7 +1002,7 @@ fn presentation_payload(
     let hint = valid
         .as_ref()
         .and_then(|valid| brokkr_view::transcript::full_session(valid, path.as_deref()));
-    let drill_eligible = valid.as_ref().is_some_and(drillable);
+    let drill_eligible = drillable(&selection).is_some();
     json!({
         "reference": selection.reference,
         "legacy": selection.legacy,
@@ -1046,12 +1015,48 @@ fn presentation_payload(
     })
 }
 
-/// The participant a `<run>/<key>` route names: a full run id and an
-/// encoded participant key, the three participant routes' one lookup. Each
-/// path component is decoded exactly once; a malformed escape or any extra
-/// component is refused before the read-only journal is touched. No path
-/// or home override is accepted.
-fn route_participant(store: &Store, rest: &str) -> Option<(String, brokkr_view::Participant)> {
+/// Why a participant route answers for no participant.
+enum RouteRefusal {
+    /// The route, its run or its participant is not there.
+    Missing,
+    /// The run's journal loads and does not fold. That is fatal to the
+    /// run's own verbs (`fleet.rs`), so every participant route refuses it
+    /// in the fold's words, as `brokkr transcript` does, and reads nothing.
+    Unfoldable(brokkr_core::fold::FoldError),
+}
+
+impl RouteRefusal {
+    /// The response a route gives, naming `missing` when nothing is there.
+    fn response(self, missing: &str) -> Response {
+        match self {
+            RouteRefusal::Missing => not_found(missing),
+            RouteRefusal::Unfoldable(error) => server_error(error.to_string()),
+        }
+    }
+}
+
+/// The participant a `<run>/<key>` route names, the three participant
+/// routes' one lookup. No path or home override is accepted.
+fn route_participant(
+    store: &Store,
+    rest: &str,
+) -> Result<(String, brokkr_view::Participant), RouteRefusal> {
+    let (run_id, participant_key) = route_components(rest).ok_or(RouteRefusal::Missing)?;
+    let events = store.load(&run_id).map_err(|_| RouteRefusal::Missing)?;
+    let state = fold(&events).map_err(RouteRefusal::Unfoldable)?;
+    let view = brokkr_view::run_view(&events, Some(&state));
+    let participant = view
+        .participants
+        .into_iter()
+        .find(|participant| participant.key == participant_key)
+        .ok_or(RouteRefusal::Missing)?;
+    Ok((run_id, participant))
+}
+
+/// A route's full run id and encoded participant key. Each path component
+/// is decoded exactly once; a malformed escape or any extra component is
+/// refused before the read-only journal is touched.
+fn route_components(rest: &str) -> Option<(String, String)> {
     let mut components = rest.split('/');
     let (Some(run_id), Some(participant_key), None) =
         (components.next(), components.next(), components.next())
@@ -1068,49 +1073,43 @@ fn route_participant(store: &Store, rest: &str) -> Option<(String, brokkr_view::
     // triple, so a non-empty component decodes to a non-empty byte string;
     // `String::from_utf8` of a non-empty vector is non-empty or `None`; and
     // the pre-decode check above already refused an empty component.
-    let events = store.load(&run_id).ok()?;
-    let state = fold(&events).ok();
-    let view = brokkr_view::run_view(&events, state.as_ref());
-    let participant = view
-        .participants
-        .into_iter()
-        .find(|participant| participant.key == participant_key)?;
-    Some((run_id, participant))
+    Some((run_id, participant_key))
 }
 
 /// One GET participant-presentation route.
 fn participant_presentation(store: &Store, rest: &str) -> Response {
-    let Some((_, participant)) = route_participant(store, rest) else {
-        return not_found("participant");
-    };
-    let payload = presentation_payload(
-        participant.transcript.as_ref(),
-        crate::participant_legacy_provenance(&participant),
-        participant.session_id.as_deref(),
-    );
-    ok("application/json", payload.to_string())
+    match route_participant(store, rest) {
+        Ok((_, participant)) => ok(
+            "application/json",
+            presentation_payload(&participant).to_string(),
+        ),
+        Err(refusal) => refusal.response("participant"),
+    }
 }
 
-/// The validated reference a participant selects against the local
-/// projects home, or why none is selected.
-fn participant_reference(
-    participant: &brokkr_view::Participant,
-) -> Result<ValidReference, Unavailable> {
+/// The reference a participant selects against the local projects home,
+/// or why none is selected.
+fn participant_selection(participant: &brokkr_view::Participant) -> Selection {
     brokkr_view::transcript::select_reference(
         participant.transcript.as_ref(),
         crate::participant_legacy_provenance(participant),
         participant.session_id.as_deref(),
         local_projects_home().as_deref(),
     )
-    .outcome
 }
 
-/// The validated, drill-eligible reference a watched participant selects,
-/// resolved once from the read-only journal when the watch opens.
-fn watched_reference(db: &Path, rest: &str) -> Option<ValidReference> {
-    let store = Store::open_read_only(db).ok()?;
-    let (_, participant) = route_participant(&store, rest)?;
-    participant_reference(&participant).ok().filter(drillable)
+/// The drill-eligible reference a watched participant selects, resolved
+/// once from the read-only journal when the watch opens, with a source on
+/// this machine; otherwise the response that refuses the watch.
+fn watched_reference(db: &Path, rest: &str) -> Result<ValidReference, Response> {
+    let missing = || not_found("transcript");
+    let store = Store::open_read_only(db).map_err(|_| missing())?;
+    let (_, participant) =
+        route_participant(&store, rest).map_err(|refusal| refusal.response("transcript"))?;
+    drillable(&participant_selection(&participant))
+        .filter(|valid| source_size(valid).is_some())
+        .cloned()
+        .ok_or_else(missing)
 }
 
 fn head_seq(db: &Path, run_id: &str) -> u64 {
@@ -1232,12 +1231,12 @@ fn serve_io(
 /// discovery are all settled before a single byte of stream is written: a
 /// participant with no transcript on this machine is a clean 404 — never
 /// an open connection waiting for a file to appear. Every refusal is
-/// `{"error":"transcript not found"}`.
+/// `{"error":"transcript not found"}`, except an unfoldable journal's,
+/// which carries the fold's words.
 fn watch_transcript(db: &Path, rest: &str, stream: &mut impl Write, sse_limit: Option<usize>) {
-    let Some(reference) = watched_reference(db, rest).filter(|valid| source_size(valid).is_some())
-    else {
-        write_response(stream, not_found("transcript"));
-        return;
+    let reference = match watched_reference(db, rest) {
+        Ok(reference) => reference,
+        Err(refusal) => return write_response(stream, refusal),
     };
     if stream.write_all(SSE_HEADER.as_bytes()).is_err() {
         return;

@@ -632,4 +632,3 @@ three-field compatibility response remains.
 #### Scenario: Version-zero-only names are unknown under version three
 - **WHEN** a version-three session holds a `tool/call` followed by one `tool/code-dispatch` or `tool/code-dispatch-start` row, or by a row whose type is outside the 56-name version-three catalogue, without an `ignorable` marker
 - **THEN** each read returns `unsupported-format` with no turns, one unrecognized record and its notice, and with top-level `ignorable: true` on that row it projects the call once with one unrecognized record; a name outside the catalogue is refused by name, never admitted with the version
-

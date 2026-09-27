@@ -105,36 +105,10 @@ fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> W
     let home = dir.path().join(home_name);
     std::fs::create_dir_all(&home).unwrap();
     let (reference, path) = source(&home, kind, locator, body);
-    let mut store = Store::open(&db).unwrap();
-    store
-        .create_run("r222", "feat", "self", &json!({"files": {}}))
-        .unwrap();
-    let events: Vec<(EventType, Value)> = vec![
-        (
-            EventType::RunStarted,
-            json!({"feature": "feat", "manifest": {}}),
-        ),
-        (EventType::PhaseEntered, json!({"phase": "intake"})),
-        (
-            EventType::EffectRequested,
-            json!({"effect_id": "eff1", "seat": "review", "phase": "intake"}),
-        ),
-        (
-            EventType::EffectStarted,
-            json!({"effect_id": "eff1", "attempt_id": "att0"}),
-        ),
-        (
-            EventType::EffectCheckpointed,
-            json!({"effect_id": "eff1", "attempt_id": "att0",
-                   "checkpoint": {"step": "session-finished",
-                                  "transcript": reference}}),
-        ),
-    ];
-    for (event_type, payload) in events {
-        store
-            .append_next("r222", event_type, payload, None, None)
-            .unwrap();
-    }
+    journal(
+        &db,
+        json!({"step": "session-finished", "transcript": reference}),
+    );
     World {
         dir,
         db,
@@ -144,14 +118,51 @@ fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> W
     }
 }
 
+/// The one-participant run every world records at `db`, its seat's last
+/// checkpoint being `checkpoint`.
+fn journal(db: &Path, checkpoint: Value) {
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run("r222", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    let opening = [
+        (EventType::RunStarted, r#"{"feature":"feat","manifest":{}}"#),
+        (EventType::PhaseEntered, r#"{"phase":"intake"}"#),
+        (
+            EventType::EffectRequested,
+            r#"{"effect_id":"eff1","seat":"review","phase":"intake"}"#,
+        ),
+        (
+            EventType::EffectStarted,
+            r#"{"effect_id":"eff1","attempt_id":"att0"}"#,
+        ),
+    ];
+    let checkpointed = json!({"effect_id": "eff1", "attempt_id": "att0", "checkpoint": checkpoint});
+    let opening =
+        opening.map(|(event_type, payload)| (event_type, serde_json::from_str(payload).unwrap()));
+    for (event_type, payload) in opening
+        .into_iter()
+        .chain([(EventType::EffectCheckpointed, checkpointed)])
+    {
+        store
+            .append_next("r222", event_type, payload, None, None)
+            .unwrap();
+    }
+}
+
 fn command(world: &World, extra: &[&str]) -> std::process::Output {
+    command_under(world, &world.home, extra)
+}
+
+/// The command run with `home` as its `HOME`.
+fn command_under(world: &World, home: &Path, extra: &[&str]) -> std::process::Output {
     let mut args = vec!["transcript", "--run", "r222", "--seat", "eff1"];
     args.extend_from_slice(extra);
     Command::new(brokkr_bin())
         .args(args)
         .arg("--db")
         .arg(&world.db)
-        .env("HOME", &world.home)
+        .env("HOME", home)
         .current_dir(world.dir.path())
         .output()
         .unwrap()
@@ -540,6 +551,69 @@ fn one_derivation_reaches_every_surface() {
     assert!(presentation["path"].is_null());
     assert!(presentation.get("turns").is_none(), "{presentation}");
     compare_refusal(&world, &read, "not-found");
+}
+
+/// Operator ruling 2026-09-27 (decision 0073 rulings 3 and 4): the browser
+/// reads what the command reads. A Claude reference recorded under a home
+/// that is not the local projects home gets the command's bytes.
+#[test]
+fn a_foreign_home_claude_reference_reads_the_same_bytes_in_the_browser() {
+    let mut env = EnvGuard::lock();
+    let world = make_world(
+        "claude-session",
+        "abcd-1234",
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"from another home\"}}\n",
+    );
+    let local = world.dir.path().join("local");
+    std::fs::create_dir_all(local.join(".claude").join("projects")).unwrap();
+    env.set("HOME", &local);
+    let whole = command_under(&world, &local, &["--json"]);
+    assert_eq!(whole.status.code(), Some(0), "the command reads it");
+    assert_eq!(
+        parse(&whole)["turns"][0]["blocks"][0]["text"],
+        "from another home"
+    );
+    same_bytes_in_the_browser(&world, &whole, "200 OK");
+}
+
+/// The same ruling for a legacy flat id whose local projects home does not
+/// exist: the command refuses the read with its document, and the browser
+/// serves that document, not a refusal of its own.
+#[test]
+fn a_legacy_id_under_a_missing_projects_home_reads_the_same_bytes_in_the_browser() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    // No provider provenance and no common reference: the pre-provider
+    // Claude era, whose flat id is synthesized under the local projects
+    // home, which this home does not hold.
+    let db = dir.path().join("forge.db");
+    journal(
+        &db,
+        json!({"step": "session-started", "session_id": "abcd-1234"}),
+    );
+    let projects = home.join(".claude").join("projects");
+    let world = World {
+        reference: brokkr_view::Transcript {
+            kind: "claude-session".into(),
+            locator: "abcd-1234".into(),
+            home: projects.to_str().unwrap().into(),
+        },
+        path: String::new(),
+        dir,
+        db,
+        home,
+    };
+    env.set("HOME", &world.home);
+    let whole = command(&world, &["--json"]);
+    assert_eq!(whole.status.code(), Some(1), "the command refuses the read");
+    let document = parse(&whole);
+    assert_eq!(
+        (&document["legacy"], &document["unavailable"]),
+        (&json!(true), &json!("not-found"))
+    );
+    same_bytes_in_the_browser(&world, &whole, "404 Not Found");
 }
 
 /// A real packed DSH source reaches CLI text/JSON, the TUI pane and both

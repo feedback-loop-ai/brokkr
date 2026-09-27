@@ -243,9 +243,10 @@ browser participant page consumes the same shared presentation for every
 kind and keeps its checkpoint fallback. Its body drill reads by
 participant for every kind: `/api/transcript/<run>/<key>` serves the
 command's `--json` document byte for byte, and `/sse/transcript/<run>/<key>`
-watches the same source grow. A Claude reference recorded under a home
-that is not the local projects home still drills nothing: both routes
-answer it 404 before reading (decision 0072).
+watches the same source grow. The browser reads what the command reads:
+every valid reference of every kind drills, whatever home it was recorded
+under, and a run whose journal does not fold is refused on every
+participant route, as the command refuses it (decision 0073).
 
 ```
 $ brokkr transcript --run latest --seat review:chief

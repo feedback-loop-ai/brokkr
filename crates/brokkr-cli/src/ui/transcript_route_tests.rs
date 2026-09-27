@@ -110,13 +110,10 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     assert_eq!(unavailable(drill("dead-beef")), "unreadable");
     assert_eq!(unavailable(drill("9999-9999")), "not-found");
 
-    // No projects directory at all: the home cannot be canonicalized, so
-    // the reference is not drill-eligible and the route refuses it before
-    // any read, as the presentation does.
+    // No projects directory at all: the read says why, as the command's
+    // does (decision 0073 ruling 4).
     env.set("HOME", dir.path().join("elsewhere"));
-    let refused = drill("abcd-1234");
-    assert_eq!(refused.status, "404 Not Found");
-    assert_eq!(refused.body, "{\"error\":\"transcript not found\"}");
+    assert_eq!(unavailable(drill("abcd-1234")), "not-found");
 
     // No HOME: there is nowhere to look, and nothing is invented.
     env.remove("HOME");
@@ -128,6 +125,66 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
         let response = handle(&db, &format!("/api/transcript/{bad}"));
         assert_eq!(response.status, "404 Not Found", "{bad}");
         assert_eq!(response.body, "{\"error\":\"participant not found\"}");
+    }
+}
+
+/// An unfoldable journal is fatal to its own verbs (`fleet.rs`), and the
+/// drill is one of them: for a run whose journal loads and does not fold,
+/// the body route, the watch and the presentation all answer the refusal
+/// `brokkr transcript` exits with, in the fold's words, and serve no prose.
+#[test]
+fn an_unfoldable_journal_refuses_every_participant_route_as_the_command_does() {
+    let mut env = EnvGuard::lock();
+    let (home, projects) = claude_projects_home();
+    std::fs::write(
+        projects.join("seat/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"the seat's prose\"}}\n",
+    )
+    .unwrap();
+    env.set("HOME", home.path());
+    let (_dir, db, key) = participant_fixture(None, Some("claude"), Some("abcd-1234"));
+    assert_eq!(
+        transcript_route(&db, &key).status,
+        "200 OK",
+        "readable first"
+    );
+    Store::open(&db)
+        .unwrap()
+        .append_next(
+            "r1",
+            brokkr_core::envelope::EventType::EffectStarted,
+            json!({"effect_id": "never-requested", "attempt_id": "a2", "driver": "d"}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    let command = crate::run(crate::Cli {
+        command: crate::Cmd::Transcript(crate::TranscriptArgs {
+            run: "r1".into(),
+            seat: key.clone(),
+            turn: None,
+            json: true,
+            realms: None,
+            db: Some(db.clone()),
+        }),
+    });
+    let refusal = format!("{:#}", command.expect_err("the command refuses the run"));
+    assert_eq!(
+        refusal,
+        "event 6: EffectStarted is impossible at cursor EffectInFlight { effect_id: \
+         \"e1:seat\", attempt_id: \"a1\", seat: \"intake\", failed_attempts: 0 }"
+    );
+    let envelope = format!("\r\n\r\n{}", json!({"error": refusal}));
+    let route = format!("r1/{}", percent_encode(&key));
+    for path in ["/api/transcript/", "/sse/transcript/", "/api/presentation/"] {
+        let request = format!("GET {path}{route} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        let response = exchange(db.clone(), &request, Some(1));
+        assert!(
+            response.starts_with("HTTP/1.1 500 Internal Server Error"),
+            "{path}: {response}"
+        );
+        assert!(response.ends_with(&envelope), "{path}: {response}");
     }
 }
 
