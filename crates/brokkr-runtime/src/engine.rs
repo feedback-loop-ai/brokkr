@@ -3317,12 +3317,11 @@ fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
 /// The pin and the interpreter argument have different jobs (0048): the
 /// canonical script directory is what the spawn re-walks, and the argv
 /// stays exactly as compile spelled it. Later arguments are not judged
-/// paths, and filename bytes, backslashes included, stay exact.
+/// paths, and filename bytes, backslashes included, stay exact. `command`
+/// is an exec dispatch: its one caller, compose_site, checks that first.
 fn exec_spawn(command: Vec<String>, roots: &[PathBuf]) -> SiteSpawn {
     let mut spawn = SiteSpawn::inherit(command);
-    if is_exec_dispatch(&spawn.argv) {
-        spawn.rewalk = script_directory(&spawn.argv, roots);
-    }
+    spawn.rewalk = script_directory(&spawn.argv, roots);
     spawn
 }
 
