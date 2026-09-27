@@ -2023,9 +2023,9 @@ Result: **complete** (evidence.md, "Unit 12-fix-f").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
-- [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
+- [x] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
 
-- [ ] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
+- [x] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
 
 Unit 13 (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-9db14032`,
 based on `67571c3b`; evidence.md, "Unit 13"):
@@ -2309,6 +2309,36 @@ are unticked here, as at 13-fix, until the patches land and are reviewed.
   so the stop stands (evidence.md, "Unit 13-fix-c re-fire"). Both saved
   patches still apply to `6d9544e2` and still hold. 13.1 and 13.2 stay
   unticked.
+- **Second visit, 2026-09-27** (run `0065-rebuild-unit-13-see-the-uni-f0384cf8`,
+  based on `144a2051`; evidence.md, "Unit 13-fix-c second visit").
+  **Result: complete.** The operator admitted the runtime fixture changes,
+  and the ruling is appended as the addendum "2026-09-27: rebuild unit
+  13-fix-c's runtime fixtures". Both saved patches landed exactly as
+  recorded (digests match, and `git apply -R --check` is clean). 13.1 and
+  13.2 are ticked.
+  - **Admitted changes** in `crates/brokkr-runtime/src/bundle/agent_tests.rs`:
+    `CODEX_WORKSPACE` (`:967`) is now the shipped eight-token fragment;
+    the Claude hands fixture (`:4067-4073`) gains `--strict-mcp-config`;
+    and the assertion at `:4507-4527` is now 16 tokens, with the two `-c`
+    pairs added to its literal. The reason: under R1, the fixtures must
+    carry the shipped adapters' whole hands transport.
+  - **Baseline reds.** With `full.patch` alone, the three tests fail on
+    R1's complete "no server command binding" refusal. Without the
+    `--strict-mcp-config` token, the class-free positive fails on the
+    "no strict MCP configuration" refusal. The old length fails `16 ≠ 12`.
+    Each edit was restored, and the file then passed 50/50.
+  - **Mutations for the moved assertion** (temporary edits to `bundle.rs`,
+    restored). Reordering the bindings fails the literal. Inserting an
+    inert option fails the length. Dropping or repeating a pair is refused
+    at compile before the assertion is reached.
+  - **Re-taken mutations.** M1–M15 and M5b were re-taken on the landed
+    code, and every one fails a generated property, restored by `cmp`.
+  - **Gates.** fmt, `git diff --check` and clippy `-D warnings` are clean.
+    Workspace: exit 0, with 77 `ok` summaries (protocol 531 + 1 doctest,
+    runtime 565). Both bundles compile. Strict OpenSpec: 18/18.
+  - **Pending.** The `tomllib` cross-check (needs seat approval);
+    integration (14.1, 15.1, 15.2); exact coverage outside the box; macOS;
+    remote CI; and the council.
 
 ## 14. Unit 14 — Integrate checked cold commands
 

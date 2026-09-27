@@ -964,11 +964,15 @@ fn local(allow: Option<&[&str]>, sandbox: Option<Sandbox>) -> LocalTools {
 
 /// The shipped codex workspace, gate and work fragments as this fixture
 /// declares them: each expresses exactly one `--sandbox` class.
-const CODEX_WORKSPACE: [&str; 4] = [
+const CODEX_WORKSPACE: [&str; 8] = [
     "--sandbox",
     "read-only",
     "-c",
+    "mcp_servers.brokkr.command=\"{brokkr}\"",
+    "-c",
     "mcp_servers.brokkr.args={hands_args_toml}",
+    "-c",
+    "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
 ];
 const CODEX_GATE: [&str; 4] = [
     "--sandbox",
@@ -4060,7 +4064,13 @@ fn a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exa
 
     // Claude with hands: a permission mode is not a sandbox class.
     let mut claude = claude();
-    claude["hands"] = json!({"workspace": ["--tools", "", "--mcp-config", "{hands_mcp_json}"]});
+    claude["hands"] = json!({"workspace": [
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{hands_mcp_json}"
+    ]});
     fixture.write("adapters/claude.json", claude);
     fixture.write(
         "agents/boxed.json",
@@ -4494,7 +4504,7 @@ fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution(
     );
     // `{brokkr}` is expanded to the engine's own path at compile; the
     // dispatch and every token after it are exact.
-    assert_eq!(boxed.sites["work"].chain[0].argv.len(), 12);
+    assert_eq!(boxed.sites["work"].chain[0].argv.len(), 16);
     assert_eq!(
         boxed.sites["work"].chain[0].argv[1..],
         [
@@ -4508,7 +4518,11 @@ fn a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution(
             "--sandbox",
             "read-only",
             "-c",
-            "mcp_servers.brokkr.args={hands_args_toml}"
+            "mcp_servers.brokkr.command=\"{brokkr}\"",
+            "-c",
+            "mcp_servers.brokkr.args={hands_args_toml}",
+            "-c",
+            "mcp_servers.brokkr.default_tools_approval_mode=\"approve\""
         ]
     );
     let gate = fixture

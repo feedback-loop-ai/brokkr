@@ -1379,29 +1379,57 @@ impl State {
             _ => None,
         })
     }
-
-    /// The state as a Codex rejoin expresses it: `codex exec resume` takes
-    /// no `--sandbox`, so its driver re-expresses the class as the lead's
-    /// `sandbox_mode` assignment, before every other effect (the adapter's
-    /// rejoin; decision 0030 ruling 2).
-    fn rejoined(mut self) -> State {
-        // A stable sort: the one class first, every other effect in order.
-        self.effects
-            .sort_by_key(|effect| !matches!(effect, Expressed::Class(_)));
-        self
-    }
 }
 
-/// What the engine chose for one serving command beside its plan: the
-/// session it rejoins, the one overlay its driver staged, the prompt it
-/// carries as data (rebuild unit 13-fix, F5), and what it binds the box's
-/// hands to (rebuild unit 13-fix-b, R1).
+/// What the engine chose for one serving command beside its plan, from
+/// which [`check_final`] rebuilds the complete command (rebuild unit
+/// 13-fix-c, R4): the executable it spawns and the site's workdir; the
+/// parts no capability rule composes — the recipe's own words at an inline
+/// site, which lead, and the adapter's model and effort emissions, which
+/// follow its template; the result path it owns; the session it rejoins;
+/// the one overlay a DSH driver staged and whether it qualified its stream
+/// reading; the prompt a DSH command carries as data (rebuild unit 13-fix,
+/// F5); and what it binds the box's hands to (rebuild unit 13-fix-b, R1).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Serving<'a> {
+    pub program: &'a str,
+    pub workdir: &'a str,
+    pub authored: &'a [String],
+    pub pins: &'a [String],
+    pub output: Option<&'a str>,
     pub session: Option<&'a str>,
     pub overlay: Option<&'a str>,
+    pub stream: bool,
     pub prompt: Option<&'a str>,
     pub hands: Option<Transport<'a>>,
+}
+
+/// One value as the body of a TOML basic string (rebuild unit 13-fix-c,
+/// R2): the ONE encoder every value interpolated into a Codex TOML
+/// assignment passes through, for the value emitted and the value expected
+/// alike. `\` and `"` are escaped, each control character TOML forbids in
+/// a basic string (U+0000 to U+001F and U+007F) is its short escape or
+/// `\uXXXX`, and every other scalar value stands as itself, so what a TOML
+/// reader decodes is `value` exactly: a literal `/` stays those six
+/// characters and never decodes as a slash.
+fn toml_basic(value: &str) -> String {
+    let mut body = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '\\' => body.push_str("\\\\"),
+            '"' => body.push_str("\\\""),
+            '\u{8}' => body.push_str("\\b"),
+            '\t' => body.push_str("\\t"),
+            '\n' => body.push_str("\\n"),
+            '\u{c}' => body.push_str("\\f"),
+            '\r' => body.push_str("\\r"),
+            c if c <= '\u{1f}' || c == '\u{7f}' => {
+                body.push_str(&format!("\\u{:04X}", u32::from(c)))
+            }
+            c => body.push(c),
+        }
+    }
+    body
 }
 
 /// What the engine binds the box's hands to at spawn (decision 0043;
@@ -1423,30 +1451,42 @@ impl Transport<'_> {
     }
 
     /// The server's argument vector as a TOML array, as a Codex harness is
-    /// handed it.
+    /// handed it: each argument a basic string [`toml_basic`] encodes.
     fn arguments(&self) -> String {
         let quoted: Vec<String> = crate::hands::serve_args(self.workdir, self.spec)
             .iter()
-            .map(|arg| format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\"")))
+            .map(|arg| format!("\"{}\"", toml_basic(arg)))
             .collect();
         format!("[{}]", quoted.join(","))
     }
 
+    /// The executable as the body of the TOML basic string a Codex
+    /// fragment quotes it in.
+    fn command(&self) -> String {
+        toml_basic(&self.brokkr.to_string_lossy())
+    }
+
     /// An adapter's measured `hands.workspace` fragment with the engine's
     /// tokens expanded as the spawn expands them: `{hands_mcp_json}` to the
-    /// document, `{hands_args_toml}` to the arguments and `{brokkr}` to the
-    /// executable.
-    pub fn expand(&self, fragment: &[String]) -> Vec<String> {
-        let (document, arguments) = (self.document(), self.arguments());
-        let brokkr = self.brokkr.to_string_lossy();
-        fragment
-            .iter()
-            .map(|part| {
-                part.replace("{hands_mcp_json}", &document)
-                    .replace("{hands_args_toml}", &arguments)
-                    .replace("{brokkr}", &brokkr)
-            })
-            .collect()
+    /// document, `{hands_args_toml}` to the arguments and `{brokkr}`, which
+    /// stands in a TOML basic string, to the executable that string
+    /// encodes (rebuild unit 13-fix-c, R2). `None` where the executable or
+    /// the workdir is not UTF-8: no provider value represents that path
+    /// exactly, and a lossy one would bind another.
+    pub fn expand(&self, fragment: &[String]) -> Option<Vec<String>> {
+        self.brokkr.to_str()?;
+        self.workdir.to_str()?;
+        let (document, arguments, command) = (self.document(), self.arguments(), self.command());
+        Some(
+            fragment
+                .iter()
+                .map(|part| {
+                    part.replace("{hands_mcp_json}", &document)
+                        .replace("{hands_args_toml}", &arguments)
+                        .replace("{brokkr}", &command)
+                })
+                .collect(),
+        )
     }
 
     /// The capability-bearing options, other than tool lists and a class,
@@ -1465,7 +1505,7 @@ impl Transport<'_> {
             "codex" => Some(vec![
                 control(
                     "--config",
-                    format!("{}=\"{}\"", key("command"), self.brokkr.to_string_lossy()),
+                    format!("{}=\"{}\"", key("command"), self.command()),
                 ),
                 control("--config", format!("{}={}", key("args"), self.arguments())),
                 control(
@@ -1480,12 +1520,17 @@ impl Transport<'_> {
 
 /// The adapter's concrete values a launch is composed from beside its
 /// sealed record (rebuild unit 13-fix-b): the tool-permission flag a typed
-/// local allow lowers onto (`None` where the adapter maps none), its
-/// measured `hands.workspace` fragment, its tokens unexpanded, and the
-/// boundary fragment the engine appends after the hands for this launch.
+/// local allow lowers onto (`None` where the adapter maps none); the
+/// measured harness fragment a typed local sandbox class lowers onto at an
+/// inline Codex site — `hands.harness.gate` for `read-only`, `.work` for
+/// `workspace-write` (unit 5d; rebuild unit 13-fix-c, R4); its measured
+/// `hands.workspace` fragment; and the boundary fragment the engine
+/// appends after the hands for this launch. Every fragment is as the
+/// adapter declares it, its tokens unexpanded.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Dialect<'a> {
     pub permissions: Option<&'a ListFlag>,
+    pub sandbox: &'a [String],
     pub hands: &'a [String],
     pub boundary: &'a [String],
 }
@@ -1674,22 +1719,27 @@ fn unchecked<'a>(harness: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
 ///    provider, and the whole `command` — its program first, after every
 ///    engine prefix, wrapper option, expansion, session argument and
 ///    prompt — parses under the harness's grammar
-///    ([`grammar::Grammar::parse_final`]) into its [`State`]. A DSH command
-///    patches its profile with exactly the one `overlay` its driver staged.
+///    ([`grammar::Grammar::parse_final`]) into its [`State`].
 /// 2. The sealed inputs are the plan's ([`sealed_inputs`]), and from them
-///    alone the engine's contributions are rebuilt: the declared template,
-///    the typed local permissions and class lowered onto the dialect, the
-///    box's hands expanded from the typed [`Transport`] (R1), and the
-///    dialect's boundary. The recorded argv and the record's raw controls
-///    are never read.
+///    and the engine's serving choices alone the engine's contributions are
+///    rebuilt: the recipe's words and the adapter's pins, proved to carry no
+///    capability-bearing effect; the declared template; the typed local
+///    permissions and class lowered onto the dialect; the box's hands
+///    expanded from the typed [`Transport`]; and the dialect's boundary,
+///    each fragment's result path the engine's. The recorded argv and the
+///    record's raw controls are never read.
 /// 3. [`compose_for_provider`] composes them with the plan, so every
-///    refusal it gives — the known-power floor (R2), a permission pattern
-///    both admitted and denied (R3), a limit that excludes a holding — is
-///    the check's refusal, unchanged.
-/// 4. The command's effects equal the recomposed command's, one by one
-///    and in order (R4), after the one shared parse; a Codex rejoin carries
-///    the class at its lead, as its driver re-expresses it. It rejoins
-///    exactly the session and carries exactly the prompt the engine chose.
+///    refusal it gives — the known-power floor, a permission pattern both
+///    admitted and denied, a held or hands tool any denial would remove,
+///    typed hands without their whole transport, a limit that excludes a
+///    holding — is the check's refusal, unchanged.
+/// 4. The complete serving command is rebuilt from that composition by the
+///    driver's own builder ([`crate::adapters::serving_command`]): the
+///    executable, the lead and its workdir, the Codex effort and rejoin
+///    transformations, the session and the prompt as data. `command` must
+///    equal it token for token (rebuild unit 13-fix-c, R4). Nothing is
+///    dropped as inert before the comparison, so `--tools=` for
+///    `--tools ""` departs as surely as a lost denial.
 ///
 /// A harness with no modelled grammar has no final command this can read,
 /// and an opaque driver acquires no guarantee from it.
@@ -1721,21 +1771,16 @@ pub fn check_final(
     let parsed = table
         .parse_final(argv)
         .map_err(|problem| refuse(vec![Piece::Words("cannot be read whole "), unread(problem)]))?;
-    let observed = read_state(&parsed.command).map_err(|cause| {
+    read_state(&parsed.command).map_err(|cause| {
         refuse(vec![
             Piece::Words("cannot be read: it "),
             Piece::Grammar(cause),
         ])
     })?;
-    if parsed.overlay.as_deref() != serving.overlay {
-        return Err(refuse(vec![Piece::Words(
-            "does not patch its profile with exactly the one overlay its driver staged",
-        )]));
-    }
     let (authored, fragment) = sealed_inputs(table, controls, expected, dialect, serving)?;
     let composed = compose_for_provider(harness, &authored, &fragment, controls)?;
     let recomposed = table
-        .parse(&[composed.extra, composed.managed].concat())
+        .parse(&[composed.extra.clone(), composed.managed.clone()].concat())
         .map_err(|problem| {
             refuse(vec![
                 Piece::Words(
@@ -1744,50 +1789,33 @@ pub fn check_final(
                 unread(problem),
             ])
         })?;
-    let mut recomposed = read_state(&recomposed).map_err(|cause| {
+    let recomposed = read_state(&recomposed).map_err(|cause| {
         refuse(vec![
             Piece::Words("recomposes from its sealed inputs a command that cannot be read: it "),
             Piece::Grammar(cause),
         ])
     })?;
     delivered(harness, controls, &recomposed)?;
-    if harness == "codex" && serving.session.is_some() {
-        recomposed = recomposed.rejoined();
-    }
-    let effects = observed.effects.len().max(recomposed.effects.len());
-    if let Some(at) =
-        (0..effects).find(|&at| observed.effects.get(at) != recomposed.effects.get(at))
-    {
+    let rebuilt =
+        crate::adapters::serving_command(harness, &serving, &composed).map_err(|cause| {
+            refuse(vec![
+                Piece::Words(
+                    "rebuilds no serving command from its sealed inputs and the engine's serving \
+                 choices: ",
+                ),
+                Piece::Words(cause),
+            ])
+        })?;
+    let arguments = command.len().max(rebuilt.len());
+    if let Some(at) = (0..arguments).find(|&at| command.get(at) != rebuilt.get(at)) {
         return Err(refuse(vec![
-            Piece::Words("departs at its capability-bearing effect "),
-            Piece::Count(at + 1),
+            Piece::Words("departs at argument "),
+            Piece::Count(at),
             Piece::Words(
-                " from the command its sealed inputs recompose: missing, extra, reordered and \
-                 contradictory effects are refused alike",
+                " from the complete command its sealed inputs and the engine's serving choices \
+                 rebuild: missing, extra, reordered and respelled arguments are refused alike",
             ),
         ]));
-    }
-    let session = parsed.session.or(observed.session);
-    for (differs, what) in [
-        (
-            session.as_deref() != serving.session,
-            "the session it rejoins",
-        ),
-        (
-            parsed.prompt.as_deref() != serving.prompt,
-            "the prompt it carries",
-        ),
-    ] {
-        if differs {
-            return Err(refuse(vec![
-                Piece::Words("expresses "),
-                Piece::Words(what),
-                Piece::Words(
-                    " otherwise than the engine chose it: missing, extra and contradictory state \
-                     are refused alike",
-                ),
-            ]));
-        }
     }
     Ok(Checked { argv: command })
 }
@@ -1799,6 +1827,7 @@ const HANDS: &str = "its hands";
 const BOUNDARY: &str = "its boundary";
 const NATIVE: &str = "its plan's native controls";
 const LOCAL: &str = "its typed local declaration";
+const FRAGMENT: &str = "its local sandbox fragment";
 
 /// Step 2 of [`check_final`]: the engine's two argv parts, rebuilt from the
 /// sealed typed inputs and the adapter's dialect alone, once the inputs are
@@ -1823,9 +1852,14 @@ const LOCAL: &str = "its typed local declaration";
 ///   maps, and never `danger-full-access` (F2).
 /// - Codex switches OFF exactly the powers its plan denies, by the plan's
 ///   own measured OFF.
+/// - The recipe's words and the adapter's pins carry no capability-bearing
+///   effect and no session; every fragment captures into exactly the result
+///   path the engine chose, and a chosen one is captured into; the box's
+///   executable and workdir are UTF-8 (rebuild unit 13-fix-c, R2 and R4).
 ///
-/// The authored part is the declared template, then the lowered local
-/// permissions and, where no hands carry it, the typed class; the fragment
+/// The authored part is the recipe's words, the declared template, the
+/// adapter's pins, then the lowered local permissions and, where no hands
+/// carry it, the adapter's local fragment for the typed class; the fragment
 /// is the expanded hands, then the dialect's boundary.
 fn sealed_inputs(
     table: &grammar::Grammar,
@@ -1916,10 +1950,52 @@ fn sealed_inputs(
              has no established mapping for (design D5.3)",
         )]);
     }
-    // An agent's class rides its hands; otherwise the typed class is the
-    // engine's own local contribution.
-    if local.sandbox != SandboxIntent::Unspecified && !required {
-        lowering.extend(["--sandbox".to_string(), local.sandbox.word().to_string()]);
+    // Each fragment's result path is the one the engine owns and chose for
+    // this launch, and nothing else (rebuild unit 13-fix-c, R4).
+    const RESULT_PATH: &str = "{result_path}";
+    let placed = |fragment: &[String]| -> Option<Vec<String>> {
+        fragment
+            .iter()
+            .map(|part| match (part.contains(RESULT_PATH), serving.output) {
+                (false, _) => Some(part.clone()),
+                (true, Some(path)) => Some(part.replace(RESULT_PATH, path)),
+                (true, None) => None,
+            })
+            .collect()
+    };
+    // An agent's class rides its hands; otherwise the typed class lowers
+    // onto the adapter's measured harness fragment, the engine's own local
+    // contribution (unit 5d), which must express exactly that class.
+    let lowered_class = local.sandbox != SandboxIntent::Unspecified && !required;
+    let declared: &[String] = if lowered_class { dialect.sandbox } else { &[] };
+    let (Some(sandbox_argv), Some(boundary_argv)) = (placed(declared), placed(dialect.boundary))
+    else {
+        return refuse(vec![Piece::Words(
+            "is sealed with a fragment that captures into a result path the engine did not choose",
+        )]);
+    };
+    let captures = |fragment: &[String]| fragment.iter().any(|part| part.contains(RESULT_PATH));
+    if serving.output.is_some() && !captures(declared) && !captures(dialect.boundary) {
+        return refuse(vec![Piece::Words(
+            "is served with a result path none of its sealed fragments captures into",
+        )]);
+    }
+    lowering.extend(sandbox_argv.iter().cloned());
+    // The parts no capability rule composes carry no capability-bearing
+    // effect and select no session: the recipe's words and the adapter's
+    // pins, which the rebuilt command carries as they are.
+    let inert = |argv: &[String]| {
+        table
+            .parse(argv)
+            .ok()
+            .and_then(|command| read_state(&command).ok())
+            .is_some_and(|state| state.effects.is_empty() && state.session.is_none())
+    };
+    if !inert(serving.authored) || !inert(serving.pins) {
+        return refuse(vec![Piece::Words(
+            "is served with the recipe's words or its adapter's pins carrying what cannot be \
+             read, a session or a capability-bearing effect, which only its sealed plan composes",
+        )]);
     }
     // The box's hands: typed exactly where they are required, bound to the
     // transport the engine spawns, and counted as the dialect measures them.
@@ -1936,8 +2012,14 @@ fn sealed_inputs(
         }
         (_, transport) => transport,
     };
-    let hands_argv = match transport {
-        Some(transport) => transport.expand(dialect.hands),
+    let hands_argv = match transport.map(|transport| transport.expand(dialect.hands)) {
+        Some(Some(expanded)) => expanded,
+        Some(None) => {
+            return refuse(vec![Piece::Words(
+                "binds its hands to an executable or a workdir that is not UTF-8, which no \
+                 provider value represents exactly (rebuild unit 13-fix-c, R2)",
+            )])
+        }
         None => Vec::new(),
     };
     if controls.provenance.hands != hands_argv.len() {
@@ -1964,11 +2046,21 @@ fn sealed_inputs(
             "is sealed with a permission template that cannot be read",
         )]);
     };
-    let (Some(hands), Some(rest)) = (read(&hands_argv), read(dialect.boundary)) else {
+    let (Some(hands), Some(rest)) = (read(&hands_argv), read(&boundary_argv)) else {
         return refuse(vec![Piece::Words(
             "is sealed with a boundary that cannot be read",
         )]);
     };
+    let Some(fragment) = read(&sandbox_argv) else {
+        return refuse(vec![Piece::Words(
+            "is sealed with a local sandbox fragment that cannot be read",
+        )]);
+    };
+    if lowered_class && fragment.class().is_none() {
+        return refuse(vec![Piece::Words(
+            "is sealed with a typed sandbox class its adapter's local fragment does not express",
+        )]);
+    }
     let native = match table.parse(&controls.argv) {
         Ok(native) => native,
         Err(problem) => {
@@ -2016,6 +2108,7 @@ fn sealed_inputs(
     let mode = ("--permission-mode", &vec!["acceptEdits".to_string()]);
     for (source, state) in [
         (TEMPLATE, &template),
+        (FRAGMENT, &fragment),
         (HANDS, &hands),
         (BOUNDARY, &rest),
         (NATIVE, &native),
@@ -2059,6 +2152,7 @@ fn sealed_inputs(
     }
     for (source, state) in [
         (TEMPLATE, &template),
+        (FRAGMENT, &fragment),
         (HANDS, &hands),
         (BOUNDARY, &rest),
         (NATIVE, &native),
@@ -2127,8 +2221,14 @@ fn sealed_inputs(
         }
     }
     Ok((
-        [template_argv.to_vec(), lowering].concat(),
-        [hands_argv, dialect.boundary.to_vec()].concat(),
+        [
+            serving.authored,
+            template_argv,
+            serving.pins,
+            lowering.as_slice(),
+        ]
+        .concat(),
+        [hands_argv, boundary_argv].concat(),
     ))
 }
 
@@ -2707,8 +2807,9 @@ fn distinct<S: AsRef<str>>(names: impl IntoIterator<Item = S>) -> Vec<String> {
 /// - I3: with the box's hands, or under any limit, the include list is the
 ///   held tools and the tools of the carried local permissions the engine
 ///   lowered (rebuild unit 13-fix, F6), which every limit names (I2); the
-///   hands tool rides the hands' own allow list. A managed boundary
-///   fragment's list is one of the limits, never a base.
+///   allow list carries the hands tool wherever the site types hands,
+///   whether or not their fragment spells it (rebuild unit 13-fix-c, R1).
+///   A managed boundary fragment's list is one of the limits, never a base.
 pub fn final_tools(
     admits: &BTreeMap<String, Vec<String>>,
     sources: Sources<'_>,
@@ -2781,8 +2882,60 @@ pub fn final_tools(
                     .chain(lowered),
             )
         }),
-        allow: distinct(sources.carried.iter().chain(sources.allow)),
+        allow: distinct(
+            sources
+                .carried
+                .iter()
+                .chain(sources.hands)
+                .chain(sources.allow),
+        ),
     })
+}
+
+/// The first part of the box's whole transport that the typed hands
+/// `hands` do not carry at `provider` (rebuild unit 13-fix-c, R1): strict
+/// MCP and the MCP document for Claude and LaneTally, whose include
+/// restriction and workspace allowance the composer writes itself; the
+/// sandbox class and the server's three bindings for Codex.
+fn untransported(provider: &str, hands: &Command) -> Option<&'static str> {
+    let named = |name: &str| hands.nodes.iter().any(|node| node.name() == name);
+    let bound = |part: &str| {
+        let key = format!("mcp_servers.{}.{part}", crate::hands::SERVER_NAME);
+        hands
+            .nodes
+            .iter()
+            .filter(|node| node.name() == "--config")
+            .flat_map(|node| &node.values)
+            .any(|value| grammar::config_key(value) == key)
+    };
+    let owed: Vec<(bool, &'static str)> = match provider {
+        "claude" | "lanetally" => vec![
+            (
+                named("--strict-mcp-config"),
+                "strict MCP configuration ('--strict-mcp-config')",
+            ),
+            (named("--mcp-config"), "MCP document ('--mcp-config')"),
+        ],
+        "codex" => vec![
+            (named("--sandbox"), "sandbox class ('--sandbox')"),
+            (
+                bound("command"),
+                "server command binding ('mcp_servers.brokkr.command')",
+            ),
+            (
+                bound("args"),
+                "server arguments binding ('mcp_servers.brokkr.args')",
+            ),
+            (
+                bound("default_tools_approval_mode"),
+                "server approval binding ('mcp_servers.brokkr.default_tools_approval_mode')",
+            ),
+        ],
+        _ => Vec::new(),
+    };
+    owed.into_iter()
+        .find(|(present, _)| !present)
+        .map(|(_, what)| what)
 }
 
 /// One held capability an explicit include limit excludes: `clause` says
@@ -3339,8 +3492,33 @@ pub fn compose_or_exclude(
     // value or terminator in one cannot reach across and consume another
     // origin's control (decision 0066 ruling 6).
     parse_origin(provider, authored, true)?;
-    parse_origin(provider, &fragment[..typed_hands], false)?;
+    let handed = parse_origin(provider, &fragment[..typed_hands], false)?;
     parse_origin(provider, &fragment[typed_hands..], false)?;
+    // Typed hands carry their whole transport (rebuild unit 13-fix-c, R1):
+    // present, not merely uncontradicted.
+    if let Some(what) = handed
+        .filter(|_| typed_hands > 0)
+        .and_then(|hands| untransported(provider, &hands))
+    {
+        return Err(refused(
+            Why::Provenance,
+            vec![
+                Piece::Words("the capability plan for "),
+                Piece::Provider(provider),
+                Piece::Words(" types "),
+                Piece::Count(typed_hands),
+                Piece::Words(
+                    " arguments of the engine's fragment as the box's hands, but they carry no ",
+                ),
+                Piece::Words(what),
+                Piece::Words(
+                    "; the box's hands are delivered whole, so the launch is refused rather than \
+                     composed without them (decision 0043; design D6)",
+                ),
+            ],
+        )
+        .into());
+    }
     for capability in known_powers(provider) {
         if let Inventory::Unmeasured(reason) = &controls.inventory {
             return Err(unready(
@@ -3500,7 +3678,9 @@ pub fn compose_or_exclude(
                     names: distinct(grammar::node_patterns(node)),
                 })
                 .collect();
-            let hands = own.is_some_and(|node| origin(node) == LimitOrigin::Hands);
+            // The box's hands stand where the plan types them, and are never
+            // inferred from an include list (rebuild unit 13-fix-c, R1).
+            let hands = typed_hands > 0;
             let named = |kind: ListKind| -> Vec<String> {
                 plan.lists(kind)
                     .flat_map(grammar::node_patterns)
@@ -3624,12 +3804,16 @@ pub fn compose_or_exclude(
                     .into());
                 }
             }
+            // Every held tool stays available, whether or not an emitted list
+            // names it (rebuild unit 13-fix-c, R3), and so does the hands
+            // tool, which the allow list always carries (R1).
             let admitted: Vec<&String> = tools
                 .include
                 .as_ref()
                 .unwrap_or(&controls.selection.include)
                 .iter()
                 .chain(folding[0].all())
+                .chain(controls.admits.values().flatten())
                 .collect();
             // Named by its tool alone, through the one bounded renderer
             // (rebuild unit 12-fix-d): the pattern's payload is never said.

@@ -13766,3 +13766,101 @@ did not rebuild it.
 **Pending:** the operator's ruling on `agent-tests.proposed.patch`. After
 it, apply both patches, run the full gates, redo the mutation proofs,
 commit, then the council.
+
+## Unit 13-fix-c second visit — the ruling applied, 2026-09-27
+
+Run `0065-rebuild-unit-13-see-the-uni-f0384cf8`, based on `144a2051`.
+The operator admitted the three runtime fixture changes for this unit. The
+ruling is appended verbatim to `operator-ruling-2026-09-23.md` as
+"2026-09-27: rebuild unit 13-fix-c's runtime fixtures". **Result:
+complete.** Logs named below are under `.forge/unit-13-fix-c/` and carry
+the `v2-` prefix. The first visit's logs are unchanged.
+
+### The patches as landed
+
+- `sha256sum` gives `81a36445…93178` for `full.patch` and `10ea757c…c9060`
+  for `agent-tests.proposed.patch`, the recorded digests. Both applied to
+  `144a2051` with `git apply`.
+- After every proof below, `git apply -R --check` of both patches passed on
+  the working tree, and the patched `native_controls.rs` and `adapters.rs`
+  are `cmp`-identical to `final/`. So the commit is exactly the two patches,
+  with no other code edit in this visit.
+
+### The admitted changes and their baseline reds
+
+All three are in `crates/brokkr-runtime/src/bundle/agent_tests.rs`, as the
+ruling words them. They add no test and change no tested behaviour. They
+make the fixtures match the shipped adapters under R1.
+
+| # | Change | Baseline red |
+|---|---|---|
+| 1 | `CODEX_WORKSPACE` (`:967`) re-planted as the shipped eight-token `adapters/codex.json` fragment, which adds the `command` and `default_tools_approval_mode` `-c` pairs | `full.patch` alone: `bundle::agent_tests` 47 passed and 3 failed (`v2-baseline-runtime.log`). `a_typed_sandbox_…` failed at `:3845`, `a_seat_narrows_…` at `:5476` and `a_competing_control_…` at `:4490`, each on the complete refusal `Capability("seat 'work' (office 'boxed') in realm '<unmapped>': the capability plan for provider 'codex' types 4 arguments of the engine's fragment as the box's hands, but they carry no server command binding ('mcp_servers.brokkr.command'); the box's hands are delivered whole, so the launch is refused rather than composed without them (decision 0043; design D6)")` |
+| 2 | The Claude hands fixture (`:4067-4073`) gains `--strict-mcp-config` | Both patches, with that one token removed by an Edit: `a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly` failed at the class-free positive (`:4352` in the edited file, `:4353` restored) on `Capability("… the capability plan for provider 'claude' types 4 arguments of the engine's fragment as the box's hands, but they carry no strict MCP configuration ('--strict-mcp-config'); …")` (`v2-red-claude-replant.log`). The "claude with hands" row itself was already compared by `each_row` at `:4345` without failing, because the class refusal comes before the hands transport is read. The token was restored |
+| 3 | The assertion at `:4507-4527`: `argv.len() == 16`, not 12, and the literal gains the two `-c` pairs | Both patches, with the length set back to 12: fails at `:4507`, `left: 16`, `right: 12` (`v2-red-old-assertion.log`). Restored |
+
+After restoring, `bundle::agent_tests` gave 50 passed and 0 failed
+(`v2-runtime-restored.log`), and `git apply -R --check` confirmed the file
+is the proposed patch exactly.
+
+**Mutations binding change 3.** Each was one Edit at
+`crates/brokkr-runtime/src/bundle.rs:2591`, the resolved candidate's
+`argv`. That is production code outside the unit, edited only for the
+proof: it was saved first as `bundle.rs.orig` and copied back, and `git
+status --short` afterwards lists no change to it. The test was
+`a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution`.
+
+| | Mutation | Observed |
+|---|---|---|
+| MA1 | the last two tokens (the approval pair) dropped | refused at compile, `:4500`, by R1: "… types 8 arguments … carry no server approval binding ('mcp_servers.brokkr.default_tools_approval_mode') …" (`v2-MA1.log`). The assertion is not reached, because the composer already refuses the drop |
+| MA2 | the `command` and `args` bindings swapped | fails the literal at `:4508`: `left` has `args` before `command` (`v2-MA2.log`) |
+| MA3 | the approval pair repeated | refused at compile, `:4500`, as a competing authored `--sandbox 'read-only'` (the hands split moves by two) (`v2-MA3.log`) |
+| MA4 | an inert `--skip-git-repo-check` inserted before the fragment | fails the length at `:4507`, `left: 17`, `right: 16` (`v2-MA4.log`) |
+
+### Mutation proofs, re-taken on the landed code
+
+Each mutation was one Edit to `native_controls.rs` or `adapters.rs`. Then
+`cargo test -p brokkr-protocol --lib native_controls::tests` ran (M15 ran
+the whole lib), and the file was copied back from `final/`. `cmp`
+confirmed every restoration. All 16 were caught (`v2-M*.log`). P1 is
+`every_generated_sealed_state_checks_or_refuses_exactly` and P2 is
+`every_single_mutation_of_a_checked_command_refuses`.
+
+| | Mutation (one Edit) | Failed tests |
+|---|---|---|
+| M1 | `.filter(\|_\| typed_hands > 0)` → `false`: the transport presence check off | P1 and the R1 test |
+| M2 | `hands` inferred from the include node's origin again | P1, P2 and the R1 test |
+| M3 | `.chain(sources.hands)` removed from `final_tools`' allow | P1, P2 and the R1 test |
+| M4 | `.chain(controls.admits.values().flatten())` removed from `admitted` | P1 and the R3 test |
+| M5 | `Transport::command` returns the executable raw | P1, P2 and the R2 test |
+| M5b | server arguments escaped for `"` only | P1, P2 and the R2 test |
+| M6 | the comparison starts at argument 1 | P2 and `every_departure_of_a_final_claude_command_…` |
+| M7 | `--tools=` split into `--tools ""` before the comparison | P2 and `every_departure_of_a_final_claude_command_…` |
+| M8 | `serving_command` rebuilds Claude with no session | P1, P2 and `a_complete_claude_command_…` |
+| M9 | `codex_cold` given the workdir `/w` | P1 and P2 |
+| M10 | the unmeasured-inventory floor never matches | P1 and three floor tests |
+| M11 | the known-power floor ("neither holds it nor switches it off") off | P1 and two floor tests |
+| M12 | the "both admitted and denied" search finds nothing | P1 and six tests, the R1 and R3 tests among them |
+| M13 | `denies` drops the server-wide `mcp__<server>` branch | P1, the R1 test and `an_exactly_denied_local_permission_…` |
+| M14 | `dsh_command` omits `--new` | P1, P2 and `an_unmeasured_dsh_command_…` |
+| M15 | `codex_rejoin` omits the stdin `-` | whole lib, 77 failed: P1, `a_codex_cold_command_and_its_rejoin_…`, `a_codex_gate_captures_…` and the driver's `a_codex_resume_carries_the_thread_the_class_and_the_prompt` (`adapters/tests.rs:2596`). The other 73 are `PoisonError` cascades from the shared test lock |
+
+### Gates (both patches applied)
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean. It re-checked `brokkr-protocol`, `brokkr-runtime`,
+  `brokkr-bridge` and `brokkr-cli` (`v2-clippy.log`).
+- `cargo test --workspace --all-features --locked --no-fail-fast`: exit 0,
+  77 `ok` summaries and no `FAILED` or `panicked` line
+  (`v2-workspace.log`). Protocol: 531 unit tests and 1 doctest. Runtime:
+  565 unit tests.
+- `compile --bundle bundles/self` and `bundles/verify`: both exited 0.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+
+### Pending
+
+- The Python `tomllib` cross-check (`tomllib-check.py`) still needs
+  approval in this seat. The test-side decoder written from the TOML
+  specification remains the proof.
+- Serving integration (14.1, 15.1, 15.2), exact coverage outside the box,
+  macOS, remote CI and the council.

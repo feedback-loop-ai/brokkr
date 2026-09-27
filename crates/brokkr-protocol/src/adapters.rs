@@ -2885,6 +2885,39 @@ fn codex_plan(
     if !plain_thread_id(session) {
         return cold(Some("invalid-session-id"), None);
     }
+    let (command, class) = match codex_rejoin(bin, extra, managed, session) {
+        Ok(rejoin) => rejoin,
+        Err(refusal) => return cold(Some(refusal), None),
+    };
+    let qualification = qualify(&gate, &probe, originating_harness_version(input));
+    if let Some(refusal) = qualification.refusal {
+        return cold(Some(refusal), qualification.observed);
+    }
+    LaunchPlan {
+        command,
+        rejoining: Some(session.to_string()),
+        refusal: None,
+        sandbox: Some(class),
+        kind: "codex-thread",
+        harness_version: qualification.observed,
+        wrapper_digest: None,
+        persistent: true,
+        confirms_from_locator: true,
+        effort: None,
+    }
+}
+
+/// The rejoin command of one validated Codex launch and the class it
+/// re-imposes, or the token that declines the rejoin (rebuild unit
+/// 13-fix-c, R4): the ONE builder the driver's plan and the final check's
+/// rebuild ([`serving_command`]) share, so the rejoin checked is the rejoin
+/// spawned. Pure: it reads nothing but its arguments.
+fn codex_rejoin(
+    bin: &str,
+    extra: &[String],
+    managed: &[String],
+    session: &str,
+) -> Result<(Vec<String>, String), &'static str> {
     // The effort pin leaves the argv FIRST, for the same reason the
     // sandbox class does: `codex exec resume` takes neither as a flag,
     // and both go back in as `-c key=value`. Splitting it here also
@@ -2894,21 +2927,17 @@ fn codex_plan(
     let (effort, remainder) = split_effort(extra);
     let (class, passthrough) = split_codex_sandbox(&remainder);
     let Some(class) = class else {
-        return cold(Some("sandbox-unavailable"), None);
+        return Err("sandbox-unavailable");
     };
     if !CODEX_SANDBOX_CLASSES.contains(&class.as_str()) {
-        return cold(Some("unsupported-sandbox"), None);
+        return Err("unsupported-sandbox");
     }
     // The rest of the seat's argv has to be safe to carry across, part
     // by part: a second sandbox expression could outrank the one
     // re-imposed here, and last-write-wins is not a thing to gamble a
     // restriction on.
     if codex_resume_blocker(&passthrough).is_some() {
-        return cold(Some("incompatible-argv"), None);
-    }
-    let qualification = qualify(&gate, &probe, originating_harness_version(input));
-    if let Some(refusal) = qualification.refusal {
-        return cold(Some(refusal), qualification.observed);
+        return Err("incompatible-argv");
     }
     let mut command = vec![
         bin.to_string(),
@@ -2937,17 +2966,62 @@ fn codex_plan(
     // The prompt still arrives on stdin, which `codex exec resume` reads
     // only when the prompt positional is `-` (verified against 0.148.0).
     command.push("-".into());
-    LaunchPlan {
-        command,
-        rejoining: Some(session.to_string()),
-        refusal: None,
-        sandbox: Some(class),
-        kind: "codex-thread",
-        harness_version: qualification.observed,
-        wrapper_digest: None,
-        persistent: true,
-        confirms_from_locator: true,
-        effort: None,
+    Ok((command, class))
+}
+
+/// The complete serving command one built-in driver spawns for a composed
+/// launch and the engine's serving choices (rebuild unit 13-fix-c, R4),
+/// built by the builders the drivers themselves call — [`claude_serving`],
+/// [`codex_cold`] and [`codex_rejoin`], [`dsh_command`] and
+/// the prompt it ends with — so the command [`check_final`] rebuilds is the
+/// command the driver spawns. `Err` is the fixed reason no command is
+/// served: a choice the harness's shape has no place for, or the token a
+/// rejoin is declined by.
+///
+/// [`check_final`]: crate::native_controls::check_final
+pub(crate) fn serving_command(
+    harness: &str,
+    serving: &crate::native_controls::Serving<'_>,
+    composed: &crate::native_controls::Composed,
+) -> Result<Vec<String>, &'static str> {
+    let program = serving.program;
+    let dsh_only = serving.overlay.is_some() || serving.stream || serving.prompt.is_some();
+    match harness {
+        "claude" | "lanetally" | "codex" if dsh_only => Err(
+            "a staged overlay, a stream shape or a prompt argument, which only a dsh command \
+             carries, while this harness reads its prompt on stdin",
+        ),
+        "claude" | "lanetally" if !composed.managed.is_empty() => {
+            Err("managed arguments, which a claude command never carries after its composition")
+        }
+        "claude" | "lanetally" => Ok(claude_serving(program, &composed.extra, serving.session)),
+        "codex" => match serving.session {
+            None => Ok(codex_cold(
+                program,
+                &composed.extra,
+                serving.workdir,
+                &composed.managed,
+            )),
+            Some(session) => codex_rejoin(program, &composed.extra, &composed.managed, session)
+                .map(|(command, _)| command)
+                .map_err(|token| match token {
+                    "sandbox-unavailable" => "a rejoin its driver declines, no class to re-impose",
+                    "unsupported-sandbox" => "a rejoin its driver declines, an unsupported class",
+                    _ => "a rejoin its driver declines, an argument a rejoin cannot carry",
+                }),
+        },
+        "dsh" => {
+            let (Some(overlay), Some(prompt)) = (serving.overlay, serving.prompt) else {
+                return Err("no staged overlay or no prompt, which every dsh command carries");
+            };
+            if serving.session.is_some() && !serving.stream {
+                return Err("a rejoin without the stream reading a dsh rejoin is spawned under");
+            }
+            let mut command = dsh_command(program, overlay, serving.stream, serving.session);
+            command.push(prompt.to_string());
+            Ok(command)
+        }
+        _ => Err("a harness with no built-in serving shape"),
     }
 }
 
@@ -3163,6 +3237,18 @@ fn claude_cold(bin: &str, extra: &[String]) -> Vec<String> {
     command
 }
 
+/// The claude command a launch spawns: [`claude_cold`], and for a rejoin
+/// exactly `--resume <id>` after it. The ONE builder the launch and the
+/// final check's rebuild share (rebuild unit 13-fix-c, R4).
+fn claude_serving(bin: &str, extra: &[String], rejoining: Option<&str>) -> Vec<String> {
+    let mut command = claude_cold(bin, extra);
+    if let Some(id) = rejoining {
+        command.push("--resume".into());
+        command.push(id.to_string());
+    }
+    command
+}
+
 /// A claude session identifier as the CLI mints and takes one: the
 /// installed help calls `--session-id` a UUID, and `--resume` takes that
 /// same identifier. The id reaches argv as `--resume`'s value, so a
@@ -3265,15 +3351,7 @@ fn claude_launch(
     let plan = |rejoining: Option<String>,
                 refusal: Option<&'static str>,
                 version: Option<String>| LaunchPlan {
-        command: match &rejoining {
-            None => claude_cold(bin, extra),
-            Some(id) => {
-                let mut command = claude_cold(bin, extra);
-                command.push("--resume".into());
-                command.push(id.clone());
-                command
-            }
-        },
+        command: claude_serving(bin, extra, rejoining.as_deref()),
         rejoining,
         refusal,
         sandbox: None,
@@ -4150,24 +4228,12 @@ fn dsh_launch_with(
         route.as_deref(),
         sandbox_row.as_deref(),
     )?;
-    let mut command = vec![
-        bin.to_string(),
-        "--profile".into(),
-        "headless".into(),
-        "--patch".into(),
-        overlay.path().to_string_lossy().into_owned(),
-    ];
-    if stream_json {
-        command.push("--output-format".into());
-        command.push("stream-json".into());
-        match &rejoining {
-            Some(id) => {
-                command.push("--session".into());
-                command.push(id.clone());
-            }
-            None => command.push("--new".into()),
-        }
-    }
+    let command = dsh_command(
+        bin,
+        &overlay.path().to_string_lossy(),
+        stream_json,
+        rejoining.as_deref(),
+    );
     // Nothing of the seat's own argv follows: `dsh_control_conflict`
     // above refused every residual part, so the argv is exactly what the
     // engine composed.
@@ -4186,6 +4252,33 @@ fn dsh_launch_with(
         facts,
         staged,
     })
+}
+
+/// A DSH serving command up to its prompt: `<bin> --profile headless
+/// --patch <overlay>`, and where the driver qualified its stream reading,
+/// `--output-format stream-json` and then `--session <id>` for a rejoin or
+/// `--new`. The ONE builder the launch and the final check's rebuild share
+/// (rebuild unit 13-fix-c, R4); the prompt is appended last, as data.
+fn dsh_command(bin: &str, overlay: &str, stream: bool, rejoining: Option<&str>) -> Vec<String> {
+    let mut command = vec![
+        bin.to_string(),
+        "--profile".into(),
+        "headless".into(),
+        "--patch".into(),
+        overlay.to_string(),
+    ];
+    if stream {
+        command.push("--output-format".into());
+        command.push("stream-json".into());
+        match rejoining {
+            Some(id) => {
+                command.push("--session".into());
+                command.push(id.to_string());
+            }
+            None => command.push("--new".into()),
+        }
+    }
+    command
 }
 
 /// The offered root resolved beneath the admitted home, plus the sequence

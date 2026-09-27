@@ -467,13 +467,24 @@ fn a_tool_list_that_admits_a_native_tool_is_an_authored_control() {
 /// A claude plan that answers for both of the harness's known powers,
 /// over the selection and managed argv a test hands it.
 fn claude_controls(selection: Selection, managed: &[&str]) -> Controls {
+    // A power whose tool the selection denies is the plan's denial and
+    // every other its holding, so no fixture holds a tool it denies, which
+    // the composer refuses (rebuild unit 13-fix-c, R3).
+    type Power = (&'static str, &'static str);
+    let powers: [Power; 2] = [("web-search", "WebSearch"), ("web-fetch", "WebFetch")];
+    let (denied, held): (Vec<Power>, Vec<Power>) = powers
+        .into_iter()
+        .partition(|(_, tool)| selection.deny.iter().any(|name| name == tool));
     Controls {
         provider: "claude".into(),
         harness: "claude".into(),
         inventory: Inventory::Known,
-        held: argv(&["web-search", "web-fetch"]),
-        denied: Vec::new(),
-        admits: admits(&[("web-search", &["WebSearch"]), ("web-fetch", &["WebFetch"])]),
+        held: held.iter().map(|power| power.0.to_string()).collect(),
+        denied: denied.iter().map(|power| power.0.to_string()).collect(),
+        admits: held
+            .iter()
+            .map(|(capability, tool)| (capability.to_string(), argv(&[tool])))
+            .collect(),
         argv: argv(managed),
         selection,
         guards: Vec::new(),
@@ -523,7 +534,9 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
         ..claude_controls(selection.clone(), &[])
     };
     // Boxed hands: the empty native list gains exactly the held tool, the
-    // workspace tool stays allowed, and strict MCP configuration stays.
+    // workspace tool stays allowed, and strict MCP configuration stays. The
+    // hands carry their whole transport, the MCP document included (rebuild
+    // unit 13-fix-c, R1).
     assert_eq!(
         composed(
             &[],
@@ -531,11 +544,13 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
                 "--tools",
                 "",
                 "--strict-mcp-config",
+                "--mcp-config",
+                "{hands_mcp_json}",
                 "--allowedTools",
                 "mcp__brokkr__workspace"
             ],
             &Controls {
-                provenance: typed(5, &[]),
+                provenance: typed(7, &[]),
                 ..controls.clone()
             }
         ),
@@ -543,6 +558,8 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
             "--tools",
             "WebSearch",
             "--strict-mcp-config",
+            "--mcp-config",
+            "{hands_mcp_json}",
             "--allowedTools",
             "mcp__brokkr__workspace,WebSearch",
             "--disallowedTools",
@@ -2207,21 +2224,12 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
         ),
         // The hands' own list is filled from the holding alone: a name it
         // carries that nothing holds is not written (unit 12-fix-b, I3).
+        // Typed hands carry their whole transport (13-fix-c, R1).
         (
             Vec::new(),
-            argv(&[
-                "--tools",
-                "Read",
-                "--allowedTools",
-                "mcp__brokkr__workspace",
-            ]),
-            in_box(4, fetch(&[], &[])),
-            Ok(argv(&[
-                "--tools",
-                "WebFetch",
-                "--allowedTools",
-                "mcp__brokkr__workspace,WebFetch",
-            ])),
+            boxed("Read", "mcp__brokkr__workspace", &[]),
+            in_box(7, fetch(&[], &[])),
+            Ok(boxed("WebFetch", "mcp__brokkr__workspace,WebFetch", &[])),
         ),
         // The same bytes the plan does not type as hands are the managed
         // fragment (unit 12-fix-c, the positions' shared HIGH): its list is
@@ -2245,13 +2253,8 @@ fn authority_follows_the_selected_holding_and_every_limit_holds() {
         // name their allow list carries is adapter bytes, refused as theirs.
         (
             Vec::new(),
-            argv(&[
-                "--tools",
-                "",
-                "--allowedTools",
-                "mcp__brokkr__workspace,Bash",
-            ]),
-            in_box(4, fetch(&[], &[])),
+            boxed("", "mcp__brokkr__workspace,Bash", &[]),
+            in_box(7, fetch(&[], &[])),
             Err(carried_refusal("claude", "the box's hands'", "Bash")),
         ),
         // A count the fragment cannot hold types nothing, and refuses.
@@ -6641,29 +6644,33 @@ fn final_refusal(harness: &str, problem: &str) -> Refusal {
     }
 }
 
-/// A final command whose `at`th capability-bearing effect, counted from
-/// one, is the first to depart from its recomposition (rebuild unit
-/// 13-fix-b, R4), written out by hand.
+/// A final command whose argument `at`, its program counted as argument 0,
+/// is the first to depart from the complete command its sealed inputs and
+/// the engine's serving choices rebuild (rebuild unit 13-fix-c, R4),
+/// written out by hand.
 fn departs(harness: &str, at: usize) -> Refusal {
     final_refusal(
         harness,
         &format!(
-            "departs at its capability-bearing effect {at} from the command its sealed inputs \
-             recompose: missing, extra, reordered and contradictory effects are refused alike"
+            "departs at argument {at} from the complete command its sealed inputs and the \
+             engine's serving choices rebuild: missing, extra, reordered and respelled arguments \
+             are refused alike"
         ),
     )
 }
 
-/// A final command rejoining another session or carrying another prompt
-/// than the engine chose, written out by hand.
-fn unchosen(harness: &str, what: &str) -> Refusal {
-    final_refusal(
-        harness,
-        &format!(
-            "expresses {what} otherwise than the engine chose it: missing, extra and \
-             contradictory state are refused alike"
+/// The composer's refusal of typed hands that do not carry `what` of their
+/// transport (rebuild unit 13-fix-c, R1), written out by hand.
+fn unhanded(provider: &str, count: usize, what: &str) -> Refusal {
+    Refusal {
+        authored: false,
+        cause: format!(
+            "the capability plan for provider '{provider}' types {count} arguments of the \
+             engine's fragment as the box's hands, but they carry no {what}; the box's hands are \
+             delivered whole, so the launch is refused rather than composed without them \
+             (decision 0043; design D6)"
         ),
-    )
+    }
 }
 
 /// The grammar's refusal of a repeated option, as its cause reads.
@@ -6743,39 +6750,59 @@ const CODEX_LEAD: [&str; 5] = ["codex", "exec", "--json", "-C", "/w"];
 
 const CODEX_THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
 
-/// One sealed launch (rebuild unit 13-fix-b): its plan, its expected state,
-/// the adapter's dialect, the transport the engine binds its hands to, and
-/// the authored part as the launch writes it — template, then the lowered
-/// local permissions and class, with any inert pins beside them.
+/// One sealed launch (rebuild units 13-fix-b and 13-fix-c): its plan, its
+/// expected state, the adapter's dialect — its local sandbox fragment, its
+/// hands and its boundary, as declared — the transport the engine binds its
+/// hands to, the authored part as the launch writes it (template, the
+/// adapter's pins, then the lowered local permissions or class fragment),
+/// the pins the engine serves, and the result path it owns.
 #[derive(Debug, Clone)]
 struct Sealed {
     harness: &'static str,
     controls: Controls,
     expected: Expected,
     permissions: Option<ListFlag>,
+    sandbox: Vec<String>,
     hands: Vec<String>,
     boundary: Vec<String>,
     transport: Option<Transport<'static>>,
     authored: Vec<String>,
+    pins: Vec<String>,
+    output: Option<&'static str>,
+}
+
+/// The executable each fixture harness is served by; LaneTally's wrapper
+/// forwards Claude's.
+fn program(harness: &str) -> &'static str {
+    match harness {
+        "codex" => "codex",
+        "dsh" => "dsh",
+        _ => "claude",
+    }
 }
 
 impl Sealed {
     fn dialect(&self) -> Dialect<'_> {
         Dialect {
             permissions: self.permissions.as_ref(),
+            sandbox: &self.sandbox,
             hands: &self.hands,
             boundary: &self.boundary,
         }
     }
 
     /// The engine's fragment as the launch composes it: the hands the
-    /// transport binds, then the boundary.
+    /// transport binds, then the boundary with its result path.
     fn fragment(&self) -> Vec<String> {
         let hands = match self.transport {
-            Some(transport) => transport.expand(&self.hands),
+            Some(transport) => transport.expand(&self.hands).expect("a UTF-8 transport"),
             None => Vec::new(),
         };
-        [hands, self.boundary.clone()].concat()
+        let boundary = self
+            .boundary
+            .iter()
+            .map(|part| part.replace("{result_path}", self.output.unwrap_or_default()));
+        hands.into_iter().chain(boundary).collect()
     }
 
     /// What the one production composer composes for the launch.
@@ -6794,7 +6821,8 @@ impl Sealed {
         [argv(lead), composed.extra, composed.managed].concat()
     }
 
-    /// The final check of `command` under this sealed launch.
+    /// The final check of `command` under this sealed launch, served by the
+    /// fixture's executable at `/w` with its pins, result path and hands.
     fn check(&self, command: Vec<String>, serving: Serving<'_>) -> Result<Checked, Refusal> {
         check_final(
             self.harness,
@@ -6803,6 +6831,13 @@ impl Sealed {
             &self.expected,
             self.dialect(),
             Serving {
+                program: program(self.harness),
+                workdir: match serving.workdir {
+                    "" => "/w",
+                    chosen => chosen,
+                },
+                pins: &self.pins,
+                output: self.output,
                 hands: self.transport,
                 ..serving
             },
@@ -6877,10 +6912,13 @@ fn claude_final() -> Sealed {
             template: TemplateExpectation::Declared(argv(&["--permission-mode", "acceptEdits"])),
         },
         permissions: allowed_tools(),
+        sandbox: Vec::new(),
         hands: argv(&CLAUDE_HANDS),
         boundary: Vec::new(),
         transport: Some(transport()),
         authored: argv(&["--permission-mode", "acceptEdits"]),
+        pins: Vec::new(),
+        output: None,
     }
 }
 
@@ -6945,7 +6983,7 @@ fn the_engines_hands_transport_is_expanded_from_its_typed_inputs() {
     let bound = transport();
     assert_eq!(
         bound.expand(&argv(&CLAUDE_HANDS)),
-        argv(&[
+        Some(argv(&[
             "--tools",
             "",
             "--strict-mcp-config",
@@ -6953,25 +6991,27 @@ fn the_engines_hands_transport_is_expanded_from_its_typed_inputs() {
             MCP_DOCUMENT,
             "--allowedTools",
             "mcp__brokkr__workspace",
-        ])
+        ]))
     );
     assert_eq!(
         bound.expand(&argv(&CODEX_HANDS)),
-        [
-            argv(&[
-                "--sandbox",
-                "read-only",
-                "-c",
-                "mcp_servers.brokkr.command=\"/bin/brokkr\"",
-                "-c",
-            ]),
-            vec![format!("mcp_servers.brokkr.args={SERVER_ARGUMENTS}")],
-            argv(&[
-                "-c",
-                "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
-            ]),
-        ]
-        .concat()
+        Some(
+            [
+                argv(&[
+                    "--sandbox",
+                    "read-only",
+                    "-c",
+                    "mcp_servers.brokkr.command=\"/bin/brokkr\"",
+                    "-c",
+                ]),
+                vec![format!("mcp_servers.brokkr.args={SERVER_ARGUMENTS}")],
+                argv(&[
+                    "-c",
+                    "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+                ]),
+            ]
+            .concat()
+        )
     );
     let networked = crate::hands::HandsSpec {
         network: true,
@@ -6991,6 +7031,584 @@ fn the_engines_hands_transport_is_expanded_from_its_typed_inputs() {
             other.expand(&argv(&CLAUDE_HANDS)),
             bound.expand(&argv(&CLAUDE_HANDS))
         );
+    }
+}
+
+/// A TOML basic string's body decoded as TOML v1.0.0 reads it, written from
+/// the specification's escape table and not from the encoder under test:
+/// `\b \t \n \f \r \" \\`, `\uXXXX` and `\UXXXXXXXX`. Any other escape, an
+/// unescaped quote and a control character other than tab are invalid.
+fn toml_decoded(body: &str) -> Option<String> {
+    let mut decoded = String::new();
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                let escape = chars.next()?;
+                let digits = match escape {
+                    'u' => 4,
+                    'U' => 8,
+                    _ => 0,
+                };
+                decoded.push(match escape {
+                    'b' => '\u{8}',
+                    't' => '\t',
+                    'n' => '\n',
+                    'f' => '\u{c}',
+                    'r' => '\r',
+                    '"' => '"',
+                    '\\' => '\\',
+                    'u' | 'U' => {
+                        let hex: String = chars.by_ref().take(digits).collect();
+                        if hex.len() != digits {
+                            return None;
+                        }
+                        char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?
+                    }
+                    _ => return None,
+                });
+            }
+            '"' => return None,
+            c if (c <= '\u{1f}' && c != '\t') || c == '\u{7f}' => return None,
+            c => decoded.push(c),
+        }
+    }
+    Some(decoded)
+}
+
+/// A TOML array of basic strings, `["a","b"]` with no whitespace, decoded
+/// by [`toml_decoded`].
+fn toml_strings(array: &str) -> Option<Vec<String>> {
+    let mut rest = array.strip_prefix('[')?.strip_suffix(']')?;
+    let mut strings = Vec::new();
+    while !rest.is_empty() {
+        let body = rest.strip_prefix('"')?;
+        let mut end = None;
+        let mut escaped = false;
+        for (at, c) in body.char_indices() {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => {
+                    end = Some(at);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let end = end?;
+        strings.push(toml_decoded(&body[..end])?);
+        rest = &body[end + 1..];
+        rest = match rest.strip_prefix(',') {
+            Some(tail) if !tail.is_empty() => tail,
+            Some(_) => return None,
+            None if rest.is_empty() => rest,
+            None => return None,
+        };
+    }
+    Some(strings)
+}
+
+/// R2 (rebuild unit 13-fix-c; security S2): every value interpolated into a
+/// Codex TOML assignment passes through one TOML basic-string encoder, and a
+/// TOML reader decodes exactly the value. The chief's case — a literal
+/// backslash-u002f in the executable's path — decodes as a slash when
+/// interpolated raw, and as itself once encoded; so do quotes, backslashes,
+/// control characters, C1 characters and non-ASCII text, in the executable
+/// and in the workdir the server's arguments carry. The expected value and
+/// the emitted one are the same encoder's. A path that is not UTF-8 has no
+/// exact provider value and binds no hands.
+#[test]
+fn every_codex_transport_value_decodes_as_toml_to_exactly_itself() {
+    // The encoder's exact text for the escapes the chief found.
+    assert_eq!(
+        toml_basic("/opt/a\\u002fb/brokkr"),
+        "/opt/a\\\\u002fb/brokkr"
+    );
+    assert_eq!(
+        toml_basic("q\"\n\t\r\u{8}\u{c}\u{0}\u{1f}\u{7f}\u{85}é\\"),
+        "q\\\"\\n\\t\\r\\b\\f\\u0000\\u001F\\u007F\u{85}é\\\\"
+    );
+    // The raw interpolation decodes to another path.
+    assert_eq!(
+        toml_decoded("/opt/a\\u002fb/brokkr").as_deref(),
+        Some("/opt/a/b/brokkr")
+    );
+    let values = [
+        "/opt/a\\u002fb/brokkr",
+        "/opt/a\\U0000002Fb",
+        "/opt/q\"uote",
+        "/opt/back\\slash",
+        "/opt/new\nline",
+        "/opt/tab\there",
+        "/opt/nul\u{0}",
+        "/opt/del\u{7f}",
+        "/opt/unit\u{1f}",
+        "/opt/c1\u{85}",
+        "/opt/é😀",
+        "/opt/\\\\u002f\\",
+    ];
+    for value in values {
+        assert_eq!(
+            toml_decoded(&toml_basic(value)).as_deref(),
+            Some(value),
+            "{value:?}"
+        );
+        let bound = Transport {
+            brokkr: std::path::Path::new(value),
+            workdir: std::path::Path::new(value),
+            spec: &SPEC,
+        };
+        let expanded = bound
+            .expand(&argv(&CODEX_HANDS))
+            .expect("a UTF-8 transport");
+        let command = expanded[3]
+            .strip_prefix("mcp_servers.brokkr.command=\"")
+            .and_then(|rest| rest.strip_suffix('"'))
+            .expect("a quoted command");
+        assert_eq!(toml_decoded(command).as_deref(), Some(value), "{value:?}");
+        let arguments = expanded[5]
+            .strip_prefix("mcp_servers.brokkr.args=")
+            .expect("an arguments assignment");
+        assert_eq!(
+            toml_strings(arguments),
+            Some(crate::hands::serve_args(std::path::Path::new(value), &SPEC)),
+            "{value:?}"
+        );
+    }
+    // The check binds the hands through the same encoder, so the encoded
+    // command checks and the raw one departs at its binding.
+    let escaped = Sealed {
+        transport: Some(escaped_transport()),
+        ..codex_hands(&CODEX_HANDS)
+    };
+    let cold = escaped.served(&CODEX_LEAD);
+    assert_eq!(cold[12], ESCAPED_COMMAND);
+    assert_eq!(escaped.cold(cold.clone()).unwrap().into_argv(), cold);
+    let mut raw = cold.clone();
+    raw[12] = "mcp_servers.brokkr.command=\"/opt/a\\u002fb/brokkr\"".into();
+    assert_eq!(escaped.cold(raw), Err(departs("codex", 12)));
+    // A path that is not UTF-8.
+    use std::os::unix::ffi::OsStrExt;
+    let unrepresentable = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/brokkr"));
+    let boxed = codex_hands(&CODEX_HANDS);
+    for bound in [
+        Transport {
+            brokkr: unrepresentable,
+            ..transport()
+        },
+        Transport {
+            workdir: unrepresentable,
+            ..transport()
+        },
+    ] {
+        assert_eq!(bound.expand(&argv(&CODEX_HANDS)), None);
+        assert_eq!(
+            check_final(
+                "codex",
+                cold.clone(),
+                &boxed.controls,
+                &boxed.expected,
+                boxed.dialect(),
+                Serving {
+                    program: "codex",
+                    workdir: "/w",
+                    pins: &boxed.pins,
+                    hands: Some(bound),
+                    ..Serving::default()
+                },
+            ),
+            Err(final_refusal(
+                "codex",
+                "binds its hands to an executable or a workdir that is not UTF-8, which no \
+                 provider value represents exactly (rebuild unit 13-fix-c, R2)"
+            ))
+        );
+    }
+}
+
+/// R1 (rebuild unit 13-fix-c; security S1, correctness C1, spec-compliance
+/// SC1): typed hands carry their whole transport through the ONE composer,
+/// and hands are never inferred from an include list. A Claude fragment that
+/// leaves the empty include restriction and the workspace allowance out has
+/// both written by the composer; one without strict MCP or the MCP
+/// document, and a Codex one without its class or any of the server's three
+/// bindings, refuses whole. A denial of the hands tool, or of the hands'
+/// server, refuses as both admitted and denied although the fragment never
+/// spelled the allowance.
+#[test]
+fn typed_hands_carry_their_whole_transport_through_the_composer() {
+    let sealed = claude_final();
+    let listless = argv(&["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"]);
+    let in_box = |count: usize, controls: &Controls| Controls {
+        provenance: typed(count, &[]),
+        ..controls.clone()
+    };
+    assert_eq!(
+        compose_for_provider(
+            "claude",
+            &sealed.authored,
+            &listless,
+            &in_box(3, &sealed.controls)
+        )
+        .map(|composed| composed.extra),
+        Ok(argv(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "{hands_mcp_json}",
+            "--tools",
+            "WebSearch",
+            "--allowedTools",
+            "mcp__brokkr__workspace,WebSearch",
+            "--disallowedTools",
+            "WebFetch",
+        ]))
+    );
+    // Holding nothing, the written restriction is the empty one.
+    let holding_nothing = Controls {
+        held: Vec::new(),
+        denied: argv(&["web-search", "web-fetch"]),
+        admits: admits(&[]),
+        selection: Selection {
+            include: Vec::new(),
+            allow: Vec::new(),
+            deny: argv(&["WebSearch", "WebFetch"]),
+            flags: claude_flags(),
+        },
+        ..in_box(3, &sealed.controls)
+    };
+    assert_eq!(
+        compose_for_provider("claude", &[], &listless, &holding_nothing)
+            .map(|composed| composed.extra),
+        Ok(argv(&[
+            "--strict-mcp-config",
+            "--mcp-config",
+            "{hands_mcp_json}",
+            "--tools",
+            "",
+            "--allowedTools",
+            "mcp__brokkr__workspace",
+            "--disallowedTools",
+            "WebSearch,WebFetch",
+        ]))
+    );
+    for (hands, what) in [
+        (
+            argv(&[
+                "--tools",
+                "",
+                "--mcp-config",
+                "{hands_mcp_json}",
+                "--allowedTools",
+                "mcp__brokkr__workspace",
+            ]),
+            "strict MCP configuration ('--strict-mcp-config')",
+        ),
+        (
+            argv(&[
+                "--tools",
+                "",
+                "--strict-mcp-config",
+                "--allowedTools",
+                "mcp__brokkr__workspace",
+            ]),
+            "MCP document ('--mcp-config')",
+        ),
+    ] {
+        assert_eq!(
+            compose_for_provider(
+                "claude",
+                &sealed.authored,
+                &hands,
+                &in_box(hands.len(), &sealed.controls)
+            ),
+            Err(unhanded("claude", hands.len(), what)),
+            "{hands:?}"
+        );
+    }
+    // The hands tool, or the hands' server, denied beside a fragment that
+    // never spelled the allowance.
+    for denial in ["mcp__brokkr__workspace", "mcp__brokkr"] {
+        let fragment = [
+            argv(&CLAUDE_HANDS[..5]),
+            argv(&["--disallowedTools", denial]),
+        ]
+        .concat();
+        assert_eq!(
+            compose_for_provider(
+                "claude",
+                &sealed.authored,
+                &fragment,
+                &in_box(5, &sealed.controls)
+            ),
+            Err(both("claude", denial)),
+            "{denial}"
+        );
+    }
+    // Codex: the class and each of the server's three bindings.
+    let codex = codex_hands(&CODEX_HANDS);
+    for (dropped, what) in [
+        (0..2, "sandbox class ('--sandbox')"),
+        (
+            2..4,
+            "server command binding ('mcp_servers.brokkr.command')",
+        ),
+        (4..6, "server arguments binding ('mcp_servers.brokkr.args')"),
+        (
+            6..8,
+            "server approval binding ('mcp_servers.brokkr.default_tools_approval_mode')",
+        ),
+    ] {
+        let mut hands = argv(&CODEX_HANDS);
+        hands.drain(dropped);
+        assert_eq!(
+            compose_for_provider(
+                "codex",
+                &codex.authored,
+                &hands,
+                &in_box(6, &codex.controls)
+            ),
+            Err(unhanded("codex", 6, what)),
+            "{what}"
+        );
+    }
+    // The bytes of a hands fragment the plan does not type as hands are a
+    // managed boundary: no allowance and no hands base is written for them.
+    let untyped = Controls {
+        provenance: typed(0, &[]),
+        ..sealed.controls.clone()
+    };
+    assert_eq!(
+        compose_for_provider("claude", &[], &listless, &untyped).map(|composed| composed.extra),
+        Ok(argv(&[
+            "--strict-mcp-config",
+            "--mcp-config",
+            "{hands_mcp_json}",
+            "--allowedTools",
+            "WebSearch",
+            "--disallowedTools",
+            "WebFetch",
+        ]))
+    );
+}
+
+/// R3 (rebuild unit 13-fix-c; correctness C2): a held tool any denial would
+/// remove refuses in the shared authority path, whether or not an emitted
+/// list names it. The chief's reproduction — holding WebSearch, denying
+/// WebFetch, the selection's include and allow lists empty, and the
+/// boundary denying WebSearch — refuses at composition and at the check; a
+/// denial with a specifier, which removes only the calls it matches, leaves
+/// the held tool available and composes.
+#[test]
+fn a_held_tool_no_emitted_list_names_is_never_denied() {
+    let local = claude_local();
+    let unlisted = Sealed {
+        controls: Controls {
+            selection: Selection {
+                include: Vec::new(),
+                allow: Vec::new(),
+                deny: argv(&["WebFetch"]),
+                flags: claude_flags(),
+            },
+            provenance: typed(0, &[]),
+            ..local.controls.clone()
+        },
+        expected: Expected {
+            local: LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            },
+            ..local.expected.clone()
+        },
+        authored: argv(&["--permission-mode", "acceptEdits"]),
+        boundary: argv(&["--disallowedTools", "WebSearch"]),
+        ..local.clone()
+    };
+    assert_eq!(unlisted.composed(), Err(both("claude", "WebSearch")));
+    assert_eq!(
+        unlisted.cold(argv(&CLAUDE_LEAD)),
+        Err(both("claude", "WebSearch"))
+    );
+    let narrowed = Sealed {
+        boundary: argv(&["--disallowedTools", "WebSearch(site:x)"]),
+        ..unlisted.clone()
+    };
+    let cold = argv(&[
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        "acceptEdits",
+        "--disallowedTools",
+        "WebSearch(site:x),WebFetch",
+    ]);
+    assert_eq!(narrowed.served(&CLAUDE_LEAD), cold);
+    assert_eq!(narrowed.cold(cold.clone()).unwrap().into_argv(), cold);
+}
+
+/// R4 (rebuild unit 13-fix-c; NCC): a gate captures into exactly the result
+/// path the engine chose, as the adapter's local fragment names it. The
+/// inline gate's cold and rejoining commands check, the capture travelling
+/// with the rejoin; another result path departs at its argument; a fragment
+/// capturing where the engine chose no path, and a chosen path no fragment
+/// captures into, refuse.
+#[test]
+fn a_codex_gate_captures_into_exactly_the_result_path_the_engine_chose() {
+    let mut gate = codex_final(false, true);
+    gate.sandbox = argv(&CODEX_GATE);
+    gate.output = Some(RESULT);
+    gate.authored = [
+        gate.pins.clone(),
+        argv(&["--sandbox", "read-only", "--output-last-message", RESULT]),
+    ]
+    .concat();
+    let cold = argv(&[
+        "codex",
+        "exec",
+        "--json",
+        "-C",
+        "/w",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt",
+        "--image",
+        "resume",
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        RESULT,
+        "-c",
+        "web_search=\"disabled\"",
+    ]);
+    assert_eq!(gate.cold(cold.clone()).unwrap().into_argv(), cold);
+    let rejoin = argv(&[
+        "codex",
+        "exec",
+        "resume",
+        "--json",
+        "-c",
+        "sandbox_mode=\"read-only\"",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt",
+        "--image",
+        "resume",
+        "--output-last-message",
+        RESULT,
+        "-c",
+        "web_search=\"disabled\"",
+        CODEX_THREAD,
+        "-",
+    ]);
+    assert_eq!(
+        gate.check(
+            rejoin.clone(),
+            Serving {
+                session: Some(CODEX_THREAD),
+                ..Serving::default()
+            }
+        )
+        .unwrap()
+        .into_argv(),
+        rejoin
+    );
+    let mut elsewhere = cold.clone();
+    elsewhere[14] = "/r/other.json".into();
+    assert_eq!(gate.cold(elsewhere), Err(departs("codex", 14)));
+    let unchosen = Sealed {
+        output: None,
+        ..gate.clone()
+    };
+    assert_eq!(
+        unchosen.cold(cold.clone()),
+        Err(final_refusal(
+            "codex",
+            "is sealed with a fragment that captures into a result path the engine did not \
+             choose"
+        ))
+    );
+    let mut work = codex_final(false, true);
+    work.expected.local.sandbox = SandboxIntent::WorkspaceWrite;
+    work.sandbox = argv(&CODEX_WORK);
+    work.output = Some(RESULT);
+    assert_eq!(
+        work.cold(argv(&CODEX_LEAD)),
+        Err(final_refusal(
+            "codex",
+            "is served with a result path none of its sealed fragments captures into"
+        ))
+    );
+}
+
+/// R4 (rebuild unit 13-fix-c; ruling 1): the parts no capability rule
+/// composes — the recipe's words, which lead, and the adapter's model and
+/// effort pins, which follow its template — are carried as served and carry
+/// no capability-bearing effect or session. Pins after the template check,
+/// and the same pins before it depart; a capability-bearing option, a
+/// session selector or an unreadable word in either refuses.
+#[test]
+fn the_recipes_words_and_the_adapters_pins_carry_nothing_capability_bearing() {
+    let pins = argv(&["--model", "opus", "--effort", "high"]);
+    let pinned = Sealed {
+        authored: [argv(&["--permission-mode", "acceptEdits"]), pins.clone()].concat(),
+        pins: pins.clone(),
+        ..claude_final()
+    };
+    let cold = pinned.served(&CLAUDE_LEAD);
+    assert_eq!(
+        cold[5..11],
+        argv(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--model",
+            "opus",
+            "--effort",
+            "high"
+        ])
+    );
+    assert_eq!(pinned.cold(cold.clone()).unwrap().into_argv(), cold);
+    let early = [
+        cold[..5].to_vec(),
+        pins.clone(),
+        cold[5..7].to_vec(),
+        cold[11..].to_vec(),
+    ]
+    .concat();
+    assert_eq!(pinned.cold(early), Err(departs("claude", 5)));
+    let sealed = claude_final();
+    let carrying = "is served with the recipe's words or its adapter's pins carrying what cannot \
+                    be read, a session or a capability-bearing effect, which only its sealed plan \
+                    composes";
+    for words in [
+        argv(&["--allowedTools", "Bash"]),
+        argv(&["--settings", "/s.json"]),
+        argv(&["--resume", "session-1"]),
+        argv(&["hello"]),
+    ] {
+        for (authored, pins) in [(words.clone(), Vec::new()), (Vec::new(), words.clone())] {
+            let served = Sealed {
+                pins,
+                ..sealed.clone()
+            };
+            assert_eq!(
+                served.check(
+                    claude_cold(),
+                    Serving {
+                        authored: &authored,
+                        ..Serving::default()
+                    }
+                ),
+                Err(final_refusal("claude", carrying)),
+                "{words:?}"
+            );
+        }
     }
 }
 
@@ -7038,22 +7656,36 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
     assert_eq!(checked.argv(), cold.as_slice());
     // NCP: prompt text that spells a tool-list option, joined to its
     // option, is one prompt value; the real denial keeps its own position.
+    // The recipe's words lead the rebuilt command, and a word the engine
+    // did not serve departs where it stands (rebuild unit 13-fix-c, R4).
+    let prompt = argv(&["--append-system-prompt=--disallowedTools WebSearch"]);
     let mut prompted = cold.clone();
-    prompted.insert(
-        5,
-        "--append-system-prompt=--disallowedTools WebSearch".into(),
-    );
-    assert_eq!(check(&prompted, None).unwrap().into_argv(), prompted);
+    prompted.insert(5, prompt[0].clone());
+    let worded = |command: &[String]| {
+        sealed.check(
+            command.to_vec(),
+            Serving {
+                authored: &prompt,
+                ..Serving::default()
+            },
+        )
+    };
+    assert_eq!(worded(&prompted).unwrap().into_argv(), prompted);
+    assert_eq!(check(&prompted, None), Err(departs("claude", 5)));
+    assert_eq!(worded(&cold), Err(departs("claude", 5)));
     let resumed = [cold.clone(), argv(&["--resume", "session-1"])].concat();
     assert_eq!(
         check(&resumed, Some("session-1")).unwrap().into_argv(),
         resumed
     );
-    // A rejoin checked cold, or a cold command checked as a rejoin, is not
-    // the command the engine chose.
-    let session = unchosen("claude", "the session it rejoins");
-    assert_eq!(check(&resumed, None), Err(session.clone()));
-    assert_eq!(check(&cold, Some("session-1")), Err(session));
+    // A rejoin checked cold, or a cold command checked as a rejoin, or
+    // another session, is not the command the engine chose.
+    assert_eq!(check(&resumed, None), Err(departs("claude", 16)));
+    assert_eq!(check(&cold, Some("session-1")), Err(departs("claude", 16)));
+    assert_eq!(
+        check(&resumed, Some("session-2")),
+        Err(departs("claude", 17))
+    );
     // Review F4: a switch that forks or copies the rejoined conversation is
     // a selector, as the adapter's structural reader judges it, and not
     // the rejoin the engine chose.
@@ -7073,17 +7705,18 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
     }
     let mut changed = checked.into_argv();
     changed.extend(argv(&["--add-dir", "/"]));
-    assert_eq!(check(&changed, None), Err(departs("claude", 7)));
+    assert_eq!(check(&changed, None), Err(departs("claude", 16)));
 }
 
 /// NCC "Final serialization is checked rather than trusted", NCT and RGP
-/// (rebuild units 13 and 13-fix-b, 13.1): each departure of a final Claude
-/// command from its recomposition refuses at the effect it departs at — a
-/// dropped denial, an extra tool, a lost include list — and a changed
+/// (rebuild units 13, 13-fix-b and 13-fix-c, 13.1): each departure of a
+/// final Claude command from its rebuilt command refuses at the argument it
+/// departs at — a dropped denial, an extra tool, a lost include list, an
+/// extra word, another executable, lead or spelling — and a changed
 /// separator, a duplicated engine prefix option, a session selector that
 /// is not a rejoin and a bare word each refuse as read. An explicitly empty
-/// include list is not an absent one, whichever supported spelling carries
-/// it.
+/// include list is not an absent one, and `--tools=` is not `--tools ""`:
+/// the complete argv is compared token for token (R4).
 #[test]
 fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
     let sealed = claude_final();
@@ -7095,17 +7728,31 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
     };
     assert_eq!(
         edited(&|command| command.truncate(14)),
-        Err(departs("claude", 6))
+        Err(departs("claude", 14))
     );
     assert_eq!(
         edited(&|command| command[13].push_str(",WebFetch")),
-        Err(departs("claude", 5))
+        Err(departs("claude", 13))
     );
     assert_eq!(
         edited(&|command| {
             command.drain(7..9);
         }),
-        Err(departs("claude", 2))
+        Err(departs("claude", 7))
+    );
+    // The executable, the lead and an option's spelling are the command's
+    // too.
+    assert_eq!(
+        edited(&|command| command[0] = "/usr/bin/other".into()),
+        Err(departs("claude", 0))
+    );
+    assert_eq!(
+        edited(&|command| command[3] = "json".into()),
+        Err(departs("claude", 3))
+    );
+    assert_eq!(
+        edited(&|command| command[12] = "--allowed-tools".into()),
+        Err(departs("claude", 12))
     );
     assert_eq!(
         edited(&|command| command[13] = "mcp__brokkr__workspace;WebSearch".into()),
@@ -7140,7 +7787,7 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
     // word after a switch has nowhere to go.
     assert_eq!(
         edited(&|command| command.push("hello".into())),
-        Err(departs("claude", 6))
+        Err(departs("claude", 16))
     );
     assert_eq!(
         edited(&|command| command.insert(5, "hello".into())),
@@ -7152,8 +7799,8 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
     );
 
     // Empty and absent: a plan that holds nothing keeps the hands' empty
-    // include list, which `--tools=` carries as well as `--tools ""`, and
-    // which no command may drop.
+    // include list, which no command may drop or respell: `--tools=` is
+    // another token than `--tools ""` (rebuild unit 13-fix-c, R4).
     let denying = Sealed {
         controls: Controls {
             held: Vec::new(),
@@ -7178,28 +7825,42 @@ fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
         authored: Vec::new(),
         ..sealed.clone()
     };
-    let composed = denying.composed().unwrap();
-    assert_eq!(
-        composed.extra,
-        [
-            transport().expand(&argv(&CLAUDE_HANDS)),
-            argv(&["--disallowedTools", "WebSearch,WebFetch"])
-        ]
-        .concat()
-    );
-    let split = [argv(&["claude"]), composed.extra.clone()].concat();
+    let split = [
+        argv(&CLAUDE_LEAD),
+        argv(&[
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--mcp-config",
+            MCP_DOCUMENT,
+            "--allowedTools",
+            "mcp__brokkr__workspace",
+            "--disallowedTools",
+            "WebSearch,WebFetch",
+        ]),
+    ]
+    .concat();
+    assert_eq!(denying.served(&CLAUDE_LEAD), split);
     assert_eq!(denying.cold(split.clone()).unwrap().into_argv(), split);
-    let joined = [argv(&["claude", "--tools="]), composed.extra[2..].to_vec()].concat();
-    assert_eq!(denying.cold(joined.clone()).unwrap().into_argv(), joined);
-    let absent = [argv(&["claude"]), composed.extra[2..].to_vec()].concat();
-    assert_eq!(denying.cold(absent), Err(departs("claude", 1)));
+    let joined = [
+        split[..5].to_vec(),
+        argv(&["--tools="]),
+        split[7..].to_vec(),
+    ]
+    .concat();
+    assert_eq!(denying.cold(joined), Err(departs("claude", 5)));
+    let absent = [split[..5].to_vec(), split[7..].to_vec()].concat();
+    assert_eq!(denying.cold(absent), Err(departs("claude", 5)));
+    // Without a lead, the executable alone is not the driver's command.
+    let unled = [argv(&["claude"]), split[5..].to_vec()].concat();
+    assert_eq!(denying.cold(unled), Err(departs("claude", 1)));
 }
 
-/// R4 (rebuild unit 13-fix-b; NCC): the final command carries every
-/// effect in the order its recomposition does. Swapping the allow and deny
-/// pairs, the include list and the permission mode, or the MCP document
-/// and strict MCP refuses at the first effect moved, although each list
-/// and control is still there.
+/// R4 (rebuild units 13-fix-b and 13-fix-c; NCC): the final command
+/// carries every argument in the order its rebuilt command does. Swapping
+/// the allow and deny pairs, the include list and the permission mode, or
+/// the MCP document and strict MCP refuses at the first argument moved,
+/// although each list and control is still there.
 #[test]
 fn the_final_command_keeps_every_effect_in_its_composed_order() {
     let sealed = claude_final();
@@ -7214,7 +7875,7 @@ fn the_final_command_keeps_every_effect_in_its_composed_order() {
         ]
         .concat()
     };
-    for (a, b, c, at) in [(12, 14, 16, 5), (5, 7, 9, 1), (9, 10, 12, 3)] {
+    for (a, b, c, at) in [(12, 14, 16, 12), (5, 7, 9, 5), (9, 10, 12, 9)] {
         let command = swapped(a, b, c);
         assert_ne!(command, cold);
         assert_eq!(sealed.cold(command), Err(departs("claude", at)), "{a}");
@@ -7367,11 +8028,15 @@ fn the_sealed_inputs_are_checked_independently_of_the_command() {
     // Without hands, the lowered local permission is recomposed onto the
     // dialect's flag and carried.
     let local = claude_local();
-    let local_cold = local.served(&["claude"]);
+    let local_cold = local.served(&CLAUDE_LEAD);
     assert_eq!(
         local_cold,
         argv(&[
             "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
             "--permission-mode",
             "acceptEdits",
             "--allowedTools",
@@ -7385,8 +8050,8 @@ fn the_sealed_inputs_are_checked_independently_of_the_command() {
         local_cold
     );
     let mut bare = local_cold.clone();
-    bare[4] = "WebSearch".into();
-    assert_eq!(local.cold(bare), Err(departs("claude", 2)));
+    bare[8] = "WebSearch".into();
+    assert_eq!(local.cold(bare), Err(departs("claude", 8)));
     assert_eq!(
         Sealed {
             controls: Controls {
@@ -7582,6 +8247,7 @@ fn codex_final(held: bool, off: bool) -> Sealed {
             template: TemplateExpectation::None,
         },
         permissions: None,
+        sandbox: argv(&["--sandbox", "read-only"]),
         hands: Vec::new(),
         boundary: Vec::new(),
         transport: None,
@@ -7595,6 +8261,8 @@ fn codex_final(held: bool, off: bool) -> Sealed {
             "--sandbox",
             "read-only",
         ]),
+        pins: argv(&["--model", "gpt", "--effort", "high", "--image", "resume"]),
+        output: None,
     }
 }
 
@@ -7619,6 +8287,7 @@ fn codex_hands(hands: &[&str]) -> Sealed {
         hands: argv(hands),
         transport: Some(transport()),
         authored: argv(&["--model", "gpt", "--image", "resume"]),
+        pins: argv(&["--model", "gpt", "--image", "resume"]),
         ..inline
     }
 }
@@ -7687,7 +8356,7 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
         rejoin
     );
     let refused = |problem: &str| Err(final_refusal("codex", problem));
-    assert_eq!(check(&sealed, &cold[..13], None), Err(departs("codex", 2)));
+    assert_eq!(check(&sealed, &cold[..13], None), Err(departs("codex", 13)));
     let mut fenced = cold.clone();
     fenced.insert(13, "--".into());
     assert_eq!(
@@ -7710,7 +8379,7 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
     widened[5] = "sandbox_mode=\"danger-full-access\"".into();
     assert_eq!(
         check(&sealed, &widened, Some(CODEX_THREAD)),
-        Err(departs("codex", 1))
+        Err(departs("codex", 5))
     );
     assert_eq!(
         check(
@@ -7718,15 +8387,34 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
             &rejoin,
             Some("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
         ),
-        Err(unchosen("codex", "the session it rejoins"))
+        Err(departs("codex", 14))
     );
-    // The rejoin's class moved behind its OFF departs at its lead.
+    // The rejoin's class moved behind its OFF departs at its lead; so do a
+    // cold command checked as a rejoin, another workdir and an effort left
+    // as the pin it was translated from.
     let mut moved = rejoin.clone();
     let class = moved.drain(4..6).collect::<Vec<_>>();
     moved.splice(12..12, class);
     assert_eq!(
         check(&sealed, &moved, Some(CODEX_THREAD)),
-        Err(departs("codex", 1))
+        Err(departs("codex", 5))
+    );
+    assert_eq!(
+        check(&sealed, &cold, Some(CODEX_THREAD)),
+        Err(departs("codex", 2))
+    );
+    let mut elsewhere = cold.clone();
+    elsewhere[4] = "/other".into();
+    assert_eq!(check(&sealed, &elsewhere, None), Err(departs("codex", 4)));
+    let untranslated = [
+        cold[..5].to_vec(),
+        argv(&["--model", "gpt", "--effort", "high"]),
+        cold[9..].to_vec(),
+    ]
+    .concat();
+    assert_eq!(
+        check(&sealed, &untranslated, None),
+        Err(departs("codex", 5))
     );
 
     assert_eq!(
@@ -7739,11 +8427,28 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
             "carries no measured OFF for native capability 'web-search', which its plan denies"
         )
     );
-    // The typed class is the one lowered: another typed class recomposes
-    // another command.
+    // The typed class lowers onto the adapter's local fragment for it,
+    // which must express it: another typed class under the read-only
+    // fragment is two classes, and under its own fragment another command
+    // (rebuild unit 13-fix-c, R4).
     let mut other_class = sealed.clone();
     other_class.expected.local.sandbox = SandboxIntent::WorkspaceWrite;
-    assert_eq!(check(&other_class, &cold, None), Err(departs("codex", 1)));
+    assert_eq!(
+        check(&other_class, &cold, None),
+        refused(
+            "is sealed with a 'workspace-write' sandbox class in its typed local declaration and \
+             a 'read-only' one in its local sandbox fragment, and one launch runs one class"
+        )
+    );
+    other_class.sandbox = argv(&["--sandbox", "workspace-write"]);
+    assert_eq!(check(&other_class, &cold, None), Err(departs("codex", 12)));
+    other_class.sandbox = Vec::new();
+    assert_eq!(
+        check(&other_class, &cold, None),
+        refused(
+            "is sealed with a typed sandbox class its adapter's local fragment does not express"
+        )
+    );
     let mut handed = sealed.clone();
     handed.expected.hands = HandsIntent::Required;
     assert_eq!(
@@ -7798,8 +8503,9 @@ fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
 /// box's hands carry exactly the engine's own transport, produced from the
 /// typed hands and the engine's executable. A command naming an unrelated
 /// executable, `command=false`, garbage arguments, another approval mode or
-/// an unbound `--mcp-config` file departs at that effect; a class the
-/// measured fragment places last stays last cold and leads the rejoin (R4);
+/// an unbound `--mcp-config` file departs at that argument; a class the
+/// measured fragment places last stays last cold, and no rejoin carries the
+/// hands' bindings, as the driver declines one (13-fix-c, R4);
 /// a measured fragment that binds no transport, drops strict MCP or the approving
 /// mode, or carries another server, a disabling assignment or a load beside
 /// the transport is not the engine's workspace hands; and DSH has none.
@@ -7831,19 +8537,18 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
         .concat()
     );
     assert_eq!(boxed.cold(cold.clone()).unwrap().into_argv(), cold);
-    for (at, value, effect) in [
-        (12, "mcp_servers.brokkr.command=\"/usr/bin/evil\"", 2),
-        (12, "mcp_servers.brokkr.command=false", 2),
-        (14, "mcp_servers.brokkr.args=garbage", 3),
+    for (at, value) in [
+        (12, "mcp_servers.brokkr.command=\"/usr/bin/evil\""),
+        (12, "mcp_servers.brokkr.command=false"),
+        (14, "mcp_servers.brokkr.args=garbage"),
         (
             16,
             "mcp_servers.brokkr.default_tools_approval_mode=\"prompt\"",
-            4,
         ),
     ] {
         let mut served = cold.clone();
         served[at] = value.into();
-        assert_eq!(boxed.cold(served), Err(departs("codex", effect)), "{value}");
+        assert_eq!(boxed.cold(served), Err(departs("codex", at)), "{value}");
     }
     // The same executable bound for another workdir is another command.
     let elsewhere = Sealed {
@@ -7853,9 +8558,12 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
         }),
         ..boxed.clone()
     };
-    assert_eq!(elsewhere.cold(cold.clone()), Err(departs("codex", 3)));
+    assert_eq!(elsewhere.cold(cold.clone()), Err(departs("codex", 14)));
     // A measured fragment whose class stands last: the cold command keeps
-    // it there, and its rejoin leads with it, as the driver re-expresses it.
+    // it there. Its rejoin is none the driver spawns: the hands' server
+    // bindings are assignments a rejoin cannot carry, so the driver declines
+    // it (`incompatible-argv`) and so does the rebuild (rebuild unit
+    // 13-fix-c, R4).
     let last = [&CODEX_HANDS[2..], &CODEX_HANDS[..2]].concat();
     let trailing = codex_hands(&last);
     let cold = trailing.served(&CODEX_LEAD);
@@ -7875,21 +8583,22 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
         argv(&[CODEX_THREAD, "-"]),
     ]
     .concat();
-    let rejoining = |command: &[String]| {
+    assert_eq!(
         trailing.check(
-            command.to_vec(),
+            rejoin,
             Serving {
                 session: Some(CODEX_THREAD),
                 ..Serving::default()
             },
-        )
-    };
-    assert_eq!(rejoining(&rejoin).unwrap().into_argv(), rejoin);
-    let mut unmoved = rejoin.clone();
-    let class = unmoved.drain(4..6).collect::<Vec<_>>();
-    unmoved.splice(14..14, class);
-    assert_eq!(rejoining(&unmoved), Err(departs("codex", 1)));
+        ),
+        Err(final_refusal(
+            "codex",
+            "rebuilds no serving command from its sealed inputs and the engine's serving \
+             choices: a rejoin its driver declines, an argument a rejoin cannot carry"
+        ))
+    );
     let unbound = "is sealed with hands that are not the engine's workspace hands";
+    let cold = boxed.served(&CODEX_LEAD);
     let mut literal = CODEX_HANDS;
     literal[3] = "mcp_servers.brokkr.command=\"/usr/bin/evil\"";
     let mut disabled = CODEX_HANDS.to_vec();
@@ -7902,10 +8611,8 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
         &disabled[..],
         &other_server[..],
     ] {
-        let sealed = codex_hands(hands);
-        let served = sealed.served(&CODEX_LEAD);
         assert_eq!(
-            sealed.cold(served),
+            codex_hands(hands).cold(cold.clone()),
             Err(final_refusal("codex", unbound)),
             "{hands:?}"
         );
@@ -7915,7 +8622,7 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
     let cold = claude_cold();
     let mut filed = cold.clone();
     filed[11] = "/w/hands.json".into();
-    assert_eq!(boxed.cold(filed), Err(departs("claude", 4)));
+    assert_eq!(boxed.cold(filed), Err(departs("claude", 11)));
     let mut file = CLAUDE_HANDS;
     file[4] = "/w/hands.json";
     let mut loaded = CLAUDE_HANDS.to_vec();
@@ -7931,9 +8638,8 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
             hands: argv(hands),
             ..boxed.clone()
         };
-        let served = sealed.served(&CLAUDE_LEAD);
         assert_eq!(
-            sealed.cold(served),
+            sealed.cold(cold.clone()),
             Err(final_refusal("claude", unbound)),
             "{hands:?}"
         );
@@ -8043,11 +8749,15 @@ fn every_known_native_power_is_answered_before_a_command_checks() {
         model: None,
     };
     uncertain.expected.native = NativeExpectation::Unmeasured("not measured".into());
-    let served = uncertain.served(&["lanetally"]);
+    let served = uncertain.served(&CLAUDE_LEAD);
     assert_eq!(
         served,
         argv(&[
-            "lanetally",
+            "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
             "--permission-mode",
             "acceptEdits",
             "--allowedTools",
@@ -8134,10 +8844,10 @@ fn a_sealed_contribution_carries_only_established_effects() {
             authored: [template, argv(&["--allowedTools", "Bash(git log:*)"])].concat(),
             ..local.clone()
         };
-        sealed.cold(sealed.served(&["claude"]))
+        sealed.cold(sealed.served(&CLAUDE_LEAD))
     };
     let mode = ["--permission-mode", "acceptEdits"];
-    assert_eq!(claude(&mode, &[], &[]).map(|c| c.into_argv().len()), Ok(7));
+    assert_eq!(claude(&mode, &[], &[]).map(|c| c.into_argv().len()), Ok(11));
     for (template, boundary, native, effect, source) in [
         (
             &mode[..],
@@ -8201,6 +8911,7 @@ fn a_sealed_contribution_carries_only_established_effects() {
         sealed.controls.argv.splice(0..0, argv(native));
         sealed.boundary = argv(fragment);
         sealed.authored = argv(template);
+        sealed.pins = Vec::new();
         sealed.cold(sealed.served(&CODEX_LEAD))
     };
     let class = ["--sandbox", "read-only"];
@@ -8309,7 +9020,9 @@ fn every_sealed_sandbox_contribution_names_one_admitted_class() {
             false => TemplateExpectation::Declared(argv(template)),
         };
         sealed.controls.argv.splice(0..0, argv(native));
-        sealed.authored = [argv(&["--model", "gpt"]), argv(template), argv(local)].concat();
+        sealed.pins = argv(&["--model", "gpt"]);
+        sealed.sandbox = argv(local);
+        sealed.authored = [argv(template), sealed.pins.clone(), argv(local)].concat();
         sealed.boundary = argv(boundary);
         sealed
     };
@@ -8417,11 +9130,12 @@ fn every_sealed_sandbox_contribution_names_one_admitted_class() {
     );
     // One class expressed twice: the typed class the engine lowers beside
     // an agent's gate fragment, and a template's rejoin assignment beside
-    // it, recompose a command that cannot be read.
+    // it, recompose a command that cannot be read. The recomposition
+    // carries the pins and the adapter's local fragment (13-fix-c, R4).
     assert_eq!(
         checked(&site(ReadOnly, gate, &[], gate, &[])),
         refused(&format!(
-            "recomposes from its sealed inputs a command that cannot be read whole (argument 3, \
+            "recomposes from its sealed inputs a command that cannot be read whole (argument 7, \
              '--sandbox': it {})",
             repeats("--sandbox")
         ))
@@ -8436,7 +9150,7 @@ fn every_sealed_sandbox_contribution_names_one_admitted_class() {
         )),
         refused(
             "recomposes from its sealed inputs a command that cannot be read: it expresses the \
-             sandbox class a second time (argument 3)"
+             sandbox class a second time (argument 5)"
         )
     );
     // Claude has no mapping for a class.
@@ -8465,6 +9179,7 @@ fn a_codex_web_assignment_is_on_or_off_only_by_its_measured_meaning() {
         let mut sealed = codex_final(held, false);
         sealed.controls.argv = argv(native);
         sealed.authored = argv(&["--sandbox", "read-only"]);
+        sealed.pins = Vec::new();
         let served = sealed.served(&CODEX_LEAD);
         (sealed.cold(served.clone()), served)
     };
@@ -8579,14 +9294,14 @@ fn the_plan_native_contribution_is_read_whole_and_carried() {
     // A native list the plan composed, dropped from the command, departs.
     let mut listing = local.clone();
     listing.controls.argv = argv(&["--disallowedTools", "Read"]);
-    let served = listing.served(&["claude"]);
+    let served = listing.served(&CLAUDE_LEAD);
     assert_eq!(
         listing.cold(served.clone()).map(Checked::into_argv),
         Ok(served.clone())
     );
     assert_eq!(
-        listing.cold(served[..5].to_vec()),
-        Err(departs("claude", 3))
+        listing.cold(served[..9].to_vec()),
+        Err(departs("claude", 9))
     );
 }
 
@@ -8661,7 +9376,7 @@ fn every_sealed_include_limit_binds_the_final_command_empty_or_not() {
             "{name}"
         );
         let sealed = limited(owner, "WebSearch,Bash");
-        let served = sealed.served(&["claude"]);
+        let served = sealed.served(&CLAUDE_LEAD);
         assert_eq!(
             sealed.cold(served.clone()).map(Checked::into_argv),
             Ok(served.clone()),
@@ -8677,8 +9392,8 @@ fn every_sealed_include_limit_binds_the_final_command_empty_or_not() {
         // The template's list stands before the allow list; the boundary's
         // and the plan's after it.
         let include = match owner {
-            0 => 2,
-            _ => 3,
+            0 => 8,
+            _ => 10,
         };
         assert_eq!(
             sealed.cold(narrowed),
@@ -8709,19 +9424,19 @@ fn every_sealed_include_limit_binds_the_final_command_empty_or_not() {
 fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     let refused = |problem: &str| Err(final_refusal("claude", problem));
     let local = claude_local();
-    let served = |sealed: &Sealed| sealed.served(&["claude"]);
+    let served = |sealed: &Sealed| sealed.served(&CLAUDE_LEAD);
     let mut narrowed = local.clone();
     narrowed.controls.guards[0].tools = argv(&["WebSearch", "WebPeek"]);
     narrowed.controls.selection.deny = argv(&["WebPeek", "WebFetch"]);
     let command = served(&narrowed);
-    assert_eq!(command[6], "WebPeek,WebFetch");
+    assert_eq!(command[10], "WebPeek,WebFetch");
     assert_eq!(
         narrowed.cold(command.clone()).map(Checked::into_argv),
         Ok(command.clone())
     );
     let mut dropped = command.clone();
-    dropped[6] = "WebFetch".into();
-    assert_eq!(narrowed.cold(dropped), Err(departs("claude", 3)));
+    dropped[10] = "WebFetch".into();
+    assert_eq!(narrowed.cold(dropped), Err(departs("claude", 10)));
     let mut undenied = narrowed.clone();
     undenied.controls.selection.deny = argv(&["WebFetch"]);
     assert_eq!(
@@ -8733,8 +9448,8 @@ fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     );
     // The selection's admission dropped from the command.
     let mut unadmitted = served(&local);
-    unadmitted[4] = "Bash(git log:*)".into();
-    assert_eq!(local.cold(unadmitted), Err(departs("claude", 2)));
+    unadmitted[8] = "Bash(git log:*)".into();
+    assert_eq!(local.cold(unadmitted), Err(departs("claude", 8)));
     // The plan's own native lists, the selection admitting nothing.
     let native = |controls: &[&str]| {
         let mut sealed = local.clone();
@@ -8744,7 +9459,7 @@ fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     };
     let admitting = native(&["--allowedTools", "WebSearch"]);
     let command = served(&admitting);
-    assert_eq!(command[4], "Bash(git log:*),WebSearch");
+    assert_eq!(command[8], "Bash(git log:*),WebSearch");
     assert_eq!(
         admitting.cold(command.clone()).map(Checked::into_argv),
         Ok(command)
@@ -8752,7 +9467,7 @@ fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
     let denying = native(&["--disallowedTools", "WebPeek"]);
     let command = served(&denying);
     assert_eq!(
-        command[3..],
+        command[7..],
         argv(&[
             "--allowedTools",
             "Bash(git log:*)",
@@ -8765,8 +9480,8 @@ fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
         Ok(command.clone())
     );
     let mut undenied = command.clone();
-    undenied[6] = "WebFetch".into();
-    assert_eq!(denying.cold(undenied), Err(departs("claude", 3)));
+    undenied[10] = "WebFetch".into();
+    assert_eq!(denying.cold(undenied), Err(departs("claude", 10)));
 }
 
 /// F1 (rebuild units 13-fix and 13-fix-b; NCT and NCC): a denial the
@@ -8795,7 +9510,7 @@ fn a_boundary_denial_is_owed_by_the_final_command() {
         Ok(cold.clone())
     );
     let unread: Vec<String> = cold.iter().map(|part| part.replace("Read,", "")).collect();
-    assert_eq!(sealed.cold(unread), Err(departs("claude", 3)));
+    assert_eq!(sealed.cold(unread), Err(departs("claude", 10)));
 }
 
 /// F6 (rebuild units 13-fix and 13-fix-b; NCT and D6): the one builder
@@ -8828,7 +9543,7 @@ fn a_compatible_local_permission_composes_and_checks_under_a_limit() {
     );
     let mut narrowed = served.clone();
     narrowed[10] = "WebSearch".into();
-    assert_eq!(sealed.cold(narrowed), Err(departs("claude", 3)));
+    assert_eq!(sealed.cold(narrowed), Err(departs("claude", 10)));
 }
 
 /// A seat's prompt that spells a tool-list option and a session selector,
@@ -8865,6 +9580,7 @@ fn dsh_sealed() -> Sealed {
             template: TemplateExpectation::None,
         },
         permissions: None,
+        sandbox: Vec::new(),
         hands: Vec::new(),
         boundary: Vec::new(),
         transport: None,
@@ -8876,16 +9592,20 @@ fn dsh_sealed() -> Sealed {
             "--patch",
             "/r/route.yml",
         ]),
+        pins: Vec::new(),
+        output: None,
     }
 }
 
 /// NCC "Managed effects and expected state remain independent" (rebuild
-/// units 13, 13-fix and 13-fix-b): an unmeasured DSH inventory stays
-/// unmeasured through the check, its reason compared, and is never read as
-/// a known empty one. The command patches exactly the one staged overlay,
-/// rejoins exactly the chosen session and carries exactly the chosen
-/// prompt; the driver-input grammar is not the serving one; and DSH has no
-/// hands transport.
+/// units 13, 13-fix, 13-fix-b and 13-fix-c): an unmeasured DSH inventory
+/// stays unmeasured through the check, its reason compared, and is never
+/// read as a known empty one. The command patches exactly the one staged
+/// overlay, rejoins exactly the chosen session under the stream reading and
+/// carries exactly the chosen prompt, each compared token for token (R4); a
+/// serving choice with no place in the shape rebuilds nothing; the
+/// driver-input grammar is not the serving one; and DSH has no hands
+/// transport.
 #[test]
 fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
     let sealed = dsh_sealed();
@@ -8915,8 +9635,9 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
                 Serving {
                     session,
                     overlay: staged,
+                    stream: session.is_some(),
                     prompt: Some(DSH_PROMPT),
-                    hands: None,
+                    ..Serving::default()
                 },
             )
         };
@@ -8931,6 +9652,27 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
             .into_argv(),
         rejoin
     );
+    // A stream reading chosen cold opens `--new`, and a cold command is not
+    // that command.
+    let streamed = |command: &[String]| {
+        sealed.check(
+            command.to_vec(),
+            Serving {
+                overlay: staged,
+                stream: true,
+                prompt: Some(DSH_PROMPT),
+                ..Serving::default()
+            },
+        )
+    };
+    let new = [
+        cold[..5].to_vec(),
+        argv(&["--output-format", "stream-json", "--new", DSH_PROMPT]),
+    ]
+    .concat();
+    assert_eq!(streamed(&new).unwrap().into_argv(), new);
+    assert_eq!(streamed(&cold), Err(departs("dsh", 5)));
+    assert_eq!(streamed(&rejoin), Err(departs("dsh", 7)));
     let refused = |problem: &str| Err(final_refusal("dsh", problem));
     for native in [
         NativeExpectation::Unmeasured("other".into()),
@@ -8946,21 +9688,48 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
             refused("was planned under another native inventory than its sealed record expects")
         );
     }
-    let restaged = "does not patch its profile with exactly the one overlay its driver staged";
     assert_eq!(
         check(&sealed, &cold, None, Some("/t/other.yml")),
-        refused(restaged)
+        Err(departs("dsh", 4))
     );
-    assert_eq!(check(&sealed, &cold, None, None), refused(restaged));
+    let unbuilt = |cause: &str| {
+        final_refusal(
+            "dsh",
+            &format!(
+                "rebuilds no serving command from its sealed inputs and the engine's serving \
+                 choices: {cause}"
+            ),
+        )
+    };
     assert_eq!(
-        check(&sealed, &rejoin, None, staged),
-        Err(unchosen("dsh", "the session it rejoins"))
+        check(&sealed, &cold, None, None),
+        Err(unbuilt(
+            "no staged overlay or no prompt, which every dsh command carries"
+        ))
+    );
+    assert_eq!(
+        check(&sealed, &rejoin, Some("session-2"), staged),
+        Err(departs("dsh", 8))
+    );
+    assert_eq!(
+        sealed.check(
+            rejoin.clone(),
+            Serving {
+                session: Some("session-1"),
+                overlay: staged,
+                prompt: Some(DSH_PROMPT),
+                ..Serving::default()
+            }
+        ),
+        Err(unbuilt(
+            "a rejoin without the stream reading a dsh rejoin is spawned under"
+        ))
     );
     let mut reprompted = cold.clone();
     reprompted[5] = "--new".into();
     assert_eq!(
         check(&sealed, &reprompted, None, staged),
-        Err(unchosen("dsh", "the prompt it carries"))
+        Err(departs("dsh", 5))
     );
     assert_eq!(
         check(
@@ -8988,18 +9757,34 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
         check(&handed, &cold, None, staged),
         refused("is sealed with hands that are not the engine's workspace hands")
     );
-    // Another harness patches nothing.
+    // Another harness patches nothing, streams nothing and reads its prompt
+    // on stdin.
     let claude = claude_final();
-    assert_eq!(
-        claude.check(
-            claude_cold(),
-            Serving {
-                overlay: staged,
-                ..Serving::default()
-            }
-        ),
-        Err(final_refusal("claude", restaged))
-    );
+    for serving in [
+        Serving {
+            overlay: staged,
+            ..Serving::default()
+        },
+        Serving {
+            stream: true,
+            ..Serving::default()
+        },
+        Serving {
+            prompt: Some(DSH_PROMPT),
+            ..Serving::default()
+        },
+    ] {
+        assert_eq!(
+            claude.check(claude_cold(), serving),
+            Err(final_refusal(
+                "claude",
+                "rebuilds no serving command from its sealed inputs and the engine's serving \
+                 choices: a staged overlay, a stream shape or a prompt argument, which only a dsh \
+                 command carries, while this harness reads its prompt on stdin"
+            )),
+            "{serving:?}"
+        );
+    }
 }
 
 /// DSH's serving command at its fixed positions (rebuild units 13 and
@@ -9128,248 +9913,588 @@ const DSH_ENDING: &str = "stands where '--new', or '--session' and a plain sessi
                           of ASCII letters, digits and dashes, and then the seat's prompt, end a \
                           dsh serving command";
 
-/// One generated sealed launch (rebuild units 13-fix and 13-fix-b): how it
-/// was built, the launch, how it is served, and — where its sealed inputs
-/// compose no command — the composer's refusal, written out by hand.
+/// What one generated launch is expected to do (rebuild unit 13-fix-c, R5),
+/// specified by the generator's own model and never read from the composer
+/// or the builder it checks: the complete command the check admits, or the
+/// refusal the check gives — beside the composer's own, where the composer
+/// refuses the sealed inputs itself.
+#[derive(Debug, Clone)]
+enum Outcome {
+    Checks(Vec<String>),
+    Refused {
+        composer: Option<Refusal>,
+        check: Refusal,
+    },
+}
+
+/// One generated sealed launch (rebuild units 13-fix, 13-fix-b and
+/// 13-fix-c): how it was built, the launch, the engine's serving choices and
+/// its [`Outcome`].
 struct Generated {
     label: String,
     sealed: Sealed,
-    /// The serving lead, whether the composition follows it (DSH serves
-    /// its staged overlay instead), and what ends the command.
-    lead: Vec<String>,
-    carries: bool,
-    tail: Vec<String>,
-    /// A Codex rejoin carries this class as its lead's assignment, and no
-    /// `--sandbox`.
-    rejoin: Option<&'static str>,
     serving: Serving<'static>,
-    refusal: Option<Refusal>,
+    outcome: Outcome,
 }
 
 impl Generated {
-    /// The command served from `composed`.
-    fn serve(&self, composed: &Composed) -> Vec<String> {
-        let mut body = match self.carries {
-            true => [composed.extra.clone(), composed.managed.clone()].concat(),
-            false => Vec::new(),
-        };
-        if let Some(class) = self.rejoin {
-            let at = body
-                .windows(2)
-                .position(|pair| pair == ["--sandbox", class])
-                .expect("the class stands");
-            body.drain(at..at + 2);
-        }
-        [self.lead.clone(), body, self.tail.clone()].concat()
-    }
-
     fn check(&self, command: Vec<String>) -> Result<Checked, Refusal> {
         self.sealed.check(command, self.serving)
     }
+
+    /// A readable command a refused launch is presented with: its lead.
+    fn presented(&self) -> Vec<String> {
+        match self.sealed.harness {
+            "codex" => argv(&CODEX_LEAD),
+            "dsh" => argv(&["dsh", "--profile", "headless", "--patch", DSH_OVERLAY, "p"]),
+            _ => argv(&CLAUDE_LEAD),
+        }
+    }
 }
 
-/// Claude and LaneTally sealed launches: each holding of the two native
-/// powers ON or OFF, the box's hands, an unboxed site with or without a
-/// lowered local permission and a boxed one with a dormant list, the
-/// template's include limit, the boundary's narrowing or limit, the plan's
-/// own narrowing or limit, cold and rejoined. Every limit names exactly the
-/// held, lowered and hands tools, empty where there are none. Where two of
-/// the template's limit, the hands' base and the boundary's limit meet,
-/// the seat's argv writes an include list twice, and the composer's
-/// refusal names the second, counted from one.
-fn claude_states() -> Vec<Generated> {
+/// The index of the first argument `command` departs from `expected` at.
+fn first_departure(command: &[String], expected: &[String]) -> usize {
+    (0..)
+        .find(|&at| command.get(at) != expected.get(at))
+        .expect("a mutation changes the command")
+}
+
+/// A final command no serving command is rebuilt for, `cause` saying why.
+fn unbuilt(harness: &str, cause: &str) -> Refusal {
+    final_refusal(
+        harness,
+        &format!(
+            "rebuilds no serving command from its sealed inputs and the engine's serving \
+             choices: {cause}"
+        ),
+    )
+}
+
+/// How a generated plan answers for one known native power.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    Held,
+    Denied,
+    Unanswered,
+}
+
+/// Names once each, in first-seen order.
+fn once(names: Vec<String>) -> Vec<String> {
+    let mut seen: Vec<String> = Vec::new();
+    for name in names {
+        if !seen.contains(&name) {
+            seen.push(name);
+        }
+    }
+    seen
+}
+
+/// Whether the bare or server-wide denial `denial` removes the admission
+/// `admission`: a denial with no specifier denies its tool, and a server's
+/// own name every tool the server serves; a denial with a specifier denies
+/// only the calls it matches (design D6; rebuild unit 13-fix, F6).
+fn removes(denial: &str, admission: &str) -> bool {
+    let tool = admission.split('(').next().unwrap_or_default();
+    admission == denial
+        || (!denial.contains('(')
+            && (tool == denial
+                || (denial.starts_with("mcp__")
+                    && tool
+                        .strip_prefix(denial)
+                        .is_some_and(|rest| rest.starts_with("__")))))
+}
+
+/// The hands tool the box serves.
+const HANDS_TOOL: &str = "mcp__brokkr__workspace";
+
+/// One Claude or LaneTally generated launch.
+#[derive(Debug, Clone, Copy)]
+struct ClaudeCase {
+    harness: &'static str,
+    search: Answer,
+    fetch: Answer,
+    unmeasured: bool,
+    /// `boxed` and `dormant` carry the adapter's whole hands fragment,
+    /// `listless` the fragment without its include restriction and
+    /// allowance, which the composer writes itself (R1); `unboxed` and
+    /// `lowered` carry none, `lowered` with a lowered local permission.
+    site: &'static str,
+    template_limit: bool,
+    boundary: &'static str,
+    native: &'static str,
+    /// Whether the selection names the held tools, or leaves its include
+    /// and allow lists empty (R3).
+    named: bool,
+    rejoin: bool,
+}
+
+/// One list or plain part of a seat's argv, in the model.
+struct Part {
+    list: Option<ListKind>,
+    tokens: Vec<String>,
+}
+
+fn plain_part(tokens: &[&str]) -> Part {
+    Part {
+        list: None,
+        tokens: argv(tokens),
+    }
+}
+
+fn list_part(kind: ListKind, flag: &str, value: &str) -> Part {
+    Part {
+        list: Some(kind),
+        tokens: argv(&[flag, value]),
+    }
+}
+
+/// The patterns of a list part's value.
+fn patterns(part: &Part) -> Vec<String> {
+    part.tokens[1]
+        .split(',')
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn claude_case(case: ClaudeCase) -> Generated {
+    let ClaudeCase {
+        harness,
+        site,
+        boundary,
+        native,
+        ..
+    } = case;
     let guard = |capability: &str, tool: &str| Guard {
         capability: capability.into(),
         tools: argv(&[tool]),
         ..Guard::default()
     };
+    let powers = [
+        ("web-search", "WebSearch", case.search),
+        ("web-fetch", "WebFetch", case.fetch),
+    ];
+    let answered = |answer: Answer| -> Vec<(&str, &str)> {
+        powers
+            .iter()
+            .filter(|power| !case.unmeasured && power.2 == answer)
+            .map(|power| (power.0, power.1))
+            .collect()
+    };
+    let (held, denied) = (answered(Answer::Held), answered(Answer::Denied));
+    let hands = matches!(site, "boxed" | "dormant" | "listless");
+    let lowered = site == "lowered";
+    let held_tools: Vec<String> = held.iter().map(|power| power.1.to_string()).collect();
+    let denied_tools: Vec<String> = denied.iter().map(|power| power.1.to_string()).collect();
+    let mut needed = held_tools.clone();
+    if lowered {
+        needed.push("Bash".into());
+    }
+    if hands {
+        needed.push(HANDS_TOOL.into());
+    }
+    let limit = needed.join(",");
+    let mut template = argv(&["--permission-mode", "acceptEdits"]);
+    if case.template_limit {
+        template.extend(argv(&["--tools", &limit]));
+    }
+    let local = match lowered {
+        true => argv(&["--allowedTools", "Bash(git log:*)"]),
+        false => Vec::new(),
+    };
+    let hands_argv = match site {
+        "boxed" | "dormant" => argv(&CLAUDE_HANDS),
+        "listless" => argv(&CLAUDE_HANDS[2..5]),
+        _ => Vec::new(),
+    };
+    let rest = match boundary {
+        "narrowing" => argv(&["--disallowedTools", "Read"]),
+        "limit" => argv(&["--tools", &limit]),
+        "denies held" => argv(&["--disallowedTools", "WebSearch"]),
+        "denies hands" => argv(&["--disallowedTools", HANDS_TOOL]),
+        "denies server" => argv(&["--disallowedTools", "mcp__brokkr"]),
+        "denies local" => argv(&["--disallowedTools", "Bash"]),
+        _ => Vec::new(),
+    };
+    let plan_argv = match native {
+        "narrowing" => argv(&["--disallowedTools", "Glob"]),
+        "limit" => argv(&["--tools", &limit]),
+        "denies held" => argv(&["--disallowedTools", "WebSearch"]),
+        _ => Vec::new(),
+    };
+    let lowering: &[&str] = match lowered {
+        true => &["Bash(git log:*)"],
+        false => &[],
+    };
+    let selected = match case.named {
+        true => held_tools.clone(),
+        false => Vec::new(),
+    };
+    let controls = Controls {
+        provider: harness.into(),
+        harness: harness.into(),
+        inventory: match case.unmeasured {
+            true => Inventory::Unmeasured("not measured".into()),
+            false => Inventory::Known,
+        },
+        held: held.iter().map(|power| power.0.to_string()).collect(),
+        denied: denied.iter().map(|power| power.0.to_string()).collect(),
+        admits: held
+            .iter()
+            .map(|power| (power.0.to_string(), argv(&[power.1])))
+            .collect(),
+        argv: plan_argv.clone(),
+        selection: Selection {
+            include: selected.clone(),
+            allow: selected.clone(),
+            deny: denied_tools.clone(),
+            flags: claude_flags(),
+        },
+        guards: vec![
+            guard("web-search", "WebSearch"),
+            guard("web-fetch", "WebFetch"),
+        ],
+        provenance: typed(hands_argv.len(), lowering),
+    };
+    let expected = Expected {
+        identity: Identity {
+            provider: harness.into(),
+            harness: harness.into(),
+            model: None,
+        },
+        native: match case.unmeasured {
+            true => NativeExpectation::Unmeasured("not measured".into()),
+            false => NativeExpectation::Known {
+                held: held
+                    .iter()
+                    .map(|power| HeldPower {
+                        capability: power.0.into(),
+                        tools: argv(&[power.1]),
+                        restrictions: serde_json::Map::new(),
+                    })
+                    .collect(),
+                denied: denied.iter().map(|power| power.0.to_string()).collect(),
+            },
+        },
+        local: match site {
+            "lowered" => LocalExpectation {
+                allow: AllowIntent::Listed(argv(&["git"])),
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Direct(argv(lowering)),
+            },
+            "dormant" => LocalExpectation {
+                allow: AllowIntent::Listed(argv(&["git"])),
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Dormant,
+            },
+            _ => LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            },
+        },
+        hands: match hands {
+            true => HandsIntent::Required,
+            false => HandsIntent::None,
+        },
+        template: TemplateExpectation::Declared(template.clone()),
+    };
+    let authored = [template.clone(), local.clone()].concat();
+    let label = format!("{case:?}");
+    let sealed = Sealed {
+        harness,
+        controls,
+        expected,
+        permissions: allowed_tools(),
+        sandbox: Vec::new(),
+        hands: hands_argv.clone(),
+        boundary: rest.clone(),
+        transport: hands.then(transport),
+        authored: authored.clone(),
+        pins: Vec::new(),
+        output: None,
+    };
+    let serving = Serving {
+        session: case.rejoin.then_some("session-1"),
+        ..Serving::default()
+    };
+    let refused = |refusal: Refusal| Outcome::Refused {
+        composer: Some(refusal.clone()),
+        check: refusal,
+    };
+    let generated = |outcome: Outcome| Generated {
+        label: label.clone(),
+        sealed: sealed.clone(),
+        serving,
+        outcome,
+    };
+
+    // The known-power floor, Claude's alone.
+    if harness == "claude" {
+        if case.unmeasured {
+            return generated(refused(unready_refusal(
+                harness,
+                "web-search",
+                "declares the provider's inventory unmeasured (not measured)",
+            )));
+        }
+        if let Some(power) = powers.iter().find(|power| power.2 == Answer::Unanswered) {
+            return generated(refused(unready_refusal(
+                harness,
+                power.0,
+                "neither holds it nor switches it off",
+            )));
+        }
+    }
+    // The seat writes an include list at most once: a second is refused at
+    // its own position, counted from one.
+    let seat = [authored.clone(), hands_argv.clone(), rest.clone()].concat();
+    if let Some(at) = seat
+        .iter()
+        .enumerate()
+        .filter(|(_, part)| *part == "--tools")
+        .nth(1)
+        .map(|(at, _)| at)
+    {
+        return generated(refused(Refusal {
+            authored: true,
+            cause: unplaced(harness, at + 1, "'--tools'", &repeats("--tools")),
+        }));
+    }
+
+    // The seat's parts, the hands expanded as the engine binds them.
+    let mut parts = vec![plain_part(&["--permission-mode", "acceptEdits"])];
+    if case.template_limit {
+        parts.push(list_part(ListKind::Include, "--tools", &limit));
+    }
+    if lowered {
+        parts.push(list_part(
+            ListKind::Allow,
+            "--allowedTools",
+            "Bash(git log:*)",
+        ));
+    }
+    match site {
+        "boxed" | "dormant" => {
+            parts.push(list_part(ListKind::Include, "--tools", ""));
+            parts.push(plain_part(&[
+                "--strict-mcp-config",
+                "--mcp-config",
+                MCP_DOCUMENT,
+            ]));
+            parts.push(list_part(ListKind::Allow, "--allowedTools", HANDS_TOOL));
+        }
+        "listless" => {
+            parts.push(plain_part(&[
+                "--strict-mcp-config",
+                "--mcp-config",
+                MCP_DOCUMENT,
+            ]));
+        }
+        _ => {}
+    }
+    if !rest.is_empty() {
+        let kind = match boundary {
+            "limit" => ListKind::Include,
+            _ => ListKind::Deny,
+        };
+        parts.push(list_part(kind, &rest[0], &rest[1]));
+    }
+    let plan_list = |kind: ListKind| -> Option<Vec<String>> {
+        let flag = match kind {
+            ListKind::Include => "--tools",
+            ListKind::Allow => "--allowedTools",
+            ListKind::Deny => "--disallowedTools",
+        };
+        (plan_argv.first().map(String::as_str) == Some(flag)).then(|| argv(&[&plan_argv[1]]))
+    };
+    let own =
+        |parts: &[Part], kind: ListKind| parts.iter().position(|part| part.list == Some(kind));
+
+    // The final include list: the held tools and the lowered local tool,
+    // wherever the box's hands stand or any limit restricts the launch.
+    let limited = case.template_limit || boundary == "limit" || native == "limit";
+    let lowered_tools: Vec<String> = match lowered {
+        true => argv(&["Bash"]),
+        false => Vec::new(),
+    };
+    let include = (hands || limited)
+        .then(|| once([selected.clone(), held_tools.clone(), lowered_tools].concat()));
+    // The final allow list: what the seat carries, the hands tool wherever
+    // the plan types hands, then the selection's (R1).
+    let carried = own(&parts, ListKind::Allow)
+        .map(|at| patterns(&parts[at]))
+        .unwrap_or_default();
+    let hands_tool = match hands {
+        true => argv(&[HANDS_TOOL]),
+        false => Vec::new(),
+    };
+    let allow = once([carried.clone(), hands_tool, selected.clone()].concat());
+    // The final deny list: what the seat carries, then the selection's and
+    // the plan's own.
+    let carried_denials = own(&parts, ListKind::Deny)
+        .map(|at| patterns(&parts[at]))
+        .unwrap_or_default();
+    let denials: Vec<String> = once(
+        [
+            denied_tools.clone(),
+            plan_list(ListKind::Deny).unwrap_or_default(),
+        ]
+        .concat(),
+    )
+    .into_iter()
+    .filter(|name| !carried_denials.contains(name))
+    .collect();
+
+    // A held tool, a lowered local tool or the hands tool that any denial
+    // removes refuses, whether or not an emitted list names it (R1, R3).
+    let admitted: Vec<String> = [
+        include.clone().unwrap_or_else(|| selected.clone()),
+        allow.clone(),
+        held_tools.clone(),
+    ]
+    .concat();
+    if let Some(denial) = carried_denials
+        .iter()
+        .chain(&denials)
+        .find(|denial| admitted.iter().any(|admission| removes(denial, admission)))
+    {
+        return generated(refused(both(harness, denial)));
+    }
+
+    // The folded command.
+    let mut appended: Vec<String> = Vec::new();
+    if let Some(names) = &include {
+        match own(&parts, ListKind::Include) {
+            Some(at) => parts[at].tokens[1] = names.join(","),
+            None => appended.extend([String::from("--tools"), names.join(",")]),
+        }
+    }
+    match own(&parts, ListKind::Allow) {
+        Some(at) => parts[at].tokens[1] = allow.join(","),
+        None if !allow.is_empty() => {
+            appended.extend([String::from("--allowedTools"), allow.join(",")])
+        }
+        None => {}
+    }
+    match own(&parts, ListKind::Deny) {
+        Some(at) if !denials.is_empty() => {
+            parts[at].tokens[1] = [carried_denials, denials].concat().join(",")
+        }
+        Some(_) => {}
+        None if !denials.is_empty() || plan_list(ListKind::Deny).is_some() => {
+            appended.extend([String::from("--disallowedTools"), denials.join(",")])
+        }
+        None => {}
+    }
+    let mut command = argv(&CLAUDE_LEAD);
+    command.extend(parts.into_iter().flat_map(|part| part.tokens));
+    command.extend(appended);
+    if case.rejoin {
+        command.extend(argv(&["--resume", "session-1"]));
+    }
+    generated(Outcome::Checks(command))
+}
+
+/// Claude and LaneTally sealed launches (rebuild units 13-fix, 13-fix-b and
+/// 13-fix-c, R5). The main space: each holding of the two native powers ON
+/// or OFF, the box's whole hands, hands whose fragment leaves the include
+/// restriction and the allowance to the composer (R1), an unboxed site with
+/// or without a lowered local permission and a boxed one with a dormant
+/// list, the template's include limit, the boundary's narrowing or limit,
+/// the plan's own narrowing or limit, cold and rejoined. The floors: a
+/// known power unanswered and an unmeasured inventory, which Claude refuses
+/// and LaneTally, with no floor of its own, checks. The exact permission
+/// conflicts: a held tool, the hands tool, the hands' server and a lowered
+/// local tool, each denied by the boundary or the plan, with the selection
+/// naming the held tools or leaving its lists empty (R3).
+fn claude_states() -> Vec<Generated> {
+    use Answer::{Denied, Held, Unanswered};
+    let base = ClaudeCase {
+        harness: "claude",
+        search: Held,
+        fetch: Denied,
+        unmeasured: false,
+        site: "unboxed",
+        template_limit: false,
+        boundary: "none",
+        native: "none",
+        named: true,
+        rejoin: false,
+    };
     let mut states = Vec::new();
     for harness in ["claude", "lanetally"] {
-        for (search, fetch) in [(true, true), (true, false), (false, true), (false, false)] {
-            for site in ["boxed", "dormant", "unboxed", "lowered"] {
+        for (search, fetch) in [
+            (Held, Held),
+            (Held, Denied),
+            (Denied, Held),
+            (Denied, Denied),
+        ] {
+            for site in ["boxed", "listless", "dormant", "unboxed", "lowered"] {
                 for template_limit in [false, true] {
                     for boundary in ["none", "narrowing", "limit"] {
                         for native in ["none", "narrowing", "limit"] {
                             for rejoin in [false, true] {
-                                let powers = [
-                                    ("web-search", "WebSearch", search),
-                                    ("web-fetch", "WebFetch", fetch),
-                                ];
-                                let hands = matches!(site, "boxed" | "dormant");
-                                let lowered = site == "lowered";
-                                let held: Vec<(&str, &str)> = powers
-                                    .iter()
-                                    .filter(|power| power.2)
-                                    .map(|power| (power.0, power.1))
-                                    .collect();
-                                let denied: Vec<(&str, &str)> = powers
-                                    .iter()
-                                    .filter(|power| !power.2)
-                                    .map(|power| (power.0, power.1))
-                                    .collect();
-                                let held_tools: Vec<&str> =
-                                    held.iter().map(|power| power.1).collect();
-                                let mut needed = held_tools.clone();
-                                if lowered {
-                                    needed.push("Bash");
-                                }
-                                if hands {
-                                    needed.push("mcp__brokkr__workspace");
-                                }
-                                let limit = needed.join(",");
-                                let mut template = argv(&["--permission-mode", "acceptEdits"]);
-                                if template_limit {
-                                    template.extend(argv(&["--tools", &limit]));
-                                }
-                                let local = match lowered {
-                                    true => argv(&["--allowedTools", "Bash(git log:*)"]),
-                                    false => Vec::new(),
-                                };
-                                let rest = match boundary {
-                                    "narrowing" => argv(&["--disallowedTools", "Read"]),
-                                    "limit" => argv(&["--tools", &limit]),
-                                    _ => Vec::new(),
-                                };
-                                let lowering: &[&str] = match lowered {
-                                    true => &["Bash(git log:*)"],
-                                    false => &[],
-                                };
-                                let controls = Controls {
-                                    provider: harness.into(),
-                                    harness: harness.into(),
-                                    inventory: Inventory::Known,
-                                    held: held.iter().map(|power| power.0.to_string()).collect(),
-                                    denied: denied
-                                        .iter()
-                                        .map(|power| power.0.to_string())
-                                        .collect(),
-                                    admits: held
-                                        .iter()
-                                        .map(|power| (power.0.to_string(), argv(&[power.1])))
-                                        .collect(),
-                                    argv: match native {
-                                        "narrowing" => argv(&["--disallowedTools", "Glob"]),
-                                        "limit" => argv(&["--tools", &limit]),
-                                        _ => Vec::new(),
-                                    },
-                                    selection: Selection {
-                                        include: argv(&held_tools),
-                                        allow: argv(&held_tools),
-                                        deny: denied
-                                            .iter()
-                                            .map(|power| power.1.to_string())
-                                            .collect(),
-                                        flags: claude_flags(),
-                                    },
-                                    guards: vec![
-                                        guard("web-search", "WebSearch"),
-                                        guard("web-fetch", "WebFetch"),
-                                    ],
-                                    provenance: typed(
-                                        if hands { CLAUDE_HANDS.len() } else { 0 },
-                                        lowering,
-                                    ),
-                                };
-                                let local_expectation = match site {
-                                    "lowered" => LocalExpectation {
-                                        allow: AllowIntent::Listed(argv(&["git"])),
-                                        sandbox: SandboxIntent::Unspecified,
-                                        application: Application::Direct(argv(lowering)),
-                                    },
-                                    "dormant" => LocalExpectation {
-                                        allow: AllowIntent::Listed(argv(&["git"])),
-                                        sandbox: SandboxIntent::Unspecified,
-                                        application: Application::Dormant,
-                                    },
-                                    _ => LocalExpectation {
-                                        allow: AllowIntent::Unspecified,
-                                        sandbox: SandboxIntent::Unspecified,
-                                        application: Application::Unrestricted,
-                                    },
-                                };
-                                let expected = Expected {
-                                    identity: Identity {
-                                        provider: harness.into(),
-                                        harness: harness.into(),
-                                        model: None,
-                                    },
-                                    native: NativeExpectation::Known {
-                                        held: held
-                                            .iter()
-                                            .map(|power| HeldPower {
-                                                capability: power.0.into(),
-                                                tools: argv(&[power.1]),
-                                                restrictions: serde_json::Map::new(),
-                                            })
-                                            .collect(),
-                                        denied: denied
-                                            .iter()
-                                            .map(|power| power.0.to_string())
-                                            .collect(),
-                                    },
-                                    local: local_expectation,
-                                    hands: match hands {
-                                        true => HandsIntent::Required,
-                                        false => HandsIntent::None,
-                                    },
-                                    template: TemplateExpectation::Declared(template.clone()),
-                                };
-                                let hands_argv = match hands {
-                                    true => argv(&CLAUDE_HANDS),
-                                    false => Vec::new(),
-                                };
-                                let authored = [template, local].concat();
-                                // The seat's argv as the composer parses it
-                                // whole: a second include list is refused at
-                                // its own position.
-                                let seat =
-                                    [authored.clone(), hands_argv.clone(), rest.clone()].concat();
-                                let refusal = seat
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, part)| *part == "--tools")
-                                    .nth(1)
-                                    .map(|(at, _)| Refusal {
-                                        authored: true,
-                                        cause: unplaced(
-                                            harness,
-                                            at + 1,
-                                            "'--tools'",
-                                            &repeats("--tools"),
-                                        ),
-                                    });
-                                states.push(Generated {
-                                    label: format!(
-                                        "{harness}, search {search}, fetch {fetch}, {site}, \
-                                         template limit {template_limit}, boundary {boundary}, \
-                                         native {native}, rejoin {rejoin}"
-                                    ),
-                                    sealed: Sealed {
-                                        harness,
-                                        controls,
-                                        expected,
-                                        permissions: allowed_tools(),
-                                        hands: hands_argv,
-                                        boundary: rest,
-                                        transport: hands.then(transport),
-                                        authored,
-                                    },
-                                    lead: argv(&CLAUDE_LEAD),
-                                    carries: true,
-                                    tail: match rejoin {
-                                        true => argv(&["--resume", "session-1"]),
-                                        false => Vec::new(),
-                                    },
-                                    rejoin: None,
-                                    serving: Serving {
-                                        session: rejoin.then_some("session-1"),
-                                        ..Serving::default()
-                                    },
-                                    refusal,
-                                });
+                                states.push(claude_case(ClaudeCase {
+                                    harness,
+                                    search,
+                                    fetch,
+                                    site,
+                                    template_limit,
+                                    boundary,
+                                    native,
+                                    rejoin,
+                                    ..base
+                                }));
                             }
                         }
                     }
+                }
+            }
+        }
+        for (search, fetch, unmeasured) in [
+            (Held, Unanswered, false),
+            (Unanswered, Denied, false),
+            (Unanswered, Unanswered, false),
+            (Unanswered, Unanswered, true),
+        ] {
+            for site in ["boxed", "unboxed"] {
+                for rejoin in [false, true] {
+                    states.push(claude_case(ClaudeCase {
+                        harness,
+                        search,
+                        fetch,
+                        unmeasured,
+                        site,
+                        rejoin,
+                        ..base
+                    }));
+                }
+            }
+        }
+        for site in ["boxed", "listless", "unboxed", "lowered"] {
+            let hands = matches!(site, "boxed" | "listless");
+            for (boundary, native) in [
+                ("denies held", "none"),
+                ("none", "denies held"),
+                ("denies hands", "none"),
+                ("denies server", "none"),
+                ("denies local", "none"),
+            ] {
+                let applies = match boundary {
+                    "denies hands" | "denies server" => hands,
+                    "denies local" => site == "lowered",
+                    _ => true,
+                };
+                for named in [true, false].into_iter().filter(|_| applies) {
+                    states.push(claude_case(ClaudeCase {
+                        harness,
+                        site,
+                        boundary,
+                        native,
+                        named,
+                        ..base
+                    }));
                 }
             }
         }
@@ -9377,69 +10502,159 @@ fn claude_states() -> Vec<Generated> {
     states
 }
 
-/// Codex sealed launches: web search held or denied by its OFF, at an
-/// inline gate or work site, an agent's gate or work fragment and the box's
-/// hands — whose class the hands carry, the typed class unspecified or
-/// matching — cold and rejoined.
+/// The adapter's measured `hands.harness.gate` fragment, its result path
+/// the engine's to fill.
+const CODEX_GATE: [&str; 4] = [
+    "--sandbox",
+    "read-only",
+    "--output-last-message",
+    "{result_path}",
+];
+/// The adapter's measured `hands.harness.work` fragment.
+const CODEX_WORK: [&str; 2] = ["--sandbox", "workspace-write"];
+/// The result path the engine owns in the fixtures.
+const RESULT: &str = "/r/result.json";
+
+/// A transport whose executable and workdir hold what a TOML basic string
+/// must escape: a literal backslash-u002f, a quote and a backslash (R2).
+fn escaped_transport() -> Transport<'static> {
+    Transport {
+        brokkr: std::path::Path::new("/opt/a\\u002fb/brokkr"),
+        workdir: std::path::Path::new("/w/a\"b\\c"),
+        spec: &SPEC,
+    }
+}
+
+/// The Codex hands [`escaped_transport`] binds, as TOML text, written out
+/// by hand from TOML's basic-string escapes.
+const ESCAPED_COMMAND: &str = "mcp_servers.brokkr.command=\"/opt/a\\\\u002fb/brokkr\"";
+const ESCAPED_ARGUMENTS: &str = "[\"hands\",\"serve\",\"--workdir\",\"/w/a\\\"b\\\\c\",\
+                                 \"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\
+                                 \\\"network\\\":false}\"]";
+
+/// Codex sealed launches (rebuild units 13-fix, 13-fix-b and 13-fix-c, R5):
+/// web search held, denied by its OFF, unanswered or under an unmeasured
+/// inventory; at an inline gate or work site, whose typed class lowers onto
+/// the adapter's local fragment, an agent's gate or work boundary, the
+/// box's hands — whose class the hands carry, the typed class unspecified
+/// or matching — the hands bound through an executable and a workdir TOML
+/// must escape (R2), and hands without their class or their arguments
+/// binding (R1); cold and rejoined. A gate captures into the engine's
+/// result path. A boxed rejoin is one the driver declines, since the
+/// hands' bindings are assignments a rejoin cannot carry.
 fn codex_states() -> Vec<Generated> {
     use SandboxIntent::{ReadOnly, Unspecified, WorkspaceWrite};
-    let gate: &[&str] = &[
-        "--sandbox",
-        "read-only",
-        "--output-last-message",
-        "/r/result.json",
-    ];
-    let work: &[&str] = &["--sandbox", "workspace-write"];
-    type Site<'a> = (
-        &'a str,
-        &'a [&'a str],
-        &'a [&'a str],
-        bool,
-        &'a [SandboxIntent],
+    type Site = (
+        &'static str,
+        &'static [&'static str],
+        &'static [&'static str],
+        Vec<&'static str>,
+        &'static [SandboxIntent],
         SandboxIntent,
     );
-    let sites: [Site; 5] = [
-        ("inline gate", gate, &[], false, &[ReadOnly], ReadOnly),
+    let argless: Vec<&str> = [&CODEX_HANDS[..4], &CODEX_HANDS[6..]].concat();
+    let sites: Vec<Site> = vec![
+        (
+            "inline gate",
+            &CODEX_GATE,
+            &[],
+            Vec::new(),
+            &[ReadOnly],
+            ReadOnly,
+        ),
         (
             "inline work",
-            work,
+            &CODEX_WORK,
             &[],
-            false,
+            Vec::new(),
             &[WorkspaceWrite],
             WorkspaceWrite,
         ),
-        ("agent gate", &[], gate, false, &[Unspecified], ReadOnly),
+        (
+            "agent gate",
+            &[],
+            &CODEX_GATE,
+            Vec::new(),
+            &[Unspecified],
+            ReadOnly,
+        ),
         (
             "agent work",
             &[],
-            work,
-            false,
+            &CODEX_WORK,
+            Vec::new(),
             &[Unspecified],
             WorkspaceWrite,
         ),
-        ("boxed", &[], &[], true, &[Unspecified, ReadOnly], ReadOnly),
+        (
+            "boxed",
+            &[],
+            &[],
+            CODEX_HANDS.to_vec(),
+            &[Unspecified, ReadOnly],
+            ReadOnly,
+        ),
+        (
+            "boxed, escaped",
+            &[],
+            &[],
+            CODEX_HANDS.to_vec(),
+            &[Unspecified],
+            ReadOnly,
+        ),
+        (
+            "boxed, classless",
+            &[],
+            &[],
+            CODEX_HANDS[2..].to_vec(),
+            &[Unspecified],
+            ReadOnly,
+        ),
+        (
+            "boxed, argless",
+            &[],
+            &[],
+            argless,
+            &[Unspecified],
+            ReadOnly,
+        ),
     ];
     let mut states = Vec::new();
-    for held in [true, false] {
-        for (site, local, boundary, hands, classes, runs) in sites {
-            for class in classes {
+    for answer in ["held", "denied", "unanswered", "unmeasured"] {
+        for (site, local, boundary, hands, classes, runs) in &sites {
+            let boxed = !hands.is_empty();
+            let bound = match *site {
+                "boxed, escaped" => escaped_transport(),
+                _ => transport(),
+            };
+            for class in *classes {
                 for rejoin in [false, true] {
                     let capability = argv(&["web-search"]);
+                    let (held, denied) = match answer {
+                        "held" => (capability.clone(), Vec::new()),
+                        "denied" => (Vec::new(), capability.clone()),
+                        _ => (Vec::new(), Vec::new()),
+                    };
+                    let off = match answer {
+                        "denied" => argv(&["-c", "web_search=\"disabled\""]),
+                        _ => Vec::new(),
+                    };
+                    let unmeasured = answer == "unmeasured";
                     let controls = Controls {
                         provider: "codex".into(),
                         harness: "codex".into(),
-                        inventory: Inventory::Known,
-                        held: if held { capability.clone() } else { Vec::new() },
-                        denied: if held { Vec::new() } else { capability.clone() },
-                        admits: match held {
-                            true => admits(&[("web-search", &["web_search"])]),
-                            false => admits(&[]),
+                        inventory: match unmeasured {
+                            true => Inventory::Unmeasured("not measured".into()),
+                            false => Inventory::Known,
                         },
-                        argv: match held {
-                            true => Vec::new(),
-                            false => argv(&["-c", "web_search=\"disabled\""]),
+                        held: held.clone(),
+                        denied: denied.clone(),
+                        admits: match answer {
+                            "held" => admits(&[("web-search", &["web_search"])]),
+                            _ => admits(&[]),
                         },
-                        provenance: typed(if hands { CODEX_HANDS.len() } else { 0 }, &[]),
+                        argv: off.clone(),
+                        provenance: typed(hands.len(), &[]),
                         ..Controls::default()
                     };
                     let expected = Expected {
@@ -9448,67 +10663,175 @@ fn codex_states() -> Vec<Generated> {
                             harness: "codex".into(),
                             model: None,
                         },
-                        native: NativeExpectation::Known {
-                            held: match held {
-                                true => vec![HeldPower {
-                                    capability: "web-search".into(),
-                                    tools: argv(&["web_search"]),
-                                    restrictions: serde_json::Map::new(),
-                                }],
-                                false => Vec::new(),
+                        native: match unmeasured {
+                            true => NativeExpectation::Unmeasured("not measured".into()),
+                            false => NativeExpectation::Known {
+                                held: held
+                                    .iter()
+                                    .map(|capability| HeldPower {
+                                        capability: capability.clone(),
+                                        tools: argv(&["web_search"]),
+                                        restrictions: serde_json::Map::new(),
+                                    })
+                                    .collect(),
+                                denied: denied.clone(),
                             },
-                            denied: if held { Vec::new() } else { capability },
                         },
                         local: LocalExpectation {
                             allow: AllowIntent::Unspecified,
                             sandbox: *class,
                             application: Application::Unrestricted,
                         },
-                        hands: match hands {
+                        hands: match boxed {
                             false => HandsIntent::None,
                             true => HandsIntent::Required,
                         },
                         template: TemplateExpectation::None,
                     };
-                    let lead = match rejoin {
-                        false => argv(&CODEX_LEAD),
-                        true => [
-                            argv(&["codex", "exec", "resume", "--json", "-c"]),
-                            vec![grammar::rejoin_class(runs)],
-                        ]
-                        .concat(),
+                    let gate =
+                        local.contains(&"{result_path}") || boundary.contains(&"{result_path}");
+                    let output = gate.then_some(RESULT);
+                    let placed = |fragment: &[&str]| -> Vec<String> {
+                        fragment
+                            .iter()
+                            .map(|part| part.replace("{result_path}", RESULT))
+                            .collect()
+                    };
+                    let pins = argv(&["--model", "gpt", "--effort", "high"]);
+                    let sealed = Sealed {
+                        harness: "codex",
+                        controls,
+                        expected,
+                        permissions: None,
+                        sandbox: argv(local),
+                        hands: argv(hands),
+                        boundary: argv(boundary),
+                        transport: boxed.then_some(bound),
+                        authored: [pins.clone(), placed(local)].concat(),
+                        pins,
+                        output,
+                    };
+                    // An agent's work site is served from its own workdir,
+                    // which the cold lead names (R4).
+                    let workdir = match *site {
+                        "agent work" => "/srv/site",
+                        _ => "/w",
+                    };
+                    let serving = Serving {
+                        workdir,
+                        session: rejoin.then_some(CODEX_THREAD),
+                        ..Serving::default()
+                    };
+                    let refused = |composer: Option<Refusal>, check: Refusal| Outcome::Refused {
+                        composer,
+                        check,
+                    };
+                    let outcome = match (*site, answer) {
+                        ("boxed, argless", _) => refused(
+                            Some(unhanded(
+                                "codex",
+                                6,
+                                "server arguments binding ('mcp_servers.brokkr.args')",
+                            )),
+                            final_refusal(
+                                "codex",
+                                "is sealed with hands that are not the engine's workspace hands",
+                            ),
+                        ),
+                        ("boxed, classless", _) => {
+                            let refusal = unhanded("codex", 6, "sandbox class ('--sandbox')");
+                            refused(Some(refusal.clone()), refusal)
+                        }
+                        (_, "unanswered" | "unmeasured") => {
+                            let refusal = unready_refusal(
+                                "codex",
+                                "web-search",
+                                match unmeasured {
+                                    true => {
+                                        "declares the provider's inventory unmeasured (not \
+                                         measured)"
+                                    }
+                                    false => "neither holds it nor switches it off",
+                                },
+                            );
+                            refused(Some(refusal.clone()), refusal)
+                        }
+                        _ if boxed && rejoin => refused(
+                            None,
+                            unbuilt(
+                                "codex",
+                                "a rejoin its driver declines, an argument a rejoin cannot carry",
+                            ),
+                        ),
+                        _ => {
+                            let hands_argv: Vec<String> = match (boxed, *site) {
+                                (false, _) => Vec::new(),
+                                (true, "boxed, escaped") => [
+                                    argv(&["--sandbox", "read-only", "-c", ESCAPED_COMMAND, "-c"]),
+                                    vec![format!("mcp_servers.brokkr.args={ESCAPED_ARGUMENTS}")],
+                                    argv(&[
+                                        "-c",
+                                        "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+                                    ]),
+                                ]
+                                .concat(),
+                                (true, _) => [
+                                    argv(&[
+                                        "--sandbox",
+                                        "read-only",
+                                        "-c",
+                                        "mcp_servers.brokkr.command=\"/bin/brokkr\"",
+                                        "-c",
+                                    ]),
+                                    vec![format!("mcp_servers.brokkr.args={SERVER_ARGUMENTS}")],
+                                    argv(&[
+                                        "-c",
+                                        "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+                                    ]),
+                                ]
+                                .concat(),
+                            };
+                            let effort =
+                                argv(&["-c", "model_reasoning_effort=\"high\"", "--model", "gpt"]);
+                            let rest = [placed(local), hands_argv, placed(boundary)].concat();
+                            Outcome::Checks(match rejoin {
+                                false => [
+                                    argv(&["codex", "exec", "--json", "-C", workdir]),
+                                    effort,
+                                    rest,
+                                    off.clone(),
+                                ]
+                                .concat(),
+                                true => {
+                                    // The class leaves the passthrough and
+                                    // leads as its assignment.
+                                    let at = rest
+                                        .iter()
+                                        .position(|part| part == "--sandbox")
+                                        .expect("a class stands");
+                                    let mut passthrough = rest.clone();
+                                    passthrough.drain(at..at + 2);
+                                    [
+                                        argv(&["codex", "exec", "resume", "--json", "-c"]),
+                                        vec![grammar::rejoin_class(*runs)],
+                                        effort,
+                                        passthrough,
+                                        off.clone(),
+                                        argv(&[CODEX_THREAD, "-"]),
+                                    ]
+                                    .concat()
+                                }
+                            })
+                        }
                     };
                     states.push(Generated {
                         label: format!(
-                            "codex, held {held}, {site}, typed {}, rejoin {rejoin}",
+                            "codex, {answer}, {site}, typed {}, rejoin {rejoin}",
                             class.word()
                         ),
-                        sealed: Sealed {
-                            harness: "codex",
-                            controls,
-                            expected,
-                            permissions: None,
-                            hands: match hands {
-                                true => argv(&CODEX_HANDS),
-                                false => Vec::new(),
-                            },
-                            boundary: argv(boundary),
-                            transport: hands.then(transport),
-                            authored: [argv(&["--model", "gpt", "--effort", "high"]), argv(local)]
-                                .concat(),
-                        },
-                        lead,
-                        carries: true,
-                        tail: match rejoin {
-                            true => argv(&[CODEX_THREAD, "-"]),
-                            false => Vec::new(),
-                        },
-                        rejoin: rejoin.then_some(runs.word()),
-                        serving: Serving {
-                            session: rejoin.then_some(CODEX_THREAD),
-                            ..Serving::default()
-                        },
-                        refusal: None,
+                        sealed,
+                        serving,
+                        outcome,
                     });
                 }
             }
@@ -9518,35 +10841,54 @@ fn codex_states() -> Vec<Generated> {
 }
 
 /// DSH sealed launches under its unmeasured inventory: cold, streamed new
-/// and rejoined, each ending with the prompt as data.
+/// and rejoined, each ending with the prompt as data; and a rejoin chosen
+/// without the stream reading its driver spawns one under, which rebuilds
+/// nothing.
 fn dsh_states() -> Vec<Generated> {
+    let lead = argv(&["dsh", "--profile", "headless", "--patch", DSH_OVERLAY]);
     let stream = ["--output-format", "stream-json"];
-    [
-        ("cold", Vec::new(), None),
-        ("new", argv(&[&stream[..], &["--new"]].concat()), None),
+    let mut states: Vec<Generated> = [
+        ("cold", Vec::new(), None, false),
+        ("new", argv(&[&stream[..], &["--new"]].concat()), None, true),
         (
             "rejoin",
             argv(&[&stream[..], &["--session", "session-1"]].concat()),
             Some("session-1"),
+            true,
         ),
     ]
     .into_iter()
-    .map(|(shape, ending, session)| Generated {
+    .map(|(shape, ending, session, stream)| Generated {
         label: format!("dsh, {shape}"),
         sealed: dsh_sealed(),
-        lead: argv(&["dsh", "--profile", "headless", "--patch", DSH_OVERLAY]),
-        carries: false,
-        tail: [ending, argv(&[DSH_PROMPT])].concat(),
-        rejoin: None,
         serving: Serving {
             session,
             overlay: Some(DSH_OVERLAY),
+            stream,
             prompt: Some(DSH_PROMPT),
-            hands: None,
+            ..Serving::default()
         },
-        refusal: None,
+        outcome: Outcome::Checks([lead.clone(), ending, argv(&[DSH_PROMPT])].concat()),
     })
-    .collect()
+    .collect();
+    states.push(Generated {
+        label: "dsh, rejoin unstreamed".into(),
+        sealed: dsh_sealed(),
+        serving: Serving {
+            session: Some("session-1"),
+            overlay: Some(DSH_OVERLAY),
+            prompt: Some(DSH_PROMPT),
+            ..Serving::default()
+        },
+        outcome: Outcome::Refused {
+            composer: None,
+            check: unbuilt(
+                "dsh",
+                "a rejoin without the stream reading a dsh rejoin is spawned under",
+            ),
+        },
+    });
+    states
 }
 
 /// Every generated launch, each harness's.
@@ -9557,50 +10899,57 @@ fn generated() -> Vec<Generated> {
         .collect()
 }
 
-/// Metamorphic property 1 (rebuild units 13-fix and 13-fix-b; operator
-/// ruling 2 and design D6): for every generated sealed launch, the command
-/// the one composer composes checks, cold and rejoined; where the composer
-/// refuses the sealed inputs, the check refuses them with the same
-/// refusal, written out by hand for each — an include list written twice,
-/// at the position of the second.
+/// Metamorphic property 1 (rebuild units 13-fix, 13-fix-b and 13-fix-c;
+/// operator ruling 2 and design D6; R5): every generated sealed launch
+/// checks exactly the complete command its own model writes out, or is
+/// refused exactly as written out — the known-power floors, the exact
+/// permission conflicts, typed hands without their transport and an
+/// include list written twice by the composer's own refusal, a boxed Codex
+/// rejoin and an unstreamed DSH rejoin by the rebuild's.
 #[test]
-fn every_generated_sealed_state_composes_and_checks() {
+fn every_generated_sealed_state_checks_or_refuses_exactly() {
     let mut tally: BTreeMap<String, usize> = BTreeMap::new();
     for state in generated() {
         let harness = state.sealed.harness;
-        let composed = state.sealed.composed();
-        let kind = match &state.refusal {
-            Some(refusal) => {
-                assert_eq!(composed, Err(refusal.clone()), "{}", state.label);
-                let unserved = [state.lead.clone(), state.tail.clone()].concat();
+        let kind = match &state.outcome {
+            Outcome::Checks(command) => {
                 assert_eq!(
-                    state.check(unserved),
-                    Err(refusal.clone()),
-                    "{}",
-                    state.label
-                );
-                "refused as composed"
-            }
-            None => {
-                let served = state.serve(&composed.unwrap());
-                assert_eq!(
-                    state.check(served.clone()).map(Checked::into_argv),
-                    Ok(served),
+                    state.check(command.clone()).map(Checked::into_argv),
+                    Ok(command.clone()),
                     "{}",
                     state.label
                 );
                 "checked"
             }
+            Outcome::Refused { composer, check } => {
+                if let Some(refusal) = composer {
+                    assert_eq!(
+                        state.sealed.composed().map(|_| ()),
+                        Err(refusal.clone()),
+                        "{}",
+                        state.label
+                    );
+                }
+                assert_eq!(
+                    state.check(state.presented()),
+                    Err(check.clone()),
+                    "{}",
+                    state.label
+                );
+                "refused"
+            }
         };
         *tally.entry(format!("{harness}, {kind}")).or_default() += 1;
     }
     let expected: BTreeMap<String, usize> = [
-        ("claude, checked", 336),
-        ("claude, refused as composed", 240),
-        ("lanetally, checked", 336),
-        ("lanetally, refused as composed", 240),
-        ("codex, checked", 24),
+        ("claude, checked", 456),
+        ("claude, refused", 306),
+        ("lanetally, checked", 472),
+        ("lanetally, refused", 290),
+        ("codex, checked", 22),
+        ("codex, refused", 50),
         ("dsh, checked", 3),
+        ("dsh, refused", 1),
     ]
     .into_iter()
     .map(|(kind, count)| (kind.to_string(), count))
@@ -9611,7 +10960,8 @@ fn every_generated_sealed_state_composes_and_checks() {
 /// One node's value altered to another meaning, as its whole span of
 /// tokens, and whether the altered value is still read (and departs) or
 /// is refused as read into the capability table named; `None` for a
-/// switch, which has no value to alter.
+/// switch, which has no value to alter, and for the translated effort,
+/// whose other levels the grammar bounds.
 fn altered(node: &grammar::Node) -> Option<(Vec<String>, Option<&'static str>)> {
     let spelled = |value: String| {
         let mut tokens = vec![node.spelling.clone()];
@@ -9620,6 +10970,9 @@ fn altered(node: &grammar::Node) -> Option<(Vec<String>, Option<&'static str>)> 
         tokens
     };
     let last = node.values.last()?;
+    if node.joined {
+        return None;
+    }
     // A tool no generated launch names.
     if node.list().is_some() {
         return Some((
@@ -9635,6 +10988,7 @@ fn altered(node: &grammar::Node) -> Option<(Vec<String>, Option<&'static str>)> 
         "--sandbox" => "read-only".to_string(),
         "--permission-mode" => "bypassPermissions".to_string(),
         "--mcp-config" => "/x.json".to_string(),
+        "--output-format" => return None,
         "--config" => {
             let (key, value) = last.split_once('=')?;
             let other = match key {
@@ -9650,7 +11004,9 @@ fn altered(node: &grammar::Node) -> Option<(Vec<String>, Option<&'static str>)> 
             };
             format!("{key}={other}")
         }
-        _ => return None,
+        // Every other value — a model, a workdir, a result path, a session —
+        // is data, and another is another command.
+        _ => format!("{last}x"),
     };
     Some((spelled(value), None))
 }
@@ -9668,52 +11024,47 @@ fn unestablished_assignment(harness: &str, at: usize, table: &str) -> Refusal {
     )
 }
 
-/// Every single mutation of one served command, each beside the refusal
-/// written out for it (rebuild units 13-fix and 13-fix-b, R4 and R5). Each
-/// capability-bearing effect is dropped, altered, and — in a list of
-/// several — shrunk by one pattern or reordered; every two consecutive
-/// effects of any kinds are swapped, an allow list with a deny list
-/// included; a foreign effect is added last; the rejoined session is
-/// dropped or altered. A mutation that departs refuses at the first effect
-/// that departs from the served command's own, counted from one; one that
-/// cannot be read refuses at its position. A DSH command, which serves no
-/// composition, has its prompt, overlay and session altered, its prompt
-/// dropped and a positional added.
-fn mutations(state: &Generated, served: &[String]) -> Vec<(String, Vec<String>, Refusal)> {
+/// Every single mutation of one checked command, each beside the refusal
+/// written out for it (rebuild units 13-fix, 13-fix-b and 13-fix-c, R4 and
+/// R5). The executable is replaced. Every option — capability-bearing or
+/// not, nothing dropped as inert — is dropped and altered; a list of several
+/// is shrunk by one pattern and reordered; a list written `--flag value` is
+/// respelled `--flag=value`; every two consecutive options are swapped; a
+/// foreign effect is added last; the rejoined session is altered. A mutation
+/// that reads refuses at the first argument it departs at, counted from the
+/// executable; one that cannot be read refuses at its position. A DSH
+/// command, which serves no composition, has its executable, prompt,
+/// overlay and session altered, its prompt dropped and a positional added.
+fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>, Refusal)> {
     let harness = state.sealed.harness;
     let refuse = |problem: &str| final_refusal(harness, problem);
+    let departing = |command: &[String]| departs(harness, first_departure(command, expected));
     let mut out = Vec::new();
+    let mut executable = expected.to_vec();
+    executable[0] = "/usr/bin/other".into();
+    out.push((
+        "replace the executable".into(),
+        executable,
+        departs(harness, 0),
+    ));
     let positional = |at: usize, cause: &str| {
         refuse(&format!(
             "cannot be read whole (argument {at}, {}: it {cause})",
             grammar::POSITIONAL_LABEL
         ))
     };
-    if !state.carries {
-        let last = served.len() - 1;
-        let streamed = state.tail.len() > 1;
-        let mut prompt = served.to_vec();
-        prompt[last].push('x');
-        out.push((
-            "alter the prompt".into(),
-            prompt,
-            unchosen(harness, "the prompt it carries"),
-        ));
-        let mut overlay = served.to_vec();
-        overlay[4].push('x');
-        out.push((
-            "alter the overlay".into(),
-            overlay,
-            refuse("does not patch its profile with exactly the one overlay its driver staged"),
-        ));
-        if let Some(at) = served.iter().position(|part| part == "session-1") {
-            let mut session = served.to_vec();
+    if harness == "dsh" {
+        let last = expected.len() - 1;
+        let streamed = state.serving.stream;
+        for (what, at) in [("alter the prompt", last), ("alter the overlay", 4)] {
+            let mut command = expected.to_vec();
+            command[at].push('x');
+            out.push((what.into(), command, departs(harness, at)));
+        }
+        if let Some(at) = expected.iter().position(|part| part == "session-1") {
+            let mut session = expected.to_vec();
             session[at].push('x');
-            out.push((
-                "alter the session".into(),
-                session,
-                unchosen(harness, "the session it rejoins"),
-            ));
+            out.push(("alter the session".into(), session, departs(harness, at)));
         }
         let (at, dropped, added) = match streamed {
             true => (7, DSH_ENDING, DSH_ENDING),
@@ -9721,149 +11072,105 @@ fn mutations(state: &Generated, served: &[String]) -> Vec<(String, Vec<String>, 
         };
         out.push((
             "drop the prompt".into(),
-            served[..last].to_vec(),
+            expected[..last].to_vec(),
             positional(at, dropped),
         ));
         out.push((
             "add a positional".into(),
-            [served.to_vec(), argv(&["extra"])].concat(),
+            [expected.to_vec(), argv(&["extra"])].concat(),
             positional(at, added),
         ));
         return out;
     }
-    let parsed = grammar::parse_final(harness, &served[1..])
+    let parsed = grammar::parse_final(harness, &expected[1..])
         .expect("a modelled harness")
-        .expect("the served command parses");
-    let nodes: Vec<&grammar::Node> = parsed
-        .command
-        .nodes
-        .iter()
-        .filter(|node| node.bears_capability() == Ok(true))
-        .collect();
+        .expect("the checked command parses");
+    let nodes: Vec<&grammar::Node> = parsed.command.nodes.iter().collect();
     let span = |node: &grammar::Node| (node.at + 1, node.at + 1 + node.tokens);
-    let original: Vec<Vec<String>> = nodes
-        .iter()
-        .map(|node| {
-            let (from, to) = span(node);
-            served[from..to].to_vec()
-        })
-        .collect();
-    // A command whose effects are `effects` departs at the first that is
-    // not the served command's own.
-    let departing = |effects: &[Vec<String>]| {
-        let at = (0..)
-            .find(|&at| effects.get(at) != original.get(at))
-            .expect("a mutation changes an effect");
-        departs(harness, at + 1)
-    };
-    let replaced = |at: usize, tokens: Vec<String>| {
-        let mut effects = original.clone();
-        effects[at] = tokens;
-        effects
-    };
     let spliced = |from: usize, to: usize, tokens: &[String]| {
-        let mut command = served.to_vec();
+        let mut command = expected.to_vec();
         command.splice(from..to, tokens.iter().cloned());
         command
     };
-    for (index, node) in nodes.iter().enumerate() {
+    for node in &nodes {
         let (from, to) = span(node);
         let name = node.name();
-        let mut effects = original.clone();
-        effects.remove(index);
+        let dropped = spliced(from, to, &[]);
         out.push((
             format!("drop {name} at {from}"),
-            spliced(from, to, &[]),
-            departing(&effects),
+            dropped.clone(),
+            departing(&dropped),
         ));
         if let Some((tokens, unread)) = altered(node) {
+            let command = spliced(from, to, &tokens);
             let refusal = match unread {
                 Some(table) => unestablished_assignment(harness, from, table),
-                None => departing(&replaced(index, tokens.clone())),
+                None => departing(&command),
             };
-            out.push((
-                format!("alter {name} at {from}"),
-                spliced(from, to, &tokens),
-                refusal,
-            ));
+            out.push((format!("alter {name} at {from}"), command, refusal));
         }
-        let patterns: Vec<&str> = node
-            .values
-            .last()
-            .map(|value| value.split(',').collect())
-            .unwrap_or_default();
-        if node.list().is_some() && patterns.len() > 1 {
-            let reversed: Vec<&str> = patterns.iter().rev().copied().collect();
-            for (what, value) in [
-                ("shrink", patterns[..patterns.len() - 1].join(",")),
-                ("reorder", reversed.join(",")),
-            ] {
-                let tokens = vec![node.spelling.clone(), value];
-                out.push((
-                    format!("{what} {name} at {from}"),
-                    spliced(from, to, &tokens),
-                    departing(&replaced(index, tokens)),
-                ));
+        if node.list().is_some() && !node.joined {
+            let value = node.values.last().expect("a list has a value");
+            let joined = spliced(from, to, &[format!("{}={value}", node.spelling)]);
+            out.push((
+                format!("respell {name} at {from}"),
+                joined,
+                departs(harness, from),
+            ));
+            let patterns: Vec<&str> = value.split(',').collect();
+            if patterns.len() > 1 {
+                let reversed: Vec<&str> = patterns.iter().rev().copied().collect();
+                for (what, value) in [
+                    ("shrink", patterns[..patterns.len() - 1].join(",")),
+                    ("reorder", reversed.join(",")),
+                ] {
+                    let command = spliced(from, to, &[node.spelling.clone(), value]);
+                    out.push((
+                        format!("{what} {name} at {from}"),
+                        command.clone(),
+                        departing(&command),
+                    ));
+                }
             }
         }
     }
-    // Every two consecutive effects exchanged, whatever lies between them.
+    // Every two consecutive options exchanged, whatever lies between them.
     for index in 1..nodes.len() {
-        if original[index - 1] == original[index] {
+        let ((a, b), (c, d)) = (span(nodes[index - 1]), span(nodes[index]));
+        if expected[a..b] == expected[c..d] {
             continue;
         }
-        let ((a, b), (c, d)) = (span(nodes[index - 1]), span(nodes[index]));
         let command = [
-            &served[..a],
-            &served[c..d],
-            &served[b..c],
-            &served[a..b],
-            &served[d..],
+            &expected[..a],
+            &expected[c..d],
+            &expected[b..c],
+            &expected[a..b],
+            &expected[d..],
         ]
         .concat();
-        let mut effects = original.clone();
-        effects.swap(index - 1, index);
         out.push((
             format!(
                 "swap {} and {} at {a}",
                 nodes[index - 1].name(),
                 nodes[index].name()
             ),
-            command,
-            departing(&effects),
+            command.clone(),
+            departing(&command),
         ));
     }
-    // The rejoined session, dropped or altered.
-    let session = unchosen(harness, "the session it rejoins");
-    if let Some(node) = parsed
-        .command
-        .nodes
-        .iter()
-        .find(|node| node.name() == "--resume")
-    {
-        let (from, to) = span(node);
-        out.push((
-            "drop --resume".into(),
-            spliced(from, to, &[]),
-            session.clone(),
-        ));
-        out.push((
-            "alter --resume".into(),
-            spliced(from, to, &argv(&["--resume", "session-2"])),
-            session.clone(),
-        ));
+    if let Some(at) = expected.iter().position(|part| part == CODEX_THREAD) {
+        let command = spliced(at, at + 1, &argv(&["0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]));
+        out.push(("alter the thread".into(), command, departs(harness, at)));
     }
-    if let Some(at) = served.iter().position(|part| part == CODEX_THREAD) {
-        out.push((
-            "alter the thread".into(),
-            spliced(at, at + 1, &argv(&["0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"])),
-            session,
-        ));
-    }
-    // A foreign effect added last, before the tail.
-    let end = served.len() - state.tail.len();
-    let extra = departs(harness, original.len() + 1);
+    // A foreign effect added last, before a rejoin's ending.
+    let tail = match state.serving.session {
+        Some(_) => 2,
+        None => 0,
+    };
+    let end = expected.len() - tail;
+    let extra = departs(harness, end);
     let lacks = |kind: ListKind| parsed.command.lists(kind).next().is_none();
+    let rejoined = harness == "codex" && state.serving.session.is_some();
     let mut added: Vec<(Vec<&str>, Refusal)> = match harness {
         "codex" => vec![
             (vec!["--search"], extra.clone()),
@@ -9874,12 +11181,12 @@ fn mutations(state: &Generated, served: &[String]) -> Vec<(String, Vec<String>, 
             (vec!["-c", "web_search=\"disabled\""], extra.clone()),
             (
                 vec!["--sandbox", "read-only"],
-                match state.rejoin {
-                    Some(_) => refuse(&format!(
+                match rejoined {
+                    true => refuse(&format!(
                         "cannot be read: it expresses the sandbox class a second time (argument \
                          {end})"
                     )),
-                    None => refuse(&format!(
+                    false => refuse(&format!(
                         "cannot be read whole (argument {end}, '--sandbox': it {})",
                         repeats("--sandbox")
                     )),
@@ -9925,22 +11232,21 @@ fn mutations(state: &Generated, served: &[String]) -> Vec<(String, Vec<String>, 
     out
 }
 
-/// Metamorphic property 2 (rebuild units 13-fix and 13-fix-b; operator
-/// ruling 2, design D6, R4 and R5): every single mutation of every checked
-/// command — an effect dropped, altered, shrunk, reordered or added, two
-/// consecutive effects of any kinds swapped, the session or the prompt
-/// changed — is refused by the final check with exactly the refusal
-/// written out for it, never spawned.
+/// Metamorphic property 2 (rebuild units 13-fix, 13-fix-b and 13-fix-c;
+/// operator ruling 2, design D6, R4 and R5): every single mutation of every
+/// command property 1 checks — the executable replaced, an option dropped,
+/// altered, respelled, shrunk, reordered or added, two consecutive options
+/// swapped, the session, overlay or prompt changed — is refused by the final
+/// check with exactly the refusal written out for it, never spawned.
 #[test]
 fn every_single_mutation_of_a_checked_command_refuses() {
     let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
     let mut survivors = Vec::new();
     for state in generated() {
-        let Ok(composed) = state.sealed.composed() else {
+        let Outcome::Checks(expected) = &state.outcome else {
             continue;
         };
-        let served = state.serve(&composed);
-        for (what, command, refusal) in mutations(&state, &served) {
+        for (what, command, refusal) in mutations(&state, expected) {
             *tally.entry(state.sealed.harness).or_default() += 1;
             let checked = state.check(command);
             if checked != Err(refusal.clone()) {
@@ -9955,10 +11261,10 @@ fn every_single_mutation_of_a_checked_command_refuses() {
     assert_eq!(
         tally,
         BTreeMap::from([
-            ("claude", 6948),
-            ("codex", 360),
-            ("dsh", 13),
-            ("lanetally", 6948)
+            ("claude", 14594),
+            ("codex", 557),
+            ("dsh", 16),
+            ("lanetally", 15000)
         ])
     );
 }
