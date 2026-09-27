@@ -46,7 +46,7 @@ pin.
 | jscpd 5.3.2 and cargo-shear 1.14.0 | the baseline ratchets | `jscpd --version`, `cargo shear --version` |
 | cargo-mutants 27.1.0 | the brokkr-core mutants gate | `cargo mutants --version` |
 | typos 1.50.2, shellcheck 0.11.0, zizmor 1.30.1, actionlint and lychee | the non-Rust lints (the last two at the digests in `.github/actions/setup-*`) | each tool's `--version` |
-| Node 22, with `npm ci --prefix .github/lint` | the non-Rust lints' diagram render (`scripts/lint-diagrams.sh`); only the lint needs it, never the engine | `node --version` |
+| Node 22.23.3, with `npm ci --prefix .github/lint` | the non-Rust lints' diagram render (`scripts/lint-diagrams.sh`); only the lint needs it, never the engine | `node --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
 install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
@@ -104,7 +104,7 @@ each local command is the job's own, and the sections below explain them:
 | 5 | `test (macos-latest)` | `engine` | on a Mac, `cargo test --workspace --all-features --locked --no-fail-fast`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
 | 6 | `exact coverage gate` | `coverage` | `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`, then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
 | 7 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses bans sources` |
-| 8 | `non-Rust lints` | `lint-non-rust` | `bash scripts/lint-non-rust.sh`, then the diagram render and Renovate's validator (commands below) |
+| 8 | `non-Rust lints` | `lint-non-rust` | `bash scripts/lint-non-rust.sh`, then [the diagram render and Renovate's validator](#the-non-rust-lints) |
 | 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
 | 10 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
 | 11 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli`, then `bash scripts/binary-size.sh target/release/brokkr quality/binary-size.json`; the size budget holds only for CI's build, whose embedded paths yours do not share |
@@ -125,22 +125,8 @@ The four checks the list above adds to the older eight:
   and zizmor in `ci.yml`, actionlint and lychee in
   `.github/actions/setup-actionlint` and `.github/actions/setup-lychee`. A
   landing's verify seat runs the same list. The job then renders the
-  diagrams, which needs Node and the Chrome that
-  `.github/lint/puppeteer.json` names:
-
-  ```
-  npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund
-  bash scripts/lint-diagrams.sh
-  ```
-
-  and validates Renovate's configuration with the image pinned in
-  `.github/renovate-image.txt`, which needs docker:
-
-  ```
-  image="$(tr -d '[:space:]' < .github/renovate-image.txt)"
-  docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-config-validator "$image" --strict --no-global .github/renovate.json5
-  docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-config-validator "$image" --strict .github/renovate-global.json5
-  ```
+  diagrams and validates Renovate's configuration; both are written out
+  in [the non-Rust lints](#the-non-rust-lints) below.
 - **`baseline ratchets`** (#338) holds file size and duplication to
   `quality/`'s committed baselines, refuses an unused dependency, and
   refuses any raised baseline unless the pull request body carries a
@@ -370,6 +356,34 @@ commit, whose image carries cargo-deny 0.20.2; a local binary of another
 version can disagree with it, so install that one to match. `cargo deny check
 licenses bans sources` locally is the same check reading the same `deny.toml`.
 
+### The non-Rust lints
+
+```
+bash scripts/lint-non-rust.sh
+```
+
+The offline list (#427), cheapest first: typos, shellcheck on every
+script and composite action, actionlint, zizmor and lychee. Each tool's
+version is checked against its pin before it runs, and a tool that is
+missing or off its pin is refused by name.
+
+The job then renders every Mermaid diagram, which needs Node 22.23.3
+and the Chrome that `.github/lint/puppeteer.json` names:
+
+```
+npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund
+bash scripts/lint-diagrams.sh
+```
+
+and validates Renovate's configuration with the image pinned in
+`.github/renovate-image.txt`, which needs docker:
+
+```
+image="$(tr -d '[:space:]' < .github/renovate-image.txt)"
+docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-config-validator "$image" --strict --no-global .github/renovate.json5
+docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app --entrypoint renovate-config-validator "$image" --strict .github/renovate-global.json5
+```
+
 ### The RustSec advisory audit
 
 CI runs `rustsec/audit-check` v2.0.0, pinned by commit, which fetches the RustSec advisory
@@ -430,6 +444,10 @@ if you think they are at risk:
   are taken over file bytes — so do not "fix" a line ending.
 - **The RustSec audit**, as above.
 - **The binary size budget**, as above.
+- **The diagram render and Renovate's validator.** `.github/lint/puppeteer.json`
+  names `/usr/bin/google-chrome`, a Linux path, so
+  `scripts/lint-diagrams.sh` does not run as written on a Mac. The
+  validator needs docker. See [the non-Rust lints](#the-non-rust-lints).
 
 ## The pre-flight: let the machine review you first
 
@@ -494,7 +512,10 @@ review seat, code goes through the verifier first — `cargo fmt --all
 `cargo test --workspace` and `cargo run -p brokkr-cli -- compile
 --bundle bundles/self`, boxed and offline, in that order
 (`recipes/fast/scripts/verify-seat.sh`, #427). The rest of the twelve
-stay CI's to prove: the MSRV, the suppression check and the
+stay CI's to prove: the suite in CI's own form
+(`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, `--all-features`, `--locked` and
+`--no-fail-fast`; inside the box a boundary proof cannot open a
+namespace, and it skips), the MSRV, the suppression check and the
 `bundles/verify` compile, the other OS, the exact coverage gate,
 cargo-deny, the diagram render and Renovate's validator, the ratchets,
 the RustSec audit, the release build and its size budget, and the

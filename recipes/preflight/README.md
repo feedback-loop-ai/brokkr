@@ -60,7 +60,7 @@ review names the trusted model driver.
 ## The two checks a preflight cannot give you
 
 The RustSec advisory audit runs in CI against its own database, and the
-test matrix runs on three operating systems. A preflight run has one
+test matrix runs on Linux and macOS, the two hosts decision 0063 keeps. A preflight run has one
 machine and no advisory database of CI's vintage. The verifier script
 names both as unrun rather than imply they passed.
 

@@ -197,7 +197,7 @@ fn the_platform_gate_carries_every_part_of_the_ruling() {
 
 /// One leg of a workflow job: the check it reports (one per `matrix.os`
 /// entry when the job's name carries the matrix), and what the steps its
-/// runner takes run: every one-line command, every `cargo` command of a
+/// runner takes run: every one-line command, every command line of a
 /// multi-line block, and whether it demands boundary evidence.
 struct WorkflowLeg {
     check: String,
@@ -295,8 +295,11 @@ fn job_steps<'a>(body: &[&'a str]) -> Vec<Vec<&'a str>> {
     steps
 }
 
-/// What one step runs: its one-line command, or each `cargo` command of
-/// its multi-line block (continuations joined, output redirection cut).
+/// What one step runs: its one-line command, or every command line of its
+/// multi-line block (continuations joined), a call to a function the block
+/// defines standing for that function's body with `"$@"` replaced by the
+/// call's arguments. A pull request's base stands as `origin/main`, the
+/// base a local clone has. Only scaffolding is skipped, by `scaffolding`.
 fn step_commands(step: &[&str]) -> Vec<String> {
     let mut commands = Vec::new();
     for (at, line) in step.iter().enumerate() {
@@ -305,16 +308,12 @@ fn step_commands(step: &[&str]) -> Vec<String> {
             let indent = line.len() - key.len();
             let block: Vec<&str> = step[at + 1..]
                 .iter()
-                .take_while(|line| line.len() - line.trim_start().len() > indent)
+                .take_while(|line| {
+                    line.trim().is_empty() || line.len() - line.trim_start().len() > indent
+                })
                 .map(|line| line.trim())
                 .collect();
-            let block = block.join("\n").replace(" \\\n", " ");
-            commands.extend(
-                block
-                    .lines()
-                    .filter(|line| line.starts_with("cargo "))
-                    .map(|line| line.split(" 2>&1").next().unwrap_or(line).to_string()),
-            );
+            commands.extend(block_commands(&block.join("\n").replace(" \\\n", " ")));
         } else if let Some(run) = key.strip_prefix("run: ") {
             commands.push(run.replace("\"$BASE\"", "origin/main"));
         } else if let Some(deny) = key.strip_prefix("command: ") {
@@ -325,20 +324,114 @@ fn step_commands(step: &[&str]) -> Vec<String> {
     commands
 }
 
+/// The command lines of one `run: |` block, its functions expanded.
+fn block_commands(block: &str) -> Vec<String> {
+    let mut functions: Vec<(&str, Vec<&str>)> = Vec::new();
+    let mut commands = Vec::new();
+    let mut lines = block.lines();
+    while let Some(line) = lines.next() {
+        if let Some(name) = line.strip_suffix("() {") {
+            functions.push((
+                name,
+                lines.by_ref().take_while(|line| *line != "}").collect(),
+            ));
+        } else if let Some((body, args)) = functions.iter().find_map(|(name, body)| {
+            line.strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix(' '))
+                .map(|args| (body, args))
+        }) {
+            commands.extend(body.iter().map(|call| call.replace("\"$@\"", args)));
+        } else if !scaffolding(line) {
+            commands.push(line.replace("'HEAD^1'", "origin/main"));
+        }
+    }
+    commands
+}
+
+/// A block line that does no check of its own, so no row carries it:
+/// - blank lines and comments;
+/// - output and exits: `echo`, `printf`, `exit`;
+/// - shell structure: `set -` options, `if`/`then`/`else`/`elif`/`fi`,
+///   `case`/`esac` and their arms, and braces;
+/// - a `git fetch` of the pull request's base, which a local clone has;
+/// - the ratchets job's check that its checkout is a merge commit
+///   (`git rev-parse --verify --quiet 'HEAD^2'`), which only a pull
+///   request's merge ref is;
+/// - the macOS leg's host report (`sw_vers`, `uname -m`) and its check
+///   that the runner carries `/usr/bin/sandbox-exec`.
+fn scaffolding(line: &str) -> bool {
+    let word = line.split_whitespace().next().unwrap_or_default();
+    line.is_empty()
+        || line.starts_with('#')
+        || matches!(
+            word,
+            "echo"
+                | "printf"
+                | "exit"
+                | "set"
+                | "if"
+                | "then"
+                | "else"
+                | "elif"
+                | "fi"
+                | "case"
+                | "esac"
+                | ";;"
+                | "{"
+                | "}"
+                | "sw_vers"
+        )
+        || line.ends_with(')') && !line.contains(' ')
+        || line.starts_with("git fetch ")
+        || line.starts_with("git -C pr fetch ")
+        || line.starts_with("git rev-parse --verify --quiet 'HEAD^2'")
+        || line == "uname -m"
+        || line == "test -x /usr/bin/sandbox-exec"
+}
+
 /// A row's command cell and the guide sections it links to: a command
 /// written out once in the section a row links counts as the row's own.
 fn row_reach(guide: &str, cell: &str) -> String {
     let mut reach = cell.to_string();
-    for link in cell.split("](#").skip(1) {
-        let anchor = link.split_once(')').expect("a closed link").0;
-        let section = guide
-            .split("\n#")
-            .find(|section| heading_anchor(section) == anchor)
-            .unwrap_or_else(|| panic!("the guide has no section #{anchor}"));
+    for section in linked_sections(guide, cell) {
         reach.push_str(section);
     }
     reach
 }
+
+/// The guide sections a row's command cell links to.
+fn linked_sections<'a>(guide: &'a str, cell: &str) -> Vec<&'a str> {
+    cell.split("](#")
+        .skip(1)
+        .map(|link| {
+            let anchor = link.split_once(')').expect("a closed link").0;
+            guide
+                .split("\n#")
+                .find(|section| heading_anchor(section) == anchor)
+                .unwrap_or_else(|| panic!("the guide has no section #{anchor}"))
+        })
+        .collect()
+}
+
+/// Every line of every fenced code block in `section`.
+fn code_lines(section: &str) -> Vec<&str> {
+    section
+        .split("```")
+        .skip(1)
+        .step_by(2)
+        .flat_map(str::lines)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+/// Code-block lines in a linked section that no CI leg runs, each with
+/// the reason it is there: a local extra, not a check a job makes.
+const LOCAL_ONLY: [&str; 1] = [
+    // "If you touched a recipe … compile that one too": CI compiles the
+    // two shipped bundles; a contributor compiles the one they changed.
+    "cargo run --locked -p brokkr-cli -- compile --bundle recipes/<name>",
+];
 
 /// The anchor GitHub gives the heading a section starts with.
 fn heading_anchor(section: &str) -> String {
@@ -479,6 +572,19 @@ fn the_by_hand_checks_are_the_workflows_checks() {
             assert!(
                 reach.contains(run.as_str()),
                 "{check}'s local command lacks `{run}`"
+            );
+        }
+        // And the other way: a command the guide writes out for this row
+        // is one its leg runs, so a step deleted from the workflow cannot
+        // leave the guide promising it.
+        for line in linked_sections(&guide, &row.command)
+            .into_iter()
+            .flat_map(code_lines)
+        {
+            assert!(
+                LOCAL_ONLY.contains(&line)
+                    || leg.commands.iter().any(|run| line.contains(run.as_str())),
+                "{check}'s section writes `{line}`, which its job does not run"
             );
         }
         assert_eq!(
