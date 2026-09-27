@@ -12,9 +12,16 @@ name: mutants
 # every miss in the diff and marks the ones that share a committed miss's
 # file and mutation; the week's report names the misses no committed one
 # accounts for.
+#
+# The merge queue (#451) raises `merge_group`, and the required check must
+# report on its commit: the gate has judged the pull request's own diff,
+# so it skips there, and a skipped job reports success. The weekly jobs
+# run only on their schedule or by hand, never in the queue.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
   schedule:
     - cron: '17 3 * * 0'
   workflow_dispatch:
@@ -23,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -95,7 +102,7 @@ jobs:
 
   weekly:
     name: mutants, weekly shard ${{ matrix.shard }} of 8 (report only)
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -141,7 +148,7 @@ jobs:
   weekly-report:
     name: mutants, the week's report over the whole scope (report only)
     needs: weekly
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

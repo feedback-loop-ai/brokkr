@@ -92,7 +92,8 @@ All twelve are required status checks on `main`. Eleven come from ten
 jobs in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`engine`
 runs once per operating system), and one is in
 [`../../.github/workflows/mutants.yml`](../../.github/workflows/mutants.yml). They run on
-every pull request. This is the full list, in the workflows' own order;
+every pull request, and again in [the merge queue](#the-merge-queue) on
+the commit that lands. This is the full list, in the workflows' own order;
 each local command is the job's own, and the sections below explain them:
 
 | # | CI check | Job | Local command |
@@ -778,8 +779,8 @@ What still matters:
 - **Author identity.** The squashed commit is authored to you, so set
   `user.name` and `user.email` to something you want in the history.
 - **Your branch does not need to be green per commit.** CI triggers on
-  `pull_request` (and on pushes to `main`), and tests the branch, not
-  each commit in it. Squash-merge means the intermediate commits leave
+  `pull_request` (and in the merge queue, and on pushes to `main`), and
+  tests the branch, not each commit in it. Squash-merge means the intermediate commits leave
   no trace in `main` anyway. Write the history that is easiest to
   review; you are not being graded on bisectability of commits that
   will be collapsed.
@@ -789,6 +790,38 @@ What still matters:
 
 If your own fork or organisation requires signed commits for its own
 reasons, sign them — it changes nothing here either way.
+
+### The merge queue
+
+A pull request's checks run on its merge with `main` as `main` stood when
+they started, so two pull requests that are each green can still break
+each other, and first meet on `main`. The merge queue (#451) closes that
+gap: a pull request whose checks pass is not merged directly, it enters
+the queue, and GitHub builds a temporary commit of `main` plus the pull
+requests queued ahead of it plus this one, squashed as it will land.
+The required checks run again on that commit, raised by the
+`merge_group` event, and only a commit whose checks pass reaches `main`.
+A pull request whose queued commit fails leaves the queue, and the ones
+behind it are rebuilt without it.
+
+Once the operator has approved it, the pull request enters the queue:
+
+```
+gh pr merge <number> --auto --squash
+```
+
+`--auto` queues it as soon as its own checks pass. What the queue runs
+again is everything that judges the combined tree: the tests on both
+operating systems, the exact coverage gate with the complexity and
+public-API ratchets, format and clippy, the bundle compiles, the MSRV,
+the licences, the non-Rust lints, the file-size and duplication
+ratchets, the RustSec audit and the release binary. What judges the
+pull request's own head or description has done so already and skips in
+the queue, and a skipped check counts as passed: `delivered by brokkr`,
+`mutants in the diff: brokkr-core`, the suppression check and the
+raised baseline's `Ruling:` line.
+`crates/brokkr-cli/tests/contributing.rs` holds which job and which step
+does which, each skip with its reason.
 
 ## The decision culture
 
