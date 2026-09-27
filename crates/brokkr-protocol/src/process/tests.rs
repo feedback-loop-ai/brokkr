@@ -358,57 +358,6 @@ fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
     );
 }
 
-fn poison_child_lock(process: &DriverProcess) {
-    let child = Arc::clone(&process.child);
-    assert!(std::thread::spawn(move || {
-        let _guard = child.lock().unwrap();
-        panic!("poison child mutex for refusal-path proof");
-    })
-    .join()
-    .is_err());
-}
-
-#[test]
-fn poisoned_child_lock_never_panics_the_watchdog_or_finish_path() {
-    let process = DriverProcess::spawn(
-        &command("sleep 1"),
-        std::path::Path::new("."),
-        Some(Duration::from_millis(10)),
-        &SpawnEnv::Inherit,
-    )
-    .unwrap();
-    poison_child_lock(&process);
-    let wait_until = std::time::Instant::now() + Duration::from_secs(1);
-    while !process.timed_out.load(Ordering::SeqCst) && std::time::Instant::now() < wait_until {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert!(process.timed_out.load(Ordering::SeqCst));
-    {
-        let mut child = process.child.lock().unwrap_err().into_inner();
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    drop(process);
-
-    let process = DriverProcess::spawn(
-        &command("sleep 0.05"),
-        std::path::Path::new("."),
-        None,
-        &SpawnEnv::Inherit,
-    )
-    .unwrap();
-    poison_child_lock(&process);
-    let report = process.finish(
-        AttemptOutcome::Failed {
-            error: "test".into(),
-        },
-        None,
-        Vec::new(),
-        false,
-    );
-    assert!(matches!(report.outcome, AttemptOutcome::Failed { .. }));
-}
-
 /// The session offer reaches a driver that DECLARED it can rejoin one,
 /// ahead of the start it belongs to — and reaches no other driver at
 /// all. A session handle belongs to the client that opened it, so a
@@ -421,13 +370,7 @@ fn an_offered_session_reaches_only_a_driver_that_declared_resume() {
         version: "1".into(),
         supports: vec!["resume".into()],
     });
-    let succeeded = wire(Body::Result {
-        effect_id: "effect".into(),
-        attempt_id: "attempt".into(),
-        status: ResultStatus::Succeeded,
-        result: Some(json!({"result": "complete"})),
-        error: None,
-    });
+    let succeeded = succeeded();
     let dir = tempfile::tempdir().unwrap();
     for (case, capabilities, offered, expected) in [
         ("declared", &advertising, Some("thread-1"), 2),
@@ -523,21 +466,353 @@ fn a_driver_inherits_or_receives_exactly_the_selected_environment() {
     let dir = tempfile::tempdir().unwrap();
     let shell =
         command("printf '%s\\n%s\\n' \"${PATH:+inherited}\" \"${BROKKR_ENV_PROBE:-absent}\"");
-    let mut inherited = DriverProcess::spawn(&shell, dir.path(), None, &SpawnEnv::Inherit).unwrap();
-    let mut output = String::new();
-    inherited.stdout.read_to_string(&mut output).unwrap();
-    assert_eq!(output, "inherited\nabsent\n");
+    let inherited = DriverProcess::spawn(&shell, dir.path(), None, &SpawnEnv::Inherit).unwrap();
+    assert_eq!(stdout_text(&inherited), "inherited\nabsent\n");
     let table = [("BROKKR_ENV_PROBE".to_string(), "declared".to_string())].into();
     // The shell may install its own default PATH. Inspect an inherited
     // variable it does not synthesize to prove env_clear at the spawn door.
-    let mut exact = DriverProcess::spawn(
+    let exact = DriverProcess::spawn(
         &command("printf '%s\\n%s\\n' \"${CARGO_MANIFEST_DIR:-cleared}\" \"$BROKKR_ENV_PROBE\""),
         dir.path(),
         None,
         &SpawnEnv::Exactly(table),
     )
     .unwrap();
-    let mut output = String::new();
-    exact.stdout.read_to_string(&mut output).unwrap();
-    assert_eq!(output, "cleared\ndeclared\n");
+    assert_eq!(stdout_text(&exact), "cleared\ndeclared\n");
+}
+
+/// Everything the driver printed, up to EOF.
+fn stdout_text(process: &DriverProcess) -> String {
+    let mut text = String::new();
+    while let Some(Stdout::Line(line)) = process.next_stdout() {
+        text.push_str(&line);
+    }
+    text
+}
+
+fn accepted() -> String {
+    wire(Body::Accepted {
+        effect_id: "effect".into(),
+        attempt_id: "attempt".into(),
+        session_ref: None,
+    })
+}
+
+fn succeeded() -> String {
+    wire(Body::Result {
+        effect_id: "effect".into(),
+        attempt_id: "attempt".into(),
+        status: ResultStatus::Succeeded,
+        result: Some(json!({"result": "complete"})),
+        error: None,
+    })
+}
+
+/// The handshake of a driver that accepts the attempt.
+fn accepting() -> String {
+    format!(
+        "printf '%s\\n' '{}'; read -r start; printf '%s\\n' '{}'",
+        capabilities(),
+        accepted()
+    )
+}
+
+fn spawned(driver: &[String], dir: &std::path::Path, deadline: Option<Duration>) -> DriverProcess {
+    DriverProcess::spawn(driver, dir, deadline, &SpawnEnv::Inherit).unwrap()
+}
+
+fn attempt(process: DriverProcess) -> AttemptReport {
+    process.run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {})
+}
+
+fn deadline_failure(report: &AttemptReport, secs: u64) {
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Failed { error }
+            if *error == format!("attempt exceeded its {secs}s deadline and was killed")),
+        "{:?}",
+        report.outcome
+    );
+    assert!(report.deadline_killed);
+}
+
+/// Is `pid` gone? A zombie is not: the kernel still answers for it.
+fn gone(pid: i32) -> bool {
+    rustix::process::test_kill_process(Pid::from_raw(pid).unwrap()) == Err(rustix::io::Errno::SRCH)
+}
+
+/// Seat stubs for #403, in one directory as concurrent runs in one
+/// checkout would be. A stub records its own pid, answers the handshake,
+/// then forks a grandchild that records its pid and keeps appending to a
+/// marker. The grandchild's stdio points away from the harness's pipes,
+/// so a kill that misses it fails an assertion rather than hanging.
+struct Seats {
+    dir: tempfile::TempDir,
+}
+
+impl Seats {
+    fn new() -> Seats {
+        Seats {
+            dir: tempfile::tempdir().unwrap(),
+        }
+    }
+
+    fn file(&self, tag: &str, what: &str) -> std::path::PathBuf {
+        self.dir.path().join(format!("{tag}.{what}"))
+    }
+
+    /// The stub `tag`: `handshake` after the greeting, then the
+    /// grandchild, then `then` once the grandchild has recorded itself.
+    /// The grandchild stops when the directory goes, so a kill that
+    /// misses it leaks nothing past the test.
+    fn driver(&self, tag: &str, handshake: &str, then: &str) -> Vec<String> {
+        let grandchild = self.file(tag, "grandchild");
+        command(&format!(
+            "printf '%s\\n' \"$$\" > '{driver}'\n\
+             read -r hello\n\
+             {handshake}\n\
+             sh -c 'printf \"%s\\n\" \"$$\" > \"$1\"; \
+             while [ -d \"$3\" ]; do printf x >> \"$2\"; sleep 0.05; done' \
+             tree '{grandchild}' '{marker}' '{dir}' </dev/null >/dev/null 2>&1 &\n\
+             while [ ! -s '{grandchild}' ]; do sleep 0.01; done\n\
+             {then}\n",
+            driver = self.file(tag, "driver").display(),
+            grandchild = grandchild.display(),
+            marker = self.file(tag, "marker").display(),
+            dir = self.dir.path().display(),
+        ))
+    }
+
+    /// The stub's tree, driver then grandchild, once both have recorded
+    /// themselves: the positive control that there was a tree to end.
+    fn pids(&self, tag: &str) -> [i32; 2] {
+        let read = |what| {
+            let text = std::fs::read_to_string(self.file(tag, what)).unwrap_or_default();
+            text.trim().parse::<i32>().ok()
+        };
+        let until = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let (Some(driver), Some(grandchild)) = (read("driver"), read("grandchild")) {
+                return [driver, grandchild];
+            }
+            assert!(Instant::now() < until, "stub {tag} never formed its tree");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn marker(&self, tag: &str) -> u64 {
+        std::fs::metadata(self.file(tag, "marker")).unwrap().len()
+    }
+}
+
+/// The acceptance of #403: a timed-out attempt's driver AND the
+/// grandchild it forked are gone at the moment the report returns, which
+/// is the moment the engine may start a retry, so the retry cannot
+/// overlap them; and the grandchild's marker stops moving.
+#[test]
+fn a_deadline_kill_ends_every_descendant_before_the_report_returns() {
+    let seats = Seats::new();
+    let driver = seats.driver("seat", &accepting(), "read -r never");
+    let report = attempt(spawned(
+        &driver,
+        seats.dir.path(),
+        Some(Duration::from_secs(1)),
+    ));
+    let tree = seats.pids("seat");
+    let survivors: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
+    assert_eq!(survivors, Vec::<i32>::new(), "tree {tree:?}");
+    deadline_failure(&report, 1);
+    assert!(report.accepted);
+    let marker = seats.marker("seat");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(seats.marker("seat"), marker, "the grandchild kept writing");
+}
+
+/// A driver that dies on its own, mid-attempt, takes its descendants
+/// with it: the harness it started does not keep working unowned.
+#[test]
+fn an_abrupt_driver_exit_takes_its_descendants_with_it() {
+    let seats = Seats::new();
+    let driver = seats.driver("seat", &accepting(), "exit 0");
+    let report = attempt(spawned(&driver, seats.dir.path(), None));
+    let tree = seats.pids("seat");
+    assert_eq!(tree.map(gone), [true, true], "tree {tree:?}");
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Indeterminate { reason }
+            if reason == "driver exited after accepting, before a result — attempt \
+                          cannot be established as complete"),
+        "{:?}",
+        report.outcome
+    );
+}
+
+/// The issue's regression matrix: a driver that lingers after a result,
+/// or after a malformed message, is ended within the shutdown grace and
+/// not waited on for as long as it cares to live, and what it says after
+/// its last word is not read as protocol.
+#[test]
+fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
+    let malformed = serde_json::from_str::<Message>("not json\n").unwrap_err();
+    for (case, last_word, expected) in [
+        (
+            "a result",
+            format!("printf '%s\\n' '{}' 'after the result'", succeeded()),
+            None,
+        ),
+        (
+            "a malformed message",
+            "printf 'not json\\n'".to_string(),
+            Some(format!(
+                "unreadable driver message: {malformed}: not json\n"
+            )),
+        ),
+    ] {
+        let seats = Seats::new();
+        let handshake = format!("{}; {last_word}", accepting());
+        let mut process = spawned(
+            &seats.driver("seat", &handshake, "sleep 10"),
+            seats.dir.path(),
+            None,
+        );
+        process.bounds.grace = Duration::from_millis(200);
+        let started = Instant::now();
+        let report = attempt(process);
+        let elapsed = started.elapsed();
+        assert!(elapsed < Duration::from_secs(5), "{case}: took {elapsed:?}");
+        assert_eq!(seats.pids("seat").map(gone), [true, true], "{case}");
+        match (&report.outcome, &expected) {
+            (AttemptOutcome::Succeeded { .. }, None) => {}
+            (AttemptOutcome::Failed { error }, Some(expected)) => assert_eq!(error, expected),
+            (outcome, _) => panic!("{case}: {outcome:?}"),
+        }
+    }
+}
+
+/// The issue's second probe: a grandchild that inherited the driver's
+/// stdout and stderr is killed with it, so the pipes close at the
+/// deadline and not when the grandchild would have finished.
+#[test]
+fn a_grandchild_holding_the_pipes_does_not_outlast_the_deadline() {
+    let driver = command(&format!(
+        "read -r hello; {}; sleep 10 & sleep 10",
+        accepting()
+    ));
+    let started = Instant::now();
+    let report = attempt(spawned(
+        &driver,
+        std::path::Path::new("."),
+        Some(Duration::from_secs(1)),
+    ));
+    let elapsed = started.elapsed();
+    deadline_failure(&report, 1);
+    assert!(elapsed < Duration::from_secs(5), "took {elapsed:?}");
+}
+
+/// An end that cannot be proven — a group that will not empty, or a pipe
+/// something outside the group still holds — parks the attempt with the
+/// outcome it reached in the reason; it never certifies the attempt.
+#[test]
+fn an_attempt_whose_end_cannot_be_proven_parks() {
+    let held = |process: &mut DriverProcess| process.bounds.drain = Duration::from_millis(200);
+    let mut process = spawned(
+        &command(&format!(
+            "read -r hello; {}; printf '%s\\n' '{}'",
+            accepting(),
+            succeeded()
+        )),
+        std::path::Path::new("."),
+        None,
+    );
+    process.alive = |_| true;
+    process.bounds.settle = Duration::from_millis(50);
+    let group = process.child.id();
+    let group_survived = attempt(process);
+
+    let mut process = spawned(
+        &command("read -r hello; read -r never"),
+        std::path::Path::new("."),
+        Some(Duration::from_secs(1)),
+    );
+    held(&mut process);
+    let (_stdout_holder, stdout) = mpsc::channel();
+    process.stdout = stdout;
+    let started = Instant::now();
+    let stdout_held = attempt(process);
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(5), "took {elapsed:?}");
+
+    let mut process = spawned(&command("exit 0"), std::path::Path::new("."), None);
+    held(&mut process);
+    let (_stderr_holder, stderr) = mpsc::channel();
+    process.stderr = stderr;
+    let stderr_held = attempt(process);
+
+    for (report, expected) in [
+        (
+            group_survived,
+            format!(
+                "the driver reported success; the attempt is not proven over: \
+                 its process group {group} still had members after the kill"
+            ),
+        ),
+        (
+            stdout_held,
+            "attempt exceeded its 1s deadline and was killed; the attempt is not proven \
+             over: a process outside its group still held the driver's stdout"
+                .to_string(),
+        ),
+        (
+            stderr_held,
+            "driver exited before accepting the attempt; the attempt is not proven over: \
+             a process outside its group still held the driver's stderr"
+                .to_string(),
+        ),
+    ] {
+        assert!(
+            matches!(&report.outcome, AttemptOutcome::Indeterminate { reason } if *reason == expected),
+            "{:?}",
+            report.outcome
+        );
+    }
+}
+
+/// Termination is by the attempt's own group, never by directory: a
+/// concurrent run in the same checkout keeps its whole tree through the
+/// other's deadline kill, and then finishes on its own terms.
+#[test]
+fn a_concurrent_run_in_the_same_directory_is_never_signalled() {
+    let seats = Seats::new();
+    let dir = seats.dir.path().to_path_buf();
+    let done = seats.file("a", "done");
+    let other = seats.driver(
+        "b",
+        &accepting(),
+        &format!(
+            "while [ -d '{}' ] && [ ! -e '{}' ]; do sleep 0.05; done; \
+             printf '%s\\n' '{}'; read -r shutdown",
+            dir.display(),
+            done.display(),
+            succeeded()
+        ),
+    );
+    let other =
+        std::thread::spawn(move || attempt(spawned(&other, &dir, Some(Duration::from_secs(30)))));
+    let other_tree = seats.pids("b");
+
+    let killed = seats.driver("a", &accepting(), "read -r never");
+    deadline_failure(
+        &attempt(spawned(
+            &killed,
+            seats.dir.path(),
+            Some(Duration::from_secs(1)),
+        )),
+        1,
+    );
+    assert_eq!(seats.pids("a").map(gone), [true, true]);
+    assert_eq!(other_tree.map(gone), [false, false]);
+    assert!(tree::group_alive(Pid::from_raw(other_tree[0]).unwrap()));
+
+    std::fs::write(&done, "").unwrap();
+    let report = other.join().unwrap();
+    assert!(matches!(report.outcome, AttemptOutcome::Succeeded { .. }));
+    assert_eq!(other_tree.map(gone), [true, true]);
 }

@@ -7,19 +7,31 @@
 //! deadline expiry kills the driver and degrades to `Failed` — the kill
 //! makes non-completion determinate, so bounded retry stays safe
 //! (decision 0006).
+//!
+//! The attempt is the driver's whole process tree (#403, `tree`): no
+//! report is returned until the tree is proven gone, so a retry the
+//! engine starts on the report cannot overlap it. An end that cannot be
+//! proven degrades to `Indeterminate`, which parks.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, Command, Stdio};
+use std::os::unix::process::CommandExt;
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
+use rustix::process::Pid;
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::{AttemptOutcome, AttemptReport, Body, Message, ResultStatus, PROTO};
+
+mod tree;
+
+use tree::{Bounds, Unsettled};
 
 #[derive(Debug, Error)]
 pub enum SpawnError {
@@ -48,33 +60,86 @@ pub enum SpawnEnv {
     Exactly(BTreeMap<String, String>),
 }
 
-pub struct DriverProcess {
-    child: Arc<Mutex<Child>>,
-    stdin: Box<dyn Write>,
-    stdout: BufReader<std::process::ChildStdout>,
-    stderr_thread: std::thread::JoinHandle<String>,
-    timed_out: Arc<AtomicBool>,
-    /// Dropping this disarms the watchdog.
-    watchdog_disarm: Option<mpsc::Sender<()>>,
-    deadline: Option<Duration>,
+/// One read of the driver's stdout, as its reader thread hands it over.
+enum Stdout {
+    Line(String),
+    Failed(std::io::Error),
+    Eof,
 }
 
-/// The deadline kill. Its job is to make non-completion determinate
-/// (decision 0006), and a kill the harness cannot observe the end of is
-/// not determinate: the driver's stdout/stderr are pipes, and EOF only
-/// arrives when the last copy of the write end is gone.
-///
-/// `Child::kill()` is that kill, unchanged — SIGKILL on the process the
-/// harness holds.
-fn kill_driver(child: &mut Child) {
-    let _ = child.kill();
+pub struct DriverProcess {
+    /// The leader of the attempt's process group; reaped only by `finish`.
+    child: Child,
+    stdin: Box<dyn Write>,
+    stdout: mpsc::Receiver<Stdout>,
+    stderr: mpsc::Receiver<String>,
+    timed_out: Arc<AtomicBool>,
+    /// Dropping the sender disarms the watchdog; `finish` joins the
+    /// thread before it reaps, so no kill can land after the reap.
+    watchdog: Option<(mpsc::Sender<()>, JoinHandle<()>)>,
+    deadline: Option<Duration>,
+    started: Instant,
+    bounds: Bounds,
+    /// Does the group still have a member? `tree::group_alive`.
+    alive: fn(Pid) -> bool,
+}
+
+/// The driver's stdout, read on a thread of its own so that waiting on it
+/// can be bounded: a process that left the group while holding the pipe
+/// would otherwise hold the attempt open. `Eof` is sent only at EOF.
+fn read_stdout(stdout: ChildStdout) -> mpsc::Receiver<Stdout> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => drop(tx.send(Stdout::Line(line))),
+                Err(error) => {
+                    drop(tx.send(Stdout::Failed(error)));
+                    let _ = std::io::copy(&mut reader, &mut std::io::sink());
+                    break;
+                }
+            }
+        }
+        drop(tx.send(Stdout::Eof));
+    });
+    rx
+}
+
+/// The driver's stderr, whole, once its pipe reaches EOF.
+fn read_stderr(mut stderr: ChildStderr) -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stderr.read_to_end(&mut bytes);
+        drop(tx.send(String::from_utf8(bytes).unwrap_or_default()));
+    });
+    rx
+}
+
+/// An attempt whose end could not be proven parks (decision 0003): the
+/// outcome it reached is kept in the reason, and nothing certifies it as
+/// settled or lets a retry start beside what may still be running.
+fn settled(outcome: AttemptOutcome, ended: Result<(), Unsettled>) -> AttemptOutcome {
+    let Err(unsettled) = ended else {
+        return outcome;
+    };
+    let reached = match outcome {
+        AttemptOutcome::Succeeded { .. } => "the driver reported success".to_string(),
+        AttemptOutcome::Failed { error } => error,
+        AttemptOutcome::Indeterminate { reason } => reason,
+    };
+    AttemptOutcome::Indeterminate {
+        reason: format!("{reached}; the attempt is not proven over: {unsettled}"),
+    }
 }
 
 impl DriverProcess {
-    /// Spawn the driver. With a deadline, a watchdog kills the child when
-    /// it expires; the attempt then reports Failed(timeout) rather than
-    /// hanging the run forever.
-    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
+    /// Spawn the driver as the leader of its own process group. With a
+    /// deadline, a watchdog kills the group when it expires; the attempt
+    /// then reports Failed(timeout) rather than hanging the run forever.
     pub fn spawn(
         command: &[String],
         workdir: &std::path::Path,
@@ -86,6 +151,7 @@ impl DriverProcess {
         builder
             .args(args)
             .current_dir(workdir)
+            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -97,37 +163,32 @@ impl DriverProcess {
             source,
         })?;
         let stdin = child.stdin.take().expect("piped stdin");
-        let stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
-        let mut stderr = child.stderr.take().expect("piped stderr");
-        let stderr_thread = std::thread::spawn(move || {
-            let mut buf = String::new();
-            let _ = stderr.read_to_string(&mut buf);
-            buf
-        });
-        let child = Arc::new(Mutex::new(child));
+        let stdout = read_stdout(child.stdout.take().expect("piped stdout"));
+        let stderr = read_stderr(child.stderr.take().expect("piped stderr"));
         let timed_out = Arc::new(AtomicBool::new(false));
-        let watchdog_disarm = deadline.map(|deadline| {
+        let group = Pid::from_child(&child);
+        let watchdog = deadline.map(|deadline| {
             let (tx, rx) = mpsc::channel::<()>();
-            let child = Arc::clone(&child);
             let timed_out = Arc::clone(&timed_out);
-            std::thread::spawn(move || {
-                if let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(deadline) {
+            let thread = std::thread::spawn(move || {
+                if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(deadline) {
                     timed_out.store(true, Ordering::SeqCst);
-                    if let Ok(mut child) = child.lock() {
-                        kill_driver(&mut child);
-                    }
+                    tree::kill_group(group);
                 }
             });
-            tx
+            (tx, thread)
         });
         Ok(DriverProcess {
             child,
             stdin: Box::new(stdin),
             stdout,
-            stderr_thread,
+            stderr,
             timed_out,
-            watchdog_disarm,
+            watchdog,
             deadline,
+            started: Instant::now(),
+            bounds: Bounds::DEFAULT,
+            alive: tree::group_alive,
         })
     }
 
@@ -138,30 +199,56 @@ impl DriverProcess {
         self.stdin.flush()
     }
 
-    #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
-    fn recv(&mut self) -> Option<Result<Message, String>> {
-        let mut line = String::new();
+    /// The next read of stdout. With a deadline it is waited on until the
+    /// deadline plus the drain bound and no longer: by then the watchdog
+    /// has killed the group, and only a process that left it can still
+    /// hold the pipe. Giving up reads as EOF.
+    fn next_stdout(&self) -> Option<Stdout> {
+        match self.deadline {
+            None => self.stdout.recv().ok(),
+            Some(deadline) => {
+                let give_up = self.started + deadline + self.bounds.drain;
+                let wait = give_up.saturating_duration_since(Instant::now());
+                self.stdout.recv_timeout(wait).ok()
+            }
+        }
+    }
+
+    fn recv(&self) -> Option<Result<Message, String>> {
         loop {
-            line.clear();
-            match self.stdout.read_line(&mut line) {
-                Ok(0) => return None, // EOF
-                Ok(_) => {
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    return Some(
-                        serde_json::from_str::<Message>(&line)
-                            .map_err(|e| format!("unreadable driver message: {e}: {line}"))
-                            .and_then(|m| {
-                                if m.proto == PROTO {
-                                    Ok(m)
-                                } else {
-                                    Err(format!("driver spoke '{}', want '{PROTO}'", m.proto))
-                                }
-                            }),
-                    );
-                }
-                Err(e) => return Some(Err(format!("driver stdout read failed: {e}"))),
+            let line = match self.next_stdout()? {
+                Stdout::Line(line) => line,
+                Stdout::Failed(e) => return Some(Err(format!("driver stdout read failed: {e}"))),
+                Stdout::Eof => return None,
+            };
+            if line.trim().is_empty() {
+                continue;
+            }
+            return Some(
+                serde_json::from_str::<Message>(&line)
+                    .map_err(|e| format!("unreadable driver message: {e}: {line}"))
+                    .and_then(|m| {
+                        if m.proto == PROTO {
+                            Ok(m)
+                        } else {
+                            Err(format!("driver spoke '{}', want '{PROTO}'", m.proto))
+                        }
+                    }),
+            );
+        }
+    }
+
+    /// Read stdout on to EOF by `until`. What the driver says after its
+    /// terminal message is not protocol; only the pipe's closing counts.
+    fn stdout_closed(&self, until: Instant) -> Result<(), Unsettled> {
+        loop {
+            match self
+                .stdout
+                .recv_timeout(until.saturating_duration_since(Instant::now()))
+            {
+                Ok(Stdout::Eof) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
+                Ok(Stdout::Line(_) | Stdout::Failed(_)) => {}
+                Err(RecvTimeoutError::Timeout) => return Err(Unsettled::Stdout),
             }
         }
     }
@@ -173,22 +260,32 @@ impl DriverProcess {
         checkpoints: Vec<Value>,
         accepted: bool,
     ) -> AttemptReport {
-        // Disarm the watchdog before shutdown so a slow exit is not killed.
-        drop(self.watchdog_disarm.take());
-        let _ = self.send(Body::Shutdown);
-        drop(self.stdin);
-        if let Ok(mut child) = self.child.lock() {
-            let _ = child.wait();
+        // Disarm the watchdog and wait it out before shutdown, so a slow
+        // exit is not killed by it and no kill lands after the reap.
+        if let Some((disarm, watchdog)) = self.watchdog.take() {
+            drop(disarm);
+            let _ = watchdog.join();
         }
-        let stderr = self.stderr_thread.join().unwrap_or_default();
+        let _ = self.send(Body::Shutdown);
+        self.stdin = Box::new(std::io::sink());
+        let ended = tree::end(&mut self.child, &self.bounds, self.alive);
+        let drain = Instant::now() + self.bounds.drain;
+        let ended = ended.and(self.stdout_closed(drain));
+        let (stderr, ended) = match self
+            .stderr
+            .recv_timeout(drain.saturating_duration_since(Instant::now()))
+        {
+            Ok(stderr) => (stderr, ended),
+            Err(_) => (String::new(), ended.and(Err(Unsettled::Stderr))),
+        };
         AttemptReport {
-            outcome,
+            outcome: settled(outcome, ended),
             session_ref,
             checkpoints,
             stderr,
             accepted,
-            // Read after the watchdog is disarmed and the child reaped,
-            // so the bit is the one that decided this attempt's end.
+            // Read after the watchdog is joined and the tree ended, so
+            // the bit is the one that decided this attempt's end.
             deadline_killed: self.timed_out.load(Ordering::SeqCst),
         }
     }

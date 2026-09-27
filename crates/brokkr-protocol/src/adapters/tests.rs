@@ -6866,7 +6866,7 @@ fn dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement() {
 /// watchdog thread waits out a real deadline and then kills the provider
 /// child, which is what the runtime's own process-tree kill reaches when
 /// a DSH seat exceeds its deadline or the run is cancelled
-/// (`process::kill_driver`; design D7 keeps termination there and adds no
+/// (`process::tree::kill_group`; design D7 keeps termination there and adds no
 /// asynchronous cancel protocol). The child publishes its pid and then
 /// `exec`s its stall, so the kill lands on the process holding the
 /// stream, exactly as the tree kill does.

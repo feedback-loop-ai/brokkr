@@ -59,3 +59,30 @@ discipline.
 - The self bundle adopts explicit limits in a follow-up once the
   in-flight ship-taxonomy delivery lands (avoids conflicting with that
   run's own edits to `bundles/self/`).
+
+## Addendum — 2026-09-27, the kill takes the attempt's process tree (#403), proposed
+
+The deadline kill above reached only the driver process. The harness a
+driver starts, and that harness's tool subprocesses, outlived it: on
+2026-09-25 a Claude session went on writing for 22 minutes after the
+journal recorded its attempt killed, and a retry could start beside it
+in the same worktree. The non-completion this decision calls
+determinate was not.
+
+- The driver leads a process group of its own, and the kill is SIGKILL
+  to the group. Nothing is chosen by working directory, so a concurrent
+  run in the same checkout is never signalled.
+- Every attempt ends the same way, whatever ended it: `shutdown`, a
+  bounded grace for the driver to exit, SIGKILL to the group, the reap,
+  and a bounded wait for the group to be empty. The group is signalled
+  only while its leader is unreaped, so its id cannot name another
+  process.
+- The report returns only once the tree is proven gone, so the retry
+  this decision allows cannot overlap it.
+- An end that cannot be proven — a group that will not empty, or a pipe
+  something outside the group still holds — is `indeterminate`, by this
+  decision's own line: completion of the cleanup is not known. The
+  outcome the attempt had reached is kept in the reason.
+- A descendant that leaves the group and closes the attempt's pipes, as a
+  daemon does, is out of reach. It is the named residual on Linux and
+  macOS alike.
