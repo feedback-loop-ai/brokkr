@@ -14817,3 +14817,86 @@ afterwards.
 refusals above. Of those, the inline plan provenance and the inline hands
 emission need a ruling on `bundle.rs`/`engine.rs`. Also pending: exact
 coverage outside the box, macOS, remote CI and the council.
+
+## Unit 14b — third visit, after 14a3: three refusals remain outside `adapters.rs`, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-d32a2322`, based on `5e483c52`.
+Named production file: `crates/brokkr-protocol/src/adapters.rs`.
+**Result: oversized.** No production or test file moved. 14.1 stays open.
+
+The saved patch `.forge/unit-14b/unit-14b-seams.patch` was applied with
+`git apply` and needed no edit. The suites below were run on it, and it was
+then reverted with `git apply -R`. `git status --short` was empty afterwards,
+and `git apply --check` still passes.
+
+- `cargo test -p brokkr-protocol --all-features --locked --no-fail-fast`:
+  536, 99 (2 ignored) and 1 passed, and nothing failed.
+- `cargo test -p brokkr-runtime --test capability_launch`: 50 passed and 3
+  failed. Rulings A and B moved two of those failures past the refusals
+  they first met, but did not make them pass:
+  - `:3752`, the "unmeasured, no plan" row, now meets the refusal of an
+    unpaired record: "the input carries a sealed launch record or sealed
+    serving inputs without the capability plan …". This is the one row in
+    scope. It was not moved, because no production change lands.
+  - `:6457`
+    (`a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit`)
+    now refuses: "leaves tool 'WebFetch' available, which its plan denies
+    as native capability 'web-fetch'". The test expects a launch that
+    admits `WebFetch`.
+    - The refusal is `check_final`'s denial pass
+      (`native_controls.rs:2538-2554`). `guarded(capability)` unions the
+      tools of every guard for that capability. The fixture adds a second,
+      unselected entry, `web-fetch-second`, which serves the same
+      capability. So the plan both holds `web-fetch` (through its bound
+      entry) and lists it among the capabilities it denies. The tool the
+      holding admits is then read as a denied tool.
+    - Changing this needs a ruling. Is an unselected entry's OFF for a held
+      capability a denial? If not, the fix is in `native_controls.rs` (the
+      check) or in how the plan records it (`bundle.rs`/`agents.rs`).
+  - `:6751`
+    (`every_chief_reproduction_composes_inside_the_holdings_and_every_limit`,
+    R2) refuses at R1: "is sealed with hands that are not the engine's
+    workspace hands". The seat is an agent with hands under the `harness`
+    boundary. Its launch carries the managed `hands.harness.work` limit
+    (`--tools ""`) and no MCP server, while its composition seals the
+    declared `hands.workspace` fragment and a `HandsSpec`. R1 has no rule
+    for hands under `harness`.
+    - Changing this needs a ruling on what "the engine's workspace hands"
+      are under `harness`. Either `check_final` (`native_controls.rs`)
+      admits them, or the composition (`agents.rs`) stops sealing the
+      workspace fragment there.
+- `cargo test -p brokkr-cli --test driver_conformance`: 22 passed and 2
+  failed.
+  - `:2781` (`the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement`)
+    refuses: "was planned typing another count of its fragment as the box's
+    hands than its sealed hands and its adapter's measured fragment give".
+    This is the count check that 14a3 predicted.
+    - The inline site's plan still types no hands arguments (`bundle.rs`,
+      `inline_provenance`), and the engine emits no hands fragment at an
+      inline dispatch (`engine.rs`, `hands_command`).
+    - Ruling B ("served like an agent") names that outcome but no file for
+      it. Both of those files are production files outside this unit.
+  - `:3209` fails with the `PoisonError` that follows from `:2781`.
+
+Neither the standing fixture migration nor the standing admission covers
+these three. Each changes a tested launch into a refusal: the fixtures
+author no refused inline option, and each fix would change an assertion.
+Rewriting the sealed expectation in `served_cold` would reconcile it, which
+the refusal ruling forbids.
+
+- Fixture migrations and standing-admission lines: none.
+- Gates: `openspec validate --all --strict` and `git diff --check`, on these
+  two documents only. No code moved.
+
+**Split needed.** One unit per file set, each with a ruling:
+
+- inline hands provenance and emission (`bundle.rs`, `engine.rs`), for
+  `:2781`;
+- hands under `harness` (`native_controls.rs` or `agents.rs`), for `:6751`;
+- a second, unselected entry for a held capability (`native_controls.rs`,
+  or `bundle.rs`/`agents.rs`), for `:6457`.
+
+After those, 14b re-runs from the saved patch and moves `:3752`.
+
+**Pending.** Those rulings and units, then 14b; exact coverage outside the
+box, macOS, remote CI and the council.

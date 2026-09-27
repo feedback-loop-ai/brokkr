@@ -2545,6 +2545,33 @@ only.
 - **Pending.** 14b, exact coverage outside the box, macOS, remote CI and
   the council.
 
+Unit 14b, third visit (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-d32a2322`,
+based on `5e483c52`; evidence.md, "Unit 14b — third visit"). **Result:
+oversized.** Nothing but these records moved, and 14.1 stays open. The patch
+was applied, run and reverted, and it still applies.
+
+- The protocol suite passes. Of the three failures A and B named, none
+  passes yet, and none can be fixed in `adapters.rs`:
+  - `capability_launch.rs:6457` passes the table and refuses in
+    `check_final`'s denial pass (`native_controls.rs:2538-2554`). The plan
+    holds `web-fetch` and also denies it, through an unselected second
+    entry for the same capability.
+  - `:6751` passes the table and refuses at R1. These are hands under the
+    `harness` boundary: a managed limit and no MCP server, beside a sealed
+    workspace fragment.
+  - `driver_conformance.rs:2781` meets the count check. The inline plan
+    types 0 hands (`bundle.rs`), and the engine emits no inline hands
+    (`engine.rs`).
+- The in-scope row `:3752` was not moved, because no production change
+  landed.
+- **Split needed.** Three rulings and units: inline hands provenance and
+  emission (`bundle.rs`, `engine.rs`); hands under `harness`
+  (`native_controls.rs` or `agents.rs`); an unselected entry for a held
+  capability (`native_controls.rs`, or the plan). Then 14b re-runs.
+- Fixture migrations and standing-admission lines: none.
+- **Pending.** Those rulings and units, 14b, exact coverage outside the
+  box, macOS, remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
