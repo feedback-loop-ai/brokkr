@@ -2610,6 +2610,197 @@ fn an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declare
     each_row(rows);
 }
 
+/// The fixture codex's fragments followed by `--output-schema
+/// ./schema.json`: an inert option whose bundle-relative value the
+/// compile's expansion rewrites, so a carrier expanded with its segment is
+/// told apart from one carried as declared (rebuild unit 14a1).
+fn with_schema(fragment: &[&str]) -> Vec<String> {
+    [fragment, &["--output-schema", "./schema.json"]]
+        .concat()
+        .into_iter()
+        .map(String::from)
+        .collect()
+}
+
+/// Rebuild unit 14a1 (chief F2 of run 0065-rebuild-unit-14-see-the-uni-5642ffd7):
+/// an agent-backed site's compiled composition keeps every serving input as
+/// its adapter declares it, through the compile's expansion, while the
+/// segments beside it carry the same values expanded: the permission flag,
+/// the model and effort pins, the `hands.workspace` fragment where boxed
+/// hands compose, both `hands.harness` fragments under the harness
+/// boundary, and the agent's typed hands. The adapters name a
+/// bundle-relative model and schema, so an expanded carrier cannot pass.
+#[test]
+fn an_agent_backed_sites_compiled_composition_keeps_each_serving_input_as_declared() {
+    use crate::agents::{BoundaryFragments, DeclaredDialect, ServingInputs};
+    use brokkr_protocol::native_controls::ListFlag;
+    let fixture = AgentFixture::new();
+    let root = fixture.bundle();
+    let owned = |argv: &[&str]| argv.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+    let (workspace, gate, work) = (
+        with_schema(&CODEX_WORKSPACE),
+        with_schema(&CODEX_GATE),
+        with_schema(&CODEX_WORK),
+    );
+    let mut codex = codex();
+    codex["models"]["astra"] = json!("./models/gpt-6-astra");
+    codex["hands"]["workspace"] = json!(workspace);
+    codex["hands"]["harness"]["gate"] = json!(gate);
+    codex["hands"]["harness"]["work"] = json!(work);
+    fixture.write("adapters/codex.json", codex);
+    let mut claude = claude();
+    claude["models"]["opus"] = json!("./models/claude-opus-5");
+    fixture.write("adapters/claude.json", claude);
+    // The `work` site's first candidate: its carried serving inputs, and
+    // every token its segments emit behind the driver's own.
+    let compiled = |config: Value, boundary: Boundary| match fixture.compile_under(config, boundary)
+    {
+        Ok(bundle) => match &bundle.sites["work"].chain[0].lowering {
+            crate::agents::Lowering::Composed(composition) => (
+                format!("{:?}", composition.serving),
+                format!(
+                    "{:?}",
+                    brokkr_protocol::native_controls::flatten(&composition.segments[1..])
+                ),
+            ),
+            other => (format!("{other:?}"), String::new()),
+        },
+        Err(error) => (error.to_string(), String::new()),
+    };
+    let expected = |serving: ServingInputs, emitted: Vec<String>| {
+        (
+            format!("{:?}", Box::new(serving)),
+            format!("{:?}", expand_command(&root, &emitted)),
+        )
+    };
+    let (claude_pins, codex_pins) = (
+        owned(&["--model", "./models/claude-opus-5", "--effort", "high"]),
+        owned(&["--model", "./models/gpt-6-astra", "--effort", "high"]),
+    );
+    let spec = Some(HandsSpec::parse(&json!("workspace")).unwrap());
+    let codex_serving = |dialect: DeclaredDialect| ServingInputs {
+        dialect,
+        pins: codex_pins.clone(),
+        spec: spec.clone(),
+    };
+    let mut rows: Vec<Row<String>> = Vec::new();
+    let mut row = |label: &str, (serving, emitted), (declared, expanded)| {
+        rows.push((format!("{label}, carried"), serving, declared));
+        rows.push((format!("{label}, emitted"), emitted, expanded));
+    };
+
+    row(
+        "claude allow",
+        compiled(fixture.config(), Boundary::Namespace),
+        expected(
+            ServingInputs {
+                dialect: DeclaredDialect {
+                    permissions: Some(ListFlag {
+                        flag: "--allowedTools".into(),
+                        separator: ",".into(),
+                    }),
+                    ..DeclaredDialect::default()
+                },
+                pins: claude_pins.clone(),
+                spec: None,
+            },
+            [
+                claude_pins.clone(),
+                owned(&["--allowedTools", "Bash(cargo:*)"]),
+            ]
+            .concat(),
+        ),
+    );
+    declare_sandbox(&fixture, "read-only");
+    row(
+        "codex boxed",
+        compiled(sandbox_seat(&fixture, None), Boundary::Namespace),
+        expected(
+            codex_serving(DeclaredDialect {
+                hands: workspace.clone(),
+                ..DeclaredDialect::default()
+            }),
+            [codex_pins.clone(), workspace.clone()].concat(),
+        ),
+    );
+    let harness = || DeclaredDialect {
+        boundary: BoundaryFragments {
+            gate: gate.clone(),
+            work: work.clone(),
+        },
+        ..DeclaredDialect::default()
+    };
+    row(
+        "codex harness gate",
+        compiled(sandbox_seat(&fixture, Some("gate")), Boundary::Harness),
+        expected(codex_serving(harness()), codex_pins.clone()),
+    );
+    declare_sandbox(&fixture, "workspace-write");
+    row(
+        "codex harness work",
+        compiled(sandbox_seat(&fixture, None), Boundary::Harness),
+        expected(codex_serving(harness()), codex_pins.clone()),
+    );
+    assert_eq!(rows.len(), 8);
+    each_row(rows);
+}
+
+/// Rebuild unit 14a1 (chief F1 and F2 of run 0065-rebuild-unit-14-see-the-uni-5642ffd7):
+/// an inline Codex seat carries the fragment its class lowered onto as its
+/// adapter declares it, beside and never read back from the segment the
+/// engine emits, which the compile expands: `./schema.json` stays
+/// bundle-relative in the carrier and names the bundle's path in the
+/// segment, and `{result_path}`, filled at dispatch, stays in both.
+#[test]
+fn an_inline_codex_class_carries_its_declared_fragment_beside_its_expanded_emission() {
+    let fixture = AgentFixture::new();
+    let (gate, work) = (with_schema(&CODEX_GATE), with_schema(&CODEX_WORK));
+    let mut codex = codex();
+    codex["hands"]["harness"]["gate"] = json!(gate);
+    codex["hands"]["harness"]["work"] = json!(work);
+    fixture.write("adapters/codex.json", codex);
+    // The review site's carried class fragment, and its emitted segment.
+    let lowered = |class: Option<&str>, sandbox: &str| {
+        let mut config = fixture.config();
+        config["seats"]["review"]["driver"]["command"] = codex_inline(&[]);
+        config["seats"]["review"]["tools"] = json!({"sandbox": sandbox});
+        if let Some(class) = class {
+            config["seats"]["review"]["class"] = json!(class);
+        }
+        match fixture.compile(config) {
+            Ok(bundle) => {
+                let site = &bundle.sites["review"];
+                (
+                    format!("{:?}", site.inline_serving().map(|s| s.dialect.sandbox)),
+                    format!("{:?}", site.inline_sandbox.as_ref().map(|s| &s.segment)),
+                )
+            }
+            Err(error) => (error.to_string(), String::new()),
+        }
+    };
+    let expected = |declared: &[String]| {
+        (
+            format!("{:?}", Some(declared)),
+            format!(
+                "{:?}",
+                Some(Segment::new(
+                    Origin::Local,
+                    &expand_command(&fixture.bundle(), declared)
+                ))
+            ),
+        )
+    };
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (label, observed, (declared, emitted)) in [
+        ("gate", lowered(Some("gate"), "read-only"), expected(&gate)),
+        ("work", lowered(None, "workspace-write"), expected(&work)),
+    ] {
+        rows.push((format!("{label}, carried"), observed.0, declared));
+        rows.push((format!("{label}, emitted"), observed.1, emitted));
+    }
+    each_row(rows);
+}
+
 /// Rebuild unit 5d-fix (chief F1 and F2 of run 0065-rebuild-unit-5d-see-the-uni-5b7d59c1;
 /// operator ruling of 2026-09-25; design D5.3): the engine's fragment is the
 /// only sandbox-bearing element of an inline Codex launch. Every contribution

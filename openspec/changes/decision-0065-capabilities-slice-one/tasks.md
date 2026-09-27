@@ -2434,6 +2434,19 @@ based on `5aac22f4`; evidence.md, "Unit 14a1"). **Result: complete.**
   suite (25 `ok` summaries), both bundles and strict OpenSpec are clean.
 - **Pending.** 14a2 and 14b, exact coverage outside the box, macOS,
   remote CI and the council.
+- **Return (same run, from review at `f320bf39`): complete.** Chief F1:
+  the inline class fragment was read from its emitted segment. Now
+  `lower_inline_sandbox` returns the declared fragment beside the segment,
+  and `record_inline_tools` records it (`bundle.rs` only). Chief F2: two
+  compiled-bundle tests use adapters whose fragments and models carry
+  `./` tokens that the compile expands. They assert that each carried
+  value stays as declared while its emitted segment is expanded, on the
+  agent path and on the inline path. The baseline red is MF1 on the old
+  code, which fails the carried rows. MF1–MF8 and MF5b each fail at a
+  named row, and the emission-only MF1 and MF8 leave the carried rows
+  holding (evidence.md, "Unit 14a1 return"). Standing-admission lines and
+  fixture migrations: none. Gates: fmt, clippy, the runtime suite (25
+  `ok`), both bundles, strict OpenSpec and `git diff --check` are clean.
 
 ## 15. Unit 15 — Integrate eligible resume and replacement
 

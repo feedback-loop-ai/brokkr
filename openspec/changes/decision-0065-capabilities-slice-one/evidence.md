@@ -14152,8 +14152,11 @@ file moved. **Result: complete.** 14.1 stays open until 14b.
 
 `check_final` takes `Dialect { permissions, sandbox, hands, boundary }`,
 `Serving::pins` and `Serving::hands` (a `Transport` over a `HandsSpec`).
-Both compositions now carry each of these as a typed value. None of them
-is read back from a segment or an argv.
+Both compositions now carry each of these as a typed value. **Corrected
+by the return below:** as committed at `f320bf39` the inline class
+fragment was read from the lowered segment before expansion, so this
+claim was false for it (chief F1). After the return, none of them is read
+back from a segment or an argv.
 
 - **Agent path** (`agents.rs`). `Composition::serving:
   Box<ServingInputs>` (`:909`). The box keeps `Lowering` inside clippy's
@@ -14181,7 +14184,8 @@ is read back from a segment or an argv.
   site it visits, before anything is expanded:
   - the permission flag a Claude or LaneTally allow lowered onto, which
     `lower_inline_allow` now also returns (`:3211`);
-  - the `hands.harness` fragment a Codex class lowered onto.
+  - the `hands.harness` fragment a Codex class lowered onto (from the
+    return on, returned by `lower_inline_sandbox` beside its segment).
 
   `SiteFacts::inline_serving()` (`:505`) adds empty pins, because the
   recipe writes its own, and the site's resolved `HandsSpec`, read from
@@ -14239,17 +14243,16 @@ carries_each_serving_input unit3_`, with output in
 MA1 was taken again after the `Box` change (`MA1-retake.txt`). It fails
 the same three tests.
 
-**Gaps.**
+**Gaps, as committed at `f320bf39`.** Both were unit 14a1 obligations,
+and the council returned them (chief F2). The return below closes them.
 
 - **Unexpanded tokens.** `expand_command` rewrites only whole
   `{brokkr}`/`{forge}` tokens and `./` prefixes. The Codex gate and work
   fragments have none, so on these fixtures the inline fragment reads the
-  same before and after expansion. A mutation that read it afterwards
-  would be equivalent here.
+  same before and after expansion.
 - **The compile path.** On the agent path, `compose` never expands, and
   `expand_lowering` carries `serving` through `..composition.clone()`. No
-  compile-path test binds that; the seal's tests in 14a2 are its natural
-  owner.
+  compile-path test bound that.
 
 ### Changed test lines
 
@@ -14292,3 +14295,88 @@ the same three tests.
 
 **Pending.** 14a2 (the engine's seal and `Transport::expand`), 14b (the
 seams), exact coverage outside the box, macOS, remote CI and the council.
+
+### Unit 14a1 return — the chief's F1 and F2, 2026-09-27
+
+Same run, returned from review at `f320bf39` (`REVIEW-REFORGE`,
+residual medium). Production: `bundle.rs` only. **Result: complete.**
+Scratch output is in `.forge/unit-14a1-fix/<id>.txt`. The procedural
+finding P1 needs no change here.
+
+**F1: the inline class fragment was read from its emitted segment.**
+`record_inline_tools` filled `inline_dialect.sandbox` from
+`sandboxed.segment.argv`, so an edit to the emission alone also changed
+the value meant to be independent of it. Now `lower_inline_sandbox`
+returns the adapter's declared `hands.harness` fragment as a third value,
+`InlineClass` (`bundle.rs:3064`, `:3069`), taken from the same
+declaration its segment is built from. `record_inline_tools` records that
+value (`:2904`) and never reads the segment.
+
+**F2: the tests stopped before compilation.** Two new tests in
+`bundle/agent_tests.rs` run through `compile`/`compile_under` on the
+fixture's canonicalised temporary root. Their adapters carry tokens that
+`expand_command` really rewrites: `with_schema` (`:2617`) appends
+`--output-schema ./schema.json`, an inert codex option, to a fragment, and
+the models become `./models/…`. Each case has a `carried` row (the
+declaration, unexpanded) and an `emitted` row (the segments, expanded
+against the bundle directory).
+
+- `an_agent_backed_sites_compiled_composition_keeps_each_serving_input_as_declared`
+  (`:2634`), eight rows over the `work` site's first candidate. Claude
+  allow (permission flag, pins; emits the pins and `--allowedTools
+  Bash(cargo:*)`). Codex boxed under `namespace` (`hands.workspace`, pins,
+  the typed hands). Codex gate and codex work under `harness` (both
+  `hands.harness` fragments, pins, hands).
+- `an_inline_codex_class_carries_its_declared_fragment_beside_its_expanded_emission`
+  (`:2755`), four rows: the gate and work class fragments carried
+  unexpanded, with `{result_path}` unfilled, and emitted expanded.
+
+A probe run before the tests were written confirmed that the admission
+path accepts these tokens. It was not committed.
+
+**Baseline.** On the `f320bf39` code (`git show
+HEAD:crates/brokkr-runtime/src/bundle.rs`), both new tests pass unmutated
+(`B0-old-unmutated.txt`). The carriers held correct values; they were
+just not independent. The baseline red is MF1 on that code
+(`B1-old-MF1.txt`): 4 of 4 rows fail. `gate, carried` and `work, carried`
+lose `--output-schema ./schema.json` along with the emission.
+
+**Mutations.** Each is a temporary, compiling edit, restored by `cp` from
+`bundle.rs.fixed` and checked with `cmp`. Runs used `cargo test -p
+brokkr-runtime --lib -- an_agent_backed_sites_compiled_composition_keeps
+an_inline_codex_class_carries`.
+
+| id | edit (`bundle.rs`) | fails (rows) |
+|----|--------------------|--------------|
+| MF1 | emission only: `lower_inline_sandbox`'s segment drops the fragment's last two tokens | inline `gate, emitted`, `work, emitted` (2 of 4); the carried rows hold |
+| MF2 | inline carrier expanded: `sandbox: expand_command(dir, &declared)` | inline `gate, carried`, `work, carried` |
+| MF3 | `expand_lowering` expands `serving.pins` | agent: all four `carried` rows |
+| MF4 | `expand_lowering` expands `dialect.hands` | agent `codex boxed, carried` |
+| MF5 | `expand_lowering` expands `dialect.boundary.gate` | agent `codex harness gate, carried`, `codex harness work, carried` |
+| MF5b | `expand_lowering` expands `dialect.boundary.work` | the same two rows |
+| MF6 | `expand_lowering` sets `dialect.permissions: None` | agent `claude allow, carried` |
+| MF7 | `expand_lowering` sets `spec: None` | agent: the three codex `carried` rows |
+| MF8 | emission only: `expand_lowering` leaves the `Hands` segment unexpanded | agent `codex boxed, emitted`; every carried row holds |
+
+MF1 and MF8 bind independence. An emission-only edit fails only emitted
+rows. On the old code, MF1 also failed the carried rows. Restored pass:
+both tests `ok` in the full suite below.
+
+**Changed test lines.** Only the additions above: `with_schema` and the
+two tests. Standing-admission lines and fixture migrations: none.
+
+**Gates.**
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt --all`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 `ok`
+  summaries, 0 failed. lib 569, `capability_launch` 53, and
+  `witness_digests` 4 (`runtime-tests.txt`).
+- `compile --bundle bundles/self` and `bundles/verify`: both print their
+  manifests with empty stderr.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** 14a2, 14b, exact coverage outside the box, macOS, remote CI
+and the council.

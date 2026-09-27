@@ -2892,18 +2892,16 @@ fn record_inline_tools(
         .map_or((None, None, None), |(lowered, template, permissions)| {
             (Some(lowered), template, permissions)
         });
-    let (sandboxed, sandbox_template) = sandboxed.map_or((None, None), |(sandboxed, template)| {
-        (Some(sandboxed), template)
-    });
+    let (sandboxed, sandbox_template, declared) = sandboxed.map_or(
+        (None, None, Vec::new()),
+        |(sandboxed, template, declared)| (Some(sandboxed), template, declared),
+    );
     // Rebuild unit 14a1: the dialect the lowering read, recorded before
-    // anything is expanded — the class's fragment is the adapter's, as it
-    // declares it.
+    // anything is expanded — the class's fragment as the adapter declares
+    // it, carried beside and never read back from the segment emitted.
     facts.inline_dialect = Some(crate::agents::DeclaredDialect {
         permissions,
-        sandbox: sandboxed
-            .as_ref()
-            .map(|sandboxed| sandboxed.segment.argv.clone())
-            .unwrap_or_default(),
+        sandbox: declared,
         ..Default::default()
     });
     let template = allow_template.or(sandbox_template);
@@ -2936,14 +2934,15 @@ fn record_inline_tools(
 /// exactly it, judged by the same reading [`admit_local_sandbox`] judges an
 /// agent's fragment with. The gate fragment opens the adapter's declared
 /// result door. Beside it comes the adapter's permission template, as unit
-/// 5c places it, or `None` where the adapter declares none.
+/// 5c places it, or `None` where the adapter declares none, and the
+/// fragment as the adapter declares it (rebuild unit 14a1).
 fn lower_inline_sandbox(
     what: &str,
     raw: &Value,
     command: &[String],
     class: Sandbox,
     adapters: Option<&crate::agents::Adapters>,
-) -> Result<(InlineSandbox, Option<Segment>), CompileError> {
+) -> Result<InlineClass, CompileError> {
     let requested = class.name();
     let refuse = |cause: String| {
         CompileError::Invalid(format!(
@@ -3062,8 +3061,12 @@ fn lower_inline_sandbox(
     };
     // The whole launch, native plan included, is judged once the plan is
     // resolved ([`admit_inline_launch`]; rebuild unit 5d-fix-b).
-    Ok((sandboxed, template))
+    Ok((sandboxed, template, fragment.to_vec()))
 }
+
+/// What [`lower_inline_sandbox`] lowered: the class, the adapter's template
+/// and the fragment the class lowered onto, as the adapter declares it.
+type InlineClass = (InlineSandbox, Option<Segment>, Vec<String>);
 
 /// What an option an author wrote beside a typed inline Codex sandbox is
 /// (rebuild unit 5d; operator ruling 1 of 2026-09-23), or `None` for one
