@@ -216,7 +216,8 @@ fn decode(plan: &Value) -> Result<Controls, String> {
                 ..Controls::default()
             })
         }
-        other => return Err(format!("'inventory' is '{other}', not known or unmeasured")),
+        // The value is the plan's, and is not echoed (rebuild unit 12-fix-e).
+        _ => return Err("'inventory' is not known or unmeasured".to_string()),
     }
     let mut guards = Vec::new();
     let listed = plan
@@ -271,7 +272,11 @@ fn decode(plan: &Value) -> Result<Controls, String> {
     if let Some(listed) = plan.get("admits") {
         let listed = listed.as_object().ok_or("'admits' is not an object")?;
         for (capability, tools) in listed {
-            let path = format!("admits.{capability}");
+            // A key is said only where it is a capability name.
+            let path = match capability_name(capability) {
+                true => format!("admits.{}", shortened(capability, IDENTITY)),
+                false => "admits.<a native capability whose name is not plain>".to_string(),
+            };
             admits.insert(
                 capability.clone(),
                 strings(Some(tools), &path)?.expect("the member is present"),
@@ -318,11 +323,11 @@ pub fn managed(input: &Value) -> Result<Option<Controls>, String> {
         );
     }
     decode(plan).map(Some).map_err(|problem| {
-        format!(
+        bounded_line(&format!(
             "refusing to invoke the agent CLI: the engine's capability plan for this site \
              cannot be read ({problem}). A plan is never repaired into an empty one: a harness \
              launched on a guess is launched on its own defaults (decision 0066 ruling 2)"
-        )
+        ))
     })
 }
 
@@ -362,16 +367,22 @@ pub fn authored_conflict(
     }
     match authored_server_conflict(&command) {
         None => Ok(None),
-        Some(written) => Err(Refusal {
-            authored: true,
-            cause: format!(
-                "carry '{written}', which configures a capability server or admits a server's \
-                 tools for provider '{harness}'. A recipe's driver arguments are recipe data, \
-                 and only the realm grants a capability (decision 0065 ruling 3); the workspace \
-                 hands are the engine's own to compose and need no authored configuration \
-                 (decision 0066 ruling 4)"
-            ),
-        }),
+        Some(written) => Err(refused(
+            Why::Server,
+            vec![
+                Piece::Words("carry "),
+                Piece::Written(&written),
+                Piece::Words(
+                    ", which configures a capability server or admits a server's tools for ",
+                ),
+                Piece::Provider(harness),
+                Piece::Words(
+                    ". A recipe's driver arguments are recipe data, and only the realm grants a \
+                     capability (decision 0065 ruling 3); the workspace hands are the engine's \
+                     own to compose and need no authored configuration (decision 0066 ruling 4)",
+                ),
+            ],
+        )),
     }
 }
 
@@ -401,20 +412,30 @@ pub fn authored_refusal(harness: &str, authored: &[String]) -> Result<(), Refusa
     for node in &command.nodes {
         let what = match node.bears_capability() {
             Ok(false) => continue,
-            Ok(true) => "a capability-bearing option".to_string(),
-            Err(cause) => format!("a configuration assignment that {cause}"),
+            Ok(true) => vec![Piece::Words("a capability-bearing option")],
+            Err(cause) => vec![
+                Piece::Words("a configuration assignment that "),
+                Piece::Grammar(cause.to_string()),
+            ],
         };
-        return Err(Refusal {
-            authored: true,
-            cause: format!(
-                "carry '{}' (argument {}), {what} of harness '{harness}'. A recipe authors no \
-                 capability-bearing option, whatever its value, polarity or grant: tools come \
-                 from typed declarations and the realm's grant, composed by the engine alone \
-                 (operator ruling 1 of 2026-09-23)",
-                node.name(),
-                node.at + 1
+        let mut pieces = vec![
+            Piece::Words("carry "),
+            Piece::Flag(node.name()),
+            Piece::Words(" (argument "),
+            Piece::Count(node.at + 1),
+            Piece::Words("), "),
+        ];
+        pieces.extend(what);
+        pieces.extend([
+            Piece::Words(" of "),
+            Piece::Harness(harness),
+            Piece::Words(
+                ". A recipe authors no capability-bearing option, whatever its value, polarity or \
+                 grant: tools come from typed declarations and the realm's grant, composed by the \
+                 engine alone (operator ruling 1 of 2026-09-23)",
             ),
-        });
+        ]);
+        return Err(refused(Why::Authored, pieces));
     }
     Ok(())
 }
@@ -506,14 +527,24 @@ fn typed_conflict(command: &Command, guards: &[Guard]) -> Option<(String, String
 /// and that label is the one the refusal carries. An input that names no
 /// seat is a driver run by hand over a hand-written plan, and the refusal
 /// says what it can without inventing a label.
+/// What was written and the capability are the plan's guards' words, so
+/// each is an identity [`refused`] renders bounded (rebuild unit 12-fix-e).
 pub fn conflict_refusal(input: &Value, (written, capability): &(String, String)) -> String {
-    let arguments = seat_arguments(input);
-    format!(
-        "refusing to invoke the agent CLI: {arguments} carry '{written}', which controls native \
-         capability '{capability}'. Only the realm grants a capability (decision 0065 ruling \
-         3), and the engine composes the one control the grant resolves to; an authored control \
-         is refused rather than ordered against it"
+    refused(
+        Why::Contender,
+        vec![
+            Piece::Words("carry "),
+            Piece::Written(written),
+            Piece::Words(", which controls "),
+            Piece::Capability(capability),
+            Piece::Words(
+                ". Only the realm grants a capability (decision 0065 ruling 3), and the engine \
+                 composes the one control the grant resolves to; an authored control is refused \
+                 rather than ordered against it",
+            ),
+        ],
     )
+    .at_launch(input)
 }
 
 /// Why a launch cannot be composed. `authored` says whose words are at
@@ -527,16 +558,17 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    /// The refusal as a driver states it, before any provider work.
+    /// The refusal as a driver states it, before any provider work: the
+    /// whole line through [`bounded_line`] (rebuild unit 12-fix-e).
     pub fn at_launch(&self, input: &Value) -> String {
-        match self.authored {
+        bounded_line(&match self.authored {
             false => format!("refusing to invoke the agent CLI: {}", self.cause),
             true => format!(
                 "refusing to invoke the agent CLI: {} {}",
                 seat_arguments(input),
                 self.cause
             ),
-        }
+        })
     }
 
     /// The refusal as the compiler states it, after naming the site. The
@@ -557,11 +589,16 @@ impl Refusal {
 }
 
 /// "the arguments of seat 'x'", or what can be said of a plan run by hand.
+/// The label is the input's, so it is said only where it is plain, cut to
+/// 64 scalar values (rebuild unit 12-fix-e).
 fn seat_arguments(input: &Value) -> String {
-    input.get("seat").and_then(Value::as_str).map_or_else(
-        || "the seat's arguments".to_string(),
-        |seat| format!("the arguments of seat '{seat}'"),
-    )
+    match input.get("seat").and_then(Value::as_str) {
+        None => "the seat's arguments".to_string(),
+        Some(seat) if plain_label(seat) => {
+            format!("the arguments of seat '{}'", shortened(seat, NAME))
+        }
+        Some(_) => "the arguments of a seat whose label is not plain".to_string(),
+    }
 }
 
 /// The two parts of a seat's argv, by WHO WROTE THEM (decision 0066 ruling
@@ -579,11 +616,11 @@ pub fn launch_arguments(
     extra: &[String],
 ) -> Result<(Vec<String>, Vec<String>), String> {
     let refused = |problem: &str| {
-        format!(
+        bounded_line(&format!(
             "refusing to invoke the agent CLI: {problem}. What a recipe authored and what the \
              engine composed are judged apart, and an argv whose provenance is unknown is never \
              trusted by its bytes (decision 0066 ruling 4)"
-        )
+        ))
     };
     let Some(recorded) = input
         .get("launch_arguments")
@@ -1401,13 +1438,16 @@ pub fn parse_origin(
     match grammar::parse(harness, argv) {
         None => Ok(None),
         Some(Ok(command)) => Ok(Some(command)),
-        Some(Err(problem)) => Err(Refusal {
-            authored,
-            cause: match authored {
-                true => format!("do not parse: {problem}"),
-                false => format!("cannot be composed: {problem}"),
-            },
-        }),
+        Some(Err(problem)) => Err(refused(
+            Why::Unparsed { authored },
+            vec![
+                Piece::Words(match authored {
+                    true => "do not parse: ",
+                    false => "cannot be composed: ",
+                }),
+                Piece::Grammar(problem.to_string()),
+            ],
+        )),
     }
 }
 
@@ -1529,44 +1569,59 @@ pub struct Composed {
     pub managed: Vec<String>,
 }
 
-fn unready(provider: &str, capability: &str, problem: &str) -> Refusal {
-    Refusal {
-        authored: false,
-        cause: format!(
-            "provider '{provider}' is known to carry native capability '{capability}', and the \
-             capability plan {problem}; a known native power is launched only with a delivered \
-             control for it, never on what absence implies (decision 0066 ruling 1)"
-        ),
-    }
+/// A known native power the plan does not answer for, `problem` saying how;
+/// rendered by [`refused`], so a harness or reason the plan carries is a
+/// bounded identity (rebuild unit 12-fix-e; design D6).
+fn unready<'a>(provider: &'a str, capability: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
+    let mut pieces = vec![
+        Piece::Provider(provider),
+        Piece::Words(" is known to carry "),
+        Piece::Capability(capability),
+        Piece::Words(", and the capability plan "),
+    ];
+    pieces.extend(problem);
+    pieces.push(Piece::Words(
+        "; a known native power is launched only with a delivered control for it, never on what \
+         absence implies (decision 0066 ruling 1)",
+    ));
+    refused(Why::Unready, pieces)
 }
 
-fn unanswered(provider: &str, problem: &str) -> Refusal {
-    Refusal {
-        authored: false,
-        cause: format!(
-            "the capability plan for provider '{provider}' {problem}; what a plan holds and what \
-             each holding admits answer for each other exactly, so the launch is refused rather \
-             than composed on an inferred admission (design D6)"
-        ),
-    }
+/// Holdings and admissions that do not answer each other, `problem` naming
+/// the capability; rendered by [`refused`] (rebuild unit 12-fix-e).
+fn unanswered<'a>(provider: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
+    let mut pieces = vec![
+        Piece::Words("the capability plan for "),
+        Piece::Provider(provider),
+        Piece::Words(" "),
+    ];
+    pieces.extend(problem);
+    pieces.push(Piece::Words(
+        "; what a plan holds and what each holding admits answer for each other exactly, so the \
+         launch is refused rather than composed on an inferred admission (design D6)",
+    ));
+    refused(Why::Unanswered, pieces)
 }
 
-fn unconsumed(provider: &str, form: &str) -> Refusal {
-    unconsumed_naming(provider, vec![Piece::Words(form.to_string())])
+fn unconsumed(provider: &str, form: &'static str) -> Refusal {
+    unconsumed_naming(provider, vec![Piece::Words(form)])
 }
 
-/// [`unconsumed`], whose form names a tool or a capability: rendered by
-/// [`refused`], so an identity is bounded and a payload never said
-/// (rebuild unit 12-fix-d; design D6).
-fn unconsumed_naming(provider: &str, form: Vec<Piece<'_>>) -> Refusal {
-    let mut pieces = vec![Piece::Words("the capability plan carries ".to_string())];
+/// [`unconsumed`], whose form names a tool, a capability or an option:
+/// rendered by [`refused`], so an identity is bounded and a payload never
+/// said (rebuild units 12-fix-d and 12-fix-e; design D6).
+fn unconsumed_naming<'a>(provider: &'a str, form: Vec<Piece<'a>>) -> Refusal {
+    let mut pieces = vec![Piece::Words("the capability plan carries ")];
     pieces.extend(form);
-    pieces.push(Piece::Words(format!(
-        " for provider '{provider}', which its launch does not consume; a control that cannot \
-         reach the final command is refused rather than recorded and dropped (decision 0066 \
-         ruling 3)"
-    )));
-    refused(pieces)
+    pieces.extend([
+        Piece::Words(" for "),
+        Piece::Provider(provider),
+        Piece::Words(
+            ", which its launch does not consume; a control that cannot reach the final command \
+             is refused rather than recorded and dropped (decision 0066 ruling 3)",
+        ),
+    ]);
+    refused(Why::Unconsumed, pieces)
 }
 
 /// Which engine contribution carries one explicit tool list (rebuild unit
@@ -1806,13 +1861,19 @@ impl From<Refusal> for Failure {
     }
 }
 
-fn restriction(provider: &str, limit: &Limit) -> String {
-    format!(
-        "{} explicit '{}' restriction for provider '{provider}' (naming {})",
-        limit.origin.owner(),
-        limit.flag,
-        naming(&limit.names)
-    )
+/// "{owner} explicit '{flag}' restriction for provider '{provider}'
+/// (naming {names})", in pieces.
+fn restriction<'a>(provider: &'a str, limit: &'a Limit) -> Vec<Piece<'a>> {
+    vec![
+        Piece::Words(limit.origin.owner()),
+        Piece::Words(" explicit "),
+        Piece::Flag(&limit.flag),
+        Piece::Words(" restriction for "),
+        Piece::Provider(provider),
+        Piece::Words(" (naming "),
+        Piece::Names(&limit.names),
+        Piece::Words(")"),
+    ]
 }
 
 /// A limit's names in a refusal, bounded (design D6; rebuild unit
@@ -1864,15 +1925,184 @@ fn capability_name(name: &str) -> bool {
     })
 }
 
-/// One piece of a composition refusal (rebuild unit 12-fix-d; design D6):
-/// the engine's own words — its text, a provider, a flag or a limit's
-/// bounded [`naming`] — or an identity [`refused`] renders bounded.
+/// A provider, harness or seat label as the engine writes one: ASCII
+/// letters, digits, `.`, `_`, `-`, `:`, `<` and `>` — `<custom>` included —
+/// and never a path, a space or a control character.
+fn plain_label(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-:<>".contains(c))
+}
+
+/// An option's spelling: a leading `-`, then ASCII letters, digits and `-`.
+fn plain_option(flag: &str) -> bool {
+    flag.strip_prefix('-').is_some_and(|rest| {
+        !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    })
+}
+
+/// What an authored argument was named by — an option and the key, tool or
+/// feature it reaches: ASCII letters, digits, spaces, `-`, `_`, `.`, `*`
+/// and `=`, never a path.
+fn plain_written(written: &str) -> bool {
+    !written.is_empty()
+        && written
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || " -_.*=".contains(c))
+}
+
+/// An adapter's reason in words: ASCII letters, digits, spaces and
+/// `,.;:'()_-`, never a path or a control character.
+fn plain_reason(reason: &str) -> bool {
+    !reason.is_empty()
+        && reason
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || " ,.;:'()_-".contains(c))
+}
+
+/// One piece of a refusal (rebuild unit 12-fix-e; design D6): the engine's
+/// own fixed words, a count, or a text some bounded renderer already made;
+/// or one untrusted identity, which [`refused`] renders bounded. A raw
+/// string is never words: whatever arrived from a plan, an adapter, a recipe
+/// or a seat is one of the identities.
 enum Piece<'a> {
-    Words(String),
+    Words(&'static str),
+    Count(usize),
+    /// A limit's names, by its bounded [`naming`].
+    Names(&'a [String]),
+    /// The grammar's own bounded rendering: its placement problem, which
+    /// names a token only by [`grammar::Grammar::label`], or a bounded
+    /// reader's fixed cause.
+    Grammar(String),
     /// A tool, by the tool name of its permission pattern alone.
     Tool(&'a str),
     /// A native capability, by its name.
     Capability(&'a str),
+    Provider(&'a str),
+    Harness(&'a str),
+    /// An option, by its spelling.
+    Flag(&'a str),
+    /// What an authored argument was named by ([`authored_conflict`]).
+    Written(&'a str),
+    /// An adapter's reason for an unmeasured inventory.
+    Reason(&'a str),
+}
+
+/// One piece as [`refused`] says it: its opening words, the identity it
+/// spells, its closing words, and whether the cause's bound may cut that
+/// identity. An identity that is not plain is a fixed label and spells
+/// nothing.
+struct Part<'a> {
+    open: String,
+    name: &'a str,
+    close: &'static str,
+    bound: usize,
+    cut: bool,
+}
+
+impl<'a> Piece<'a> {
+    fn part(self) -> Part<'a> {
+        let fixed = |open: String| Part {
+            open,
+            name: "",
+            close: "",
+            bound: 0,
+            cut: false,
+        };
+        // A payload-bearing identity is cut to [`IDENTITY`] and then, the
+        // last first, to the cause's bound; a name the engine resolves is
+        // cut to [`NAME`] alone.
+        let spelled = |open: &str, name: &'a str, close: &'static str, cut: bool| Part {
+            open: open.to_string(),
+            name,
+            close,
+            bound: if cut { IDENTITY } else { NAME },
+            cut,
+        };
+        let label = |label: &str| fixed(label.to_string());
+        match self {
+            Piece::Words(words) => fixed(words.to_string()),
+            Piece::Count(count) => fixed(count.to_string()),
+            Piece::Names(names) => fixed(naming(names)),
+            Piece::Grammar(text) => fixed(text),
+            Piece::Tool(pattern) => match grammar::tool_name(pattern) {
+                name if plain(name) => spelled("tool '", name, "'", true),
+                _ => label("a tool whose name is not plain"),
+            },
+            Piece::Capability(name) if capability_name(name) => {
+                spelled("native capability '", name, "'", true)
+            }
+            Piece::Capability(_) => label("a native capability whose name is not plain"),
+            Piece::Provider(name) if plain_label(name) => spelled("provider '", name, "'", false),
+            Piece::Provider(_) => label("a provider whose name is not plain"),
+            Piece::Harness(name) if plain_label(name) => spelled("harness '", name, "'", false),
+            Piece::Harness(_) => label("a harness whose name is not plain"),
+            Piece::Flag(flag) if plain_option(flag) => spelled("'", flag, "'", false),
+            Piece::Flag(_) => label("an option whose spelling is not plain"),
+            Piece::Written(written) if plain_written(written) => spelled("'", written, "'", true),
+            Piece::Written(_) => label("an argument whose spelling is not plain"),
+            Piece::Reason(reason) if plain_reason(reason) => spelled("", reason, "", true),
+            Piece::Reason(_) => label("a reason that is not plain"),
+        }
+    }
+}
+
+/// Which constructor made a refusal (rebuild unit 12-fix-e): every
+/// [`Refusal`] this module makes is made by [`refused`], under one of
+/// these, and each says whose words are at fault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Why {
+    /// [`authored_conflict`]: the authored part configures a capability
+    /// server.
+    Server,
+    /// [`authored_refusal`]: a recipe wrote a capability-bearing option.
+    Authored,
+    /// [`conflict_refusal`]: an authored control contends at launch.
+    Contender,
+    /// [`parse_origin`]: an origin does not parse, in its author's voice.
+    Unparsed {
+        authored: bool,
+    },
+    /// The plan types more hands than the engine's fragment carries.
+    Provenance,
+    /// [`unready`]: a known native power is not answered for.
+    Unready,
+    /// [`unanswered`]: holdings and admissions do not answer each other.
+    Unanswered,
+    /// [`unconsumed_naming`]: the launch does not consume a control.
+    Unconsumed,
+    /// The four [`Conflict`]s, and an exclusion's clause.
+    Unheld,
+    Carried,
+    Outside,
+    Excluded,
+    Clause,
+}
+
+impl Why {
+    fn authored(self) -> bool {
+        match self {
+            Why::Server | Why::Authored | Why::Contender => true,
+            Why::Unparsed { authored } => authored,
+            Why::Provenance
+            | Why::Unready
+            | Why::Unanswered
+            | Why::Unconsumed
+            | Why::Unheld
+            | Why::Carried
+            | Why::Outside
+            | Why::Excluded
+            | Why::Clause => false,
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Every [`Why`] [`refused`] made on this thread, for the invariant
+    /// that drives each constructor.
+    static BUILT: std::cell::RefCell<Vec<Why>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The compiler's own words before a capability refusal's site: the
@@ -1892,52 +2122,73 @@ const CAUSE: usize = 512 - COMPILER.len() - SITE - ": ".len();
 /// The scalar values one spelled identity takes at most.
 const IDENTITY: usize = 128;
 
-/// The ONE rendering of a composition refusal (rebuild unit 12-fix-d;
-/// design D6): every [`Conflict`] is refused through it. A tool is named
-/// by the tool name of its pattern alone — never a permission specifier or
-/// payload — where the managed grammar reads it as a plain name, and a
-/// capability by its name where it is a capability name; any other by a
-/// fixed label. Each spelled name is cut to 128 scalar values, and where
-/// the whole cause would pass [`CAUSE`] the names are cut further, the last
+/// The scalar values a provider, harness, option or seat label takes at
+/// most.
+const NAME: usize = 64;
+
+/// The scalar values a whole refusal line takes at most, as it leaves the
+/// engine with every prefix and note (design D6).
+pub const LINE: usize = 512;
+
+/// The ONE sink of a capability refusal line (rebuild unit 12-fix-e;
+/// design D6), applied where the line leaves the engine: the driver's
+/// [`Refusal::at_launch`], [`conflict_refusal`], [`managed`] and
+/// [`launch_arguments`], and the runtime's `CompileError::Capability` with
+/// its `bundle: ` and any composition-chain note. Every control character
+/// is escaped as Rust's debug escape spells it, so the line stays one line,
+/// and the escaped line is cut to [`LINE`] scalar values, its last `…`.
+pub fn bounded_line(line: &str) -> String {
+    let mut escaped = String::with_capacity(line.len());
+    for c in line.chars() {
+        match c.is_control() {
+            true => escaped.extend(c.escape_debug()),
+            false => escaped.push(c),
+        }
+    }
+    shortened(&escaped, LINE)
+}
+
+/// The ONE rendering of a refusal (rebuild units 12-fix-d and 12-fix-e;
+/// design D6): every [`Refusal`] this module makes is made here. A tool is
+/// named by the tool name of its pattern alone — never a permission
+/// specifier or payload — where the managed grammar reads it as a plain
+/// name; a capability, provider, harness, option, written argument or
+/// reason by itself where it is plain for its kind; any other by a fixed
+/// label. Each spelled name is cut to its bound, and where the whole cause
+/// would pass [`CAUSE`] the payload-bearing names are cut further, the last
 /// first, never the engine's words. A cut name ends in `…`.
-fn refused(pieces: Vec<Piece<'_>>) -> Refusal {
-    let parts: Vec<(String, &str, &str)> = pieces
-        .into_iter()
-        .map(|piece| match piece {
-            Piece::Words(words) => (words, "", ""),
-            Piece::Tool(pattern) => match grammar::tool_name(pattern) {
-                name if plain(name) => ("tool '".to_string(), name, "'"),
-                _ => ("a tool whose name is not plain".to_string(), "", ""),
-            },
-            Piece::Capability(name) if capability_name(name) => {
-                ("native capability '".to_string(), name, "'")
-            }
-            Piece::Capability(_) => (
-                "a native capability whose name is not plain".to_string(),
-                "",
-                "",
-            ),
-        })
-        .collect();
+fn refused(why: Why, pieces: Vec<Piece<'_>>) -> Refusal {
+    #[cfg(test)]
+    BUILT.with(|built| built.borrow_mut().push(why));
+    let parts: Vec<Part> = pieces.into_iter().map(Piece::part).collect();
     let scalars = |text: &str| text.chars().count();
+    let kept = |part: &Part| scalars(part.name).min(part.bound);
     let whole: usize = parts
         .iter()
-        .map(|(open, name, close)| scalars(open) + scalars(name).min(IDENTITY) + scalars(close))
+        .map(|part| scalars(&part.open) + kept(part) + scalars(part.close))
         .sum();
     let mut over = whole.saturating_sub(CAUSE);
     let mut cause: Vec<String> = parts
-        .into_iter()
+        .iter()
         .rev()
-        .map(|(open, name, close)| {
-            let keep = scalars(name).min(IDENTITY);
-            let cut = over.min(keep.saturating_sub(1));
+        .map(|part| {
+            let keep = kept(part);
+            let cut = match part.cut {
+                true => over.min(keep.saturating_sub(1)),
+                false => 0,
+            };
             over -= cut;
-            format!("{open}{}{close}", shortened(name, keep - cut))
+            format!(
+                "{}{}{}",
+                part.open,
+                shortened(part.name, keep - cut),
+                part.close
+            )
         })
         .collect();
     cause.reverse();
     Refusal {
-        authored: false,
+        authored: why.authored(),
         cause: cause.concat(),
     }
 }
@@ -1964,67 +2215,79 @@ fn conflicting(
 ) -> Failure {
     const WIDENS: &str = "; an explicit tool list is a hard limit that nothing widens, so the \
                           conflict is refused whole rather than unioned (design D6)";
-    let limited = |limit: usize| {
-        Piece::Words(format!(
-            "{} does not name ",
-            restriction(provider, &limits[limit])
-        ))
+    // "{restriction} does not name ", then the conflict's own pieces.
+    let limited = |limit: usize, words: &'static str| {
+        let mut pieces = restriction(provider, &limits[limit]);
+        pieces.push(Piece::Words(words));
+        pieces
     };
     match conflict {
-        Conflict::Unheld(tool) => Failure::Refused(refused(vec![
-            Piece::Words("the capability plan admits ".to_string()),
-            Piece::Tool(&tool),
-            Piece::Words(format!(
-                " for provider '{provider}', which no realm holding admits; a tool is admitted \
-                 only through the one adapter entry a holding binds, narrowed by its grant \
-                 (design D6)"
-            )),
-        ])),
-        Conflict::Carried(tool) => Failure::Refused(refused(vec![
-            Piece::Words(format!(
-                "{} '{}' allow list names ",
-                carrier.0.owner(),
-                carrier.1
-            )),
-            Piece::Tool(&tool),
-            Piece::Words(format!(
-                " for provider '{provider}', which no realm holding admits, the site's typed \
-                 hands do not carry and its typed 'tools.allow' did not lower; an allowance is \
-                 admitted by the typed contribution that made it, never by its spelling or by \
-                 the list it stands in (design D6)"
-            )),
-        ])),
-        Conflict::Outside { tool, by, limit } => Failure::Refused(refused(vec![
-            limited(limit),
-            Piece::Tool(&tool),
-            Piece::Words(format!(
-                ", which {} admit{WIDENS}",
-                match by {
+        Conflict::Unheld(tool) => Failure::Refused(refused(
+            Why::Unheld,
+            vec![
+                Piece::Words("the capability plan admits "),
+                Piece::Tool(&tool),
+                Piece::Words(" for "),
+                Piece::Provider(provider),
+                Piece::Words(
+                    ", which no realm holding admits; a tool is admitted only through the one \
+                     adapter entry a holding binds, narrowed by its grant (design D6)",
+                ),
+            ],
+        )),
+        Conflict::Carried(tool) => Failure::Refused(refused(
+            Why::Carried,
+            vec![
+                Piece::Words(carrier.0.owner()),
+                Piece::Words(" "),
+                Piece::Flag(carrier.1),
+                Piece::Words(" allow list names "),
+                Piece::Tool(&tool),
+                Piece::Words(" for "),
+                Piece::Provider(provider),
+                Piece::Words(
+                    ", which no realm holding admits, the site's typed hands do not carry and \
+                     its typed 'tools.allow' did not lower; an allowance is admitted by the \
+                     typed contribution that made it, never by its spelling or by the list it \
+                     stands in (design D6)",
+                ),
+            ],
+        )),
+        Conflict::Outside { tool, by, limit } => Failure::Refused(refused(Why::Outside, {
+            let mut pieces = limited(limit, " does not name ");
+            pieces.extend([
+                Piece::Tool(&tool),
+                Piece::Words(", which "),
+                Piece::Words(match by {
                     Typed::Hands => "the site's typed hands",
                     Typed::Local => "the local permissions of the site's typed 'tools.allow'",
-                }
-            )),
-        ])),
+                }),
+                Piece::Words(" admit"),
+                Piece::Words(WIDENS),
+            ]);
+            pieces
+        })),
         Conflict::Excluded {
             capability,
             tool,
             limit,
         } => Failure::Excluded(Exclusion {
-            clause: refused(vec![
-                Piece::Words(format!(
-                    "{} does not name its ",
-                    restriction(provider, &limits[limit])
-                )),
-                Piece::Tool(&tool),
-            ])
+            clause: refused(Why::Clause, {
+                let mut pieces = limited(limit, " does not name its ");
+                pieces.push(Piece::Tool(&tool));
+                pieces
+            })
             .cause,
-            refusal: refused(vec![
-                limited(limit),
-                Piece::Tool(&tool),
-                Piece::Words(", which the plan admits for ".to_string()),
-                Piece::Capability(&capability),
-                Piece::Words(WIDENS.to_string()),
-            ]),
+            refusal: refused(Why::Excluded, {
+                let mut pieces = limited(limit, " does not name ");
+                pieces.extend([
+                    Piece::Tool(&tool),
+                    Piece::Words(", which the plan admits for "),
+                    Piece::Capability(&capability),
+                    Piece::Words(WIDENS),
+                ]);
+                pieces
+            }),
             capability,
         }),
     }
@@ -2090,16 +2353,24 @@ pub fn compose_or_exclude(
     // count the fragment cannot hold types nothing and refuses.
     let typed_hands = controls.provenance.hands;
     if typed_hands > fragment.len() {
-        return Err(Refusal {
-            authored: false,
-            cause: format!(
-                "the capability plan for provider '{provider}' types {typed_hands} arguments of \
-                 the engine's fragment as the box's hands, but the fragment carries {}; \
-                 provenance is a carried fact that must fit the argv it types, so the launch is \
-                 refused rather than composed on a guess (design D6)",
-                fragment.len()
-            ),
-        }
+        return Err(refused(
+            Why::Provenance,
+            vec![
+                Piece::Words("the capability plan for "),
+                Piece::Provider(provider),
+                Piece::Words(" types "),
+                Piece::Count(typed_hands),
+                Piece::Words(
+                    " arguments of the engine's fragment as the box's hands, but the fragment \
+                     carries ",
+                ),
+                Piece::Count(fragment.len()),
+                Piece::Words(
+                    "; provenance is a carried fact that must fit the argv it types, so the \
+                     launch is refused rather than composed on a guess (design D6)",
+                ),
+            ],
+        )
         .into());
     }
     // Every origin is parsed to completion and SEPARATELY, so a dangling
@@ -2113,7 +2384,11 @@ pub fn compose_or_exclude(
             return Err(unready(
                 provider,
                 capability,
-                &format!("declares the provider's inventory unmeasured ({reason})"),
+                vec![
+                    Piece::Words("declares the provider's inventory unmeasured ("),
+                    Piece::Reason(reason),
+                    Piece::Words(")"),
+                ],
             )
             .into());
         }
@@ -2121,15 +2396,21 @@ pub fn compose_or_exclude(
             return Err(unready(
                 provider,
                 capability,
-                &format!("was resolved for harness '{}'", controls.harness),
+                vec![
+                    Piece::Words("was resolved for "),
+                    Piece::Harness(&controls.harness),
+                ],
             )
             .into());
         }
         let answered = |names: &[String]| names.iter().any(|name| name == capability);
         if !answered(&controls.held) && !answered(&controls.denied) {
-            return Err(
-                unready(provider, capability, "neither holds it nor switches it off").into(),
-            );
+            return Err(unready(
+                provider,
+                capability,
+                vec![Piece::Words("neither holds it nor switches it off")],
+            )
+            .into());
         }
     }
     let mut extra: Vec<String> = authored.iter().chain(fragment).cloned().collect();
@@ -2185,7 +2466,11 @@ pub fn compose_or_exclude(
             {
                 return Err(unanswered(
                     provider,
-                    &format!("holds native capability '{capability}' but admits no tool for it"),
+                    vec![
+                        Piece::Words("holds "),
+                        Piece::Capability(capability),
+                        Piece::Words(" but admits no tool for it"),
+                    ],
                 )
                 .into());
             }
@@ -2196,9 +2481,11 @@ pub fn compose_or_exclude(
             {
                 return Err(unanswered(
                     provider,
-                    &format!(
-                        "admits tools for native capability '{capability}', which it does not hold"
-                    ),
+                    vec![
+                        Piece::Words("admits tools for "),
+                        Piece::Capability(capability),
+                        Piece::Words(", which it does not hold"),
+                    ],
                 )
                 .into());
             }
@@ -2304,12 +2591,13 @@ pub fn compose_or_exclude(
             // differs from the seat's own. Otherwise the seat's lists stand.
             let Some(flags) = controls.selection.flags.clone() else {
                 if let Some(node) = plan.nodes.iter().find(|node| node.list().is_some()) {
-                    return Err(unconsumed(
+                    return Err(unconsumed_naming(
                         provider,
-                        &format!(
-                            "a managed '{}' with no selection mapping to fold it into,",
-                            node.name()
-                        ),
+                        vec![
+                            Piece::Words("a managed "),
+                            Piece::Flag(node.name()),
+                            Piece::Words(" with no selection mapping to fold it into,"),
+                        ],
                     )
                     .into());
                 }
@@ -2361,13 +2649,15 @@ pub fn compose_or_exclude(
                 .enumerate()
             {
                 if writes[slot] && grammar::list_of(provider, &flags[slot].flag) != Some(kind) {
-                    return Err(unconsumed(
+                    // The mapping is the plan's, so its flag is an identity
+                    // (rebuild unit 12-fix-e).
+                    return Err(unconsumed_naming(
                         provider,
-                        &format!(
-                            "a selection mapped onto '{}', which its grammar does not read as \
-                             that tool list,",
-                            flags[slot].flag
-                        ),
+                        vec![
+                            Piece::Words("a selection mapped onto "),
+                            Piece::Flag(&flags[slot].flag),
+                            Piece::Words(", which its grammar does not read as that tool list,"),
+                        ],
                     )
                     .into());
                 }
@@ -2384,10 +2674,7 @@ pub fn compose_or_exclude(
             if let Some(tool) = folding[1].all().into_iter().find(|t| admitted.contains(t)) {
                 return Err(unconsumed_naming(
                     provider,
-                    vec![
-                        Piece::Tool(tool),
-                        Piece::Words(" both admitted and denied".to_string()),
-                    ],
+                    vec![Piece::Tool(tool), Piece::Words(" both admitted and denied")],
                 )
                 .into());
             }

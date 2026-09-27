@@ -11904,3 +11904,85 @@ saved work on `3ab20db9`:
 - `git apply -R` restored the tree, and `git status` was clean.
 
 Result: **oversized** again, waiting on the same ruling.
+
+### Third visit: the expectation admitted, 2026-09-27
+
+Run `0065-rebuild-unit-12-see-the-uni-2986103d`, based on `9e856c04`. The
+operator ruled on 2026-09-27 (appended to `operator-ruling-2026-09-23.md`
+as "2026-09-27: rebuild unit 12-fix-e's one expectation"): the one
+expectation at `adapters/tests.rs:15027` is admitted for this unit, as an
+assertion update only. Result: **complete**, committed with this record.
+
+**The saved work, applied.** `sha256sum` gave `ee3e77e5…ab1a5` for
+`full.patch` and `0f18e8bd…ea238` for `adapters-tests.proposed.patch`, the
+hashes above. `git apply --check` passed for both, and both were applied.
+Production at `9e856c04` is byte-identical to `1b2df47b`'s (`git diff
+--quiet 1b2df47b HEAD -- crates` exited 0).
+
+**The admitted change and its baseline red.** The one line at
+`adapters/tests.rs:15039` now ends `can rule on (decision 0066 …"` where it
+ended `(decision 0066 ruling 6)"`. It adds and removes no assertion. With
+only the proposed patch applied to pre-fix production,
+`an_authored_plugin_or_later_list_value_is_refused_at_the_final_command`
+FAILED at `adapters/tests.rs:15027:5`: left the whole 520-scalar line
+ending `(decision 0066 ruling 6)`, right its first 511 and `…`. With
+`full.patch` applied too, it passed. Under M5 below (the sink bypassed) it
+fails again at `:15027`, so the updated expectation binds the sink.
+
+**Baseline reds, re-taken on pre-fix production.** `native_controls.rs` and
+`bundle.rs` were checked out at `HEAD`, and the three items that name new
+code (`constructor`, the invariant and the sink test) were gated with
+`cfg(any())`, two lines above the S1 and SC-D2 tests. Protocol lib: 495
+passed and 4 failed.
+
+- S1 FAILED at `tests.rs:3692` (`:3690` ungated).
+- SC-D2 FAILED at `tests.rs:3734` (`:3732` ungated).
+- `tests.rs:273` FAILED, on the moved decode text.
+- `adapters/tests.rs:15027` FAILED, as above.
+- C1 (`capability_launch`, 51 passed and 1 failed) FAILED at
+  `capability_launch.rs:7124`: left the whole `bundle: bundle: … (composed:
+  derived -> solo)` line, right its first 511 and `…`.
+
+The first visit's line numbers (`:3693`, `:3735`) differ only by its gating
+offset. The fixed files were then restored.
+
+**Mutations, re-taken on the patched tree.** Each compiled (M7 by design
+does not), was caught, and was restored by hand.
+
+| | Mutation | Caught by |
+|---|---|---|
+| M1 | `Piece::Reason` guard `\|\| true` | invariant `:3444`; SC-D2 `:3732` |
+| M2 | `Piece::Flag` guard `\|\| true` | invariant `:3444`; S1 `:3695` |
+| M3 | `plain_label` returns `true` | invariant `:3444`; SC-D2 `:3749` |
+| M4 | `Piece::Capability` guard `\|\| true` | invariant `:3444`; SC-D2 `:3777`; 12-fix-d `:3256` |
+| M5 | `bounded_line` returns its input | invariant `:3438`; sink `:3789`; `adapters/tests.rs:15027` |
+| M6 | `capability_line` skips the sink | C1 `capability_launch.rs:7124` |
+| M7 | new `Why::Probe` | E0004 at `tests.rs:3412`, `Why::Probe` not covered |
+| M8 | `Provenance` refused as `Why::Unready` | invariant `:3650`: reached `{0..4, 6..13}`, lacks 5 |
+
+After all restores, `git diff` of `adapters/tests.rs` hashed to
+`0f18e8bd…ea238` and the rest of the diff to `ee3e77e5…ab1a5`.
+
+**Gates on the patched tree.**
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning.
+- `cargo test -p brokkr-protocol --all-features --locked --no-fail-fast`:
+  lib 501 passed, `seatbelt_lifetime_probe` 99 passed and 2 ignored, 0
+  failed.
+- `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast`:
+  lib 565 passed, `capability_launch` 52 passed, every binary 0 failed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+  `test result: ok` summaries and no `FAILED`, `panicked at` or `error`
+  line in the log.
+- `compile --bundle bundles/self` compiled. `openspec validate --all
+  --strict`: 18 passed, 0 failed.
+
+Standing-admission lines: none. The one changed line outside the unit's
+files is the admitted expectation. 12.1 and 12.2 stay ticked; 15.2 stays
+open.
+
+**Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
+macOS, remote CI and the full engine council. The three follow-ups above
+still stand.

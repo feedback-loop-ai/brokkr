@@ -185,8 +185,9 @@ fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
             "'inventory' is not a string",
         ),
         (
+            // The plan's value is not echoed (rebuild unit 12-fix-e).
             &|plan: &mut Value| plan["inventory"] = json!("empty"),
-            "'inventory' is 'empty', not known or unmeasured",
+            "'inventory' is not known or unmeasured",
         ),
         (
             &|plan: &mut Value| plan["inventory"] = json!(true),
@@ -3402,6 +3403,399 @@ fn a_tool_both_admitted_and_denied_is_refused_by_its_bounded_identity() {
             assert!(said.chars().count() <= 512, "{said}");
         }
     }
+}
+
+/// Every refusal constructor, by its place (rebuild unit 12-fix-e): the
+/// match is exhaustive, so a new [`Why`] fails to compile here until it is
+/// listed and driven below.
+fn constructor(why: Why) -> usize {
+    match why {
+        Why::Server => 0,
+        Why::Authored => 1,
+        Why::Contender => 2,
+        Why::Unparsed { authored: true } => 3,
+        Why::Unparsed { authored: false } => 4,
+        Why::Provenance => 5,
+        Why::Unready => 6,
+        Why::Unanswered => 7,
+        Why::Unconsumed => 8,
+        Why::Unheld => 9,
+        Why::Carried => 10,
+        Why::Outside => 11,
+        Why::Excluded => 12,
+        Why::Clause => 13,
+    }
+}
+
+const CONSTRUCTORS: usize = 14;
+
+/// A private path, as the reviews planted it.
+const PRIVATE: &str = "/private/REVIEW_SENTINEL";
+
+/// One complete refusal line, as it leaves the engine, holds design D6:
+/// at most 512 scalar values, one line, and no private path.
+fn bounded(line: &str) {
+    assert!(
+        line.chars().count() <= 512,
+        "{} scalars: {line}",
+        line.chars().count()
+    );
+    assert!(!line.contains('\n'), "{line}");
+    assert!(!line.contains("REVIEW_SENTINEL"), "{line}");
+}
+
+/// Rebuild unit 12-fix-e (design D6), the invariant rather than examples:
+/// EVERY refusal this module constructs, driven through the public
+/// functions with each adversarial value — 1000 scalar values, an embedded
+/// newline, a private path, a permission pattern around it, and all of them
+/// at once — in every untrusted input it takes (a provider, harness, seat,
+/// capability, tool, option, reason or written argument), is one line of at
+/// most 512 scalar values naming no private path. Each is checked as the
+/// driver states it and as the compiler's line renders through the same
+/// sink with a doubled `bundle: `, a 300-scalar realm and a composition
+/// note; the clause a dropped holding carries, and the plan and provenance
+/// readers' lines, too. Every [`Why`] is reached.
+#[test]
+fn every_refusal_line_is_one_bounded_line_naming_no_payload() {
+    let adversaries = [
+        "a".repeat(1000),
+        "web\nsearch".to_string(),
+        PRIVATE.to_string(),
+        format!("Bash({PRIVATE}:*)"),
+        format!("{PRIVATE}\n{}", "a".repeat(1000)),
+    ];
+    let site = format!("seat 'work' (office 'o') in realm '{}'", "r".repeat(300));
+    let lines = |refusal: &Refusal, seat: &str| {
+        let compiled = format!("bundle: {}", refusal.at_compile(&site));
+        vec![
+            refusal.at_launch(&json!({"seat": seat})),
+            refusal.at_launch(&json!({})),
+            bounded_line(&format!("bundle: {compiled} (composed: derived -> solo)")),
+        ]
+    };
+    let flags = |deny: &str| {
+        let flag = |flag: &str| ListFlag {
+            flag: flag.into(),
+            separator: ",".into(),
+        };
+        Some([flag("--tools"), flag("--allowedTools"), flag(deny)])
+    };
+    let mut reached = std::collections::BTreeSet::new();
+    for value in &adversaries {
+        let v = value.as_str();
+        BUILT.with(|built| built.borrow_mut().clear());
+        let held = |extra: &str| {
+            let mut controls = claude_controls(
+                Selection {
+                    flags: claude_flags(),
+                    ..Selection::default()
+                },
+                &[],
+            );
+            controls.held.push(extra.to_string());
+            controls
+        };
+        let mut refusals: Vec<Refusal> = vec![
+            authored_conflict("claude", &argv(&["--mcp-config", v]), &[]).unwrap_err(),
+            authored_conflict(
+                "codex",
+                &argv(&["-c", &format!("mcp_servers.x.command={v}")]),
+                &[],
+            )
+            .unwrap_err(),
+            authored_refusal("claude", &argv(&["--allowedTools", v])).unwrap_err(),
+            authored_refusal("codex", &argv(&["-c", &format!("{v}={v}")])).unwrap_err(),
+            parse_origin("claude", &argv(&[v]), true).unwrap_err(),
+            parse_origin("claude", &argv(&[&format!("--{v}")]), false).unwrap_err(),
+            compose_for_provider(
+                v,
+                &[],
+                &[],
+                &Controls {
+                    provenance: typed(7, &[]),
+                    ..ready(v, &[], &[])
+                },
+            )
+            .unwrap_err(),
+            compose_for_provider(
+                "claude",
+                &[],
+                &[],
+                &Controls {
+                    inventory: Inventory::Unmeasured(v.to_string()),
+                    ..ready("claude", &[], &[])
+                },
+            )
+            .unwrap_err(),
+            compose_for_provider(
+                "codex",
+                &[],
+                &[],
+                &Controls {
+                    harness: v.to_string(),
+                    ..ready("codex", &[], &[])
+                },
+            )
+            .unwrap_err(),
+            compose_for_provider("claude", &[], &[], &held(v)).unwrap_err(),
+            compose_for_provider(
+                "claude",
+                &[],
+                &[],
+                &Controls {
+                    admits: admits(&[
+                        ("web-search", &["WebSearch"]),
+                        ("web-fetch", &["WebFetch"]),
+                        (v, &["WebFetch"]),
+                    ]),
+                    ..held("web-fetch")
+                },
+            )
+            .unwrap_err(),
+            compose_for_provider(
+                "claude",
+                &[],
+                &[],
+                &claude_controls(
+                    Selection {
+                        deny: argv(&["WebSearch"]),
+                        flags: flags(v),
+                        ..Selection::default()
+                    },
+                    &[],
+                ),
+            )
+            .unwrap_err(),
+            compose_for_provider(
+                "claude",
+                &[],
+                &[],
+                &claude_controls(
+                    Selection {
+                        include: argv(&[v]),
+                        flags: claude_flags(),
+                        ..Selection::default()
+                    },
+                    &[],
+                ),
+            )
+            .unwrap_err(),
+            compose_for_provider(
+                "claude",
+                &argv(&["--allowedTools", v]),
+                &[],
+                &claude_controls(Selection::default(), &[]),
+            )
+            .unwrap_err(),
+            compose_for_provider(
+                "claude",
+                &argv(&["--tools", "WebSearch,WebFetch", "--allowedTools", v]),
+                &[],
+                &Controls {
+                    provenance: typed(0, &[v]),
+                    ..claude_controls(Selection::default(), &[])
+                },
+            )
+            .unwrap_err(),
+        ];
+        let excluded = compose_or_exclude(
+            "claude",
+            &argv(&["--tools", "Read"]),
+            &[],
+            &Controls {
+                admits: admits(&[
+                    ("web-search", &["Read"]),
+                    ("web-fetch", &["Read"]),
+                    (v, &["WebFetch"]),
+                ]),
+                ..held(v)
+            },
+        );
+        let Err(Failure::Excluded(exclusion)) = excluded else {
+            panic!("{v:?}: {excluded:?}");
+        };
+        bounded(&exclusion.clause);
+        refusals.push(exclusion.refusal);
+        for refusal in &refusals {
+            for line in lines(refusal, v) {
+                bounded(&line);
+            }
+        }
+        bounded(&conflict_refusal(
+            &json!({"seat": v}),
+            &(v.to_string(), v.to_string()),
+        ));
+        for plan in [
+            json!({"inventory": v}),
+            json!({"inventory": "known", "provider": "claude", "harness": "claude", "on": [],
+                   "off": [], "argv": [], "guards": [], "admits": {v: [7]}}),
+        ] {
+            bounded(&managed(&json!({"native_controls": plan})).unwrap_err());
+        }
+        bounded(
+            &launch_arguments(
+                &json!({"launch_arguments": {"authored": [v], "managed": []}}),
+                &[],
+            )
+            .unwrap_err(),
+        );
+        reached.extend(BUILT.with(|built| {
+            built
+                .borrow()
+                .iter()
+                .map(|why| constructor(*why))
+                .collect::<Vec<_>>()
+        }));
+    }
+    assert_eq!(
+        reached,
+        (0..CONSTRUCTORS).collect::<std::collections::BTreeSet<_>>()
+    );
+}
+
+/// Rebuild unit 12-fix-e, the chief's S1 (design D6): an adapter's
+/// selection mapping onto a flag the harness does not read as that list is
+/// refused naming the flag only where it is a plain option, cut to 64
+/// scalar values; a 957-scalar reproduction whose flag carried a private
+/// path and a newline is refused with a fixed label, through the driver's
+/// command builder.
+#[test]
+fn a_selection_mapping_is_refused_by_its_bounded_option() {
+    let mapped = |flag: &str| {
+        let plan = json!({
+            "inventory": "known", "provider": "claude", "harness": "claude",
+            "on": ["web-search", "web-fetch"], "off": [],
+            "admits": {"web-search": ["WebSearch"], "web-fetch": ["WebFetch"]},
+            "argv": [],
+            "selection": {"include": [], "allow": [], "deny": ["WebSearch"], "flags": {
+                "include": {"flag": "--tools", "separator": ","},
+                "allow": {"flag": "--allowedTools", "separator": ","},
+                "deny": {"flag": flag, "separator": ","}
+            }},
+            "guards": []
+        });
+        let input = json!({"seat": "work", "native_controls": plan,
+                           "launch_arguments": {"authored": [], "managed": []}});
+        crate::adapters::claude_command("claude", &[], None, &input)
+    };
+    let said = |named: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: the capability plan carries a selection mapped \
+             onto {named}, which its grammar does not read as that tool list, for provider \
+             'claude', which its launch does not consume; a control that cannot reach the final \
+             command is refused rather than recorded and dropped (decision 0066 ruling 3)"
+        ))
+    };
+    assert_eq!(mapped("--deny"), said("'--deny'"));
+    assert_eq!(
+        mapped(&format!("--{}", "d".repeat(998))),
+        said(&format!("'--{}…'", "d".repeat(61)))
+    );
+    let reproduction = format!("--deny{PRIVATE}\n{}", "x".repeat(900));
+    assert_eq!(
+        mapped(&reproduction),
+        said("an option whose spelling is not plain")
+    );
+}
+
+/// Rebuild unit 12-fix-e, the chief's SC-D2 (design D6): an unmeasured
+/// inventory's reason is said only where it is plain words, cut to what
+/// the cause leaves it; a reason carrying a private path and a newline, the
+/// 925-scalar reproduction, is a fixed label. A harness the plan was
+/// resolved for, and a 250-scalar held capability (the 540-scalar
+/// reproduction) or one that is not plain, are bounded identities too.
+#[test]
+fn an_unready_or_unanswered_plan_is_refused_in_bounded_identities() {
+    let launched = |controls: Value| {
+        let input = json!({"seat": "work", "native_controls": controls,
+                           "launch_arguments": {"authored": [], "managed": []}});
+        crate::adapters::claude_command("claude", &[], None, &input)
+    };
+    let unmeasured = |reason: &str| {
+        launched(
+            json!({"inventory": "unmeasured", "provider": "claude", "harness": "claude",
+                        "reason": reason}),
+        )
+    };
+    let unready = |problem: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: provider 'claude' is known to carry native \
+             capability 'web-search', and the capability plan {problem}; a known native power is \
+             launched only with a delivered control for it, never on what absence implies \
+             (decision 0066 ruling 1)"
+        ))
+    };
+    assert_eq!(
+        unmeasured("the adapter declares none"),
+        unready("declares the provider's inventory unmeasured (the adapter declares none)")
+    );
+    assert_eq!(
+        unmeasured(&format!("see {PRIVATE}\n{}", "r".repeat(800))),
+        unready("declares the provider's inventory unmeasured (a reason that is not plain)")
+    );
+    assert_eq!(
+        unmeasured(&"r".repeat(1000)),
+        unready(&format!(
+            "declares the provider's inventory unmeasured ({}…)",
+            "r".repeat(127)
+        ))
+    );
+    let resolved = |harness: &str| {
+        launched(
+            json!({"inventory": "known", "provider": "claude", "harness": harness,
+                        "on": [], "off": [], "argv": [], "guards": []}),
+        )
+    };
+    assert_eq!(
+        resolved(&format!("x{PRIVATE}")),
+        unready("was resolved for a harness whose name is not plain")
+    );
+    assert_eq!(
+        resolved(&"h".repeat(300)),
+        unready(&format!("was resolved for harness '{}…'", "h".repeat(63)))
+    );
+    let holding = |capability: &str| {
+        launched(
+            json!({"inventory": "known", "provider": "claude", "harness": "claude",
+                        "on": ["web-search", "web-fetch", capability], "off": [],
+                        "admits": {"web-search": ["WebSearch"], "web-fetch": ["WebFetch"]},
+                        "argv": [], "guards": []}),
+        )
+    };
+    let unanswered = |named: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: the capability plan for provider 'claude' holds \
+             {named} but admits no tool for it; what a plan holds and what each holding admits \
+             answer for each other exactly, so the launch is refused rather than composed on an \
+             inferred admission (design D6)"
+        ))
+    };
+    assert_eq!(
+        holding(&"c".repeat(250)),
+        unanswered(&format!("native capability '{}…'", "c".repeat(127)))
+    );
+    assert_eq!(
+        holding(&format!("c{PRIVATE}\n")),
+        unanswered("a native capability whose name is not plain")
+    );
+}
+
+/// Rebuild unit 12-fix-e (design D6): the one sink escapes every control
+/// character, so a line stays one line, and cuts the escaped line to 512
+/// scalar values ending in `…`; a line within the bound is unchanged.
+#[test]
+fn the_refusal_sink_keeps_one_line_within_512_scalar_values() {
+    assert_eq!(bounded_line("a refusal"), "a refusal");
+    assert_eq!(bounded_line("one\nline\t\u{1b}"), "one\\nline\\t\\u{1b}");
+    assert_eq!(bounded_line(&"é".repeat(512)), "é".repeat(512));
+    assert_eq!(
+        bounded_line(&"é".repeat(513)),
+        format!("{}…", "é".repeat(511))
+    );
+    assert_eq!(
+        bounded_line(&format!("{}\nb", "a".repeat(510))),
+        format!("{}\\…", "a".repeat(510))
+    );
 }
 
 /// Rebuild unit 11 (design D6: "Invalid Codex managed arguments have no

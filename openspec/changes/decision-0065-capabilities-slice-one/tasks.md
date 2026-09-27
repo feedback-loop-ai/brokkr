@@ -1966,6 +1966,19 @@ and saved as a patch rather than committed (evidence.md, "Unit 12-fix-e").
   and apply clean on `3ab20db9`. With `full.patch` applied,
   `adapters/tests.rs:15027` fails again, then the patch was reverted.
   Result: **oversized** again, waiting on the same ruling.
+- **Third visit (run `0065-rebuild-unit-12-see-the-uni-2986103d`,
+  2026-09-27).** The operator admitted the one expectation at
+  `adapters/tests.rs:15027` as an assertion update only (ruling addendum
+  "2026-09-27"). Both saved patches were applied and committed. The admitted
+  line's baseline red was observed on pre-fix production, and M5 (sink
+  bypassed) fails it again. The baseline reds for C1, S1 and SC-D2 and
+  mutations M1–M8 were re-taken and each reproduced. fmt, clippy, the
+  protocol and runtime suites, the workspace run (77 ok, 0 failed),
+  `bundles/self` and strict OpenSpec (18/18) passed (evidence.md, "Third
+  visit"). Standing-admission lines: none. Result: **complete**. 12.1 and
+  12.2 stay ticked; 15.2 stays open.
+- **Pending:** exact coverage outside the box, macOS, remote CI and the
+  council.
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 

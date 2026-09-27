@@ -40,7 +40,10 @@ pub enum CompileError {
     /// `brokkr resume` can tell "the pinned authority cannot be
     /// reproduced here" from any other compile failure and refuse through
     /// the manifest-mismatch door with capabilities named (design D7).
-    #[error("bundle: {0}")]
+    /// The whole line, `bundle: ` and any composition-chain note included,
+    /// renders through the protocol's one refusal sink: one line, at most
+    /// 512 scalar values (rebuild unit 12-fix-e; design D6).
+    #[error("{}", capability_line(.0))]
     Capability(String),
     #[error("bundle io: {0}")]
     Io(#[from] std::io::Error),
@@ -48,6 +51,11 @@ pub enum CompileError {
     Json(#[from] serde_json::Error),
     #[error("bundle policy: {0}")]
     Policy(#[from] brokkr_core::PolicyError),
+}
+
+/// How [`CompileError::Capability`] renders.
+fn capability_line(reason: &str) -> String {
+    brokkr_protocol::native_controls::bounded_line(&format!("bundle: {reason}"))
 }
 
 /// Inputs the engine owns. A seat may never supply or declare these:
@@ -1227,9 +1235,11 @@ impl Bundle {
             // Every failure downstream of resolution on a composed
             // bundle is wrapped ONCE with the chain — one arm, rather
             // than teaching each lint about layers.
+            // A capability refusal is wrapped in its raw words, as it has
+            // always read, and bounded once, where the whole line renders.
             Err(error) => Err(match (note, error) {
-                (Some(note), error @ CompileError::Capability(_)) => {
-                    CompileError::Capability(format!("{error} ({note})"))
+                (Some(note), CompileError::Capability(reason)) => {
+                    CompileError::Capability(format!("bundle: {reason} ({note})"))
                 }
                 (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
                 (None, error) => error,

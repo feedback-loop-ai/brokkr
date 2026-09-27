@@ -15036,7 +15036,7 @@ fn an_authored_plugin_or_later_list_value_is_refused_at_the_final_command() {
              so which of the two it is cannot be told. A harness brokkr launches is parsed \
              against a model of its options, and a token that grammar cannot place is refused \
              rather than passed through, because a control nobody can read is a control nobody \
-             can rule on (decision 0066 ruling 6)"
+             can rule on (decision 0066 …"
                 .to_string()
         )
     );

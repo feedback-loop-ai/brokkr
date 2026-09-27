@@ -7042,6 +7042,96 @@ fn a_compiled_conflict_is_refused_in_bounded_identities() {
     );
 }
 
+/// Rebuild unit 12-fix-e, the chief's C1 (design D6): on a composed bundle
+/// the compiler's whole line — `bundle: ` twice, the site, SC-2's
+/// 438-scalar cause and the composition note — is 533 scalar values, and
+/// renders through the one sink cut to 512, ending in `…`, still a
+/// capability refusal.
+#[test]
+fn a_composed_capability_refusal_renders_as_one_bounded_line() {
+    let operator = Operator::new();
+    one_inline_seat(&operator, &["driver"]);
+    write(
+        operator.root(),
+        "solo/bundle.json",
+        &json!({"name": "solo", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "bounded"},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    write(
+        operator.root(),
+        "derived/bundle.json",
+        &json!({"name": "derived", "extends": "solo"}),
+    );
+    let capability = format!("c{}", "a".repeat(199));
+    let tool = format!("T{}", "a".repeat(127));
+    fetch_dialect(&operator, "bounded", json!([tool]));
+    let path = operator.root().join("dialects/tools/bounded.json");
+    let mut dialect: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    dialect["serves"] = json!(capability);
+    dialect["adapter_key"] = json!("bounded");
+    write(operator.root(), "dialects/tools/bounded.json", &dialect);
+    write(
+        operator.root(),
+        &format!("capabilities/{capability}.json"),
+        &json!({"name": capability, "classes": ["reads", "egress"]}),
+    );
+    write(
+        operator.root(),
+        "agents/bounded.json",
+        &json!({
+            "description": "an office with one bounded capability",
+            "charter": "charters/searcher.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"},
+            "capabilities": {capability.as_str(): "requires"},
+        }),
+    );
+    let adapters = copied_adapters();
+    edit_adapter(adapters.path(), "claude", |adapter| {
+        let known = &mut adapter["native_capabilities"]["known"];
+        let mut entry = known["web-fetch"].clone();
+        entry["capability"] = json!(capability);
+        entry["tools"] = json!([tool]);
+        entry["on"] = json!({"argv": ["--allowedTools", tool]});
+        entry["off"] = json!({"argv": ["--disallowedTools", tool]});
+        known["bounded"] = entry;
+        let driver = adapter["driver"].as_array_mut().unwrap();
+        driver.extend([json!("--tools"), json!("Read")]);
+    });
+    let context = operator.context(json!({capability.as_str(): {"dialect": "bounded"}}));
+    let refusal = Bundle::compile_with_capabilities(
+        &operator.root().join("derived"),
+        &operator.root().join("agents"),
+        adapters.path(),
+        Some("private"),
+        None,
+        Boundary::Harness,
+        &context,
+    )
+    .unwrap_err();
+    let whole = format!(
+        "bundle: bundle: seat 'work' (office 'bounded') in realm 'private': the adapter \
+         template's explicit '--tools' restriction for provider 'claude' (naming Read) does not \
+         name tool '{tool}', which the plan admits for native capability 'c{}…'; an explicit \
+         tool list is a hard limit that nothing widens, so the conflict is refused whole rather \
+         than unioned (design D6) (composed: derived -> solo)",
+        "a".repeat(24)
+    );
+    assert_eq!(whole.chars().count(), 533);
+    let line = refusal.to_string();
+    assert_eq!(
+        line,
+        format!("{}…", whole.chars().take(511).collect::<String>())
+    );
+    assert_eq!(line.chars().count(), 512);
+    assert!(matches!(
+        refusal,
+        brokkr_runtime::bundle::CompileError::Capability(_)
+    ));
+}
+
 /// Rebuild unit 12-fix-d, the second return (design D6): a realm-granted
 /// entry that admits `Bash` and a `Bash(/private/…:*)` its ON selection both
 /// allows and denies is refused at compile by its tool name alone, on
