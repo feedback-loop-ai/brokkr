@@ -2340,6 +2340,45 @@ are unticked here, as at 13-fix, until the patches land and are reviewed.
     integration (14.1, 15.1, 15.2); exact coverage outside the box; macOS;
     remote CI; and the council.
 
+Unit 13-fix-d (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-a1326516`,
+based on `2ab38565`). It answers the chief's security hold R1–R5; see
+evidence.md, "Unit 13-fix-d". **Result: complete.** 13.1 and 13.2 stay
+ticked. The only production change is in `native_controls.rs`;
+`grammar.rs` and `adapters.rs` did not move.
+
+- **R1.** `captured` makes the result capture a typed sink. It is read by
+  its parsed canonical option in every contribution. It is admitted only in
+  the local sandbox fragment or the boundary, as exactly `{result_path}`,
+  and emitted from `Serving::output` at that one value position. A work
+  seat has none, and a gate has exactly one. Any other capture or
+  placeholder refuses.
+- **R2.** `admit` is the one admission. The hands tool the composer
+  synthesizes now passes every limit, as a carried one does.
+- **R3.** The no-mapping path no longer returns early. Availability is
+  judged before either return. **Assumption:** a selected deny list with no
+  mapping now refuses as "a final tool list with no selection mapping". It
+  was dropped before, and `decode` cannot produce it.
+- **Generated cases.** Incompatible limits (72 per harness), absent
+  mappings (128 per harness) and misbound Codex captures (36). Each has a
+  complete refusal or command from its own model, and the tallies were
+  counted by hand. P2 has no survivor.
+- **Proofs.** Baseline reds on `2ab38565` for the three new tests and P1.
+  MD1–MD5 are bound by their own test and P1. MD6 supplies R4's missing
+  mutation for `the_recipes_words_…` at its exact assertion.
+- **R5.** MA1–MA4 are recorded as out-of-scope and not counted. MD7, made
+  in this unit's own file, fails the three admitted runtime fixture tests at
+  their compile positives. No in-scope mutation reaches the resolver-made
+  literal at `agent_tests.rs:4507-4527`, and that gap is recorded.
+- **Moved assertion** in the unit's own tests:
+  `every_sealed_sandbox_contribution_…`'s gate fixture now captures through
+  `{result_path}` with a chosen path, with its red recorded. Standing-admission
+  lines and fixture migrations: none.
+- **Gates.** fmt, `git diff --check` and clippy `-D warnings` are clean.
+  Workspace: 77 `ok` summaries. Both bundles compile. Strict OpenSpec:
+  18/18.
+- **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
+  box, macOS, remote CI and the council.
+
 ## 14. Unit 14 — Integrate checked cold commands
 
 - [ ] 14.1 Unit 14 parses full serialized cold commands and compares exact plan state. Verify dropped OFF/terminator/separator/prefix-duplicate refusal and typed positives. Requirements: [Codex web-search OFF uses the controller's measured fragment][NC2], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.1)

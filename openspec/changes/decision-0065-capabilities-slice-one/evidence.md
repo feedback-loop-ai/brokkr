@@ -13864,3 +13864,178 @@ confirmed every restoration. All 16 were caught (`v2-M*.log`). P1 is
   specification remains the proof.
 - Serving integration (14.1, 15.1, 15.2), exact coverage outside the box,
   macOS, remote CI and the council.
+
+## Unit 13-fix-d — one capture sink, one admission, availability before success, 2026-09-27
+
+Run `0065-rebuild-unit-13-see-the-uni-a1326516`, based on `2ab38565`. It
+answers the chief's security hold on 13-fix-c (R1–R5; G1 is noted below).
+**Result: complete.** Logs are under `.forge/unit-13-fix-d/`. The only
+production file changed is `crates/brokkr-protocol/src/native_controls.rs`;
+`native_controls/grammar.rs` and `adapters.rs` did not move. The only test
+file changed is `native_controls/tests.rs`. No standing-admission line and
+no fixture migration was needed outside the unit's files.
+
+### The repairs, each inside the shared composer or its sealed inputs
+
+- **R1: the capture is a typed sink.** `captured` (`native_controls.rs:1856`)
+  replaces the placeholder substitution in `sealed_inputs`. It reads every
+  sealed contribution for a capture under the harness's grammar, by the
+  canonical `--output-last-message` its node places, whichever spelling
+  wrote it (`-o`, joined or separate). A capture may stand only in the
+  adapter's local sandbox fragment or its boundary, and only as exactly the
+  value `{result_path}`. The served value is then emitted from
+  `Serving::output` at that one parsed value position. The following all
+  refuse: a capture in the recipe's words, the template, the pins, the
+  lowered permissions, the hands or the plan's controls; a capture into any
+  other destination, including a literal equal to the chosen path; a second
+  capture; a capture where the engine chose no path (a work seat); no
+  capture where it chose one (a gate); and `{result_path}` anywhere but the
+  capture's value. The equality in `check_final` compares against the
+  command rebuilt from that emission, so it inherits the sink.
+- **R2: every admission meets every limit.** `admit`
+  (`native_controls.rs:2999`) is the one admission of an allowance's tool
+  under a limit. In `final_tools`, a holding's admissions pass first, as
+  before (CQ1's `Excluded`). Then every typed allowance passes: the carried
+  unheld names and, newly, `sources.hands`, the hands tool the composer
+  synthesizes (`:2947`). Nothing is added to the allow list that has not
+  passed. The pass order (limits outer, allowances inner) is the order
+  13-fix-c used.
+- **R3: availability before every success.** In the Claude/LaneTally
+  branch of `compose_or_exclude`, the no-mapping path no longer returns
+  early. Both paths compute the same foldings. A missing mapping refuses a
+  plan list or a final list it cannot write. The held/hands availability
+  judgment (`:3936`) then runs, and only after it does either path return.
+  **Assumption, stated:** "a final tool list with no selection mapping to
+  write it into" now also covers a selection *deny* list. Before, the no-mapping
+  path dropped it in silence. `decode` never produces a selection without its
+  mapping, so only a `Controls` built in Rust reaches it.
+  `fold_lists` now takes the two list flags as an argument, not from each
+  `Folding`.
+
+### New tests and generated cases (`native_controls/tests.rs`)
+
+- `the_result_capture_is_one_typed_sink_the_engine_emits` covers the three
+  spellings positively. It covers the chief's three reproductions (a
+  `{result_path}.other` capture; an authored `--output-last-message
+  /outside/victim` at a work seat; a placeholder in `--model` beside a
+  literal `/lit`), each with its complete refusal. It also covers a literal
+  equal to the chosen path, the placeholder beside the capture and in the
+  pins, a capture in each of the pins, template, boundary, plan controls and
+  hands, and two captures.
+- `a_synthesized_hands_allowance_meets_every_hard_limit` takes the chief's
+  reproduction (listless required hands, both powers denied, managed
+  `--tools ""`). The synthesized and the carried allowance each refuse with
+  the same complete refusal at composition and at the check, as do the
+  template's and the plan's `--tools Read`. A limit naming the hands tool
+  composes and checks against a hand-written literal.
+- `availability_is_judged_without_a_selection_mapping` takes the chief's two
+  reproductions. Each refuses as both admitted and denied, with and without
+  the mapping. A boundary delivering only the denial composes and checks,
+  and a selected denial with no mapping refuses.
+- The generated space (P1) gains three families, each modelled
+  independently in `claude_case` or the new `capture_states`:
+  - Incompatible limits: each limit a hands site carries (template, managed
+    boundary, plan) names the held tools but not the hands tool. That is 72
+    per harness, all refused with the owner's complete `Outside` refusal.
+  - Absent selection mappings: an empty selection with no flags; the
+    boundary delivers the denial, denies the held tool, the hands, their
+    server or the lowered tool. That is 128 per harness. The model includes
+    the check-only "leaves tool … available" refusal of `delivered`.
+  - Misbound captures: nine Codex cases × held/denied × cold/rejoin, which
+    is 36.
+- **Tallies, counted by hand before the run confirmed them.** Per harness,
+  the limit family gives 72 refused. The unmapped family gives 26 checked
+  and 102 refused: listless 38 refused; boxed 6 checked and 32 refused;
+  unboxed 10 checked and 12 refused; lowered 10 checked and 20 refused.
+  P1 is therefore Claude 482/480, LaneTally 498/464 and Codex 22/86. P2
+  (every single mutation) gains 649 mutations on each harness's 26 new
+  checked commands (Claude 15,243, LaneTally 15,649), with no survivor
+  (`third-run.log`).
+
+### Assertions moved in the unit's own tests
+
+- `every_sealed_sandbox_contribution_names_one_admitted_class`: its gate
+  fixture wrote a literal capture `/r/result.json` while choosing no result
+  path, which is exactly R1's misbinding. The `site` closure now takes the
+  adapter's `CODEX_GATE` with `{result_path}`, fills it in the authored part
+  and serves the site with `RESULT` (`tests.rs:9470` and the closure above
+  it). **Red:** with the new production code and the old fixture, the
+  "inline gate" positive failed with the complete refusal "carries a result
+  capture ('--output-last-message') in its local sandbox fragment other
+  than the engine's one capture …" (`first-run.log`). Its "class expressed
+  twice" case now pairs the gate with a boundary `--sandbox read-only`
+  (`:9571`), because two gate fragments are now two captures, and R1
+  refuses those first. The expected refusal, argument 7 repeating
+  `--sandbox`, is unchanged. Two captures are asserted in the new R1 test.
+- P1's and P2's tallies, as counted above.
+
+### Baseline reds on `2ab38565`
+
+`native_controls.rs` was put back to `git show 2ab38565:…` with the new
+tests in place (`baseline.log`: 75 passed, 4 failed). Line numbers are the
+ones the logs print, before `cargo fmt` re-wrapped the test file.
+
+| Test | Failed at | Observed |
+|---|---|---|
+| `a_synthesized_hands_allowance_meets_every_hard_limit` | `:7818` | the synthesized case composed `Ok(… "--tools", "", "--allowedTools", "mcp__brokkr__workspace", …)`, not the managed boundary's `Outside` refusal |
+| `availability_is_judged_without_a_selection_mapping` | `:7920` (unmapped) | composed `Ok(["--permission-mode", "acceptEdits", "--disallowedTools", "WebSearch,WebFetch"])`, not `both('WebSearch')` |
+| `the_result_capture_is_one_typed_sink_the_engine_emits` | `:7637` | the `{result_path}.other` capture was substituted and only departed at argument 5; it was not refused as sealed |
+| P1 | `:11616` | the first limit case (listless, template limit, both held) composed `Ok(())`, not the template's `Outside` refusal |
+
+The production file was then restored and `cmp`-checked against
+`final/native_controls.rs`.
+
+### Mutations (each one Edit to `native_controls.rs`, restored by `cp`, `cmp`-checked)
+
+| | Mutation | Failed (log) |
+|---|---|---|
+| MD1 | `.chain(sources.hands)` removed from the typed admissions | the R2 test (`:7818`) and P1 (`:11616`) (`MD1.log`) |
+| MD2 | the no-mapping path returns `Ok` before the availability judgment again | the R3 test (`:7920`) and P1 on an unmapped `denies held` case (`MD2.log`) |
+| MD3 | the stray-placeholder judgment made `false` | the R1 test (`:7662`) and P1 on "capture pinned placeholder" (`MD3.log`) |
+| MD4 | a capture admitted from any contribution | the R1 test (`:7681`, the recipe's words) and P1 on "capture pinned capture" (`MD4.log`) |
+| MD5 | the two-capture arm needs three | the R1 test (`:7746`) and P1 on "capture twice" (`MD5.log`) |
+| MD6 | `!inert(serving.authored)` dropped from the words-and-pins check | **R4:** `the_recipes_words_and_the_adapters_pins_carry_nothing_capability_bearing` at its exact assertion (`:8010`, `["--allowedTools", "Bash"]`), which got the composer's authored repeat refusal instead of "is served with the recipe's words or its adapter's pins carrying …" (`MD6.log`) |
+| MD7 | `untransported` requires `default_tools_approval_mod` | `brokkr-runtime` `bundle::agent_tests`: the three tests on the admitted eight-token fixture failed at their compile positives, `:4500`, `:3849` and `:5490`, with the complete "no server approval binding" refusal; 47 passed (`MD7.log`) |
+
+### R5: MA1–MA4 are out of scope and not counted
+
+MA1–MA4 of the 13-fix-c second visit edited `crates/brokkr-runtime/src/bundle.rs:2591`,
+a production file outside the unit, even though only temporarily. They are
+**recorded as out-of-scope and not counted** as proof. Their in-scope
+replacement is MD7. It binds the admitted re-plant (the shipped eight-token
+Codex fragment) to the composer's transport requirement, and it is made
+only in this unit's file. The literal at `agent_tests.rs:4507-4527` reads
+the resolver's compiled argv (`bundle.rs:2591`, from `agents`). No file of
+this unit produces that argv, so no in-scope mutation can make that literal
+fail. It stays bound only by its recorded baseline red (the old length 12
+fails). This is stated as an open gap, not claimed as proof.
+
+### G1
+
+No verdict or workflow prose from the panel was relied upon. R1–R3 are
+answered in code and bound above.
+
+### Gates
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`), and again for `brokkr-protocol` after a
+  final doc-comment edit (`clippy-doc.log`).
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77 `ok`
+  summaries, with no `FAILED`, `panicked` or `error` line
+  (`workspace.log`). Protocol has 534 unit tests and runtime 565. After the
+  doc-comment edit, `brokkr-protocol` again gave 534 + 99 (2 ignored) + 1
+  doctest (`protocol-final.log`).
+- `compile --bundle bundles/self` and `bundles/verify`: both exited 0.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- The frozen paths (contracts, `policy/`, `fixtures/`, `reference/`,
+  `extensions/`) are untouched. `git status --short` lists only the two
+  protocol files and this change's `evidence.md` and `tasks.md`.
+
+### Pending
+
+- The `agent_tests.rs:4507-4527` literal has no in-scope mutation (see R5
+  above).
+- Serving integration (14.1, 15.1, 15.2), exact coverage outside the box
+  (`scripts/coverage-exact.sh` was not run in this seat), macOS, remote CI
+  and the council.

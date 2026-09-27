@@ -7547,6 +7547,438 @@ fn a_codex_gate_captures_into_exactly_the_result_path_the_engine_chose() {
     );
 }
 
+/// A capture other than the engine's one in `source` (rebuild unit
+/// 13-fix-d, R1), written out by hand.
+fn foreign_capture(source: &str) -> Refusal {
+    final_refusal(
+        "codex",
+        &format!(
+            "carries a result capture ('--output-last-message') in {source} other than the \
+             engine's one capture into the result path it owns, a harness write path outside the \
+             result sink"
+        ),
+    )
+}
+
+/// `{result_path}` standing in `source` outside the one capture's value
+/// (rebuild unit 13-fix-d, R1), written out by hand.
+fn stray_placeholder(source: &str) -> Refusal {
+    final_refusal(
+        "codex",
+        &format!(
+            "carries the engine's result path placeholder in {source} outside the value of the \
+             one result capture, and a placeholder is never a binding"
+        ),
+    )
+}
+
+/// [`codex_final`]'s denying inline gate whose adapter fragment is
+/// `fragment`, served with the result path `output`: the launch's own
+/// authored part carries the fragment as the engine fills it.
+fn codex_gate(fragment: &[&str], output: Option<&'static str>) -> Sealed {
+    let mut gate = codex_final(false, true);
+    let filled = fragment
+        .iter()
+        .map(|part| part.replace("{result_path}", output.unwrap_or_default()));
+    gate.authored = [gate.pins.clone(), filled.collect()].concat();
+    gate.sandbox = argv(fragment);
+    gate.output = output;
+    gate
+}
+
+/// R1 (rebuild unit 13-fix-d; security S1): the result capture is one typed
+/// sink the engine emits from the result path it chose, at the one parsed
+/// position of the adapter's fragment, whichever spelling writes it. The
+/// chief's three reproductions refuse: a capture into `{result_path}.other`,
+/// an authored capture at a work seat that chose no path, and a placeholder
+/// in `--model` beside a literal destination. So does a capture in every
+/// other contribution, a literal destination even where it equals the chosen
+/// path, `{result_path}` anywhere but the capture's value, and two captures.
+#[test]
+fn the_result_capture_is_one_typed_sink_the_engine_emits() {
+    const CHOSEN: &str = "/r/chosen.json";
+    let lead = || argv(&CODEX_LEAD);
+    let cold = |capture: &[&str]| {
+        [
+            argv(&CODEX_LEAD),
+            argv(&["-c", "model_reasoning_effort=\"high\"", "--model", "gpt"]),
+            argv(&["--image", "resume", "--sandbox", "read-only"]),
+            argv(capture),
+            argv(&["-c", "web_search=\"disabled\""]),
+        ]
+        .concat()
+    };
+    // The one capture, however it is spelled, carries the chosen path.
+    for (fragment, capture) in [
+        (
+            ["--sandbox", "read-only", "-o", "{result_path}"].as_slice(),
+            ["-o", CHOSEN].as_slice(),
+        ),
+        (
+            &[
+                "--sandbox",
+                "read-only",
+                "--output-last-message={result_path}",
+            ],
+            &["--output-last-message=/r/chosen.json"],
+        ),
+        (&CODEX_GATE, &["--output-last-message", CHOSEN]),
+    ] {
+        let gate = codex_gate(fragment, Some(CHOSEN));
+        assert_eq!(
+            gate.cold(cold(capture)).map(Checked::into_argv),
+            Ok(cold(capture)),
+            "{fragment:?}"
+        );
+    }
+    // The chief's first: a capture into a suffixed placeholder.
+    let suffixed = [
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        "{result_path}.other",
+    ];
+    assert_eq!(
+        codex_gate(&suffixed, Some(CHOSEN)).cold(lead()),
+        Err(foreign_capture("its local sandbox fragment"))
+    );
+    // A literal destination, even the chosen one, is not the typed sink.
+    let literal = ["--sandbox", "read-only", "--output-last-message", CHOSEN];
+    assert_eq!(
+        codex_gate(&literal, Some(CHOSEN)).cold(lead()),
+        Err(foreign_capture("its local sandbox fragment"))
+    );
+    // The chief's third: a placeholder in `--model` beside a literal
+    // destination; and the placeholder beside the one capture.
+    let modelled = [
+        "--sandbox",
+        "read-only",
+        "--model",
+        "{result_path}",
+        "--output-last-message",
+        "/lit",
+    ];
+    assert_eq!(
+        codex_gate(&modelled, Some(CHOSEN)).cold(lead()),
+        Err(foreign_capture("its local sandbox fragment"))
+    );
+    let beside = [&CODEX_GATE[..], &["--model", "{result_path}"]].concat();
+    assert_eq!(
+        codex_gate(&beside, Some(CHOSEN)).cold(lead()),
+        Err(stray_placeholder("its local sandbox fragment"))
+    );
+    let pinned = Sealed {
+        pins: argv(&["--model", "{result_path}"]),
+        ..codex_gate(&CODEX_GATE, Some(CHOSEN))
+    };
+    assert_eq!(
+        pinned.cold(lead()),
+        Err(stray_placeholder("its adapter's pins"))
+    );
+    // The chief's second: a work seat, which chose no result path, whose
+    // recipe's words capture outside it; and a capture in every other
+    // contribution, at a work seat or beside the gate's own.
+    let mut work = codex_final(false, true);
+    work.expected.local.sandbox = SandboxIntent::WorkspaceWrite;
+    work.sandbox = argv(&CODEX_WORK);
+    let victim = argv(&["--output-last-message", "/outside/victim"]);
+    assert_eq!(
+        work.check(
+            lead(),
+            Serving {
+                authored: &victim,
+                ..Serving::default()
+            }
+        ),
+        Err(foreign_capture("the recipe's words"))
+    );
+    let short = argv(&["-o", "/outside/victim"]);
+    for (sealed, source) in [
+        (
+            Sealed {
+                pins: [work.pins.clone(), short.clone()].concat(),
+                ..work.clone()
+            },
+            "its adapter's pins",
+        ),
+        (
+            Sealed {
+                expected: Expected {
+                    template: TemplateExpectation::Declared(short.clone()),
+                    ..work.expected.clone()
+                },
+                ..work.clone()
+            },
+            "its permission template",
+        ),
+        (
+            Sealed {
+                boundary: victim.clone(),
+                ..work.clone()
+            },
+            "its boundary",
+        ),
+        (
+            Sealed {
+                controls: Controls {
+                    argv: [short.clone(), work.controls.argv.clone()].concat(),
+                    ..work.controls.clone()
+                },
+                ..work.clone()
+            },
+            "its plan's native controls",
+        ),
+        (
+            Sealed {
+                boundary: victim.clone(),
+                ..codex_gate(&CODEX_GATE, Some(CHOSEN))
+            },
+            "its boundary",
+        ),
+        (
+            codex_hands(&[&CODEX_HANDS[..], &["-o", "/outside/victim"]].concat()),
+            "its hands",
+        ),
+    ] {
+        assert_eq!(
+            sealed.cold(lead()),
+            Err(foreign_capture(source)),
+            "{source}"
+        );
+    }
+    // Two captures: a gate has exactly one.
+    let twice = Sealed {
+        boundary: argv(&["--output-last-message", "{result_path}"]),
+        ..codex_gate(&CODEX_GATE, Some(CHOSEN))
+    };
+    assert_eq!(
+        twice.cold(lead()),
+        Err(final_refusal(
+            "codex",
+            "is sealed with more than one result capture, and a gate has exactly one"
+        ))
+    );
+}
+
+/// The refusal of a limit `owner` carries, naming `names`, that does not
+/// name the hands tool the site's typed hands admit (rebuild unit 13-fix-d,
+/// R2), written out by hand.
+fn hands_outside(provider: &str, owner: &str, names: &str) -> Refusal {
+    Refusal {
+        authored: false,
+        cause: format!(
+            "{owner} explicit '--tools' restriction for provider '{provider}' (naming {names}) \
+             does not name tool 'mcp__brokkr__workspace', which the site's typed hands admit; an \
+             explicit tool list is a hard limit that nothing widens, so the conflict is refused \
+             whole rather than unioned (design D6)"
+        ),
+    }
+}
+
+/// R2 (rebuild unit 13-fix-d; correctness C2, security S3): the hands tool
+/// the composer synthesizes passes the same hard-limit admission as one the
+/// fragment carries. The chief's reproduction — required Claude hands
+/// carrying strict MCP and its document, both native powers denied, the
+/// managed boundary's `--tools ""` — refuses at composition and at the
+/// check exactly as the same hands carrying the allowance do; so do the
+/// template's and the plan's limits that leave the hands tool out. A limit
+/// naming it composes and checks.
+#[test]
+fn a_synthesized_hands_allowance_meets_every_hard_limit() {
+    let boxed = claude_final();
+    let denying = |hands: &[&str], template: &[&str], boundary: &[&str], native: &[&str]| {
+        let authored = [argv(&["--permission-mode", "acceptEdits"]), argv(template)].concat();
+        Sealed {
+            controls: Controls {
+                held: Vec::new(),
+                denied: argv(&["web-search", "web-fetch"]),
+                admits: admits(&[]),
+                argv: argv(native),
+                selection: Selection {
+                    include: Vec::new(),
+                    allow: Vec::new(),
+                    deny: argv(&["WebSearch", "WebFetch"]),
+                    flags: claude_flags(),
+                },
+                provenance: typed(hands.len(), &[]),
+                ..boxed.controls.clone()
+            },
+            expected: Expected {
+                native: NativeExpectation::Known {
+                    held: Vec::new(),
+                    denied: argv(&["web-search", "web-fetch"]),
+                },
+                template: TemplateExpectation::Declared(authored.clone()),
+                ..boxed.expected.clone()
+            },
+            hands: argv(hands),
+            boundary: argv(boundary),
+            authored,
+            ..boxed.clone()
+        }
+    };
+    let synthesized = &CLAUDE_HANDS[2..5];
+    let carrying = &CLAUDE_HANDS[2..];
+    let managed = "the adapter's managed boundary fragment's";
+    for hands in [synthesized, carrying] {
+        let limited = denying(hands, &[], &["--tools", ""], &[]);
+        let refusal = hands_outside("claude", managed, "no tool");
+        assert_eq!(limited.composed(), Err(refusal.clone()), "{hands:?}");
+        assert_eq!(limited.cold(argv(&CLAUDE_LEAD)), Err(refusal), "{hands:?}");
+    }
+    for (template, native, owner) in [
+        (
+            ["--tools", "Read"].as_slice(),
+            [].as_slice(),
+            "the adapter template's",
+        ),
+        (
+            [].as_slice(),
+            ["--tools", "Read"].as_slice(),
+            "the capability plan's",
+        ),
+    ] {
+        let limited = denying(synthesized, template, &[], native);
+        let refusal = hands_outside("claude", owner, "Read");
+        assert_eq!(limited.composed(), Err(refusal.clone()), "{owner}");
+        assert_eq!(limited.cold(argv(&CLAUDE_LEAD)), Err(refusal), "{owner}");
+    }
+    let named = denying(synthesized, &[], &["--tools", HANDS_TOOL], &[]);
+    let cold = argv(&[
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        "acceptEdits",
+        "--strict-mcp-config",
+        "--mcp-config",
+        MCP_DOCUMENT,
+        "--tools",
+        "",
+        "--allowedTools",
+        HANDS_TOOL,
+        "--disallowedTools",
+        "WebSearch,WebFetch",
+    ]);
+    assert_eq!(named.served(&CLAUDE_LEAD), cold);
+    assert_eq!(named.cold(cold.clone()).map(Checked::into_argv), Ok(cold));
+}
+
+/// R3 (rebuild unit 13-fix-d; correctness C1, security S2, spec-compliance
+/// SC1): availability is judged on every path that composes, a plan with no
+/// selection mapping included. The chief's two reproductions — a held
+/// WebSearch beside a denied WebFetch, and required hands with both powers
+/// denied, each under an empty selection and a boundary denying what is
+/// held — refuse as both admitted and denied at composition and at the
+/// check, exactly as they do with the mapping supplied. With no mapping, a
+/// boundary that denies only what the plan denies composes and checks, and
+/// a denial the plan selects has no list to be written into and refuses.
+#[test]
+fn availability_is_judged_without_a_selection_mapping() {
+    let unmapped = |sealed: Sealed| Sealed {
+        controls: Controls {
+            selection: Selection::default(),
+            ..sealed.controls
+        },
+        ..sealed
+    };
+    let mapped = |sealed: &Sealed| Sealed {
+        controls: Controls {
+            selection: Selection {
+                flags: claude_flags(),
+                ..Selection::default()
+            },
+            ..sealed.controls.clone()
+        },
+        ..sealed.clone()
+    };
+    let local = claude_local();
+    let held = unmapped(Sealed {
+        controls: Controls {
+            provenance: typed(0, &[]),
+            ..local.controls.clone()
+        },
+        expected: Expected {
+            local: LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            },
+            ..local.expected.clone()
+        },
+        authored: argv(&["--permission-mode", "acceptEdits"]),
+        boundary: argv(&["--disallowedTools", "WebSearch,WebFetch"]),
+        ..local
+    });
+    let boxed = claude_final();
+    let hands = unmapped(Sealed {
+        controls: Controls {
+            held: Vec::new(),
+            denied: argv(&["web-search", "web-fetch"]),
+            admits: admits(&[]),
+            ..boxed.controls.clone()
+        },
+        expected: Expected {
+            native: NativeExpectation::Known {
+                held: Vec::new(),
+                denied: argv(&["web-search", "web-fetch"]),
+            },
+            ..boxed.expected.clone()
+        },
+        boundary: argv(&[
+            "--disallowedTools",
+            "mcp__brokkr__workspace,WebSearch,WebFetch",
+        ]),
+        ..boxed
+    });
+    for (sealed, tool) in [(held.clone(), "WebSearch"), (hands, HANDS_TOOL)] {
+        for sealed in [mapped(&sealed), sealed] {
+            let mapping = sealed.controls.selection.flags.is_some();
+            assert_eq!(sealed.composed(), Err(both("claude", tool)), "{mapping}");
+            assert_eq!(
+                sealed.cold(argv(&CLAUDE_LEAD)),
+                Err(both("claude", tool)),
+                "{mapping}"
+            );
+        }
+    }
+    let delivered = Sealed {
+        boundary: argv(&["--disallowedTools", "WebFetch"]),
+        ..held.clone()
+    };
+    let cold = [
+        argv(&CLAUDE_LEAD),
+        argv(&["--permission-mode", "acceptEdits"]),
+        argv(&["--disallowedTools", "WebFetch"]),
+    ]
+    .concat();
+    assert_eq!(delivered.served(&CLAUDE_LEAD), cold);
+    assert_eq!(
+        delivered.cold(cold.clone()).map(Checked::into_argv),
+        Ok(cold)
+    );
+    let selected = Sealed {
+        controls: Controls {
+            selection: Selection {
+                deny: argv(&["WebFetch"]),
+                ..Selection::default()
+            },
+            ..delivered.controls.clone()
+        },
+        boundary: Vec::new(),
+        ..delivered
+    };
+    assert_eq!(
+        selected.composed(),
+        Err(form_refusal(
+            "claude",
+            "a final tool list with no selection mapping to write it into,"
+        ))
+    );
+}
+
 /// R4 (rebuild unit 13-fix-c; ruling 1): the parts no capability rule
 /// composes — the recipe's words, which lead, and the adapter's model and
 /// effort pins, which follow its template — are carried as served and carry
@@ -9022,18 +9454,20 @@ fn every_sealed_sandbox_contribution_names_one_admitted_class() {
         sealed.controls.argv.splice(0..0, argv(native));
         sealed.pins = argv(&["--model", "gpt"]);
         sealed.sandbox = argv(local);
-        sealed.authored = [argv(template), sealed.pins.clone(), argv(local)].concat();
+        // A gate's fragment captures into the result path the engine chose
+        // (rebuild unit 13-fix-d, R1).
+        let placed = local
+            .iter()
+            .map(|part| part.replace("{result_path}", RESULT));
+        sealed.authored = [argv(template), sealed.pins.clone(), placed.collect()].concat();
         sealed.boundary = argv(boundary);
+        let captures = |fragment: &[&str]| fragment.contains(&"{result_path}");
+        sealed.output = (captures(local) || captures(boundary)).then_some(RESULT);
         sealed
     };
     // What is sealed refuses before any command is compared: the lead alone.
     let checked = |sealed: &Sealed| sealed.cold(argv(&CODEX_LEAD));
-    let gate: &[&str] = &[
-        "--sandbox",
-        "read-only",
-        "--output-last-message",
-        "/r/result.json",
-    ];
+    let gate: &[&str] = &CODEX_GATE;
     let work: &[&str] = &["--sandbox", "workspace-write"];
     for (name, sealed) in [
         ("inline gate", site(ReadOnly, gate, &[], &[], &[])),
@@ -9129,11 +9563,12 @@ fn every_sealed_sandbox_contribution_names_one_admitted_class() {
         forbidden("its typed local declaration")
     );
     // One class expressed twice: the typed class the engine lowers beside
-    // an agent's gate fragment, and a template's rejoin assignment beside
+    // a boundary's own class, and a template's rejoin assignment beside
     // it, recompose a command that cannot be read. The recomposition
     // carries the pins and the adapter's local fragment (13-fix-c, R4).
+    // Two gate fragments are two captures, refused as such (13-fix-d, R1).
     assert_eq!(
-        checked(&site(ReadOnly, gate, &[], gate, &[])),
+        checked(&site(ReadOnly, gate, &[], &["--sandbox", "read-only"], &[])),
         refused(&format!(
             "recomposes from its sealed inputs a command that cannot be read whole (argument 7, \
              '--sandbox': it {})",
@@ -10025,6 +10460,13 @@ struct ClaudeCase {
     /// Whether the selection names the held tools, or leaves its include
     /// and allow lists empty (R3).
     named: bool,
+    /// Whether the plan carries a selection mapping at all; without one
+    /// its selection is empty, as a plan with no selection decodes
+    /// (rebuild unit 13-fix-d, R3).
+    mapped: bool,
+    /// Whether every explicit limit names the hands tool beside the held
+    /// ones (rebuild unit 13-fix-d, R2).
+    limits_name_hands: bool,
     rejoin: bool,
 }
 
@@ -10090,7 +10532,7 @@ fn claude_case(case: ClaudeCase) -> Generated {
     if lowered {
         needed.push("Bash".into());
     }
-    if hands {
+    if hands && case.limits_name_hands {
         needed.push(HANDS_TOOL.into());
     }
     let limit = needed.join(",");
@@ -10114,6 +10556,7 @@ fn claude_case(case: ClaudeCase) -> Generated {
         "denies hands" => argv(&["--disallowedTools", HANDS_TOOL]),
         "denies server" => argv(&["--disallowedTools", "mcp__brokkr"]),
         "denies local" => argv(&["--disallowedTools", "Bash"]),
+        "denies denied" => argv(&["--disallowedTools", &denied_tools.join(",")]),
         _ => Vec::new(),
     };
     let plan_argv = match native {
@@ -10126,8 +10569,13 @@ fn claude_case(case: ClaudeCase) -> Generated {
         true => &["Bash(git log:*)"],
         false => &[],
     };
-    let selected = match case.named {
+    let selected = match case.named && case.mapped {
         true => held_tools.clone(),
+        false => Vec::new(),
+    };
+    // What the selection denies: nothing without a mapping.
+    let selected_denials = match case.mapped {
+        true => denied_tools.clone(),
         false => Vec::new(),
     };
     let controls = Controls {
@@ -10147,8 +10595,8 @@ fn claude_case(case: ClaudeCase) -> Generated {
         selection: Selection {
             include: selected.clone(),
             allow: selected.clone(),
-            deny: denied_tools.clone(),
-            flags: claude_flags(),
+            deny: selected_denials.clone(),
+            flags: claude_flags().filter(|_| case.mapped),
         },
         guards: vec![
             guard("web-search", "WebSearch"),
@@ -10314,6 +10762,27 @@ fn claude_case(case: ClaudeCase) -> Generated {
     // The final include list: the held tools and the lowered local tool,
     // wherever the box's hands stand or any limit restricts the launch.
     let limited = case.template_limit || boundary == "limit" || native == "limit";
+    // Every allowance meets every limit, the hands tool the composer
+    // synthesizes as surely as one the fragment carries (rebuild unit
+    // 13-fix-d, R2): the first limit, the seat's in order and then the
+    // plan's, that leaves it out refuses.
+    if hands && !case.limits_name_hands {
+        let owners = [
+            (case.template_limit, "the adapter template's"),
+            (
+                boundary == "limit",
+                "the adapter's managed boundary fragment's",
+            ),
+            (native == "limit", "the capability plan's"),
+        ];
+        if let Some((_, owner)) = owners.iter().find(|(limits, _)| *limits) {
+            let names = match needed.is_empty() {
+                true => "no tool".to_string(),
+                false => needed.join(", "),
+            };
+            return generated(refused(hands_outside(harness, owner, &names)));
+        }
+    }
     let lowered_tools: Vec<String> = match lowered {
         true => argv(&["Bash"]),
         false => Vec::new(),
@@ -10337,7 +10806,7 @@ fn claude_case(case: ClaudeCase) -> Generated {
         .unwrap_or_default();
     let denials: Vec<String> = once(
         [
-            denied_tools.clone(),
+            selected_denials.clone(),
             plan_list(ListKind::Deny).unwrap_or_default(),
         ]
         .concat(),
@@ -10345,6 +10814,29 @@ fn claude_case(case: ClaudeCase) -> Generated {
     .into_iter()
     .filter(|name| !carried_denials.contains(name))
     .collect();
+
+    // With no selection mapping, a plan list and a final list that differs
+    // from the seat's own have nowhere to be written (rebuild unit
+    // 13-fix-d, R3).
+    if !case.mapped {
+        if let Some(flag) = plan_argv.first() {
+            return generated(refused(form_refusal(
+                harness,
+                &format!("a managed '{flag}' with no selection mapping to fold it into,"),
+            )));
+        }
+        let own_include = own(&parts, ListKind::Include).map(|at| patterns(&parts[at]));
+        let rewritten = include
+            .as_ref()
+            .is_some_and(|names| Some(names) != own_include.as_ref());
+        let gained = allow.iter().any(|name| !carried.contains(name));
+        if rewritten || gained || !denials.is_empty() {
+            return generated(refused(form_refusal(
+                harness,
+                "a final tool list with no selection mapping to write it into,",
+            )));
+        }
+    }
 
     // A held tool, a lowered local tool or the hands tool that any denial
     // removes refuses, whether or not an emitted list names it (R1, R3).
@@ -10360,6 +10852,31 @@ fn claude_case(case: ClaudeCase) -> Generated {
         .find(|denial| admitted.iter().any(|admission| removes(denial, admission)))
     {
         return generated(refused(both(harness, denial)));
+    }
+    // Each denied power's tool is unavailable in the final command, outside
+    // its include list or denied; with no mapping, only the seat's own
+    // lists deliver a denial, and a command that leaves one available is
+    // refused by the check alone (rebuild unit 13-fix-d, R3).
+    let final_denials = [carried_denials.clone(), denials.clone()].concat();
+    let leaves = powers.iter().find(|power| {
+        !case.unmeasured
+            && power.2 == Answer::Denied
+            && include
+                .as_ref()
+                .is_none_or(|names| names.iter().any(|name| name == power.1))
+            && !final_denials.iter().any(|denial| removes(denial, power.1))
+    });
+    if let Some((capability, tool, _)) = leaves {
+        return generated(Outcome::Refused {
+            composer: None,
+            check: final_refusal(
+                harness,
+                &format!(
+                    "leaves tool '{tool}' available, which its plan denies as native capability \
+                     '{capability}'"
+                ),
+            ),
+        });
     }
 
     // The folded command.
@@ -10407,7 +10924,11 @@ fn claude_case(case: ClaudeCase) -> Generated {
 /// and LaneTally, with no floor of its own, checks. The exact permission
 /// conflicts: a held tool, the hands tool, the hands' server and a lowered
 /// local tool, each denied by the boundary or the plan, with the selection
-/// naming the held tools or leaving its lists empty (R3).
+/// naming the held tools or leaving its lists empty (R3). Rebuild unit
+/// 13-fix-d adds incompatible limits — each limit a hands site carries,
+/// naming the held tools but not the hands tool (R2) — and plans with no
+/// selection mapping at all, their denials delivered by the boundary or
+/// not (R3).
 fn claude_states() -> Vec<Generated> {
     use Answer::{Denied, Held, Unanswered};
     let base = ClaudeCase {
@@ -10420,10 +10941,81 @@ fn claude_states() -> Vec<Generated> {
         boundary: "none",
         native: "none",
         named: true,
+        mapped: true,
+        limits_name_hands: true,
         rejoin: false,
     };
+    let answered = [
+        (Held, Held),
+        (Held, Denied),
+        (Denied, Held),
+        (Denied, Denied),
+    ];
     let mut states = Vec::new();
     for harness in ["claude", "lanetally"] {
+        // Incompatible limits (rebuild unit 13-fix-d, R2): every limit a
+        // hands site can carry, naming the held tools but not the hands
+        // tool.
+        for (search, fetch) in answered {
+            for site in ["boxed", "listless", "dormant"] {
+                for (template_limit, boundary, native) in [
+                    (true, "none", "none"),
+                    (false, "limit", "none"),
+                    (false, "none", "limit"),
+                ] {
+                    for rejoin in [false, true] {
+                        states.push(claude_case(ClaudeCase {
+                            harness,
+                            search,
+                            fetch,
+                            site,
+                            template_limit,
+                            boundary,
+                            native,
+                            limits_name_hands: false,
+                            rejoin,
+                            ..base
+                        }));
+                    }
+                }
+            }
+        }
+        // Absent selection mappings (rebuild unit 13-fix-d, R3): the
+        // selection empty, the boundary delivering what the plan denies,
+        // denying what it holds, or denying the hands, their server or the
+        // lowered local tool.
+        for (search, fetch) in answered {
+            for site in ["boxed", "listless", "unboxed", "lowered"] {
+                let hands = matches!(site, "boxed" | "listless");
+                for boundary in [
+                    "none",
+                    "denies denied",
+                    "denies held",
+                    "denies hands",
+                    "denies server",
+                    "denies local",
+                ] {
+                    let applies = match boundary {
+                        "denies denied" => search == Denied || fetch == Denied,
+                        "denies hands" | "denies server" => hands,
+                        "denies local" => site == "lowered",
+                        _ => true,
+                    };
+                    for rejoin in [false, true].into_iter().filter(|_| applies) {
+                        states.push(claude_case(ClaudeCase {
+                            harness,
+                            search,
+                            fetch,
+                            site,
+                            boundary,
+                            mapped: false,
+                            rejoin,
+                            ..base
+                        }));
+                    }
+                }
+            }
+        }
         for (search, fetch) in [
             (Held, Held),
             (Held, Denied),
@@ -10891,12 +11483,157 @@ fn dsh_states() -> Vec<Generated> {
     states
 }
 
+/// Codex launches whose result capture is misbound (rebuild unit 13-fix-d,
+/// R1), web search held or denied, cold and rejoined, each refused before
+/// any command is compared: a capture into a suffixed placeholder, a
+/// literal destination in the boundary, a placeholder in `--model` beside a
+/// literal destination, a placeholder in the pins, a capture in the pins or
+/// the plan's controls at a work seat, a gate fragment where the engine
+/// chose no result path, a chosen path no fragment captures into, and two
+/// captures.
+fn capture_states() -> Vec<Generated> {
+    use SandboxIntent::{ReadOnly, Unspecified, WorkspaceWrite};
+    let refuse = |problem: &str| final_refusal("codex", problem);
+    let mut states = Vec::new();
+    for answer in ["held", "denied"] {
+        let site = |class: SandboxIntent, local: &[&str], boundary: &[&str], output| {
+            let mut sealed = codex_final(answer == "held", answer == "denied");
+            sealed.expected.local.sandbox = class;
+            sealed.sandbox = argv(local);
+            sealed.boundary = argv(boundary);
+            sealed.output = output;
+            let filled = local
+                .iter()
+                .map(|part| part.replace("{result_path}", RESULT));
+            sealed.authored = [sealed.pins.clone(), filled.collect()].concat();
+            sealed
+        };
+        let gate = || site(ReadOnly, &CODEX_GATE, &[], Some(RESULT));
+        let work = || site(WorkspaceWrite, &CODEX_WORK, &[], None);
+        let cases = [
+            (
+                "suffixed",
+                site(
+                    ReadOnly,
+                    &["--sandbox", "read-only", "-o", "{result_path}.other"],
+                    &[],
+                    Some(RESULT),
+                ),
+                foreign_capture("its local sandbox fragment"),
+            ),
+            (
+                "literal",
+                site(
+                    Unspecified,
+                    &[],
+                    &["--sandbox", "read-only", "--output-last-message", RESULT],
+                    Some(RESULT),
+                ),
+                foreign_capture("its boundary"),
+            ),
+            (
+                "modelled",
+                site(
+                    ReadOnly,
+                    &[
+                        "--sandbox",
+                        "read-only",
+                        "--model",
+                        "{result_path}",
+                        "-o",
+                        "/lit",
+                    ],
+                    &[],
+                    Some(RESULT),
+                ),
+                foreign_capture("its local sandbox fragment"),
+            ),
+            (
+                "pinned placeholder",
+                Sealed {
+                    pins: argv(&["--model", "{result_path}"]),
+                    ..gate()
+                },
+                stray_placeholder("its adapter's pins"),
+            ),
+            (
+                "pinned capture",
+                Sealed {
+                    pins: argv(&["--model", "gpt", "-o", "/outside/victim"]),
+                    ..work()
+                },
+                foreign_capture("its adapter's pins"),
+            ),
+            (
+                "native capture",
+                {
+                    let mut work = work();
+                    work.controls
+                        .argv
+                        .splice(0..0, argv(&["-o", "/outside/victim"]));
+                    work
+                },
+                foreign_capture("its plan's native controls"),
+            ),
+            (
+                "unchosen",
+                Sealed {
+                    output: None,
+                    ..gate()
+                },
+                refuse(
+                    "is sealed with a fragment that captures into a result path the engine did \
+                     not choose",
+                ),
+            ),
+            (
+                "uncaptured",
+                Sealed {
+                    output: Some(RESULT),
+                    ..work()
+                },
+                refuse("is served with a result path none of its sealed fragments captures into"),
+            ),
+            (
+                "twice",
+                Sealed {
+                    boundary: argv(&["--output-last-message", "{result_path}"]),
+                    ..gate()
+                },
+                refuse("is sealed with more than one result capture, and a gate has exactly one"),
+            ),
+        ];
+        for (what, sealed, check) in cases {
+            for rejoin in [false, true] {
+                states.push(Generated {
+                    label: format!("codex, {answer}, capture {what}, rejoin {rejoin}"),
+                    sealed: sealed.clone(),
+                    serving: Serving {
+                        session: rejoin.then_some(CODEX_THREAD),
+                        ..Serving::default()
+                    },
+                    outcome: Outcome::Refused {
+                        composer: None,
+                        check: check.clone(),
+                    },
+                });
+            }
+        }
+    }
+    states
+}
+
 /// Every generated launch, each harness's.
 fn generated() -> Vec<Generated> {
-    [claude_states(), codex_states(), dsh_states()]
-        .into_iter()
-        .flatten()
-        .collect()
+    [
+        claude_states(),
+        codex_states(),
+        capture_states(),
+        dsh_states(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// Metamorphic property 1 (rebuild units 13-fix, 13-fix-b and 13-fix-c;
@@ -10905,7 +11642,9 @@ fn generated() -> Vec<Generated> {
 /// refused exactly as written out — the known-power floors, the exact
 /// permission conflicts, typed hands without their transport and an
 /// include list written twice by the composer's own refusal, a boxed Codex
-/// rejoin and an unstreamed DSH rejoin by the rebuild's.
+/// rejoin and an unstreamed DSH rejoin by the rebuild's; since rebuild unit
+/// 13-fix-d also incompatible limits, absent selection mappings and
+/// misbound captures.
 #[test]
 fn every_generated_sealed_state_checks_or_refuses_exactly() {
     let mut tally: BTreeMap<String, usize> = BTreeMap::new();
@@ -10942,12 +11681,12 @@ fn every_generated_sealed_state_checks_or_refuses_exactly() {
         *tally.entry(format!("{harness}, {kind}")).or_default() += 1;
     }
     let expected: BTreeMap<String, usize> = [
-        ("claude, checked", 456),
-        ("claude, refused", 306),
-        ("lanetally, checked", 472),
-        ("lanetally, refused", 290),
+        ("claude, checked", 482),
+        ("claude, refused", 480),
+        ("lanetally, checked", 498),
+        ("lanetally, refused", 464),
         ("codex, checked", 22),
-        ("codex, refused", 50),
+        ("codex, refused", 86),
         ("dsh, checked", 3),
         ("dsh, refused", 1),
     ]
@@ -11261,10 +12000,10 @@ fn every_single_mutation_of_a_checked_command_refuses() {
     assert_eq!(
         tally,
         BTreeMap::from([
-            ("claude", 14594),
+            ("claude", 15243),
             ("codex", 557),
             ("dsh", 16),
-            ("lanetally", 15000)
+            ("lanetally", 15649)
         ])
     );
 }

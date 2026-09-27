@@ -1828,6 +1828,97 @@ const BOUNDARY: &str = "its boundary";
 const NATIVE: &str = "its plan's native controls";
 const LOCAL: &str = "its typed local declaration";
 const FRAGMENT: &str = "its local sandbox fragment";
+const AUTHORED: &str = "the recipe's words";
+const PINS: &str = "its adapter's pins";
+const LOWERED: &str = "its lowered local permissions";
+
+/// The token an adapter's fragment names the engine's result path by.
+const RESULT_PATH: &str = "{result_path}";
+
+/// The canonical option a result capture is read as, whichever spelling
+/// wrote it (`-o` too).
+const CAPTURE: &str = "--output-last-message";
+
+/// The engine's one result capture, a typed sink (rebuild unit 13-fix-d,
+/// R1). Every sealed contribution is read under the harness's grammar for a
+/// capture, by the canonical option its node places: only the adapter's
+/// local sandbox fragment or its boundary may carry one, as exactly the
+/// value `{result_path}`, and the served command then carries it from the
+/// result path the engine chose, emitted at that one parsed value position
+/// and nowhere else. A capture elsewhere, or into any other destination, a
+/// second capture, a capture where the engine chose no result path (a work
+/// seat), no capture where it chose one (a gate), and `{result_path}`
+/// standing anywhere but the one capture's value, all refuse: a placeholder
+/// is never a binding, and substitution never places one. A contribution
+/// the grammar cannot read is judged for the placeholder here, and refused
+/// where it is read. The answer is the local sandbox fragment and the
+/// boundary as served.
+fn captured(
+    table: &grammar::Grammar,
+    sources: [(&'static str, &[String]); 8],
+    output: Option<&str>,
+) -> Result<[Vec<String>; 2], Refusal> {
+    let refuse = |problem: Vec<Piece<'_>>| Err(unchecked(table.harness, problem));
+    let (mut served, mut captures) = (Vec::new(), 0);
+    for (source, argv) in sources {
+        let mut argv = argv.to_vec();
+        let mut sink = None;
+        let command = table.parse(&argv).unwrap_or_default();
+        for node in command.nodes.iter().filter(|node| node.name() == CAPTURE) {
+            if !matches!(source, FRAGMENT | BOUNDARY) || node.values != [RESULT_PATH] {
+                return refuse(vec![
+                    Piece::Words("carries a result capture ('--output-last-message') in "),
+                    Piece::Words(source),
+                    Piece::Words(
+                        " other than the engine's one capture into the result path it owns, a \
+                         harness write path outside the result sink",
+                    ),
+                ]);
+            }
+            captures += 1;
+            sink = Some(node.at + node.tokens - 1);
+        }
+        if argv
+            .iter()
+            .enumerate()
+            .any(|(at, part)| Some(at) != sink && part.contains(RESULT_PATH))
+        {
+            return refuse(vec![
+                Piece::Words("carries the engine's result path placeholder in "),
+                Piece::Words(source),
+                Piece::Words(
+                    " outside the value of the one result capture, and a placeholder is never a \
+                     binding",
+                ),
+            ]);
+        }
+        if let (Some(at), Some(path)) = (sink, output) {
+            let option = argv[at].len() - RESULT_PATH.len();
+            argv[at] = format!("{}{path}", &argv[at][..option]);
+        }
+        if matches!(source, FRAGMENT | BOUNDARY) {
+            served.push(argv);
+        }
+    }
+    match (captures, output) {
+        (0, Some(_)) => refuse(vec![Piece::Words(
+            "is served with a result path none of its sealed fragments captures into",
+        )]),
+        (1.., None) => refuse(vec![Piece::Words(
+            "is sealed with a fragment that captures into a result path the engine did not choose",
+        )]),
+        (2.., Some(_)) => refuse(vec![Piece::Words(
+            "is sealed with more than one result capture, and a gate has exactly one",
+        )]),
+        _ => {
+            let boundary = served.pop().expect("the boundary is a source");
+            let fragment = served
+                .pop()
+                .expect("the local sandbox fragment is a source");
+            Ok([fragment, boundary])
+        }
+    }
+}
 
 /// Step 2 of [`check_final`]: the engine's two argv parts, rebuilt from the
 /// sealed typed inputs and the adapter's dialect alone, once the inputs are
@@ -1853,9 +1944,10 @@ const FRAGMENT: &str = "its local sandbox fragment";
 /// - Codex switches OFF exactly the powers its plan denies, by the plan's
 ///   own measured OFF.
 /// - The recipe's words and the adapter's pins carry no capability-bearing
-///   effect and no session; every fragment captures into exactly the result
-///   path the engine chose, and a chosen one is captured into; the box's
-///   executable and workdir are UTF-8 (rebuild unit 13-fix-c, R2 and R4).
+///   effect and no session; the one result capture is the typed sink
+///   [`captured`] emits from the result path the engine chose, and a work
+///   seat has none (rebuild unit 13-fix-d, R1); the box's executable and
+///   workdir are UTF-8 (rebuild unit 13-fix-c, R2 and R4).
 ///
 /// The authored part is the recipe's words, the declared template, the
 /// adapter's pins, then the lowered local permissions and, where no hands
@@ -1950,36 +2042,32 @@ fn sealed_inputs(
              has no established mapping for (design D5.3)",
         )]);
     }
-    // Each fragment's result path is the one the engine owns and chose for
-    // this launch, and nothing else (rebuild unit 13-fix-c, R4).
-    const RESULT_PATH: &str = "{result_path}";
-    let placed = |fragment: &[String]| -> Option<Vec<String>> {
-        fragment
-            .iter()
-            .map(|part| match (part.contains(RESULT_PATH), serving.output) {
-                (false, _) => Some(part.clone()),
-                (true, Some(path)) => Some(part.replace(RESULT_PATH, path)),
-                (true, None) => None,
-            })
-            .collect()
-    };
     // An agent's class rides its hands; otherwise the typed class lowers
     // onto the adapter's measured harness fragment, the engine's own local
     // contribution (unit 5d), which must express exactly that class.
     let lowered_class = local.sandbox != SandboxIntent::Unspecified && !required;
     let declared: &[String] = if lowered_class { dialect.sandbox } else { &[] };
-    let (Some(sandbox_argv), Some(boundary_argv)) = (placed(declared), placed(dialect.boundary))
-    else {
-        return refuse(vec![Piece::Words(
-            "is sealed with a fragment that captures into a result path the engine did not choose",
-        )]);
+    let template_argv: &[String] = match &expected.template {
+        TemplateExpectation::None => &[],
+        TemplateExpectation::Declared(argv) => argv,
     };
-    let captures = |fragment: &[String]| fragment.iter().any(|part| part.contains(RESULT_PATH));
-    if serving.output.is_some() && !captures(declared) && !captures(dialect.boundary) {
-        return refuse(vec![Piece::Words(
-            "is served with a result path none of its sealed fragments captures into",
-        )]);
-    }
+    // The result capture is a typed sink (rebuild unit 13-fix-d, R1): every
+    // contribution is read for it, and the one capture is emitted from the
+    // result path the engine chose, at its one parsed position.
+    let [sandbox_argv, boundary_argv] = captured(
+        table,
+        [
+            (AUTHORED, serving.authored),
+            (TEMPLATE, template_argv),
+            (PINS, serving.pins),
+            (LOWERED, &lowering),
+            (FRAGMENT, declared),
+            (HANDS, dialect.hands),
+            (BOUNDARY, dialect.boundary),
+            (NATIVE, &controls.argv),
+        ],
+        serving.output,
+    )?;
     lowering.extend(sandbox_argv.iter().cloned());
     // The parts no capability rule composes carry no capability-bearing
     // effect and select no session: the recipe's words and the adapter's
@@ -2036,10 +2124,6 @@ fn sealed_inputs(
             .ok()
             .and_then(|command| read_state(&command).ok())
             .filter(|state| state.session.is_none())
-    };
-    let template_argv: &[String] = match &expected.template {
-        TemplateExpectation::None => &[],
-        TemplateExpectation::Declared(argv) => argv,
     };
     let Some(template) = read(template_argv) else {
         return refuse(vec![Piece::Words(
@@ -2837,28 +2921,34 @@ pub fn final_tools(
     {
         return Err(Conflict::Carried(tool.clone()));
     }
-    for (index, limit) in limits.iter().enumerate() {
-        for (capability, tools) in admits {
-            if let Some(tool) = tools.iter().find(|tool| !limit.names.contains(tool)) {
-                return Err(Conflict::Excluded {
-                    capability: capability.clone(),
-                    tool: tool.clone(),
-                    limit: index,
-                });
-            }
-        }
-    }
-    // A held allowance's tool is inside every limit (above); what a typed
-    // contribution admits must be too.
-    for (index, limit) in limits.iter().enumerate() {
-        for name in sources.carried.iter().filter(|name| !admitted(name)) {
-            let tool = grammar::tool_name(name);
-            if !limit.names.iter().any(|named| named == tool) {
-                return Err(Conflict::Outside {
-                    tool: tool.to_string(),
-                    by: typed(name).expect("an unheld carried name is typed (above)"),
-                    limit: index,
-                });
+    // Every allowance, whichever source makes it, passes the ONE admission
+    // against every limit (rebuild unit 13-fix-d, R2): each holding's
+    // admissions first, the one conflict resolution can answer by dropping
+    // a wanted holding (CQ1); then every typed allowance, carried or
+    // synthesized by the composer — the hands tool is admitted here whether
+    // or not the fragment spells it, and nothing is appended after.
+    let held_allowances: Vec<(&str, Admission)> = admits
+        .iter()
+        .flat_map(|(capability, tools)| {
+            tools
+                .iter()
+                .map(move |tool| (tool.as_str(), Admission::Held(capability)))
+        })
+        .collect();
+    let typed_allowances: Vec<(&str, Admission)> = sources
+        .carried
+        .iter()
+        .filter(|name| !admitted(name))
+        .chain(sources.hands)
+        .map(|name| {
+            let by = typed(name).expect("an unheld carried name is typed (above)");
+            (grammar::tool_name(name), Admission::Typed(by))
+        })
+        .collect();
+    for allowances in [held_allowances, typed_allowances] {
+        for (index, limit) in limits.iter().enumerate() {
+            for (tool, admission) in &allowances {
+                admit(tool, *admission, index, limit)?;
             }
         }
     }
@@ -2889,6 +2979,39 @@ pub fn final_tools(
                 .chain(sources.hands)
                 .chain(sources.allow),
         ),
+    })
+}
+
+/// Which source makes one allowance [`admit`] judges.
+#[derive(Debug, Clone, Copy)]
+enum Admission<'a> {
+    /// A holding of this capability admits it.
+    Held(&'a str),
+    /// A typed contribution admits it: the hands tool, carried or
+    /// synthesized, or a lowered local permission.
+    Typed(Typed),
+}
+
+/// The ONE admission of an allowance's tool under one of the launch's hard
+/// limits, the `limit`th (rebuild unit 13-fix-d, R2): the limit names it,
+/// or that is the conflict — [`Conflict::Excluded`] for a holding's, which
+/// a wanted holding can drop with OFF, and [`Conflict::Outside`] for a typed
+/// contribution's, which cannot drop and refuses.
+fn admit(tool: &str, admission: Admission<'_>, limit: usize, of: &Limit) -> Result<(), Conflict> {
+    if of.names.iter().any(|named| named == tool) {
+        return Ok(());
+    }
+    Err(match admission {
+        Admission::Held(capability) => Conflict::Excluded {
+            capability: capability.to_string(),
+            tool: tool.to_string(),
+            limit,
+        },
+        Admission::Typed(by) => Conflict::Outside {
+            tool: tool.to_string(),
+            by,
+            limit,
+        },
     })
 }
 
@@ -3727,32 +3850,6 @@ pub fn compose_or_exclude(
                 .filter(|tool| !carried.contains(tool))
                 .cloned()
                 .collect();
-            // A plan that carries a list for a provider whose adapter maps
-            // none cannot be folded anywhere, and is refused rather than
-            // dropped (decision 0066 ruling 3); so is a final list that
-            // differs from the seat's own. Otherwise the seat's lists stand.
-            let Some(flags) = controls.selection.flags.clone() else {
-                if let Some(node) = plan.nodes.iter().find(|node| node.list().is_some()) {
-                    return Err(unconsumed_naming(
-                        provider,
-                        vec![
-                            Piece::Words("a managed "),
-                            Piece::Flag(node.name()),
-                            Piece::Words(" with no selection mapping to fold it into,"),
-                        ],
-                    )
-                    .into());
-                }
-                if include.is_some() || !gained.is_empty() {
-                    return Err(unconsumed(
-                        provider,
-                        "a final tool list with no selection mapping to write it into,",
-                    )
-                    .into());
-                }
-                extra.extend(verbatim);
-                return Ok(composed(extra, Vec::new()));
-            };
             let deny: Vec<String> = controls
                 .selection
                 .deny
@@ -3760,8 +3857,9 @@ pub fn compose_or_exclude(
                 .cloned()
                 .chain(named(ListKind::Deny))
                 .collect();
+            let flags = controls.selection.flags.as_ref();
             let mut folding: Vec<Folding> = Vec::new();
-            for (slot, kind, names) in [(1, ListKind::Allow, gained), (2, ListKind::Deny, deny)] {
+            for (kind, names) in [(ListKind::Allow, gained), (ListKind::Deny, deny)] {
                 let node = seat.lists(kind).next();
                 let carried: Vec<String> = node
                     .map(grammar::node_patterns)
@@ -3776,37 +3874,71 @@ pub fn compose_or_exclude(
                 folding.push(Folding {
                     at: node.map(Place::of),
                     create: !names.is_empty() || plan.lists(kind).next().is_some(),
-                    flag: flags[slot].clone(),
                     carried,
                     names,
                 });
             }
-            // The adapter's mapping must name a flag the harness's own
-            // grammar reads as THIS list: a mapping onto anything else
-            // cannot reach the final command, and is refused rather than
-            // folded into whatever the name happens to be.
-            let writes = [include.is_some(), folding[0].create, folding[1].create];
-            for (slot, kind) in [ListKind::Include, ListKind::Allow, ListKind::Deny]
-                .into_iter()
-                .enumerate()
-            {
-                if writes[slot] && grammar::list_of(provider, &flags[slot].flag) != Some(kind) {
-                    // The mapping is the plan's, so its flag is an identity
-                    // (rebuild unit 12-fix-e).
-                    return Err(unconsumed_naming(
-                        provider,
-                        vec![
-                            Piece::Words("a selection mapped onto "),
-                            Piece::Flag(&flags[slot].flag),
-                            Piece::Words(", which its grammar does not read as that tool list,"),
-                        ],
-                    )
-                    .into());
+            match flags {
+                // A plan that carries a list for a provider whose adapter
+                // maps none cannot be folded anywhere, and is refused rather
+                // than dropped (decision 0066 ruling 3); so is a final list
+                // that differs from the seat's own. Otherwise the seat's
+                // lists stand.
+                None => {
+                    if let Some(node) = plan.nodes.iter().find(|node| node.list().is_some()) {
+                        return Err(unconsumed_naming(
+                            provider,
+                            vec![
+                                Piece::Words("a managed "),
+                                Piece::Flag(node.name()),
+                                Piece::Words(" with no selection mapping to fold it into,"),
+                            ],
+                        )
+                        .into());
+                    }
+                    if include.is_some() || folding.iter().any(|list| list.create) {
+                        return Err(unconsumed(
+                            provider,
+                            "a final tool list with no selection mapping to write it into,",
+                        )
+                        .into());
+                    }
+                }
+                // The adapter's mapping must name a flag the harness's own
+                // grammar reads as THIS list: a mapping onto anything else
+                // cannot reach the final command, and is refused rather than
+                // folded into whatever the name happens to be.
+                Some(flags) => {
+                    let writes = [include.is_some(), folding[0].create, folding[1].create];
+                    for (slot, kind) in [ListKind::Include, ListKind::Allow, ListKind::Deny]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        if writes[slot]
+                            && grammar::list_of(provider, &flags[slot].flag) != Some(kind)
+                        {
+                            // The mapping is the plan's, so its flag is an
+                            // identity (rebuild unit 12-fix-e).
+                            return Err(unconsumed_naming(
+                                provider,
+                                vec![
+                                    Piece::Words("a selection mapped onto "),
+                                    Piece::Flag(&flags[slot].flag),
+                                    Piece::Words(
+                                        ", which its grammar does not read as that tool list,",
+                                    ),
+                                ],
+                            )
+                            .into());
+                        }
+                    }
                 }
             }
-            // Every held tool stays available, whether or not an emitted list
-            // names it (rebuild unit 13-fix-c, R3), and so does the hands
-            // tool, which the allow list always carries (R1).
+            // Availability is judged on every path that composes (rebuild
+            // unit 13-fix-d, R3), with a selection mapping or without one:
+            // every held tool stays available, whether or not an emitted
+            // list names it (rebuild unit 13-fix-c, R3), and so does the
+            // hands tool, which the allow list always carries (R1).
             let admitted: Vec<&String> = tools
                 .include
                 .as_ref()
@@ -3830,15 +3962,20 @@ pub fn compose_or_exclude(
                 )
                 .into());
             }
-            extra = fold_lists(
-                &extra,
-                include.map(|names| Rewrite {
-                    own,
-                    flag: &flags[0],
-                    names,
-                }),
-                &folding,
-            );
+            // Only a judged composition returns: the seat's lists stand
+            // where no mapping writes any, and are folded where one does.
+            if let Some(flags) = flags {
+                extra = fold_lists(
+                    &extra,
+                    include.map(|names| Rewrite {
+                        own,
+                        flag: &flags[0],
+                        names,
+                    }),
+                    &folding,
+                    [&flags[1], &flags[2]],
+                );
+            }
             extra.extend(verbatim);
             Ok(composed(extra, Vec::new()))
         }
@@ -3881,7 +4018,6 @@ impl Place {
 struct Folding {
     at: Option<Place>,
     create: bool,
-    flag: ListFlag,
     carried: Vec<String>,
     names: Vec<String>,
 }
@@ -3916,11 +4052,16 @@ struct Rewrite<'a> {
 /// value, or the list is appended — including an explicitly EMPTY one,
 /// which is a restriction and not an absence (second council H4). The
 /// in-place edits come first, so no position they use has moved.
-fn fold_lists(extra: &[String], include: Option<Rewrite<'_>>, folding: &[Folding]) -> Vec<String> {
+fn fold_lists(
+    extra: &[String],
+    include: Option<Rewrite<'_>>,
+    folding: &[Folding],
+    flags: [&ListFlag; 2],
+) -> Vec<String> {
     let mut argv = extra.to_vec();
     let mut appended = Vec::new();
-    for list in folding {
-        let joined = list.names.join(&list.flag.separator);
+    for (list, flag) in folding.iter().zip(flags) {
+        let joined = list.names.join(&flag.separator);
         match &list.at {
             Some(_) if joined.is_empty() => {}
             // `--flag=value`: the value lives in the option's own token,
@@ -3937,11 +4078,11 @@ fn fold_lists(extra: &[String], include: Option<Rewrite<'_>>, folding: &[Folding
                     false => argv[value].is_empty(),
                 };
                 if !empty {
-                    argv[value].push_str(&list.flag.separator);
+                    argv[value].push_str(&flag.separator);
                 }
                 argv[value].push_str(&joined);
             }
-            None if list.create => appended.extend([list.flag.flag.clone(), joined]),
+            None if list.create => appended.extend([flag.flag.clone(), joined]),
             None => {}
         }
     }
