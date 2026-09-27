@@ -2716,7 +2716,7 @@ Nothing but these records moved. The "complete" above is withdrawn.
 
 Unit 14a4c (2026-09-28, run `0065-rebuild-unit-14-see-the-uni-653d5daf`,
 based on `a4a184c7`; evidence.md, "Unit 14a4c — built"). **Result:
-complete.** It completes ruling (2) of 2026-09-27 and closes 14a4b's F1 and
+complete — withdrawn by the review's return below.** It completes ruling (2) of 2026-09-27 and closes 14a4b's F1 and
 F2. 14.1 stays open until 14b.
 
 - **Production.**
@@ -2755,6 +2755,30 @@ F2. 14.1 stays open until 14b.
   Strict OpenSpec: 18 passed. `git diff --check` is clean.
 - **Pending.** 14b (its saved patch must name `Dialect::stands`), exact
   coverage outside the box, macOS, remote CI and the council.
+
+Unit 14a4c, the review's return (2026-09-28, same run, on `6a8dfde7`;
+evidence.md, "Unit 14a4c — the review's return"). **Result: oversized.**
+The "complete" above is withdrawn: F2 needs a ruling.
+
+- **F1, closed.** The probe pair in `capability_launch.rs` is now sealed
+  by the engine itself. A run is started in a world whose realm declares
+  the boundary, and `Engine::mark_capabilities` (now `pub`) seals the
+  composed spawn. The test asserts the sealed `stands` exactly
+  (`harness`, `open`) and checks the command against what the engine
+  wrote. Mutation M7 (`Boundary::Open` at the call site) fails `:7141`.
+  M7b (the same, with that line disabled) fails the `harness` `Ok`. M8
+  (`Boundary::Harness`) fails `:7163`. All three were restored.
+- **F2, oversized.** The three `"stands": {"kind": "none"}` lines in
+  `engine/capability_tests.rs` (`:758`, `:802`, `:958`) change exact
+  assertions outside the named suites. The settled design forces them:
+  the closed serving JSON names every member. Removing them fails that
+  test at `:750`. They stay in the tree. The unit needs an admission for
+  these three assertion lines, or a split that names that file.
+- Fixture migrations and standing-admission lines: none this visit.
+- **Gates.** fmt and clippy clean; `brokkr-runtime` 25 summaries `ok`;
+  strict OpenSpec and `git diff --check` clean.
+- **Pending.** The ruling on F2, 14b, exact coverage outside the box,
+  macOS, remote CI and the council.
 
 ## 15. Unit 15 — Integrate eligible resume and replacement
 

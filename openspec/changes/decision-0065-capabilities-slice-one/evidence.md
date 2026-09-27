@@ -15644,3 +15644,96 @@ below ran after the rewrite.
 **Pending.** 14b (its saved patch plus `Dialect::stands`), exact coverage
 outside the box, macOS, remote CI and the council, including its ruling on
 the three `capability_tests.rs` lines.
+
+## Unit 14a4c — the review's return, 2026-09-28
+
+Run `0065-rebuild-unit-14-see-the-uni-653d5daf`, the review's return on
+`6a8dfde7`. **Result: oversized.** F1 is closed in the named files. F2
+needs a ruling that this seat cannot give itself. The "complete" recorded
+above for 14a4c is withdrawn.
+
+### F1 — the engine's own seal is now bound
+
+The review found that the probe pair called `serving_inputs` with the
+bundle's boundary, so nothing bound the argument `mark_capabilities`
+passes (M6 above survived).
+
+- **Production.** `engine.rs`: `Engine::mark_capabilities` (`:1362`) is
+  now `pub`, with one doc line. Nothing else moved in that file.
+- **Test.** `capability_launch.rs`,
+  `an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open`
+  (`:7070`). For each boundary it now:
+  - writes a `forge.realms/v6` map whose realm `private` declares that
+    boundary and grants nothing;
+  - starts a run with `Engine::start_in_world` over the compiled bundle;
+  - composes the site's spawn (`sealing`) and seals it through
+    `engine.mark_capabilities`;
+  - asserts the sealed `dialect.stands` exactly: `{"kind": "harness"}`
+    (`:7141`) and `{"kind": "open"}` (`:7163`);
+  - decodes the engine-written `serving_inputs` and checks the command
+    against them. `harness` gives the exact 13-token argv and `open` gives
+    the whole R1 refusal, as before.
+- `checked_launch` is split. The new `checked_against` (`:366`) checks
+  against given sealed inputs, and `checked_launch` (`:352`) passes it the
+  inputs from `serving_inputs`, as before. Its other callers are
+  unchanged.
+
+Mutations at the call site (`engine.rs:1411`), each compiling, each
+restored. The restore was checked with `git diff`, which showed only the
+`pub` change.
+
+| # | Mutation | Failing assertion | Output |
+|---|---|---|---|
+| M7 | `self.boundary` → `Boundary::Open` | `:7141`, left `{"kind": "open"}`, right `{"kind": "harness"}` | `.forge/unit-14a4c-m7.txt` |
+| M7b | M7, with `:7141` disabled in scratch | the `harness` `Ok`: the R1 refusal came back instead | `.forge/unit-14a4c-m7b.txt` |
+| M8 | `self.boundary` → `Boundary::Harness` | `:7163`, left `{"kind": "harness"}`, right `{"kind": "open"}` | `.forge/unit-14a4c-m8.txt` |
+
+M7b shows that a wrong seal at the call site also changes the check's
+verdict, and not only the recorded word. After restoring, the test passed.
+
+### F2 — three assertion lines outside the named suites
+
+`engine/capability_tests.rs:758`, `:802` and `:958` each carry
+`"stands": {"kind": "none"}`. They are exact expected JSON in
+`the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed`.
+The review ruled that they are changed assertions, not lines the compiler
+forces, so the 2026-09-25 standing admission does not cover them.
+
+- **They are forced by the settled design.** The framing seals the
+  boundary "as a typed member of the sealed serving inputs". 14a2's closed
+  JSON writes every member and refuses absence. So every exact literal of
+  a sealed input names the member.
+- **Observed.** In scratch, the file was replaced by its `a4a184c7` bytes
+  (only these three lines differ) and the test was run. It failed at
+  `:750` with the sealed `"stands": {"kind": "none"}` on the left
+  (`.forge/unit-14a4c-f2-forced.txt`). The file was then restored, and
+  `git diff` showed no change to it.
+- **Not taken.** This seat could have written `stands` only for sites with
+  hands and read it as `none` when absent. That keeps the three literals
+  unchanged and still fails closed: `verify_serving` compares against the
+  sealed struct, and `none` never admits the harness fragment. But it
+  departs from 14a2's rule that a reader refuses absence, and triage may
+  not reopen the design. So it is offered for the ruling and was not
+  built.
+- **Needed.** One of these:
+  - an admission for these three assertion lines in
+    `engine/capability_tests.rs`;
+  - a split unit that names that file;
+  - a ruling for the optional-member encoding, which would be built in
+    `native_controls.rs` and its suite.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 summaries,
+  all `ok`, none failed (`.forge/unit-14a4c-return-runtime.txt`).
+  `brokkr-protocol` did not move this visit and was not rerun.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `git diff --check`: clean.
+- Fixture migrations and standing-admission lines: none this visit.
+
+**Pending.** The ruling on F2, 14b, exact coverage outside the box, macOS,
+remote CI and the council.

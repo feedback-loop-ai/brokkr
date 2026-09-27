@@ -1357,8 +1357,9 @@ impl Engine {
     /// into looking sealed; a site no outcome serves carries none; and a
     /// site whose expected state cannot be sealed refuses its spawn. The
     /// typed serving inputs are sealed with it and written beside it under
-    /// the same three rules (rebuild unit 14a2).
-    fn mark_capabilities(
+    /// the same three rules (rebuild unit 14a2), with the boundary this
+    /// engine stands under (rebuild unit 14a4c).
+    pub fn mark_capabilities(
         &self,
         label: &str,
         link: Option<&Candidate>,

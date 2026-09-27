@@ -350,18 +350,31 @@ fn inline_command(bundle: &Bundle, label: &str) -> Vec<String> {
 /// bound to the executable and workdir the engine composed the spawn with.
 /// The checked argv, or the refusal.
 fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<String>, String> {
-    use brokkr_protocol::native_controls::{
-        check_final, managed, Checked, Dialect, LaunchRecord, Origin, Serving, Transport,
-    };
     let facts = &bundle.sites[label];
     let (spawn, _) = sealed(bundle, label, candidate);
-    let command = sealed_launch(bundle, label, candidate)?;
     let carried = brokkr_runtime::engine::serving_inputs(
         facts.chain.get(candidate),
         Some(facts),
         spawn.class,
         bundle.boundary,
     )?;
+    checked_against(bundle, label, candidate, &carried)
+}
+
+/// [`checked_launch`] against the serving inputs `carried`, however they
+/// were sealed.
+fn checked_against(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    carried: &brokkr_protocol::native_controls::SealedServing,
+) -> Result<Vec<String>, String> {
+    use brokkr_protocol::native_controls::{
+        check_final, managed, Checked, Dialect, LaunchRecord, Origin, Serving, Transport,
+    };
+    let facts = &bundle.sites[label];
+    let (spawn, _) = sealed(bundle, label, candidate);
+    let command = sealed_launch(bundle, label, candidate)?;
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
     let harness = outcome.provider.as_str();
     let controls = managed(&json!({"native_controls": outcome.controls()}))?.unwrap();
@@ -7049,9 +7062,13 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
 /// declares an empty `hands.harness.work`. Compiled under `harness`, the
 /// seat's hands are that empty fragment and the command checks. The same
 /// fixture under `open` seals the same fragments and the same command, and
-/// refuses: only the sealed boundary tells the two apart.
+/// refuses: only the sealed boundary tells the two apart. Each is sealed by
+/// the engine itself (14a4c's review return, F1): a run started in a world
+/// whose realm declares the boundary, its dispatch seam sealing the site's
+/// composed spawn, and the command checked against what that seam wrote.
 #[test]
 fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open() {
+    use brokkr_protocol::native_controls::{SealedServing, SERVING_INPUTS};
     let operator = Operator::new();
     let nothing = operator.context(json!({}));
     one_inline_seat(&operator, &["driver"]);
@@ -7088,11 +7105,42 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
             boundary,
             &nothing,
         )
-        .map_err(|refusal| refusal.to_string())?;
-        checked_launch(&bundle, "work", 0)
+        .unwrap();
+        let root = operator.root();
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        write(
+            root,
+            "realms.json",
+            &json!({"schema": "forge.realms/v6", "journal": "forge.db", "realms": [
+                {"name": "private", "path": repo, "default_branch": "main",
+                 "boundary": boundary.word(), "capabilities": {}}]}),
+        );
+        let world = brokkr_runtime::World::load(&root.join("realms.json")).unwrap();
+        let store = brokkr_store::Store::open(&root.join(format!("{}.db", boundary.word())));
+        let engine = brokkr_runtime::Engine::start_in_world(
+            store.unwrap(),
+            bundle,
+            "probe",
+            Some(repo),
+            Some(world),
+        )
+        .unwrap();
+        let (bundle, facts) = (&engine.bundle, &engine.bundle.sites["work"]);
+        let (mut spawn, _) = sealing(bundle, "work", 0, facts);
+        let mut input = json!({});
+        engine.mark_capabilities("work", facts.chain.first(), Some(&mut spawn), &mut input);
+        assert_eq!(spawn.refusal, None);
+        let sealed = SealedServing::decode(input.get(SERVING_INPUTS)).unwrap();
+        (
+            input[SERVING_INPUTS]["dialect"]["stands"].clone(),
+            checked_against(bundle, "work", 0, &sealed),
+        )
     };
+    let (stands, harness) = checked(Boundary::Harness);
+    assert_eq!(stands, json!({"kind": "harness"}));
     assert_eq!(
-        checked(Boundary::Harness),
+        harness,
         Ok([
             "claude",
             "-p",
@@ -7111,8 +7159,10 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
         .map(String::from)
         .to_vec())
     );
+    let (stands, open) = checked(Boundary::Open);
+    assert_eq!(stands, json!({"kind": "open"}));
     assert_eq!(
-        checked(Boundary::Open),
+        open,
         Err(
             "the final command of harness 'claude' is sealed with hands that are not the \
              engine's workspace hands; a complete command is parsed back before its spawn and \
