@@ -2401,6 +2401,10 @@ open.
 - Fixture migrations and standing-admission lines: none.
 - **Pending.** The operator's split, then 14a and 14b, exact coverage
   outside the box, macOS, remote CI and the council.
+- **Re-fire (same run, after triage ruled `chore` again): blocked.** No
+  operator ruling answered the stop. Re-checked on `3fe9c512`: the driver
+  input still carries none of `check_final`'s typed inputs (evidence.md,
+  "Re-fire after triage"). Nothing moved; 14.1 stays open.
 
 ## 15. Unit 15 — Integrate eligible resume and replacement
 

@@ -14112,3 +14112,29 @@ The only other source is the record's segments. The design rules that out:
 
 **Pending:** the operator's split; then 14a, 14b and their gates. No gate
 was run in this visit, because nothing but these two documents changed.
+
+### Re-fire after triage, 2026-09-27: blocked
+
+Triage ruled `chore` again with the same framing
+(`.forge/tasks/decision-0065-unit-14.md`), which does not answer the stop
+above, and no operator ruling followed it: the ruling file's last
+addendum is still 13-fix-c's (`.forge/unit-14/refire-rulings.txt`). This
+visit re-checked the stop on `3fe9c512`, and it holds:
+
+- `grep -rn check_final crates` finds callers only in
+  `native_controls.rs` and its tests; `adapters.rs` has just the two doc
+  links (`.forge/unit-14/refire-check-final-callers.txt`).
+- The keys the engine writes into the driver input are unchanged: no
+  dialect fragment, permission flag, pins or hands spec
+  (`.forge/unit-14/refire-driver-input-keys.txt`).
+- `check_final` still requires them: `Dialect`'s `permissions`,
+  `sandbox`, `hands` and `boundary` (`native_controls.rs:1532-1535`),
+  `Serving::pins` and `Serving::hands` (`:1398`, `:1404`)
+  (`.forge/unit-14/refire-typed-inputs.txt`). `sealed_inputs` refuses a
+  Claude local allow without the adapter's `ListFlag`
+  (`native_controls.rs:2029-2036`), so defaults cannot stand in.
+
+The framing says a settled design that cannot be implemented as written
+is reported `blocked`, so this visit reports `blocked`, not a second
+`oversized`. No production or test file moved, and no gate was run.
+**Pending:** the operator's ruling on the 14a/14b split.
