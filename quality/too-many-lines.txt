@@ -37,11 +37,8 @@
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
  177 crates/brokkr-view/src/lib.rs:1098 scan_participants
  150 crates/brokkr-view/src/lib.rs:1901 participants
- 163 crates/brokkr-view/src/transcript.rs:1308 codex_response_item
- 147 crates/brokkr-view/src/transcript.rs:1475 codex_event_msg
- 168 crates/brokkr-view/src/transcript.rs:1646 codex_completed_item
- 121 crates/brokkr-view/src/transcript.rs:2590 project_dsh
- 177 crates/brokkr-view/src/transcript.rs:3202 dsh_row
+ 120 crates/brokkr-view/src/transcript.rs:2462 project_dsh
+ 126 crates/brokkr-view/src/transcript.rs:3082 dsh_row
 # test
  201 crates/brokkr-cli/src/doctor/tests.rs:2458 the_dsh_seam_precedence_moves_the_version_and_the_composite_together
  113 crates/brokkr-cli/src/tests.rs:357 summaries_costs_inspect_export_and_error_closures_are_exercised
@@ -56,7 +53,7 @@
  134 crates/brokkr-cli/src/tests.rs:4281 the_supersede_verb_records_one_annotation_and_refuses_the_rest
  108 crates/brokkr-cli/src/tui/tests.rs:67 journal
  103 crates/brokkr-cli/src/tui/tests.rs:3160 enter_with_no_turn_selected_opens_the_whole_transcript
- 120 crates/brokkr-cli/src/ui/tests.rs:1065 the_console_serves_the_boundary_and_paints_the_pair
+ 120 crates/brokkr-cli/src/ui/tests.rs:768 the_console_serves_the_boundary_and_paints_the_pair
  108 crates/brokkr-cli/tests/boundary_verbs.rs:288 init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes
  153 crates/brokkr-cli/tests/boundary_verbs.rs:593 a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word
  149 crates/brokkr-cli/tests/contributing.rs:205 the_boundary_guides_keep_every_section_and_gained_the_rows
@@ -77,8 +74,8 @@
  110 crates/brokkr-cli/tests/machine_proof.rs:2335 compare_aligns_two_runs_and_finds_the_review_divergence
  148 crates/brokkr-cli/tests/transcript_command.rs:1110 packed_dsh_members_coalesce_into_selectable_chunks
  119 crates/brokkr-cli/tests/transcript_privacy.rs:818 a_read_leaves_an_existing_frame_bearing_wal_as_it_found
- 163 crates/brokkr-cli/tests/transcript_surfaces.rs:170 compare
- 103 crates/brokkr-cli/tests/transcript_surfaces.rs:429 one_derivation_reaches_every_surface
+ 145 crates/brokkr-cli/tests/transcript_surfaces.rs:185 compare
+ 103 crates/brokkr-cli/tests/transcript_surfaces.rs:424 one_derivation_reaches_every_surface
  109 crates/brokkr-core/src/dispatch/tests.rs:354 manifest_conversion_refuses_every_malformed_boundary
  117 crates/brokkr-core/src/policy/tests.rs:535 every_finding_edge_and_bound_has_a_table_arm
  103 crates/brokkr-core/src/policy/tests.rs:662 the_shipped_sdd_table_rules_every_artifact_and_loop_arm

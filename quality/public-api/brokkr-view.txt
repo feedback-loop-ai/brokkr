@@ -121,7 +121,6 @@ pub fn brokkr_view::transcript::portable_display_literal(&str) -> alloc::string:
 pub fn brokkr_view::transcript::project(brokkr_view::transcript::TranscriptKind, &brokkr_view::transcript::Snapshot<'_>) -> brokkr_view::transcript::Projection
 pub fn brokkr_view::transcript::rows(&brokkr_view::transcript::Admitted<'_>) -> alloc::vec::Vec<brokkr_view::transcript::Row>
 pub fn brokkr_view::transcript::select_reference(core::option::Option<&brokkr_view::Transcript>, brokkr_view::transcript::LegacyProvenance, core::option::Option<&str>, core::option::Option<&str>) -> brokkr_view::transcript::Selection
-pub fn brokkr_view::transcript::valid_claude_id(&str) -> bool
 pub fn brokkr_view::transcript::valid_codex_id(&str) -> bool
 pub fn brokkr_view::transcript::valid_dsh_locator(&str) -> bool
 pub fn brokkr_view::transcript::validate_common(&brokkr_view::Transcript) -> core::result::Result<brokkr_view::transcript::ValidReference, brokkr_view::transcript::Unavailable>

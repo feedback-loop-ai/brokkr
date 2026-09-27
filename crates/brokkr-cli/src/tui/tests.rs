@@ -1003,10 +1003,6 @@ fn a_shell_fragment_id_never_becomes_a_pasteable_command() {
         "`id`",
         "../../etc/passwd",
     ] {
-        assert!(
-            !brokkr_view::transcript::valid_claude_id(hostile),
-            "{hostile:?} must not pass the guard"
-        );
         let mut views = views();
         for part in &mut views.run.as_mut().unwrap().participants {
             part.transcript = None;

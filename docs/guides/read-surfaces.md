@@ -240,10 +240,17 @@ session file. `brokkr transcript` reads that local file through the same
 bounded derivation the TUI pane uses, for every kind, and writes nothing:
 no provider process is started and the journal is opened read-only. The
 browser participant page consumes the same shared presentation for every
-kind and keeps its checkpoint fallback, but its id-only body drill stays
-Claude-only: the existing `/api/session/<id>` and `/sse/session/<id>`
-routes are explicit local Claude-session lookups, so a Codex thread or DSH
-session gets the shared hint and no browser body.
+kind and keeps its checkpoint fallback. Its body drill reads by
+participant for every kind: `/api/transcript/<run>/<key>` serves the
+command's `--json` document byte for byte, less the one trailing newline the
+command prints, and `/sse/transcript/<run>/<key>` watches the same source
+grow. The watch and the presentation admit a source by its reference and
+discovery, and read no body: a source discovery admits whose bytes the
+command refuses (`unreadable`, say) is refused by the body route alone,
+while the watch opens and sends only sizes. The browser reads what the
+command reads: every valid reference of every kind drills, whatever home it
+was recorded under, and a run whose journal does not fold is refused on
+every participant route, as the command refuses it (decision 0073).
 
 ```
 $ brokkr transcript --run latest --seat review:chief

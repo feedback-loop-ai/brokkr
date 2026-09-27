@@ -1,9 +1,10 @@
 //! One local derivation across the surfaces (#222, proposed decision
 //! 0055; design D11). A synthetic source of each kind is read once
 //! through `brokkr_cli::read_local`; the command's text and JSON, the
-//! TUI pane keys and both doors, Claude's `/api/session/<id>` body and
-//! the browser participant presentation are then compared against that
-//! one result. The browser transport is asserted prose-free.
+//! TUI pane keys and both doors, the browser's transcript route (the
+//! command's JSON less its trailing newline, #352) and the browser participant
+//! presentation are then compared against that one result. The
+//! presentation transport is asserted prose-free.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -104,36 +105,10 @@ fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> W
     let home = dir.path().join(home_name);
     std::fs::create_dir_all(&home).unwrap();
     let (reference, path) = source(&home, kind, locator, body);
-    let mut store = Store::open(&db).unwrap();
-    store
-        .create_run("r222", "feat", "self", &json!({"files": {}}))
-        .unwrap();
-    let events: Vec<(EventType, Value)> = vec![
-        (
-            EventType::RunStarted,
-            json!({"feature": "feat", "manifest": {}}),
-        ),
-        (EventType::PhaseEntered, json!({"phase": "intake"})),
-        (
-            EventType::EffectRequested,
-            json!({"effect_id": "eff1", "seat": "review", "phase": "intake"}),
-        ),
-        (
-            EventType::EffectStarted,
-            json!({"effect_id": "eff1", "attempt_id": "att0"}),
-        ),
-        (
-            EventType::EffectCheckpointed,
-            json!({"effect_id": "eff1", "attempt_id": "att0",
-                   "checkpoint": {"step": "session-finished",
-                                  "transcript": reference}}),
-        ),
-    ];
-    for (event_type, payload) in events {
-        store
-            .append_next("r222", event_type, payload, None, None)
-            .unwrap();
-    }
+    journal(
+        &db,
+        json!({"step": "session-finished", "transcript": reference}),
+    );
     World {
         dir,
         db,
@@ -143,14 +118,51 @@ fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> W
     }
 }
 
+/// The one-participant run every world records at `db`, its seat's last
+/// checkpoint being `checkpoint`.
+fn journal(db: &Path, checkpoint: Value) {
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run("r222", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    let opening = [
+        (EventType::RunStarted, r#"{"feature":"feat","manifest":{}}"#),
+        (EventType::PhaseEntered, r#"{"phase":"intake"}"#),
+        (
+            EventType::EffectRequested,
+            r#"{"effect_id":"eff1","seat":"review","phase":"intake"}"#,
+        ),
+        (
+            EventType::EffectStarted,
+            r#"{"effect_id":"eff1","attempt_id":"att0"}"#,
+        ),
+    ];
+    let checkpointed = json!({"effect_id": "eff1", "attempt_id": "att0", "checkpoint": checkpoint});
+    let opening =
+        opening.map(|(event_type, payload)| (event_type, serde_json::from_str(payload).unwrap()));
+    for (event_type, payload) in opening
+        .into_iter()
+        .chain([(EventType::EffectCheckpointed, checkpointed)])
+    {
+        store
+            .append_next("r222", event_type, payload, None, None)
+            .unwrap();
+    }
+}
+
 fn command(world: &World, extra: &[&str]) -> std::process::Output {
+    command_under(world, &world.home, extra)
+}
+
+/// The command run with `home` as its `HOME`.
+fn command_under(world: &World, home: &Path, extra: &[&str]) -> std::process::Output {
     let mut args = vec!["transcript", "--run", "r222", "--seat", "eff1"];
     args.extend_from_slice(extra);
     Command::new(brokkr_bin())
         .args(args)
         .arg("--db")
         .arg(&world.db)
-        .env("HOME", &world.home)
+        .env("HOME", home)
         .current_dir(world.dir.path())
         .output()
         .unwrap()
@@ -163,6 +175,111 @@ fn parse(output: &std::process::Output) -> Value {
             String::from_utf8_lossy(&output.stderr)
         )
     })
+}
+
+/// The browser's transcript route serves `brokkr transcript --json`'s
+/// document byte for byte, for every kind (#352): the command prints the
+/// same bytes and a newline. A refused read keeps its document under a 404.
+fn same_bytes_in_the_browser(world: &World, command: &std::process::Output, status: &str) {
+    let response = brokkr_cli::handle(&world.db, "/api/transcript/r222/eff1");
+    assert_eq!(response.status, status, "{}", response.body);
+    assert_eq!(
+        format!("{}\n", response.body),
+        String::from_utf8_lossy(&command.stdout),
+        "{}",
+        world.reference.kind
+    );
+}
+
+/// A `brokkr ui` child serving `world`'s journal on an ephemeral port. It is
+/// killed when dropped, so a failed assertion leaves no server behind; its
+/// stderr stays open for the child's lifetime.
+struct Server {
+    child: std::process::Child,
+    _stderr: std::io::BufReader<std::process::ChildStderr>,
+    port: u16,
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Server {
+    fn start(world: &World) -> Self {
+        use std::io::BufRead;
+        let mut child = Command::new(brokkr_bin())
+            .args(["ui", "--port", "0", "--db"])
+            .arg(&world.db)
+            .env("HOME", &world.home)
+            .current_dir(world.dir.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
+        // "brokkr ui: http://127.0.0.1:<port>/ (read-only; Ctrl-C to stop)"
+        let mut line = String::new();
+        let _ = stderr.read_line(&mut line);
+        let port = line
+            .split_once("127.0.0.1:")
+            .and_then(|(_, rest)| rest.split_once('/'))
+            .and_then(|(port, _)| port.parse().ok());
+        let server = Server {
+            child,
+            _stderr: stderr,
+            port: port.unwrap_or_default(),
+        };
+        assert!(port.is_some(), "no bound url: {line}");
+        server
+    }
+
+    /// The raw response to one GET, split at the blank line.
+    fn get(&self, path: &str) -> (String, Vec<u8>) {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        write!(stream, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let split = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("a head and a body");
+        let head = String::from_utf8(response[..split].to_vec()).unwrap();
+        (head, response[split + 4..].to_vec())
+    }
+}
+
+/// Decision 0073 ruling 1 on the wire: `/api/transcript/<run>/<key>`,
+/// served by `brokkr ui` over TCP, carries exactly the document `brokkr
+/// transcript --json` prints, which ends in the one newline the command
+/// adds, readable (Claude, 200) or refused (non-UTF-8 Codex, 404).
+#[test]
+fn the_wire_body_is_the_commands_stdout_without_its_newline() {
+    let _env = EnvGuard::lock();
+    let claude = make_world(
+        "claude-session",
+        "abcd-1234",
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"on the wire\"}}\n",
+    );
+    let codex = make_world("codex-thread", "0199wire", "");
+    std::fs::write(&codex.path, [0xff, 0xfe]).unwrap();
+    for (world, exit, status) in [(&claude, 0, "200 OK"), (&codex, 1, "404 Not Found")] {
+        let stdout = command(world, &["--json"]);
+        assert_eq!(stdout.status.code(), Some(exit), "{}", world.reference.kind);
+        let (head, body) = Server::start(world).get("/api/transcript/r222/eff1");
+        assert!(
+            head.starts_with(&format!("HTTP/1.1 {status}\r\n")),
+            "{head}"
+        );
+        assert_eq!([&body[..], b"\n"].concat(), stdout.stdout, "{head}");
+        assert!(
+            head.contains(&format!("\r\nContent-Length: {}\r\n", body.len())),
+            "{head}"
+        );
+    }
 }
 
 /// Compare every surface against one shared read, for one source.
@@ -179,28 +296,6 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
         ));
     }
     let read = &read;
-
-    // The API's Claude body agrees on turns, truncation and notices, and
-    // keeps its four-field envelope.
-    if world.reference.kind == "claude-session" {
-        let response = brokkr_cli::handle(
-            &world.db,
-            &format!("/api/session/{}", world.reference.locator),
-        );
-        assert_eq!(response.status, "200 OK");
-        let body: Value = serde_json::from_str(&response.body).unwrap();
-        let mut keys: Vec<&str> = body
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        keys.sort_unstable();
-        assert_eq!(keys, vec!["notices", "session_id", "truncated", "turns"]);
-        assert_eq!(body["turns"], serde_json::to_value(&read.turns).unwrap());
-        assert_eq!(body["truncated"], read.truncated);
-        assert_eq!(body["notices"], json!(read.notices));
-    }
 
     // The browser participant presentation carries only the shared
     // metadata, never transcript prose.
@@ -292,6 +387,7 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
     assert_eq!(document["full_session"], json!(read.full_session));
     // A readable derivation is never an unavailable one.
     assert_eq!(document["unavailable"], Value::Null);
+    same_bytes_in_the_browser(world, &whole, "200 OK");
 
     // The text command carries the same one-based numbering, roles,
     // stamps, blocks, notices and hint as the pane and the JSON face.
@@ -399,6 +495,7 @@ fn compare_refusal(world: &World, read: &TranscriptRead, expected: &str) {
     let document = parse(&whole);
     assert_eq!(document["unavailable"], expected);
     assert_eq!(document["turns"], json!([]));
+    same_bytes_in_the_browser(world, &whole, "404 Not Found");
     assert_eq!(document["path"], json!(read.path));
     assert_eq!(document["full_session"], json!(read.full_session));
     assert_eq!(document["truncated"], read.truncated);
@@ -545,6 +642,69 @@ fn one_derivation_reaches_every_surface() {
     assert!(presentation["path"].is_null());
     assert!(presentation.get("turns").is_none(), "{presentation}");
     compare_refusal(&world, &read, "not-found");
+}
+
+/// Operator ruling 2026-09-27 (decision 0073 rulings 3 and 4): the browser
+/// reads what the command reads. A Claude reference recorded under a home
+/// that is not the local projects home gets the command's bytes.
+#[test]
+fn a_foreign_home_claude_reference_reads_the_same_bytes_in_the_browser() {
+    let mut env = EnvGuard::lock();
+    let world = make_world(
+        "claude-session",
+        "abcd-1234",
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"from another home\"}}\n",
+    );
+    let local = world.dir.path().join("local");
+    std::fs::create_dir_all(local.join(".claude").join("projects")).unwrap();
+    env.set("HOME", &local);
+    let whole = command_under(&world, &local, &["--json"]);
+    assert_eq!(whole.status.code(), Some(0), "the command reads it");
+    assert_eq!(
+        parse(&whole)["turns"][0]["blocks"][0]["text"],
+        "from another home"
+    );
+    same_bytes_in_the_browser(&world, &whole, "200 OK");
+}
+
+/// The same ruling for a legacy flat id whose local projects home does not
+/// exist: the command refuses the read with its document, and the browser
+/// serves that document, not a refusal of its own.
+#[test]
+fn a_legacy_id_under_a_missing_projects_home_reads_the_same_bytes_in_the_browser() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    // No provider provenance and no common reference: the pre-provider
+    // Claude era, whose flat id is synthesized under the local projects
+    // home, which this home does not hold.
+    let db = dir.path().join("forge.db");
+    journal(
+        &db,
+        json!({"step": "session-started", "session_id": "abcd-1234"}),
+    );
+    let projects = home.join(".claude").join("projects");
+    let world = World {
+        reference: brokkr_view::Transcript {
+            kind: "claude-session".into(),
+            locator: "abcd-1234".into(),
+            home: projects.to_str().unwrap().into(),
+        },
+        path: String::new(),
+        dir,
+        db,
+        home,
+    };
+    env.set("HOME", &world.home);
+    let whole = command(&world, &["--json"]);
+    assert_eq!(whole.status.code(), Some(1), "the command refuses the read");
+    let document = parse(&whole);
+    assert_eq!(
+        (&document["legacy"], &document["unavailable"]),
+        (&json!(true), &json!("not-found"))
+    );
+    same_bytes_in_the_browser(&world, &whole, "404 Not Found");
 }
 
 /// A real packed DSH source reaches CLI text/JSON, the TUI pane and both
