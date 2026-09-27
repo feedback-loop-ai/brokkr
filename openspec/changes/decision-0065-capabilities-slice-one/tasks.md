@@ -2093,6 +2093,42 @@ evidence.md, "Review return"):
 - **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
   box, macOS, remote CI and the council.
 
+Unit 13 second review return (2026-09-27, same run, reviewed
+`67571c3b..86374055`; evidence.md, "Second review return"):
+
+- **F1.** Every Codex effect must be owed by a sealed source; the old
+  measured-OFF free pass is gone. Each effect is then judged by its
+  meaning (`codex_meaning`), whoever supplied it. Refused: an OFF for a
+  held or unanswered power, a web switch or assignment for an unheld
+  power, and the bypass, `--full-auto` or a sandbox table beside the
+  class.
+- **F2.** The template's, boundary's and native include limits, empty or
+  not, must each name every held, hands and lowered local tool. A lowered
+  local tool must be available, and the include list may name it
+  (`final_tools` I1).
+- **F3.** A holding's excluded guard tools stay unavailable. The plan's
+  selection and native allow/deny names must reach the command.
+- **F4.** `--fork-session` and `--bg` refuse as selectors, read from the
+  adapter's `CLAUDE_SELECTORS_BARE`.
+- **F5.** The native argv is parsed and read on its own, and its effects
+  are owed.
+- **F6.** The DSH joined-spelling rows assert the whole grammar problem.
+  **F7** asks nothing of the code.
+- **Proof.** Baseline reds on `86374055`: 7 tests (five `Ok`, two intended
+  wording moves). M1–M28 each compiled, were caught and were restored.
+  Four assertions moved with the intended change, and F2's named positive
+  became its full refusal.
+- **Gates.** fmt, `git diff --check` and clippy `-D warnings` are clean.
+  Protocol: 517 + 99 + 1 passed. Workspace: 77 `ok` summaries. Both
+  bundles compile. Strict OpenSpec: 18/18. The coverage diagnostic leaves
+  no unhit record in the changed functions.
+- Fixture migrations and standing-admission lines: none.
+- **Follow-up.** Under a non-hands limit, `final_tools` leaves a lowered
+  local tool out of the include list it writes, and the check refuses
+  that command. Shipped adapters do not reach this shape.
+- **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
+  box, macOS, remote CI and the council.
+
 ## 14. Unit 14 — Integrate checked cold commands
 
 - [ ] 14.1 Unit 14 parses full serialized cold commands and compares exact plan state. Verify dropped OFF/terminator/separator/prefix-duplicate refusal and typed positives. Requirements: [Codex web-search OFF uses the controller's measured fragment][NC2], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.1)

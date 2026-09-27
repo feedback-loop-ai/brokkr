@@ -2987,10 +2987,12 @@ pub fn claude_command(
 /// beside `--resume` and resolves the conflict itself. `--bg` with
 /// `--resume` "starts a copy and says so when the session is already
 /// running"; `--fork-session` creates a new id. A copy is not a rejoin,
-/// and neither is a fork.
+/// and neither is a fork. The final check reads the bare list too, so a
+/// switch the grammar types as `Switch` is a selector there as here
+/// (rebuild unit 13, review F4).
 const CLAUDE_SELECTORS_WITH_VALUE: [&str; 5] =
     ["-r", "--resume", "--session-id", "--from-pr", "--teleport"];
-const CLAUDE_SELECTORS_BARE: [&str; 8] = [
+pub(crate) const CLAUDE_SELECTORS_BARE: [&str; 8] = [
     "-c",
     "--continue",
     "--fork-session",

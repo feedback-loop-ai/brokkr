@@ -13314,9 +13314,23 @@ fn the_dsh_splitters_read_the_grammar_parse_and_agree_with_it() {
             "dsh driver: only the one separate `--patch <overlay>` spelling is admitted",
         ),
     ] {
-        assert!(crate::native_controls::grammar::parse("dsh", &s(&[joined]))
-            .unwrap()
-            .is_err());
+        // The grammar's whole problem (second review F6): the option by its
+        // name before the '=', never the joined value.
+        assert_eq!(
+            crate::native_controls::grammar::parse("dsh", &s(&[joined]))
+                .unwrap()
+                .map(|_| ())
+                .map_err(|problem| problem.to_string()),
+            Err(format!(
+                "the 'dsh' command grammar cannot place argument 1 ('{}'): it names no option, or \
+                 names one that has no equals-joined spelling. A harness brokkr launches is \
+                 parsed against a model of its options, and a token that grammar cannot place is \
+                 refused rather than passed through, because a control nobody can read is a \
+                 control nobody can rule on (decision 0066 ruling 6)",
+                &joined[..7]
+            )),
+            "{joined}"
+        );
         let split = match joined.starts_with("--model") {
             true => split_dsh_model(&s(&[joined])),
             false => split_dsh_patch(&s(&[joined])),

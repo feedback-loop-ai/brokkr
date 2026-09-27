@@ -6852,6 +6852,23 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
     );
     assert_eq!(check(&resumed, None), Err(session.clone()));
     assert_eq!(check(&cold, Some("session-1")), Err(session));
+    // Review F4: a switch that forks or copies the rejoined conversation is
+    // a selector, as the adapter's structural reader judges it, and not
+    // the rejoin the engine chose.
+    for switch in ["--fork-session", "--bg"] {
+        let forked = [resumed.clone(), argv(&[switch])].concat();
+        assert_eq!(
+            check(&forked, Some("session-1")),
+            Err(final_refusal(
+                "claude",
+                &format!(
+                    "cannot be read: it carries '{switch}' (argument 18), a session selector \
+                     other than a rejoin's"
+                ),
+            )),
+            "{switch}"
+        );
+    }
     let mut changed = checked.into_argv();
     changed.extend(argv(&["--add-dir", "/"]));
     assert_eq!(
@@ -7628,7 +7645,10 @@ fn a_claude_command_wrong_alike_with_its_composition_still_refuses() {
     };
     assert_eq!(
         with(7, "WebSearch,Read"),
-        refused("includes tool 'Read', which its sealed record does not hold")
+        refused(
+            "includes tool 'Read', which its sealed record neither holds nor lowered as a local \
+             permission"
+        )
     );
     assert_eq!(
         with(12, "mcp__brokkr__workspace,WebSearch,Read"),
@@ -7727,10 +7747,12 @@ fn a_claude_command_wrong_alike_with_its_composition_still_refuses() {
         widened(&[&unboxed[..], &["--mcp-config", "/x.json"]].concat()),
         refused(
             "carries '--mcp-config', a capability-bearing effect its sealed record does not \
-             account for: only its permission template, its hands, its boundary and a measured \
-             OFF for a power its plan answers for may carry one"
+             account for: only its permission template, its hands, its boundary and its plan's \
+             native controls may carry one"
         )
     );
+    // Review F2: a native limit that leaves out the lowered local
+    // permission's tool is refused, as the composer refuses it.
     assert_eq!(
         check(
             &[&unboxed[..], &["--tools", "WebSearch"]].concat(),
@@ -7739,9 +7761,11 @@ fn a_claude_command_wrong_alike_with_its_composition_still_refuses() {
                 ..local.clone()
             },
             &lowered
+        ),
+        refused(
+            "is sealed under the plan's native include list, which leaves out tool 'Bash' that \
+             its sealed record lowered as a local permission"
         )
-        .map(|c| c.into_argv().len()),
-        Ok(9)
     );
     // A template's lists are carried: its include list, its allow list and
     // its deny list, each dropped from both commands alike.
@@ -7808,8 +7832,8 @@ fn a_codex_command_wrong_alike_with_its_composition_still_refuses() {
     let unaccounted = |effect: &str| {
         refused(&format!(
             "carries {effect}, a capability-bearing effect its sealed record does not account \
-             for: only its permission template, its hands, its boundary and a measured OFF for a \
-             power its plan answers for may carry one"
+             for: only its permission template, its hands, its boundary and its plan's native \
+             controls may carry one"
         ))
     };
     let lead = ["codex", "exec", "--json", "-C", "/w"];
@@ -7843,7 +7867,8 @@ fn a_codex_command_wrong_alike_with_its_composition_still_refuses() {
             "{extra:?}"
         );
     }
-    // An OFF for a power the plan never answered for accounts for nothing.
+    // An OFF for a power the plan never answered for is refused, whoever
+    // supplied it.
     let unanswered = Controls {
         denied: Vec::new(),
         ..controls.clone()
@@ -7860,7 +7885,9 @@ fn a_codex_command_wrong_alike_with_its_composition_still_refuses() {
     };
     assert_eq!(
         check(&off, &unanswered, &silent),
-        unaccounted("'--config' into the 'web_search' configuration")
+        refused(
+            "switches OFF native capability 'web-search', which its plan neither holds nor denies"
+        )
     );
 
     // The box's hands carry the class and the engine's own server.
@@ -8009,6 +8036,378 @@ fn a_codex_command_wrong_alike_with_its_composition_still_refuses() {
             &boundary(&work)
         ),
         refused("was planned with hands its sealed record does not require")
+    );
+}
+
+/// NCC "Codex managed argv has no unchecked path", NC2 and NCR (rebuild
+/// unit 13, second review F1): an effect the sealed boundary supplied, and
+/// both commands carry alike, is still judged by what it does. An OFF where
+/// the plan holds the power, a web switch or assignment where it denies it,
+/// and a bypass, `--full-auto` or sandbox table beside the expected class
+/// each refuse exactly; a web assignment the plan holds and an approval
+/// policy are carried.
+#[test]
+fn a_codex_effect_is_judged_by_its_meaning_whoever_supplied_it() {
+    let refused = |problem: &str| Err(final_refusal("codex", problem));
+    // `fragment` as the record's boundary and `extra` after it, composed
+    // and served alike, the plan holding web-search or denying it by its
+    // OFF.
+    let check = |held: bool, fragment: &[&str], extra: &[&str]| {
+        let (controls, record, _) = codex_final(held, !held);
+        let record = LaunchRecord {
+            segments: vec![Segment::new(Origin::Hands, &argv(fragment))],
+            expected: Expected {
+                local: LocalExpectation {
+                    sandbox: SandboxIntent::Unspecified,
+                    ..record.expected.local.clone()
+                },
+                ..record.expected
+            },
+        };
+        let lead = ["codex", "exec", "--json", "-C", "/w"];
+        let (composed, command) = alike(&lead, &[fragment, extra].concat());
+        check_final("codex", command, &composed, &controls, &record, None, None)
+    };
+    let class = ["--sandbox", "read-only"];
+    let off = ["-c", "web_search=\"disabled\""];
+    let with = |effect: &[&'static str]| [&class[..], effect].concat();
+    assert_eq!(
+        check(true, &with(&off), &[]),
+        refused("switches OFF native capability 'web-search', which its plan holds")
+    );
+    assert_eq!(
+        check(true, &with(&["-c", "web_search=\"live\""]), &[]).map(|c| c.into_argv().len()),
+        Ok(9)
+    );
+    for (effect, named) in [
+        (
+            &["-c", "web_search=\"live\""][..],
+            "'--config' into the 'web_search' configuration",
+        ),
+        (
+            &["-c", "web_search_mode=\"live\""][..],
+            "'--config' into the 'web_search_mode' configuration",
+        ),
+        (&["--search"][..], "'--search'"),
+    ] {
+        assert_eq!(
+            check(false, &with(effect), &off),
+            refused(&format!(
+                "carries {named}, switching on native capability 'web-search', which its plan \
+                 does not hold"
+            )),
+            "{effect:?}"
+        );
+    }
+    for (effect, named) in [
+        (
+            &["--dangerously-bypass-approvals-and-sandbox"][..],
+            "'--dangerously-bypass-approvals-and-sandbox'",
+        ),
+        (&["--full-auto"][..], "'--full-auto'"),
+        (
+            &["-c", "sandbox_workspace_write.network_access=true"][..],
+            "'--config' into the 'sandbox_workspace_write' configuration",
+        ),
+        (
+            &["-c", "sandbox_mode=read-only"][..],
+            "'--config' into the 'sandbox_mode' configuration",
+        ),
+    ] {
+        assert_eq!(
+            check(false, &with(effect), &off),
+            refused(&format!(
+                "carries {named}, which lifts or replaces the sandbox class its sealed record \
+                 expects"
+            )),
+            "{effect:?}"
+        );
+    }
+    assert_eq!(
+        check(false, &with(&["--ask-for-approval", "never"]), &off).map(|c| c.into_argv().len()),
+        Ok(11)
+    );
+}
+
+/// NCT "Explicit restrictive tool lists retain their meaning" (rebuild
+/// unit 13, second review F2): every sealed include limit other than the
+/// hands' own base — the template's, the boundary's and the plan's native
+/// one — binds the final command, empty or not. A command and a
+/// composition that widen one alike to the held tool refuse; so does a
+/// limit that leaves out the required hands tool or a lowered local
+/// permission's tool, and a local permission the include list leaves
+/// unavailable. A limit naming every one of them, with the include list
+/// naming the held and the local tool, checks.
+#[test]
+fn every_sealed_include_limit_binds_the_final_command_empty_or_not() {
+    let refused = |problem: &str| Err(final_refusal("claude", problem));
+    let (local, lowered, composed) = claude_local();
+    let unboxed: Vec<&str> = composed.extra.iter().map(String::as_str).collect();
+    // The unboxed plan with `limit` as the template's, the boundary's or
+    // the plan's native include list, and `include` served alike.
+    let check = |owner: usize, limit: &str, include: &str| {
+        let mut controls = local.clone();
+        let mut record = lowered.clone();
+        let written = argv(&["--tools", limit]);
+        match owner {
+            0 => {
+                let template = [argv(&["--permission-mode", "acceptEdits"]), written].concat();
+                record.segments[0] = Segment::new(Origin::Template, &template);
+                record.expected.template = TemplateExpectation::Declared(template);
+            }
+            1 => record.segments.push(Segment::new(Origin::Hands, &written)),
+            _ => controls.argv = written,
+        }
+        let (composed, command) =
+            alike(&["claude"], &[&unboxed[..], &["--tools", include]].concat());
+        check_final("claude", command, &composed, &controls, &record, None, None)
+    };
+    let owners = [
+        "the permission template's",
+        "the boundary's",
+        "the plan's native",
+    ];
+    for (owner, name) in owners.iter().enumerate() {
+        for limit in ["", "Read"] {
+            assert_eq!(
+                check(owner, limit, "WebSearch"),
+                refused(&format!(
+                    "is sealed under {name} include list, which leaves out tool 'WebSearch' that \
+                     its plan holds for native capability 'web-search'"
+                )),
+                "{name} {limit:?}"
+            );
+        }
+        assert_eq!(
+            check(owner, "WebSearch", "WebSearch"),
+            refused(&format!(
+                "is sealed under {name} include list, which leaves out tool 'Bash' that its \
+                 sealed record lowered as a local permission"
+            )),
+            "{name}"
+        );
+        assert_eq!(
+            check(owner, "WebSearch,Bash", "WebSearch"),
+            refused(
+                "does not make tool 'Bash' available, which its sealed record lowered as a local \
+                 permission"
+            ),
+            "{name}"
+        );
+        assert_eq!(
+            check(owner, "WebSearch,Bash", "WebSearch,Bash").map(|c| c.into_argv().len()),
+            Ok(9),
+            "{name}"
+        );
+    }
+    // Beside the box's hands, a template limit leaves out their tool.
+    let (controls, record, _) = claude_final();
+    let template = argv(&["--permission-mode", "acceptEdits", "--tools", "WebSearch"]);
+    let record = LaunchRecord {
+        segments: vec![
+            Segment::new(Origin::Template, &template),
+            record.segments[1].clone(),
+        ],
+        expected: Expected {
+            template: TemplateExpectation::Declared(template),
+            ..record.expected
+        },
+    };
+    let (composed, command) = alike(&["claude"], &CLAUDE_COLD[5..]);
+    assert_eq!(
+        check_final("claude", command, &composed, &controls, &record, None, None),
+        refused(
+            "is sealed under the permission template's include list, which leaves out tool \
+             'mcp__brokkr__workspace' that its sealed hands require"
+        )
+    );
+}
+
+/// NCC and NCT (rebuild unit 13, second review F3): what the plan's
+/// selection and its native lists admit and deny, and the subset each
+/// holding admits, reach the final command. A capability narrowed to
+/// `WebSearch` whose excluded tool is left available, a selection denial
+/// or admission dropped from both commands alike, and a native list's name
+/// dropped alike each refuse exactly.
+#[test]
+fn the_plan_selection_and_each_holding_subset_reach_the_final_command() {
+    let refused = |problem: &str| Err(final_refusal("claude", problem));
+    let (local, lowered, _) = claude_local();
+    let check = |controls: &Controls, allow: &str, deny: &str| {
+        let extra = [
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            allow,
+            "--disallowedTools",
+            deny,
+        ];
+        let (composed, command) = alike(&["claude"], &extra);
+        check_final("claude", command, &composed, controls, &lowered, None, None)
+    };
+    let allow = "Bash(git log:*),WebSearch";
+    // Web search narrowed to `WebSearch`, `WebPeek` denied by the selection.
+    let mut narrowed = local.clone();
+    narrowed.guards[0].tools = argv(&["WebSearch", "WebPeek"]);
+    narrowed.selection.deny = argv(&["WebPeek", "WebFetch"]);
+    assert_eq!(
+        check(&narrowed, allow, "WebPeek,WebFetch").map(|c| c.into_argv().len()),
+        Ok(7)
+    );
+    assert_eq!(
+        check(&narrowed, allow, "WebFetch"),
+        refused(
+            "leaves tool 'WebPeek' available, which its plan's holding of native capability \
+             'web-search' does not admit"
+        )
+    );
+    // A selection denial no guard names, dropped alike.
+    let mut selected = local.clone();
+    selected.selection.deny = argv(&["WebPeek", "WebFetch"]);
+    assert_eq!(
+        check(&selected, allow, "WebFetch"),
+        refused("does not deny tool 'WebPeek', which its plan's selection or native controls deny")
+    );
+    // The selection's admission dropped alike.
+    assert_eq!(
+        check(&local, "Bash(git log:*)", "WebFetch"),
+        refused(
+            "does not allow tool 'WebSearch', which its plan's selection or native controls admit"
+        )
+    );
+    // The plan's own native lists, the selection admitting nothing.
+    let native = |argv_: &[&str]| Controls {
+        argv: argv(argv_),
+        selection: Selection {
+            allow: Vec::new(),
+            ..local.selection.clone()
+        },
+        ..local.clone()
+    };
+    assert_eq!(
+        check(&native(&["--allowedTools", "WebSearch"]), allow, "WebFetch")
+            .map(|c| c.into_argv().len()),
+        Ok(7)
+    );
+    assert_eq!(
+        check(
+            &native(&["--allowedTools", "WebSearch"]),
+            "Bash(git log:*)",
+            "WebFetch"
+        ),
+        refused(
+            "does not allow tool 'WebSearch', which its plan's selection or native controls admit"
+        )
+    );
+    assert_eq!(
+        check(
+            &native(&["--disallowedTools", "WebPeek"]),
+            allow,
+            "WebFetch,WebPeek"
+        )
+        .map(|c| c.into_argv().len()),
+        Ok(7)
+    );
+    assert_eq!(
+        check(
+            &native(&["--disallowedTools", "WebPeek"]),
+            allow,
+            "WebFetch"
+        ),
+        refused("does not deny tool 'WebPeek', which its plan's selection or native controls deny")
+    );
+}
+
+/// NCC "Every accepted native control reaches the final command" and RGP
+/// (rebuild unit 13, second review F5): the plan's own native contribution
+/// is read whole, independently of both commands. A terminator, a
+/// positional word, an unknown option or a dangling assignment in it, an
+/// unreadable list and a session selector each refuse though neither
+/// command carries it; and a native control dropped from both commands
+/// alike refuses, while one carried checks.
+#[test]
+fn the_plan_native_contribution_is_read_whole_and_carried() {
+    let (controls, record, _) = codex_final(false, true);
+    let lead = ["codex", "exec", "--json", "-C", "/w"];
+    let codex = |native: &[&str], extra: &[&str]| {
+        let (composed, command) = alike(&lead, extra);
+        let controls = Controls {
+            argv: argv(native),
+            ..controls.clone()
+        };
+        check_final("codex", command, &composed, &controls, &record, None, None)
+    };
+    let served = ["--sandbox", "read-only", "-c", "web_search=\"disabled\""];
+    let off = &served[2..];
+    let unread = |problem: &str| {
+        Err(final_refusal(
+            "codex",
+            &format!("was planned with native controls that cannot be read whole {problem}"),
+        ))
+    };
+    for (native, problem) in [
+        (
+            [off, &["--"]].concat(),
+            "(argument 3, the terminator '--': it names no option)",
+        ),
+        (
+            [off, &["stray"]].concat(),
+            "(argument 3, a positional argument, whose text is not echoed: it is a bare word, and \
+             no positional argument is part of the supported shape)",
+        ),
+        (
+            vec!["--bogus"],
+            "(argument 1, '--bogus': it names no option)",
+        ),
+        (
+            vec!["-c"],
+            "(argument 1, '--config': it takes a value and is the last argument, so it has none)",
+        ),
+    ] {
+        assert_eq!(codex(&native, &served), unread(problem), "{native:?}");
+    }
+    assert_eq!(
+        codex(off, &served[..2]),
+        Err(final_refusal(
+            "codex",
+            "does not carry the native controls its plan composed"
+        ))
+    );
+    assert_eq!(codex(off, &served).map(|c| c.into_argv().len()), Ok(9));
+
+    let (local, lowered, composed) = claude_local();
+    let unboxed: Vec<&str> = composed.extra.iter().map(String::as_str).collect();
+    let claude = |native: &[&str], extra: &[&str]| {
+        let (composed, command) = alike(&["claude"], extra);
+        let controls = Controls {
+            argv: argv(native),
+            ..local.clone()
+        };
+        check_final(
+            "claude", command, &composed, &controls, &lowered, None, None,
+        )
+    };
+    let refused = |problem: &str| Err(final_refusal("claude", problem));
+    assert_eq!(
+        claude(&["--disallowedTools", "Read,,Write"], &unboxed),
+        refused(
+            "was planned with native controls that cannot be read: it carries \
+             '--disallowedTools' (argument 1), whose value joins an empty pattern: a doubled, \
+             leading or trailing separator"
+        )
+    );
+    assert_eq!(
+        claude(&["--resume", "session-1"], &unboxed),
+        refused("was planned with native controls that select a session")
+    );
+    let settings = ["--settings", "/s.json"];
+    assert_eq!(
+        claude(&settings, &unboxed),
+        refused("does not carry the native controls its plan composed")
+    );
+    assert_eq!(
+        claude(&settings, &[&unboxed[..], &settings[..]].concat()).map(|c| c.into_argv().len()),
+        Ok(9)
     );
 }
 

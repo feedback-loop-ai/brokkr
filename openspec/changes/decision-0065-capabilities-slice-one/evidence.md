@@ -12629,3 +12629,236 @@ here observes it.
 
 **Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
 macOS, remote CI and the council.
+
+### Second review return, 2026-09-27 (F1–F7 of the reviewed `67571c3b..86374055`)
+
+The chief returned the unit again as `residual` (high) with F1–F7. This
+visit answers F1–F6 within the unit's files: `native_controls.rs` and
+`adapters.rs` in production, and `native_controls/tests.rs` and
+`adapters/tests.rs` for tests. `native_controls/grammar.rs` did not change.
+F7 is a panel-output defect the chief itself rejected; it asks nothing of
+the code. No fixture migration and no standing-admission line.
+
+#### What changed
+
+All of the following is in `authority`, `read_state` and one new
+classifier, `codex_meaning`, in `native_controls.rs`:
+
+- **F5: the native contribution is read on its own.** `authority` now
+  parses `Controls.argv` whole under the harness's grammar and reads its
+  `State`, whether or not either command carries it. It refuses in three
+  ways, each of which ignores both commands:
+  - "was planned with native controls that cannot be read whole (…)" for
+    a terminator, a positional word, an unknown option or a dangling
+    value;
+  - "… cannot be read: it …" for an unreadable list or assignment;
+  - "… that select a session".
+
+  The contribution's non-list effects are a fourth owed `Source::Native`.
+  If one is missing from the command, the check refuses "does not carry
+  the native controls its plan composed". The old `.ok()` on the Claude
+  plan parse is gone.
+- **F1: effects are judged by meaning.** Codex's free pass for a measured
+  OFF is removed: every effect must now be owed by the template, the
+  hands, the boundary or the native contribution. After the effect is
+  accounted for, `codex_meaning` judges what it does, whoever supplied
+  it. It reads the grammar's class for the option and the bounded meaning
+  of an assignment:
+  - an OFF on `LAUNCH_SETTINGS` for a held power refuses "switches OFF …,
+    which its plan holds";
+  - an OFF for a power the plan neither holds nor denies refuses "…,
+    which its plan neither holds nor denies";
+  - `--search`, or any other `web_search`/`web_search_mode` assignment,
+    refuses where the plan does not hold web-search ("carries …, switching
+    on native capability 'web-search', which its plan does not hold");
+  - `--dangerously-bypass-approvals-and-sandbox`, `--full-auto` and a
+    `sandbox_mode`/`sandbox_workspace_write` assignment not read as the
+    class refuse "…, which lifts or replaces the sandbox class its sealed
+    record expects".
+
+  A web assignment where the plan holds the power passes, and so does an
+  approval policy.
+- **F2: include limits bind.** The template's, the boundary's and the
+  native include lists, empty or not, are hard limits. Each must name
+  every held tool, the required hands tool and every directly applied
+  local permission's tool. Otherwise the check refuses "is sealed under
+  <owner> include list, which leaves out tool 'X' that …", the same
+  conflict `final_tools` refuses as `Excluded`/`Outside`. A lowered local
+  permission's tool must also be available: the include list names it,
+  and no deny list names it.
+
+  The include authority is therefore held tools plus lowered local tools,
+  which is `final_tools`'s I1 H ∪ T. Its cause now reads "which its sealed
+  record neither holds nor lowered as a local permission".
+- **F3: the selection must survive.**
+  - For each held capability, a guard tool its holding does not admit
+    must be unavailable ("leaves tool 'X' available, which its plan's
+    holding of … does not admit").
+  - Every name the plan's selection or native lists allow must be in the
+    command's allow list ("does not allow tool 'X', …"), and every name
+    they deny must be in its deny list ("does not deny tool 'X', …").
+  - The native deny list joins the permitted denials.
+  - The template-list check now runs before these checks, so each keeps
+    its own cause.
+- **F4: selector switches refuse.** `read_state` refuses a `Switch` whose
+  canonical name is on the adapter's `CLAUDE_SELECTORS_BARE`
+  (`--fork-session`, `--bg`), with the same cause as any selector that is
+  not a rejoin. `adapters.rs` changes only to make that list `pub(crate)`
+  and to document its second reader.
+- **F6.** `the_dsh_splitters_…` now asserts the grammar's whole rendered
+  `Problem` for `--model=p/m` and `--patch=a.yml` instead of `is_err()`.
+
+#### Tests
+
+New in `native_controls/tests.rs`:
+
+- `a_codex_effect_is_judged_by_its_meaning_whoever_supplied_it` (F1).
+  - Refused: a boundary OFF with the power held; `web_search="live"`,
+    `web_search_mode="live"` and `--search` beside the denial; the bypass;
+    `--full-auto`; `sandbox_workspace_write.network_access=true`;
+    `sandbox_mode=read-only`.
+  - Checked: a held web assignment, and `--ask-for-approval never`.
+- `every_sealed_include_limit_binds_the_final_command_empty_or_not` (F2).
+  For each owner (template, boundary, native), with the empty and the
+  `Read` limits separately:
+  - refused: the widened held tool;
+  - refused: a `WebSearch` limit leaving out `Bash`;
+  - refused: `Bash` left unavailable under a `WebSearch,Bash` limit;
+  - checked: that limit with `--tools WebSearch,Bash`.
+
+  Also refused: a template limit leaving out the required hands tool.
+- `the_plan_selection_and_each_holding_subset_reach_the_final_command`
+  (F3).
+  - Refused: a capability narrowed to `WebSearch` whose `WebPeek` is left
+    available; a selection denial dropped alike; a selection admission
+    dropped alike; a native allow dropped alike; a native deny dropped
+    alike.
+  - Checked: the narrowed positive, the native allow carried, and the
+    native deny carried.
+- `the_plan_native_contribution_is_read_whole_and_carried` (F5).
+  - Codex, refused: a terminator, a positional, `--bogus` and a dangling
+    `-c`, each with its exact grammar position, plus the OFF dropped
+    alike. The OFF carried checks.
+  - Claude, refused: an unreadable deny list, a `--resume`, and
+    `--settings` dropped alike. `--settings` carried checks.
+
+Changed in `native_controls/tests.rs`:
+
+- `a_complete_claude_command_…` adds the F4 rows: `--fork-session` and
+  `--bg` after `--resume` each refuse at argument 18.
+- **Assertions moved with the intended change:**
+  - the unaccounted-effect tail now names "its plan's native controls"
+    instead of "a measured OFF for a power its plan answers for", in the
+    Codex `unaccounted` helper and the Claude `--mcp-config` row;
+  - the `Read` include row reads "neither holds nor lowered as a local
+    permission";
+  - the Codex OFF for an unanswered power is now refused by meaning,
+    "switches OFF native capability 'web-search', which its plan neither
+    holds nor denies";
+  - F2's named positive in `a_claude_command_wrong_alike_…` (a native
+    `--tools WebSearch` beside the lowered `Bash(git log:*)`, accepted
+    `Ok(9)`) is replaced by its full refusal, "is sealed under the plan's
+    native include list, which leaves out tool 'Bash' that its sealed
+    record lowered as a local permission".
+
+Changed in `adapters/tests.rs`: F6, as above (`:13317`).
+
+#### Baseline reds on `86374055`
+
+The new and changed tests ran against the unchanged production files
+(`git show HEAD:…`); output is in `.forge/u13r2/baseline.log`. There were
+7 failures, each at its first changed assertion:
+
+| Test | Line | Observed |
+|---|---|---|
+| F1 `a_codex_effect_…` | `:8072` | `Ok` for a boundary OFF with the power held |
+| F2 `every_sealed_include_limit_…` | `:8169` | `Ok` for the template's `--tools ""` widened to `WebSearch` |
+| F3 `the_plan_selection_…` | `:8254` | `Ok` with `WebPeek` left available |
+| F4 `a_complete_claude_command_…` | `:6860` | `Ok` for `--resume … --fork-session` |
+| F5 `the_plan_native_contribution_…` | `:8351` | `Ok` with a terminator in the native argv |
+| `a_codex_command_wrong_alike_…` | `:7864` | the old tail (intended move) |
+| `a_claude_command_wrong_alike_…` | `:7646` | the old `Read` cause (intended move) |
+
+F6 passed at `86374055`, because it strengthens an assertion; M28 binds
+it. The patched files were then restored and the suite was green. The
+F3 native-deny positive (the `Ok(7)` row M27 binds) was added after this
+run, so lines after `:8298` are numbered 9 higher in the mutation table
+than in this baseline.
+
+#### Mutations (each compiled, was caught, then restored)
+
+Logs: `.forge/u13r2/mut-M1.log` … `mut-M28.log`. Each production file was
+restored with `cp` from its saved copy. Afterwards `cmp` found all three
+byte-identical to the saved copies, and the diff carries no mutation
+marker.
+
+| | Mutation | Caught at (`native_controls/tests.rs` unless named) |
+|---|---|---|
+| M1 | web tables narrowed to `web_search` | `:8093` (`web_search_mode` row `Ok`) |
+| M2 | `Power::Web` read as `Other` | `:8093` (`--search` row `Ok`) |
+| M3 | bypass/`--full-auto` not lifting | `:8117` (bypass `Ok`) |
+| M4 | sandbox tables not lifting | `:8117` (`sandbox_workspace_write` `Ok`) |
+| M5 | held-power OFF guard `false &&` | `:8074`, `:7560` |
+| M6 | unanswered OFF guard `false &&` | `:7886` (`Ok`) |
+| M7 | unheld web-on guard `false &&` | `:8093` (`Ok`) |
+| M8 | missing native effect ignored | `:8369` |
+| M9 | native not an owed source | `:7845`, `:7510`, `:8126`, `:8369` |
+| M10 | native argv not parsed (`&[]`) | 7 tests, including `:8367` and `:8292` |
+| M11 | unreadable native state swallowed | `:8391` (`Ok`) |
+| M12 | native session admitted | `:8399` (`Ok`) |
+| M13 | selector switch arm `false &&` | `:6860` (`Ok`) |
+| M14 | holding subset check `&& false` | `:8257` |
+| M15 | held tool vs limit ignored | `:8172` |
+| M16 | hands tool vs limit ignored | `:8217` (`Ok`) |
+| M17 | local tool vs limit ignored | `:7756`, `:8181` |
+| M18 | local availability `false &&` | `:8189` (`Ok`) |
+| M19 | include authority without local tools | `:8197` |
+| M20 | boundary limit dropped | `:8172`, row "the boundary's \"\"" |
+| M21 | template limit dropped | `:8172`, row "the permission template's \"\"" |
+| M22 | native limit dropped | `:8172`, row "the plan's native \"\""; `:7756` |
+| M23 | required allow `false &&` | `:8272` (`Ok`) |
+| M24 | required deny `false &&` | `:8267` (`Ok`) |
+| M25 | native allow not required | `:8292` (`Ok`) |
+| M26 | native deny not required | `:8311` (`Ok`) |
+| M27 | native deny not permitted | `:8302` |
+| M28 | DSH `--patch` `equals: true` (`grammar.rs`) | `adapters/tests.rs:13319` (`Ok(())`) |
+
+#### Gates (final tree)
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning.
+- `cargo test -p brokkr-protocol --all-features --locked`: 517 unit, 99
+  integration (2 ignored) and 1 doctest passed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+  `test result: ok` summaries, and no `FAILED` summary or `panicked` line
+  (`.forge/u13r2/workspace.log`).
+- `compile --bundle bundles/self` and `bundles/verify`: both compiled,
+  with empty stderr.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- Coverage diagnostic (`cargo +nightly-2026-09-05 llvm-cov --branch -p
+  brokkr-protocol --all-features --locked --lcov`, default `TMPDIR`
+  because the seat cannot set one): no unhit line or branch in
+  `read_state`, `check_final`, `codex_meaning` or `authority`. The
+  remaining unhit records in `native_controls.rs` are in
+  `authored_conflict`, `opaque_conflict`, `pin_fault`, `declared_values`
+  and `plain_*`, the same set as before.
+
+#### Assumptions and follow-ups
+
+- **A composer divergence, left as a follow-up.** `final_tools` fills an
+  include list from the holdings alone. Under a non-hands limit, a
+  directly applied local permission's tool is therefore left out of the
+  include list it writes, and the check now refuses that command. Shipped
+  adapters cannot reach this shape. Claude declares no template or
+  boundary include, and its native ON/OFF are selections, not argv lists
+  (`adapters/claude.json`). The composer is not changed here.
+- **The lifting set is a reading of the finding.** It is the bypass,
+  `--full-auto` and the two sandbox tables. `--ask-for-approval` from the
+  boundary is still accepted, as the earlier boundary test composes it.
+- **The web tables are read by name.** `web_search` and `web_search_mode`
+  reach `web-search` (`CODEX_WEB`), the capability that the measured OFF
+  on `LAUNCH_SETTINGS` denies.
+
+**Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
+macOS, remote CI, serving integration (14.1, 15.1, 15.2) and the council.
