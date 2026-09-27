@@ -340,7 +340,8 @@ fn inline_command(bundle: &Bundle, label: &str) -> Vec<String> {
 }
 
 /// Review return F2 of rebuild unit 14a4a: [`sealed_launch`]'s cold Codex
-/// command, then judged by `check_final` as rebuild unit 14 serves it —
+/// or Claude command (rebuild unit 14a4b), then judged by `check_final`
+/// under its provider's harness as rebuild unit 14 serves it —
 /// against the sealed record, its plan, and the serving inputs dispatch
 /// seals beside them (the selected candidate's composition, or the inline
 /// site's recorded dialect and hands, the boundary fragment its class
@@ -368,6 +369,7 @@ fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<
         None => Vec::new(),
     };
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let harness = outcome.provider.as_str();
     let controls = managed(&json!({"native_controls": outcome.controls()}))?.unwrap();
     let record = LaunchRecord::decode(Some(&spawn.launch_record()))?;
     let authored: Vec<String> = record
@@ -378,7 +380,7 @@ fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<
         .collect();
     let brokkr = std::env::current_exe().unwrap();
     check_final(
-        "codex",
+        harness,
         command,
         &controls,
         &record.expected,
@@ -389,7 +391,7 @@ fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<
             boundary: &boundary,
         },
         Serving {
-            program: "codex",
+            program: harness,
             workdir: "/w",
             authored: &authored,
             pins: &carried.pins,
@@ -6552,20 +6554,23 @@ fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
             adapter["native_capabilities"]["known"]["web-search"]["off"] = json!({"argv": off});
         }
     };
-    let boxed = |edit: &dyn Fn(&mut Value)| {
-        let adapters = copied_adapters();
-        edit_adapter(adapters.path(), "claude", edit);
-        operator
-            .compile_against(adapters.path(), &fetch, Boundary::Namespace, None, None)
-            .and_then(|bundle| sealed_launch(&bundle, "chain", 0))
-            .map(|argv| {
-                // The hands server's document names this test binary.
-                let mut tail =
-                    argv[argv.iter().position(|part| part == "--tools").unwrap()..].to_vec();
-                tail[4] = "<hands>".into();
-                tail
-            })
-    };
+    let launched_by =
+        |edit: &dyn Fn(&mut Value),
+         launch: fn(&Bundle, &str, usize) -> Result<Vec<String>, String>| {
+            let adapters = copied_adapters();
+            edit_adapter(adapters.path(), "claude", edit);
+            operator
+                .compile_against(adapters.path(), &fetch, Boundary::Namespace, None, None)
+                .and_then(|bundle| launch(&bundle, "chain", 0))
+                .map(|argv| {
+                    // The hands server's document names this test binary.
+                    let mut tail =
+                        argv[argv.iter().position(|part| part == "--tools").unwrap()..].to_vec();
+                    tail[4] = "<hands>".into();
+                    tail
+                })
+        };
+    let boxed = |edit: &dyn Fn(&mut Value)| launched_by(edit, sealed_launch);
     let outside = |names: &str| {
         Err(format!(
             "bundle: seat 'chain' (office 'fallback') in realm 'private': the capability plan's \
@@ -6617,6 +6622,20 @@ fn a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
             "--tools",
             "Bash,WebFetch,mcp__brokkr__workspace"
         ]))),
+        tail(
+            "WebFetch",
+            "mcp__brokkr__workspace,WebFetch",
+            &["--disallowedTools", "WebSearch"]
+        )
+    );
+    // The same launch checked whole, as rebuild unit 14 serves it: the
+    // unselected entry's OFF for the held fetch is no denial of WebFetch
+    // (operator ruling (1) of 2026-09-27; rebuild unit 14a4b).
+    assert_eq!(
+        launched_by(
+            &second(json!(["--tools", "Bash,WebFetch,mcp__brokkr__workspace"])),
+            checked_launch
+        ),
         tail(
             "WebFetch",
             "mcp__brokkr__workspace,WebFetch",
@@ -6906,20 +6925,27 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
          'web-fetch'; an explicit tool list is a hard limit that nothing widens, so the conflict \
          is refused whole rather than unioned (design D6)"
     );
+    let wants = launched_as(&[&[
+        "--permission-mode",
+        "acceptEdits",
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "high",
+        "--tools",
+        "",
+        "--disallowedTools",
+        "WebFetch,WebSearch",
+    ]]);
+    assert_eq!(handed("wants"), wants);
+    // The same launch checked whole, as rebuild unit 14 serves it: under
+    // `harness` the seat's hands are the managed fragment alone, with no
+    // workspace fragment beside it (operator ruling (2) of 2026-09-27;
+    // rebuild unit 14a4b).
+    let bundle = solo_bundle(&operator, managed.path(), &fetch).unwrap();
     assert_eq!(
-        handed("wants"),
-        launched_as(&[&[
-            "--permission-mode",
-            "acceptEdits",
-            "--model",
-            "claude-opus-5-5",
-            "--effort",
-            "high",
-            "--tools",
-            "",
-            "--disallowedTools",
-            "WebFetch,WebSearch"
-        ]])
+        checked_launch(&bundle, "work", 0).map(|argv| format!("launched {argv:?}")),
+        Ok(wants)
     );
     // R3: the boxed Claude link of `fallback`, which requires fetch, so
     // its Codex link is left out of the chain.

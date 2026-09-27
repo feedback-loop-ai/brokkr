@@ -9119,6 +9119,192 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
     );
 }
 
+/// Operator ruling (1) of 2026-09-27 (rebuild unit 14a4b): an unselected
+/// inventory entry neither grants nor denies. [`claude_local`]'s plan holds
+/// web-search through its selected entry, and a second, unselected entry
+/// for web-search, guarding Read, is OFF, so the plan lists web-search as
+/// denied too. That OFF is no denial of the held WebSearch, and the command
+/// checks; the unselected Read stays unavailable. The selected entry's OFF
+/// for web-fetch still denies: left available, WebFetch refuses.
+#[test]
+fn an_unselected_entrys_off_for_a_held_capability_is_no_denial() {
+    let mut unselected = claude_local();
+    unselected.controls.denied = argv(&["web-search", "web-fetch"]);
+    unselected.controls.guards.push(Guard {
+        capability: "web-search".into(),
+        tools: argv(&["Read"]),
+        ..Guard::default()
+    });
+    unselected.controls.selection.deny = argv(&["WebFetch", "Read"]);
+    if let NativeExpectation::Known { denied, .. } = &mut unselected.expected.native {
+        *denied = argv(&["web-search", "web-fetch"]);
+    }
+    let cold = unselected.served(&CLAUDE_LEAD);
+    assert_eq!(
+        cold,
+        argv(&[
+            "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash(git log:*),WebSearch",
+            "--disallowedTools",
+            "WebFetch,Read",
+        ])
+    );
+    assert_eq!(
+        unselected.cold(cold.clone()).map(Checked::into_argv),
+        Ok(cold)
+    );
+    let mut undenying = unselected.clone();
+    undenying.controls.selection.deny = argv(&["Read"]);
+    assert_eq!(
+        undenying.cold(undenying.served(&CLAUDE_LEAD)),
+        Err(final_refusal(
+            "claude",
+            "leaves tool 'WebFetch' available, which its plan denies as native capability \
+             'web-fetch'"
+        ))
+    );
+}
+
+/// [`codex_hands`]'s plan under the `harness` boundary, as an agent's
+/// composition seals it (operator ruling (2) of 2026-09-27): its typed
+/// hands, no workspace fragment, and the adapter's class fragment
+/// `boundary`, sealed as its boundary, which is the seat's hands.
+fn codex_harness(boundary: &[&str], output: Option<&'static str>) -> Sealed {
+    let boxed = codex_hands(&CODEX_HANDS);
+    Sealed {
+        controls: Controls {
+            provenance: typed(0, &[]),
+            ..boxed.controls
+        },
+        hands: Vec::new(),
+        boundary: argv(boundary),
+        output,
+        ..boxed
+    }
+}
+
+/// Operator ruling (2) of 2026-09-27 (rebuild unit 14a4b; decision 0046
+/// ruling 4): under `harness` the engine's workspace hands are the adapter's
+/// own `hands.harness.work` or `hands.harness.gate` fragment, and R1 admits
+/// exactly that fragment there. A work seat and a gate check, each with its
+/// class and the gate with its one capture. The measured `hands.workspace`
+/// fragment sealed under `harness`, where the launch carries none of it,
+/// refuses, and so does an unbound workspace fragment beside the harness
+/// fragment: R1 admits the harness fragment only where no workspace
+/// fragment is sealed. Hands with neither fragment, or without their typed
+/// declaration, refuse too.
+#[test]
+fn under_harness_the_hands_are_the_adapters_harness_fragment_alone() {
+    let work = codex_harness(&["--sandbox", "workspace-write"], None);
+    let cold = work.served(&CODEX_LEAD);
+    assert_eq!(
+        cold,
+        argv(&[
+            "codex",
+            "exec",
+            "--json",
+            "-C",
+            "/w",
+            "--model",
+            "gpt",
+            "--image",
+            "resume",
+            "--sandbox",
+            "workspace-write",
+            "-c",
+            "web_search=\"disabled\"",
+        ])
+    );
+    assert_eq!(
+        work.cold(cold.clone()).map(Checked::into_argv),
+        Ok(cold.clone())
+    );
+    let gate = codex_harness(
+        &[
+            "--sandbox",
+            "read-only",
+            "--output-last-message",
+            "{result_path}",
+        ],
+        Some("/w/result.json"),
+    );
+    let gated = gate.served(&CODEX_LEAD);
+    assert_eq!(
+        gated[9..],
+        argv(&[
+            "--sandbox",
+            "read-only",
+            "--output-last-message",
+            "/w/result.json",
+            "-c",
+            "web_search=\"disabled\"",
+        ])
+    );
+    assert_eq!(gate.cold(gated.clone()).map(Checked::into_argv), Ok(gated));
+
+    let unbound = "is sealed with hands that are not the engine's workspace hands";
+    let workspace = Sealed {
+        hands: argv(&CODEX_HANDS),
+        ..work.clone()
+    };
+    // Beside a classless boundary, so the hands' class is the launch's one.
+    let mut literal = CODEX_HANDS;
+    literal[3] = "mcp_servers.brokkr.command=\"/usr/bin/evil\"";
+    let evil = Sealed {
+        controls: Controls {
+            provenance: typed(literal.len(), &[]),
+            ..work.controls.clone()
+        },
+        hands: argv(&literal),
+        boundary: argv(&["--output-schema", "./schema.json"]),
+        ..work.clone()
+    };
+    let beside = evil.served(&CODEX_LEAD);
+    let undeclared = Sealed {
+        transport: None,
+        ..work.clone()
+    };
+    let fragmentless = Sealed {
+        boundary: Vec::new(),
+        ..work.clone()
+    };
+    for (row, sealed, command, problem) in [
+        (
+            "hands.workspace under harness",
+            workspace,
+            cold.clone(),
+            "was planned typing another count of its fragment as the box's hands than its \
+             sealed hands and its adapter's measured fragment give",
+        ),
+        (
+            "an unbound workspace fragment beside it",
+            evil,
+            beside,
+            unbound,
+        ),
+        (
+            "no typed hands",
+            undeclared,
+            cold.clone(),
+            "does not carry the hands its sealed record requires",
+        ),
+        ("neither fragment", fragmentless, cold.clone(), unbound),
+    ] {
+        assert_eq!(
+            sealed.cold(command),
+            Err(final_refusal("codex", problem)),
+            "{row}"
+        );
+    }
+}
+
 /// R2 (rebuild unit 13-fix-b; spec-compliance SC2; NCR and decision 0066
 /// ruling 1): the known-power floor is the composer's, and it is the
 /// check's. Codex under a matching read-only class that neither holds nor

@@ -2657,6 +2657,42 @@ until 14b.
 - **Pending.** 14a4b, 14b, exact coverage outside the box, macOS, remote
   CI and the council.
 
+Unit 14a4b (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-8b6d5d16`,
+based on `48ad7d82`; evidence.md, "Unit 14a4b"). **Result: complete.** This
+builds operator rulings (1) and (2) of 2026-09-27, which step 0 recorded
+(`a05475f0`). 14.1 stays open until 14b. Production: `native_controls.rs`
+only.
+
+- Ruling (1): `check_final`'s denial pass (`delivered`) skips a
+  capability the plan also holds, so an unselected entry's OFF for a held
+  capability is no denial. The held pass still keeps that entry's tools
+  unavailable.
+- Ruling (2): R1 takes the sealed harness fragment for the seat's hands
+  where no workspace fragment is sealed. Everywhere else it still binds
+  the box transport.
+- `agents.rs` did not move. Under `harness` it already seals the harness
+  fragment and no `hands.workspace`. Clearing its `HandsSpec` there would
+  have changed two `bundle/agent_tests.rs` rows outside this unit, so
+  that attempt was reverted.
+- Tests:
+  - Two new `native_controls` tests with exact positive and negative
+    rows. The negatives cover a selected entry's OFF still denying, and a
+    `hands.workspace` or unbound workspace fragment under `harness`
+    refusing.
+  - Two checked compiled rows in `capability_launch.rs` (`:6634`,
+    `:6946`), with `checked_launch` now per provider.
+  - All four positives were red on `48ad7d82`. Five mutations each fail
+    a named row.
+- With 14b's patch (applied, run, reverted; it still applies):
+  `:6457` and `:6751` pass. Only `:3752` (now `:3960`) and
+  `driver_conformance.rs:2781` remain, and both are 14b's.
+- Fixture migrations and standing-admission lines: none.
+- **Gates.** fmt, clippy, the protocol and runtime suites, the workspace
+  suite (77 summaries `ok`), both bundles, strict OpenSpec (18 passed) and
+  `git diff --check` are clean.
+- **Pending.** 14b, exact coverage outside the box, macOS, remote CI and
+  the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

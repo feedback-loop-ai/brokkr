@@ -2095,6 +2095,9 @@ fn captured(
 ///   engine's executable, the site's workdir and its typed declaration
 ///   (R1): their values are the expansion of the adapter's measured
 ///   fragment, and no other capability-bearing option stands beside them.
+///   Under `harness`, where no box serves them and no workspace fragment is
+///   sealed, the hands are exactly the adapter's own class fragment sealed
+///   as the boundary (operator ruling (2) of 2026-09-27).
 /// - Every other contribution — the declared template, the boundary and the
 ///   plan's native controls — carries only effects whose meaning is
 ///   established (F4): tool lists, one class, the template's `acceptEdits`
@@ -2333,8 +2336,12 @@ fn sealed_inputs(
         }
     };
     // R1: the hands carry exactly the transport's own server, and nothing
-    // beside it.
-    if let Some(transport) = transport {
+    // beside it. Under `harness` no box serves them: where no workspace
+    // fragment is sealed, the engine's workspace hands are the adapter's own
+    // class fragment, sealed as the boundary, and that fragment alone
+    // (operator ruling (2) of 2026-09-27; decision 0046 ruling 4).
+    let harness_hands = dialect.hands.is_empty() && !dialect.boundary.is_empty();
+    if let Some(transport) = transport.filter(|_| !harness_hands) {
         let carried: Vec<(&str, &Vec<String>)> = hands.controls().collect();
         let bound = transport.effects(harness).is_some_and(|owed| {
             carried.len() == owed.len()
@@ -2500,7 +2507,9 @@ fn denies(pattern: &str, tool: &str) -> bool {
 /// does not admit, is unavailable in it — outside its include list or
 /// denied outright. The plan's selection is the adapter's delivery of its
 /// denials, and the composer folds it as given; a selection that leaves a
-/// denied tool available refuses here.
+/// denied tool available refuses here. A capability the plan holds is not
+/// denied by an unselected entry's OFF for it (operator ruling (1) of
+/// 2026-09-27).
 fn delivered(harness: &str, controls: &Controls, recomposed: &State) -> Result<(), Refusal> {
     if !matches!(harness, "claude" | "lanetally") {
         return Ok(());
@@ -2535,7 +2544,15 @@ fn delivered(harness: &str, controls: &Controls, recomposed: &State) -> Result<(
             ]);
         }
     }
-    for capability in &controls.denied {
+    // A denial counts only from the selected entries' semantics: an
+    // unselected entry's OFF for a capability the plan holds through its
+    // selected entry is no denial, as it is no admission (operator ruling
+    // (1) of 2026-09-27).
+    for capability in controls
+        .denied
+        .iter()
+        .filter(|capability| !controls.held.contains(capability))
+    {
         let tools = guarded(capability);
         if tools.is_empty() {
             return refuse(vec![

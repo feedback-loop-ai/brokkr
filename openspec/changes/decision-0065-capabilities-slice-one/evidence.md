@@ -15218,3 +15218,165 @@ Production: `record_capabilities` in `crates/brokkr-runtime/src/bundle.rs`.
 
 **Pending.** 14a4b (`:6457` and `:6751`), then 14b re-run from its saved
 patch, exact coverage outside the box, macOS, remote CI and the council.
+
+## Unit 14a4b — an unselected entry neither grants nor denies, and harness hands are the harness fragment, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-8b6d5d16`, based on `48ad7d82`. Step
+0 (`a05475f0`, docs alone) appended operator rulings (1) and (2) of
+2026-09-27 to `operator-ruling-2026-09-23.md`. Production:
+`crates/brokkr-protocol/src/native_controls.rs` only. **Result: complete.**
+It closes the two refusals 14b's third visit met at `capability_launch.rs`
+`:6457` and `:6751`. 14.1 stays open until 14b. The logs are
+`.forge/unit-14a4b-*.txt`.
+
+### Production
+
+- Ruling (1), `native_controls.rs:2554` (`delivered`, the denial pass):
+  the pass walks only the denied capabilities the plan does not also
+  hold. The plan lists a capability as denied once per entry key that is
+  OFF (`capabilities.rs:2095`), so a capability in both `held` and
+  `denied` is exactly one that a holding binds through its selected
+  entry, beside an unselected entry's OFF. That OFF is no longer read as
+  a denial. The held pass above it is unchanged. It already requires
+  every tool of the capability's guards that the holding does not admit
+  (the unselected entry's tools too) to be unavailable, so the unselected
+  entry still grants nothing.
+- Ruling (2), `native_controls.rs:2343` (R1 in `sealed_inputs`): where no
+  workspace fragment is sealed (`dialect.hands` empty) and a harness
+  fragment is sealed as the boundary, R1 takes that fragment for the
+  seat's hands and does not demand the box transport's server. In every
+  other case R1 is unchanged. A sealed workspace fragment is still bound
+  to the transport, and a sealed spec with neither fragment is still
+  refused. The harness fragment remains judged as the boundary: only
+  established effects, one class, and the one capture.
+- `agents.rs` did not move. It already seals the harness fragment, and
+  not `hands.workspace`, under `harness` (`compose`, `agents.rs:1189-1197`:
+  `dialect.hands` is set only when boxed). Two committed rows show this:
+  `agents/tests.rs` "hands under harness" (`hands: []`, the declared
+  harness fragments) and `bundle/agent_tests.rs` "codex harness work/gate,
+  carried". The composition also carries the agent's `HandsSpec` under
+  `harness`, and those `bundle/agent_tests.rs` rows pin it (`spec:
+  Some(..)`).
+  - I first tried also clearing that spec under `harness` in `agents.rs`.
+    It turned those two rows red (`.forge/unit-14a4b-runtime-after.txt`:
+    "2 of 8 rows failed: codex harness gate/work, carried", `spec: None`
+    against `Some(HandsSpec …)`), and that file is outside this unit.
+  - I reverted the attempt. The check now admits the harness fragment
+    whether or not a spec is carried beside it, and it expands no
+    transport over the empty workspace fragment.
+- Also tried and reverted: refusing any sealed workspace fragment beside
+  a nonempty boundary. It turned nine existing `native_controls` tests
+  red (`.forge/unit-14a4b-protocol-after.txt`, first run), because they
+  seal box hands beside a boundary fragment and admit it. The check
+  cannot tell `harness` from such a boundary by shape. So a workspace
+  fragment sealed under `harness` refuses through the checks that already
+  bind it: the count, R1's transport binding, and the rebuild.
+
+### Tests, baseline reds on `48ad7d82`, and removals
+
+The baseline is the final tests run against `48ad7d82`'s `native_controls.rs`
+(`.forge/unit-14a4b-baseline-final-protocol.txt` and
+`-baseline-final-launch.txt`). All four positives were red there, each with
+the refusal 14b recorded.
+
+- `native_controls/tests.rs::an_unselected_entrys_off_for_a_held_capability_is_no_denial`
+  (`:9130`), new. The fixture is `claude_local`'s plan with a second,
+  unselected web-search entry guarding `Read`. It holds web-search and
+  lists web-search and web-fetch as denied. Its selection denies
+  `WebFetch,Read`.
+  - Positive: the exact cold command checks. Baseline red at `:9159`:
+    "leaves tool 'WebSearch' available, which its plan denies as native
+    capability 'web-search'".
+  - Negative, "a selected entry's OFF still denies" (`:9165`): with
+    `WebFetch` left available it refuses, "leaves tool 'WebFetch'
+    available, which its plan denies as native capability 'web-fetch'".
+- `native_controls/tests.rs::under_harness_the_hands_are_the_adapters_harness_fragment_alone`
+  (`:9204`), new, with a fixture `codex_harness` (`:9179`). This is
+  `codex_hands`' plan as an agent composition seals it under `harness`: a
+  typed spec, no workspace fragment, and the class fragment as the
+  boundary.
+  - Positives: the exact work command (`--sandbox workspace-write`) and
+    the gate command (`--sandbox read-only --output-last-message
+    /w/result.json`) both check. Baseline red at `:9225`: "is sealed with
+    hands that are not the engine's workspace hands".
+  - Negatives, each an exact refusal:
+    - `hands.workspace` sealed under `harness`, served as the harness
+      launch composes it (no hands tokens): the count refusal.
+    - An unbound workspace fragment (`/usr/bin/evil`) beside a boundary
+      fragment: R1's "not the engine's workspace hands".
+    - No typed hands: "does not carry the hands its sealed record
+      requires".
+    - Neither fragment (nowhere else): R1's "not the engine's workspace
+      hands".
+- `capability_launch.rs`:
+  - `checked_launch` (`:350`) now checks under the candidate provider's
+    harness (`:372`), not a fixed `"codex"`, so a compiled Claude launch
+    reaches `check_final`.
+  - `:6457`'s test gains `launched_by` (`:6557`), which `boxed` now calls
+    with `sealed_launch`. It also gains one checked row (`:6634`): the
+    accepted boxed launch with the unselected `web-fetch-second` entry
+    passes `check_final` with the exact tail. Baseline red: "leaves tool
+    'WebFetch' available, which its plan denies as native capability
+    'web-fetch'".
+  - `:6751`'s test gains one checked row (`:6946`): the R2 agent with hands
+    under `harness` (managed `--tools ""`, wanted fetch dropped) passes
+    `check_final` with the exact written command. Baseline red: "is
+    sealed with hands that are not the engine's workspace hands".
+- **Mutations.** Each was compiled, run and restored from a copy of the
+  final file (`.forge/unit-14a4b-m*.txt`). These runs preceded `cargo
+  fmt`, so their lines are pre-format: the protocol loop assertion's
+  `:9292` is now `:9300`, and `capability_launch`'s `:6633` and `:6948`
+  are now `:6634` and `:6946`.
+  - M1, `.filter(|_| false)` (every denial skipped): the negative fails at
+    `:9165` (`left: Ok(…)`).
+  - M2, `.filter(|_| true)` (the head's pass): the protocol positive fails
+    at `:9159`, and `capability_launch` fails at `:6633`.
+  - M3, `harness_hands = false`: the protocol positive fails at `:9225`,
+    and `capability_launch` fails at `:6948`.
+  - M4, `harness_hands = !dialect.boundary.is_empty()` (a sealed workspace
+    fragment admitted as harness hands): the unbound-fragment row fails
+    with `Ok(…)` serving `/usr/bin/evil`.
+  - M5, `harness_hands = dialect.hands.is_empty()` (no harness fragment
+    needed): the "neither fragment" row fails, departing at argument 9
+    in place of R1's refusal.
+- Fixture migrations and standing-admission lines: none. `agents.rs` and
+  `bundle/agent_tests.rs` did not move.
+
+### What 14b meets next (scratch, not committed)
+
+The saved seams patch still applies. It was applied on top of this unit,
+run, and reverted with `git apply -R`. The tree then matched this unit's
+diff byte for byte (`cmp` of `unit-14a4b-full.patch` and
+`-full-after.patch`).
+
+- `capability_launch.rs` (`-with-14b-launch.txt`): 54 passed and 1 failed.
+  The one failure is the in-scope row "unmeasured, no plan" (`:3960`),
+  which meets the unpaired-record refusal. `:6457` and `:6751` pass.
+- `driver_conformance.rs` (`-with-14b-cli.txt`): 22 passed and 2 failed.
+  `:2781` departs at argument 12, and `:3209` is the `PoisonError` that
+  follows. The same two failures occur with `48ad7d82`'s `native_controls.rs`
+  (`-with-14b-cli-head.txt`). This is the fixture departure 14a4a recorded
+  (an in-process engine binds the test executable into the transport), and
+  it is left for 14b.
+- The protocol lib suite passes with the patch: 538 passed.
+
+### Gates
+
+- `cargo fmt --all -- --check` is clean after `cargo fmt --all`, and
+  `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings` has no warning or error (`-clippy.txt`).
+- `cargo test -p brokkr-protocol --all-features --locked --no-fail-fast`:
+  538, 99 (2 ignored) and 1 passed (`-protocol-final.txt`).
+- `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast`:
+  every summary `ok`, with 574 lib tests and 55 in `capability_launch`
+  (`-runtime-final.txt`).
+- `cargo test -p brokkr-cli --test driver_conformance`: 24 passed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+  summaries, all `ok`, and no `FAILED` or `panicked` line (`-workspace.txt`).
+- `compile --bundle bundles/self` and `bundles/verify` both compile.
+- `openspec validate --all --strict`: 18 passed, 0 failed. `git diff
+  --check` is clean.
+
+**Pending.** 14b, re-run from its saved patch: `:3752` (now `:3960`) and
+`driver_conformance.rs:2781`. Also pending: exact coverage outside the box,
+macOS, remote CI and the council.
