@@ -12048,3 +12048,33 @@ at three production files: `native_controls.rs`, `capabilities.rs` and
 
 Standing-admission lines: none. 12.1 and 12.2 stay ticked; 15.2 stays
 open.
+
+### Fifth visit: re-fired by triage without a ruling, 2026-09-27
+
+The same run, `0065-rebuild-unit-12-see-the-uni-2986103d`, came back from
+triage as `chore` with the second visit's framing
+(`.forge/tasks/0065-12-fix-e-2986103d.md`). Result: **oversized** again.
+Nothing but this record moved. A return to triage cannot grant scope. The
+latest addendum in `operator-ruling-2026-09-23.md` is still the 2026-09-27
+admission for the one expectation, and it names neither `capabilities.rs` nor
+`brokkr-cli/src/lib.rs`.
+
+Checks re-run in this visit:
+
+- `sha256sum` of `.forge/unit-12-fix-e/full.patch` gives `ee3e77e5…a1a5`,
+  and of `adapters-tests.proposed.patch` gives `0f18e8bd…a238`. Both match
+  the framing. `git apply --reverse --check` succeeds for each, so the
+  second visit's work is already in `0ff4caa7`.
+- C-E1 still stands. `Refusal::at_compile(&self, who: &str)`
+  (`native_controls.rs:579`) still interpolates `shortened(who, room)`, and
+  `capabilities.rs:1601-1606` `who()` still formats the seat, office and
+  realm labels raw. It feeds `at_compile` at `:1782`, `:1796` and `:1948`.
+- A-E1 still stands. `unreproducible` (`brokkr-cli/src/lib.rs:2058-2074`)
+  still formats the raw `CompileError::Capability` reason into
+  `ManifestMismatch.detail`.
+
+The second visit's gates, mutations and baseline reds were not re-run here,
+because its content has not changed since `0ff4caa7`. The fourth visit's
+request stands: admit `capabilities.rs` and `lib.rs` to 12-fix-e, or split
+A-E1 into 12-fix-f. Standing-admission lines: none. 12.1 and 12.2 stay
+ticked; 15.2 stays open.

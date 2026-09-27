@@ -1986,6 +1986,11 @@ and saved as a patch rather than committed (evidence.md, "Unit 12-fix-e").
   resume re-wraps the raw capability reason, and fixing that needs
   `brokkr-cli/src/lib.rs`. The ruling asked for is to admit both files, or
   to split A-E1 into 12-fix-f (evidence.md, "Fourth visit").
+- **Fifth visit (same run, re-fired by triage without a ruling).** Result:
+  **oversized**, and nothing but this record moved. Both patches are already
+  applied (their hashes match, and the reverse check passes). C-E1 and A-E1
+  still stand at the same sites. No addendum admits `capabilities.rs` or
+  `lib.rs` (evidence.md, "Fifth visit").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
