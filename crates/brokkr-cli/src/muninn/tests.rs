@@ -94,6 +94,26 @@ impl Fleet {
         );
     }
 
+    /// A run parked (`SELECT-NO-DEFAULT`) before it entered any phase:
+    /// there is no phase for a retry to return to.
+    fn parked_before_any_phase(&self, run_id: &str) {
+        let mut store = self.store();
+        store
+            .create_run(run_id, "select", "self", &json!({}))
+            .unwrap();
+        for (kind, payload) in [
+            (
+                EventType::RunStarted,
+                json!({"feature": "select", "manifest": {}}),
+            ),
+            (EventType::RunParked, json!({"reason": "SELECT-NO-DEFAULT"})),
+        ] {
+            store
+                .append_next(run_id, kind, payload, None, None)
+                .unwrap();
+        }
+    }
+
     /// A journal that genuinely does not fold: an `operator/accepted`
     /// naming a command this run never carried. No rule can read an
     /// unattached acceptance at any cursor — the case the aide must
@@ -317,6 +337,23 @@ fn the_dossier_is_derived_from_the_view_models_and_carries_its_citations() {
     assert!(!derived.admits("parked-run", "ship"));
     assert!(!derived.admits("done-run", "retry"));
     assert!(!derived.admits("no-such-run", "retry"));
+}
+
+/// The engine refuses a retry on a run parked before any phase with
+/// `no_phase_to_retry`, so the dossier offers `stop` alone beside its
+/// `phase: null` rather than suggesting a command that is refused.
+#[test]
+fn a_run_parked_before_any_phase_admits_only_stop() {
+    let fleet = Fleet::new();
+    fleet.parked_before_any_phase("phaseless-run");
+    let store = Store::open_read_only(&fleet.db()).unwrap();
+    let derived = dossier(&store, NOW).unwrap();
+    let run = &derived.value["runs"][0];
+    assert_eq!(run["status"], "awaiting_operator");
+    assert_eq!(run["phase"], Value::Null);
+    assert_eq!(run["operator_commands"], json!(["stop"]));
+    assert!(derived.admits("phaseless-run", "stop"));
+    assert!(!derived.admits("phaseless-run", "retry"));
 }
 
 /// The run the quarantine was written for is no longer quarantined:

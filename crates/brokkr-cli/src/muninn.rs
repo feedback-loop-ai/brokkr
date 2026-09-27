@@ -294,7 +294,7 @@ pub(crate) fn dossier_of(
                 .summary
                 .as_ref()
                 .expect("a folded state always summarizes");
-            let admits = brokkr_view::operator_commands(&summary.status);
+            let admits = brokkr_view::operator_commands(&state);
             *counts.entry(summary.status.clone()).or_default() += 1;
             facts.push((realm.clone(), run_id.clone(), summary.seq));
             // First hearth wins, matching [`Dossier::realm_of`]: where

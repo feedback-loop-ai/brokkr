@@ -30,7 +30,7 @@ pub mod transcript;
 
 use std::collections::BTreeMap;
 
-use brokkr_core::fold::{OperatorCommand, RunState, Status};
+use brokkr_core::fold::{acceptance_refusal, OperatorCommand, RunState, Status};
 use brokkr_core::realms::Boundary;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
@@ -691,18 +691,19 @@ pub const RESIDUAL_PHASES: [&str; 2] = ["verify", "review"];
 /// supersede is only ever written on a terminal one.
 pub const SUPERSEDE: &str = "supersede";
 
-/// The operator commands a run in this status admits. Only a parked run
-/// admits any: `retry` re-runs its phase, `stop` ends it, and every
-/// other status admits neither. Derived here, once, so a surface that
-/// suggests a command suggests one the engine will actually accept
-/// rather than one it invented.
-pub fn operator_commands(status: &str) -> Vec<String> {
-    match status {
-        "awaiting_operator" => OperatorCommand::ALL
-            .iter()
+/// The operator commands this run admits: none unless it is parked, the
+/// only state the bridge's door takes one in, and then each command
+/// `fold` would accept ([`acceptance_refusal`]), so a run parked before
+/// any phase offers `stop` alone. Derived here, once, so a surface that
+/// suggests a command suggests one the engine will actually accept.
+pub fn operator_commands(state: &RunState) -> Vec<String> {
+    match state.status {
+        Status::AwaitingOperator => OperatorCommand::ALL
+            .into_iter()
+            .filter(|command| acceptance_refusal(state, *command).is_none())
             .map(|command| command.as_str().to_string())
             .collect(),
-        _ => Vec::new(),
+        Status::Running | Status::Completed | Status::Stopped => Vec::new(),
     }
 }
 

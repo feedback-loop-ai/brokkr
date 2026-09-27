@@ -2873,14 +2873,14 @@ fn the_transcript_shape_is_closed_and_its_absences_are_explicit() {
 
 #[test]
 fn only_a_parked_run_admits_an_operator_command() {
-    assert_eq!(
-        operator_commands("awaiting_operator"),
-        vec!["retry".to_string(), "stop".to_string()]
-    );
-    for status in ["running", "completed", "stopped"] {
+    let parked = state(Some("verify"), Status::AwaitingOperator, None);
+    assert_eq!(operator_commands(&parked), ["retry", "stop"]);
+    let parked_before_any_phase = state(None, Status::AwaitingOperator, None);
+    assert_eq!(operator_commands(&parked_before_any_phase), ["stop"]);
+    for status in [Status::Running, Status::Completed, Status::Stopped] {
         assert!(
-            operator_commands(status).is_empty(),
-            "{status} admits no operator command"
+            operator_commands(&state(Some("verify"), status, None)).is_empty(),
+            "{status:?} admits no operator command"
         );
     }
 }
