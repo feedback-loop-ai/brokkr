@@ -19,12 +19,11 @@ use std::path::Path;
 /// Enforced at bundle compile AND at `brokkr secrets set`.
 pub const DENYLIST: [&str; 4] = ["PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH"];
 
-/// The harness-owned prefixes: `BROKKR_*` names configure the harness
-/// itself (BROKKR_CODEX_BIN and friends) and are never bindable — nor is
-/// the `FORGE_*` spelling they answer to for one more release (decision
-/// 0019), which would otherwise be the same primitive under the old
-/// name.
-pub const DENYLIST_PREFIXES: [&str; 2] = ["BROKKR_", "FORGE_"];
+/// The harness-owned prefix: `BROKKR_*` names configure the harness
+/// itself (BROKKR_CODEX_BIN and friends) and are never bindable. The
+/// pre-rename spelling left the denylist when the harness stopped
+/// reading it (#355): a name nothing reads configures nothing.
+pub const DENYLIST_PREFIXES: [&str; 1] = ["BROKKR_"];
 
 /// Values shorter than this are refused at `set`: masking a 2-byte
 /// value turns the journal into `[secret:X]` confetti.
@@ -131,8 +130,7 @@ pub fn validate_name(name: &str) -> Result<(), String> {
     if denylisted(name) {
         return Err(format!(
             "secret name '{name}' is denylisted (PATH, IFS, LD_PRELOAD, \
-             LD_LIBRARY_PATH, and the BROKKR_ and FORGE_ prefixes are \
-             never bindable)"
+             LD_LIBRARY_PATH, and the BROKKR_ prefix are never bindable)"
         ));
     }
     Ok(())

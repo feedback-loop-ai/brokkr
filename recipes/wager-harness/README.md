@@ -58,9 +58,8 @@ schema drift rather than design:
 - `"class": "work"` on the implement seat. The historical bundle
   predates decision 0021, which now requires every driver-bearing site
   to declare whether it works or judges.
-- `{brokkr}` rather than `{forge}`. The old token still expands and
-  warns once on stderr (decision 0019); a new recipe should not ship
-  using a deprecated spelling.
+- `{brokkr}` rather than `{forge}`. The old token no longer expands
+  (decision 0019's window closed with #355).
 
 ## Why the challenger may hold this seat at all
 
@@ -85,8 +84,8 @@ of the crews. If you seat the challenger at a gate, you are no longer
 running this instrument — you are running something else, and it will
 compile, which is exactly why the choice has to be deliberate.
 
-What codex still may **not** hold is a binding: `binding_grant` stays
-`false` and stays unruled, so a codex seat declaring `secrets` is
+What codex still may **not** hold is a binding: its `egress` stays
+`uncontracted` and stays unruled, so a codex seat declaring `secrets` is
 refused at compile time under ruling 4
 (`the_shipped_codex_adapter_still_binds_no_secrets`). Trust to judge
 and clearance to receive are separate grants, and only one of them

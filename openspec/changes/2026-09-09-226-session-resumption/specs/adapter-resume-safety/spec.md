@@ -105,7 +105,7 @@ profiles and credentials, and other runs byte-unchanged, proven by snapshots
 taken before and after.
 
 At run time the DSH adapter SHALL resolve its executable through its existing
-seam (`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then native lookup of `dsh`) and
+seam (`BROKKR_DSH_BIN`, then native lookup of `dsh`) and
 its DSH home as the shipped driver already does (`$DSH_HOME` when set and non-empty,
 otherwise `$HOME/.dsh`), and SHALL launch that home's admitted `headless`
 profile. Before provider work it SHALL recompute the composite identity of that
@@ -389,7 +389,7 @@ SHALL produce the same identity.
 The existing `brokkr doctor` DSH line SHALL resolve the adapter's executable
 and home seams once and use that same resolution for both the DSH version probe
 and the sole composite producer. The executable precedence SHALL be
-`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then native lookup of `dsh`, with the
+`BROKKR_DSH_BIN`, then native lookup of `dsh`, with the
 adapter's existing home resolution. It SHALL NOT pair a PATH version with an
 override-selected composite or silently retry another installation when the
 selected executable fails. It SHALL report the canonical digest and plugin
@@ -664,7 +664,7 @@ read as history, not as a current claim.
 
 #### Scenario: An enabled DSH shape at ordinary run time
 - **GIVEN** the DSH `headless-work` shape is enabled on the qualified composite
-- **WHEN** an eligible DSH site launches through `BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on PATH, with its DSH home resolved from `$DSH_HOME` or `$HOME/.dsh`
+- **WHEN** an eligible DSH site launches through `BROKKR_DSH_BIN` or `dsh` on PATH, with its DSH home resolved from `$DSH_HOME` or `$HOME/.dsh`
 - **THEN** the adapter recomputes that executable's and home's composite identity before provider work, and takes the offer through `--session <owned-root>` on the `headless` profile only when it matches the `wrapper_digest` the declaration's measured identity pins
 - **AND** Brokkr installs, composes, updates and removes no DSH package, plugin or profile, and stages only its per-seat overlay
 - **AND** the qualification and the end-to-end proof reach the task-owned installation through these same seams, while snapshots show the global DSH installation, profiles and credentials byte-unchanged
@@ -1097,7 +1097,7 @@ read as history, not as a current claim.
 - **WHEN** the adapter resolves its seams and doctor reports that observation
 - **THEN** combined seam resolution succeeds only with both a selected executable and a home; a failed selection with a home still refuses by selection cause and never probes
 - **AND** a safely selected executable with no home can report its version beside the named home/composite refusal, preserving the same selected identity
-- **AND** under child HOME=/tmp, PATH=/usr/bin:/bin with no DSH there and DSH_HOME, BROKKR_DSH_BIN and FORGE_DSH_BIN unset, the test asserts the selection refusal instead of equating home presence with success
+- **AND** under child HOME=/tmp, PATH=/usr/bin:/bin with no DSH there and DSH_HOME and BROKKR_DSH_BIN unset, the test asserts the selection refusal instead of equating home presence with success
 - **AND** assertions are isolated from the test runner's installed providers and environment; restoring the home-only success assumption fails the commissioned control without weakening production selection
 
 #### Scenario: Pnpm identity strings preserve the distinction from typed scalars

@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::HarnessHands;
 use crate::bundle::{Limits, Seat};
 use crate::envelope_builder::EnvelopeBuilder;
 use brokkr_core::canonical::ZERO_HASH;
@@ -327,7 +328,6 @@ fn an_undeclared_change_claim_is_dropped() {
     runtime
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"result":"complete", "inputs":{"change":"must-not-pass"}}),
         )
         .unwrap();
@@ -341,7 +341,6 @@ fn an_undeclared_change_claim_is_dropped() {
     declared
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"result":"complete", "inputs":{"change":"Not/a/change"}}),
         )
         .unwrap();
@@ -1062,7 +1061,7 @@ read -r done
         serde_json::to_vec_pretty(&json!({
             "provider": "judge",
             "trust_tier": "trusted",
-            "binding_grant": true,
+            "egress": "contracted",
             "binary": "sh",
             "driver": ["sh", "-c", validator_driver],
             "models": {"judge": "judge-1"},
@@ -2209,21 +2208,16 @@ fn git_commit(repo: &Path, message: &str) -> String {
 fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
     assert!(engine
-        .decide(
-            &state(None, Cursor::Idle),
-            "effect",
-            json!({"result":"complete"})
-        )
+        .decide(&state(None, Cursor::Idle), json!({"result":"complete"}))
         .unwrap_err()
         .to_string()
         .contains("without a phase"));
     engine
-        .decide(&state(Some("work"), Cursor::Idle), "effect", json!(2))
+        .decide(&state(Some("work"), Cursor::Idle), json!(2))
         .unwrap();
     engine
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"notes":"missing result"}),
         )
         .unwrap();
@@ -2238,7 +2232,6 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     engine
         .decide(
             &state(Some("work"), Cursor::Idle),
-            "effect",
             json!({"result":"unruled"}),
         )
         .unwrap();
@@ -2250,16 +2243,13 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
     git_commit(&repo, "moved");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({"repo":reviewed}));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert!(events.iter().any(|event| {
         event.payload["inputs"]["drift_detected"] == true
@@ -2286,7 +2276,6 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     engine
         .decide(
             &state(Some("triage"), Cursor::Idle),
-            "effect",
             json!({"result":"chore", "notes":"seat reason"}),
         )
         .unwrap();
@@ -3217,7 +3206,22 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     ] {
         missing.append(event_type, payload, None).unwrap();
     }
-    assert_eq!(missing.drive().unwrap().state.status, Status::Completed);
+    let end = missing.drive().unwrap();
+    assert_eq!(end.state.status, Status::Completed);
+    // Returned to the caller, never printed by the engine (#355): one
+    // line per gap, in the order the acts ran.
+    let run = missing.run_id.clone();
+    assert_eq!(end.gaps.len(), 2, "{:?}", end.gaps);
+    assert!(
+        end.gaps[0].starts_with(&format!("anchor gap for {run}: ")),
+        "{:?}",
+        end.gaps
+    );
+    assert!(
+        end.gaps[1].starts_with(&format!("keep-ref gap for {run}: ")),
+        "{:?}",
+        end.gaps
+    );
 
     let (dir, mut anchored) = engine(single_body(vec!["driver".into()]));
     let repo = dir.path().join("repo");
@@ -3250,7 +3254,9 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     ] {
         anchored.append(event_type, payload, None).unwrap();
     }
-    assert_eq!(anchored.drive().unwrap().state.status, Status::Completed);
+    let end = anchored.drive().unwrap();
+    assert_eq!(end.state.status, Status::Completed);
+    assert_eq!(end.gaps, Vec::<String>::new());
     let verify = |name: String| {
         Command::new("git")
             .args(["show-ref", "--verify", &name])
@@ -3831,7 +3837,7 @@ fn panel_and_sequence_storage_failures_propagate() {
 fn decision_and_operator_storage_failures_propagate() {
     let (_kept, mut decision) = engine_failing("transition/decided");
     assert!(decision
-        .decide(&state(Some("work"), Cursor::Idle), "effect", json!(2))
+        .decide(&state(Some("work"), Cursor::Idle), json!(2))
         .is_err());
 
     let dir = tempfile::tempdir().unwrap();
@@ -4194,7 +4200,6 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4207,9 +4212,7 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     git_commit(&repo, "moved");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(true));
     assert_eq!(inputs["dirty_worktrees"], json!(false));
@@ -4237,9 +4240,7 @@ fn an_unresolvable_realm_at_ship_is_drift_not_silence() {
     git_commit(&elsewhere, "unrelated");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(
         inputs["drift_detected"],
@@ -4262,9 +4263,7 @@ fn a_head_recorded_before_the_map_still_drives_the_ship_gate() {
     let reviewed = git_commit(&repo, "reviewed");
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "repo": reviewed }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(false));
     assert_eq!(
@@ -4289,7 +4288,6 @@ fn a_repository_the_map_does_not_name_keeps_the_unkeyed_facts() {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4311,7 +4309,6 @@ fn realm_facts_state_only_what_the_tree_answers() {
     engine
         .decide(
             &state(Some("ship"), Cursor::Idle),
-            "effect",
             json!({"result":"shipped"}),
         )
         .unwrap();
@@ -4350,7 +4347,6 @@ fn realm_facts_state_only_what_the_tree_answers() {
 /// realms is out of scope forever, and a later crossing slice should
 /// read this comment as the ground it moves, not as a law.
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     let (dir, alpha_head, beta_head) = crate::realms::tests::two_repositories();
     let alpha = dir.path().join("alpha");
@@ -4387,7 +4383,6 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4398,9 +4393,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     );
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "alpha": moved }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
     let facts = inputs["realm_facts"].clone();
     assert_eq!(keys(&facts), vec!["alpha".to_string()]);
@@ -4434,9 +4427,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     );
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "beta": beta_head }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     let facts = inputs["realm_facts"].clone();
     assert_eq!(keys(&facts), vec!["beta".to_string()]);
@@ -4469,9 +4460,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     );
     let mut ship = state(Some("ship"), Cursor::Idle);
     ship.reviewed_heads = Some(json!({ "alpha": moved }));
-    engine
-        .decide(&ship, "effect", json!({"result":"shipped"}))
-        .unwrap();
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
     assert_eq!(inputs["drift_detected"], json!(true));
     assert_eq!(inputs["realm_facts"]["beta"]["drift_detected"], json!(true));
@@ -4507,7 +4496,6 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     resumed
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result": "clean"}),
         )
         .unwrap();
@@ -4893,7 +4881,7 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
             .iter()
             .any(|event| event.payload["checkpoint"]["step_name"] == "validate"));
 
-        engine.decide(&current, "upstream-effect", result).unwrap();
+        engine.decide(&current, result).unwrap();
         let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
         assert_eq!(decided.payload["rule_id"], expected_rule);
         assert_eq!(decided.payload["next"].as_str(), expected_next);
@@ -5111,7 +5099,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
         .payload["result"]
         .clone();
     assert_eq!(result["inputs"]["drift_in"], "design");
-    engine.decide(&current, "analyze-effect", result).unwrap();
+    engine.decide(&current, result).unwrap();
     let decided = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
     assert_eq!(decided.payload["rule_id"], "ANALYZE-DRIFT-DESIGN");
     assert_eq!(decided.payload["next"], "design");
@@ -5308,7 +5296,6 @@ fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
     engine
         .decide(
             &state(Some("review"), Cursor::Idle),
-            "effect",
             json!({"result": "clean", "inputs": claim}),
         )
         .unwrap();
@@ -5352,7 +5339,6 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     engine
         .decide(
             &returned,
-            "effect",
             json!({"result": "complete", "inputs": {"fixes_docs_only": false}}),
         )
         .unwrap();
@@ -5398,11 +5384,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
     returned.visits.insert("implement".into(), 2);
     returned.last_decision = Some(json!({"from": "verify"}));
     engine
-        .decide(
-            &returned,
-            "effect",
-            json!({"result": "complete", "inputs": {}}),
-        )
+        .decide(&returned, json!({"result": "complete", "inputs": {}}))
         .unwrap();
     let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
     assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
@@ -5429,18 +5411,17 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     let mut returned = state(Some("implement"), Cursor::Idle);
     returned.last_decision = Some(json!({"from": "review"}));
 
-    engine
-        .decide(&returned, "first", json!({"result": "complete"}))
-        .unwrap();
-    let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
-    assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
-
-    std::fs::remove_dir_all(repo.join(".git")).unwrap();
-    engine
-        .decide(&returned, "second", json!({"result": "complete"}))
-        .unwrap();
-    let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
-    assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
+    // Without both heads, then without a repository at all.
+    for unreadable in [false, true] {
+        if unreadable {
+            std::fs::remove_dir_all(repo.join(".git")).unwrap();
+        }
+        engine
+            .decide(&returned, json!({"result": "complete"}))
+            .unwrap();
+        let event = engine.store.load(&engine.run_id).unwrap().pop().unwrap();
+        assert!(event.payload["inputs"].get("fixes_docs_only").is_none());
+    }
 }
 
 /// Ruling 1: the protected phase and a returning implement carry their

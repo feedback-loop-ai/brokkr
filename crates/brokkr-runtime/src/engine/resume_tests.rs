@@ -7,7 +7,7 @@
 //! therefore read off the wire the driver actually saw, never inferred.
 
 use super::*;
-use crate::agents::Candidate;
+use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::{Limits, Seat};
 use brokkr_core::policy::Machine;
 use brokkr_protocol::{Body, Message};

@@ -1259,8 +1259,7 @@ fn watch_transcript(db: &Path, rest: &str, stream: &mut impl Write, sse_limit: O
 }
 
 fn open_system_browser(url: &str) {
-    let program = brokkr_protocol::legacy::env("BROKKR_BROWSER_BIN", Some("FORGE_BROWSER_BIN"))
-        .unwrap_or("xdg-open".to_string());
+    let program = std::env::var("BROKKR_BROWSER_BIN").unwrap_or("xdg-open".to_string());
     let _ = std::process::Command::new(program).arg(url).spawn();
 }
 

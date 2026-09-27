@@ -25,9 +25,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::agents::Candidate;
-// The test modules reach these through `use super::*`.
-#[cfg(test)]
-use crate::agents::HarnessHands;
+// The test modules reach this through `use super::*`.
 #[cfg(test)]
 use crate::bundle::HandsState;
 use crate::bundle::{
@@ -143,7 +141,7 @@ pub enum EngineError {
 /// does not: the refusing arm of the narrowing from five words to the
 /// three composition is written over (design DD17). `None` for the
 /// three this engine builds.
-pub fn unbuilt_slice(boundary: Boundary) -> Option<&'static str> {
+pub(crate) fn unbuilt_slice(boundary: Boundary) -> Option<&'static str> {
     built_boundary(boundary).err()
 }
 
@@ -292,6 +290,10 @@ fn verify_dispatch_bundle_bounds(
 #[derive(Debug)]
 pub struct DriveEnd {
     pub state: RunState,
+    /// The best-effort acts at a conclusion that fell short — an anchor
+    /// or keep-ref gap, one line each. Never fatal; the caller reports
+    /// them, because the engine writes to no stream of its own.
+    pub gaps: Vec<String>,
 }
 
 impl Engine {
@@ -519,8 +521,9 @@ impl Engine {
                 // Best-effort tamper-evidence: anchor the journal head
                 // in refs/forge/<run>. Gaps are reported, never fatal
                 // (the referee-era anchor-gap lore).
+                let mut gaps = Vec::new();
                 if let Err(e) = crate::anchor::anchor(&self.store, &self.repo, &self.run_id) {
-                    eprintln!("anchor gap for {}: {e}", self.run_id);
+                    gaps.push(format!("anchor gap for {}: {e}", self.run_id));
                 }
                 // And the exhibits the journal cites, kept
                 // reachable past the branch delete and the gc
@@ -530,12 +533,12 @@ impl Engine {
                 // branches, so it crosses into no authority the
                 // operator keeps. Best-effort in the same way —
                 // a ref-planting gap is reported, never fatal.
-                if let Some(gap) =
-                    crate::keep_refs::plant_or_report(&self.store, &self.repo, &self.run_id)
-                {
-                    eprintln!("{gap}");
-                }
-                return Ok(Some(DriveEnd { state }));
+                gaps.extend(crate::keep_refs::plant_or_report(
+                    &self.store,
+                    &self.repo,
+                    &self.run_id,
+                ));
+                return Ok(Some(DriveEnd { state, gaps }));
             }
             (Status::Running, _) => {
                 self.advance_running(&replay.events, state)?;
@@ -581,7 +584,10 @@ impl Engine {
         let parked = json!({"reason": reason, "evidence": {}});
         self.append(EventType::RunParked, parked, None)?;
         let state = self.replay.caught_up(&self.store, &self.run_id)?;
-        Ok(DriveEnd { state })
+        Ok(DriveEnd {
+            state,
+            gaps: Vec::new(),
+        })
     }
 
     fn advance_running(
@@ -669,7 +675,7 @@ impl Engine {
                     Some(attempt_id),
                 )?;
             }
-            Cursor::Decide { effect_id, result } => self.decide(&state, &effect_id, result)?,
+            Cursor::Decide { result, .. } => self.decide(&state, result)?,
             Cursor::Park { reason } => {
                 let evidence = if reason == "GATE-MOVED-HEAD" {
                     gate_head_evidence(events)
@@ -2536,12 +2542,7 @@ impl Engine {
     }
 
     #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
-    fn decide(
-        &mut self,
-        state: &RunState,
-        _effect_id: &str,
-        raw_result: Value,
-    ) -> Result<(), EngineError> {
+    fn decide(&mut self, state: &RunState, raw_result: Value) -> Result<(), EngineError> {
         let phase = state
             .phase
             .clone()
@@ -3297,7 +3298,7 @@ pub struct Unboxed {
 
 /// The prefix when the probe passed, nothing when it did not — one pure
 /// function of the answer and the ids, which the argv tests read.
-pub fn network_prefix_if(passes: bool, uid: u32, gid: u32) -> Vec<String> {
+pub(crate) fn network_prefix_if(passes: bool, uid: u32, gid: u32) -> Vec<String> {
     match passes {
         true => brokkr_protocol::hands::network_prefix(uid, gid),
         false => Vec::new(),
@@ -3408,7 +3409,7 @@ pub fn compose_site(
 /// word on such a record is dropped. The trigger is the record's own key,
 /// never a step name, because the engine is the only party that knows
 /// which boundary it built.
-pub fn stamp_boundary(record: Value, boundary: Option<Boundary>) -> Value {
+pub(crate) fn stamp_boundary(record: Value, boundary: Option<Boundary>) -> Value {
     match record {
         Value::Object(mut object) => {
             if object.contains_key("model") {
@@ -3591,7 +3592,7 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
 /// `exec` dispatch is boxed whole instead: `brokkr hands exec` builds the
 /// namespace at run time and passes the driver's stdio straight through.
 /// A site without hands gets its command back untouched.
-pub fn hands_command(
+pub(crate) fn hands_command(
     command: Vec<String>,
     hands: Option<&brokkr_protocol::hands::HandsSpec>,
     workdir: &std::path::Path,

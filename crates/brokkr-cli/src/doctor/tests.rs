@@ -2439,12 +2439,11 @@ fn recorded_invocation_version(invocation: &DshInvocation) -> Option<String> {
 }
 
 /// Task 8.8(c), hermetically: the adapter seam's `BROKKR_DSH_BIN`, then
-/// `FORGE_DSH_BIN`, then PATH precedence moves BOTH halves of the DSH
-/// line together.
+/// PATH precedence moves BOTH halves of the DSH line together.
 ///
 /// The environment is process-global, so each case runs in a re-executed
 /// copy of this test binary rather than racing every other test here.
-/// Each child installs three distinguishable DSH trees and asserts that
+/// Each child installs two distinguishable DSH trees and asserts that
 /// the version probe and the producer-derived composite both describe the
 /// one the seam selected — the pairing the measured 2026-09-19 defect
 /// broke.
@@ -2603,9 +2602,8 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
 
     let dir = tempfile::tempdir().unwrap();
     let primary = install_dsh(&dir.path().join("primary"), "0.1.5-rc.2");
-    let legacy = install_dsh(&dir.path().join("legacy"), "0.1.4");
     let on_path = install_dsh(&dir.path().join("pathwise"), "0.1.3");
-    assert_ne!(primary, legacy);
+    assert_ne!(primary, on_path);
     let home = dir.path().join("primary/home");
 
     // The child's whole `PATH`: a scripted `node` so the producer never
@@ -2630,35 +2628,18 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
     let broken_home = dir.path().join("broken-home");
     std::fs::create_dir_all(&broken_home).unwrap();
 
-    for (case, set_primary, set_legacy, chosen, rejected, dsh_home) in [
-        // Primary wins over legacy.
-        ("both", true, true, primary.as_str(), legacy.as_str(), &home),
-        // Legacy alone is honoured.
-        (
-            "legacy-only",
-            false,
-            true,
-            legacy.as_str(),
-            primary.as_str(),
-            &home,
-        ),
+    for (case, set_primary, chosen, rejected, dsh_home) in [
+        // The override wins over PATH.
+        ("override", true, primary.as_str(), on_path.as_str(), &home),
         // Neither: the bare name the adapter declares, resolved on the
         // child's PATH — and reported as the FILE it resolved to.
-        (
-            "neither",
-            false,
-            false,
-            on_path.as_str(),
-            primary.as_str(),
-            &home,
-        ),
+        ("neither", false, on_path.as_str(), primary.as_str(), &home),
         // The same seam, over an installation the producer cannot read.
         (
             "unreadable",
             true,
-            false,
             primary.as_str(),
-            legacy.as_str(),
+            on_path.as_str(),
             &broken_home,
         ),
     ] {
@@ -2679,13 +2660,9 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             .env(REJECTED, rejected)
             .env("DSH_HOME", dsh_home)
             .env("PATH", &shims)
-            .env_remove("BROKKR_DSH_BIN")
-            .env_remove("FORGE_DSH_BIN");
+            .env_remove("BROKKR_DSH_BIN");
         if set_primary {
             child.env("BROKKR_DSH_BIN", &primary);
-        }
-        if set_legacy {
-            child.env("FORGE_DSH_BIN", &legacy);
         }
         // Only ETXTBSY is retried: a test that re-executes its own
         // binary can reach `exec` while another thread of this run still
@@ -2885,8 +2862,7 @@ fn an_env_launcher_without_a_program_reaches_neither_doctor_callback() {
             .env(LAUNCHER, &launcher)
             .env("DSH_HOME", &home)
             .env("PATH", &search)
-            .env_remove("BROKKR_DSH_BIN")
-            .env_remove("FORGE_DSH_BIN");
+            .env_remove("BROKKR_DSH_BIN");
         // Only ETXTBSY is retried, as in the seam-precedence test (#255).
         let output = loop {
             match child.output() {

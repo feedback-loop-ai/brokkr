@@ -232,31 +232,13 @@ fn egress_class(declared: &Value, key: &str, what: &str) -> Result<EgressClass, 
     }
 }
 
-/// A provider's own destination class (decision 0036 ruling 2), and the
-/// one migration decision 0036 ruling 4 rules: `binding_grant` is
-/// superseded, a `true` grant READS as `contracted` and a `false` or
-/// absent one as `uncontracted`, so no adapter file on disk is forced to
-/// change and every one of them keeps the clearance it has. The old key
-/// stays readable for one release; declaring BOTH is refused rather than
-/// silently resolved, because the two could then disagree and only one
-/// of them could win.
+/// A provider's own destination class (decision 0036 ruling 2); absent
+/// is `uncontracted`. Decision 0036 ruling 4's migration read of the
+/// superseded `binding_grant` ended with #355: the key is unknown now.
 fn adapter_egress(map: &Map<String, Value>, what: &str) -> Result<EgressClass, LibraryError> {
-    match (map.get("egress"), map.get("binding_grant")) {
-        (Some(_), Some(_)) => invalid(format!(
-            "{what} declares both 'egress' and the superseded 'binding_grant'; \
-             decision 0036 ruling 4 reads a true grant as \"contracted\" and a \
-             false or absent grant as \"uncontracted\", so keep one of them"
-        )),
-        (Some(declared), None) => egress_class(declared, "egress", what),
-        (None, Some(declared)) => match declared.as_bool() {
-            Some(true) => Ok(EgressClass::Contracted),
-            Some(false) => Ok(EgressClass::Uncontracted),
-            None => invalid(format!(
-                "{what} 'binding_grant' is {declared}; the grant is a boolean, and \
-                 an absent grant is none"
-            )),
-        },
-        (None, None) => Ok(EgressClass::Uncontracted),
+    match map.get("egress") {
+        Some(declared) => egress_class(declared, "egress", what),
+        None => Ok(EgressClass::Uncontracted),
     }
 }
 
@@ -746,7 +728,6 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         &[
             "provider",
             "trust_tier",
-            "binding_grant",
             "egress",
             "routes",
             "credentials",

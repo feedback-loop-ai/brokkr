@@ -349,7 +349,6 @@ pub const brokkr_runtime::bundle::SELECT_STRATEGIES: [&str; 4]
 pub fn brokkr_runtime::bundle::dialect_gate_hands() -> brokkr_protocol::hands::HandsSpec
 pub fn brokkr_runtime::bundle::expand_command(&std::path::Path, &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_runtime::bundle::is_engine_owned(&str) -> bool
-pub fn brokkr_runtime::bundle::layer_drift(&brokkr_runtime::bundle::Bundle, &std::path::Path) -> core::option::Option<(alloc::string::String, alloc::string::String)>
 pub type brokkr_runtime::bundle::DriverDigests = serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub mod brokkr_runtime::dialect
 pub enum brokkr_runtime::dialect::ArchiveOrUnsupported
@@ -496,6 +495,7 @@ pub brokkr_runtime::engine::FencedCommandOutcome::Rejected::head_hash: alloc::st
 pub brokkr_runtime::engine::FencedCommandOutcome::Rejected::head_seq: u64
 pub brokkr_runtime::engine::FencedCommandOutcome::Rejected::reason: alloc::string::String
 pub struct brokkr_runtime::engine::DriveEnd
+pub brokkr_runtime::engine::DriveEnd::gaps: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::engine::DriveEnd::state: brokkr_core::fold::RunState
 pub struct brokkr_runtime::engine::Engine
 pub brokkr_runtime::engine::Engine::boundary: brokkr_core::realms::Boundary
@@ -540,12 +540,8 @@ pub fn brokkr_runtime::engine::apply_fenced_operator_command(&mut brokkr_store::
 pub fn brokkr_runtime::engine::compose_site(brokkr_runtime::engine::BuiltBoundary, brokkr_runtime::bundle::SeatClass, alloc::vec::Vec<alloc::string::String>, core::option::Option<&brokkr_protocol::hands::HandsSpec>, core::option::Option<&brokkr_runtime::agents::Candidate>, &std::path::Path, &[std::path::PathBuf], &str, core::option::Option<&brokkr_runtime::engine::Unboxed>) -> brokkr_runtime::engine::SiteSpawn
 pub fn brokkr_runtime::engine::conclude(&mut brokkr_store::Store, &str, &str, &str) -> core::result::Result<brokkr_core::fold::RunState, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::git_head(&std::path::Path) -> core::option::Option<alloc::string::String>
-pub fn brokkr_runtime::engine::hands_command(alloc::vec::Vec<alloc::string::String>, core::option::Option<&brokkr_protocol::hands::HandsSpec>, &std::path::Path, &[std::path::PathBuf]) -> alloc::vec::Vec<alloc::string::String>
-pub fn brokkr_runtime::engine::network_prefix_if(bool, u32, u32) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_runtime::engine::operator_command(&mut brokkr_store::Store, &str, brokkr_core::fold::OperatorCommand, &str, &str) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
-pub fn brokkr_runtime::engine::stamp_boundary(serde_json::value::Value, core::option::Option<brokkr_core::realms::Boundary>) -> serde_json::value::Value
-pub fn brokkr_runtime::engine::unbuilt_slice(brokkr_core::realms::Boundary) -> core::option::Option<&'static str>
 pub mod brokkr_runtime::keep_refs
 pub enum brokkr_runtime::keep_refs::KeepRefsError
 pub brokkr_runtime::keep_refs::KeepRefsError::Git
@@ -844,6 +840,7 @@ pub brokkr_runtime::Candidate::model: alloc::string::String
 pub brokkr_runtime::Candidate::provider: alloc::string::String
 pub brokkr_runtime::Candidate::resume: brokkr_runtime::agents::ResumeAssessment
 pub struct brokkr_runtime::DriveEnd
+pub brokkr_runtime::DriveEnd::gaps: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::DriveEnd::state: brokkr_core::fold::RunState
 pub struct brokkr_runtime::Engine
 pub brokkr_runtime::Engine::boundary: brokkr_core::realms::Boundary
@@ -939,7 +936,6 @@ pub fn brokkr_runtime::apply_fenced_operator_command(&mut brokkr_store::Store, &
 pub fn brokkr_runtime::conclude(&mut brokkr_store::Store, &str, &str, &str) -> core::result::Result<brokkr_core::fold::RunState, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::delete_keep_refs(&std::path::Path, &str) -> core::result::Result<u64, brokkr_runtime::keep_refs::KeepRefsError>
 pub fn brokkr_runtime::git_head(&std::path::Path) -> core::option::Option<alloc::string::String>
-pub fn brokkr_runtime::layer_drift(&brokkr_runtime::bundle::Bundle, &std::path::Path) -> core::option::Option<(alloc::string::String, alloc::string::String)>
 pub fn brokkr_runtime::list_keep_refs(&std::path::Path) -> core::result::Result<alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<alloc::string::String>>, brokkr_runtime::keep_refs::KeepRefsError>
 pub fn brokkr_runtime::operator_command(&mut brokkr_store::Store, &str, brokkr_core::fold::OperatorCommand, &str, &str) -> core::result::Result<brokkr_runtime::FencedCommandOutcome, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>

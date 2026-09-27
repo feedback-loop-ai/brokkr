@@ -553,7 +553,7 @@ fn a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement() {
         ("HOME", fixture.operator_home.to_str().unwrap()),
         ("DSH_HOME", fixture.dsh_home.to_str().unwrap()),
         ("TMPDIR", fixture.staging.to_str().unwrap()),
-        ("FORGE_DSH_BIN", fixture.binary.to_str().unwrap()),
+        ("BROKKR_DSH_BIN", fixture.binary.to_str().unwrap()),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -1006,11 +1006,9 @@ impl DshFixture {
             .arg("dsh")
             .arg("--")
             .args(extra)
-            // Pinned at the shim, and the newer spelling removed, for the
-            // reason `drive` states: no conformance run may reach a real
-            // dsh.
-            .env_remove("BROKKR_DSH_BIN")
-            .env("FORGE_DSH_BIN", &self.binary)
+            // Pinned at the shim, for the reason `drive` states: no
+            // conformance run may reach a real dsh.
+            .env("BROKKR_DSH_BIN", &self.binary)
             .env("HOME", &self.operator_home)
             .env("DSH_HOME", &self.dsh_home)
             // The seat overlay is staged under the driver's own TMPDIR,
@@ -1182,15 +1180,8 @@ fn drive_charter(kind_args: &[&str], shim: &Path, workdir: &Path, role: &Path) -
         // Pinned unconditionally: no conformance test may ever spawn a
         // real claude-lanetally on a LaneTally-equipped machine.
         .env("BROKKR_LANETALLY_BIN", shim)
-        // Deliberately split: codex is pinned through the new spelling
-        // and dsh through the old one, so a conformance run proves both
-        // reach the same adapter for the release the old names survive
-        // (decision 0019). The new dsh spelling is REMOVED rather than
-        // left inherited: it outranks the old one, so an operator who
-        // has it exported would otherwise send this test at a real dsh.
         .env("BROKKR_CODEX_BIN", shim)
-        .env_remove("BROKKR_DSH_BIN")
-        .env("FORGE_DSH_BIN", shim)
+        .env("BROKKR_DSH_BIN", shim)
         .env("HOME", operator_home.path())
         .env("CODEX_HOME", codex_home.path())
         .env("DSH_HOME", dsh_home.path())

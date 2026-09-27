@@ -32,7 +32,9 @@ const POLICY: &str = r#"{
 
 /// One adapter as data: a provider that declares a tier, a grant, both
 /// or neither. `None` is the ABSENT declaration every fail-closed
-/// assertion below turns on — the key is not written at all.
+/// assertion below turns on — the key is not written at all. A grant is
+/// written as its egress class: `true` as `contracted`, `false` as
+/// `uncontracted`.
 fn adapter(name: &str, tier: Option<&str>, grant: Option<bool>) -> Value {
     let mut value = json!({
         "provider": name,
@@ -49,7 +51,7 @@ fn adapter(name: &str, tier: Option<&str>, grant: Option<bool>) -> Value {
         value["trust_tier"] = json!(tier);
     }
     if let Some(grant) = grant {
-        value["binding_grant"] = json!(grant);
+        value["egress"] = json!(if grant { "contracted" } else { "uncontracted" });
     }
     value
 }
@@ -2000,17 +2002,6 @@ fn a_tier_outside_the_vocabulary_refuses_at_load() {
 }
 
 #[test]
-fn a_grant_that_is_not_a_boolean_refuses_at_load() {
-    let fixture = Fixture::new();
-    let mut broken = adapter("wordy", None, None);
-    broken["binding_grant"] = json!("yes");
-    fixture.write_adapter(broken);
-    let refusal = fixture.refusal(seat("judge", Some("gate"), None));
-    assert!(refusal.contains("'binding_grant' is"), "{refusal}");
-    assert!(refusal.contains("the grant is a boolean"), "{refusal}");
-}
-
-#[test]
 fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     // The honest declarations item 3 of this slice recorded, asserted
     // where a future edit will trip over them: the incumbent's tier
@@ -2020,10 +2011,10 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     //
     // Decision 0036 ruling 4's MIGRATION test, and the reason it sits
     // here rather than in a new file: the clearances are the same five
-    // facts, re-read through the class vocabulary. `binding_grant: true`
-    // reads as `contracted`, and a `false` or absent grant as
-    // `uncontracted`, so every adapter carried its old clearance across
-    // the enactment unchanged. What has moved since is one operator
+    // facts, re-read through the class vocabulary. A true grant became
+    // `contracted`, and a false or absent grant `uncontracted`, so every
+    // adapter carried its old clearance across the enactment and across
+    // #355's rewrite of the shipped files. What has moved since is one operator
     // RULING, not a migration: `dsh`'s `spark` route is `local` as of
     // 2026-09-03. The adapter-level clearances below are still the five
     // the migration pinned — a route class changes no adapter's own.
@@ -2172,8 +2163,8 @@ fn the_shipped_codex_adapter_may_now_hold_a_gate() {
 #[test]
 fn the_shipped_codex_adapter_still_binds_no_secrets() {
     // The other half of the addendum, and the half that did NOT move:
-    // codex's clearance to receive stays unruled — `binding_grant:
-    // false`, which decision 0036 ruling 4 reads as `uncontracted` — so
+    // codex's clearance to receive stays unruled — `egress:
+    // "uncontracted"`, decision 0036 ruling 4's reading of its old grant — so
     // the ruling 4 refusal must still fire for codex on the shipped
     // adapter. A future edit that grants the tier a second axis by
     // accident trips here, naming what it took.

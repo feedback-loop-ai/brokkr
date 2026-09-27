@@ -269,46 +269,53 @@ fn workspace() -> PathBuf {
 /// `recipes/gpt-flash` and `recipes/wager-harness` that compose it. The
 /// others reported no movement; each value is the test's own reported
 /// digest.
+/// #355 moves all ten: the shipped adapters trade the superseded
+/// `binding_grant` for `egress` and the claude and lanetally tool maps
+/// drop `python3` and `pytest`, and every bundle pins the adapters it
+/// consults; `recipes/fast` and `bundles/verify` also drop those two
+/// grants from their inline allow-lists, `recipes/night-shift` drops its
+/// unused scripts and `recipes/wager-harness` its README's two retired
+/// spellings. Each value is the test's own reported digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "d242cc9a2b76a6b59b0ac69bb583a9abc488569ffb6d557d1873f2458bcac3b4",
+        "fea35589dc0fbb0e302052d8e9ac44f5f8fa61fbcacdca5d24f8edf9d9e19ad8",
     ),
     (
         "recipes/node",
-        "3188c68c07761808ffc6343545cd881a4351cf51a9d2befa88cd2fc4c27438f9",
+        "d2d98190f997d72ce63cb0de4ca30cb89b1907f6a5c999d31c28ca7020674cdc",
     ),
     (
         "recipes/preflight",
-        "252eea4f30c9be0c393fc8d8f992fef83d9c1880b52a0ced75773a36cb16c2d4",
+        "1f6d863befdad0c235aa2c4cc0c3ff708ef3a5185c779a1a7d86c75b418c9a08",
     ),
     (
         "recipes/night-shift",
-        "1c5a32fbeb499a3d6296bb168468d042708155576c867ea872d43ec17a225bd0",
+        "0c535c33db38a7c0e5bf5a89689e3caaca1fe87ddf5a343ba621b7d718895e53",
     ),
     (
         "recipes/wager-harness",
-        "d3237bbe52d44c7bb6d17fe1d09b3502fe248add0a3086b4c74ce40a4be2eadd",
+        "6562af6de145331fcad167ce2d9062d4ba68f6c3b05fdf855add4cbce69f62b7",
     ),
     (
         "recipes/triage",
-        "e3bc01e59fc2dcc039eca6aee2c058a0e745e4567a343a3827dc83d8305a779d",
+        "4e410156ddde186fb2a76500d7e94a8a8fe99fd1eef3e17f65792d012bcfc2c6",
     ),
     (
         "recipes/research",
-        "b4d6617495dfa0f9ca4ff1169e36599b33f194c42e09b0a3708060eabe12bfac",
+        "ecf45c1e2831d23e3ea280fbd385e1f2c168243ef9cfcc0bd93c5fd79bb68f01",
     ),
     (
         "recipes/research-dsh",
-        "6f5da13879f4959319805b2fab43d069dd11b38d437b732f13ba54c04f8b4392",
+        "8f4cce1ad3e96d5b17c18d3b43bd90fdd44289b9d64a5dfaad05a1e53852bd21",
     ),
     (
         "recipes/gpt-flash",
-        "ecbe48a53bcd536db739bfb5e727c90c96669884e6c872ad56e2f2e37aec286d",
+        "f945a1638c8550a1b133ea13af4eb6f17114ef2e52da82ad566596ad8db09239",
     ),
     (
         "bundles/verify",
-        "4ed42b14eb8d7baceb1fc1afd0b2fba26a3c8efc8e29bc806645a1ff48f98d5d",
+        "b606cd1e6b2f89e2ae10cfd85ec8849c43e8a0e6ec2cc2151c584d3580790584",
     ),
 ];
 

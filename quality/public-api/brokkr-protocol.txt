@@ -172,9 +172,6 @@ pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
 pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
 pub fn brokkr_protocol::hands::unboxed_environment(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &[(alloc::string::String, alloc::string::String)], &std::path::Path, &std::path::Path) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub type brokkr_protocol::hands::Executor = dyn core::ops::function::Fn(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
-pub mod brokkr_protocol::legacy
-pub fn brokkr_protocol::legacy::env(&str, core::option::Option<&str>) -> core::option::Option<alloc::string::String>
-pub fn brokkr_protocol::legacy::say_once(&str, &str)
 pub mod brokkr_protocol::oneshot
 pub enum brokkr_protocol::oneshot::OneShot
 pub brokkr_protocol::oneshot::OneShot::Produced
@@ -211,7 +208,7 @@ pub fn brokkr_protocol::secret::Secret::fmt(&self, &mut core::fmt::Formatter<'_>
 impl core::ops::drop::Drop for brokkr_protocol::secret::Secret
 pub fn brokkr_protocol::secret::Secret::drop(&mut self)
 pub const brokkr_protocol::secret::DENYLIST: [&str; 4]
-pub const brokkr_protocol::secret::DENYLIST_PREFIXES: [&str; 2]
+pub const brokkr_protocol::secret::DENYLIST_PREFIXES: [&str; 1]
 pub const brokkr_protocol::secret::MIN_VALUE_BYTES: usize
 pub const brokkr_protocol::secret::NEEDLE_ENCODINGS: [(&str, brokkr_protocol::secret::Encoder); 9]
 pub const brokkr_protocol::secret::SHORT_VALUE_WARN_BYTES: usize

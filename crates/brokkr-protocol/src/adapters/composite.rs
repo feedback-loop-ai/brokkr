@@ -1720,8 +1720,7 @@ fn canonical_composite(
 }
 
 /// The two seams the DSH adapter resolves, exactly as it resolves them:
-/// the executable through `BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then
-/// `dsh` on `PATH`, and the home through `$DSH_HOME` when set and
+/// the executable through `BROKKR_DSH_BIN`, then `dsh` on `PATH`, and the home through `$DSH_HOME` when set and
 /// non-empty, otherwise `$HOME/.dsh`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshSeams {
@@ -1943,7 +1942,7 @@ impl DshSeams {
     /// The environment's one resolution, before anything is admitted.
     fn located() -> Result<Located, DshUnselected> {
         DshSeams::located_from(
-            super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh"),
+            super::adapter_binary("BROKKR_DSH_BIN", "dsh"),
             select,
             crate::transcript::dsh_home(),
         )

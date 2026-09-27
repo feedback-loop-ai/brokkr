@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::json;
 
-const POLICY: &str = r#"{
+pub(crate) const POLICY: &str = r#"{
       "schema": "forge.phase-machine/v1",
       "phases": ["work", "review", "done", "stop"],
       "initial": "work",
@@ -20,14 +20,14 @@ const POLICY: &str = r#"{
 /// (decision 0021 ruling 4), so the fixture grants one — and its name is
 /// invented here rather than borrowed from a vendor, which is the whole
 /// point: the engine matches on the declaration, never on the name.
-fn write_adapters(dir: &Path) -> PathBuf {
+pub(crate) fn write_adapters(dir: &Path) -> PathBuf {
     let adapters = dir.join("adapters");
     std::fs::create_dir_all(&adapters).unwrap();
     std::fs::write(
         adapters.join("granted.json"),
         serde_json::to_string(&json!({
             "provider": "granted",
-            "binding_grant": true,
+            "egress": "contracted",
             "binary": "granted",
             "driver": ["{brokkr}", "driver", "granted", "--"],
             "models": {},
@@ -157,7 +157,7 @@ fn malformed_references_refuse_at_compile() {
 fn ill_formed_and_denylisted_declarations_refuse() {
     let error = compile_error(json!(["gh_token"]), json!(["true"]));
     assert!(error.contains("[A-Z][A-Z0-9_]*"), "{error}");
-    for name in ["PATH", "FORGE_X"] {
+    for name in ["PATH", "BROKKR_X"] {
         let error = compile_error(json!([name]), json!(["true"]));
         assert!(error.contains("denylisted"), "{name}: {error}");
         assert!(error.contains(name), "{name}: {error}");

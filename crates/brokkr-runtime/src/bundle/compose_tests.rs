@@ -1091,22 +1091,26 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// reported no movement; each value is the test's own reported digest.
 /// #444 moves `recipes/fast` again: its verifier puts a failing lint's
 /// tail in its notes. The other three reported no movement.
+/// #355 moves all four: the adapters they pin trade `binding_grant` for
+/// `egress` and drop `python3` and `pytest`, and `recipes/fast` and
+/// `bundles/verify` drop those two from their inline allow-lists; each
+/// value is the test's own reported digest.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "d242cc9a2b76a6b59b0ac69bb583a9abc488569ffb6d557d1873f2458bcac3b4",
+        "fea35589dc0fbb0e302052d8e9ac44f5f8fa61fbcacdca5d24f8edf9d9e19ad8",
     ),
     (
         "recipes/panel-review",
-        "b7728f1e513ae01140d78be6b3f6409d7dea1e00455879c99d8db2fecbaea32f",
+        "4ecbfa8a957d8d994eca7f3a3c3cee73264f42cf7d3b24b986e22ee8c03f85d4",
     ),
     (
         "bundles/self",
-        "c3975d727b9ce05e683331a6c5be9cc17e708fdd37657f83b8dadc52d703cc0f",
+        "611570a8f11a17f62ba84dfb83711cd51c3ce36a3d8437dcacf30f8588bd3860",
     ),
     (
         "bundles/verify",
-        "4ed42b14eb8d7baceb1fc1afd0b2fba26a3c8efc8e29bc806645a1ff48f98d5d",
+        "b606cd1e6b2f89e2ae10cfd85ec8849c43e8a0e6ec2cc2151c584d3580790584",
     ),
 ];
 
@@ -1261,8 +1265,11 @@ fn a_composed_bundles_manifest_is_pinned() {
         // moves it again: that base's verifier gained fmt, clippy and the
         // lint list; the measured value agrees with the witness pin. #444
         // moves it once more: that verifier puts a failing lint's tail in
-        // its notes; the measured value agrees with the witness pin.
-        "e3bc01e59fc2dcc039eca6aee2c058a0e745e4567a343a3827dc83d8305a779d",
+        // its notes; the measured value agrees with the witness pin. #355
+        // moves it once more: the adapters its lanes consult trade
+        // `binding_grant` for `egress` and drop `python3` and `pytest`;
+        // the measured value agrees with the witness pin.
+        "4e410156ddde186fb2a76500d7e94a8a8fe99fd1eef3e17f65792d012bcfc2c6",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

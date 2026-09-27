@@ -68,7 +68,10 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     // theirs to demote, rather than a constant inside this binary.
     let adapter = std::fs::read_to_string(bundle.join("adapters/claude.json")).unwrap();
     assert!(adapter.contains("\"trust_tier\": \"trusted\""), "{adapter}");
-    assert!(adapter.contains("\"binding_grant\": false"), "{adapter}");
+    assert!(
+        adapter.contains("\"egress\": \"uncontracted\""),
+        "{adapter}"
+    );
 
     // The review seat is a gate, and a gate that moves HEAD parks the
     // run: its charter is read-only, as the library's reviewer is.
@@ -511,38 +514,6 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
         stderr.contains("gate class") && stderr.contains("claude"),
         "stderr: {stderr}"
     );
-}
-
-/// Decision 0019: a driver still written with the old `{forge}` token
-/// compiles exactly as the scaffold's `{brokkr}` does, and the process
-/// says so ONCE — the token now lives in the scaffold's
-/// `adapters/claude.json` driver prefix, which every agent seat's
-/// resolution expands (five seats, each with a two-model chain, so a
-/// per-expansion notice would show up here as ten lines) — on stderr,
-/// never on stdout.
-#[test]
-fn the_old_token_still_compiles_and_is_noticed_once_on_stderr() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    brokkr(&["init", bundle.to_str().unwrap()], dir.path());
-
-    let adapter = bundle.join("adapters/claude.json");
-    let scaffolded = std::fs::read_to_string(&adapter).unwrap();
-    assert!(
-        scaffolded.contains("\"{brokkr}\""),
-        "the scaffold writes the new token: {scaffolded}"
-    );
-    std::fs::write(&adapter, scaffolded.replace("{brokkr}", "{forge}")).unwrap();
-
-    let (code, stdout, stderr) = brokkr(&["compile", "--bundle", "."], &bundle);
-    assert_eq!(code, Some(0), "stderr: {stderr}");
-    assert!(!stdout.contains("notice:"), "the notice reached stdout");
-    let notices: Vec<&str> = stderr
-        .lines()
-        .filter(|line| line.contains("one more release"))
-        .collect();
-    assert_eq!(notices.len(), 1, "stderr: {stderr}");
-    assert!(notices[0].contains("{forge}") && notices[0].contains("{brokkr}"));
 }
 
 #[test]

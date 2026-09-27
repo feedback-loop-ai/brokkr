@@ -35,12 +35,9 @@ fn name_grammar_vectors() {
 }
 
 #[test]
-fn denylist_covers_exact_names_and_both_harness_prefixes() {
-    // Both spellings of the harness-owned prefix: `BROKKR_` is the one
-    // that configures this release's binary, `FORGE_` the one it still
-    // answers to (decision 0019). Either would be a code-loading
-    // primitive in a seat's hands, so both are pinned here — the
-    // release that deletes the fallback must delete only the fallback.
+fn denylist_covers_exact_names_and_the_harness_prefix() {
+    // `BROKKR_` configures this release's binary: a code-loading
+    // primitive in a seat's hands, so it is pinned here.
     for name in [
         "PATH",
         "IFS",
@@ -49,8 +46,6 @@ fn denylist_covers_exact_names_and_both_harness_prefixes() {
         "BROKKR_X",
         "BROKKR_",
         "BROKKR_CODEX_BIN",
-        "FORGE_X",
-        "FORGE_",
     ] {
         assert!(denylisted(name), "{name} must be denylisted");
         assert!(validate_name(name).is_err(), "{name} must not validate");
@@ -360,7 +355,7 @@ fn store_set_refuses_every_rejected_value_class() {
         "under 8 bytes warns"
     );
     assert!(store_set(&path, "NAME", "longenough").unwrap().is_none());
-    for name in ["PATH", "FORGE_X", "lower", "9BAD"] {
+    for name in ["PATH", "BROKKR_X", "lower", "9BAD"] {
         assert!(
             store_set(&path, name, "longenough").is_err(),
             "{name} must refuse"

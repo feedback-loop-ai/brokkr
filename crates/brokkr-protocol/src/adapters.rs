@@ -11,8 +11,8 @@
 //!
 //! Env overrides for conformance shims: BROKKR_CLAUDE_BIN,
 //! BROKKR_LANETALLY_BIN, BROKKR_CODEX_BIN, BROKKR_DSH_BIN,
-//! BROKKR_EXEC_NAME. All five names answer to their old `FORGE_*`
-//! spelling for one more release (decision 0019, `legacy`).
+//! BROKKR_EXEC_NAME. Their pre-rename spellings (decision 0019) are no
+//! longer read (#355).
 
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
@@ -120,9 +120,7 @@ impl AdapterKind {
             AdapterKind::Lanetally => "claude-lanetally".to_string(),
             AdapterKind::Codex => "codex".to_string(),
             AdapterKind::Dsh => "deepseek-harness".to_string(),
-            AdapterKind::Exec => {
-                adapter_binary("BROKKR_EXEC_NAME", Some("FORGE_EXEC_NAME"), "exec")
-            }
+            AdapterKind::Exec => adapter_binary("BROKKR_EXEC_NAME", "exec"),
         }
     }
 }
@@ -631,12 +629,10 @@ fn io_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String>
     }
 }
 
-/// One reader for every override, so the one-release fallback and its
-/// one-time note are wired once rather than per variable. `legacy` is
-/// the old `FORGE_*` spelling where decision 0019 renamed the variable,
-/// and `None` where it did not.
-fn adapter_binary(primary: &str, legacy: Option<&str>, fallback: &str) -> String {
-    crate::legacy::env(primary, legacy).unwrap_or_else(|| fallback.to_string())
+/// One reader for every override: the variable when it is set, the
+/// fallback when it is not.
+fn adapter_binary(variable: &str, fallback: &str) -> String {
+    std::env::var(variable).unwrap_or_else(|_| fallback.to_string())
 }
 
 fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
@@ -4027,7 +4023,7 @@ fn invoke_dsh_with(
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
-    let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
+    let bin = adapter_binary("BROKKR_DSH_BIN", "dsh");
     let launch = dsh_launch(&bin, extra, workdir, session, input)?;
     invoke_dsh_launch(launch, prompt, workdir, bindings, emit, wait)
 }
@@ -4881,7 +4877,7 @@ fn invoke_with_stager(
         .to_string();
     match kind {
         AdapterKind::Claude => {
-            let bin = adapter_binary("BROKKR_CLAUDE_BIN", Some("FORGE_CLAUDE_BIN"), "claude");
+            let bin = adapter_binary("BROKKR_CLAUDE_BIN", "claude");
             let plan = claude_launch(&bin, extra, session, input, CLAUDE_SHAPE, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
@@ -4900,11 +4896,7 @@ fn invoke_with_stager(
         // same silent un-capture one ruling later (proposed decision
         // 0056 ruling 5: a wrapper is qualified on its own wrapper).
         AdapterKind::Lanetally => {
-            let bin = adapter_binary(
-                "BROKKR_LANETALLY_BIN",
-                Some("FORGE_LANETALLY_BIN"),
-                "claude-lanetally",
-            );
+            let bin = adapter_binary("BROKKR_LANETALLY_BIN", "claude-lanetally");
             let plan = claude_launch(&bin, extra, session, input, LANETALLY_SHAPE, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
@@ -4915,7 +4907,7 @@ fn invoke_with_stager(
             Ok(invocation)
         }
         AdapterKind::Codex => {
-            let bin = adapter_binary("BROKKR_CODEX_BIN", Some("FORGE_CODEX_BIN"), "codex");
+            let bin = adapter_binary("BROKKR_CODEX_BIN", "codex");
             let plan = codex_launch(&bin, extra, &workdir, session, input)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
@@ -5470,7 +5462,7 @@ fn dsh_runner_program_from(
 
 fn dsh_runner_program() -> String {
     dsh_runner_program_from(
-        crate::legacy::env("BROKKR_DSH_RUNNER", None),
+        std::env::var("BROKKR_DSH_RUNNER").ok(),
         std::env::current_exe(),
     )
 }

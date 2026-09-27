@@ -20,8 +20,8 @@ pub use agents::{
 pub use anchor::{anchor, verify as verify_anchor, AnchorError};
 pub use bundle::compose::Ancestor;
 pub use bundle::{
-    layer_drift, Aggregate, Bundle, CompileError, PanelMember, Seat, SeatBody, SeatClass,
-    SequenceStep, StepBody, ENGINE_VERSION,
+    Aggregate, Bundle, CompileError, PanelMember, Seat, SeatBody, SeatClass, SequenceStep,
+    StepBody, ENGINE_VERSION,
 };
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, operator_command, operator_supersede,

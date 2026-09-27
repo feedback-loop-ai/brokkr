@@ -284,14 +284,8 @@ fn listener_open_hook_is_testable_and_public_bind_errors_return() {
         std::thread::yield_now();
     }
 
-    // Both spellings reach the same opener: the new name is what this
-    // release documents, the old one answers for one release more
-    // (decision 0019).
     let mut env = EnvGuard::lock();
     env.set("BROKKR_BROWSER_BIN", "true");
-    open_system_browser("http://127.0.0.1:9/");
-    env.remove("BROKKR_BROWSER_BIN");
-    env.set("FORGE_BROWSER_BIN", "true");
     open_system_browser("http://127.0.0.1:9/");
 }
 

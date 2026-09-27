@@ -2725,7 +2725,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // this test fail under any configured `BROKKR_DSH_BIN` — an
     // environment an operator running the suite may well have, and one
     // this seat reproduced (council return 2026-09-19, F11).
-    let declared = super::super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
+    let declared = super::super::adapter_binary("BROKKR_DSH_BIN", "dsh");
     let home = crate::transcript::dsh_home();
     match (DshSeams::selected(), resolve_executable(&declared)) {
         (Ok(selection), Ok(path)) => {
@@ -2838,7 +2838,6 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
             .env("HOME", "/tmp")
             .env("PATH", "/usr/bin:/bin")
             .env_remove("BROKKR_DSH_BIN")
-            .env_remove("FORGE_DSH_BIN")
             .env_remove("DSH_HOME");
         let output = spawn_retrying_etxtbsy(&mut child);
         let said = String::from_utf8_lossy(&output.stdout).into_owned()

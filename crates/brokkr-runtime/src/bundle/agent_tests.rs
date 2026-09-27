@@ -124,7 +124,7 @@ fn claude() -> Value {
         // The fixture grants bindings so the seats here that declare
         // them still compile (decision 0021 ruling 4); the tier stays
         // undeclared, which is untrusted — no seat here is a gate.
-        "binding_grant": true,
+        "egress": "contracted",
         "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--"],
         "models": {"opus": "claude-opus-5"},

@@ -1,0 +1,20 @@
+# Unreleased
+
+Changes merged since v0.11.0 that the next release's notes carry.
+
+## Breaking
+
+- **The pre-rename names are no longer read.** Decision 0019's
+  one-release window closed (#355). The `FORGE_*` environment overrides
+  (`FORGE_CLAUDE_BIN`, `FORGE_LANETALLY_BIN`, `FORGE_CODEX_BIN`,
+  `FORGE_DSH_BIN`, `FORGE_EXEC_NAME`, `FORGE_BROWSER_BIN`) are ignored:
+  set the `BROKKR_*` name instead. The `{forge}` bundle argv token no
+  longer expands; write `{brokkr}`. An adapter file that still declares
+  `binding_grant` is refused at load; declare `egress` (`"contracted"`
+  for a true grant, `"uncontracted"` for a false one).
+- **`python3` and `pytest` leave the shipped allow-lists** (decision 0041
+  ruling 2): the claude and lanetally adapters no longer map them, and
+  `recipes/fast` and `bundles/verify` no longer grant them. A realm
+  scaffolded by `brokkr init` for a Python project keeps its own grants.
+- **`intake-sdd` leaves the agent library.** No recipe seated it after
+  `recipes/sdd` was retired.

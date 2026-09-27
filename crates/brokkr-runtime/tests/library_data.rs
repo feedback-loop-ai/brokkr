@@ -34,7 +34,7 @@ fn workspace() -> PathBuf {
 /// (#333) moves the eight pinned here that build, design or judge code, as
 /// their charters gained its principles; each value is the test's own
 /// reported digest.
-const CHARTERS: [(&str, &str); 13] = [
+const CHARTERS: [(&str, &str); 12] = [
     (
         "chief-architect.md",
         "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
@@ -55,10 +55,6 @@ const CHARTERS: [(&str, &str); 13] = [
         // Moved again by decision 0071 (#333): the design paragraph.
         "implementer.md",
         "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
-    ),
-    (
-        "intake-sdd.md",
-        "bbd5c49d97796d91df3713344faaa3adb536e9acc36ae7cfc5cb1e2700211e9d",
     ),
     (
         "intake.md",
@@ -114,8 +110,9 @@ const AUTHORED_CHARTERS: [&str; 6] = [
 /// `implementer-engine` temporarily shares the implementer charter until
 /// strategy-selected seats land. Decision 0044 ruling 4 seats the
 /// researcher: the one office that reads the field and holds the fetch
-/// grant, authored here like muninn and triage.
-const AGENTS: [&str; 35] = [
+/// grant, authored here like muninn and triage. #355 retires
+/// `intake-sdd`, which no recipe seated after `recipes/sdd` was retired.
+const AGENTS: [&str; 34] = [
     "analyst",
     "chief-architect",
     "clarifier",
@@ -138,7 +135,6 @@ const AGENTS: [&str; 35] = [
     "implementer-engine",
     "implementer-sdd",
     "intake",
-    "intake-sdd",
     "muninn",
     "position-robustness",
     "position-simplicity",

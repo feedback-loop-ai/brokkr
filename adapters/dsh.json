@@ -1,7 +1,7 @@
 {
   "provider": "dsh",
   "trust_tier": "untrusted",
-  "binding_grant": false,
+  "egress": "uncontracted",
   "routes": {
     "spark": "local",
     "spark-glm": "local"
