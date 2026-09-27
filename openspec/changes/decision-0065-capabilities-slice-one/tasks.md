@@ -2304,6 +2304,11 @@ are unticked here, as at 13-fix, until the patches land and are reviewed.
 - **Pending.** The ruling, then both patches; the `tomllib` cross-check
   (needs approval in the seat); integration (14.1, 15.1, 15.2), exact
   coverage outside the box, macOS, remote CI and the council.
+- **Re-fire, 2026-09-27 (same run, after triage re-ruled `chore`).** There
+  is no addendum after "2026-09-27: rebuild unit 13-fix's two expectations",
+  so the stop stands (evidence.md, "Unit 13-fix-c re-fire"). Both saved
+  patches still apply to `6d9544e2` and still hold. 13.1 and 13.2 stay
+  unticked.
 
 ## 14. Unit 14 — Integrate checked cold commands
 

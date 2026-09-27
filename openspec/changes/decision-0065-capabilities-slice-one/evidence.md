@@ -13735,3 +13735,34 @@ Each mutation was one Edit to a production file on the patched tree.
 **Pending:** the ruling on the proposed patch, then both patches; serving
 integration (14.1, 15.1, 15.2), exact coverage outside the box, macOS,
 remote CI and the council.
+
+## Unit 13-fix-c re-fire — the stop stands, 2026-09-27
+
+Triage re-ruled the oversized return `chore`, and implement fired again in
+the same run (`0065-rebuild-unit-13-see-the-uni-8ad71c84`), based on
+`6d9544e2`. The bounded return to triage cannot grant scope.
+`operator-ruling-2026-09-23.md` has no addendum after "2026-09-27: rebuild
+unit 13-fix's two expectations", so `agent-tests.proposed.patch` is still
+outside both standing admissions. This visit re-verified the saved work and
+did not rebuild it.
+
+- **The patches are intact.** `sha256sum` gives `81a36445…93178` for
+  `.forge/unit-13-fix-c/full.patch` and `10ea757c…c9060` for
+  `agent-tests.proposed.patch`, the recorded digests. Both pass `git apply
+  --check` on `6d9544e2`.
+- **The stop is real.** With `full.patch` alone, `cargo test -p
+  brokkr-runtime --all-features --locked --lib bundle::agent_tests` gives
+  47 passed and 3 failed (`.forge/unit-13-fix-c/refire-runtime.log`). The
+  failures are the same three tests, panicking at `agent_tests.rs:3845`,
+  `:5476` and `:4490` on the R1 refusal "… types 4 arguments of the
+  engine's fragment as the box's hands, but they carry no server command
+  binding ('mcp_servers.brokkr.command') …".
+- **The proposed patch closes it.** With both patches applied, the same
+  filter gives 50 passed and 0 failed (`refire-runtime-2.log`).
+- **The tree is restored.** Both patches were reversed (`git apply -R`),
+  and `git status --short` was empty afterwards. No production or test
+  file moved in this visit.
+
+**Pending:** the operator's ruling on `agent-tests.proposed.patch`. After
+it, apply both patches, run the full gates, redo the mutation proofs,
+commit, then the council.
