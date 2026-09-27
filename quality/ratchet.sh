@@ -52,8 +52,14 @@ crap_judge() {
     refuse "the cargo-crap report at $report is not a JSON object"
   jq -e '(.entries | type) == "array" and (.entries | length) > 0
     and all(.entries[]; (.file | type) == "string" and (.function | type) == "string"
-      and (.crap | type) == "number")' "$baseline" > /dev/null 2>&1 ||
+      and (.cyclomatic | type) == "number")' "$baseline" > /dev/null 2>&1 ||
     refuse "the complexity baseline at $baseline is not one this check reads"
+  # A baseline entry below 100% coverage carries a CRAP inflated past its
+  # complexity (CC squared plus CC with no coverage), which measure.sh writes
+  # from a partial LCOV. Such a baseline was not measured at the gate, so it
+  # is refused rather than read.
+  jq -e 'all(.entries[]; .coverage == 100)' "$baseline" > /dev/null 2>&1 ||
+    refuse "the complexity baseline at $baseline holds an entry below 100% coverage, whose CRAP is not its complexity"
   cc="$(ceiling ccNewFunction)"
   # cargo-crap's pairing is not trusted for the allowance. It pairs a
   # function with a same-named baseline entry in another file: as `moved`
@@ -65,14 +71,15 @@ crap_judge() {
   # with no baseline entry at its own file is new, whatever its status: it
   # may reach only the ceiling, and one over it moves its baseline entry
   # with a ruling (quality/README.md). One with an entry may grow to the
-  # ceiling or its baseline, whichever is higher; cfg twins of one key share
-  # the higher score. Matching is not by line, so an edit above a function
+  # ceiling or its baseline's cyclomatic complexity, whichever is higher:
+  # the same field `baselines` guards, so a raise has one home. cfg twins of
+  # one key share the higher score. Matching is not by line, so an edit above a function
   # does not make it new. At the gate's 100% coverage CRAP equals
   # cyclomatic complexity, so anything less than 100% is refused.
   jq -r --argjson cc "$cc" --slurpfile base "$baseline" '
     def key: [.file, .function] | tojson;
     def known: IN("new", "regressed", "unchanged", "improved", "moved");
-    ($base[0].entries | group_by(key) | map({key: (.[0] | key), value: (map(.crap) | max)})
+    ($base[0].entries | group_by(key) | map({key: (.[0] | key), value: (map(.cyclomatic) | max)})
       | from_entries) as $was
     | if (.entries | type) != "array" or (.entries | length) == 0
     then "no function was measured"

@@ -382,10 +382,27 @@ fn the_complexity_judge_refuses_what_it_cannot_read() {
         ),
         &["the scan and the LCOV disagree: 0 source file(s) with no coverage, 2 covered file(s) not scored"],
     );
-    let no_crap = baseline.replace(r#""crap":40"#, r#""score":40"#);
+    let no_cc = baseline.replace(r#""cyclomatic":40"#, r#""score":40"#);
     assert_refused(
-        &crap_judge(at, &matched_report(one()), &no_crap),
+        &crap_judge(at, &matched_report(one()), &no_cc),
         &["the complexity baseline at baseline.json is not one this check reads"],
+    );
+    // A baseline measured from a partial LCOV inflates CRAP past complexity
+    // (CC squared plus CC): read as an allowance, it would pass anything.
+    let grew = || vec![crap_entry(LIB, "big", 200, "regressed")];
+    let inflated = baseline
+        .replace(r#""coverage":100"#, r#""coverage":50"#)
+        .replace(r#""crap":40"#, r#""crap":1640"#);
+    assert_refused(
+        &crap_judge(at, &matched_report(grew()), &inflated),
+        &["the complexity baseline at baseline.json holds an entry below 100% coverage, whose CRAP is not its complexity"],
+    );
+    // A hand-edited CRAP at full coverage is not the allowance either: the
+    // allowance is the cyclomatic complexity `baselines` guards.
+    let edited = baseline.replace(r#""crap":40"#, r#""crap":1640"#);
+    assert_refused(
+        &crap_judge(at, &matched_report(grew()), &edited),
+        &["lib.rs:1 big: CC 200 over its baseline 40 (regressed)"],
     );
 }
 
