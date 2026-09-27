@@ -1,4 +1,4 @@
-# 0073 — Many hands: one operator on many hosts is the open core, many people is an extension, and the core is extensible by contract so the enterprise layer never forks it
+# 0074 — Many hands: one operator on many hosts is the open core, many people is an extension, and the core is extensible by contract so the enterprise layer never forks it
 
 Status: proposed
 Date: 2026-09-27
