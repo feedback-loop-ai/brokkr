@@ -2505,6 +2505,11 @@ oversized.** Nothing was committed but these records, and 14.1 stays open.
 - **Pending.** That ruling, then 14b, exact coverage outside the box,
   macOS, remote CI and the council.
 
+Unit 14b, second visit (same run, after triage re-ruled it a chore;
+evidence.md, "Unit 14b — second visit"). **Result: blocked.** No ruling
+on A or B exists; the production lines both cite are unchanged, and the
+patch still applies. Nothing but these records moved; 14.1 stays open.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

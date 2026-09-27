@@ -14671,3 +14671,24 @@ site with hands and no workspace fragment is served or refused.
 **Pending.** The operator's ruling on A and B, and the file that ruling
 names; then 14b re-run from the saved patch; exact coverage outside the
 box; macOS; remote CI; the council.
+
+## Unit 14b — second visit, blocked on the same two mismatches, 2026-09-27
+
+Same run, `0065-rebuild-unit-14-see-the-uni-f3db2206`, based on
+`5d6b37cf`. The oversized result returned through triage, which ruled the
+unit a chore again under the directive that a settled design that cannot
+be implemented as written is reported `blocked`. **Result: blocked.**
+
+- No ruling on A or B: the headings of `operator-ruling-2026-09-23.md`
+  end at "2026-09-27: rebuild unit 13-fix-c's runtime fixtures".
+- `git diff --stat e7267446 HEAD` moves only `evidence.md` and
+  `tasks.md`. `agents.rs:1198-1200` still returns `Application::Dormant`
+  beside hands; `native_controls.rs:2164-2176` still admits
+  `unspecified` only with `unrestricted`; `native_controls.rs:2332-2347`
+  still requires the transport's server in the hands.
+- `git apply --check .forge/unit-14b/unit-14b-seams.patch` passes on
+  `5d6b37cf`.
+- No production or test file moved; no gate was run beyond `git diff
+  --check`, because only these two documents changed. 14.1 stays open.
+
+**Pending.** As above: the operator's ruling on A and B.
