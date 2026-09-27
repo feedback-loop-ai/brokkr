@@ -17,7 +17,7 @@ for what changed and current platform limitations, and the
 - [Read-only material that is not a contract](#read-only-material-that-is-not-a-contract)
 - [Semver, as of 1.0](#semver-as-of-10)
 - [What may break before 1.0](#what-may-break-before-10)
-- [The live deprecation window](#the-live-deprecation-window)
+- [The closed deprecation window](#the-closed-deprecation-window)
 - [How a stable thing changes](#how-a-stable-thing-changes)
 
 ## Two different promises
@@ -227,44 +227,30 @@ Stated plainly, because this is a 0.x tree:
   is the one guarantee that is already load-bearing at 0.11.0, and it is
   the one to build against.
 
-## The live deprecation window
+## The closed deprecation window
 
-Decision 0019 renamed the project, and two spellings from before the
-rename **still answer, for one more release**. This is a deprecation
-window with an end, not a permanent guarantee.
+Decision 0019 renamed the project, and v0.5.0 promised that the
+spellings from before the rename would answer for one more release.
+Issue #355 closed that window: releases after v0.11.0 read only the
+current names.
 
-**Environment overrides.** Six harness variables moved to a `BROKKR_`
-prefix and answer to their old `FORGE_` spelling:
+- **Environment overrides.** `BROKKR_CLAUDE_BIN`, `BROKKR_LANETALLY_BIN`,
+  `BROKKR_CODEX_BIN`, `BROKKR_DSH_BIN`, `BROKKR_EXEC_NAME` and
+  `BROKKR_BROWSER_BIN` are the only names that configure anything. A
+  pre-rename spelling set where its current name is not is refused by
+  both names: the seat fails to start, `brokkr doctor` reports the DSH
+  selection refused, and `brokkr ui` opens no browser. Nothing runs in
+  its place. The prefix is no longer denied as a secret name, since a
+  name read only to refuse it cannot aim the harness anywhere.
+- **The bundle argv token.** Only `{brokkr}` expands to the engine's own
+  executable. A command still written with `{forge}` passes it through
+  as a literal argument, and the spawn fails on it.
+- **The adapter key.** An adapter declares its destination with
+  `egress`. The superseded `binding_grant` boolean is refused at load as
+  an unknown key.
 
-| Current | Still answers to |
-|---|---|
-| `BROKKR_CLAUDE_BIN` | `FORGE_CLAUDE_BIN` |
-| `BROKKR_LANETALLY_BIN` | `FORGE_LANETALLY_BIN` |
-| `BROKKR_CODEX_BIN` | `FORGE_CODEX_BIN` |
-| `BROKKR_DSH_BIN` | `FORGE_DSH_BIN` |
-| `BROKKR_EXEC_NAME` | `FORGE_EXEC_NAME` |
-| `BROKKR_BROWSER_BIN` | `FORGE_BROWSER_BIN` |
-
-**The bundle argv token.** `{forge}` still expands to the same path as
-`{brokkr}`.
-
-When an old spelling is what answered, the process writes one line to
-**stderr** — never stdout, so piped readouts and every `--json` consumer
-read exactly what they read without the fallback:
-
-```
-notice: FORGE_CODEX_BIN is now named BROKKR_CODEX_BIN; the old name works for one more release.
-```
-
-The latch is **one per process**, not one per spelling: the first old
-spelling used in a run prints the notice and later ones are silent. An
-operator needs telling, not nagging. If you are relying on either
-spelling, migrate now — "one more release" is the stated window, and
-the notice is the only warning you get.
-
-One related rule that is *not* deprecating: both the `BROKKR_` and
-`FORGE_` prefixes are denied as bindable secret names. Harness
-configuration is not a secret binding, under either spelling.
+The `BROKKR_` prefix stays denied as a bindable secret name: harness
+configuration is not a secret binding.
 
 ## How a stable thing changes
 

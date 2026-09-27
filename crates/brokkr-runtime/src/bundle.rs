@@ -653,18 +653,14 @@ fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
     }
 }
 
-/// The model pin on the flag this engine composes for the four
-/// model-bearing built-ins: decision 0031 ruling 2's read, which asks
-/// only whether one concrete id is stated. A neighbouring `--model…`
-/// flag is a different flag to it, not an illegible spelling of this
-/// one — now because `--model` is long, not because this caller said so.
-fn model_pin(raw: &Value) -> ModelPin {
-    command_pin(raw, MODEL_FLAG, 80)
-}
-
 /// The model pin as decision 0036 ruling 2 reads it: which route the
 /// material goes to, or which kind of silence the argv holds — on one
-/// of the two flags decision 0040 ruling 1 has it read.
+/// of the two flags decision 0040 ruling 1 has it read. On `--model`,
+/// the flag this engine composes for the four model-bearing built-ins,
+/// it is also decision 0031 ruling 2's read, which asks only whether one
+/// concrete id is stated; a neighbouring `--model…` flag is a different
+/// flag to it, not an illegible spelling of this one, because `--model`
+/// is long.
 fn route_pin(raw: &Value, flag: &str) -> ModelPin {
     command_pin(raw, flag, 80)
 }
@@ -734,7 +730,7 @@ fn inline_route_pin(raw: &Value, adapter: Option<&Adapter>) -> ModelPin {
 }
 
 fn command_pins_model(raw: &Value) -> bool {
-    matches!(model_pin(raw), ModelPin::Concrete(_))
+    matches!(route_pin(raw, MODEL_FLAG), ModelPin::Concrete(_))
 }
 
 /// Issue #373: the dsh driver admits one spelling of its model pin, the
@@ -2384,9 +2380,8 @@ fn refuse_class_without_a_driver(what: &str, raw: &Value) -> Result<(), CompileE
 /// `<engine> driver <name> -- …`, so the token after the literal
 /// `driver` IS the driver, the same way `{brokkr}` is a protocol marker
 /// this compiler already recognises. The engine token itself is not
-/// matched on — a bundle may spell it `{brokkr}`, `{forge}`, or the
-/// absolute path of the binary it means, and all three are the same
-/// dispatch. `None` for any other shape: a raw process is a driver that
+/// matched on — a bundle may spell it `{brokkr}` or the absolute path
+/// of the binary it means, and both are the same dispatch. `None` for any other shape: a raw process is a driver that
 /// declares nothing, which decision 0021 reads as untrusted and
 /// ungranted rather than as exempt.
 fn dispatch_driver(parts: &[String]) -> Option<String> {
@@ -2910,7 +2905,7 @@ fn unpinned_top_level(name: &str) -> bool {
 /// Ancestor maps are the very maps hashed into their compose digests.
 /// Paths come from compile's canonical roots and expanded script token;
 /// component comparisons never reinterpret a literal filename byte.
-pub fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)> {
+pub(crate) fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)> {
     let layer = bundle
         .roots
         .iter()
@@ -3752,18 +3747,11 @@ fn lint_secret_refs(what: &str, parts: &[String], secrets: &[String]) -> Result<
 /// Public because a seat composed OUTSIDE a bundle — Muninn's, under
 /// decision 0020 — must expand the same tokens from the same code
 /// rather than from a second copy of this rule.
-///
-/// `{forge}` is the same token under its old name (decision 0019): it
-/// expands to the same path for one more release, and says so once.
 pub fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
     parts
         .iter()
         .map(|part| {
             if part == "{brokkr}" {
-                return brokkr_executable(std::env::current_exe());
-            }
-            if part == "{forge}" {
-                brokkr_protocol::legacy::say_once("{forge}", "{brokkr}");
                 return brokkr_executable(std::env::current_exe());
             }
             match part.strip_prefix("./") {
@@ -4015,7 +4003,7 @@ mod compose_tests;
 mod model_policy_tests;
 
 #[cfg(test)]
-mod secret_binding_tests;
+pub(crate) mod secret_binding_tests;
 
 #[cfg(test)]
 mod tests;

@@ -181,8 +181,7 @@ fn doctor(cwd: &Path) -> Command {
     command
         .arg("doctor")
         .current_dir(cwd)
-        .env_remove("BROKKR_DSH_BIN")
-        .env_remove("FORGE_DSH_BIN");
+        .env_remove("BROKKR_DSH_BIN");
     command
 }
 
@@ -476,41 +475,34 @@ fn absent_path_default_search_matches_native_dsh_and_node() {
                 .to_string()
         });
 
-    for (primary, legacy) in [(Some("sh"), None), (None, Some("sh"))] {
-        let mut command = doctor(cwd);
-        command
+    let stdout = stdout_of(
+        doctor(cwd)
             .env_remove("PATH")
-            .env("BROKKR_MARKS", &doctor_marks);
-        if let Some(primary) = primary {
-            command.env("BROKKR_DSH_BIN", primary);
+            .env("BROKKR_MARKS", &doctor_marks)
+            .env("BROKKR_DSH_BIN", "sh"),
+    );
+    assert!(
+        !stdout.contains("SECURITY_CWD_DECOY"),
+        "doctor executed a cwd decoy under an absent PATH:\n{stdout}"
+    );
+    assert_eq!(executed(&doctor_marks), Vec::<String>::new());
+    let line = dsh_line(&stdout);
+    if cfg!(target_os = "linux") {
+        match &banner {
+            Some(banner) => assert!(
+                line.starts_with(&format!("ok       dsh: {banner} · serves")),
+                "the default-search sh's own version: {line}"
+            ),
+            None => assert!(
+                line.starts_with(&format!("warn     dsh: binary '{ran}' not found — seats")),
+                "the default-search sh, selected and silent: {line}"
+            ),
         }
-        if let Some(legacy) = legacy {
-            command.env("FORGE_DSH_BIN", legacy);
-        }
-        let stdout = stdout_of(&mut command);
+    } else {
         assert!(
-            !stdout.contains("SECURITY_CWD_DECOY"),
-            "doctor executed a cwd decoy under an absent PATH:\n{stdout}"
+            !line.contains("PATH is absent") && !line.contains("is not on PATH"),
+            "a default-search positive is a selection, not a refusal: {line}"
         );
-        assert_eq!(executed(&doctor_marks), Vec::<String>::new());
-        let line = dsh_line(&stdout);
-        if cfg!(target_os = "linux") {
-            match &banner {
-                Some(banner) => assert!(
-                    line.starts_with(&format!("ok       dsh: {banner} · serves")),
-                    "the default-search sh's own version: {line}"
-                ),
-                None => assert!(
-                    line.starts_with(&format!("warn     dsh: binary '{ran}' not found — seats")),
-                    "the default-search sh, selected and silent: {line}"
-                ),
-            }
-        } else {
-            assert!(
-                !line.contains("PATH is absent") && !line.contains("is not on PATH"),
-                "a default-search positive is a selection, not a refusal: {line}"
-            );
-        }
     }
 
     // Present-empty PATH: the one empty entry is cwd to the native
@@ -1919,35 +1911,26 @@ fn the_composite_probes_the_node_the_selection_retained() {
     assert!(!line.contains(" plugin "), "{line}");
 }
 
-/// The overrides keep their precedence and their no-fallback meaning:
-/// primary `BROKKR_DSH_BIN`, then legacy `FORGE_DSH_BIN`, then `PATH`; a
-/// failed override never falls back to a PATH decoy; an absolute
-/// override needs no `PATH` at all.
+/// The override keeps its precedence and its no-fallback meaning:
+/// `BROKKR_DSH_BIN`, then `PATH`; a failed override never falls back to
+/// a PATH decoy; an absolute override needs no `PATH` at all.
 #[test]
 fn explicit_overrides_keep_their_precedence_and_never_fall_back() {
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let primary = version_script(&cwd.join("primary"), "dsh", "DSH_PRIMARY_0.0.1");
-    let legacy = version_script(&cwd.join("legacy"), "dsh", "DSH_LEGACY_0.0.2");
     let on_path = cwd.join("on-path");
     version_script(&on_path, "dsh", "DSH_PATH_DECOY_0.0.3");
 
     let line = |command: &mut Command| dsh_line(&stdout_of(command));
 
-    // Both set: primary. Legacy alone: legacy. Neither: PATH.
+    // Set: the override. Unset: PATH.
     assert!(line(
         doctor(cwd)
             .env("PATH", &on_path)
             .env("BROKKR_DSH_BIN", &primary)
-            .env("FORGE_DSH_BIN", &legacy)
     )
     .contains("DSH_PRIMARY_0.0.1"));
-    assert!(line(
-        doctor(cwd)
-            .env("PATH", &on_path)
-            .env("FORGE_DSH_BIN", &legacy)
-    )
-    .contains("DSH_LEGACY_0.0.2"));
     assert!(line(doctor(cwd).env("PATH", &on_path)).contains("DSH_PATH_DECOY_0.0.3"));
 
     // An absolute override with NO PATH is selected: an override is a
@@ -3009,4 +2992,21 @@ fn an_env_launcher_without_a_program_is_refused_before_any_probe() {
         line.starts_with("ok       dsh: v9.9.9-sh · serves"),
         "{line}"
     );
+}
+
+/// A DSH pinned only by the retired spelling (#355) is refused by name,
+/// and neither the pin nor the `dsh` on `PATH` is probed.
+#[test]
+fn a_retired_dsh_override_is_refused_before_any_probe() {
+    let workspace = shipped_workspace();
+    let (cwd, retired) = (workspace.path(), concat!("FOR", "GE_DSH_BIN"));
+    let doctor_marks = marks(cwd, "doctor");
+    let pinned = version_script(&cwd.join("pinned"), "dsh", "9.9.9-pinned");
+    version_script(&cwd.join("bin"), "dsh", "9.9.9-path");
+    let mut command = doctor(cwd);
+    command.env(retired, &pinned).env("PATH", cwd.join("bin"));
+    let stdout = stdout_of(command.env("BROKKR_MARKS", &doctor_marks));
+    assert_eq!(executed(&doctor_marks), Vec::<String>::new(), "{stdout}");
+    let line = format!("warn     dsh: binary 'dsh' not found: {retired} is set but");
+    assert!(dsh_line(&stdout).starts_with(&line), "{stdout}");
 }

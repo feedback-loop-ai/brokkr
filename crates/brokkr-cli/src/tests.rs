@@ -1211,7 +1211,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .unwrap();
 
     let mut env = EnvGuard::lock();
-    let token_name = format!("FORGE_TEST_TOKEN_{}", std::process::id());
+    let token_name = format!("BROKKR_TEST_TOKEN_{}", std::process::id());
     env.remove(&token_name);
     let command = |follow| {
         Cmd::Bridge(BridgeArgs {

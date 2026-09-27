@@ -3,7 +3,7 @@
 //! reads any of it.
 
 use super::*;
-use crate::agents::Candidate;
+use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::{PanelMember, SequenceStep};
 
 use super::tests::{engine, single_body};

@@ -128,7 +128,7 @@ tooling:
   which environment manager is in play, so it names the one thing it can
   be sure of: the interpreter the seat is standing in — and the
   interpreter a fresh project actually resolves is `python3` (the
-  shipped adapters grant it that name). `python3 -m pytest` at least
+  scaffolded adapter grants it that name). `python3 -m pytest` at least
   runs pytest *from that interpreter* rather than from whatever is first
   on `PATH`.
 - **This is a fallback, and it is a weaker answer than the uv one.** If

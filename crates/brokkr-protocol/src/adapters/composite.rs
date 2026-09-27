@@ -33,6 +33,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::overrides::{Override, OverrideError};
+
 /// The plugin's committed six-file set, in bytewise path order.
 const PLUGIN_FILES: [&str; 6] = [
     "LICENSE",
@@ -92,6 +94,10 @@ pub enum CompositeError {
     },
     #[error("the DSH layout is unreadable: {0}")]
     Config(String),
+    /// The executable's override cannot be read: its value is not UTF-8,
+    /// or only its retired spelling is set.
+    #[error(transparent)]
+    Override(OverrideError),
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1720,9 +1726,9 @@ fn canonical_composite(
 }
 
 /// The two seams the DSH adapter resolves, exactly as it resolves them:
-/// the executable through `BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then
-/// `dsh` on `PATH`, and the home through `$DSH_HOME` when set and
-/// non-empty, otherwise `$HOME/.dsh`.
+/// the executable through `BROKKR_DSH_BIN` (refused when it cannot be
+/// read), then `dsh` on `PATH`, and the home through
+/// `$DSH_HOME` when set and non-empty, otherwise `$HOME/.dsh`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshSeams {
     pub executable: String,
@@ -1905,6 +1911,17 @@ impl DshSeams {
         DshSeams::resolved(DshSeams::located())
     }
 
+    /// `resolve` over the value a seat already read: `run_seat` reads
+    /// the override once and the launch resolves what it read, never the
+    /// environment a second time (#355).
+    pub(crate) fn resolve_declared(declared: &str) -> Result<DshSeams, CompositeError> {
+        DshSeams::resolved(DshSeams::located_from(
+            declared.to_string(),
+            select,
+            crate::transcript::dsh_home(),
+        ))
+    }
+
     /// `resolve` over an injected location: the located seams, or the
     /// cause the selection did not happen by. The planner has no use for
     /// a declared spelling without a file behind it, so a failed selection
@@ -1941,12 +1958,18 @@ impl DshSeams {
     }
 
     /// The environment's one resolution, before anything is admitted.
+    /// An override that cannot be read is refused here, before any lookup.
     fn located() -> Result<Located, DshUnselected> {
-        DshSeams::located_from(
-            super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh"),
-            select,
-            crate::transcript::dsh_home(),
-        )
+        let declared = match crate::overrides::read(Override::DshBin) {
+            Ok(declared) => declared,
+            Err(refused) => {
+                return Err(DshUnselected {
+                    declared: Override::DshBin.fallback().to_string(),
+                    cause: CompositeError::Override(refused),
+                })
+            }
+        };
+        DshSeams::located_from(declared, select, crate::transcript::dsh_home())
     }
 
     /// `selected` over an injected resolver and home, so the resolved,

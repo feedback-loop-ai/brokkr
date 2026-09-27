@@ -95,8 +95,7 @@ fn the_leading_word_is_the_binary_that_runs() {
 /// own name, as the `Bash(<bin>:*)` prefix the claude CLI reads. The one
 /// word with two tools is the plain-python row's `python3`: beside the
 /// interpreter, pytest — the venv's suite binary — is granted with the
-/// narrower `Bash(.venv/bin/pytest:*)` expression the shipped adapters
-/// already carry.
+/// narrower `Bash(.venv/bin/pytest:*)` expression.
 #[test]
 fn every_runner_the_tables_name_has_a_bash_grant() {
     for token in [

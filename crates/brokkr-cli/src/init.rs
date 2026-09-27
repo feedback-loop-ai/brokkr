@@ -243,7 +243,7 @@ fn bundle_json(detected: Option<&Detected>) -> String {
 const EXEC_ADAPTER: &str = r#"{
   "provider": "exec",
   "trust_tier": "untrusted",
-  "binding_grant": true,
+  "egress": "contracted",
   "binary": "sh",
   "driver": ["{brokkr}", "driver", "exec", "--"],
   "models": {},
@@ -490,7 +490,7 @@ const PYTHON3: Tool = Tool {
 /// pytest is not a runner any command of the plain-python row leads
 /// with — the suite runs as `python3 -m pytest` — but the venv's own
 /// `pytest` binary is the honest spelling of "run the suite" in a fresh
-/// project, and the shipped adapters grant it the same narrow way.
+/// project, and the scaffolded adapter grants it that narrow way.
 const PYTEST: Tool = Tool {
     name: "pytest",
     permission: "Bash(.venv/bin/pytest:*)",
@@ -594,7 +594,7 @@ fn grants(detected: Option<&Detected>) -> Grants {
 
 /// The scaffold's claude adapter: decision 0021's trust declaration
 /// (ruling 2's trusted tier — the starter's gate seats compile against
-/// it — and ruling 4's absent binding grant) plus the tool map. `names`
+/// it — and an `uncontracted` egress) plus the tool map. `names`
 /// is the union of every allowance the scaffold wrote — the work set,
 /// which carries the gate set inside it — because a name any agent's
 /// `tools.allow` lists must be expressible here or the scaffold's own
@@ -608,7 +608,7 @@ fn adapter_json(grants: &Grants) -> String {
     let adapter = json!({
         "provider": "claude",
         "trust_tier": "trusted",
-        "binding_grant": false,
+        "egress": "uncontracted",
         "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
         "models": {
@@ -663,7 +663,7 @@ fn adapter_json(grants: &Grants) -> String {
 const CODEX_ADAPTER: &str = r#"{
   "provider": "codex",
   "trust_tier": "trusted",
-  "binding_grant": false,
+  "egress": "uncontracted",
   "binary": "codex",
   "driver": ["{brokkr}", "driver", "codex", "--"],
   "models": {
@@ -702,7 +702,7 @@ const CODEX_ADAPTER: &str = r#"{
 const DSH_ADAPTER: &str = r#"{
   "provider": "dsh",
   "trust_tier": "untrusted",
-  "binding_grant": false,
+  "egress": "uncontracted",
   "binary": "dsh",
   "driver": ["{brokkr}", "driver", "dsh", "--"],
   "models": {
@@ -1086,7 +1086,7 @@ const STACKS: &[Stack] = &[
     },
     // The pip fallback. The commands run through `python3`, not
     // `python`: the interpreter a fresh project actually resolves is
-    // python3 (the shipped adapters grant it that name), and a charter
+    // python3 (the scaffolded adapter grants it that name), and a charter
     // that said `python` would hand the seat a command its own allowance
     // cannot answer. pytest, the venv's suite binary, is granted beside
     // the interpreter for the same reason.

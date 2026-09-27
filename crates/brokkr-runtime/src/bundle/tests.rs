@@ -779,25 +779,6 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
     assert!(command[1].ends_with("tool"));
     assert_eq!(command[2], "plain");
 
-    // Decision 0019: the old token is the same token for one more
-    // release. It resolves to exactly what `{brokkr}` resolves to — the
-    // note it earns is said once by the one latch `legacy` owns, which
-    // is where that property is pinned.
-    let old = parse_command(
-        dir,
-        "work",
-        &json!({"driver":{"command":["{forge}", "./tool", "plain"]}}),
-        &[],
-    )
-    .unwrap();
-    assert_eq!(old, command);
-    // Read twice: an old token resolves the same every time, never once
-    // and then differently.
-    assert_eq!(
-        expand_command(dir, &["{forge}".to_string(), "{brokkr}".to_string()]),
-        vec![command[0].clone(), command[0].clone()]
-    );
-
     // Decision 0046 ruling 5: the field is refused by name, in every
     // shape, and a site without it is untouched.
     for raw in [

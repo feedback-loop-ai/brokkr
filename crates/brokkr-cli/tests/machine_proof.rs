@@ -2927,7 +2927,7 @@ fn secrets_cli_round_trips_and_never_prints_values() {
         ("MULTI", "two\nlines\n"),
         ("SHORT", "abc\n"),
         ("PATH", "longenough\n"),
-        ("FORGE_X", "longenough\n"),
+        ("BROKKR_X", "longenough\n"),
         ("lower", "longenough\n"),
     ] {
         let (code, _, stderr) = brokkr_stdin(

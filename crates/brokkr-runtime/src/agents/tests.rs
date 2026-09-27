@@ -1032,7 +1032,17 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
                    "mcp": "unsupported", "model_flag": "-m",
                    "efforts": [], "effort_flag": "unsupported",
                    "egress": "local", "binding_grant": true}),
-            "declares both 'egress' and the superseded 'binding_grant'",
+            "has unknown key 'binding_grant'",
+        ),
+        // The shape an operator's pre-#355 adapter holds: `binding_grant`
+        // alone, no `egress`. Refused, never read as `uncontracted`.
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "-m",
+                   "efforts": [], "effort_flag": "unsupported",
+                   "binding_grant": false}),
+            "has unknown key 'binding_grant'",
         ),
         (
             json!({"provider": "claude", "binary": "claude", "driver": ["x"],
@@ -1466,30 +1476,12 @@ fn a_route_name_is_whatever_a_model_id_may_begin_with() {
     assert!(!valid_name("openai_compat"));
 }
 
-/// The migration, at the loader: the superseded `binding_grant` still
-/// READS, and reads as exactly what decision 0036 ruling 4 says it does,
-/// so no adapter file on disk is forced to change this release.
+/// Decision 0036 ruling 1 at the loader: an adapter declaring no egress
+/// is uncontracted, with no routes at all — the shape of an adapter that
+/// fronts a single destination.
 #[test]
-fn the_superseded_grant_still_reads_as_a_class() {
+fn an_absent_egress_reads_as_uncontracted() {
     let tree = Tree::new();
-    let mut granted = claude_body();
-    granted["binding_grant"] = json!(true);
-    tree.write("adapters/claude.json", &granted);
-    assert_eq!(
-        tree.adapters().adapter("claude").unwrap().egress,
-        EgressClass::Contracted
-    );
-
-    let mut refused = claude_body();
-    refused["binding_grant"] = json!(false);
-    tree.write("adapters/claude.json", &refused);
-    assert_eq!(
-        tree.adapters().adapter("claude").unwrap().egress,
-        EgressClass::Uncontracted
-    );
-
-    // Absent on both keys: uncontracted, and no routes at all — the
-    // shape of an adapter that fronts a single destination.
     tree.write("adapters/claude.json", &claude_body());
     let adapters = tree.adapters();
     let claude = adapters.adapter("claude").unwrap();

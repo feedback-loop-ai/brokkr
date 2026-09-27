@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::hands::BindMode;
-use brokkr_runtime::{Bundle, SeatBody, SeatClass, StepBody};
+use brokkr_runtime::{Bundle, Library, SeatBody, SeatClass, StepBody};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -561,6 +561,69 @@ fn night_shift_keeps_one_attempt_on_every_phase() {
         assert_eq!(
             bundle.seats[phase].limits.max_attempts, 1,
             "night-shift's {phase} seat must park after its first failed attempt"
+        );
+    }
+}
+
+/// The agents a library holds for a consumer outside every shipped
+/// bundle, each with the seat that hires it. `muninn` is composed
+/// outside a bundle by `brokkr muninn` (decision 0020).
+const UNSEATED_CATALOGUE: [&str; 1] = ["muninn"];
+
+/// Every recipe directory with a `bundle.json`, and the two system
+/// bundles.
+fn shipped_bundle_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![root.join("bundles/self"), root.join("bundles/verify")];
+    for recipe in std::fs::read_dir(root.join("recipes")).unwrap().flatten() {
+        if recipe.path().join("bundle.json").is_file() {
+            dirs.push(recipe.path());
+        }
+    }
+    dirs
+}
+
+/// #355 (decision 0071 ruling 6): an agent is seated by a shipped
+/// recipe, or the catalogue above names it. The seated set is read from
+/// each compiled manifest's `agents` pins — the record of which agent
+/// every site hired — and a pin that names no agent fails the test
+/// rather than being passed over.
+#[test]
+fn every_library_agent_is_seated_by_a_shipped_bundle_or_catalogued() {
+    let root = workspace();
+    let mut seated = BTreeSet::new();
+    for dir in shipped_bundle_dirs(&root) {
+        let name = dir.display();
+        let bundle = Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|error| panic!("{name} compiles: {error}"));
+        let Some(pins) = bundle.manifest.get("agents") else {
+            continue;
+        };
+        let pins = pins
+            .as_object()
+            .unwrap_or_else(|| panic!("{name}: the agents pin is an object"));
+        for (site, pin) in pins {
+            let agent = pin
+                .get("agent")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| panic!("{name}:{site}: the pin names its agent"));
+            seated.insert(agent.to_string());
+        }
+    }
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    let unseated: Vec<String> = library
+        .names()
+        .into_iter()
+        .filter(|agent| !seated.contains(agent) && !UNSEATED_CATALOGUE.contains(&agent.as_str()))
+        .collect();
+    assert_eq!(
+        unseated,
+        Vec::<String>::new(),
+        "no shipped recipe seats these agents; seat them, delete them, or catalogue them"
+    );
+    for agent in UNSEATED_CATALOGUE {
+        assert!(
+            library.agent(agent).is_some() && !seated.contains(agent),
+            "catalogued agent {agent} must exist and be seated by no bundle"
         );
     }
 }

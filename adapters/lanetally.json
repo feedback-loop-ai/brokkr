@@ -34,8 +34,6 @@
     "names": {
       "cargo": "Bash(cargo:*)",
       "git": "Bash(git:*)",
-      "python3": "Bash(python3:*)",
-      "pytest": "Bash(.venv/bin/pytest:*)",
       "ls": "Bash(ls:*)",
       "rg": "Bash(rg:*)",
       "mkdir": "Bash(mkdir:*)",

@@ -499,6 +499,15 @@ fn status_exit(status: &Status) -> ExitCode {
     }
 }
 
+/// A driven run's ending: the conclusion's anchor and keep-ref gaps on
+/// stderr, then the summary `finish` prints.
+fn finish_drive(end: &brokkr_runtime::DriveEnd) -> ExitCode {
+    for gap in &end.gaps {
+        eprintln!("{gap}");
+    }
+    finish(&end.state)
+}
+
 fn finish(state: &RunState) -> ExitCode {
     println!(
         "{}",
@@ -2182,8 +2191,7 @@ fn run_with(
             };
             engine.secrets_file = secrets_file;
             eprintln!("run started: {}", engine.run_id);
-            let end = engine.drive()?;
-            Ok(finish(&end.state))
+            Ok(finish_drive(&engine.drive()?))
         }
         Cmd::Resume(ResumeArgs {
             bundle,
@@ -2222,8 +2230,7 @@ fn run_with(
                 world.verify_crossings(workspace)?;
             }
             engine.secrets_file = secrets_file;
-            let end = engine.drive()?;
-            Ok(finish(&end.state))
+            Ok(finish_drive(&engine.drive()?))
         }
         Cmd::Rerun(RerunArgs {
             run,
@@ -2275,8 +2282,7 @@ fn run_with(
                 "rerun of {run} as {} under {}",
                 engine.run_id, engine.bundle.name
             );
-            let end = engine.drive()?;
-            Ok(finish(&end.state))
+            Ok(finish_drive(&engine.drive()?))
         }
         Cmd::Conclude(ConcludeArgs {
             run,

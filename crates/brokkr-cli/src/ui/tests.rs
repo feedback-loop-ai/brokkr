@@ -284,15 +284,45 @@ fn listener_open_hook_is_testable_and_public_bind_errors_return() {
         std::thread::yield_now();
     }
 
-    // Both spellings reach the same opener: the new name is what this
-    // release documents, the old one answers for one release more
-    // (decision 0019).
     let mut env = EnvGuard::lock();
     env.set("BROKKR_BROWSER_BIN", "true");
     open_system_browser("http://127.0.0.1:9/");
+}
+
+/// A browser pinned by the retired spelling alone, or by a value that is
+/// not UTF-8, opens nothing: neither the pin nor `xdg-open` in its place
+/// (#355).
+#[test]
+fn a_browser_override_that_cannot_be_read_is_refused_by_name() {
+    use std::os::unix::ffi::OsStrExt;
+    let retired = concat!("FOR", "GE_BROWSER_BIN");
+    let mut env = EnvGuard::lock();
     env.remove("BROKKR_BROWSER_BIN");
-    env.set("FORGE_BROWSER_BIN", "true");
-    open_system_browser("http://127.0.0.1:9/");
+    env.set(retired, "true");
+    let mut opened = Vec::new();
+    let mut open = || open_browser_with("http://x/", |p, _| opened.push(p.to_string()));
+    let refused = OverrideError::Retired {
+        retired: retired.to_string(),
+        current: "BROKKR_BROWSER_BIN",
+    };
+    assert_eq!(browser_program(), Err(refused));
+    open();
+    env.set(
+        "BROKKR_BROWSER_BIN",
+        std::ffi::OsStr::from_bytes(b"/opt/\xff"),
+    );
+    let variable = "BROKKR_BROWSER_BIN";
+    assert_eq!(
+        browser_program(),
+        Err(OverrideError::NotUnicode { variable })
+    );
+    open();
+    env.set("BROKKR_BROWSER_BIN", "true");
+    open();
+    env.remove("BROKKR_BROWSER_BIN");
+    env.remove(retired);
+    open();
+    assert_eq!(opened, ["true", "xdg-open"]);
 }
 
 #[test]

@@ -1,45 +1,8 @@
 use super::*;
-
-const POLICY: &str = r#"{
-      "schema": "forge.phase-machine/v1",
-      "phases": ["work", "review", "done", "stop"],
-      "initial": "work",
-      "terminal": ["done", "stop"],
-      "shippable_from": ["review"],
-      "rules": [
-        {"id": "W-OK", "from": "work", "result": "built", "next": "review",
-         "reason": "work concluded"},
-        {"id": "R-OK", "from": "review", "result": "clean", "next": "done",
-         "reason": "review concluded"}
-      ]
-    }"#;
-
-/// The adapter tree the bundle compiles against: a seat that declares
-/// secret bindings must seat a driver the operator granted them
-/// (decision 0021 ruling 4), and the fixture grants one under a name no
-/// vendor answers to.
-fn write_adapters(dir: &std::path::Path) -> std::path::PathBuf {
-    let adapters = dir.join("adapters");
-    std::fs::create_dir_all(&adapters).unwrap();
-    std::fs::write(
-        adapters.join("granted.json"),
-        serde_json::to_string(&json!({
-            "provider": "granted",
-            "binding_grant": true,
-            "binary": "granted",
-            "driver": ["{brokkr}", "driver", "granted", "--"],
-            "models": {},
-            "model_flag": "unsupported",
-            "efforts": [],
-            "effort_flag": "unsupported",
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    adapters
-}
+// The two-seat table and the adapter tree the bundle compiles against,
+// shared with the compiler's own secret-binding tests: one granted driver
+// under a name no vendor answers to (decision 0021 ruling 4).
+use crate::bundle::secret_binding_tests::{write_adapters, POLICY};
 
 /// An engine over a compiled two-seat bundle; `work` optionally
 /// declares secret bindings.

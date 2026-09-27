@@ -233,9 +233,6 @@ pub struct Adapter {
     /// answers for that destination ONLY — a route this file does not
     /// name falls to `Uncontracted`, not to this value, because ruling 1
     /// makes an absent declaration uncontracted (see `resolve_route`).
-    /// It is also where the superseded `binding_grant` lands: a `true`
-    /// grant reads as `Contracted`, a `false` or absent grant as
-    /// `Uncontracted`.
     pub egress: EgressClass,
     /// Decision 0036 ruling 2: route name → declared class, where a
     /// route is the prefix of a concrete model id. An adapter fronting a

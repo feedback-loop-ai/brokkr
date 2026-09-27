@@ -1,7 +1,36 @@
 use super::*;
 use crate::env_guard::EnvGuard;
 use crate::transcript::{dsh_home, dsh_home_from};
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+
+/// One invocation of `kind` over its override as this test's environment
+/// holds it, read by the one reader the way `run_seat` reads it.
+fn invoke(
+    kind: AdapterKind,
+    extra: &[String],
+    prompt: &str,
+    input: &Value,
+    session: Option<&str>,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let binary = crate::overrides::read(Override::of_driver(kind)).unwrap();
+    let pinned = Pinned {
+        binary: &binary,
+        extra,
+    };
+    invoke_with_stager(
+        kind,
+        pinned,
+        prompt,
+        input,
+        session,
+        bindings,
+        emit,
+        stage_prompt,
+    )
+}
 
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
@@ -307,33 +336,13 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         .unwrap_err()
         .contains("not valid UTF-8"));
 
-    assert_eq!(
-        adapter_binary("BROKKR_TEST_BINARY_NEVER_DEFINED", None, "fallback"),
-        "fallback"
-    );
-    assert!(!adapter_binary("PATH", None, "fallback").is_empty());
-    // The renamed overrides: the new spelling wins, the old one answers
-    // when the new one is absent (decision 0019, one release).
-    env.set("BROKKR_TEST_BINARY_RENAMED", "new");
-    env.set("FORGE_TEST_BINARY_RENAMED", "old");
-    assert_eq!(
-        adapter_binary(
-            "BROKKR_TEST_BINARY_RENAMED",
-            Some("FORGE_TEST_BINARY_RENAMED"),
-            "fallback"
-        ),
-        "new"
-    );
-    env.remove("BROKKR_TEST_BINARY_RENAMED");
-    assert_eq!(
-        adapter_binary(
-            "BROKKR_TEST_BINARY_RENAMED",
-            Some("FORGE_TEST_BINARY_RENAMED"),
-            "fallback"
-        ),
-        "old"
-    );
-    env.remove("FORGE_TEST_BINARY_RENAMED");
+    // Exec's driver name is its override's, and one the reader refuses
+    // labels it `exec`: `run_seat` refuses every start on it by name.
+    env.set("BROKKR_EXEC_NAME", "named");
+    assert_eq!(AdapterKind::Exec.driver_name(), "named");
+    env.set("BROKKR_EXEC_NAME", std::ffi::OsStr::from_bytes(b"\xff"));
+    assert_eq!(AdapterKind::Exec.driver_name(), "exec");
+    env.remove("BROKKR_EXEC_NAME");
     assert_eq!(io_context::<()>(Ok(()), "ok"), Ok(()));
     assert!(
         io_context::<()>(Err(std::io::Error::other("no")), "context")
@@ -354,7 +363,10 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     let prompt_template = vec!["true".into(), "{prompt_file}".into()];
     let staged = invoke_with_stager(
         AdapterKind::Exec,
-        &prompt_template,
+        Pinned {
+            binary: "exec",
+            extra: &prompt_template,
+        },
         "prompt",
         &json!({}),
         None,
@@ -492,16 +504,18 @@ fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
             .starts_with("\n\n---\n## Task"));
     }
 
-    let refused = |start: Value| {
+    let admitted_as = |start: Value, admitted: Result<(), OverrideError>| {
         let mut bodies = Vec::new();
         run_seat_with(
             AdapterKind::Claude,
+            admitted,
             &start,
             &mut |body| bodies.push(serde_json::to_value(body).unwrap()),
             |_, _, _, _| panic!("a refused seat never invokes its driver"),
         );
         bodies
     };
+    let refused = |start: Value| admitted_as(start, Ok(()));
     let full = json!({"effect_id": "fx", "attempt_id": "a1", "input": input});
     let failed = |effect_id: &str, attempt_id: &str, error: String| {
         serde_json::to_value(Body::Result {
@@ -540,6 +554,20 @@ fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
             )]
         );
     }
+    // A driver whose override is set only by its retired spelling (#355):
+    // the charter reads, so the spelling is the only reason.
+    let refusal = OverrideError::Retired {
+        retired: Override::ClaudeBin.retired().unwrap(),
+        current: "BROKKR_CLAUDE_BIN",
+    };
+    assert_eq!(
+        admitted_as(chartered, Err(refusal.clone())),
+        vec![failed(
+            "fx",
+            "a1",
+            format!("seat refused to start: {refusal}")
+        )]
+    );
     assert!(
         !dir.path().join("result.json").exists(),
         "a refused seat writes nothing"
@@ -628,14 +656,9 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
         "closed-stdin",
         "#!/bin/sh\nexec 0<&-\nsleep 0.1\n",
     );
-    // Codex is pinned here through its OLD spelling, which the new one
-    // outranks (decision 0019): an inherited BROKKR_CODEX_BIN would
-    // send this test at a real codex, so it goes for the duration.
-    env.remove("BROKKR_CODEX_BIN");
-
     for (kind, variable) in [
         (AdapterKind::Claude, "BROKKR_CLAUDE_BIN"),
-        (AdapterKind::Codex, "FORGE_CODEX_BIN"),
+        (AdapterKind::Codex, "BROKKR_CODEX_BIN"),
     ] {
         env.set(variable, &invalid);
         assert!(invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {}).is_ok());
@@ -647,34 +670,6 @@ fn claude_and_codex_cover_empty_workdir_stream_errors_and_prompt_pipe_refusals()
             Err(error) => error,
         };
         assert!(error.contains("could not write the prompt"));
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn claude_and_lanetally_accept_their_one_release_legacy_overrides() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let shim = executable(
-        dir.path(),
-        "legacy-override",
-        "#!/bin/sh\ncat >/dev/null\nprintf '{\"type\":\"result\"}\\n'\n",
-    );
-
-    for (kind, primary, legacy) in [
-        (AdapterKind::Claude, "BROKKR_CLAUDE_BIN", "FORGE_CLAUDE_BIN"),
-        (
-            AdapterKind::Lanetally,
-            "BROKKR_LANETALLY_BIN",
-            "FORGE_LANETALLY_BIN",
-        ),
-    ] {
-        env.remove(primary);
-        env.set(legacy, &shim);
-
-        let invocation = invoke(kind, &[], "prompt", &json!({}), None, &[], &mut |_| {})
-            .expect("the legacy override must select the shim");
-        assert_eq!(invocation.exit_code, 0);
     }
 }
 
@@ -909,7 +904,6 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         ),
     );
     env.set("BROKKR_DSH_BIN", &fake);
-    env.remove("FORGE_DSH_BIN");
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
     env.set("DSH_HOME", dir.path());
@@ -2273,7 +2267,6 @@ fn recorded(argv: &std::path::Path) -> Vec<String> {
 #[cfg(unix)]
 fn with_codex_bin<T>(env: &mut EnvGuard, shim: &std::path::Path, body: impl FnOnce() -> T) -> T {
     env.set("BROKKR_CODEX_BIN", shim);
-    env.remove("FORGE_CODEX_BIN");
     body()
 }
 
@@ -6003,6 +5996,7 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
     let mut acknowledged = 0usize;
     run_seat_with(
         AdapterKind::Dsh,
+        Ok(()),
         &start,
         &mut |body| bodies.push(body),
         |prompt, input, _bindings, mut emit| {
@@ -7297,7 +7291,6 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     env.set("BROKKR_DSH_BIN", dir.path().join("dsh-does-not-exist"));
-    env.remove("FORGE_DSH_BIN");
     env.set("DSH_HOME", dir.path());
 
     let result = dir.path().join("result.json");
@@ -7373,7 +7366,6 @@ fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
         ),
     );
     env.set("BROKKR_DSH_BIN", &shim);
-    env.remove("FORGE_DSH_BIN");
     env.set("DSH_HOME", dir.path());
     let mut messages = Vec::new();
     run_seat(
@@ -7654,7 +7646,6 @@ fn dsh_seat_journals_one_checkpoint_per_turn_while_the_child_still_runs() {
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "dsh", DSH_TRANSCRIPT_SHIM);
     env.set("BROKKR_DSH_BIN", &fake);
-    env.remove("FORGE_DSH_BIN");
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
     env.set("DSH_HOME", dir.path());
@@ -8233,12 +8224,11 @@ fn a_failure_before_the_promotion_keeps_the_private_store_and_names_it() {
     std::fs::remove_dir_all(&store).unwrap();
 }
 
-/// The whole driver decision on a real linked worktree: the row is built
-/// where bubblewrap can stand in, and the refusal names the reason where
-/// it cannot.
+/// A real repository under `dir/main` with one commit, its linked
+/// worktree `dir/wt` on branch `slice` and that worktree's git facts, and
+/// the directory holding both.
 #[cfg(target_os = "linux")]
-#[test]
-fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+fn real_linked_worktree() -> (tempfile::TempDir, PathBuf, GitFacts) {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");
     std::fs::create_dir_all(&main).unwrap();
@@ -8277,6 +8267,39 @@ fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() 
     );
 
     let facts = crate::hands::git_facts(&worktree);
+    (dir, worktree, facts)
+}
+
+/// A runner override that is not UTF-8 refuses a real linked worktree's
+/// seat by name, with or without bubblewrap, and never falls to this
+/// binary (#355).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_runner_override_that_is_not_unicode_refuses_the_row_by_name() {
+    let (_dir, worktree, facts) = real_linked_worktree();
+    let mut env = EnvGuard::lock();
+    env.set(
+        "BROKKR_DSH_RUNNER",
+        std::ffi::OsStr::from_bytes(b"/opt/\xff/brokkr"),
+    );
+    let not_unicode = OverrideError::NotUnicode {
+        variable: "BROKKR_DSH_RUNNER",
+    };
+    assert_eq!(
+        dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write").unwrap_err(),
+        format!("dsh driver: {not_unicode}")
+    );
+}
+
+/// The whole driver decision on a real linked worktree: the row is built
+/// where bubblewrap can stand in, and the refusal names the reason where
+/// it cannot.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_real_linked_worktree_builds_the_runner_row_or_refuses_without_bubblewrap() {
+    // Held so the runner override another test sets is not read here.
+    let _env = EnvGuard::lock();
+    let (dir, worktree, facts) = real_linked_worktree();
     match dsh_sandbox_row_for(worktree.to_str().unwrap(), &facts, "workspace-write") {
         Ok(Some((row, _, staged))) => {
             assert!(row.contains("- id: sandbox\n"), "{row}");
@@ -8384,7 +8407,6 @@ fn the_dsh_seat_commits_unsigned_under_the_host_identity() {
         &format!("#!/bin/sh\nenv > {}\n", dump.display()),
     );
     env.set("BROKKR_DSH_BIN", &fake);
-    env.remove("FORGE_DSH_BIN");
     env.set("DSH_HOME", dir.path());
 
     invoke(
@@ -8479,7 +8501,6 @@ fn the_dsh_driver_promotes_the_seats_branch_out_of_the_private_store() {
         ),
     );
     env.set("BROKKR_DSH_BIN", &fake);
-    env.remove("FORGE_DSH_BIN");
     env.set("DSH_HOME", dir.path());
     env.set("DSH_PERMISSION_MODE", "workspace-write");
 
@@ -8639,7 +8660,6 @@ fn a_codex_that_completes_no_turn_still_names_what_served_it_on_the_way_out() {
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_NO_TURN_SHIM);
     env.set("BROKKR_CODEX_BIN", &fake);
-    env.remove("FORGE_CODEX_BIN");
     env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
@@ -8694,7 +8714,6 @@ fn a_refused_effort_does_not_hide_the_one_the_thread_still_names() {
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_REFUSED_EFFORT_SHIM);
     env.set("BROKKR_CODEX_BIN", &fake);
-    env.remove("FORGE_CODEX_BIN");
     env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
@@ -8746,7 +8765,6 @@ fn a_refused_model_walks_back_while_the_newest_effort_stands() {
     let home = dir.path().join("codex-home");
     let fake = executable(dir.path(), "codex", CODEX_REFUSED_MODEL_SHIM);
     env.set("BROKKR_CODEX_BIN", &fake);
-    env.remove("FORGE_CODEX_BIN");
     env.set("CODEX_HOME", &home);
 
     let mut emitted: Vec<Value> = Vec::new();
@@ -8794,8 +8812,6 @@ fn a_running_codex_seat_journals_its_thread_id_before_its_first_turn() {
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "codex", CODEX_THREAD_SHIM);
     env.set("BROKKR_CODEX_BIN", &fake);
-    env.remove("FORGE_CODEX_BIN");
-
     let seen = dir.path().join("codex-seen");
     let mut emitted: Vec<Value> = Vec::new();
     let invocation = invoke(
@@ -8896,19 +8912,18 @@ fn a_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinning() {
     let dir = tempfile::tempdir().unwrap();
     let fake = executable(dir.path(), "dsh", "#!/bin/sh\nexit 0\n");
     env.set("BROKKR_DSH_BIN", &fake);
-    env.remove("FORGE_DSH_BIN");
     // The seat's transcript is kept under the harness home; in a test
     // that home is this test's own directory, never the operator's.
     env.set("DSH_HOME", dir.path());
 
     let mut passes = 0;
     let mut emitted: Vec<Value> = Vec::new();
-    let refused = invoke_dsh_with(
-        &[],
+    let workdir = dir.path().to_str().unwrap();
+    let launch = dsh_launch(fake.to_str().unwrap(), &[], workdir, None, &json!({})).unwrap();
+    let refused = invoke_dsh_launch(
+        launch,
         "the prompt",
-        dir.path().to_str().unwrap(),
-        &json!({}),
-        None,
+        workdir,
         &[],
         &mut |event: &Value| emitted.push(event.clone()),
         |child| {
@@ -13155,7 +13170,8 @@ fn a_session_file_whose_first_row_is_not_the_header_is_unreadable() {
 /// directly, so this covers the real call.
 #[test]
 fn the_runner_program_resolves_a_nonempty_program() {
-    assert!(!dsh_runner_program().is_empty());
+    let _env = EnvGuard::lock();
+    assert!(!dsh_runner_program().unwrap().is_empty());
 }
 
 /// A route whose bytes are not UTF-8 is refused by name after the model
@@ -13357,15 +13373,13 @@ fn a_retained_session_entry_the_reader_cannot_yield_is_a_bounded_refusal() {
 fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    env.set("DSH_HOME", dir.path());
-    env.remove("FORGE_DSH_BIN");
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-real-seams", "0.1.5-rc.1");
-    // The closure's seam resolver reads this override, not the `bin`
-    // argument; the home is a bare directory, so the composite read is
-    // refused and the cold route ships.
-    env.set("BROKKR_DSH_BIN", &shim);
+    // The closure's seam resolver reads this home and the `bin` argument,
+    // the override `run_seat` already read (#355); the home is a bare
+    // directory, so the composite read is refused and the cold route ships.
+    env.set("DSH_HOME", dir.path());
     let launch = dsh_launch(
         &shim.to_string_lossy(),
         &[],
@@ -14022,6 +14036,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
         let mut stderr: Option<String> = None;
         run_seat_with(
             AdapterKind::Dsh,
+            Ok(()),
             &start,
             &mut |body| messages.push(body),
             |prompt, input, _, emit| {

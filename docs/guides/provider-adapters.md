@@ -20,7 +20,7 @@ ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; s
 ```
 
 The `dsh` line also reports the **composite** the adapter's own seam
-resolution reads (`BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on `PATH`,
+resolution reads (`BROKKR_DSH_BIN` or `dsh` on `PATH`,
 and `$DSH_HOME` or `$HOME/.dsh`): the canonical composite digest, the
 plugin component, and whether it equals, differs from or has no declared
 `wrapper_digest`. It is informational while no `supported` shape declares

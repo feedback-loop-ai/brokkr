@@ -939,12 +939,10 @@ that binds it (decision
 name's own grammar is in
 [`provider-adapters.md`](provider-adapters.md)).
 
-The shipped adapter files still carry the superseded `binding_grant`
-boolean, which reads for one more release — `true` as `contracted`,
-`false` or absent as `uncontracted`. If you copy one of them as your
-starting shape, replace that key rather than adding `egress` beside it:
-an adapter declaring both is refused at load time, because the two could
-disagree and only one of them could win.
+An adapter declares its own destination with `egress`, and an absent
+`egress` is `uncontracted`. The superseded `binding_grant` boolean is no
+longer read: an adapter still carrying it is refused at load time as an
+unknown key.
 
 ## Contribution licensing
 

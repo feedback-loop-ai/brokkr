@@ -19,6 +19,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::fold::{fold, Status};
+use brokkr_protocol::overrides::{self, Override, OverrideError};
 use brokkr_store::Store;
 use brokkr_view::transcript::{
     LegacyProvenance, Selection, Snapshot, TranscriptKind, TranscriptRead, Unavailable,
@@ -1258,10 +1259,25 @@ fn watch_transcript(db: &Path, rest: &str, stream: &mut impl Write, sse_limit: O
     }
 }
 
+/// The browser `open_system_browser` runs, apart from the spawn so a test
+/// can hold the refusal without racing a child.
+fn browser_program() -> Result<String, OverrideError> {
+    overrides::read(Override::BrowserBin)
+}
+
 fn open_system_browser(url: &str) {
-    let program = brokkr_protocol::legacy::env("BROKKR_BROWSER_BIN", Some("FORGE_BROWSER_BIN"))
-        .unwrap_or("xdg-open".to_string());
-    let _ = std::process::Command::new(program).arg(url).spawn();
+    open_browser_with(url, |program, url| {
+        drop(std::process::Command::new(program).arg(url).spawn());
+    });
+}
+
+/// `open_system_browser` over an injected spawn, so a test observes that
+/// an override that cannot be read runs nothing in its place.
+fn open_browser_with(url: &str, spawn: impl FnOnce(&str, &str)) {
+    match browser_program() {
+        Ok(program) => spawn(&program, url),
+        Err(refused) => eprintln!("brokkr ui: no browser opened: {refused}"),
+    }
 }
 
 fn serve_listener(

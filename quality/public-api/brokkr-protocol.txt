@@ -14,6 +14,7 @@ pub brokkr_protocol::adapters::CompositeError::Component(&'static str, alloc::st
 pub brokkr_protocol::adapters::CompositeError::Config(alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::NpmKey(alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::NpmLock(alloc::string::String)
+pub brokkr_protocol::adapters::CompositeError::Override(brokkr_protocol::overrides::OverrideError)
 pub brokkr_protocol::adapters::CompositeError::Patch(&'static str, alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::PnpmLock(alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::Value
@@ -29,6 +30,7 @@ impl brokkr_protocol::adapters::DshUnprepared
 pub fn brokkr_protocol::adapters::DshUnprepared::cause(&self) -> &brokkr_protocol::adapters::CompositeError
 pub enum brokkr_protocol::adapters::StartRefusal
 pub brokkr_protocol::adapters::StartRefusal::MissingCorrelation(&'static str)
+pub brokkr_protocol::adapters::StartRefusal::Override(brokkr_protocol::overrides::OverrideError)
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::error: alloc::string::String
 pub brokkr_protocol::adapters::StartRefusal::UnreadableCharter::path: alloc::string::String
@@ -172,9 +174,6 @@ pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
 pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
 pub fn brokkr_protocol::hands::unboxed_environment(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &[(alloc::string::String, alloc::string::String)], &std::path::Path, &std::path::Path) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub type brokkr_protocol::hands::Executor = dyn core::ops::function::Fn(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
-pub mod brokkr_protocol::legacy
-pub fn brokkr_protocol::legacy::env(&str, core::option::Option<&str>) -> core::option::Option<alloc::string::String>
-pub fn brokkr_protocol::legacy::say_once(&str, &str)
 pub mod brokkr_protocol::oneshot
 pub enum brokkr_protocol::oneshot::OneShot
 pub brokkr_protocol::oneshot::OneShot::Produced
@@ -183,6 +182,22 @@ pub brokkr_protocol::oneshot::OneShot::Produced::result: serde_json::value::Valu
 pub brokkr_protocol::oneshot::OneShot::Refused
 pub brokkr_protocol::oneshot::OneShot::Refused::reason: alloc::string::String
 pub fn brokkr_protocol::oneshot::run_once(&[alloc::string::String], &str, core::time::Duration, impl core::ops::function::FnOnce(&std::path::Path) -> serde_json::value::Value) -> brokkr_protocol::oneshot::OneShot
+pub mod brokkr_protocol::overrides
+pub enum brokkr_protocol::overrides::Override
+pub brokkr_protocol::overrides::Override::BrowserBin
+pub brokkr_protocol::overrides::Override::ClaudeBin
+pub brokkr_protocol::overrides::Override::CodexBin
+pub brokkr_protocol::overrides::Override::DshBin
+pub brokkr_protocol::overrides::Override::DshRunner
+pub brokkr_protocol::overrides::Override::ExecName
+pub brokkr_protocol::overrides::Override::LanetallyBin
+pub enum brokkr_protocol::overrides::OverrideError
+pub brokkr_protocol::overrides::OverrideError::NotUnicode
+pub brokkr_protocol::overrides::OverrideError::NotUnicode::variable: &'static str
+pub brokkr_protocol::overrides::OverrideError::Retired
+pub brokkr_protocol::overrides::OverrideError::Retired::current: &'static str
+pub brokkr_protocol::overrides::OverrideError::Retired::retired: alloc::string::String
+pub fn brokkr_protocol::overrides::read(brokkr_protocol::overrides::Override) -> core::result::Result<alloc::string::String, brokkr_protocol::overrides::OverrideError>
 pub mod brokkr_protocol::process
 pub enum brokkr_protocol::process::SpawnEnv
 pub brokkr_protocol::process::SpawnEnv::Exactly(alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>)
@@ -211,7 +226,7 @@ pub fn brokkr_protocol::secret::Secret::fmt(&self, &mut core::fmt::Formatter<'_>
 impl core::ops::drop::Drop for brokkr_protocol::secret::Secret
 pub fn brokkr_protocol::secret::Secret::drop(&mut self)
 pub const brokkr_protocol::secret::DENYLIST: [&str; 4]
-pub const brokkr_protocol::secret::DENYLIST_PREFIXES: [&str; 2]
+pub const brokkr_protocol::secret::DENYLIST_PREFIXES: [&str; 1]
 pub const brokkr_protocol::secret::MIN_VALUE_BYTES: usize
 pub const brokkr_protocol::secret::NEEDLE_ENCODINGS: [(&str, brokkr_protocol::secret::Encoder); 9]
 pub const brokkr_protocol::secret::SHORT_VALUE_WARN_BYTES: usize

@@ -159,6 +159,28 @@ impl Workspace {
             String::from_utf8_lossy(&out.stderr).into_owned(),
         )
     }
+
+    /// `brokkr run` over the bundle: the run id, and the whole stderr.
+    fn run(&self) -> (String, String) {
+        let bundle = self.path().join("bundle");
+        let db = self.db();
+        let (_, stderr) = self.brokkr(&[
+            "run",
+            "--bundle",
+            bundle.to_str().unwrap(),
+            "--feature",
+            "witness",
+            "--db",
+            db.to_str().unwrap(),
+        ]);
+        let run_id = stderr
+            .lines()
+            .find_map(|line| line.strip_prefix("run started: "))
+            .expect("run id on stderr")
+            .trim()
+            .to_string();
+        (run_id, stderr)
+    }
 }
 
 /// Every string key anywhere in a JSON value.
@@ -182,23 +204,8 @@ fn keys_deep(value: &Value, out: &mut Vec<String>) {
 #[test]
 fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
     let ws = Workspace::new();
-    let bundle = ws.path().join("bundle");
     let db = ws.db();
-    let (_, stderr) = ws.brokkr(&[
-        "run",
-        "--bundle",
-        bundle.to_str().unwrap(),
-        "--feature",
-        "witness",
-        "--db",
-        db.to_str().unwrap(),
-    ]);
-    let run_id = stderr
-        .lines()
-        .find_map(|line| line.strip_prefix("run started: "))
-        .expect("run id on stderr")
-        .trim()
-        .to_string();
+    let (run_id, _) = ws.run();
 
     ws.brokkr(&[
         "export",
@@ -257,4 +264,18 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
             );
         }
     }
+}
+
+/// The engine returns a conclusion's gaps and writes to no stream; the CLI
+/// prints them after the run's start (#355). A workspace that is no git
+/// repository leaves exactly the anchor gap. Its tail is git's own
+/// failure, which races: git can exit before its stdin is written, so the
+/// tail reads either git's refusal or the broken pipe, and is not pinned.
+#[test]
+fn a_conclusions_gaps_reach_stderr() {
+    let ws = Workspace::new();
+    let (run_id, stderr) = ws.run();
+    let head = format!("run started: {run_id}\nanchor gap for {run_id}: git ");
+    assert!(stderr.starts_with(&head), "{stderr}");
+    assert_eq!(stderr.matches(" gap for ").count(), 1, "{stderr}");
 }

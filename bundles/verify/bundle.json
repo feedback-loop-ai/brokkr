@@ -58,7 +58,7 @@
           "--permission-mode",
           "acceptEdits",
           "--allowedTools",
-          "Bash(cargo:*),Bash(git:*),Bash(python3:*),Bash(.venv/bin/pytest:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)"
+          "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),Bash(gh run view:*)"
         ]
       }
     }
