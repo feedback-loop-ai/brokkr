@@ -190,3 +190,10 @@ OPERATOR RULING, 2026-09-27: admitted for this unit, as assertion updates only, 
 ## Addendum, 2026-09-27: rebuild unit 13-fix-c's runtime fixtures
 
 OPERATOR RULING, 2026-09-27: admitted for this unit, in crates/brokkr-runtime/src/bundle/agent_tests.rs: (1) re-plant the fixture constant CODEX_WORKSPACE (:967) as the shipped eight-token adapters/codex.json fragment; (2) add --strict-mcp-config to the Claude hands fixture at :4063; (3) the assertion that moves with that re-plant, at :4497-4512: argv.len() == 16, and the literal gains the two -c pairs. These make the fixtures match the shipped adapters under R1's complete required-hands semantics. Apply full.patch and the proposed patch, re-verify the record, take the mutation proofs, and record the admitted changes with their baseline reds. Anything else outside the unit's files still stops.
+
+## Addendum, 2026-09-27: hands make the allow list dormant, and inline hands are served
+
+OPERATOR RULINGS, 2026-09-27, on unit 14b's two mismatches (evidence.md, "Unit 14b — stopped"):
+(A) An agent with hands and no allow list is served. Under decision 0043 ruling 2, a site with hands does not consult its tool allow list, so `local: {allow: unspecified, application: dormant}` beside `hands: required` is CONSISTENT. check_final's consistency table admits unspecified with dormant exactly when hands are required, and nowhere else.
+(B) An inline site with hands is served like an agent. The inline composition carries the adapter's DECLARED hands.workspace fragment (and its typed HandsSpec), as 14a1 made the agent composition do, so the inline dialect's hands is not empty and R1's transport check passes on the engine's own fragment.
+Rebuild unit 14a3 builds both: (A) in `crates/brokkr-protocol/src/native_controls.rs`, (B) in `crates/brokkr-runtime/src/bundle.rs` (`SiteFacts::inline_serving`). No `adapters.rs` change. Unit 14b then re-runs from its saved patch.
