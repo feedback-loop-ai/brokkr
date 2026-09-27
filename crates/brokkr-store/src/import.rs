@@ -205,15 +205,9 @@ fn adopt_once(
         // Serialized the way `append_next` stores its own — the export
         // form is re-derived by `export_ndjson`, so a re-export of this
         // run reproduces the source bytes.
-        tx.execute(
-            INSERT_EVENT,
-            params![
-                row.run_id,
-                event.seq as i64,
-                event.event_hash,
-                serde_json::to_string(event)?,
-            ],
-        )?;
+        let envelope = serde_json::to_string(event)?;
+        let row_values = params![row.run_id, event.seq as i64, event.event_hash, envelope];
+        tx.execute(INSERT_EVENT, row_values)?;
     }
     tx.commit()?;
     Ok(())
