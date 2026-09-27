@@ -2448,6 +2448,41 @@ based on `5aac22f4`; evidence.md, "Unit 14a1"). **Result: complete.**
   fixture migrations: none. Gates: fmt, clippy, the runtime suite (25
   `ok`), both bundles, strict OpenSpec and `git diff --check` are clean.
 
+Unit 14a2 (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-c96bee8d`,
+based on `858e1077`; evidence.md, "Unit 14a2"). **Result: complete.**
+14.1 stays open until 14b. Production: `engine.rs` and
+`native_controls.rs` only.
+
+- **Sealed beside the record.** `native_controls::SealedServing` (the
+  dialect's permission flag and the sandbox, hands and boundary fragments,
+  unexpanded; the pins; the typed `HandsSpec`) rides the driver input under
+  `serving_inputs`, a closed, kind-tagged JSON sibling of `launch_record`.
+  `mark_capabilities` seals it from the selected candidate's composition
+  or the inline site's facts, and selects the boundary fragment by the
+  class `SiteSpawn` now records from composition. A planted copy, an
+  unrecorded dialect and an unclassed spawn carrying fragments each
+  refuse. The dispatch door admits exactly the sealed inputs, on the
+  no-record branch too.
+- **Decode.** Anything missing, null, mistyped, unknown-tagged, carrying
+  an unknown member or a non-canonical hands declaration refuses with an
+  exact, bounded reason.
+- **`hands_command`** expands through `Transport::expand` (closes the
+  13-fix-b follow-up). A non-UTF-8 executable or workdir refuses the
+  spawn.
+- **Proofs.** Four new tests. MH1 (the old encoder) is the baseline red.
+  MH1–MH3, ME1–ME10 (with ME2g and ME3p/h/s) and MS1–MS5 each fail at a
+  named row, and each was restored and checked with `cmp`.
+- **Owning-suite updates.** Ten `hands_command` call sites state its
+  `Result`, and three whole-`SiteSpawn` expectations state its class.
+  **Standing-admission lines:** two `site.inline_dialect =
+  Some(Default::default());` in hand-built inline fixtures
+  (`capability_tests.rs:1046`, `:1141`). Fixture migrations: none.
+- **Gates.** fmt, clippy, the protocol and runtime suites (28 `ok`), the
+  CLI suite (33 `ok`), both bundles, strict OpenSpec and `git diff
+  --check` are clean.
+- **Pending.** 14b, exact coverage outside the box, macOS, remote CI and
+  the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

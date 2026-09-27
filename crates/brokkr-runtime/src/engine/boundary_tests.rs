@@ -708,6 +708,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
             spawn,
             SiteSpawn {
                 segments: vec![Segment::new(Origin::Template, &base)],
+                class: Some(SeatClass::Gate),
                 ..SiteSpawn::inherit(base.clone())
             }
         );
@@ -727,7 +728,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
         None,
     );
     assert_eq!(
-        boxed_model.argv,
+        Ok(boxed_model.argv),
         hands_command(codex.argv.clone(), Some(&spec), workdir, &roots)
     );
     assert_eq!(boxed_model.env, SpawnEnv::Inherit);
@@ -745,7 +746,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
         None,
     );
     assert_eq!(
-        boxed_exec.argv,
+        Ok(boxed_exec.argv.clone()),
         hands_command(exec.clone(), Some(&spec), workdir, &roots)
     );
     assert_eq!(boxed_exec.argv[1], "hands");
@@ -916,7 +917,13 @@ fn compose_site_follows_the_boundary_and_the_class() {
             "/r/p.json",
             Some(&unboxed),
         );
-        assert_eq!(as_gate, as_work);
+        assert_eq!(
+            as_gate,
+            SiteSpawn {
+                class: Some(SeatClass::Gate),
+                ..as_work
+            }
+        );
         assert_eq!(as_gate.argv, expected);
         assert_eq!(as_gate.env, SpawnEnv::Exactly(table.clone()));
         assert_eq!(as_gate.rewalk, Some(PathBuf::from("/bundle/scripts")));
@@ -984,7 +991,13 @@ fn retiring_confine_leaves_plain_seat_member_and_step_argv_untouched() {
     for boundary in brokkr_core::realms::BOUNDARIES {
         engine.boundary = boundary;
         let single = engine.compose("attempt", false, command.clone(), None, None, "result.json");
-        assert_eq!(single, SiteSpawn::inherit(command.clone()));
+        assert_eq!(
+            single,
+            SiteSpawn {
+                class: Some(SeatClass::Work),
+                ..SiteSpawn::inherit(command.clone())
+            }
+        );
         // The member composer is shared by a panel and a panel step.
         for (site, prefix) in [("work", ""), ("work:check", "check:")] {
             let runs = engine.member_runs(

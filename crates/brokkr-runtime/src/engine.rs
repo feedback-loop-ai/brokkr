@@ -19,7 +19,8 @@ use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
     flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
-    LocalExpectation, Origin, SandboxIntent, Segment, TemplateExpectation,
+    LocalExpectation, Origin, SandboxIntent, SealedDialect, SealedServing, Segment,
+    TemplateExpectation, Transport, SERVING_INPUTS,
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
@@ -1354,7 +1355,9 @@ impl Engine {
     /// segments with the serving outcome's expected state. An input that
     /// already carries one refuses the spawn rather than being overwritten
     /// into looking sealed; a site no outcome serves carries none; and a
-    /// site whose expected state cannot be sealed refuses its spawn.
+    /// site whose expected state cannot be sealed refuses its spawn. The
+    /// typed serving inputs are sealed with it and written beside it under
+    /// the same three rules (rebuild unit 14a2).
     fn mark_capabilities(
         &self,
         label: &str,
@@ -1385,13 +1388,37 @@ impl Engine {
                 )
             });
         }
+        // Rebuild unit 14a2: the typed serving inputs are sealed beside the
+        // record and arrive no other way.
+        if input.get(SERVING_INPUTS).is_some() {
+            spawn.refusal.get_or_insert_with(|| {
+                format!(
+                    "dispatch refused: the input arrived carrying sealed serving inputs \
+                     ('{SERVING_INPUTS}') before the engine sealed any; a recipe, a result or a \
+                     context cannot supply them, even ones equal to the engine's (rebuild unit \
+                     14a2; design D5.7)"
+                )
+            });
+        }
         spawn.record = None;
+        spawn.serving = None;
         let Some(outcome) = outcome else {
             return;
         };
-        match expected_state(outcome, link, facts).and_then(|expected| spawn.seal(expected)) {
+        let sealed = expected_state(outcome, link, facts)
+            .and_then(|expected| Ok((expected, serving_inputs(link, facts, spawn.class)?)))
+            .and_then(|(expected, serving)| {
+                spawn.seal(expected)?;
+                spawn.serving = Some(serving);
+                Ok(())
+            });
+        match sealed {
             Ok(()) => {
                 input[LAUNCH_RECORD] = spawn.launch_record();
+                input[SERVING_INPUTS] = spawn
+                    .serving
+                    .as_ref()
+                    .map_or(Value::Null, SealedServing::value);
             }
             Err(reason) => {
                 spawn.refusal.get_or_insert(reason);
@@ -4333,6 +4360,17 @@ pub struct SiteSpawn {
     /// or `None` where no capability outcome serves the site. The dispatch
     /// door admits exactly this record and nothing else.
     pub record: Option<LaunchRecord>,
+    /// The typed serving inputs sealed beside `record` (rebuild unit
+    /// 14a2): what the final check rebuilds the command from, carried from
+    /// the selected candidate's composition or the inline site's facts.
+    /// `Some` exactly where `record` is, and the dispatch door admits
+    /// exactly these inputs and nothing else.
+    pub serving: Option<SealedServing>,
+    /// The seat class this spawn was composed for, which selects the
+    /// boundary fragment appended behind hands and so the one the serving
+    /// inputs seal (rebuild unit 14a2); `None` for a spawn no composition
+    /// classed.
+    pub class: Option<SeatClass>,
 }
 
 /// The engine-private input key the sealed launch record rides under,
@@ -4356,6 +4394,8 @@ impl SiteSpawn {
             refusal: None,
             segments,
             record: None,
+            serving: None,
+            class: None,
         }
     }
 
@@ -4603,7 +4643,7 @@ pub fn verify_record(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
     let handed = input.get(LAUNCH_RECORD);
     let Some(sealed) = &spawn.record else {
         return match handed {
-            None => Ok(()),
+            None => verify_serving(spawn, input),
             Some(_) => Err(format!(
                 "dispatch refused: the input carries a private launch record ('{LAUNCH_RECORD}') \
                  the engine sealed no record for, and a record is never accepted from anything \
@@ -4621,7 +4661,90 @@ pub fn verify_record(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
         );
     }
     reassemble(&record.segments, &spawn.argv[spawn.extras_start()..])?;
+    verify_serving(spawn, input)?;
     inline_codex_door(&record, input)
+}
+
+/// The dispatch door's judgment of the serving inputs an input carries
+/// (rebuild unit 14a2): exactly the inputs sealed beside this spawn's
+/// record, decoded strictly — or none, where none were sealed. Inputs
+/// handed where none were sealed, missing or malformed ones, and ones that
+/// decode but differ from the sealed each refuse before any provider work.
+fn verify_serving(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
+    let handed = input.get(SERVING_INPUTS);
+    let Some(sealed) = &spawn.serving else {
+        return match handed {
+            None => Ok(()),
+            Some(_) => Err(format!(
+                "dispatch refused: the input carries sealed serving inputs ('{SERVING_INPUTS}') \
+                 the engine sealed none for, and they are never accepted from anything but the \
+                 dispatch that sealed them (rebuild unit 14a2; design D5.7)"
+            )),
+        };
+    };
+    if &SealedServing::decode(handed)? != sealed {
+        return Err(
+            "dispatch refused: the serving inputs handed over are not the ones the engine sealed \
+             beside this spawn's record; a dialect, pin or hands declaration that differs is never \
+             trusted by its shape (rebuild unit 14a2; design D5.7, D6)"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// The typed serving inputs of the site a spawn serves (rebuild unit
+/// 14a2), carried from where they were chosen (rebuild unit 14a1) and
+/// never read back from any argv: the selected candidate's composition, or
+/// an inline site's recorded dialect and hands. Of the two boundary
+/// fragments a composition carries, the spawn's class selects the one
+/// sealed, as [`compose_segments`] selects the one appended; carried
+/// fragments with no class to select them refuse.
+fn serving_inputs(
+    link: Option<&Candidate>,
+    facts: Option<&SiteFacts>,
+    class: Option<SeatClass>,
+) -> Result<SealedServing, String> {
+    let carried = match link {
+        Some(link) => match &link.lowering {
+            Lowering::Composed(composition) => Some((*composition.serving).clone()),
+            Lowering::Unavailable | Lowering::Refused(_) => None,
+        },
+        None => facts.and_then(SiteFacts::inline_serving),
+    };
+    let crate::agents::ServingInputs {
+        dialect,
+        pins,
+        spec,
+    } = carried.ok_or_else(|| {
+        "dispatch refused: the site's typed serving inputs were never recorded, so none can be \
+         sealed beside its launch record; they are carried from the composition and never \
+         recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
+            .to_string()
+    })?;
+    let boundary = match class {
+        Some(SeatClass::Gate) => dialect.boundary.gate,
+        Some(SeatClass::Work) => dialect.boundary.work,
+        None if dialect.boundary == Default::default() => Vec::new(),
+        None => {
+            return Err(
+                "dispatch refused: the spawn was composed for no seat class, so none of the \
+                 boundary fragments its serving inputs carry can be selected and sealed; a \
+                 fragment is never chosen by default (decision 0046 ruling 4; rebuild unit 14a2)"
+                    .to_string(),
+            )
+        }
+    };
+    Ok(SealedServing {
+        dialect: SealedDialect {
+            permissions: dialect.permissions,
+            sandbox: dialect.sandbox,
+            hands: dialect.hands,
+            boundary,
+        },
+        pins,
+        spec,
+    })
 }
 
 /// Rebuild unit 5d-fix-b (chief F1, F2, F4 and F5; decision 0046 ruling 4;
@@ -5127,6 +5250,7 @@ pub fn compose_site(
         unboxed,
     );
     spawn.refusal = spawn.refusal.or(refusal);
+    spawn.class = Some(class);
     spawn
 }
 
@@ -5157,31 +5281,34 @@ pub fn compose_site_at(
     let lowered = facts.and_then(|facts| facts.inline_local.as_ref());
     let sandboxed = facts.and_then(|facts| facts.inline_sandbox.as_ref());
     match candidate {
-        None if lowered.is_some() || sandboxed.is_some() => compose_segments(
-            boundary,
-            class,
-            std::iter::once(Segment::new(Origin::Authored, &command))
-                .chain(facts.and_then(|facts| facts.inline_template.clone()))
-                .chain(lowered.map(|lowered| lowered.segment.clone()))
-                .chain(sandboxed.map(|sandboxed| {
-                    Segment {
-                        origin: sandboxed.segment.origin,
-                        argv: sandboxed
-                            .segment
-                            .argv
-                            .iter()
-                            .map(|token| token.replace("{result_path}", result_path))
-                            .collect(),
-                    }
-                }))
-                .collect(),
-            hands,
-            None,
-            workdir,
-            roots,
-            result_path,
-            unboxed,
-        ),
+        None if lowered.is_some() || sandboxed.is_some() => SiteSpawn {
+            class: Some(class),
+            ..compose_segments(
+                boundary,
+                class,
+                std::iter::once(Segment::new(Origin::Authored, &command))
+                    .chain(facts.and_then(|facts| facts.inline_template.clone()))
+                    .chain(lowered.map(|lowered| lowered.segment.clone()))
+                    .chain(sandboxed.map(|sandboxed| {
+                        Segment {
+                            origin: sandboxed.segment.origin,
+                            argv: sandboxed
+                                .segment
+                                .argv
+                                .iter()
+                                .map(|token| token.replace("{result_path}", result_path))
+                                .collect(),
+                        }
+                    }))
+                    .collect(),
+                hands,
+                None,
+                workdir,
+                roots,
+                result_path,
+                unboxed,
+            )
+        },
         _ => compose_site(
             boundary,
             class,
@@ -5232,10 +5359,14 @@ fn compose_segments(
         // own prefix for an exec dispatch, so each segment maps onto its
         // own tokens. An inline site — an exec dispatch included — has no
         // candidate: its argv is all the author's.
-        BuiltBoundary::Namespace => SiteSpawn::of(behind(
-            hands_command(command, Some(spec), workdir, roots),
-            &segments,
-        )),
+        BuiltBoundary::Namespace => match hands_command(command, Some(spec), workdir, roots) {
+            Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
+            Err(reason) => {
+                let mut spawn = SiteSpawn::of(segments);
+                spawn.refusal = Some(reason);
+                spawn
+            }
+        },
         BuiltBoundary::Harness => {
             let brokkr = std::env::current_exe()
                 .unwrap_or_default()
@@ -5451,14 +5582,20 @@ fn aggregate_results(aggregate: Aggregate, members: &[(String, Value)]) -> Value
 /// `exec` dispatch is boxed whole instead: `brokkr hands exec` builds the
 /// namespace at run time and passes the driver's stdio straight through.
 /// A site without hands gets its command back untouched.
+///
+/// Rebuild unit 14a2: a model seat's tokens are expanded by
+/// [`Transport::expand`], the one TOML-safe encoder the final check
+/// expects them from, so the spawn and the check cannot disagree on an
+/// escape. An executable or workdir that is not UTF-8 has no exact
+/// provider value and refuses rather than binding a lossy one.
 pub fn hands_command(
     command: Vec<String>,
     hands: Option<&brokkr_protocol::hands::HandsSpec>,
     workdir: &std::path::Path,
     roots: &[PathBuf],
-) -> Vec<String> {
+) -> Result<Vec<String>, String> {
     let Some(spec) = hands else {
-        return command;
+        return Ok(command);
     };
     let brokkr = std::env::current_exe().unwrap_or_default();
     let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
@@ -5502,25 +5639,20 @@ pub fn hands_command(
         }
         boxed.push("--".to_string());
         boxed.extend(command);
-        return boxed;
+        return Ok(boxed);
     }
-    let mcp_json = brokkr_protocol::hands::mcp_config(&brokkr, workdir, spec).to_string();
-    let args_toml = format!(
-        "[{}]",
-        brokkr_protocol::hands::serve_args(workdir, spec)
-            .iter()
-            .map(|arg| format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\"")))
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-    command
-        .into_iter()
-        .map(|part| {
-            part.replace("{hands_mcp_json}", &mcp_json)
-                .replace("{hands_args_toml}", &args_toml)
-                .replace("{brokkr}", &brokkr.to_string_lossy())
-        })
-        .collect()
+    Transport {
+        brokkr: &brokkr,
+        workdir,
+        spec,
+    }
+    .expand(&command)
+    .ok_or_else(|| {
+        "dispatch refused: the engine's executable or the site's workdir is not UTF-8, so no \
+         provider value names it exactly and the box's hands cannot be bound to it; a lossy \
+         path would bind another (rebuild unit 13-fix-c, R2; rebuild unit 14a2)"
+            .to_string()
+    })
 }
 
 /// The first abstract definition or tool dialect a compiled `capabilities`

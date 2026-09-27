@@ -2002,7 +2002,7 @@ fn git_helpers_fail_closed_and_a_site_without_hands_composes_its_own_argv() {
             dir.path(),
             &[dir.path().to_path_buf()]
         ),
-        command
+        Ok(command)
     );
 }
 
@@ -5818,7 +5818,7 @@ fn a_site_without_hands_spawns_its_command_untouched() {
     let command = vec!["claude".to_string(), "--model".to_string(), "x".to_string()];
     assert_eq!(
         hands_command(command.clone(), None, Path::new("/work"), &[]),
-        command
+        Ok(command)
     );
 }
 
@@ -5842,7 +5842,8 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
         Some(&spec),
         Path::new("/work"),
         &[],
-    );
+    )
+    .unwrap();
     let exe = std::env::current_exe()
         .unwrap()
         .to_string_lossy()
@@ -5862,23 +5863,97 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
     );
 }
 
+/// Rebuild unit 14a2 (the 13-fix-b follow-up): a model seat's hands are
+/// expanded by `Transport::expand`, the one TOML-safe encoder the final
+/// check expects them from. Every escape it makes — `\` and `"`, the short
+/// control escapes, and `\uXXXX` for the rest of U+0000–U+001F and U+007F —
+/// reaches the served server arguments exactly, where the spawn's own
+/// encoder escaped only `\` and `"`. A workdir that is not UTF-8 names no
+/// exact provider value and refuses the spawn instead of binding a lossy
+/// path.
+#[test]
+fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
+    let spec = brokkr_protocol::hands::HandsSpec::default();
+    let workdir = Path::new("/w\\\"\t\n\u{1}\u{7f}\u{8}\u{c}\r");
+    let fragment: Vec<String> = [
+        "--mcp-config",
+        "{hands_mcp_json}",
+        "-c",
+        "mcp_servers.brokkr.command=\"{brokkr}\"",
+        "-c",
+        "mcp_servers.brokkr.args={hands_args_toml}",
+    ]
+    .map(String::from)
+    .to_vec();
+    let argv = hands_command(fragment.clone(), Some(&spec), workdir, &[]).unwrap();
+    let brokkr = std::env::current_exe().unwrap();
+    let transport = Transport {
+        brokkr: &brokkr,
+        workdir,
+        spec: &spec,
+    };
+    assert_eq!(Some(argv.clone()), transport.expand(&fragment));
+    assert_eq!(
+        argv[5],
+        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
+    );
+    assert_eq!(
+        argv[3],
+        format!("mcp_servers.brokkr.command=\"{}\"", brokkr.display())
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let lossy = Path::new(std::ffi::OsStr::from_bytes(b"/w\xff"));
+        let refusal = "dispatch refused: the engine's executable or the site's workdir is not \
+                       UTF-8, so no provider value names it exactly and the box's hands cannot \
+                       be bound to it; a lossy path would bind another (rebuild unit 13-fix-c, \
+                       R2; rebuild unit 14a2)";
+        assert_eq!(
+            hands_command(fragment.clone(), Some(&spec), lossy, &[]),
+            Err(refusal.to_string())
+        );
+        let command: Vec<String> = ["/bin/brokkr", "driver", "codex", "--"]
+            .map(String::from)
+            .into_iter()
+            .chain(fragment.clone())
+            .collect();
+        let spawn = compose_site(
+            BuiltBoundary::Namespace,
+            SeatClass::Work,
+            command.clone(),
+            Some(&spec),
+            None,
+            lossy,
+            &[],
+            "",
+            None,
+        );
+        assert_eq!(
+            (spawn.argv, spawn.refusal),
+            (command, Some(refusal.to_string()))
+        );
+    }
+}
+
 #[test]
 fn only_an_exec_dispatch_is_boxed_whole() {
     let spec = brokkr_protocol::hands::HandsSpec::default();
     let short = vec!["true".to_string()];
     assert_eq!(
         hands_command(short.clone(), Some(&spec), Path::new("/w"), &[]),
-        short
+        Ok(short)
     );
     let not_a_dispatch = vec!["a".to_string(), "b".to_string(), "exec".to_string()];
     assert_eq!(
         hands_command(not_a_dispatch.clone(), Some(&spec), Path::new("/w"), &[],),
-        not_a_dispatch
+        Ok(not_a_dispatch)
     );
     let other_driver = vec!["x".to_string(), "driver".to_string(), "claude".to_string()];
     assert_eq!(
         hands_command(other_driver.clone(), Some(&spec), Path::new("/w"), &[],),
-        other_driver
+        Ok(other_driver)
     );
 }
 
@@ -5899,7 +5974,8 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         Some(&spec),
         Path::new("/work"),
         &[PathBuf::from("/bundle")],
-    );
+    )
+    .unwrap();
     let exe = std::env::current_exe()
         .unwrap()
         .to_string_lossy()
@@ -5922,7 +5998,8 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         "--".to_string(),
         "true".to_string(),
     ];
-    let rootless = hands_command(rootless_inner.clone(), Some(&spec), Path::new("/work"), &[]);
+    let rootless =
+        hands_command(rootless_inner.clone(), Some(&spec), Path::new("/work"), &[]).unwrap();
     assert_eq!(rootless[7], "--");
     assert_eq!(&rootless[8..], &rootless_inner);
 }

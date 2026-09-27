@@ -1252,6 +1252,167 @@ fn decode_record(record: Option<&Value>) -> Result<LaunchRecord, Fault> {
     })
 }
 
+/// The driver-input key the sealed serving inputs ride under, beside the
+/// launch record and written with it (rebuild unit 14a2).
+pub const SERVING_INPUTS: &str = "serving_inputs";
+
+/// The typed inputs [`check_final`] rebuilds one serving command from
+/// beside its sealed record (rebuild unit 14a2): the adapter's declared
+/// dialect, its model and effort pins apart from its template, and the
+/// typed hands the box's transport is bound to. The engine seals them from
+/// the composition that chose them (rebuild unit 14a1), and the driver
+/// reads them back here, never from the record's segments (decision 0066
+/// ruling 4; design D5.7, D6). Private Rust data between the runtime and
+/// this crate, like [`LaunchRecord`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SealedServing {
+    pub dialect: SealedDialect,
+    /// `model_flag` and the concrete model, then `effort_flag` and the
+    /// effort where one is pinned; none at an inline site.
+    pub pins: Vec<String>,
+    /// The typed hands declaration, `None` where the site has none.
+    pub spec: Option<crate::hands::HandsSpec>,
+}
+
+/// An adapter's declared values one serving command is composed from, each
+/// fragment as declared with its tokens unexpanded and empty where the
+/// engine appends none (rebuild unit 14a2): the owned form of the
+/// [`Dialect`] one launch borrows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SealedDialect {
+    /// The tool-permission flag a typed local allow lowers onto, `None`
+    /// where the adapter maps none.
+    pub permissions: Option<ListFlag>,
+    /// The `hands.harness` fragment an inline Codex class lowers onto.
+    pub sandbox: Vec<String>,
+    /// The `hands.workspace` fragment, where boxed hands compose.
+    pub hands: Vec<String>,
+    /// The `hands.harness` fragment the seat's class selects, appended
+    /// behind hands under the `harness` boundary (decision 0046 ruling 4).
+    pub boundary: Vec<String>,
+}
+
+impl SealedServing {
+    /// The inputs as closed JSON: every member present, every optional a
+    /// `kind`-tagged object, so a reader refuses absence instead of
+    /// defaulting it.
+    pub fn value(&self) -> Value {
+        let dialect = &self.dialect;
+        let permissions = match &dialect.permissions {
+            Some(list) => serde_json::json!({
+                "kind": "flag", "flag": list.flag, "separator": list.separator,
+            }),
+            None => serde_json::json!({"kind": "none"}),
+        };
+        let spec = match &self.spec {
+            Some(spec) => serde_json::json!({"kind": "typed", "declaration": spec.to_value()}),
+            None => serde_json::json!({"kind": "none"}),
+        };
+        serde_json::json!({
+            "dialect": {
+                "permissions": permissions,
+                "sandbox": dialect.sandbox,
+                "hands": dialect.hands,
+                "boundary": dialect.boundary,
+            },
+            "pins": self.pins,
+            "spec": spec,
+        })
+    }
+
+    /// Read sealed inputs back, refusing whatever cannot be read: absent,
+    /// null, wrongly typed, an unknown member or kind, and a hands
+    /// declaration that is not exactly its canonical form each refuse with
+    /// a fixed field path and numeric positions, and nothing supplied is
+    /// echoed. Nothing is repaired into an empty or default input: an
+    /// empty fragment is sealed as one.
+    pub fn decode(inputs: Option<&Value>) -> Result<SealedServing, String> {
+        decode_serving(inputs).map_err(|(path, problem)| {
+            format!(
+                "refusing the sealed serving inputs: '{path}' {problem}; the inputs a final \
+                 command is rebuilt from are never repaired into empty or default ones, nor \
+                 recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
+            )
+        })
+    }
+}
+
+fn decode_serving(inputs: Option<&Value>) -> Result<SealedServing, Fault> {
+    let root = "serving";
+    let inputs = match inputs {
+        None => return Err((root.to_string(), "is missing")),
+        Some(Value::Null) => return Err((root.to_string(), "is null")),
+        Some(inputs) => inputs,
+    };
+    closed(inputs, root, &["dialect", "pins", "spec"])?;
+    let dialect = &inputs["dialect"];
+    closed(
+        dialect,
+        "serving.dialect",
+        &["permissions", "sandbox", "hands", "boundary"],
+    )?;
+    let (kind, permissions) = tagged(
+        &dialect["permissions"],
+        "serving.dialect.permissions",
+        &["none", "flag"],
+        |kind| match kind {
+            "flag" => &["flag", "separator"],
+            _ => &[],
+        },
+    )?;
+    let permissions = match kind {
+        "flag" => Some(ListFlag {
+            flag: string(
+                &permissions["flag"],
+                "serving.dialect.permissions.flag".into(),
+            )?,
+            separator: string(
+                &permissions["separator"],
+                "serving.dialect.permissions.separator".into(),
+            )?,
+        }),
+        _ => None,
+    };
+    let (kind, spec) = tagged(
+        &inputs["spec"],
+        "serving.spec",
+        &["none", "typed"],
+        |kind| match kind {
+            "typed" => &["declaration"],
+            _ => &[],
+        },
+    )?;
+    // The declaration's own reader is lenient — `"workspace"` and omitted
+    // members default — so a sealed one must also be exactly the form the
+    // engine writes, one spelling per declaration.
+    let spec = match kind {
+        "typed" => {
+            let declaration = &spec["declaration"];
+            let path = "serving.spec.declaration";
+            let parsed = crate::hands::HandsSpec::parse(declaration)
+                .map_err(|_| (path.to_string(), "is not a hands declaration"))?;
+            if parsed.to_value() != *declaration {
+                return Err((
+                    path.to_string(),
+                    "is not a hands declaration's canonical form",
+                ));
+            }
+            Some(parsed)
+        }
+        _ => None,
+    };
+    Ok(SealedServing {
+        dialect: SealedDialect {
+            permissions,
+            sandbox: string_list(&dialect["sandbox"], "serving.dialect.sandbox".into())?,
+            hands: string_list(&dialect["hands"], "serving.dialect.hands".into())?,
+            boundary: string_list(&dialect["boundary"], "serving.dialect.boundary".into())?,
+        },
+        pins: string_list(&inputs["pins"], "serving.pins".into())?,
+        spec,
+    })
+}
+
 /// Prove that `segments` reassemble exactly the `argv` supplied: every
 /// argument, in order, the lengths equal — no prefix, membership, count or
 /// token search, no trimming of a wrapper, no truncation. The caller hands

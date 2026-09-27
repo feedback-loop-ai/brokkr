@@ -14380,3 +14380,190 @@ two tests. Standing-admission lines and fixture migrations: none.
 
 **Pending.** 14a2, 14b, exact coverage outside the box, macOS, remote CI
 and the council.
+
+## Unit 14a2 — the engine seals the typed serving inputs for the driver, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-c96bee8d`, based on `858e1077`.
+Production: `crates/brokkr-runtime/src/engine.rs` and
+`crates/brokkr-protocol/src/native_controls.rs`. No `adapters.rs`,
+`agents.rs` or `bundle.rs` change. **Result: complete.** 14.1 stays open
+until 14b. Scratch output is in `.forge/unit-14a2/<id>.txt`.
+
+### What is sealed, and where
+
+- **The typed sibling** (`native_controls.rs`). `SealedServing` (`:1268`)
+  holds a `SealedDialect` (`:1282`: `permissions`, `sandbox`, `hands`,
+  `boundary`), the `pins` and the `spec`. It is the owned form of what
+  `check_final` borrows as `Dialect`, `Serving::pins` and the `HandsSpec`
+  in `Serving::hands`. It rides the driver input under `SERVING_INPUTS`
+  (`"serving_inputs"`, `:1257`), beside `launch_record`. The closed
+  `LaunchRecord` did not move, so no record fixture in `adapters/tests.rs`
+  moved either.
+- **Closed JSON.** `value()` writes every member. Each optional is a
+  `kind`-tagged object (`permissions`: `none` or `flag`; `spec`: `none` or
+  `typed` with its `declaration`). `decode` (`decode_serving`, `:1340`)
+  reuses the record's `closed`/`tagged`/`string_list` readers. It refuses
+  anything absent, null, mistyped, unknown-tagged or carrying an unknown
+  member, with a fixed path and no echoed value. `HandsSpec::parse` is
+  lenient (`"workspace"`, and omitted members default), so a sealed
+  declaration must also equal its own `to_value()`: one spelling per
+  declaration.
+- **The seal** (`engine.rs`). `SiteSpawn` gains `serving`
+  (`:4368`), `Some` exactly where `record` is. In `mark_capabilities`,
+  `serving_inputs` (`:4703`) reads the selected candidate's
+  `Composition::serving`, or at an inline site
+  `SiteFacts::inline_serving()`. It is sealed with the record and written
+  as `input[SERVING_INPUTS]`. An input that already carries the key refuses
+  the spawn (`:1393`), as a planted record does. Where nothing was
+  recorded, the spawn refuses and neither key is written.
+- **One boundary fragment, selected by class.** 14a1 carries both
+  `hands.harness` fragments, because the class is not known at resolution
+  (its evidence: "14a2 selects one, as `engine::compose_segments` does").
+  `SiteSpawn` now also records the `class` it was composed for (`:4373`).
+  `compose_site` sets it (`:5253`), and so does `compose_site_at`'s inline
+  arm (`:5285`). The seal selects `gate` or `work` by that class. A spawn
+  with no class whose composition carries a nonempty fragment refuses
+  rather than choosing one.
+- **The door.** `verify_record` calls `verify_serving` (`:4673`), which
+  admits exactly the sealed inputs. Inputs handed where none were sealed,
+  missing or malformed ones, and ones that decode but differ each refuse.
+  This also holds on the no-record branch (`:4646`). While writing the
+  test, I found that branch had returned before the check, and I fixed it
+  (ME5 binds it).
+- **`hands_command`** (`:5591`) now expands a model seat's tokens through
+  `Transport::expand`, which closes the 13-fix-b follow-up. It returns
+  `Result`: an executable or workdir that is not UTF-8 refuses instead of
+  binding a lossy path, and `compose_segments`' namespace arm carries that
+  refusal on the spawn (`:5364`). The exec path is unchanged.
+
+### Tests and their binding
+
+- `native_controls::tests::sealed_serving_inputs_round_trip_byte_exactly`
+  (`native_controls/tests.rs:12051`). It compares the exact JSON of full
+  inputs (a flag, unexpanded tokens, an empty-string argument, a repeated
+  pair and a typed declaration with a bind) and of empty inputs. It then
+  proves each round-trips: `decode` equals the value, and its re-encoded
+  bytes equal the original bytes.
+- `…::sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause`
+  (`:12095`): 23 rows, each with its complete cause. A 600-character
+  multi-line sentinel is used as tag, key and payload and must never
+  surface. Every row is evaluated, and every failure is reported.
+- `engine::capability_tests::the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed`
+  (`capability_tests.rs:710`). Codex boxed inputs, then the DSH fallback
+  composed as work and as gate, each with exact JSON, and the door admits
+  each. Then: the other class's fragment, missing, malformed, three
+  well-formed alterations (pin, hands, declaration), planted before
+  sealing, handed where none were sealed, an unclassed spawn, the inline
+  path through `compose_site_at` (class `Work`), and an inline site with no
+  recorded dialect. Every refusal is compared whole.
+- `engine::tests::a_model_seats_hands_are_expanded_by_the_checks_one_encoder`
+  (`engine/tests.rs:5875`). The workdir is `/w\"` followed by TAB, LF,
+  U+0001, U+007F, BS, FF and CR. The expansion equals `Transport::expand`,
+  and the args element equals an independent literal (`\\`, `\"`, `\t`,
+  `\n`, `\u0001`, `\u007F`, `\b`, `\f`, `\r`). A non-UTF-8 workdir
+  (`/w\xff`, unix) refuses in `hands_command`, and `compose_site` carries
+  that refusal with the argv unexpanded.
+
+**Baseline red.** MH1 restores the old encoder (escapes only `\` and `"`,
+`{brokkr}` raw) on the final code. The hands test fails at
+`engine/tests.rs:5895`, the `Transport::expand` equality: the served args
+carry raw TAB, LF, U+0001 and U+007F. The other three tests name types
+this unit adds, so they have no baseline run on `858e1077`. Their binding
+is the mutations below.
+
+**Mutations.** Each is a temporary, compiling edit, restored by `cp` from
+`.forge/unit-14a2/*.good` and checked with `cmp`. The engine runs were
+`cargo test -p brokkr-runtime --lib -- the_serving_inputs_are_sealed
+a_model_seats_hands` (ME9 and ME10 also ran `compose_site_follows
+retiring_confine`). The protocol runs were `cargo test -p brokkr-protocol
+--lib sealed_serving`.
+
+| id | edit | fails at |
+|----|------|----------|
+| MH1 | `hands_command` uses the old encoder | `engine/tests.rs:5895` (baseline red above) |
+| MH2 | a non-UTF-8 expansion falls back to the unexpanded command | `:5913`, `Ok(..)` for the exact refusal |
+| MH3 | the namespace arm drops the refusal | `:5933`, refusal `None` |
+| ME1 | the inputs are not written | `capability_tests.rs:750`, `Null` |
+| ME2 | gate and work selection swapped | `:807`, the work row |
+| ME2g | only `Gate` selects the work fragment | `:825`, the gate row |
+| ME3 | the door skips the comparison | `:837`, the exchanged fragment |
+| ME3p / ME3h / ME3s | the comparison ignores pins / hands / spec | `:890`, rows `/pins/1`, `/dialect/hands/1`, `/spec/declaration/network` |
+| ME4 | a planted copy is not refused | `:901` |
+| ME5 | the no-record branch of `verify_record` stops checking the inputs | `:913` |
+| ME6 | the inline path reads no dialect | `:947`, refusal instead of `None` |
+| ME7 | an unrecorded inline dialect seals as a default one | `:968`, `None` for the exact refusal |
+| ME8 | an unclassed spawn seals an empty boundary | `:845` |
+| ME9 | `compose_site` records no class | `:807`; `boundary_tests.rs:707` and `:994` |
+| ME10 | `compose_site_at`'s inline arm records no class | `:944`, `None` for `Some(Work)` |
+| MS1 | `value()` writes the hands fragment as the boundary | `native_controls/tests.rs:12054` (and the table panics at its `/dialect/boundary/5` edit) |
+| MS2 | the canonical-form check is skipped | the table: rows "declaration in its short spelling" and "declaration with an omitted member" |
+| MS3 | a sealed flag decodes as `None` | `:12084`, the decoded equality |
+| MS4 | `boundary` is read from `hands` | `:12084`; the table rows "boundary argument not a string" and "boundary not an array" |
+| MS5 | the root is not read as a closed object | the table: rows "inputs not an object", "inputs unknown member", "dialect missing", "pins missing" and "spec null" |
+
+**An earlier pass, superseded.** I first sealed both fragments as a
+`{gate, work}` object and ran a first mutation set on that shape. Then I
+read 14a1's note that 14a2 selects one, and changed the shape to a
+selected `boundary` and a `class` on the spawn. The table above is the
+second pass, on the final code. The first pass's output was not kept.
+
+Restored pass: all four tests `ok` in the suites below.
+
+### Changed test lines
+
+In the owning suites of `engine.rs`:
+
+- **`hands_command` returns `Result`.** The existing call sites state it,
+  and the values compared do not change: `engine/tests.rs:2005`, `:5821`,
+  `:5946`, `:5951` and `:5956` compare with `Ok(..)`; `:5845`, `:5977` and
+  `:6001` `unwrap()` before indexing; `boundary_tests.rs:731` and `:749`
+  compare `Ok(spawn.argv)`.
+- **`SiteSpawn` records its class.** Three whole-spawn expectations state
+  it. At `boundary_tests.rs:711`, `class: Some(SeatClass::Gate)`. At
+  `:994`, the member-composer loop's expectation takes `class:
+  Some(SeatClass::Work)`. At `:920`, D32's "the class unread" row keeps
+  `as_gate == as_work` for everything but the recorded class: `as_gate ==
+  SiteSpawn { class: Some(Gate), ..as_work }`. ME9 fails `:707` and
+  `:994`. It aborts before `:920`, so that row is bound only by the
+  literal it states.
+- **Fixture lines** (standing admission, 2026-09-25). Two lines
+  `site.inline_dialect = Some(Default::default());`, at
+  `capability_tests.rs:1046` (`a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone`)
+  and `:1141` (`lowered_inline`). Both fixtures hand-build inline facts
+  that a compile always records with `local`, and the seal now refuses an
+  inline site whose dialect was never recorded. Without them the first
+  suite run failed both tests (`:801`, the new refusal where `None` was
+  expected; `:881`). They add and remove no assertion.
+- Fixture migrations: none.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt --all`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (rechecked after `touch`). The first run refused a
+  `Box::new` in the new test (`*composition.serving = serving` now).
+- `cargo test -p brokkr-protocol -p brokkr-runtime --all-features
+  --locked`: 28 `ok` summaries, none failing. Protocol lib 536, runtime
+  lib 571, `capability_launch` 53 (`suites.txt`).
+- `cargo test -p brokkr-cli --all-features --locked`: 33 `ok` summaries
+  (`cli.txt`).
+- `compile --bundle bundles/self` and `bundles/verify`: both exit 0
+  (`self.txt`, `verify.txt`).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+### Follow-ups, not built here
+
+- **14b.** The driver decodes `input[SERVING_INPUTS]` with
+  `SealedServing::decode`. It borrows `Dialect { permissions:
+  permissions.as_ref(), sandbox, hands, boundary }` and `Serving { pins,
+  hands: Transport { brokkr: its own executable, workdir, spec } }`.
+- **The harness boundary fragment.** Under `harness`,
+  `compose_segments` still fills `{result_path}` and `{brokkr}` raw in the
+  fragment it appends. That is not `hands_command`, which this unit
+  named, so it did not move.
+- **The exec path.** `hands_command`'s exec box still spells the
+  executable and workdir with `to_string_lossy`.
+
+**Pending.** 14b; exact coverage outside the box; macOS; remote CI; the
+council.
