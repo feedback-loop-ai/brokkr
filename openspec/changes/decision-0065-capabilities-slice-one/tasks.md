@@ -2406,6 +2406,35 @@ open.
   input still carries none of `check_final`'s typed inputs (evidence.md,
   "Re-fire after triage"). Nothing moved; 14.1 stays open.
 
+**Split (the operator's session, 2026-09-27).** Unit 14 runs as three
+units, in order: 14a1, 14a2, then 14b (design.md, "Rebuild units", unit
+14). 14.1 closes only at 14b.
+
+Unit 14a1 (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-5642ffd7`,
+based on `5aac22f4`; evidence.md, "Unit 14a1"). **Result: complete.**
+14.1 stays open. Production: `agents.rs` and `bundle.rs` only.
+
+- **Agent path.** `Composition` carries `serving: Box<ServingInputs>`:
+  the declared permission flag and separator, the `hands.workspace`
+  fragment where boxed hands compose, the `hands.harness` gate and work
+  fragments under `harness` beside hands, the model and effort pins, and
+  the agent's `HandsSpec`. `compose` now takes the realm's `Boundary`.
+- **Inline path.** `SiteFacts::inline_dialect` records the permission
+  flag an allow lowered onto and the class fragment a Codex sandbox
+  lowered onto, as declared. `SiteFacts::inline_serving()` adds no pins
+  and the site's resolved `HandsSpec`.
+- **Proofs.** Two new tests. MA1–MA6, MA4b and MA5b (agent path) and
+  MI1–MI6 (inline path) each fail at a named row, restored by `cmp`.
+- **Owning-suite updates** in `agents/tests.rs`: two whole-`Composition`
+  expectations gain the carried value, and two `compose` calls name a
+  `Boundary`. **Standing-admission lines:** four `serving:
+  Default::default(),` lines in the engine test fixtures. Fixture
+  migrations: none.
+- **Gates.** fmt, `git diff --check`, clippy `-D warnings`, the runtime
+  suite (25 `ok` summaries), both bundles and strict OpenSpec are clean.
+- **Pending.** 14a2 and 14b, exact coverage outside the box, macOS,
+  remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

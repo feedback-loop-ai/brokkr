@@ -39,8 +39,8 @@ use std::path::PathBuf;
 
 use brokkr_core::canonical::sha256_hex;
 use brokkr_protocol::native_controls::{
-    flatten, AllowIntent, Application, HandsIntent, LocalExpectation, Origin, SandboxIntent,
-    Segment, TemplateExpectation,
+    flatten, AllowIntent, Application, HandsIntent, ListFlag, LocalExpectation, Origin,
+    SandboxIntent, Segment, TemplateExpectation,
 };
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -902,6 +902,70 @@ pub struct Composition {
     /// the segments and never read back from them, so the seal has an
     /// expectation an emitted template can contradict.
     pub template: TemplateExpectation,
+    /// What the final check rebuilds this composition's serving command
+    /// from beside its plan (rebuild unit 14a1), carried from where each
+    /// value was chosen and never read back from the segments. Boxed, so a
+    /// composed [`Lowering`] stays near the size of the others.
+    pub serving: Box<ServingInputs>,
+}
+
+/// The typed inputs one serving command is composed from beside its
+/// segments (rebuild unit 14a1, the first part of unit 14's split): the
+/// adapter's declared dialect, its model and effort pins apart from its
+/// template, and the typed hands the box's transport is bound to —
+/// everything `check_final`'s `Dialect`, `Serving::pins` and
+/// `Serving::hands` take. Each value is carried from where it is known,
+/// never recovered from argv text (decision 0066 ruling 4; design D5.7,
+/// D6).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServingInputs {
+    pub dialect: DeclaredDialect,
+    /// The adapter's model and effort emissions: `model_flag` and the
+    /// concrete model, then `effort_flag` and the effort where one is
+    /// pinned. None at an inline site, whose recipe writes its own.
+    pub pins: Vec<String>,
+    /// The typed hands declaration, `None` where the site has none.
+    pub spec: Option<brokkr_protocol::hands::HandsSpec>,
+}
+
+/// An adapter's concrete values one serving command is composed from
+/// (rebuild unit 14a1). Every fragment is as the adapter declares it, its
+/// tokens unexpanded; one the engine does not append at this serving is
+/// empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeclaredDialect {
+    /// The tool-permission flag and separator a typed local allow lowers
+    /// onto, `None` where the adapter maps none.
+    pub permissions: Option<ListFlag>,
+    /// The measured `hands.harness` fragment a typed local class lowers
+    /// onto at an inline Codex site. An agent's class rides its hands, so
+    /// an agent's composition lowers none.
+    pub sandbox: Vec<String>,
+    /// The measured `hands.workspace` fragment, where boxed hands compose.
+    pub hands: Vec<String>,
+    /// The fragments the engine appends behind a hands site's command
+    /// under the `harness` boundary, one per seat class.
+    pub boundary: BoundaryFragments,
+}
+
+/// An adapter's `hands.harness.gate` and `hands.harness.work` fragments,
+/// of which a launch's class selects one (decision 0046 ruling 4).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoundaryFragments {
+    pub gate: Vec<String>,
+    pub work: Vec<String>,
+}
+
+/// The tool-permission flag and separator `adapter` declares, `None` where
+/// it maps none (rebuild unit 14a1).
+pub(crate) fn declared_permissions(adapter: &Adapter) -> Option<ListFlag> {
+    adapter
+        .tool_permissions
+        .as_ref()
+        .map(|permissions| ListFlag {
+            flag: permissions.flag.clone(),
+            separator: permissions.separator.clone(),
+        })
 }
 
 impl Composition {
@@ -997,10 +1061,21 @@ fn compose(
     adapter: &Adapter,
     model: &str,
     concrete: &str,
-    boxed: bool,
+    boundary: brokkr_core::realms::Boundary,
 ) -> Result<Composition, ResolveError> {
+    let boxed = boundary.is_boxed();
     let intent = Intent::of(agent);
     let mut segments = vec![driver_template(adapter)];
+    // The serving inputs are filled as each contribution is chosen
+    // (rebuild unit 14a1), never read back from the segments.
+    let mut serving = ServingInputs {
+        dialect: DeclaredDialect {
+            permissions: declared_permissions(adapter),
+            ..DeclaredDialect::default()
+        },
+        pins: Vec::new(),
+        spec: agent.hands.clone(),
+    };
     // A provider that serves the model but cannot be TOLD which model is
     // the silent-substitution case in its purest form: it would run its
     // own default and the run would claim the pinned one.
@@ -1014,10 +1089,8 @@ fn compose(
                 .to_string(),
         )
     })?;
-    segments.push(Segment::new(
-        Origin::Template,
-        &[flag.clone(), concrete.to_string()],
-    ));
+    serving.pins = vec![flag.clone(), concrete.to_string()];
+    segments.push(Segment::new(Origin::Template, &serving.pins));
 
     // The other half of the hire (decision 0035 ruling 5). A model pin
     // without an effort pin is half a hire, and the half it withholds is
@@ -1072,10 +1145,9 @@ fn compose(
                     ),
                 ));
             }
-            segments.push(Segment::new(
-                Origin::Template,
-                &[effort_flag.clone(), effort.clone()],
-            ));
+            let pinned = [effort_flag.clone(), effort.clone()];
+            segments.push(Segment::new(Origin::Template, &pinned));
+            serving.pins.extend(pinned);
             Some(effort.clone())
         }
     };
@@ -1113,6 +1185,15 @@ fn compose(
                 )
             })?;
             segments.push(Segment::new(Origin::Hands, fragment));
+            serving.dialect.hands = fragment.clone();
+        } else if boundary == brokkr_core::realms::Boundary::Harness {
+            // Decision 0046 ruling 4: unboxed under `harness`, the engine
+            // appends the fragment the seat's class selects behind the
+            // command, as the adapter declares it.
+            serving.dialect.boundary = BoundaryFragments {
+                gate: adapter.harness.gate.clone().unwrap_or_default(),
+                work: adapter.harness.work.clone().unwrap_or_default(),
+            };
         }
         // Hands replace the harness's tools: a declared list is kept as
         // intent, and its concrete mapping is inapplicable, not absent.
@@ -1134,6 +1215,7 @@ fn compose(
         intent,
         application,
         template: declared_template(&adapter.driver),
+        serving: Box::new(serving),
     })
 }
 
@@ -1290,7 +1372,7 @@ fn entry_for(
     adapters: &Adapters,
     availability: &Availability,
     model: &str,
-    boxed: bool,
+    boundary: brokkr_core::realms::Boundary,
 ) -> ChainEntry {
     let Some((adapter, concrete)) = adapters.serving(model) else {
         return ChainEntry {
@@ -1310,7 +1392,7 @@ fn entry_for(
     // The flat fields are projections of the composition, never a second
     // derivation beside it; a refused entry keeps only its typed intent.
     let (argv, effort, hands_fragment, gap, lowering) =
-        match compose(agent, adapter, model, concrete, boxed) {
+        match compose(agent, adapter, model, concrete, boundary) {
             Ok(composition) => (
                 composition.argv(),
                 composition.effort.clone(),
@@ -1413,7 +1495,7 @@ pub(crate) fn report_narrowed(
     let entries: Vec<ChainEntry> = agent
         .models
         .iter()
-        .map(|model| entry_for(&agent, adapters, availability, model, boundary.is_boxed()))
+        .map(|model| entry_for(&agent, adapters, availability, model, boundary))
         .collect();
     let chosen = entries
         .iter()

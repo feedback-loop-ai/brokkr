@@ -36,6 +36,7 @@ pub(super) fn templated(mut candidate: Candidate) -> Candidate {
         },
         application: Application::Unrestricted,
         template: crate::agents::declared_template(&candidate.argv),
+        serving: Default::default(),
     });
     candidate
 }

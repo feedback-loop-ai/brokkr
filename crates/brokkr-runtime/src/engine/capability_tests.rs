@@ -398,6 +398,7 @@ fn composed_link(
             effort: None,
             intent,
             application,
+            serving: Default::default(),
         }),
         ..link(provider, model)
     }

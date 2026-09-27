@@ -1471,6 +1471,22 @@ Every unit also updates this change's tasks.md/evidence.md with observed results
     crates/brokkr-runtime/tests/capability_launch.rs; independent compiled
     commands, dropped OFF, changed separators, cross-origin duplicates and
     attempts to mutate after checking. No resume eligibility work here.
+    Split under this preamble (2026-09-27, by the operator's session): the
+    first visit (run `0065-rebuild-unit-14-see-the-uni-e639d515`) stopped
+    before implementation, because the serving seams lack `check_final`'s
+    typed inputs and D5.7 and D6 forbid recovering them from the record's
+    text. Unit 14 runs as three units, in order. **14a1.** Production:
+    `crates/brokkr-runtime/src/agents.rs` (`Composition`) and
+    `crates/brokkr-runtime/src/bundle.rs` (the inline composition). Both
+    compositions carry, as typed values from where they are known, the
+    adapter's declared tool-permission flag, the measured local sandbox
+    fragment, the `hands.workspace` and boundary fragments as declared with
+    tokens unexpanded, the model and effort pins apart from the template,
+    and the typed `HandsSpec`. Tests prove each value equals its adapter
+    declaration on the agent and inline paths. No engine or driver change.
+    **14a2.** The engine seals those inputs for the driver and expands hands
+    through `Transport::expand`, as the stop record words 14a. **14b.** This
+    unit's text as written, in `adapters.rs`.
 15. **Integrate eligible resume and replacement.** Close 15.1 and 15.2.
     Production: `crates/brokkr-protocol/src/adapters.rs`. Check each actual
     eligible resume and rejected-rejoin cold replacement independently; preserve

@@ -453,6 +453,13 @@ pub struct SiteFacts {
     /// the authored command as its own `local` segment at dispatch, as it
     /// appends `inline_local`. `None` at every other site.
     pub inline_sandbox: Option<InlineSandbox>,
+    /// Rebuild unit 14a1: the adapter's declared dialect an inline site's
+    /// command is composed from, recorded where its typed declaration was
+    /// lowered — the permission flag its allow lowered onto, and the
+    /// fragment its class lowered onto as declared, tokens unexpanded.
+    /// `Some` at every inline site [`record_inline_tools`] visited, `None`
+    /// at every other; read through [`SiteFacts::inline_serving`].
+    pub inline_dialect: Option<crate::agents::DeclaredDialect>,
 }
 
 /// One inline Codex seat's lowered sandbox (rebuild unit 5d): the class
@@ -489,6 +496,18 @@ impl SiteFacts {
             HandsState::Hands(spec) => Some(spec),
             _ => None,
         }
+    }
+
+    /// Rebuild unit 14a1: an inline site's typed serving inputs — its
+    /// recorded dialect, no pins (the recipe writes its own model and
+    /// effort) and the typed hands this site resolved. `None` at a site
+    /// with no inline composition, whose candidates carry theirs.
+    pub fn inline_serving(&self) -> Option<crate::agents::ServingInputs> {
+        Some(crate::agents::ServingInputs {
+            dialect: self.inline_dialect.clone()?,
+            pins: Vec::new(),
+            spec: self.hands_spec().cloned(),
+        })
     }
 }
 
@@ -2869,11 +2888,23 @@ fn record_inline_tools(
     // A seat's allow and its sandbox never both lower: the one lowers only
     // for claude and lanetally, the other only for codex. Whichever did
     // brings its adapter's template (rebuild unit 5d reuses 5c's).
-    let (lowered, allow_template) = lowered.map_or((None, None), |(lowered, template)| {
-        (Some(lowered), template)
-    });
+    let (lowered, allow_template, permissions) = lowered
+        .map_or((None, None, None), |(lowered, template, permissions)| {
+            (Some(lowered), template, permissions)
+        });
     let (sandboxed, sandbox_template) = sandboxed.map_or((None, None), |(sandboxed, template)| {
         (Some(sandboxed), template)
+    });
+    // Rebuild unit 14a1: the dialect the lowering read, recorded before
+    // anything is expanded — the class's fragment is the adapter's, as it
+    // declares it.
+    facts.inline_dialect = Some(crate::agents::DeclaredDialect {
+        permissions,
+        sandbox: sandboxed
+            .as_ref()
+            .map(|sandboxed| sandboxed.segment.argv.clone())
+            .unwrap_or_default(),
+        ..Default::default()
     });
     let template = allow_template.or(sandbox_template);
     // Rebuild unit 5c-fix: the declaration is recorded as its own typed
@@ -3086,14 +3117,15 @@ pub(crate) fn inline_codex_refusal(site: &str, cause: &impl std::fmt::Display) -
 /// is lowered by the same function that lowers an agent's, and every other
 /// shape refuses with its own cause. Beside it comes the adapter's declared
 /// permission template, which the engine emits here as it does for an
-/// agent (rebuild unit 5c), or `None` where the adapter declares none.
+/// agent (rebuild unit 5c), or `None` where the adapter declares none, and
+/// the permission flag the list lowered onto (rebuild unit 14a1).
 fn lower_inline_allow(
     what: &str,
     raw: &Value,
     command: &[String],
     allow: &[String],
     adapters: Option<&crate::agents::Adapters>,
-) -> Result<(crate::agents::LocalLowering, Option<Segment>), CompileError> {
+) -> Result<InlineAllow, CompileError> {
     let refuse = |cause: String| {
         CompileError::Invalid(format!("seat '{what}' declares 'tools.allow' {cause}"))
     };
@@ -3173,8 +3205,20 @@ fn lower_inline_allow(
     let refused = |cause: String| CompileError::Invalid(format!("seat '{what}': {cause}"));
     let lowered = crate::agents::lower_allow(adapter, allow, "site").map_err(refused)?;
     let template = crate::agents::inline_template(adapter, &driver).map_err(refused)?;
-    Ok((lowered, template))
+    Ok((
+        lowered,
+        template,
+        crate::agents::declared_permissions(adapter),
+    ))
 }
+
+/// What [`lower_inline_allow`] lowered: the list, the adapter's template
+/// and the permission flag the list lowered onto.
+type InlineAllow = (
+    crate::agents::LocalLowering,
+    Option<Segment>,
+    Option<brokkr_protocol::native_controls::ListFlag>,
+);
 
 /// What a capability-bearing option an author wrote at an inline typed
 /// site is (operator ruling 1 of 2026-09-23; rebuild units 5b-fix and

@@ -2546,9 +2546,16 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
         "the control retains the harness work fragment"
     );
 
-    let refusal = compose(agent, &adapter, "opus", "claude-opus-5", true)
-        .expect_err("a boxed seat needs the workspace fragment")
-        .to_string();
+    use brokkr_core::realms::Boundary;
+    let refusal = compose(
+        agent,
+        &adapter,
+        "opus",
+        "claude-opus-5",
+        Boundary::Namespace,
+    )
+    .expect_err("a boxed seat needs the workspace fragment")
+    .to_string();
     assert_eq!(
         refusal,
         "agent 'tester' cannot be served by provider 'claude' on model 'opus': the provider \
@@ -2558,7 +2565,7 @@ fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment(
     );
     // Unboxed, the same adapter composes and carries neither fragment nor
     // tool list: the workspace requirement is the boxed path's alone.
-    let composition = compose(agent, &adapter, "opus", "claude-opus-5", false)
+    let composition = compose(agent, &adapter, "opus", "claude-opus-5", Boundary::Harness)
         .expect("unboxed composition asks for no workspace fragment");
     let (argv, effort, hands_fragment) = (
         composition.argv(),
@@ -4412,6 +4419,17 @@ fn unit3_lowering_retains_absence_empty_and_sandbox_intent() {
                 intent: intent(allow, sandbox),
                 application,
                 template: TemplateExpectation::None,
+                serving: Box::new(ServingInputs {
+                    dialect: DeclaredDialect {
+                        permissions: Some(ListFlag {
+                            flag: "--allowedTools".into(),
+                            separator: ",".into(),
+                        }),
+                        ..DeclaredDialect::default()
+                    },
+                    pins: strings(&base[4..]),
+                    spec: None,
+                }),
             }),
             None,
         )
@@ -4519,7 +4537,14 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
         .remove(0);
         (entry.lowering, entry.gap.map(|gap| gap.to_string()))
     };
+    // The serving inputs beside the segments (rebuild unit 14a1): the
+    // workspace fragment only where it was composed.
+    let spec = brokkr_protocol::hands::HandsSpec::parse(&boxed_agent()["hands"]).unwrap();
     let dormant = |allow: &[&str], sandbox: SandboxIntent, segments: &[Segment]| {
+        let workspace = match segments == boxed.as_slice() {
+            true => strings(&fragment),
+            false => Vec::new(),
+        };
         (
             Lowering::Composed(Composition {
                 segments: segments.to_vec(),
@@ -4531,6 +4556,18 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
                 },
                 application: Application::Dormant,
                 template: TemplateExpectation::None,
+                serving: Box::new(ServingInputs {
+                    dialect: DeclaredDialect {
+                        permissions: Some(ListFlag {
+                            flag: "--allowedTools".into(),
+                            separator: ",".into(),
+                        }),
+                        hands: workspace,
+                        ..DeclaredDialect::default()
+                    },
+                    pins: strings(&["--model", "claude-opus-5", "--effort", "high"]),
+                    spec: Some(spec.clone()),
+                }),
             }),
             None,
         )
@@ -4592,6 +4629,108 @@ fn unit3_primitives_cannot_bypass_the_delivery_handoff() {
         "{argv:?}"
     );
     assert_eq!(composition.hands_fragment(), strings(&fragment));
+}
+
+/// Rebuild unit 14a1: a composition carries, beside its segments, every
+/// typed input the final check rebuilds its command from, each equal to
+/// its adapter's declaration with its tokens unexpanded: the permission
+/// flag and separator, the `hands.workspace` fragment where boxed hands
+/// compose, the `hands.harness` gate and work fragments where the harness
+/// boundary appends one behind hands, the model and effort pins apart from
+/// the template, and the agent's typed hands. An agent lowers no local
+/// class fragment, and a fragment the boundary does not append is empty.
+#[test]
+fn a_composition_carries_each_serving_input_as_its_adapter_declares_it() {
+    use brokkr_core::realms::Boundary;
+    let (workspace, gate, work) = (
+        ["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"],
+        ["--gate-fragment", "{brokkr}", "{result_path}"],
+        ["--work-fragment", "{brokkr}"],
+    );
+    let tree = Tree::new();
+    let mut claude = claude_body();
+    claude["hands"] = json!({
+        "workspace": workspace,
+        "harness": {"gate": gate, "work": work, "result": "last-message"},
+    });
+    tree.write("adapters/claude.json", &claude);
+    let serving = |agent: Value, boundary| {
+        tree.write("agents/tester.json", &agent);
+        let report = report_under(
+            &tree.library(),
+            &tree.adapters(),
+            &Availability::unspecified(),
+            "tester",
+            boundary,
+        )
+        .unwrap();
+        composition_of(&report.entries[0]).map(|composition| *composition.serving)
+    };
+    let spec = brokkr_protocol::hands::HandsSpec::parse(&boxed_agent()["hands"]).unwrap();
+    let expected = |hands: &[&str], boundary: BoundaryFragments, spec: &Option<_>| {
+        Ok(ServingInputs {
+            dialect: DeclaredDialect {
+                permissions: Some(ListFlag {
+                    flag: "--allowedTools".into(),
+                    separator: ",".into(),
+                }),
+                sandbox: Vec::new(),
+                hands: strings(hands),
+                boundary,
+            },
+            pins: strings(&["--model", "claude-opus-5", "--effort", "high"]),
+            spec: spec.clone(),
+        })
+    };
+    let declared = BoundaryFragments {
+        gate: strings(&gate),
+        work: strings(&work),
+    };
+    let none = BoundaryFragments::default();
+    let (boxed, unboxed) = (Some(spec), None);
+    let rows: Vec<Row<Result<ServingInputs, String>>> = vec![
+        (
+            "boxed hands".into(),
+            serving(boxed_agent(), Boundary::Namespace),
+            expected(&workspace, none.clone(), &boxed),
+        ),
+        (
+            "hands under harness".into(),
+            serving(boxed_agent(), Boundary::Harness),
+            expected(&[], declared.clone(), &boxed),
+        ),
+        (
+            "hands under open".into(),
+            serving(boxed_agent(), Boundary::Open),
+            expected(&[], none.clone(), &boxed),
+        ),
+        (
+            "no hands under harness".into(),
+            serving(agent_body(), Boundary::Harness),
+            expected(&[], none.clone(), &unboxed),
+        ),
+    ];
+    each_row(rows);
+
+    // An adapter that maps no tool permission carries none, and a route
+    // measured as effortless pins its model alone.
+    claude["tool_permissions"] = json!("unsupported");
+    claude["models"]["opus"] = json!("fast/claude-opus-5");
+    claude["effortless_routes"] = json!({"fast": "measured: the route refuses every level"});
+    tree.write("adapters/claude.json", &claude);
+    let mut agent = boxed_agent();
+    agent["efforts"] = json!({});
+    assert_eq!(
+        serving(agent, Boundary::Namespace),
+        Ok(ServingInputs {
+            dialect: DeclaredDialect {
+                hands: strings(&workspace),
+                ..DeclaredDialect::default()
+            },
+            pins: strings(&["--model", "fast/claude-opus-5"]),
+            spec: boxed,
+        })
+    );
 }
 
 /// The native side of D5.7's world, on the fixture's canonical root: two

@@ -2518,6 +2518,98 @@ fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuse
     each_row(rows);
 }
 
+/// Rebuild unit 14a1: an inline site's composition carries the typed
+/// serving inputs the final check rebuilds its command from, each equal to
+/// its adapter's declaration where its typed declaration lowered: the
+/// permission flag and separator a Claude allow lowered onto, and the
+/// `hands.harness` fragment a Codex class lowered onto, as declared, its
+/// `{result_path}` unfilled. An inline site has no pins, workspace or
+/// boundary fragment of its adapter's, and carries the typed hands it
+/// resolved. An agent-backed site has no inline composition.
+#[test]
+fn an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declares_it() {
+    use crate::agents::{DeclaredDialect, ServingInputs};
+    use brokkr_protocol::native_controls::ListFlag;
+    let fixture = AgentFixture::new();
+    fixture.write("adapters/codex.json", codex());
+    let serving = |site: &str, command: Value, extra: Value| {
+        let mut config = fixture.config();
+        config["seats"]["review"]["driver"]["command"] = command;
+        for (key, value) in extra.as_object().unwrap() {
+            config["seats"]["review"][key] = value.clone();
+        }
+        match fixture.compile(config) {
+            Ok(bundle) => format!("{:?}", bundle.sites[site].inline_serving()),
+            Err(error) => error.to_string(),
+        }
+    };
+    let dialect = |permissions: Option<(&str, &str)>, sandbox: &[&str]| DeclaredDialect {
+        permissions: permissions.map(|(flag, separator)| ListFlag {
+            flag: flag.to_string(),
+            separator: separator.to_string(),
+        }),
+        sandbox: sandbox.iter().map(|part| part.to_string()).collect(),
+        ..DeclaredDialect::default()
+    };
+    let carried = |dialect: DeclaredDialect, spec: Option<HandsSpec>| {
+        format!(
+            "{:?}",
+            Some(ServingInputs {
+                dialect,
+                pins: Vec::new(),
+                spec,
+            })
+        )
+    };
+    let hands = json!({"kind": "workspace", "network": false, "binds": []});
+    let exec = json!(["{brokkr}", "driver", "exec", "--", "bash", "x.sh"]);
+    let rows: Vec<Row<String>> = vec![
+        (
+            "claude allow".into(),
+            serving(
+                "review",
+                claude_inline("claude", &[]),
+                json!({"tools": {"allow": ["cargo"]}}),
+            ),
+            carried(dialect(Some(("--allowedTools", ",")), &[]), None),
+        ),
+        (
+            "codex gate, read-only".into(),
+            serving(
+                "review",
+                codex_inline(&[]),
+                json!({"class": "gate", "tools": {"sandbox": "read-only"}}),
+            ),
+            carried(dialect(None, &CODEX_GATE), None),
+        ),
+        (
+            "codex work, workspace-write".into(),
+            serving(
+                "review",
+                codex_inline(&[]),
+                json!({"tools": {"sandbox": "workspace-write"}}),
+            ),
+            carried(dialect(None, &CODEX_WORK), None),
+        ),
+        (
+            "claude, nothing lowered".into(),
+            serving("review", claude_inline("claude", &[]), json!({})),
+            carried(dialect(None, &[]), None),
+        ),
+        (
+            "exec with hands".into(),
+            serving("review", exec, json!({"hands": hands})),
+            carried(dialect(None, &[]), Some(HandsSpec::parse(&hands).unwrap())),
+        ),
+        (
+            "an agent-backed site".into(),
+            serving("work", claude_inline("claude", &[]), json!({})),
+            format!("{:?}", None::<ServingInputs>),
+        ),
+    ];
+    each_row(rows);
+}
+
 /// Rebuild unit 5d-fix (chief F1 and F2 of run 0065-rebuild-unit-5d-see-the-uni-5b7d59c1;
 /// operator ruling of 2026-09-25; design D5.3): the engine's fragment is the
 /// only sandbox-bearing element of an inline Codex launch. Every contribution

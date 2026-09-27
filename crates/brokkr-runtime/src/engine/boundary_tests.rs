@@ -47,6 +47,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
                 hands,
             },
             application: Application::Unrestricted,
+            serving: Default::default(),
         }),
     }
 }
@@ -647,6 +648,7 @@ fn the_compiles_expansion_keeps_every_segments_origin() {
             intent: intent.clone(),
             application: Application::Dormant,
             template: TemplateExpectation::None,
+            serving: Default::default(),
         })
     };
     let written = composed(vec![

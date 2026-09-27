@@ -14138,3 +14138,157 @@ The framing says a settled design that cannot be implemented as written
 is reported `blocked`, so this visit reports `blocked`, not a second
 `oversized`. No production or test file moved, and no gate was run.
 **Pending:** the operator's ruling on the 14a/14b split.
+
+## Unit 14a1 — the compositions carry the typed serving inputs, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-5642ffd7`, based on `5aac22f4`. The
+operator's session split unit 14 into 14a1, 14a2 and 14b, run in that
+order, and this unit records the split in design.md ("Rebuild units",
+unit 14) and tasks.md. Production: `crates/brokkr-runtime/src/agents.rs`
+and `crates/brokkr-runtime/src/bundle.rs`. No engine, driver or protocol
+file moved. **Result: complete.** 14.1 stays open until 14b.
+
+### What each composition carries
+
+`check_final` takes `Dialect { permissions, sandbox, hands, boundary }`,
+`Serving::pins` and `Serving::hands` (a `Transport` over a `HandsSpec`).
+Both compositions now carry each of these as a typed value. None of them
+is read back from a segment or an argv.
+
+- **Agent path** (`agents.rs`). `Composition::serving:
+  Box<ServingInputs>` (`:909`). The box keeps `Lowering` inside clippy's
+  `large_enum_variant` bound; the first clippy run refused the unboxed
+  field. `compose` (`:1059`) fills it as each contribution is chosen:
+  - `permissions`: `declared_permissions` (`:961`), the adapter's
+    `tool_permissions` flag and separator, or `None`.
+  - `pins`: the `model_flag` and concrete model (`:1092`), then the effort
+    pair where one is pinned (`:1150`).
+  - `hands`: `hands.workspace` as appended where boxed hands compose
+    (`:1188`).
+  - `boundary`: under `harness` beside hands, the adapter's
+    `hands.harness` gate and work fragments (`:1193`). The class is not
+    known at resolution, so both are carried and 14a2 selects one, as
+    `engine::compose_segments` does.
+  - `spec`: the agent's `hands`.
+  - `sandbox`: always empty. An agent's class rides its hands, and
+    `sealed_inputs` lowers a class fragment only where hands are not
+    required.
+
+  To know the boundary, `compose` and `entry_for` now take the realm's
+  `Boundary` instead of `boxed: bool`. `report_narrowed` already had it.
+- **Inline path** (`bundle.rs`). `record_inline_tools` records
+  `SiteFacts::inline_dialect` (`:462`, set at `:2901`) at every inline
+  site it visits, before anything is expanded:
+  - the permission flag a Claude or LaneTally allow lowered onto, which
+    `lower_inline_allow` now also returns (`:3211`);
+  - the `hands.harness` fragment a Codex class lowered onto.
+
+  `SiteFacts::inline_serving()` (`:505`) adds empty pins, because the
+  recipe writes its own, and the site's resolved `HandsSpec`, read from
+  `SiteFacts::hands` and not stored twice. It returns `None` at an
+  agent-backed site.
+
+**Assumptions.**
+
+- An inline site that lowered nothing carries no permission flag and no
+  class fragment. `sealed_inputs` reads the flag only for nonempty direct
+  limits and the fragment only for a lowered class
+  (`native_controls.rs:2028-2049`), so nothing it reads is absent.
+- An inline site's workspace and boundary fragments are empty. The engine
+  appends none without a candidate (`engine.rs` `compose_segments`,
+  `candidate.and_then(..)`).
+
+### Tests and their binding
+
+- `agents::tests::a_composition_carries_each_serving_input_as_its_adapter_declares_it`
+  (`agents/tests.rs:4643`). It compares the whole `ServingInputs` against
+  the adapter fixture's literals in four rows: boxed hands, hands under
+  `harness`, hands under `open`, and no hands under `harness`. It then
+  asserts an adapter with no tool permission on an effortless route
+  (`None`, model pin alone).
+- `bundle::agent_tests::an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declares_it`
+  (`bundle/agent_tests.rs:2530`), through `compile`, in six rows: a
+  Claude allow, a Codex gate `read-only` (`CODEX_GATE`, `{result_path}`
+  unfilled), a Codex work seat `workspace-write`, Claude with nothing
+  lowered, exec with hands, and an agent-backed site (`None`).
+- **Baseline.** Both tests name types this unit adds, so they have no run
+  on `5aac22f4`. Their binding is shown by the mutations below.
+
+**Mutations.** Each is a temporary, compiling edit, restored by `cp` and
+checked with `cmp`. Runs used `cargo test -p brokkr-runtime --lib --
+carries_each_serving_input unit3_`, with output in
+`.forge/unit-14a1/<id>.txt`.
+
+| id | edit | fails (row) |
+|----|------|-------------|
+| MA1 | agent `permissions: None` | new agent test (every row), `unit3_lowering_retains…` (4 rows), `unit3_primitives…` |
+| MA2 | agent carries the workspace fragment as `sandbox` | new agent test (boxed hands), `unit3_primitives…` (3 boxed rows) |
+| MA3 | agent `hands` not set | new agent test (boxed hands), `unit3_primitives…` (3 boxed rows) |
+| MA4 | gate and work swapped | new agent test (hands under harness) |
+| MA4b | boundary carried under every unboxed boundary | new agent test (hands under open) |
+| MA5 | effort pin not carried | new agent test (4 rows), both `unit3_` tests |
+| MA5b | model pin cleared | new agent test (4 rows), both `unit3_` tests |
+| MA6 | agent `spec: None` | new agent test (3 hands rows), `unit3_primitives…` (4 rows) |
+| MI1 | inline permissions `None` | new inline test (claude allow) |
+| MI2 | inline class fragment dropped | new inline test (codex gate, codex work) |
+| MI3 | inline `spec: None` | new inline test (exec with hands) |
+| MI4 | inline pins invented | new inline test (5 inline rows) |
+| MI5 | inline workspace fragment invented | new inline test (5 inline rows) |
+| MI6 | an agent site answers an inline composition | new inline test (an agent-backed site) |
+
+MA1 was taken again after the `Box` change (`MA1-retake.txt`). It fails
+the same three tests.
+
+**Gaps.**
+
+- **Unexpanded tokens.** `expand_command` rewrites only whole
+  `{brokkr}`/`{forge}` tokens and `./` prefixes. The Codex gate and work
+  fragments have none, so on these fixtures the inline fragment reads the
+  same before and after expansion. A mutation that read it afterwards
+  would be equivalent here.
+- **The compile path.** On the agent path, `compose` never expands, and
+  `expand_lowering` carries `serving` through `..composition.clone()`. No
+  compile-path test binds that; the seal's tests in 14a2 are its natural
+  owner.
+
+### Changed test lines
+
+- **Owning suite of `agents.rs`** (`agents/tests.rs`).
+  - The whole-`Composition` expectations in
+    `unit3_lowering_retains_absence_empty_and_sandbox_intent` (`composed`)
+    and `unit3_primitives_cannot_bypass_the_delivery_handoff` (`dormant`)
+    gain the carried `serving` value. They compare the whole struct, so
+    the new field must be stated. MA1, MA2, MA3, MA5, MA5b and MA6 fail
+    them.
+  - The two `compose` calls in
+    `harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment`
+    pass `Boundary::Namespace` for `true` and `Boundary::Harness` for
+    `false`, because the signature changed. Their `is_boxed()` values are
+    the same, and their assertions did not move.
+- **Standing admission (2026-09-25).** Four lines outside the unit's
+  files, each `serving: Default::default(),`, forced by the new field in
+  a `Composition` literal. None adds or removes an assertion or changes
+  tested behaviour:
+  - `engine/boundary_tests.rs:50` (`candidate`);
+  - `engine/boundary_tests.rs:651` (`composed` in
+    `the_compiles_expansion_keeps_every_segments_origin`; both sides of
+    its equality share it);
+  - `engine/capability_tests.rs:401` (`composed_link`);
+  - `engine/tests.rs:39` (`templated`).
+- Fixture migrations: none.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt --all`.
+- `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 `ok`
+  summaries, lib 567, `capability_launch` 53. `witness_digests` passes,
+  so no pin moved (`.forge/unit-14a1/runtime-tests.txt`).
+- `compile --bundle bundles/self` and `bundles/verify`: both print their
+  manifests.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+
+**Pending.** 14a2 (the engine's seal and `Transport::expand`), 14b (the
+seams), exact coverage outside the box, macOS, remote CI and the council.
