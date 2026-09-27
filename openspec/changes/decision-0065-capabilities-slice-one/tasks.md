@@ -2212,6 +2212,48 @@ still subject to the council.
 - **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
   box, macOS, remote CI and the council.
 
+Unit 13-fix-b (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-eb99d7ad`,
+based on `e61185f9`; answers the chief's security hold R1–R5; evidence.md,
+"Unit 13-fix-b"). **Result: complete.** 13.1 and 13.2 stay ticked. The
+exact proofs R5 asks for now back them, and they are still subject to the
+council.
+
+- **Recompose, don't re-derive.** `derive` is gone. `check_final(harness,
+  command, controls, expected, dialect, serving)` proves the sealed inputs
+  are the plan's. It rebuilds the template, the lowered local permissions
+  and class, the hands expanded from the typed `Transport`, and the
+  dialect's boundary. It composes them through `compose_for_provider` and
+  compares the final command's effects with the recomposition's in order.
+  The record's argv is never read.
+- **R1.** The hands' values come from `Transport::expand`. Their options
+  must be exactly the transport's own.
+- **R2 and R3.** The composer's refusals, including the known-power floor
+  and both admitted and denied, are the check's, unchanged.
+- **R4.** `State` keeps every effect in command order. A Codex rejoin's
+  class leads, as `codex_plan` places it.
+- **R5.** Property 1 covers 1,179 launches: 699 check, and 480 refuse with
+  the composer's hand-written refusal. Property 2 covers 14,269 mutations,
+  swaps of any two consecutive effects among them. Every one is asserted
+  against its complete written `Refusal`.
+- **Proof.** Baseline reds for R1–R4 on `e61185f9`. For R5, a wrong-cause
+  mutation survived the old property. Mutations M1–M13 each compiled, were
+  caught and were restored (`cmp`). M8 survived once, until a class-last
+  rejoin case was added.
+- **Gates.** fmt, `git diff --check` and workspace clippy `-D warnings`
+  are clean. Protocol: 526 + 99 + 1 passed. Workspace: 77 `ok` summaries.
+  Both bundles compile. Strict OpenSpec: 18/18.
+- **Tests removed or replaced.** Four tests fed `check_final` a
+  composition wrong in the same way as the command, which it no longer
+  takes (listed in evidence.md).
+- Fixture migrations and standing-admission lines: none. Only
+  `native_controls.rs` and `native_controls/tests.rs` moved.
+- **Follow-ups.** `engine::hands_command` should call `Transport::expand`
+  (units 14–15). A list written twice across the template and the
+  fragment is refused as `authored` by the composer; that behaviour
+  predates this change.
+- **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
+  box, macOS, remote CI and the council.
+
 ## 14. Unit 14 — Integrate checked cold commands
 
 - [ ] 14.1 Unit 14 parses full serialized cold commands and compares exact plan state. Verify dropped OFF/terminator/separator/prefix-duplicate refusal and typed positives. Requirements: [Codex web-search OFF uses the controller's measured fragment][NC2], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.1)

@@ -13291,3 +13291,195 @@ outside the unit's files are the two ruled expectations.
 
 **Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
 macOS, remote CI, serving integration (14.1, 15.1, 15.2) and the council.
+
+## Unit 13-fix-b — recompose, don't re-derive, 2026-09-27
+
+Run `0065-rebuild-unit-13-see-the-uni-eb99d7ad`, based on `e61185f9`. It
+answers the chief's security hold on unit 13-fix (R1–R5). The chief's root
+cause was that the checker kept a second rulebook, so this visit removed
+it. `derive`, `workspace_hands` and `boundary` are gone. `check_final` now
+rebuilds the engine's two argv parts from the sealed typed inputs and
+composes them through the same `compose_for_provider` the launch uses. It
+then compares the final command with that recomposition, effect by effect
+and in order. The files moved are `native_controls.rs` and
+`native_controls/tests.rs`. `grammar.rs` and `adapters.rs` did not change.
+
+### What the change does
+
+- **Signature.** The new signature is `check_final(harness, command,
+  controls, expected, dialect, serving)`. It takes the sealed `Expected`,
+  so the record's segments, which are its recorded argv, cannot be read
+  there. It takes no `Composed`. `Dialect` carries the adapter's concrete
+  values: the tool-permission flag, the measured `hands.workspace`
+  fragment with its tokens unexpanded, and the boundary fragment.
+  `Serving` gains `hands: Option<Transport>`, which holds the engine's
+  executable, the site's workdir and its typed `HandsSpec`.
+- **`sealed_inputs`.** This step proves the inputs are the plan's. Most
+  checks keep their earlier causes: inventory; held, denied and admitted
+  powers; restrictions; the local application; the local permissions the
+  plan types; F4 on the template, boundary and plan; OFF only in the plan;
+  F2 across all class sources; and Codex OFF against holdings and denials.
+  The hands check is new. Hands must be required exactly where a transport
+  is bound, and they are counted as the dialect measures them. The authored
+  part it rebuilds is the declared template, then the typed local
+  permissions lowered onto the dialect's flag, then the typed class where
+  no hands carry it (the engine's `local_class`). The fragment it rebuilds
+  is `Transport::expand` of the measured hands, then the boundary.
+- **R1.** `Transport::expand` produces the hands values from the typed
+  inputs exactly as the spawn does: the MCP document, the TOML server
+  arguments and `{brokkr}`. The hands' capability-bearing options must be
+  exactly the transport's own. For Claude and LaneTally that is strict MCP
+  and this document. For Codex it is this command, these arguments and the
+  approving mode. Nothing may stand beside them. DSH has no transport.
+- **R2 and R3.** Every refusal the composer gives on the sealed inputs is
+  returned unchanged. That covers the known-power floor, both admitted and
+  denied, unheld and carried allowances, and limits that exclude a tool.
+- **NCR.** For Claude and LaneTally, `delivered` reads the recomposed
+  command. It refuses a denied or unadmitted guard tool left available,
+  and a denial with no guard tool. This keeps the earlier causes.
+- **R4.** `State` is now `effects: Vec<Expressed>` in command order, plus
+  the session and the prompt. `Expressed` is one of `List`, `Class`, `Off`
+  or `Control`. The command's effects must equal the recomposition's one
+  by one. On a Codex rejoin the recomposed class leads, as `codex_plan`
+  re-expresses it (`State::rejoined`, a stable sort). A departure refuses
+  as `departs at its capability-bearing effect N from the command its
+  sealed inputs recompose`. The session and the prompt are compared with
+  the engine's choice.
+- **Removed checks.** The checker no longer derives its own availability
+  of held, lowered and hands tools. The composer's `Excluded`, `Outside`
+  and both-admitted-and-denied refusals cover those cases, so the removed
+  checks could not fire.
+
+### Tests (`native_controls/tests.rs`)
+
+The unit 13 and 13-fix final-check section was rewritten on a `Sealed`
+fixture: plan, expected state, dialect, transport, and the authored part
+as the launch writes it.
+
+- **Removed.** These tests fed `check_final` a composition that was wrong
+  in the same way as the command. That input no longer exists:
+  `a_claude_command_wrong_alike_…`, `a_codex_command_wrong_alike_…`,
+  `a_codex_effect_is_judged_by_its_meaning_…` and
+  `an_opaque_load_or_unrelated_server_…`.
+- **Moved.** Their still-meaningful cases now live in
+  `a_sealed_contribution_carries_only_established_effects` (F4 and OFF in
+  the template, boundary, plan and hands), the R1 test and the
+  include-limit test.
+- **Renamed.** `the_sealed_record_is_checked_independently_of_both_commands`
+  is now `the_sealed_inputs_are_checked_independently_of_the_command`.
+- **New.**
+  - `the_engines_hands_transport_is_expanded_from_its_typed_inputs`:
+    literal document and arguments.
+  - `the_final_command_keeps_every_effect_in_its_composed_order` (R4).
+  - `the_hands_are_bound_to_the_engines_transport_and_nothing_else` (R1).
+    It includes a class placed last, which leads the rejoin.
+  - `every_known_native_power_is_answered_before_a_command_checks` (R2).
+    DSH and LaneTally uncertainty still checks.
+  - `an_exactly_denied_local_permission_refuses_as_the_composer_refuses_it`
+    (R3).
+- **Property 1.** 1,179 generated launches. 699 compose and check. The
+  480 Claude and LaneTally launches that write an include list twice
+  refuse in the composer and in the check with the same hand-written
+  `Refusal`, which names the second `--tools` by position. The agent-site
+  Codex shapes with a typed class beside a boundary class left the
+  generator. They recompose a doubled `--sandbox`, and the F2 test asserts
+  that refusal exactly.
+- **Property 2 (R5).** 14,269 single mutations: Claude 6,948, LaneTally
+  6,948, Codex 360 and DSH 13. Each is asserted to refuse with a complete
+  `Refusal` written for that mutation. A drop, an alteration, a shrink, a
+  reorder or a swap of any two consecutive effects of any kinds departs at
+  the first changed effect index, counted by the test from the served
+  command's own effect spans. An addition departs at index E+1 or refuses
+  as read at its argument. A session or prompt change names what changed.
+  The DSH positional refusals name their argument and cause. No mutation
+  survived.
+
+Fixture migrations and standing-admission lines: none. No file outside
+`native_controls.rs` and `native_controls/tests.rs` changed, apart from
+this record and `tasks.md`.
+
+### Baseline reds on `e61185f9`
+
+Before any production change, scratch probes were appended to the old test
+file and run, then removed with `git checkout`
+(`.forge/unit-13-fix-b/baseline-probes.rs`, `baseline-reds.txt`). Each
+probe asserts the correct refusal. Each failed because the old check
+returned `Ok`:
+
+| Finding | Observed on `e61185f9` |
+|---|---|
+| R1 | `Ok` for Codex hands carrying `command="/usr/bin/evil"` and `args=garbage`, sealed and served alike. The Claude half was not reached. The old positive at `tests.rs:6850` accepted `--mcp-config /w/hands.json`, a file no binding made. |
+| R2 | `Ok` for `codex exec --json -C /w --sandbox read-only` under a plan with no web-search holding, denial or OFF. The composer refuses that plan. |
+| R3 | `Ok` for `Bash(git log:*)` allowed and denied identically. The composer refuses that composition. |
+| R4 | `Ok` for `CLAUDE_COLD` with its allow and deny pairs swapped. |
+| R5 | The old `departed` cause was mutated to always say "its allow list", then the old suite ran (`baseline-r5.txt`). `every_single_mutation_of_a_checked_command_refuses` still passed. Only the hand-written departure test failed. |
+
+### Mutations (each compiled, was caught, then restored)
+
+Each mutation was one Edit to `native_controls.rs`. Then `cargo test -p
+brokkr-protocol --lib native_controls::tests` ran, and the file was copied
+back from `.forge/unit-13-fix-b/native_controls.final.rs`. `cmp` confirmed
+each restoration. M1–M7 and M9–M13 ran before two later edits: the rejoin
+test was added, and `rejoined` was rewritten as a stable sort. Neither
+edit touched a mutated line. M8 was re-run on the final form. Outputs are
+in `.forge/unit-13-fix-b/m*.txt`.
+
+| | Mutation | Caught by |
+|---|---|---|
+| M1a | R1: the hands left unexpanded | 11 tests, including both properties |
+| M1b | R1: the transport binding check skipped | `the_hands_are_bound_…`, `an_unmeasured_dsh_…` |
+| M2 | R2: the composer's floor refusal swallowed | `every_known_native_power_…` |
+| M3 | R3: "both admitted and denied" swallowed | `an_exactly_denied_local_permission_…`, `the_sealed_inputs_…` |
+| M4 | R4: effects compared as a multiset | `the_final_command_keeps_every_effect_…`, `a_codex_cold_command_…`, property 2 (its survivor list shows 1,604 `swap … and …` matches) |
+| M5 | R5: the departure index off by one past 3 | 5 tests, including property 2 |
+| M5b | R5: a session change named as the prompt | 4 tests, including property 2 |
+| M6 | NCR: `delivered` ignored | `the_sealed_inputs_…`, `the_plan_selection_…` |
+| M7 | the typed class not lowered | 5 tests, including both properties |
+| M8 | the rejoin's class not moved to its lead | `the_hands_are_bound_…`. It survived before the class-last case was added. |
+| M9 | the arguments' `"` unescaped | `the_engines_hands_transport_…`, `the_hands_are_bound_…` |
+| M10 | F4: boundary effects unjudged | `a_sealed_contribution_…` |
+| M11 | an OFF for an unanswered power admitted | `the_plan_native_contribution_…` |
+| M12 | the boundary left out of the recomposition | 7 tests, including both properties |
+| M13 | the typed local permissions not lowered | 11 tests, including `a_compatible_local_permission_…` |
+
+Every new or rewritten test fails under at least one of these.
+
+### Gates
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning.
+- `cargo test -p brokkr-protocol`: 526 unit, 99 integration (2 ignored)
+  and 1 doctest passed.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+  `test result: ok` summaries, and no `FAILED`, `panicked` or `error:`
+  line (`.forge/unit-13-fix-b/workspace-tests.txt`).
+- `compile --bundle bundles/self` and `bundles/verify`: both exited 0.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- Coverage diagnostic: `cargo +nightly-2026-09-05 llvm-cov -p
+  brokkr-protocol --lib --branch`. The one unhit branch in the new code
+  was `rejoined`'s no-class arm, and the stable-sort rewrite removed it.
+  The remaining unhit records in `native_controls.rs` predate this change
+  and are the set earlier visits recorded: `authored_conflict` and
+  `opaque_conflict`, `pin_fault`, `declared_values` and `plain_*`. The
+  runtime suite covers them, and this lib-only run does not include it.
+
+### Assumptions and follow-ups
+
+- **Hands expansion is written twice.** `Transport::expand` repeats the
+  replacements of `engine::hands_command`, which is outside this unit's
+  files. Units 14–15 should make the spawn call `Transport::expand`.
+- **A list written twice is refused as authored.** Across the template and
+  the fragment, the composer names it `authored: true`, and the check
+  returns that refusal unchanged. This composer behaviour predates the
+  change and was not altered.
+- **The Codex class position.** The class leads a rejoin because
+  `codex_plan` places `sandbox_mode` at the lead. A cold command keeps it
+  where the composition put it.
+- **The hands' own shape comes from the dialect.** The tool lists and the
+  class in the hands come from the adapter's measured fragment. The
+  composer judges the lists. The checker binds only the transport's
+  options.
+
+**Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
+macOS, remote CI, serving integration (14.1, 15.1, 15.2) and the council.
