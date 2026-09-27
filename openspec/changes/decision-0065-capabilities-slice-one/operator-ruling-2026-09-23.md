@@ -197,3 +197,9 @@ OPERATOR RULINGS, 2026-09-27, on unit 14b's two mismatches (evidence.md, "Unit 1
 (A) An agent with hands and no allow list is served. Under decision 0043 ruling 2, a site with hands does not consult its tool allow list, so `local: {allow: unspecified, application: dormant}` beside `hands: required` is CONSISTENT. check_final's consistency table admits unspecified with dormant exactly when hands are required, and nowhere else.
 (B) An inline site with hands is served like an agent. The inline composition carries the adapter's DECLARED hands.workspace fragment (and its typed HandsSpec), as 14a1 made the agent composition do, so the inline dialect's hands is not empty and R1's transport check passes on the engine's own fragment.
 Rebuild unit 14a3 builds both: (A) in `crates/brokkr-protocol/src/native_controls.rs`, (B) in `crates/brokkr-runtime/src/bundle.rs` (`SiteFacts::inline_serving`). No `adapters.rs` change. Unit 14b then re-runs from its saved patch.
+
+## Addendum, 2026-09-27: an unselected entry neither grants nor denies, and harness hands are the harness fragment
+
+OPERATOR RULINGS, 2026-09-27 (on 14b's third visit, run 0065-rebuild-unit-14-see-the-uni-d32a2322):
+(1) An UNSELECTED inventory entry neither grants nor denies a capability the seat holds through its selected entry. This mirrors 12-fix's ruling that authority follows the selected holding only. check_final's denial pass counts denials only from the selected entries' semantics. An unselected entry's OFF for a held capability is not a denial (capability_launch.rs:6457).
+(2) Under the `harness` boundary there is no Brokkr box. "The engine's workspace hands" are the adapter's own hands.harness.work or hands.harness.gate fragment (decision 0046 ruling 4). The composition seals THAT fragment, not hands.workspace, when the boundary is harness. check_final's R1 admits exactly that fragment under harness, and nowhere else (capability_launch.rs:6751).
