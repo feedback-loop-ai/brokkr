@@ -8420,13 +8420,16 @@ fn the_sealed_inputs_are_checked_independently_of_the_command() {
         )
     );
     // A declared allow applies directly without hands and is dormant
-    // beside them; an unspecified one is unrestricted.
+    // beside them; an unspecified one is unrestricted, or dormant beside
+    // them (operator ruling (A) of 2026-09-27).
+    let contradicts = "is sealed with a local declaration its application contradicts: \
+                       unspecified is unrestricted or dormant beside hands, and a listed one \
+                       applies directly without hands and is dormant beside them";
     for (allow, application) in [
         (
             AllowIntent::Listed(argv(&["git"])),
             Application::Direct(argv(&["Bash(git log:*)"])),
         ),
-        (AllowIntent::Unspecified, Application::Dormant),
         (
             AllowIntent::Listed(argv(&["git"])),
             Application::Unrestricted,
@@ -8441,13 +8444,23 @@ fn the_sealed_inputs_are_checked_independently_of_the_command() {
                 },
                 ..expected.clone()
             }),
-            refused(
-                "is sealed with a local declaration its application contradicts: unspecified is \
-                 unrestricted, and a listed one applies directly without hands and is dormant \
-                 beside them"
-            )
+            refused(contradicts)
         );
     }
+    let unspecified_dormant = LocalExpectation {
+        allow: AllowIntent::Unspecified,
+        sandbox: SandboxIntent::Unspecified,
+        application: Application::Dormant,
+    };
+    assert_eq!(
+        with(Expected {
+            local: unspecified_dormant.clone(),
+            ..expected.clone()
+        })
+        .unwrap()
+        .into_argv(),
+        cold
+    );
     let dormant = Expected {
         local: LocalExpectation {
             allow: AllowIntent::Listed(argv(&["git"])),
@@ -8484,6 +8497,18 @@ fn the_sealed_inputs_are_checked_independently_of_the_command() {
     let mut bare = local_cold.clone();
     bare[8] = "WebSearch".into();
     assert_eq!(local.cold(bare), Err(departs("claude", 8)));
+    // Without hands, an unspecified allow is never dormant.
+    assert_eq!(
+        Sealed {
+            expected: Expected {
+                local: unspecified_dormant,
+                ..local.expected.clone()
+            },
+            ..local.clone()
+        }
+        .cold(local_cold.clone()),
+        refused(contradicts)
+    );
     assert_eq!(
         Sealed {
             controls: Controls {

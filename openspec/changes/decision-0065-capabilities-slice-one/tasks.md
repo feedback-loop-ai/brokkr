@@ -2510,6 +2510,41 @@ evidence.md, "Unit 14b — second visit"). **Result: blocked.** No ruling
 on A or B exists; the production lines both cite are unchanged, and the
 patch still applies. Nothing but these records moved; 14.1 stays open.
 
+Unit 14a3 (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-07ead96a`,
+based on `522dde93`; evidence.md, "Unit 14a3"). **Result: complete.** 14.1
+stays open until 14b. The operator's rulings are recorded alone as the
+addendum "2026-09-27: hands make the allow list dormant, and inline hands
+are served" (`420a0304`). Production: `native_controls.rs` and `bundle.rs`
+only.
+
+- **A.** `check_final`'s table admits `unspecified` with `dormant` exactly
+  where hands are required, and the refusal names that. The rows in
+  `the_sealed_inputs_are_checked_independently_of_the_command` assert two
+  things: beside hands the shape rebuilds the exact cold command, and
+  without them it refuses with the exact cause. The baseline red on the old
+  code panics at the admission. Mutations `=> true` and `=> false` each
+  fail at a named line.
+- **B.** An inline site with hands carries its dispatch driver's declared
+  `hands.workspace` fragment in `inline_dialect.hands`, unexpanded, beside
+  its `HandsSpec` (`record_capabilities`). The compile refuses inline
+  model-harness hands unboxed (decision 0046 ruling 4), so no boundary
+  filter is needed. Two rows were added to
+  `an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declares_it`:
+  "codex with boxed hands" and "codex without hands". The baseline red
+  fails the first. Mutations B1 and B2 fail named rows.
+- **Next for 14b** (its patch was applied as scratch and reverted):
+  - A's two seats pass the table. They now meet a plan-denial refusal
+    (`:6457`) and R1 on a fixture without the MCP server (`:6751`).
+  - B's inline member now meets the count check: its plan types 0 hands
+    arguments. That plan type (`bundle.rs`) and the missing inline hands
+    emission (`engine.rs`) are outside this ruling.
+- Fixture migrations and standing-admission lines: none.
+- **Gates.** fmt, clippy, the protocol and runtime suites (28 `ok`), the
+  CLI suite (33 `ok`), both bundles, strict OpenSpec (18 passed) and `git
+  diff --check` are clean.
+- **Pending.** 14b, exact coverage outside the box, macOS, remote CI and
+  the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

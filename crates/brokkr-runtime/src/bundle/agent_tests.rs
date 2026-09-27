@@ -2523,15 +2523,20 @@ fn an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuse
 /// its adapter's declaration where its typed declaration lowered: the
 /// permission flag and separator a Claude allow lowered onto, and the
 /// `hands.harness` fragment a Codex class lowered onto, as declared, its
-/// `{result_path}` unfilled. An inline site has no pins, workspace or
-/// boundary fragment of its adapter's, and carries the typed hands it
-/// resolved. An agent-backed site has no inline composition.
+/// `{result_path}` unfilled. An inline site has no pins or boundary
+/// fragment of its adapter's, and carries the typed hands it resolved;
+/// beside them, it carries its adapter's `hands.workspace` fragment as
+/// declared through the compile's expansion (operator ruling (B) of
+/// 2026-09-27). An agent-backed site has no inline composition.
 #[test]
 fn an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declares_it() {
     use crate::agents::{DeclaredDialect, ServingInputs};
     use brokkr_protocol::native_controls::ListFlag;
     let fixture = AgentFixture::new();
-    fixture.write("adapters/codex.json", codex());
+    let workspace = with_schema(&CODEX_WORKSPACE);
+    let mut codex = codex();
+    codex["hands"]["workspace"] = json!(workspace);
+    fixture.write("adapters/codex.json", codex);
     let serving = |site: &str, command: Value, extra: Value| {
         let mut config = fixture.config();
         config["seats"]["review"]["driver"]["command"] = command;
@@ -2600,6 +2605,22 @@ fn an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declare
             "exec with hands".into(),
             serving("review", exec, json!({"hands": hands})),
             carried(dialect(None, &[]), Some(HandsSpec::parse(&hands).unwrap())),
+        ),
+        (
+            "codex with boxed hands".into(),
+            serving("review", codex_inline(&[]), json!({"hands": hands})),
+            carried(
+                DeclaredDialect {
+                    hands: workspace.clone(),
+                    ..DeclaredDialect::default()
+                },
+                Some(HandsSpec::parse(&hands).unwrap()),
+            ),
+        ),
+        (
+            "codex without hands".into(),
+            serving("review", codex_inline(&[]), json!({})),
+            carried(dialect(None, &[]), None),
         ),
         (
             "an agent-backed site".into(),

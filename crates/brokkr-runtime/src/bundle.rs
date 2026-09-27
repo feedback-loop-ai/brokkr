@@ -456,7 +456,9 @@ pub struct SiteFacts {
     /// Rebuild unit 14a1: the adapter's declared dialect an inline site's
     /// command is composed from, recorded where its typed declaration was
     /// lowered — the permission flag its allow lowered onto, and the
-    /// fragment its class lowered onto as declared, tokens unexpanded.
+    /// fragment its class lowered onto as declared, tokens unexpanded, and
+    /// (operator ruling (B) of 2026-09-27) where the site has hands, the
+    /// `hands.workspace` fragment its driver's adapter declares.
     /// `Some` at every inline site [`record_inline_tools`] visited, `None`
     /// at every other; read through [`SiteFacts::inline_serving`].
     pub inline_dialect: Option<crate::agents::DeclaredDialect>,
@@ -4836,6 +4838,20 @@ fn record_capabilities(
             &local,
         )?;
         let facts = site_facts(sites, what);
+        // Operator ruling (B) of 2026-09-27: an inline site with hands is
+        // served like an agent, so its dialect carries the `hands.workspace`
+        // fragment its driver's adapter declares, as `agents::compose`
+        // carries an agent's. Its hands are boxed: the hands law refuses an
+        // inline model harness's hands unboxed (decision 0046 ruling 4).
+        let declared = adapters
+            .adapters
+            .zip(driver.as_deref())
+            .and_then(|(adapters, driver)| adapters.adapter(driver))
+            .and_then(|adapter| adapter.hands.as_ref())
+            .filter(|_| facts.hands_spec().is_some());
+        if let (Some(dialect), Some(fragment)) = (facts.inline_dialect.as_mut(), declared) {
+            dialect.hands = fragment.clone();
+        }
         // Rebuild unit 5d-fix-b: an inline class the engine lowered is
         // judged with its whole launch, the resolved native plan included.
         admit_inline_launch(what, &parts, facts, &site)?;

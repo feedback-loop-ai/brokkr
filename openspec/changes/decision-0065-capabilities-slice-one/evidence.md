@@ -14692,3 +14692,128 @@ be implemented as written is reported `blocked`. **Result: blocked.**
   --check`, because only these two documents changed. 14.1 stays open.
 
 **Pending.** As above: the operator's ruling on A and B.
+
+## Unit 14a3 — hands make the allow list dormant, and inline hands carry their fragment, 2026-09-27
+
+Run `0065-rebuild-unit-14-see-the-uni-07ead96a`, based on `522dde93`.
+The operator's rulings (A) and (B) of 2026-09-27 are recorded first, alone,
+as the addendum "2026-09-27: hands make the allow list dormant, and inline
+hands are served" (`420a0304`, docs). Production:
+`crates/brokkr-protocol/src/native_controls.rs` (A) and
+`crates/brokkr-runtime/src/bundle.rs` (B). No `adapters.rs` change.
+**Result: complete.** 14.1 stays open until 14b.
+
+### (A) `check_final` admits `unspecified` + `dormant` exactly beside required hands
+
+- `native_controls.rs:2168`: `(AllowIntent::Unspecified,
+  Application::Dormant) => required`, and the refusal now reads
+  "unspecified is unrestricted or dormant beside hands, and a listed one
+  applies directly without hands and is dormant beside them".
+- Test, in its owning suite:
+  `native_controls/tests.rs::the_sealed_inputs_are_checked_independently_of_the_command`.
+  The `(Unspecified, Dormant)` row leaves the with-hands refused loop and
+  becomes two exact assertions. Beside the sealed Claude hands it rebuilds
+  exactly the cold command (`:8450` onwards, `.unwrap().into_argv() ==
+  cold`). On the no-hands `claude_local` seal it refuses with the exact new
+  cause (`:8500`).
+- **Baseline red on `522dde93`'s production** (production reverted, the
+  new test in place; `.forge/unit-14a3/baseline-A.txt`): it panicked at
+  `tests.rs:8438` on the old message. With the test's message set back to
+  the old words (`baseline-A-admit.txt`), it panicked at `:8460`,
+  `called Result::unwrap() on an Err value`, with "is sealed with a local
+  declaration its application contradicts". So the old code refuses the
+  shape beside hands.
+- **Mutations**, each compiled and then restored:
+  - A1, `=> true` (`mutation-A1.txt`): fails at `:8501`. Without hands, it
+    goes on to "was planned with local permissions other than the ones its
+    sealed record lowered" instead of the exact contradiction.
+  - A2, `=> false` (`mutation-A2.txt`): fails at `:8460`, where the
+    admission beside hands meets the contradiction.
+
+### (B) An inline site with hands carries its adapter's declared `hands.workspace`
+
+- `bundle.rs:4841` onwards, in `record_capabilities`'s single-site
+  branch, after every inline site's facts are recorded. Where the site has
+  hands, its `inline_dialect.hands` is the `hands.workspace` fragment that
+  its dispatch driver's adapter declares, tokens unexpanded. This is the
+  fragment `agents::compose` carries for an agent. It is read through
+  `SiteFacts::inline_serving` beside the typed `HandsSpec`, which it
+  already carried. The `inline_dialect` field doc says so.
+- **No boundary filter.** Under `harness` and under `open`, the compile
+  refuses an inline `codex` site that declares hands: "is an inline
+  `codex` site that declares hands under the `harness` boundary …
+  (decision 0046 ruling 4)". The same holds under `open`. Both were
+  observed while writing the test. So a compiled inline model-harness hands
+  site is always boxed, and a boxed-only filter could not be bound. The
+  `exec` adapter declares an empty `hands.workspace`, and its row stays
+  empty.
+- Test, in its owning suite:
+  `bundle/agent_tests.rs::an_inline_sites_composition_carries_each_serving_input_as_its_adapter_declares_it`.
+  The fixture codex declares `hands.workspace` as the eight shipped tokens
+  followed by `--output-schema ./schema.json`. The compile expands that
+  path in a segment, so the fragment is proved carried as declared through
+  the compilation. Two rows are new:
+  - "codex with boxed hands" (`:2610`): exactly that fragment and the
+    site's `HandsSpec`.
+  - "codex without hands" (`:2621`): no fragment and no spec.
+  The doc comment now names the workspace fragment.
+- **Baseline red on `522dde93`'s production** (`baseline-B.txt`): 1 of 8
+  rows failed, "codex with boxed hands", whose `hands: []` should have
+  carried the ten declared tokens.
+- **Mutations**, each compiled and then restored (the production diff was
+  checked identical to `.forge/unit-14a3/production.patch`):
+  - B1, filter `|_| true` (`mutation-B1.txt`): 3 of 8 rows failed, "codex
+    gate, read-only", "codex work, workspace-write" and "codex without
+    hands". Each carried the workspace fragment it must not.
+  - B2, `fragment[1..].to_vec()` (`mutation-B2.txt`): 1 of 8 rows failed,
+    "codex with boxed hands".
+
+### What 14b meets next (scratch, not committed)
+
+The saved seams patch still applies (`git apply --check`). It was applied
+on top of this unit, the tests it had failed were rerun, and it was then
+reverted with `git apply -R`. The production diff was checked identical
+afterwards.
+
+- `capability_launch.rs` (`.forge/unit-14a3/with-14b-launch.txt`): 50
+  passed, 3 failed.
+  - `:6457` passes the consistency table and now refuses: "leaves tool
+    'WebFetch' available, which its plan denies as native capability
+    'web-fetch'". Its expectation launches with `--allowedTools
+    mcp__brokkr__workspace,WebFetch --disallowedTools WebSearch`.
+  - `:6751` passes the table and now meets R1: "is sealed with hands that
+    are not the engine's workspace hands". Its fixture Claude launch
+    carries `--tools ""` and no MCP server.
+  - `:3752` "unmeasured, no plan" is the in-scope row 14b already named.
+- `driver_conformance.rs` (`with-14b-conformance.txt`): 22 passed, 2
+  failed.
+  - `:2781` now refuses earlier, before R1: "was planned typing another
+    count of its fragment as the box's hands than its sealed hands and its
+    adapter's measured fragment give". The inline site's plan still types
+    `Provenance { hands: 0 }` (`bundle.rs`, `site_capabilities`,
+    `inline_provenance`), with an empty engine fragment. The engine also
+    emits no hands fragment at an inline dispatch (`engine.rs`,
+    `hands_command`: "An inline site … its argv is all the author's").
+  - `:3209` is the `PoisonError` that follows from it.
+  - Serving the inline site fully "like an agent" therefore also needs its
+    plan to type the fragment and the engine to emit it. Neither is in
+    this unit's ruling: changing the plan alone would refuse today's
+    unchecked launch path, whose recorded fragment is empty.
+
+### Gates and records
+
+- Fixture migrations and standing-admission lines: none.
+- `cargo fmt --all -- --check` is clean, and so is `cargo clippy
+  --workspace --all-targets --all-features --locked -- -D warnings`.
+- `cargo test -p brokkr-protocol -p brokkr-runtime --all-features --locked
+  --no-fail-fast`: 28 `ok` summaries and no failure (`suites.txt`).
+- `cargo test -p brokkr-cli --all-features --locked --no-fail-fast`: 33
+  `ok` summaries and no failure (`cli.txt`).
+- `compile --bundle bundles/self` and `bundles/verify` compile.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check` is clean.
+
+**Pending.** 14b, re-run from its saved patch, with the three next
+refusals above. Of those, the inline plan provenance and the inline hands
+emission need a ruling on `bundle.rs`/`engine.rs`. Also pending: exact
+coverage outside the box, macOS, remote CI and the council.

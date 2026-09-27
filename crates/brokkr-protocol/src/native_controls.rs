@@ -2161,8 +2161,11 @@ fn sealed_inputs(
     }
     let local = &expected.local;
     let required = expected.hands == HandsIntent::Required;
+    // Hands make the allow list dormant, declared or not (decision 0043
+    // ruling 2; operator ruling (A) of 2026-09-27).
     let consistent = match (&local.allow, &local.application) {
         (AllowIntent::Unspecified, Application::Unrestricted) => true,
+        (AllowIntent::Unspecified, Application::Dormant) => required,
         (AllowIntent::Listed(_), Application::Direct(_)) => !required,
         (AllowIntent::Listed(_), Application::Dormant) => required,
         _ => false,
@@ -2170,8 +2173,8 @@ fn sealed_inputs(
     if !consistent {
         return refuse(vec![Piece::Words(
             "is sealed with a local declaration its application contradicts: unspecified is \
-             unrestricted, and a listed one applies directly without hands and is dormant beside \
-             them",
+             unrestricted or dormant beside hands, and a listed one applies directly without \
+             hands and is dormant beside them",
         )]);
     }
     let direct: &[String] = match &local.application {
