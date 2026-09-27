@@ -2714,6 +2714,48 @@ Nothing but these records moved. The "complete" above is withdrawn.
 - **Pending.** The ruling, 14a4c, 14b, exact coverage outside the box,
   macOS, remote CI and the council.
 
+Unit 14a4c (2026-09-28, run `0065-rebuild-unit-14-see-the-uni-653d5daf`,
+based on `a4a184c7`; evidence.md, "Unit 14a4c — built"). **Result:
+complete.** It completes ruling (2) of 2026-09-27 and closes 14a4b's F1 and
+F2. 14.1 stays open until 14b.
+
+- **Production.**
+  - `engine.rs`: `serving_inputs` (now `pub`) seals the run's boundary as
+    `SealedDialect::stands` for a site with hands, and `None` otherwise.
+    So a declared-empty fragment pair under `harness` is never read as no
+    boundary.
+  - `native_controls.rs`: the closed `SealedBoundary` word, its member in
+    the serving JSON and its reader, and `Dialect::stands`. R1 admits the
+    harness fragment, of any length, exactly when the sealed boundary is
+    `harness` and no workspace fragment is sealed. Under any other
+    boundary the transport binds the hands.
+- **Tests.**
+  - `capability_launch.rs`: 14a4b's probe pair, compiled under `harness`
+    (admitted, exact argv) and under `open` (the whole R1 refusal).
+    `checked_launch` now takes the engine's own `serving_inputs`.
+  - `native_controls/tests.rs`: 14a4b's two tests are adopted in place
+    (F2). They gain the empty-fragment positive and five negatives
+    (`open`, the box, no boundary, and a bound workspace fragment). Each
+    of the five words round-trips, and four `stands` tamper rows were
+    added.
+  - Baseline reds for both positives were observed on `a4a184c7`.
+    Compiling mutations M1–M5 each fail a named row and were restored.
+- **Standing-admission lines.** `engine/capability_tests.rs:758`, `:802`
+  and `:958` each gain `"stands": {"kind": "none"}`. That JSON is the
+  serialised struct, so each exact literal must name the new member. No
+  assertion was added or removed. The council should rule on these,
+  because the JSON forces them, not the compiler.
+- Fixture migrations: none.
+- **Assumption.** Older serving inputs without `stands` refuse to decode
+  (closed JSON, no grandfathering). Resume is unit 15's work.
+- **Follow-up.** The `self.boundary` argument at `mark_capabilities` is not
+  bound by any test (M6 survived).
+- **Gates.** fmt and clippy are clean. The protocol and runtime suites
+  pass. The workspace suite has 77 summaries `ok`. Both bundles compile.
+  Strict OpenSpec: 18 passed. `git diff --check` is clean.
+- **Pending.** 14b (its saved patch must name `Dialect::stands`), exact
+  coverage outside the box, macOS, remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

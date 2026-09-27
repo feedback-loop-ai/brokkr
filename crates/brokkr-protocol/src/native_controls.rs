@@ -1290,6 +1290,41 @@ pub struct SealedDialect {
     /// The `hands.harness` fragment the seat's class selects, appended
     /// behind hands under the `harness` boundary (decision 0046 ruling 4).
     pub boundary: Vec<String>,
+    /// The boundary the site stood under, `None` where it has no hands
+    /// (rebuild unit 14a4c): sealed as a fact, so a declared-empty
+    /// fragment under `harness` is never read as no boundary at all.
+    pub stands: Option<SealedBoundary>,
+}
+
+/// The five boundary words (decision 0046 ruling 1), as a sealed launch
+/// records the one its site stood under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SealedBoundary {
+    Namespace,
+    Seatbelt,
+    Container,
+    Harness,
+    Open,
+}
+
+impl SealedBoundary {
+    /// The boundary `word` names, `None` for any other word.
+    pub fn named(word: &str) -> Option<SealedBoundary> {
+        use SealedBoundary::*;
+        [Namespace, Seatbelt, Container, Harness, Open]
+            .into_iter()
+            .find(|boundary| boundary.word() == word)
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            SealedBoundary::Namespace => "namespace",
+            SealedBoundary::Seatbelt => "seatbelt",
+            SealedBoundary::Container => "container",
+            SealedBoundary::Harness => "harness",
+            SealedBoundary::Open => "open",
+        }
+    }
 }
 
 impl SealedServing {
@@ -1308,12 +1343,14 @@ impl SealedServing {
             Some(spec) => serde_json::json!({"kind": "typed", "declaration": spec.to_value()}),
             None => serde_json::json!({"kind": "none"}),
         };
+        let stands = dialect.stands.map_or("none", SealedBoundary::word);
         serde_json::json!({
             "dialect": {
                 "permissions": permissions,
                 "sandbox": dialect.sandbox,
                 "hands": dialect.hands,
                 "boundary": dialect.boundary,
+                "stands": {"kind": stands},
             },
             "pins": self.pins,
             "spec": spec,
@@ -1349,8 +1386,22 @@ fn decode_serving(inputs: Option<&Value>) -> Result<SealedServing, Fault> {
     closed(
         dialect,
         "serving.dialect",
-        &["permissions", "sandbox", "hands", "boundary"],
+        &["permissions", "sandbox", "hands", "boundary", "stands"],
     )?;
+    let (stands, _) = tagged(
+        &dialect["stands"],
+        "serving.dialect.stands",
+        &[
+            "none",
+            "namespace",
+            "seatbelt",
+            "container",
+            "harness",
+            "open",
+        ],
+        |_| &[],
+    )?;
+    let stands = SealedBoundary::named(stands);
     let (kind, permissions) = tagged(
         &dialect["permissions"],
         "serving.dialect.permissions",
@@ -1407,6 +1458,7 @@ fn decode_serving(inputs: Option<&Value>) -> Result<SealedServing, Fault> {
             sandbox: string_list(&dialect["sandbox"], "serving.dialect.sandbox".into())?,
             hands: string_list(&dialect["hands"], "serving.dialect.hands".into())?,
             boundary: string_list(&dialect["boundary"], "serving.dialect.boundary".into())?,
+            stands,
         },
         pins: string_list(&inputs["pins"], "serving.pins".into())?,
         spec,
@@ -1687,13 +1739,16 @@ impl Transport<'_> {
 /// `workspace-write` (unit 5d; rebuild unit 13-fix-c, R4); its measured
 /// `hands.workspace` fragment; and the boundary fragment the engine
 /// appends after the hands for this launch. Every fragment is as the
-/// adapter declares it, its tokens unexpanded.
+/// adapter declares it, its tokens unexpanded. Beside them, the boundary
+/// the site stood under as sealed, `None` where it has no hands (rebuild
+/// unit 14a4c).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Dialect<'a> {
     pub permissions: Option<&'a ListFlag>,
     pub sandbox: &'a [String],
     pub hands: &'a [String],
     pub boundary: &'a [String],
+    pub stands: Option<SealedBoundary>,
 }
 
 /// A command whose capability state [`check_final`] proved equal to its
@@ -2095,9 +2150,10 @@ fn captured(
 ///   engine's executable, the site's workdir and its typed declaration
 ///   (R1): their values are the expansion of the adapter's measured
 ///   fragment, and no other capability-bearing option stands beside them.
-///   Under `harness`, where no box serves them and no workspace fragment is
-///   sealed, the hands are exactly the adapter's own class fragment sealed
-///   as the boundary (operator ruling (2) of 2026-09-27).
+///   Under a sealed `harness` boundary, where no box serves them, the hands
+///   are exactly the adapter's own class fragment sealed as the boundary,
+///   of any length, and no workspace fragment is sealed (operator ruling
+///   (2) of 2026-09-27; rebuild unit 14a4c).
 /// - Every other contribution — the declared template, the boundary and the
 ///   plan's native controls — carries only effects whose meaning is
 ///   established (F4): tool lists, one class, the template's `acceptEdits`
@@ -2336,24 +2392,28 @@ fn sealed_inputs(
         }
     };
     // R1: the hands carry exactly the transport's own server, and nothing
-    // beside it. Under `harness` no box serves them: where no workspace
-    // fragment is sealed, the engine's workspace hands are the adapter's own
-    // class fragment, sealed as the boundary, and that fragment alone
-    // (operator ruling (2) of 2026-09-27; decision 0046 ruling 4).
-    let harness_hands = dialect.hands.is_empty() && !dialect.boundary.is_empty();
-    if let Some(transport) = transport.filter(|_| !harness_hands) {
-        let carried: Vec<(&str, &Vec<String>)> = hands.controls().collect();
-        let bound = transport.effects(harness).is_some_and(|owed| {
-            carried.len() == owed.len()
-                && owed
-                    .iter()
-                    .all(|(name, values)| carried.contains(&(*name, values)))
-        });
-        if !bound {
-            return refuse(vec![Piece::Words(
-                "is sealed with hands that are not the engine's workspace hands",
-            )]);
+    // beside it. Under a sealed `harness` boundary no box serves them: the
+    // engine's workspace hands are the adapter's own class fragment, sealed
+    // as the boundary, of any length, and that fragment alone; a workspace
+    // fragment sealed beside it is not theirs (operator ruling (2) of
+    // 2026-09-27; decision 0046 ruling 4; rebuild unit 14a4c).
+    let bound = match transport {
+        _ if dialect.stands == Some(SealedBoundary::Harness) => dialect.hands.is_empty(),
+        Some(transport) => {
+            let carried: Vec<(&str, &Vec<String>)> = hands.controls().collect();
+            transport.effects(harness).is_some_and(|owed| {
+                carried.len() == owed.len()
+                    && owed
+                        .iter()
+                        .all(|(name, values)| carried.contains(&(*name, values)))
+            })
         }
+        None => true,
+    };
+    if !bound {
+        return refuse(vec![Piece::Words(
+            "is sealed with hands that are not the engine's workspace hands",
+        )]);
     }
 
     // Each other contribution carries only effects whose meaning is

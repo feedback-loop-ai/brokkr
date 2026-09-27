@@ -6765,6 +6765,7 @@ struct Sealed {
     sandbox: Vec<String>,
     hands: Vec<String>,
     boundary: Vec<String>,
+    stands: Option<SealedBoundary>,
     transport: Option<Transport<'static>>,
     authored: Vec<String>,
     pins: Vec<String>,
@@ -6788,6 +6789,7 @@ impl Sealed {
             sandbox: &self.sandbox,
             hands: &self.hands,
             boundary: &self.boundary,
+            stands: self.stands,
         }
     }
 
@@ -6915,6 +6917,7 @@ fn claude_final() -> Sealed {
         sandbox: Vec::new(),
         hands: argv(&CLAUDE_HANDS),
         boundary: Vec::new(),
+        stands: None,
         transport: Some(transport()),
         authored: argv(&["--permission-mode", "acceptEdits"]),
         pins: Vec::new(),
@@ -8707,6 +8710,7 @@ fn codex_final(held: bool, off: bool) -> Sealed {
         sandbox: argv(&["--sandbox", "read-only"]),
         hands: Vec::new(),
         boundary: Vec::new(),
+        stands: None,
         transport: None,
         authored: argv(&[
             "--model",
@@ -9174,8 +9178,9 @@ fn an_unselected_entrys_off_for_a_held_capability_is_no_denial() {
 
 /// [`codex_hands`]'s plan under the `harness` boundary, as an agent's
 /// composition seals it (operator ruling (2) of 2026-09-27): its typed
-/// hands, no workspace fragment, and the adapter's class fragment
-/// `boundary`, sealed as its boundary, which is the seat's hands.
+/// hands, no workspace fragment, the adapter's class fragment `boundary`,
+/// sealed as its boundary, which is the seat's hands, and the sealed fact
+/// that the site stood under `harness` (rebuild unit 14a4c).
 fn codex_harness(boundary: &[&str], output: Option<&'static str>) -> Sealed {
     let boxed = codex_hands(&CODEX_HANDS);
     Sealed {
@@ -9185,21 +9190,22 @@ fn codex_harness(boundary: &[&str], output: Option<&'static str>) -> Sealed {
         },
         hands: Vec::new(),
         boundary: argv(boundary),
+        stands: Some(SealedBoundary::Harness),
         output,
         ..boxed
     }
 }
 
-/// Operator ruling (2) of 2026-09-27 (rebuild unit 14a4b; decision 0046
-/// ruling 4): under `harness` the engine's workspace hands are the adapter's
-/// own `hands.harness.work` or `hands.harness.gate` fragment, and R1 admits
-/// exactly that fragment there. A work seat and a gate check, each with its
-/// class and the gate with its one capture. The measured `hands.workspace`
-/// fragment sealed under `harness`, where the launch carries none of it,
-/// refuses, and so does an unbound workspace fragment beside the harness
-/// fragment: R1 admits the harness fragment only where no workspace
-/// fragment is sealed. Hands with neither fragment, or without their typed
-/// declaration, refuse too.
+/// Operator ruling (2) of 2026-09-27 (rebuild units 14a4b and 14a4c;
+/// decision 0046 ruling 4): under a sealed `harness` boundary the engine's
+/// workspace hands are the adapter's own `hands.harness.work` or
+/// `hands.harness.gate` fragment, of any length, and R1 admits exactly that
+/// fragment there. A work seat, a gate check with its one capture, and a
+/// declared-empty fragment each check. The measured `hands.workspace`
+/// fragment sealed under `harness` refuses, carried or not, bound or not:
+/// R1 admits the harness fragment only where no workspace fragment is
+/// sealed. Hands without their typed declaration refuse, and so does the
+/// same shape sealed under `open`, under the box, or under no boundary.
 #[test]
 fn under_harness_the_hands_are_the_adapters_harness_fragment_alone() {
     let work = codex_harness(&["--sandbox", "workspace-write"], None);
@@ -9248,6 +9254,14 @@ fn under_harness_the_hands_are_the_adapters_harness_fragment_alone() {
         ])
     );
     assert_eq!(gate.cold(gated.clone()).map(Checked::into_argv), Ok(gated));
+    // A declared-empty fragment is the seat's hands all the same.
+    let empty = codex_harness(&[], None);
+    let bare = empty.served(&CODEX_LEAD);
+    assert_eq!(bare[9..], argv(&["-c", "web_search=\"disabled\""]));
+    assert_eq!(
+        empty.cold(bare.clone()).map(Checked::into_argv),
+        Ok(bare.clone())
+    );
 
     let unbound = "is sealed with hands that are not the engine's workspace hands";
     let workspace = Sealed {
@@ -9266,14 +9280,20 @@ fn under_harness_the_hands_are_the_adapters_harness_fragment_alone() {
         boundary: argv(&["--output-schema", "./schema.json"]),
         ..work.clone()
     };
+    // The box's own hands, bound and carried, beside the same boundary.
+    let carried = Sealed {
+        hands: argv(&CODEX_HANDS),
+        ..evil.clone()
+    };
     let beside = evil.served(&CODEX_LEAD);
+    let boxed = carried.served(&CODEX_LEAD);
     let undeclared = Sealed {
         transport: None,
         ..work.clone()
     };
-    let fragmentless = Sealed {
-        boundary: Vec::new(),
-        ..work.clone()
+    let under = |stands: Option<SealedBoundary>, sealed: &Sealed| Sealed {
+        stands,
+        ..sealed.clone()
     };
     for (row, sealed, command, problem) in [
         (
@@ -9295,7 +9315,36 @@ fn under_harness_the_hands_are_the_adapters_harness_fragment_alone() {
             cold.clone(),
             "does not carry the hands its sealed record requires",
         ),
-        ("neither fragment", fragmentless, cold.clone(), unbound),
+        (
+            "a bound workspace fragment beside it",
+            carried,
+            boxed,
+            unbound,
+        ),
+        (
+            "the empty fragment under open",
+            under(Some(SealedBoundary::Open), &empty),
+            bare.clone(),
+            unbound,
+        ),
+        (
+            "the work fragment under open",
+            under(Some(SealedBoundary::Open), &work),
+            cold.clone(),
+            unbound,
+        ),
+        (
+            "the work fragment under the box",
+            under(Some(SealedBoundary::Namespace), &work),
+            cold.clone(),
+            unbound,
+        ),
+        (
+            "the empty fragment under no boundary",
+            under(None, &empty),
+            bare.clone(),
+            unbound,
+        ),
     ] {
         assert_eq!(
             sealed.cold(command),
@@ -10229,6 +10278,7 @@ fn dsh_sealed() -> Sealed {
         sandbox: Vec::new(),
         hands: Vec::new(),
         boundary: Vec::new(),
+        stands: None,
         transport: None,
         authored: argv(&[
             "--model",
@@ -10868,6 +10918,7 @@ fn claude_case(case: ClaudeCase) -> Generated {
         sandbox: Vec::new(),
         hands: hands_argv.clone(),
         boundary: rest.clone(),
+        stands: None,
         transport: hands.then(transport),
         authored: authored.clone(),
         pins: Vec::new(),
@@ -11509,6 +11560,7 @@ fn codex_states() -> Vec<Generated> {
                         sandbox: argv(local),
                         hands: argv(hands),
                         boundary: argv(boundary),
+                        stands: None,
                         transport: boxed.then_some(bound),
                         authored: [pins.clone(), placed(local)].concat(),
                         pins,
@@ -12244,6 +12296,7 @@ fn full_serving() -> SealedServing {
                 "-c",
                 "mcp_servers.brokkr.command=\"{brokkr}\"",
             ]),
+            stands: Some(SealedBoundary::Harness),
         },
         pins: argv(&["--model", "claude-opus-5", "--effort", "high"]),
         spec: Some(
@@ -12271,6 +12324,7 @@ fn sealed_serving_inputs_round_trip_byte_exactly() {
                 "hands": ["--mcp-config", "{hands_mcp_json}", "", "--strict-mcp-config"],
                 "boundary": ["--sandbox", "workspace-write", "--sandbox", "workspace-write",
                              "-c", "mcp_servers.brokkr.command=\"{brokkr}\""],
+                "stands": {"kind": "harness"},
             },
             "pins": ["--model", "claude-opus-5", "--effort", "high"],
             "spec": {"kind": "typed", "declaration": {"kind": "workspace", "network": true,
@@ -12283,12 +12337,35 @@ fn sealed_serving_inputs_round_trip_byte_exactly() {
         json!({
             "dialect": {
                 "permissions": {"kind": "none"},
-                "sandbox": [], "hands": [], "boundary": [],
+                "sandbox": [], "hands": [], "boundary": [], "stands": {"kind": "none"},
             },
             "pins": [],
             "spec": {"kind": "none"},
         })
     );
+    // Rebuild unit 14a4c: each boundary is sealed under its own word.
+    for (word, stands) in [
+        ("namespace", SealedBoundary::Namespace),
+        ("seatbelt", SealedBoundary::Seatbelt),
+        ("container", SealedBoundary::Container),
+        ("harness", SealedBoundary::Harness),
+        ("open", SealedBoundary::Open),
+    ] {
+        let sealed = SealedServing {
+            dialect: SealedDialect {
+                stands: Some(stands),
+                ..SealedDialect::default()
+            },
+            ..SealedServing::default()
+        };
+        let written = sealed.value();
+        assert_eq!(
+            written["dialect"]["stands"],
+            json!({"kind": word}),
+            "{word}"
+        );
+        assert_eq!(SealedServing::decode(Some(&written)), Ok(sealed), "{word}");
+    }
     for sealed in [full, empty] {
         let bytes = serde_json::to_vec(&sealed.value()).unwrap();
         let read = SealedServing::decode(Some(&serde_json::from_slice(&bytes).unwrap()));
@@ -12442,13 +12519,38 @@ fn sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause() {
             edit("/dialect/boundary", Some(json!({"gate": [], "work": []}))),
             cause("serving.dialect.boundary", "is not an array"),
         ),
+        // Rebuild unit 14a4c: the boundary the site stood under is a
+        // closed word, never recovered from its fragments.
+        (
+            "stands missing",
+            edit("/dialect/stands", None),
+            cause("serving.dialect.stands", missing),
+        ),
+        (
+            "stands a bare word",
+            edit("/dialect/stands", Some(json!("harness"))),
+            cause("serving.dialect.stands", "is not an object"),
+        ),
+        (
+            "stands an unknown boundary",
+            edit("/dialect/stands/kind", Some(json!("not applicable"))),
+            cause("serving.dialect.stands.kind", "names no known kind"),
+        ),
+        (
+            "stands carrying a fragment",
+            edit(
+                "/dialect/stands",
+                Some(json!({"kind": "harness", "work": []})),
+            ),
+            cause("serving.dialect.stands", unknown_member),
+        ),
         (
             "pin not a string",
             edit("/pins/3", Some(Value::Bool(true))),
             cause("serving.pins[3]", "is not a string"),
         ),
     ];
-    assert_eq!(rows.len(), 23);
+    assert_eq!(rows.len(), 27);
     // Every row reaches its own exact assertion; no cause carries the
     // sentinel it was handed.
     let failures: Vec<String> =

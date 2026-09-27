@@ -345,8 +345,10 @@ fn inline_command(bundle: &Bundle, label: &str) -> Vec<String> {
 /// against the sealed record, its plan, and the serving inputs dispatch
 /// seals beside them (the selected candidate's composition, or the inline
 /// site's recorded dialect and hands, the boundary fragment its class
-/// selects), with the box's transport bound to the executable and workdir
-/// the engine composed the spawn with. The checked argv, or the refusal.
+/// selects, and the boundary the site stood under), sealed by the engine's
+/// own `serving_inputs` (rebuild unit 14a4c), with the box's transport
+/// bound to the executable and workdir the engine composed the spawn with.
+/// The checked argv, or the refusal.
 fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<String>, String> {
     use brokkr_protocol::native_controls::{
         check_final, managed, Checked, Dialect, LaunchRecord, Origin, Serving, Transport,
@@ -354,20 +356,12 @@ fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<
     let facts = &bundle.sites[label];
     let (spawn, _) = sealed(bundle, label, candidate);
     let command = sealed_launch(bundle, label, candidate)?;
-    let carried = match facts.chain.get(candidate) {
-        Some(link) => match &link.lowering {
-            brokkr_runtime::agents::Lowering::Composed(composition) => {
-                (*composition.serving).clone()
-            }
-            _ => panic!("{label}[{candidate}] carries no composition"),
-        },
-        None => facts.inline_serving().expect("the inline site's dialect"),
-    };
-    let boundary = match spawn.class {
-        Some(brokkr_runtime::SeatClass::Gate) => carried.dialect.boundary.gate,
-        Some(brokkr_runtime::SeatClass::Work) => carried.dialect.boundary.work,
-        None => Vec::new(),
-    };
+    let carried = brokkr_runtime::engine::serving_inputs(
+        facts.chain.get(candidate),
+        Some(facts),
+        spawn.class,
+        bundle.boundary,
+    )?;
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
     let harness = outcome.provider.as_str();
     let controls = managed(&json!({"native_controls": outcome.controls()}))?.unwrap();
@@ -388,7 +382,8 @@ fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<
             permissions: carried.dialect.permissions.as_ref(),
             sandbox: &carried.dialect.sandbox,
             hands: &carried.dialect.hands,
-            boundary: &boundary,
+            boundary: &carried.dialect.boundary,
+            stands: carried.dialect.stands,
         },
         Serving {
             program: harness,
@@ -435,9 +430,10 @@ fn sealing_moved(
         Some(link) => link.argv.clone(),
         None => inline_command(bundle, label),
     };
-    let built = match bundle.boundary.is_boxed() {
-        true => brokkr_runtime::engine::BuiltBoundary::Namespace,
-        false => brokkr_runtime::engine::BuiltBoundary::Harness,
+    let built = match bundle.boundary {
+        Boundary::Open => brokkr_runtime::engine::BuiltBoundary::Open,
+        boxed if boxed.is_boxed() => brokkr_runtime::engine::BuiltBoundary::Namespace,
+        _ => brokkr_runtime::engine::BuiltBoundary::Harness,
     };
     let mut spawn = brokkr_runtime::engine::compose_site_at(
         Some(facts),
@@ -7045,6 +7041,85 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
             Some(json!(["--tools", bounded]))
         ),
         tail("mcp__brokkr__workspace", &[])
+    );
+}
+
+/// Rebuild unit 14a4c (operator ruling (2) of 2026-09-27; 14a4b's F1): one
+/// work agent with workspace hands and no grants, whose Claude adapter
+/// declares an empty `hands.harness.work`. Compiled under `harness`, the
+/// seat's hands are that empty fragment and the command checks. The same
+/// fixture under `open` seals the same fragments and the same command, and
+/// refuses: only the sealed boundary tells the two apart.
+#[test]
+fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open() {
+    let operator = Operator::new();
+    let nothing = operator.context(json!({}));
+    one_inline_seat(&operator, &["driver"]);
+    write(
+        operator.root(),
+        "solo/bundle.json",
+        &json!({"name": "solo", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "handed"},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    write(
+        operator.root(),
+        "agents/handed.json",
+        &json!({
+            "description": "an office with hands",
+            "charter": "charters/searcher.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"},
+            "hands": {"kind": "workspace", "network": false, "binds": []},
+        }),
+    );
+    let adapters = copied_adapters();
+    edit_adapter(adapters.path(), "claude", |adapter| {
+        adapter["hands"]["harness"] = json!({"work": []});
+    });
+    let checked = |boundary: Boundary| {
+        let bundle = Bundle::compile_with_capabilities(
+            &operator.root().join("solo"),
+            &operator.root().join("agents"),
+            adapters.path(),
+            Some(nothing.realm.as_str()).filter(|realm| *realm != "<unmapped>"),
+            None,
+            boundary,
+            &nothing,
+        )
+        .map_err(|refusal| refusal.to_string())?;
+        checked_launch(&bundle, "work", 0)
+    };
+    assert_eq!(
+        checked(Boundary::Harness),
+        Ok([
+            "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "acceptEdits",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+            "--disallowedTools",
+            "WebFetch,WebSearch",
+        ]
+        .map(String::from)
+        .to_vec())
+    );
+    assert_eq!(
+        checked(Boundary::Open),
+        Err(
+            "the final command of harness 'claude' is sealed with hands that are not the \
+             engine's workspace hands; a complete command is parsed back before its spawn and \
+             must express exactly the capability state its sealed plan records, so it is \
+             refused rather than spawned (operator ruling 2 of 2026-09-23; design D6)"
+                .to_string()
+        )
     );
 }
 

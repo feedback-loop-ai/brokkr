@@ -19,7 +19,7 @@ use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
     flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
-    LocalExpectation, Origin, SandboxIntent, SealedDialect, SealedServing, Segment,
+    LocalExpectation, Origin, SandboxIntent, SealedBoundary, SealedDialect, SealedServing, Segment,
     TemplateExpectation, Transport, SERVING_INPUTS,
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
@@ -1406,7 +1406,10 @@ impl Engine {
             return;
         };
         let sealed = expected_state(outcome, link, facts)
-            .and_then(|expected| Ok((expected, serving_inputs(link, facts, spawn.class)?)))
+            .and_then(|expected| {
+                let serving = serving_inputs(link, facts, spawn.class, self.boundary)?;
+                Ok((expected, serving))
+            })
             .and_then(|(expected, serving)| {
                 spawn.seal(expected)?;
                 spawn.serving = Some(serving);
@@ -4699,12 +4702,19 @@ fn verify_serving(spawn: &SiteSpawn, input: &Value) -> Result<(), String> {
 /// an inline site's recorded dialect and hands. Of the two boundary
 /// fragments a composition carries, the spawn's class selects the one
 /// sealed, as [`compose_segments`] selects the one appended; carried
-/// fragments with no class to select them refuse.
-fn serving_inputs(
+/// fragments with no class to select them refuse. The run's `boundary` is
+/// sealed beside them as the typed fact the site stood under, and none for
+/// a site without hands (rebuild unit 14a4c), so a declared-empty fragment
+/// pair under `harness` never reads as no boundary.
+pub fn serving_inputs(
     link: Option<&Candidate>,
     facts: Option<&SiteFacts>,
     class: Option<SeatClass>,
+    boundary: Boundary,
 ) -> Result<SealedServing, String> {
+    let stands = facts
+        .filter(|facts| matches!(facts.hands, HandsState::Hands(_)))
+        .and_then(|_| SealedBoundary::named(boundary.word()));
     let carried = match link {
         Some(link) => match &link.lowering {
             Lowering::Composed(composition) => Some((*composition.serving).clone()),
@@ -4741,6 +4751,7 @@ fn serving_inputs(
             sandbox: dialect.sandbox,
             hands: dialect.hands,
             boundary,
+            stands,
         },
         pins,
         spec,

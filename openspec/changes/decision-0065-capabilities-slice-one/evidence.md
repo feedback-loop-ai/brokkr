@@ -15478,3 +15478,169 @@ Questions for the ruling:
 
 **Pending.** The ruling and 14a4c, then 14b. Also exact coverage outside
 the box, macOS, remote CI and the council.
+
+## Unit 14a4c — built, 2026-09-28
+
+Run `0065-rebuild-unit-14-see-the-uni-653d5daf`, based on `a4a184c7`. This
+is the split 14a4b asked for, as the operator framed it. Production is
+`native_controls.rs` and `engine.rs`. The named suites are
+`native_controls/tests.rs` and `capability_launch.rs`. `agents.rs` did not
+move: the framing seals the fact in `engine.rs` from the run's boundary, not
+in the composition. `adapters.rs` did not move either.
+
+### What changed
+
+- **The sealed fact.** `SealedDialect` and `Dialect` gain
+  `stands: Option<SealedBoundary>`. `SealedBoundary` is a closed
+  protocol-local copy of the five boundary words. `brokkr-protocol` does
+  not depend on `brokkr-core`, so it cannot use that crate's enum. The
+  closed JSON gains `dialect.stands`, a kind-tagged object: `none` or one
+  of the five words, with no other member. The reader refuses the member
+  when it is absent, a bare string, an unknown word, or an object with an
+  extra member.
+- **The seal.** `engine::serving_inputs` is now `pub` and takes the run's
+  `Boundary`. It seals that word for a site whose hands resolved
+  (`HandsState::Hands`) and `None` for any other site. That is the same
+  test `site_boundary` uses. So a declared-empty fragment pair under
+  `harness` seals `harness`, not "no boundary". The `None`-class arm that
+  compares fragments by value is unchanged, because it selects a fragment,
+  not the boundary.
+- **R1.** The harness path is keyed on the sealed fact, not on fragment
+  lengths. Under `stands == harness` the seat's hands are the sealed class
+  fragment, whatever its length. A workspace fragment sealed beside it
+  refuses, whether bound or not. Under any other boundary, or none, the
+  transport check binds the hands as before. So the same shape under
+  `open`, under the box, or with no sealed boundary refuses.
+
+### Tests
+
+- `capability_launch.rs`,
+  `an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open`
+  (`:7054`). This is 14a4b's probe pair as a test. One work agent has
+  workspace hands and no grants. The shipped Claude adapter declares
+  `hands.harness = {"work": []}`. Under `harness` the checked command is the
+  exact 13-token argv. Under `open` the same fixture refuses with the whole
+  R1 reason.
+  - `checked_launch` (`:352`) now takes the engine's own `serving_inputs`
+    instead of re-selecting fragments itself.
+  - `sealing` (`:434`) composes an `open` bundle under
+    `BuiltBoundary::Open`. It used to compose it under `Harness`, but no
+    existing test compiled one.
+- `native_controls/tests.rs` is the named suite, and it adopts 14a4b's two
+  tests and their helper where `d460e7cf` put them. That closes F2.
+  - `codex_harness` (`:9184`) seals `stands: harness`.
+  - `under_harness_the_hands_are_the_adapters_harness_fragment_alone`
+    (`:9210`) gains the empty-fragment positive: its served argv, then
+    `Ok` from the check.
+  - The row "neither fragment" is gone. An empty fragment under a sealed
+    `harness` is now the positive above.
+  - It gains five negatives, each with the whole R1 reason: a bound
+    workspace fragment beside the harness fragment, the empty fragment
+    under `open`, the work fragment under `open`, the work fragment under
+    the box (`namespace`), and the empty fragment under no boundary.
+  - `an_unselected_entrys_off_for_a_held_capability_is_no_denial` did not
+    change.
+  - `sealed_serving_inputs_round_trip_byte_exactly` (`:12315`) round-trips
+    each of the five words exactly. `full_serving` seals `harness`, and the
+    empty value writes `"stands": {"kind": "none"}`.
+  - `sealed_serving_inputs_refuse_each_tampered_member_with_its_full_cause`
+    (`:12383`) gains four `stands` rows (23 → 27): missing, a bare word,
+    `"not applicable"`, and an extra member.
+
+### Baseline reds on `a4a184c7`
+
+Both new positives were written before any production byte moved and run on
+`a4a184c7`:
+
+- `.forge/unit-14a4c-baseline-launch.txt`: the capability_launch test
+  failed at its first assertion. Left: the R1 refusal ("is sealed with
+  hands that are not the engine's workspace hands"). Right: the `Ok` argv.
+- `.forge/unit-14a4c-baseline-protocol.txt`: the empty-fragment assertion
+  in `under_harness_the_hands_are_the_adapters_harness_fragment_alone`
+  failed the same way for `codex`.
+
+### Mutations, each compiling, each restored
+
+After every mutation, both production files were compared with `cmp`
+against the saved good copies and matched.
+
+After M1–M5, `SealedBoundary`'s word table was rewritten as a `match`
+(`word`) and a search over the five variants (`named`). That rewrite does
+not touch the lines M1–M5 mutated: R1's arm, the reader's
+`SealedBoundary::named(stands)`, and `serving_inputs`' seal. Every gate
+below ran after the rewrite.
+
+| # | Mutation | Failing test and assertion | Output |
+|---|---|---|---|
+| M1 | R1's harness arm back to 14a4b's rule (`hands.is_empty() && !boundary.is_empty()`) | `under_harness_…` (`tests.rs:9261`, the empty-fragment `Ok`) and `an_empty_harness_fragment_…` (`capability_launch.rs:7094`, the `harness` `Ok`) | `.forge/unit-14a4c-m1.txt` |
+| M2 | R1's harness arm admits any workspace fragment (`=> true`) | `under_harness_…` row "an unbound workspace fragment beside it" returned `Ok` | `.forge/unit-14a4c-m2.txt` |
+| M3 | The reader decodes every word as `harness` | `sealed_serving_inputs_round_trip_byte_exactly`, row `namespace` | `.forge/unit-14a4c-m3.txt` |
+| M4 | `serving_inputs` seals no boundary (`.filter(\|_\| false)`) | `an_empty_harness_fragment_…` (`:7094`, the `harness` `Ok`) | `.forge/unit-14a4c-m4.txt` |
+| M5 | `serving_inputs` seals `harness` whatever the run's boundary | `an_empty_harness_fragment_…` (`:7114`, the `open` refusal returned `Ok`) | `.forge/unit-14a4c-m5.txt` |
+
+### Standing-admission lines (operator ruling of 2026-09-25)
+
+- `crates/brokkr-protocol/src/native_controls/tests.rs` has seven forced
+  lines. `stands: None` at `:6920`, `:8713`, `:10281`, `:10921` and
+  `:11563`: each is a `Sealed` initialiser that the compiler forces to
+  name the new field. `stands: Some(SealedBoundary::Harness)` at `:12299`
+  is `full_serving`'s `SealedDialect` initialiser. Plus `stands:
+  self.stands` in `Sealed::dialect`. This is the named suite, so these
+  lines are recorded, not admitted.
+- `crates/brokkr-runtime/src/engine/capability_tests.rs` is outside the
+  named files. It gets three lines, `"stands": {"kind": "none"}`, at
+  `:758`, `:802` and `:958`.
+  - Those are the three exact `SERVING_INPUTS` JSON literals of
+    `the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed`.
+    That JSON is the serialised `SealedDialect`, so each exact literal
+    must name the new member, just as a struct literal must name a new
+    field.
+  - Its sites have no resolved hands, so each seals `none`.
+  - No assertion was added or removed, and the tested behaviour did not
+    change: the inputs are still sealed and admitted exactly as the engine
+    seals them.
+  - Without these lines that test fails at `:750` on the new member alone.
+  - **The council should rule on this.** The lines are forced by a JSON
+    literal, not by the compiler. If the admission is read as
+    compiler-only, these three lines are the one thing outside the unit.
+- Fixture migrations: none.
+
+### Assumptions and follow-ups
+
+- **Older serving inputs no longer decode.** They were sealed before
+  `stands` existed, and the reader refuses them with
+  `'serving.dialect.stands' is missing`. That matches the closed-JSON rule
+  (a reader refuses absence rather than defaulting it) and "no
+  grandfathering". Resume eligibility is unit 15's work. The ruling asked
+  for in 14a4b's record has not been given, so this is this seat's
+  reading.
+- **One argument is not bound in the named suites.** `mark_capabilities`
+  passes `self.boundary` to `serving_inputs`. The named suites call
+  `serving_inputs` directly. The engine unit test that drives
+  `mark_capabilities` has no hands site, so it only sees `none`. This was
+  observed as M6: passing `Boundary::Open` at the call site left all 25
+  `brokkr-runtime` summaries `ok` (`.forge/unit-14a4c-m6.txt`). It was
+  restored and checked with `cmp`. Binding the call-site argument needs a
+  new assertion in `engine/capability_tests.rs` or `boundary_tests.rs`,
+  which is outside this unit.
+- **14b's saved patch** builds `Dialect` in `adapters.rs`. It must now name
+  `stands`, from the sealed serving inputs. That is 14b's own file.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean (`.forge/unit-14a4c-clippy.txt`).
+- `cargo test -p brokkr-protocol --all-features --locked`: 538, 99 (2
+  ignored) and 1 passed (`.forge/unit-14a4c-protocol-after.txt`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 summaries,
+  all `ok` (`.forge/unit-14a4c-runtime-after.txt`).
+- `cargo test --workspace --all-features --locked`: 77 summaries, all
+  `ok`, none failed (`.forge/unit-14a4c-workspace.txt`).
+- `bundles/self` and `bundles/verify` compile, both exit 0.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** 14b (its saved patch plus `Dialect::stands`), exact coverage
+outside the box, macOS, remote CI and the council, including its ruling on
+the three `capability_tests.rs` lines.
