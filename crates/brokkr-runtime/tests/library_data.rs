@@ -397,6 +397,7 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
             ("flash", "deepseek-v4-flash"),
             ("flash-experiment", "deepseek-v4.1-flash-expires-on-0910"),
             ("glm", "dashscope/glm-5.2"),
+            ("glm-flash", "spark-glm/GLM-5.3-Flash-EXL3"),
             ("muse", "meta/meta/muse-spark-1.3"),
             (
                 "muse-contributor",

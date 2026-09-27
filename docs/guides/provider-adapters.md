@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
+ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, glm-flash, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
@@ -58,6 +58,21 @@ any pinned `--effort` is refused at start. `recipes/research-dsh`
 states `low`, `medium` and `xhigh` for `qwen3.8-max`, the levels dsh's
 own Qwen catalog lists, and pins `xhigh` (decision 0035, second
 addendum).
+
+The `glm-flash` alias pins `spark-glm/GLM-5.3-Flash-EXL3`, a vLLM
+on the DGX Spark (`http://spark:8888/v1`), keyed by the same
+`SPARK_API_KEY` placeholder as the `spark` route — the server checks
+no key, but the route requires one to be named. Verified 2026-09-16
+with a headless turn: the endpoint lists the model at `max_model_len`
+700000, returns OpenAI-style `reasoning` deltas (parsed beside
+`reasoning_content`) and native function tool calls, and refuses a
+pinned effort (`UNSUPPORTED_REASONING_EFFORT` on `low`), so the
+model entry states no `reasoningEfforts` and seats on this lane pin
+none. Capacity is the shared KV figure, not a default: 700k across
+4 concurrent sessions, so the window is capped at 200000 with
+`maxTokens` 32768, and compaction measures against that cap
+(`thresholdRatio` 0.8, so it fires at 160k — four seats at the
+trigger together hold ~640k — with `retainRatio` 0.16).
 
 The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
 on DeepSeek's own API. A completion verified this beta id on 2026-09-08;

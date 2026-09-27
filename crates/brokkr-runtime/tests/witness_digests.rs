@@ -176,6 +176,11 @@ fn workspace() -> PathBuf {
 /// `tools.mode`), those are presentation modes rather than a capability
 /// restriction, and the installed tools/headless components identify as
 /// 0.1.5-rc.2 behind launcher 0.1.5-rc.1 — which moves the same digest.
+/// The `glm-flash` lane moves it again for one named reason: the dsh
+/// adapter gains the `spark-glm` local route, its `SPARK_API_KEY`
+/// credential name, the `GLM-5.3-Flash-EXL3` mapping and the measured
+/// effortless listing — which moves the dsh adapter digest the
+/// roster's Flash seats witness.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -211,7 +216,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "74d09bb4da22b6a895835746a63e388d0738efb59296ee2cf4b8b280c7b86a79",
+        "c58985340ca2f17a43cd097cd5db90f4f721ec123986a3482112c36780a8e1a5",
     ),
     (
         "bundles/verify",

@@ -1998,18 +1998,25 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
     assert!(adapters.adapter("nobody").is_none());
 
     // The operator ruled on 2026-09-03 that `dsh`'s `spark` route — the
-    // DGX Spark in their own building — is `local`. That ruling is the
-    // whole of what they classed, so this states all three of `dsh`'s
-    // fronts rather than dropping the assertion that used to cover
-    // them: `uncontracted` now means two different things behind this
-    // one binary, and a test that said only "the floor" would stop
-    // telling the adapter's own word apart from nobody's word.
+    // DGX Spark in their own building — is `local`, and on 2026-09-16
+    // that the `spark-glm` route — a vLLM on the same box — is `local`
+    // too. Those rulings are the whole of what they classed, so this
+    // states all four of `dsh`'s fronts rather than dropping the
+    // assertion that used to cover them: `uncontracted` now means two
+    // different things behind this one binary, and a test that said
+    // only "the floor" would stop telling the adapter's own word apart
+    // from nobody's word.
     let dsh = adapters.adapter("dsh").expect("a shipped adapter");
-    assert_eq!(dsh.routes.len(), 1, "dsh classes exactly one route");
+    assert_eq!(dsh.routes.len(), 2, "dsh classes exactly two routes");
     assert_eq!(
         dsh.routes.get("spark"),
         Some(&EgressClass::Local),
         "the operator's own hardware, ruled 2026-09-03"
+    );
+    assert_eq!(
+        dsh.routes.get("spark-glm"),
+        Some(&EgressClass::Local),
+        "the same box over vLLM, ruled 2026-09-16"
     );
     for (model, expected, ground) in [
         (
@@ -2030,6 +2037,12 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
             "the route the operator ruled: local, and the Alibaba front \
              beside it is not carried along",
         ),
+        (
+            "spark-glm/GLM-5.3-Flash-EXL3",
+            EgressClass::Local,
+            "the same box over vLLM, ruled 2026-09-16: local, and still \
+             not carried onto any other front",
+        ),
     ] {
         assert_eq!(
             resolve_route(dsh, model).1,
@@ -2038,9 +2051,10 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         );
     }
     // And completely, over every model `dsh` maps: local exactly where
-    // the id is a `spark/` one, uncontracted everywhere else.
+    // the id runs on the operator's own box (`spark/`, `spark-glm/`),
+    // uncontracted everywhere else.
     for model in dsh.models.values() {
-        let expected = match model.starts_with("spark/") {
+        let expected = match model.starts_with("spark/") || model.starts_with("spark-glm/") {
             true => EgressClass::Local,
             false => EgressClass::Uncontracted,
         };
@@ -2202,6 +2216,18 @@ fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
         .get("spark")
         .expect("spark stays the measured effortless route");
     assert!(spark.contains("0.1.5-rc.1"), "{spark}");
+    // The vLLM GLM lane beside it: effort refused at start
+    // (UNSUPPORTED_REASONING_EFFORT, measured 2026-09-16), so it
+    // stands for the same reason — pinned here so a re-pin that
+    // drops the route trips beside the spark half of the same task.
+    let spark_glm = dsh
+        .effortless_routes
+        .get("spark-glm")
+        .expect("spark-glm stays the measured effortless route");
+    assert!(
+        spark_glm.contains("UNSUPPORTED_REASONING_EFFORT"),
+        "{spark_glm}"
+    );
     // The neighbours are untouched by this slice: bare `unsupported`
     // stays bare, so the re-measured reason cannot be mistaken for a
     // capability somebody forgot to wire.
