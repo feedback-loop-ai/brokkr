@@ -188,6 +188,7 @@ pub brokkr_protocol::overrides::Override::BrowserBin
 pub brokkr_protocol::overrides::Override::ClaudeBin
 pub brokkr_protocol::overrides::Override::CodexBin
 pub brokkr_protocol::overrides::Override::DshBin
+pub brokkr_protocol::overrides::Override::DshRunner
 pub brokkr_protocol::overrides::Override::ExecName
 pub brokkr_protocol::overrides::Override::LanetallyBin
 pub enum brokkr_protocol::overrides::OverrideError
