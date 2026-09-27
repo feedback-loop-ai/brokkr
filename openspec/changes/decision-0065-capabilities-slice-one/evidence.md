@@ -15737,3 +15737,38 @@ forces, so the 2026-09-25 standing admission does not cover them.
 
 **Pending.** The ruling on F2, 14b, exact coverage outside the box, macOS,
 remote CI and the council.
+
+## Unit 14a4c re-fire — the stop stands, 2026-09-28
+
+Triage re-ruled the oversized return `chore`, and implement fired again in
+the same run (`0065-rebuild-unit-14-see-the-uni-653d5daf`) on `aa850fba`.
+The bounded return to triage cannot grant scope.
+
+- **No ruling on F2.** `operator-ruling-2026-09-23.md` has no addendum
+  after "2026-09-27: an unselected entry neither grants nor denies, and
+  harness hands are the harness fragment". Neither it nor `design.md`
+  names 14a4c. The new framing (`.forge/tasks/0065-14a4c-triage-3005e941.md`)
+  repeats the two-file production inventory and says the 2026-09-25
+  admission "does not generally admit edits to expected JSON assertions".
+  It also says to preserve strict closed decoding, so the optional-member
+  encoding offered above is still not built.
+- **The stop is real.** `engine/capability_tests.rs` was replaced by its
+  `a4a184c7` bytes (`git diff a4a184c7 HEAD` on that file shows only the
+  three `"stands": {"kind": "none"}` lines), and `cargo test --locked -p
+  brokkr-runtime --lib --
+  the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed`
+  failed 0 passed / 1 failed at `capability_tests.rs:750`. The left side
+  carries `"stands": Object {"kind": String("none")}`
+  (`.forge/unit-14a4c-refire-f2-forced.txt`).
+- **Restored.** `git checkout` restored the file, and `git status --short`
+  was empty. The same test then passed (1 passed,
+  `.forge/unit-14a4c-refire-f2-restored.txt`), and so did the probe pair,
+  `an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open`
+  (1 passed, `.forge/unit-14a4c-refire-probe.txt`).
+- No production or test file moved in this visit. Fixture migrations and
+  standing-admission lines: none.
+
+**Pending.** The same as above: the ruling on F2 (an admission for the
+three assertion lines, a split naming `engine/capability_tests.rs`, or a
+ruling on the optional-member encoding), 14b, exact coverage outside the
+box, macOS, remote CI and the council.

@@ -2780,6 +2780,15 @@ The "complete" above is withdrawn: F2 needs a ruling.
 - **Pending.** The ruling on F2, 14b, exact coverage outside the box,
   macOS, remote CI and the council.
 
+Unit 14a4c re-fire (2026-09-28, same run, on `aa850fba`; evidence.md,
+"Unit 14a4c re-fire — the stop stands"). **Result: oversized.** Triage
+re-ruled `chore` with no ruling on F2: `operator-ruling-2026-09-23.md` has
+no addendum after 2026-09-27, and the new framing says the 2026-09-25
+admission "does not generally admit edits to expected JSON assertions".
+Re-verified, not rebuilt: without the three lines the serving-inputs test
+still fails at `:750`; restored, it and the probe pair pass. Nothing moved
+but these records. **Pending.** The same as above.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
