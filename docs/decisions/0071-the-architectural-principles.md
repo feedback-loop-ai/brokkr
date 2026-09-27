@@ -316,3 +316,33 @@ that began. Rulings 3 and 4 pay that price.
   it lands.
 - A future change that wants to break a ruling does so by a new decision
   that says so, not by a seat's taste.
+
+## Addendum — 2026-09-28, proposed: a run start reaps a dead hands server's scratch tree
+
+Status: proposed (for the operator to accept; #415). The rulings above
+stand; this names a host effect ruling 1 places above the core, which
+no decision has named.
+
+A hands server, an exec box and doctor's probe each hold a session tree,
+`brokkr-hands-<label>-<pid>-<uuid>` under the temporary directory, and
+hold an exclusive lock on its `.owner.lock` for their whole life. A
+session that cannot take that lock refuses to exist, and `hands serve`
+refuses to start with the lock's path and the errno on stderr.
+
+- **What is reaped, and when.** Every `run`, `resume` and `rerun`, before
+  it drives, removes each tree whose name this code wrote, whose recorded
+  pid is dead (the kernel answers no such process, or on Linux names it
+  a zombie), and whose lock no process holds or which has no lock file.
+  It says each removal on stderr, one line naming the tree.
+- **What is kept and said.** A tree whose pid is alive, whose name is
+  not one this code writes, or whose lock another process holds is kept
+  in silence. A tree whose lock cannot be probed is kept, and the start
+  says so in one line naming the tree and the reason: the lock file is
+  not a regular file, or reading, opening or locking it failed. Nothing
+  blocks: the lock is opened non-blocking and never through a symlink.
+  A lock that cannot be read is no answer, and the tree stays.
+- **Why it is not journaled.** The trees are host scratch, not run
+  state: no fold reads them and no replay needs them. A journal event
+  would move every run's event stream and the witness digests that pin
+  it, for a fact that belongs to the host's temporary directory. The
+  stderr lines are the record.

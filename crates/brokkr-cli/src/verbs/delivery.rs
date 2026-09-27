@@ -13,7 +13,7 @@ use brokkr_store::Store;
 use serde_json::Value;
 
 use crate::cli_args::{ConcludeArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
-use crate::{compile_from_manifest, compile_in_realm, finish, finish_drive, open_journal};
+use crate::{compile_from_manifest, compile_in_realm, drive_to_end, finish, open_journal};
 use crate::{recipes, refuse_unboxable, supersede, Access, Invocation};
 
 /// `brokkr run`: start a new run and drive it until it parks or finishes.
@@ -69,7 +69,7 @@ pub(crate) fn run(
     };
     engine.secrets_file = secrets_file;
     eprintln!("run started: {}", engine.run_id);
-    Ok(finish_drive(&engine.drive()?))
+    drive_to_end(&mut engine)
 }
 
 /// The bundle a NEW run starts under: compiled against the operated
@@ -160,7 +160,7 @@ pub(crate) fn resume(
         world.verify_crossings(workspace)?;
     }
     engine.secrets_file = secrets_file;
-    Ok(finish_drive(&engine.drive()?))
+    drive_to_end(&mut engine)
 }
 
 /// `brokkr rerun`: a past run's feature as a NEW run.
@@ -213,7 +213,7 @@ pub(crate) fn rerun(
         "rerun of {run} as {} under {}",
         engine.run_id, engine.bundle.name
     );
-    Ok(finish_drive(&engine.drive()?))
+    drive_to_end(&mut engine)
 }
 
 /// `brokkr conclude`: close a stopped or parked run from its journal alone.

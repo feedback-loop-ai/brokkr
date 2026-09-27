@@ -5,18 +5,24 @@
 //! directory, `brokkr-hands-<label>-<pid>-<uuid>` under the temporary
 //! directory, for what outlives one call: overlay upper layers. The owner
 //! holds an advisory lock on the tree for its whole life and removes the
-//! tree when it ends, on a termination signal included. A SIGKILLed owner
-//! can do neither, and on a RAM-backed `/tmp` its tree costs memory until
-//! something removes it: the engine reaps at every drive. A tree is
-//! reaped only when BOTH the pid its name records is dead AND no process
-//! holds its lock, so a live owner's tree is never touched, whether its
-//! pid was reused, it is a pre-#415 server that took no lock, or it runs
-//! in a pid namespace whose pids mean nothing here.
+//! tree when it ends, on a termination signal included. A session that
+//! cannot take its lock refuses to exist. A SIGKILLed owner can do
+//! neither, and on a RAM-backed `/tmp` its tree costs memory until
+//! something removes it: every run, resume and rerun reaps before it
+//! drives. A tree is reaped only when BOTH the pid its name records is
+//! dead AND no process holds its lock, so a live owner's tree is never
+//! touched, whether its pid was reused, it is a pre-#415 server that took
+//! no lock, or it runs in a pid namespace whose pids mean nothing here. A
+//! lock the reaper cannot probe is no answer: it keeps the tree and says
+//! why.
 
+use std::fmt;
 use std::fs::File;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::path::{Path, PathBuf};
 
-use rustix::fs::FlockOperation;
+use rustix::fs::{FileType, FlockOperation, Mode, OFlags};
+use rustix::io::Errno;
 use rustix::process::Pid;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -28,10 +34,28 @@ const LOCK: &str = ".owner.lock";
 /// The signals that end a server by default and that it can observe.
 const TERMINATION: [i32; 3] = [SIGTERM, SIGINT, SIGHUP];
 
+/// Take a file's exclusive lock without waiting. The one seam a test
+/// fails: a filesystem that refuses locks cannot be planted.
+type Flock = fn(BorrowedFd<'_>) -> Result<(), Errno>;
+
+fn flock(fd: BorrowedFd<'_>) -> Result<(), Errno> {
+    rustix::fs::flock(fd, FlockOperation::NonBlockingLockExclusive)
+}
+
+/// An errno in the kernel's words, as `std::io::Error` prints it.
+fn said(errno: Errno) -> std::io::Error {
+    std::io::Error::from_raw_os_error(errno.raw_os_error())
+}
+
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error("hands session: {0}")]
     Io(#[from] std::io::Error),
+    #[error("hands session: cannot lock {}: {cause}", path.display())]
+    Lock {
+        path: PathBuf,
+        cause: std::io::Error,
+    },
 }
 
 /// The hands module's callers report in text; this is where a session's
@@ -47,28 +71,34 @@ impl From<SessionError> for String {
 #[derive(Debug)]
 pub struct Session {
     dir: PathBuf,
-    _lock: File,
+    lock: File,
 }
 
 impl Session {
     /// A new session under the temporary directory (`TMPDIR` honoured).
     pub fn create(label: &str) -> Result<Session, SessionError> {
-        Session::create_in(&std::env::temp_dir(), label)
+        Session::create_in(&std::env::temp_dir(), label, flock)
     }
 
-    fn create_in(tmp: &Path, label: &str) -> Result<Session, SessionError> {
+    fn create_in(tmp: &Path, label: &str, lock: Flock) -> Result<Session, SessionError> {
         let dir = tmp.join(format!(
             "{PREFIX}{label}-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&dir)?;
-        let lock = File::create(dir.join(LOCK))?;
-        // Not `?`: an exclusive lock on a file this process just created
-        // cannot be contended, and a filesystem refusing locks altogether
-        // still leaves the tree guarded by this live pid in its name.
-        let _ = rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive);
-        Ok(Session { dir, _lock: lock })
+        let session = Session {
+            lock: File::create(dir.join(LOCK))?,
+            dir,
+        };
+        // A session holding no lock would read as unowned the moment its
+        // pid reads as dead, as it does from another pid namespace: it
+        // refuses instead, and dropping it removes the tree.
+        lock(session.lock.as_fd()).map_err(|errno| SessionError::Lock {
+            path: session.dir.join(LOCK),
+            cause: said(errno),
+        })?;
+        Ok(session)
     }
 
     pub fn path(&self) -> &Path {
@@ -98,32 +128,85 @@ impl Drop for Session {
     }
 }
 
-/// Remove every session tree under the temporary directory whose owner
-/// is dead, returning the trees removed.
-pub fn reap_dead_sessions() -> Vec<PathBuf> {
-    reap_dead_sessions_in(&std::env::temp_dir())
+/// What one reaping did: the trees it removed, and the trees it kept for
+/// want of an answer from their locks. Displayed one line per tree, for
+/// the start to print on stderr; nothing is journaled.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Reaped {
+    removed: Vec<PathBuf>,
+    kept: Vec<(PathBuf, Unprobed)>,
 }
 
-fn reap_dead_sessions_in(tmp: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(tmp)
+impl fmt::Display for Reaped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for tree in &self.removed {
+            let tree = tree.display();
+            writeln!(
+                f,
+                "hands: reaped {tree}: its owner is dead and holds no lock"
+            )?;
+        }
+        for (tree, why) in &self.kept {
+            let tree = tree.display();
+            writeln!(f, "hands: kept {tree}: its lock cannot be probed: {why}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Why the reaper could not tell whether a tree's lock is held.
+#[derive(Debug, Error, PartialEq, Eq)]
+enum Unprobed {
+    #[error("{LOCK} is not a regular file")]
+    NotRegular,
+    #[error("reading {LOCK}: {}", said(*.0))]
+    Stat(Errno),
+    #[error("opening {LOCK}: {}", said(*.0))]
+    Open(Errno),
+    #[error("locking {LOCK}: {}", said(*.0))]
+    Lock(Errno),
+}
+
+/// What the tree's lock answered.
+#[derive(Debug, PartialEq, Eq)]
+enum Probe {
+    Free,
+    Held,
+    Unprobed(Unprobed),
+}
+
+/// Remove every session tree under the temporary directory whose owner
+/// is dead, and keep, saying why, each one whose lock cannot be probed.
+pub fn reap_dead_sessions() -> Reaped {
+    reap_dead_sessions_in(&std::env::temp_dir(), flock)
+}
+
+fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
+    let mut reaped = Reaped::default();
+    let trees = std::fs::read_dir(tmp)
         .into_iter()
         .flatten()
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .map(|entry| entry.path())
-        .filter(|tree| orphaned(tree))
-        .filter(|tree| std::fs::remove_dir_all(tree).is_ok())
-        .collect()
+        .filter(|tree| dead_owner(tree));
+    for tree in trees {
+        match probe(&tree, lock) {
+            Probe::Free if std::fs::remove_dir_all(&tree).is_ok() => reaped.removed.push(tree),
+            Probe::Free | Probe::Held => {}
+            Probe::Unprobed(why) => reaped.kept.push((tree, why)),
+        }
+    }
+    reaped
 }
 
-/// A tree this module named, whose owner pid is dead and whose lock no
-/// process holds. A name it did not write is never an orphan.
-fn orphaned(tree: &Path) -> bool {
-    let owner = tree
-        .file_name()
+/// A tree this module named, whose owner pid is dead. A name it did not
+/// write never has one.
+fn dead_owner(tree: &Path) -> bool {
+    tree.file_name()
         .and_then(|name| name.to_str())
-        .and_then(owner_pid);
-    owner.is_some_and(|pid| !alive(pid)) && unlocked(tree)
+        .and_then(owner_pid)
+        .is_some_and(|pid| !alive(pid))
 }
 
 /// The pid in `brokkr-hands-<label>-<pid>-<uuid>`.
@@ -135,19 +218,52 @@ fn owner_pid(name: &str) -> Option<Pid> {
     Pid::from_raw(pid.parse().ok()?)
 }
 
-/// Dead only when the kernel says no such process: a pid owned by
-/// another user answers EPERM, and is alive.
+/// Dead only when the kernel says no such process, or that it is a
+/// zombie: a pid owned by another user answers EPERM, and is alive.
 fn alive(pid: Pid) -> bool {
-    rustix::process::test_kill_process(pid) != Err(rustix::io::Errno::SRCH)
+    !zombie(pid) && rustix::process::test_kill_process(pid) != Err(Errno::SRCH)
 }
 
-/// No process holds the tree's lock: it takes the lock, or the tree has
-/// no lock file (a pre-#415 owner, or one killed before it locked). Any
-/// other failure to open it is not an answer, and keeps the tree.
-fn unlocked(tree: &Path) -> bool {
-    match File::open(tree.join(LOCK)) {
-        Ok(lock) => rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive).is_ok(),
-        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+/// Linux names a zombie by the state after the last `)` of
+/// `/proc/<pid>/stat`; one that cannot be read is no zombie.
+#[cfg(target_os = "linux")]
+fn zombie(pid: Pid) -> bool {
+    std::fs::read_to_string(format!("/proc/{}/stat", pid.as_raw_nonzero())).is_ok_and(|stat| {
+        stat.rsplit_once(')')
+            .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
+    })
+}
+
+/// macOS has no `/proc`, and stays on `kill(pid, 0)`, which answers a
+/// zombie as alive: its tree waits until its parent reaps it.
+#[cfg(not(target_os = "linux"))]
+fn zombie(_: Pid) -> bool {
+    false
+}
+
+/// Whether a process holds the tree's lock. A tree with no lock file (a
+/// pre-#415 owner, or one killed before it locked) is free. A lock file
+/// that is not a regular file, or that cannot be read, opened or locked
+/// for any reason but another's hold, is no answer. Nothing here blocks:
+/// the file is opened non-blocking, never through a symlink.
+fn probe(tree: &Path, lock: Flock) -> Probe {
+    let path = tree.join(LOCK);
+    match rustix::fs::lstat(&path) {
+        Err(Errno::NOENT) => return Probe::Free,
+        Err(errno) => return Probe::Unprobed(Unprobed::Stat(errno)),
+        Ok(stat) if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile => {
+            return Probe::Unprobed(Unprobed::NotRegular)
+        }
+        Ok(_) => {}
+    }
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    match rustix::fs::open(&path, flags, Mode::empty()) {
+        Err(errno) => Probe::Unprobed(Unprobed::Open(errno)),
+        Ok(fd) => match lock(fd.as_fd()) {
+            Ok(()) => Probe::Free,
+            Err(Errno::WOULDBLOCK) => Probe::Held,
+            Err(errno) => Probe::Unprobed(Unprobed::Lock(errno)),
+        },
     }
 }
 

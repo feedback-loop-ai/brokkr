@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Map, Value};
 
 mod session;
-pub use session::{reap_dead_sessions, Session, SessionError};
+pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
 
 /// The one tool the model sees. Claude Code names it `mcp__brokkr__workspace`.
 pub const SERVER_NAME: &str = "brokkr";

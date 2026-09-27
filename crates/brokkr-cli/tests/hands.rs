@@ -173,7 +173,24 @@ fn a_killed_servers_tree_is_reaped_at_the_next_start_and_a_live_ones_kept() {
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&started.stderr);
-    assert!(stderr.contains("run started: reap-"), "{stderr}");
+    let run = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("run started: "))
+        .unwrap_or_else(|| panic!("{stderr}"));
+    // The start says each tree it reaped, once, right after it names the
+    // run and before any seat speaks.
+    assert_eq!(
+        stderr.lines().take(2).collect::<Vec<_>>(),
+        [
+            format!("run started: {run}"),
+            format!(
+                "hands: reaped {}: its owner is dead and holds no lock",
+                killed_tree.display()
+            ),
+        ],
+        "{stderr}"
+    );
+    assert!(run.starts_with("reap-"), "{run}");
     assert!(
         !killed_tree.exists(),
         "the start reaped the dead server's tree"

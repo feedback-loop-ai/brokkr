@@ -500,13 +500,17 @@ fn status_exit(status: &Status) -> ExitCode {
     }
 }
 
-/// A driven run's ending: the conclusion's anchor and keep-ref gaps on
-/// stderr, then the summary `finish` prints.
-fn finish_drive(end: &brokkr_runtime::DriveEnd) -> ExitCode {
+/// Drive a started run to its ending. The start first reaps the scratch
+/// trees of hands servers whose owners died and says each on stderr,
+/// journaling nothing (#415). Then the conclusion's anchor and keep-ref
+/// gaps on stderr, and the summary `finish` prints.
+fn drive_to_end(engine: &mut brokkr_runtime::Engine) -> Result<ExitCode> {
+    eprint!("{}", brokkr_protocol::hands::reap_dead_sessions());
+    let end = engine.drive()?;
     for gap in &end.gaps {
         eprintln!("{gap}");
     }
-    finish(&end.state)
+    Ok(finish(&end.state))
 }
 
 fn finish(state: &RunState) -> ExitCode {

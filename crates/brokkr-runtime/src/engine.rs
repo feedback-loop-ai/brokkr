@@ -499,12 +499,7 @@ impl Engine {
     /// Or until a peer's lock on the shared journal outlasts the store's
     /// whole patience — which is a fourth ending, and it is an ending,
     /// not a death. See [`Engine::lawful_end_under_contention`].
-    ///
-    /// First it reaps the scratch trees of hands servers whose owners
-    /// died, most often with an engine a peer's lock ended: a SIGKILLed
-    /// server removes nothing, and `/tmp` is often RAM (#415).
     pub fn drive(&mut self) -> Result<DriveEnd, EngineError> {
-        brokkr_protocol::hands::reap_dead_sessions();
         loop {
             match self.drive_once() {
                 Ok(Some(end)) => return Ok(end),
