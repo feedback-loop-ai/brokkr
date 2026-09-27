@@ -2349,8 +2349,35 @@ fn codex_effort_config(effort: &str) -> String {
 /// word, stays in the argv, so the harness refuses it loudly rather
 /// than this adapter dropping a pin in silence.
 fn split_effort(extra: &[String]) -> (Option<String>, Vec<String>) {
-    let (effort, kept) = effort_split(extra);
+    split_effort_as("codex", extra)
+}
+
+/// [`split_effort`] under `harness`'s grammar: DSH reads its own.
+fn split_effort_as(harness: &str, extra: &[String]) -> (Option<String>, Vec<String>) {
+    let (effort, kept) = effort_split_as(harness, extra);
     (effort.map(|(level, _)| level), picked(extra, &kept))
+}
+
+/// The seat's argv as its harness's grammar places it (rebuild unit 13;
+/// design D6): the ONE parse the selector, extraction and resume readers
+/// below share, so a value such as the word `resume` after `--image` is
+/// never re-read as an option or a subcommand. `None` where the argv does
+/// not parse whole — a by-hand driver's option the grammar does not model,
+/// a dangling value or a doubled option — and there no token can be told
+/// from a value, so each reader keeps its conservative reading by
+/// spelling, which only refuses or declines. An engine launch parses every
+/// origin and refuses what does not parse before it composes (decision
+/// 0066 ruling 6).
+fn placed(harness: &str, argv: &[String]) -> Option<crate::native_controls::grammar::Command> {
+    crate::native_controls::grammar::parse(harness, argv).and_then(Result::ok)
+}
+
+/// Whether `node` carries its value attached to a short option, `-nVALUE`,
+/// rather than split or after `=`. The readers before rebuild unit 13 read
+/// no attached spelling as a class or an admitted flag, and eligibility
+/// stays exactly theirs.
+fn attached(argv: &[String], node: &crate::native_controls::grammar::Node) -> bool {
+    node.joined && !argv[node.at].starts_with(&format!("{}=", node.spelling))
 }
 
 /// [`split_effort`] by position: the level with the index of the part that
@@ -2358,6 +2385,25 @@ fn split_effort(extra: &[String]) -> (Option<String>, Vec<String>) {
 /// final judgment can name the origin of every part it reads (rebuild unit
 /// 5d-fix-c2).
 fn effort_split(extra: &[String]) -> (Option<(String, usize)>, Vec<usize>) {
+    effort_split_as("codex", extra)
+}
+
+/// [`effort_split`] under `harness`'s grammar. Where the argv parses, the
+/// pin is its one `--effort` node, read as that node's value and never by
+/// scanning for the spelling (rebuild unit 13).
+fn effort_split_as(harness: &str, extra: &[String]) -> (Option<(String, usize)>, Vec<usize>) {
+    if let Some(command) = placed(harness, extra) {
+        let pin = command
+            .nodes
+            .iter()
+            .filter(|node| node.name() == "--effort")
+            .find_map(|node| effort_token(&node.values[0]).map(|level| (level, node)));
+        let taken = pin
+            .as_ref()
+            .map_or(0..0, |(_, node)| node.at..node.at + node.tokens);
+        let kept = (0..extra.len()).filter(|at| !taken.contains(at)).collect();
+        return (pin.map(|(level, node)| (level, node.at)), kept);
+    }
     let mut effort = None;
     let mut kept = Vec::with_capacity(extra.len());
     let mut at = 0;
@@ -2426,8 +2472,19 @@ fn split_codex_sandbox(extra: &[String]) -> (Option<String>, Vec<String>) {
 }
 
 /// [`split_codex_sandbox`] by position: the class, and the indices of the
-/// parts that pass through (rebuild unit 5d-fix-c2).
+/// parts that pass through (rebuild unit 5d-fix-c2). Where the argv parses,
+/// the class is its one `--sandbox` node written `--sandbox CLASS`,
+/// `--sandbox=CLASS` or `-s CLASS` (rebuild unit 13); a short `-s=CLASS` or
+/// `-sCLASS` stays in the passthrough, as it always has.
 fn sandbox_split(extra: &[String]) -> (Option<String>, Vec<usize>) {
+    if let Some(command) = placed("codex", extra) {
+        let node = command.nodes.iter().find(|node| {
+            node.name() == "--sandbox" && (!node.joined || node.spelling.starts_with("--"))
+        });
+        let taken = node.map_or(0..0, |node| node.at..node.at + node.tokens);
+        let kept = (0..extra.len()).filter(|at| !taken.contains(at)).collect();
+        return (node.map(|node| node.values[0].clone()), kept);
+    }
     let mut class = None;
     let mut kept = Vec::with_capacity(extra.len());
     let mut at = 0;
@@ -2495,7 +2552,24 @@ const CODEX_RESUME_BARE_FLAGS: [&str; 4] = [
 /// `--profile`, `--add-dir`, `--approve-for-me` and `-C` are each
 /// rejected outright by `codex exec resume` (verified, 0.148.0), so
 /// passing them on would buy a usage error dressed up as a refusal.
+///
+/// Where the passthrough parses, each option is judged by the canonical
+/// name its node places, so a value is never classified on its own
+/// (rebuild unit 13), and the part returned is the option's own token; an
+/// attached short spelling is refused as it always was.
 fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
+    if let Some(command) = placed("codex", passthrough) {
+        return command
+            .nodes
+            .iter()
+            .find(|node| {
+                let name = node.name();
+                !(CODEX_RESUME_VALUE_FLAGS.contains(&name)
+                    || CODEX_RESUME_BARE_FLAGS.contains(&name))
+                    || attached(passthrough, node)
+            })
+            .map(|node| passthrough[node.at].clone());
+    }
     let mut parts = passthrough.iter();
     while let Some(part) = parts.next() {
         if CODEX_RESUME_BARE_FLAGS.contains(&part.as_str()) {
@@ -2529,15 +2603,19 @@ fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
 /// the warm path and travel unchanged on the cold one, as they always
 /// have.
 ///
-/// The word is refused wherever it appears, value positions included: a
-/// model, image or output file literally named `resume` is not worth a
-/// grammar that has to track which codex flags take a value, and such a
-/// grammar goes stale the next time codex grows one. Bundles are
+/// The word is read through the codex grammar's one parse (rebuild unit
+/// 13; design D6): an argv that parses has no bare word at all, so a model,
+/// image or output file literally named `resume` is that option's value.
+/// Only where the argv does not parse whole, and so no token can be told
+/// from a value, is the word refused wherever it appears. Bundles are
 /// operator-trusted, so this is a refusal that names its part, never a
 /// silent drop.
 const CODEX_SELECTOR: &str = "resume";
 
 fn codex_selector_conflict(extra: &[String]) -> Option<&'static str> {
+    if placed("codex", extra).is_some() {
+        return None;
+    }
     extra
         .iter()
         .any(|part| part == CODEX_SELECTOR)
@@ -2935,7 +3013,32 @@ const CLAUDE_SELECTORS_BARE: [&str; 8] = [
 /// working directory last held, which is worse on a cold path than on a
 /// warm one — nothing chose it. A cold-inadmissible setting refuses
 /// before any provider work rather than being dropped in silence.
+///
+/// Where the argv parses under the claude grammar, LaneTally's too, the
+/// selector is a node whose effect is a session or whose canonical name is
+/// listed, named in the spelling it was written in (rebuild unit 13); a
+/// value is never read as one.
 fn claude_selector_conflict(extra: &[String]) -> Option<&'static str> {
+    if let Some(command) = placed("claude", extra) {
+        let listed = || {
+            CLAUDE_SELECTORS_WITH_VALUE
+                .iter()
+                .chain(CLAUDE_SELECTORS_BARE.iter())
+        };
+        return command
+            .nodes
+            .iter()
+            .find(|node| {
+                node.spec.effect == crate::native_controls::grammar::Effect::Session
+                    || listed().any(|selector| *selector == node.name())
+            })
+            .map(|node| {
+                listed()
+                    .find(|selector| **selector == node.spelling)
+                    .copied()
+                    .unwrap_or(node.name())
+            });
+    }
     extra.iter().find_map(|part| {
         let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
         CLAUDE_SELECTORS_WITH_VALUE
@@ -2983,18 +3086,48 @@ fn claude_restriction_control(part: &str) -> Option<(&'static str, bool)> {
 ///
 /// `false` for a control that stands alone, `true` for one that takes a
 /// value. Only the flag's NAME decides; the value is never classified.
+///
+/// Where the argv parses, the controls are its nodes, each by canonical
+/// name (rebuild unit 13): the grammar has already refused a missing value
+/// and a duplicate of every control it admits once, so what is left is a
+/// repeated `--mcp-config` and a split value that is the lone `-`.
 fn claude_restriction_conflict(extra: &[String]) -> Option<String> {
+    let doubled = |control: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the seat's arguments carry '{control}' more than \
+             once, and the CLI resolves a duplicate last-wins against the current restriction \
+             plan the engine composed (proposed decision 0056 ruling 6)"
+        )
+    };
+    let valueless = |control: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the seat's arguments carry '{control}' with no \
+             value, which the measured grammar requires"
+        )
+    };
+    if let Some(command) = placed("claude", extra) {
+        let mut seen: Vec<&'static str> = Vec::new();
+        for node in &command.nodes {
+            let Some((control, takes_value)) = claude_restriction_control(node.name()) else {
+                continue;
+            };
+            if seen.contains(&control) {
+                return Some(doubled(control));
+            }
+            seen.push(control);
+            if takes_value && !node.joined && node.values[0].starts_with('-') {
+                return Some(valueless(control));
+            }
+        }
+        return None;
+    }
     let mut seen: Vec<&'static str> = Vec::new();
     let mut index = 0;
     while index < extra.len() {
         let part = &extra[index];
         if let Some((control, takes_value)) = claude_restriction_control(part) {
             if seen.contains(&control) {
-                return Some(format!(
-                    "refusing to invoke the agent CLI: the seat's arguments carry '{control}' more \
-                     than once, and the CLI resolves a duplicate last-wins against the current \
-                     restriction plan the engine composed (proposed decision 0056 ruling 6)"
-                ));
+                return Some(doubled(control));
             }
             seen.push(control);
             if takes_value && !part.contains('=') {
@@ -3003,12 +3136,7 @@ fn claude_restriction_conflict(extra: &[String]) -> Option<String> {
                     // this control's value; the empty string `--tools ""`
                     // is the one admitted empty value and does not.
                     Some(value) if !value.starts_with('-') => index += 1,
-                    _ => {
-                        return Some(format!(
-                            "refusing to invoke the agent CLI: the seat's arguments carry \
-                             '{control}' with no value, which the measured grammar requires"
-                        ))
-                    }
+                    _ => return Some(valueless(control)),
                 }
             }
         }
@@ -3124,7 +3252,12 @@ fn claude_launch(
     // `--no-session-persistence` is admitted — it is a legitimate thing
     // for a seat to want — and it makes the shape nonresumable, which is
     // a fact the launch row reports rather than a setting to strip.
-    let persistent = !extra.iter().any(|part| part == "--no-session-persistence");
+    // Read as the parsed switch where the argv parses (rebuild unit 13).
+    let switch = "--no-session-persistence";
+    let persistent = match placed(provider, extra) {
+        Some(command) => !command.nodes.iter().any(|node| node.name() == switch),
+        None => !extra.iter().any(|part| part == switch),
+    };
     let gate = resume_gate(input, shape);
     let probe = vec![bin.to_string(), "--version".to_string()];
     let plan = |rejoining: Option<String>,
@@ -3872,7 +4005,7 @@ fn dsh_launch_with(
     // would vanish before that slot is read (see `dsh_input_boundaries`).
     dsh_input_boundaries(extra)?;
     let (model, passthrough) = split_dsh_model(extra)?;
-    let (effort, passthrough) = split_effort(&passthrough);
+    let (effort, passthrough) = split_effort_as("dsh", &passthrough);
     let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;
     // The inherited selector-only deny-list is not the admission rule:
     // after the engine's own model, effort and single route overlay are

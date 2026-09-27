@@ -1885,9 +1885,8 @@ fn a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too() {
     for (extra, part) in [
         (vec!["resume", thread], "resume"),
         (vec!["-s", "read-only", "resume", "--last"], "resume"),
-        // The word is refused in a value position too, deliberately: no
-        // grammar of which codex flags take a value is kept here.
-        (vec!["-m", "resume"], "resume"),
+        // In a value position the word is data (rebuild unit 13): see
+        // `an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_final_parse`.
     ] {
         let extra = s(&extra);
         assert_eq!(codex_selector_conflict(&extra), Some(part));
@@ -1930,6 +1929,193 @@ fn a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too() {
     );
     assert!(plan.refusal.is_none() && plan.rejoining.is_none());
     assert!(plan.harness_version.is_none());
+}
+
+/// Rebuild unit 13 (13.2; design D6; realm delta "Known provider commands
+/// have a closed argument grammar"): the selector, extraction and resume
+/// readers share the grammar's one parse, so the word `resume` standing as
+/// the VALUE of `--image`, `-m` or `-o` is data through the cold selector
+/// check, resume eligibility and the final parse, and a bare `resume`
+/// still refuses. Eligibility is otherwise unchanged: the spellings the
+/// earlier readers did not read as a class or an admitted flag still send
+/// the offer cold — an attached `-sCLASS` or `-s=CLASS` as
+/// `sandbox-unavailable`, an attached `-iFILE` as `incompatible-argv` —
+/// while `-i=FILE` still travels.
+#[cfg(unix)]
+#[test]
+fn an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_final_parse() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    for extra in [
+        s(&["--image", "resume"]),
+        s(&["-i", "resume"]),
+        s(&["-m", "resume"]),
+        s(&["-o", "resume"]),
+        s(&["--image=resume"]),
+    ] {
+        assert_eq!(codex_selector_conflict(&extra), None, "{extra:?}");
+    }
+    assert_eq!(codex_selector_conflict(&s(&["resume"])), Some("resume"));
+    assert_eq!(
+        codex_selector_conflict(&s(&["--image", "a.png", "resume", THREAD])),
+        Some("resume")
+    );
+    let unmeasured = json!({"workdir": "/w", "boundary": "namespace", "hands": "boxed"});
+    let cold = codex_launch("codex", &s(&["--image", "resume"]), "/w", None, &unmeasured).unwrap();
+    assert_eq!(
+        cold.command,
+        s(&["codex", "exec", "--json", "-C", "/w", "--image", "resume"])
+    );
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let workdir = dir.path().to_string_lossy().into_owned();
+    for (case, extra, expected, refusal) in [
+        (
+            "image-value",
+            s(&["--sandbox", "read-only", "--image", "resume"]),
+            s(&[
+                "exec",
+                "resume",
+                "--json",
+                "-c",
+                "sandbox_mode=\"read-only\"",
+                "--image",
+                "resume",
+                THREAD,
+                "-",
+            ]),
+            None,
+        ),
+        (
+            "image-equals",
+            s(&["--sandbox", "read-only", "-i=a.png"]),
+            s(&[
+                "exec",
+                "resume",
+                "--json",
+                "-c",
+                "sandbox_mode=\"read-only\"",
+                "-i=a.png",
+                THREAD,
+                "-",
+            ]),
+            None,
+        ),
+        (
+            "image-attached",
+            s(&["--sandbox", "read-only", "-ia.png"]),
+            s(&[
+                "exec",
+                "--json",
+                "-C",
+                &workdir,
+                "--sandbox",
+                "read-only",
+                "-ia.png",
+            ]),
+            Some("incompatible-argv"),
+        ),
+        (
+            "class-attached",
+            s(&["-sread-only"]),
+            s(&["exec", "--json", "-C", &workdir, "-sread-only"]),
+            Some("sandbox-unavailable"),
+        ),
+        (
+            "class-short-equals",
+            s(&["-s=read-only"]),
+            s(&["exec", "--json", "-C", &workdir, "-s=read-only"]),
+            Some("sandbox-unavailable"),
+        ),
+    ] {
+        let argv = dir.path().join(format!("argv-{case}"));
+        let shim = codex_shim(dir.path(), &format!("codex-{case}"), &argv);
+        let mut emitted = Vec::new();
+        with_codex_bin(&shim, || {
+            invoke(
+                AdapterKind::Codex,
+                &extra,
+                "prompt",
+                &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                Some(THREAD),
+                &[],
+                &mut |event| emitted.push(event.clone()),
+            )
+            .unwrap()
+        });
+        let seen = recorded(&argv);
+        assert_eq!(seen, expected, "{case}: the whole argv");
+        let launch = launch_rows(&emitted);
+        assert_eq!(launch.len(), 1, "{case}: {emitted:?}");
+        match refusal {
+            None => assert_eq!(launch[0]["launch"], "resumed", "{case}: {}", launch[0]),
+            Some(refusal) => assert_eq!(launch[0]["resume_refusal"], refusal, "{case}"),
+        }
+        let parsed = crate::native_controls::grammar::parse_final("codex", &seen)
+            .unwrap()
+            .unwrap();
+        if case == "image-value" {
+            assert_eq!(parsed.session.as_deref(), Some(THREAD), "{case}");
+            let placed: Vec<(&str, &[String])> = parsed
+                .command
+                .nodes
+                .iter()
+                .map(|node| (node.name(), node.values.as_slice()))
+                .collect();
+            assert_eq!(
+                placed,
+                [
+                    ("--json", &[][..]),
+                    ("--config", &s(&["sandbox_mode=\"read-only\""])[..]),
+                    ("--image", &s(&["resume"])[..]),
+                ]
+            );
+        }
+    }
+}
+
+/// Rebuild unit 13 (13.2): where the seat's argv parses, the Claude
+/// restriction reader and the effort extraction read its nodes and keep
+/// their own causes — a repeated `--mcp-config`, which the grammar admits
+/// more than once, and a split value that is the lone `-` — while a value
+/// that spells a control, joined to an inert option, is a value, and an
+/// effort level the pin grammar cannot read stays in the argv.
+#[test]
+fn the_claude_and_effort_readers_judge_parsed_options_with_their_own_causes() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        claude_restriction_conflict(&s(&["--mcp-config", "a.json", "--mcp-config", "b.json"])),
+        Some(
+            "refusing to invoke the agent CLI: the seat's arguments carry '--mcp-config' more \
+             than once, and the CLI resolves a duplicate last-wins against the current \
+             restriction plan the engine composed (proposed decision 0056 ruling 6)"
+                .to_string()
+        )
+    );
+    assert_eq!(
+        claude_restriction_conflict(&s(&["--model", "-"])),
+        Some(
+            "refusing to invoke the agent CLI: the seat's arguments carry '--model' with no \
+             value, which the measured grammar requires"
+                .to_string()
+        )
+    );
+    assert_eq!(
+        claude_restriction_conflict(&s(&[
+            "--append-system-prompt=--model",
+            "--model",
+            "opus",
+            "--tools",
+            ""
+        ])),
+        None
+    );
+    let unread = s(&["--effort", "think hard", "--model", "m"]);
+    assert_eq!(split_effort(&unread), (None, unread.clone()));
+    assert_eq!(
+        split_effort(&s(&["--model", "m", "--effort=high"])),
+        (Some("high".to_string()), s(&["--model", "m"]))
+    );
 }
 
 /// A closed gate names ITS reason, on every adapter alike. Under an

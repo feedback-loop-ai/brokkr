@@ -1307,6 +1307,469 @@ pub fn native_segment(harness: &str, controls: &Controls) -> Result<Segment, Ref
     })
 }
 
+// ------------------------------------------------ final assessment
+
+/// The capability state one command expresses (rebuild unit 13; operator
+/// ruling 2 of 2026-09-23; design D6), read from the ONE parse its
+/// harness's grammar gives it and never by searching a value for an
+/// option's spelling. An absent include list and an explicitly empty one
+/// stay apart, and a Codex sandbox class is one effect whether a cold
+/// `--sandbox` or a rejoin's `sandbox_mode` assignment expresses it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct State {
+    /// The include list: `None` where no `--tools` stands and the harness
+    /// runs with its whole set, and its patterns, empty included, where
+    /// one does.
+    pub include: Option<Vec<String>>,
+    pub allow: Vec<String>,
+    pub deny: Vec<String>,
+    /// Codex's sandbox class.
+    pub sandbox: Option<String>,
+    /// Every other capability-bearing option, by canonical name and exact
+    /// values, in command order: an assignment into a capability table, a
+    /// loaded document or a catalogue control.
+    pub controls: Vec<(&'static str, Vec<String>)>,
+    /// The session the command rejoins: Codex's positional identifier or
+    /// Claude's `--resume` value.
+    pub session: Option<String>,
+}
+
+/// A command whose capability state [`check_final`] proved equal to its
+/// sealed plan's (rebuild unit 13; design D6). Its argv can be read or
+/// taken whole and nothing else, so no argument is appended, removed or
+/// edited between the check and the spawn that consumes it; an argv taken
+/// out and changed is another command, which needs a check of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Checked {
+    argv: Vec<String>,
+}
+
+impl Checked {
+    /// The checked command, its program first.
+    pub fn argv(&self) -> &[String] {
+        &self.argv
+    }
+
+    /// The checked command, for the spawn that consumes it.
+    pub fn into_argv(self) -> Vec<String> {
+        self.argv
+    }
+}
+
+/// Read one parsed command's [`State`], or the fixed words of what cannot
+/// be read: a list value outside the managed grammar, an assignment with
+/// no bounded meaning, a class expressed twice, or a session selector
+/// other than a rejoin's. Nothing read is echoed.
+fn read_state(command: &Command) -> Result<State, String> {
+    let mut state = State::default();
+    let classes = [
+        SandboxIntent::ReadOnly,
+        SandboxIntent::WorkspaceWrite,
+        SandboxIntent::DangerFullAccess,
+    ];
+    for node in &command.nodes {
+        let at = node.at + 1;
+        let mut class = |class: String| match state.sandbox.replace(class) {
+            None => Ok(()),
+            Some(_) => Err(format!(
+                "expresses the sandbox class a second time (argument {at})"
+            )),
+        };
+        match node.spec.effect {
+            Effect::List(kind) => {
+                let mut patterns = Vec::new();
+                for value in &node.values {
+                    let read = grammar::managed_patterns(value).map_err(|cause| {
+                        format!(
+                            "carries '{}' (argument {at}), whose value {cause}",
+                            node.name()
+                        )
+                    })?;
+                    patterns.extend(read.into_iter().map(str::to_string));
+                }
+                match kind {
+                    ListKind::Include => state.include = Some(patterns),
+                    ListKind::Allow => state.allow = patterns,
+                    ListKind::Deny => state.deny = patterns,
+                }
+            }
+            Effect::Config => {
+                for value in &node.values {
+                    match grammar::setting(value) {
+                        Ok(grammar::Setting::Inert(_)) => {}
+                        Ok(grammar::Setting::Capability(_)) => {
+                            match classes
+                                .iter()
+                                .find(|known| grammar::rejoin_class(**known) == *value)
+                            {
+                                Some(known) => class(known.word().to_string())?,
+                                None => state.controls.push((node.name(), vec![value.clone()])),
+                            }
+                        }
+                        Err(cause) => {
+                            return Err(format!(
+                                "carries '--config' (argument {at}), whose value {cause}"
+                            ))
+                        }
+                    }
+                }
+            }
+            Effect::Control(grammar::Power::Permission) if node.name() == "--sandbox" => {
+                class(node.values[0].clone())?
+            }
+            Effect::Control(_) | Effect::Load => {
+                state.controls.push((node.name(), node.values.clone()))
+            }
+            Effect::Session if node.name() == "--resume" => {
+                state.session = Some(node.values[0].clone())
+            }
+            Effect::Session => {
+                return Err(format!(
+                    "carries '{}' (argument {at}), a session selector other than a rejoin's",
+                    node.name()
+                ))
+            }
+            Effect::Inert | Effect::Switch | Effect::Route => {}
+        }
+    }
+    Ok(state)
+}
+
+/// A final command refused, `problem` saying why; rendered by [`refused`].
+fn unchecked<'a>(harness: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
+    let mut pieces = vec![
+        Piece::Words("the final command of "),
+        Piece::Harness(harness),
+        Piece::Words(" "),
+    ];
+    pieces.extend(problem);
+    pieces.push(Piece::Words(
+        "; a complete command is parsed back before its spawn and must express exactly the \
+         capability state its sealed plan records, so it is refused rather than spawned \
+         (operator ruling 2 of 2026-09-23; design D6)",
+    ));
+    refused(Why::Final, pieces)
+}
+
+/// The ONE pure check of a complete serving command before its spawn
+/// (rebuild unit 13; operator ruling 2 of 2026-09-23; design D6): the whole
+/// `command`, its program first, after every engine prefix, wrapper option,
+/// expansion and session argument, parsed back at its fixed positions and
+/// compared with the sealed plan. A success is the private [`Checked`]
+/// value the spawn consumes; every departure refuses with a bounded cause
+/// that echoes no value.
+///
+/// 1. The plan, the record and the launch name one harness and provider.
+/// 2. The command parses whole under the harness's grammar
+///    ([`grammar::Grammar::parse_final`]), so a duplicated prefix option,
+///    a terminator, a dangling value or a misplaced positional refuses, and
+///    an inert value such as `--image resume` stays a value.
+/// 3. Its [`State`] equals, field by field, the state of the arguments
+///    [`compose_for_provider`] composed from the sealed plan, with the
+///    rejoin the engine chose as `session`: nothing is dropped, added or
+///    contradicted, and an empty include list is not an absent one.
+/// 4. That state holds what the sealed [`Expected`] says, read from typed
+///    inputs and not from either command: the plan holds, denies and
+///    admits exactly the record's native powers; no holding carries a
+///    nonempty restriction (D11); each held tool is available and each
+///    denied capability's tools are not (Claude, LaneTally), or each denial
+///    is a measured OFF assignment and no holding is switched off (Codex);
+///    required hands, a directly applied local permission, the site's
+///    Codex class and a declared permission template are all present.
+///
+/// A harness with no modelled grammar has no final command this can read,
+/// and an opaque driver acquires no guarantee from it.
+pub fn check_final(
+    harness: &str,
+    command: Vec<String>,
+    composed: &Composed,
+    controls: &Controls,
+    expected: &Expected,
+    session: Option<&str>,
+) -> Result<Checked, Refusal> {
+    let refuse = |problem: Vec<Piece<'_>>| unchecked(harness, problem);
+    let Some(table) = grammar::grammar(harness) else {
+        return Err(refuse(vec![Piece::Words(
+            "has no modelled grammar, so no capability state can be read from it",
+        )]));
+    };
+    if controls.harness != harness
+        || expected.identity.harness != harness
+        || expected.identity.provider != controls.provider
+    {
+        return Err(refuse(vec![Piece::Words(
+            "was planned for another harness or provider than its sealed record names",
+        )]));
+    }
+    let Some((_, argv)) = command.split_first() else {
+        return Err(refuse(vec![Piece::Words("names no program")]));
+    };
+    let unread = |problem: grammar::Problem| {
+        Piece::Grammar(format!(
+            "(argument {}, {}: it {})",
+            problem.at + 1,
+            problem.label,
+            problem.cause
+        ))
+    };
+    let parsed = table
+        .parse_final(argv)
+        .map_err(|problem| refuse(vec![Piece::Words("cannot be read whole "), unread(problem)]))?;
+    let mut observed = read_state(&parsed.command).map_err(|cause| {
+        refuse(vec![
+            Piece::Words("cannot be read: it "),
+            Piece::Grammar(cause),
+        ])
+    })?;
+    if parsed.session.is_some() {
+        observed.session = parsed.session;
+    }
+    let planned = [composed.extra.as_slice(), composed.managed.as_slice()].concat();
+    let planned = table.parse(&planned).map_err(|problem| {
+        refuse(vec![
+            Piece::Words("was planned from a composition that cannot be read whole "),
+            unread(problem),
+        ])
+    })?;
+    let mut planned = read_state(&planned).map_err(|cause| {
+        refuse(vec![
+            Piece::Words("was planned from a composition that cannot be read: it "),
+            Piece::Grammar(cause),
+        ])
+    })?;
+    if planned.session.is_some() {
+        return Err(refuse(vec![Piece::Words(
+            "was planned from a composition that selects a session itself",
+        )]));
+    }
+    planned.session = session.map(str::to_string);
+    let departed = [
+        (observed.include != planned.include, "its include list"),
+        (observed.allow != planned.allow, "its allow list"),
+        (observed.deny != planned.deny, "its deny list"),
+        (observed.sandbox != planned.sandbox, "its sandbox class"),
+        (
+            observed.controls != planned.controls,
+            "its other capability-bearing options",
+        ),
+        (
+            observed.session != planned.session,
+            "the session it rejoins",
+        ),
+    ]
+    .into_iter()
+    .find_map(|(differs, what)| differs.then_some(what));
+    if let Some(what) = departed {
+        return Err(refuse(vec![
+            Piece::Words("expresses "),
+            Piece::Words(what),
+            Piece::Words(
+                " otherwise than the plan composed it: missing, extra and contradictory state are \
+                 refused alike",
+            ),
+        ]));
+    }
+    expected_state(harness, &observed, controls, expected).map_err(refuse)?;
+    Ok(Checked { argv: command })
+}
+
+/// Step 4 of [`check_final`]: what the sealed record expects, read from
+/// its typed inputs, against the state the command expresses.
+fn expected_state<'a>(
+    harness: &str,
+    observed: &'a State,
+    controls: &'a Controls,
+    expected: &'a Expected,
+) -> Result<(), Vec<Piece<'a>>> {
+    let sorted = |names: &[String]| {
+        let mut names = names.to_vec();
+        names.sort();
+        names
+    };
+    let (held, denied): (&[HeldPower], &[String]) = match (&expected.native, &controls.inventory) {
+        (NativeExpectation::Known { held, denied }, Inventory::Known) => (held, denied),
+        (NativeExpectation::Unmeasured(reason), Inventory::Unmeasured(plan)) if reason == plan => {
+            (&[], &[])
+        }
+        _ => {
+            return Err(vec![Piece::Words(
+                "was planned under another native inventory than its sealed record expects",
+            )])
+        }
+    };
+    let names: Vec<String> = held.iter().map(|power| power.capability.clone()).collect();
+    if sorted(&names) != sorted(&controls.held)
+        || sorted(denied) != sorted(&controls.denied)
+        || controls.admits != expected.native.admits()
+    {
+        return Err(vec![Piece::Words(
+            "was planned holding, denying or admitting other native powers than its sealed \
+             record expects",
+        )]);
+    }
+    if let Some(power) = held.iter().find(|power| !power.restrictions.is_empty()) {
+        return Err(vec![
+            Piece::Words("would hold "),
+            Piece::Capability(&power.capability),
+            Piece::Words(
+                " under a nonempty restriction, which slice one never delivers (operator ruling \
+                 addendum of 2026-09-25; design D11)",
+            ),
+        ]);
+    }
+    let named = |list: &[String], name: &str| list.iter().any(|pattern| pattern == name);
+    let hands_tool = format!(
+        "mcp__{}__{}",
+        crate::hands::SERVER_NAME,
+        crate::hands::TOOL_NAME
+    );
+    let hands_missing = || {
+        Err(vec![Piece::Words(
+            "does not carry the hands its sealed record requires",
+        )])
+    };
+    match harness {
+        "claude" | "lanetally" => {
+            // A bare name in the deny list denies the tool; a pattern with a
+            // specifier denies only the calls it matches.
+            let available = |tool: &str| {
+                observed.include.as_ref().is_none_or(|include| {
+                    include
+                        .iter()
+                        .any(|pattern| grammar::tool_name(pattern) == tool)
+                }) && !named(&observed.deny, tool)
+            };
+            for power in held {
+                if let Some(tool) = power.tools.iter().find(|tool| !available(tool)) {
+                    return Err(vec![
+                        Piece::Words("does not make "),
+                        Piece::Tool(tool),
+                        Piece::Words(" available, which its plan holds for "),
+                        Piece::Capability(&power.capability),
+                    ]);
+                }
+            }
+            for capability in denied {
+                let tools: Vec<&String> = controls
+                    .guards
+                    .iter()
+                    .filter(|guard| &guard.capability == capability)
+                    .flat_map(|guard| &guard.tools)
+                    .collect();
+                if tools.is_empty() {
+                    return Err(vec![
+                        Piece::Words("cannot be read for the denial of "),
+                        Piece::Capability(capability),
+                        Piece::Words(", for which its plan names no tool"),
+                    ]);
+                }
+                if let Some(tool) = tools.into_iter().find(|tool| available(tool)) {
+                    return Err(vec![
+                        Piece::Words("leaves "),
+                        Piece::Tool(tool),
+                        Piece::Words(" available, which its plan denies as "),
+                        Piece::Capability(capability),
+                    ]);
+                }
+            }
+            let strict = observed
+                .controls
+                .iter()
+                .any(|(name, values)| *name == "--strict-mcp-config" && values.is_empty());
+            if expected.hands == HandsIntent::Required
+                && !(strict && named(&observed.allow, &hands_tool))
+            {
+                return hands_missing();
+            }
+            if let Application::Direct(limits) = &expected.local.application {
+                if let Some(limit) = limits.iter().find(|limit| !named(&observed.allow, limit)) {
+                    return Err(vec![
+                        Piece::Words("does not carry the local permission for "),
+                        Piece::Tool(limit),
+                        Piece::Words(" its sealed record lowered"),
+                    ]);
+                }
+            }
+        }
+        "codex" => {
+            let assignments = || {
+                observed
+                    .controls
+                    .iter()
+                    .filter(|(name, _)| *name == "--config")
+                    .flat_map(|(_, values)| values)
+            };
+            let switched_off = |capability: &str| {
+                assignments().any(|value| {
+                    grammar::launch_setting(value)
+                        .ok()
+                        .and_then(|key| {
+                            grammar::LAUNCH_SETTINGS
+                                .iter()
+                                .find(|admitted| admitted.key == key)
+                        })
+                        .and_then(|admitted| admitted.denies)
+                        == Some(capability)
+                })
+            };
+            if let Some(capability) = denied.iter().find(|capability| !switched_off(capability)) {
+                return Err(vec![
+                    Piece::Words("carries no measured OFF for "),
+                    Piece::Capability(capability),
+                    Piece::Words(", which its plan denies"),
+                ]);
+            }
+            if let Some(power) = held.iter().find(|power| switched_off(&power.capability)) {
+                return Err(vec![
+                    Piece::Words("switches OFF "),
+                    Piece::Capability(&power.capability),
+                    Piece::Words(", which its plan holds"),
+                ]);
+            }
+            let served = assignments().any(|value| {
+                grammar::setting(value) == Ok(grammar::Setting::Capability("mcp_servers"))
+            });
+            if expected.hands == HandsIntent::Required && !served {
+                return hands_missing();
+            }
+            let class = expected.local.sandbox;
+            if expected.hands == HandsIntent::None
+                && class != SandboxIntent::Unspecified
+                && observed.sandbox.as_deref() != Some(class.word())
+            {
+                return Err(vec![Piece::Words(
+                    "does not carry the sandbox class its sealed record expects",
+                )]);
+            }
+        }
+        _ => {}
+    }
+    if let TemplateExpectation::Declared(template) = &expected.template {
+        let Some(Ok(declared)) = grammar::parse(harness, template) else {
+            return Err(vec![Piece::Words(
+                "is sealed with a permission template that cannot be read",
+            )]);
+        };
+        for node in declared
+            .nodes
+            .iter()
+            .filter(|node| matches!(node.spec.effect, Effect::Control(_) | Effect::Load))
+        {
+            let carried = observed
+                .controls
+                .iter()
+                .filter(|(name, values)| *name == node.name() && *values == node.values)
+                .count();
+            if carried != 1 {
+                return Err(vec![Piece::Words(
+                    "does not carry the permission template its sealed record declares, once",
+                )]);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The engine-private input key carrying the charter text the dispatch
 /// door verified against its pin (second council H6). The driver renders
 /// the prompt from these bytes; reopening `role_path` would read whatever
@@ -2119,6 +2582,8 @@ enum Why {
     Outside,
     Excluded,
     Clause,
+    /// [`check_final`]: a final command departs from its sealed plan.
+    Final,
 }
 
 impl Why {
@@ -2126,7 +2591,8 @@ impl Why {
         match self {
             Why::Server | Why::Authored | Why::Contender => true,
             Why::Unparsed { authored } => authored,
-            Why::Provenance
+            Why::Final
+            | Why::Provenance
             | Why::Unready
             | Why::Unanswered
             | Why::Unconsumed

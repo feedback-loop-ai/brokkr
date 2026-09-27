@@ -2023,9 +2023,43 @@ Result: **complete** (evidence.md, "Unit 12-fix-f").
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 
-- [ ] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
+- [x] 13.1 Unit 13 supplies the pure complete builder/checker and private checked command, with independent expected state and shared structural consumers. Verify managed contradictions, empty/absent distinction, prefix/selector grammar and no unchecked post-validation mutation. Cold/resume integration remains 14.1/15.1. Requirements: [Every accepted native control reaches the final command][NCC], [Known provider commands have a closed argument grammar][RGP], [Explicit restrictive tool lists retain their meaning][NCT]. New explicit prerequisite: operator ruling 2; both design positions. (previous 7.7)
 
-- [ ] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
+- [x] 13.2 Unit 13 replaces managed raw consumers with shared parsing. Verify inert --image resume, prompt/duplicate meaning and unchanged resume eligibility. Requirements: [Known provider commands have a closed argument grammar][RGP], [Prompt values cannot absorb a composed control][NCP], [Eligible Codex resumes reimpose the capability control][NC3]. Reopened/remaining: operator ruling 1–2. (previous 3.13)
+
+Unit 13 (2026-09-27, run `0065-rebuild-unit-13-see-the-uni-9db14032`,
+based on `67571c3b`; evidence.md, "Unit 13"):
+
+- **13.1.** `native_controls.rs` gains the pure `check_final`. It parses
+  the whole final command at its fixed positions and compares the
+  command's `State` with the composed plan's. The fields compared are the
+  include list (absent and empty kept apart), the allow and deny lists,
+  the Codex class (`--sandbox` and `sandbox_mode` are one effect), the
+  other capability-bearing options and the rejoin. It then checks the
+  sealed `Expected` from typed inputs. Success is a private `Checked`,
+  which can only be read or taken whole.
+- **13.2.** `adapters.rs`'s Codex and Claude selector, effort, sandbox,
+  resume-blocker, restriction and persistence readers read the grammar's
+  one parse where the argv parses. `--image resume` is a value through
+  selection, eligibility and the final parse. Eligibility and every
+  cause are otherwise unchanged, and unparsable by-hand argv keeps its
+  conservative reading.
+- **Tests.** There are two new adapters tests and five new native_controls
+  tests. One adapters assertion moved with the intended change: `-m
+  resume` is now admitted. The constructor invariant now drives
+  `Why::Final`.
+- **Proof.** Baseline red at `adapters/tests.rs:1955` on `67571c3b`. M1–M7
+  and M9–M11 each compiled, were caught and were restored.
+- **Gates.** fmt and `git diff --check` are clean. clippy with `-D
+  warnings` is clean. `brokkr-protocol` lib: 509 passed. Strict OpenSpec:
+  18 of 18. `cargo test --workspace --all-features --locked
+  --no-fail-fast`: exit 0, 77 `ok` summaries. `bundles/self` and
+  `bundles/verify` both compile.
+- Fixture migrations and standing-admission lines: none.
+- **Follow-ups.** The composer's `node_patterns` readers, `bundle.rs`'s
+  `config_key` and the DSH-specific splitters are unchanged (evidence.md).
+- **Pending.** Integration (14.1, 15.1, 15.2), exact coverage outside the
+  box, macOS, remote CI and the council.
 
 ## 14. Unit 14 — Integrate checked cold commands
 

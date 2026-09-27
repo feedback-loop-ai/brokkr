@@ -3501,10 +3501,11 @@ fn constructor(why: Why) -> usize {
         Why::Outside => 11,
         Why::Excluded => 12,
         Why::Clause => 13,
+        Why::Final => 14,
     }
 }
 
-const CONSTRUCTORS: usize = 14;
+const CONSTRUCTORS: usize = 15;
 
 /// A private path, as the reviews planted it.
 const PRIVATE: &str = "/private/REVIEW_SENTINEL";
@@ -3725,6 +3726,45 @@ fn every_refusal_line_is_one_bounded_line_naming_no_payload() {
         };
         bounded(&exclusion.clause);
         refusals.push(exclusion.refusal);
+        // The final check (rebuild unit 13), with the value as the harness
+        // and as a held capability.
+        let (controls, mut expected, _) = claude_final();
+        refusals.push(
+            check_final(
+                v,
+                argv(&[v]),
+                &Composed::default(),
+                &controls,
+                &expected,
+                None,
+            )
+            .unwrap_err(),
+        );
+        expected.native = NativeExpectation::Known {
+            held: vec![HeldPower {
+                capability: v.to_string(),
+                tools: Vec::new(),
+                restrictions: json!({"domains": [v]}).as_object().unwrap().clone(),
+            }],
+            denied: Vec::new(),
+        };
+        let controls = Controls {
+            held: vec![v.to_string()],
+            denied: Vec::new(),
+            admits: admits(&[(v, &[])]),
+            ..controls
+        };
+        refusals.push(
+            check_final(
+                "claude",
+                argv(&["claude"]),
+                &Composed::default(),
+                &controls,
+                &expected,
+                None,
+            )
+            .unwrap_err(),
+        );
         for refusal in &refusals {
             for line in lines(refusal, v) {
                 bounded(&line);
@@ -6582,4 +6622,824 @@ fn an_inline_codex_launch_proves_only_the_denials_its_argv_expresses() {
     assert_eq!(denials(&["-c", "model_reasoning_effort=\"high\""]), none);
     assert_eq!(denials(&["-c", "web_search=\"live\""]), none);
     assert_eq!(denials(&["-c", "web_search=\"disabled\"", "stray"]), none);
+}
+
+// ---------------------------------- rebuild unit 13: the final assessment
+
+/// A final-command refusal around its `problem`, written out by hand.
+fn final_refusal(harness: &str, problem: &str) -> Refusal {
+    Refusal {
+        authored: false,
+        cause: format!(
+            "the final command of harness '{harness}' {problem}; a complete command is parsed \
+             back before its spawn and must express exactly the capability state its sealed plan \
+             records, so it is refused rather than spawned (operator ruling 2 of 2026-09-23; \
+             design D6)"
+        ),
+    }
+}
+
+/// A Claude plan holding web-search and denying web-fetch under the box's
+/// hands and the adapter's permission template, its sealed record, and
+/// what the one production composer composes from them.
+fn claude_final() -> (Controls, Expected, Composed) {
+    let guard = |capability: &str, tool: &str| Guard {
+        capability: capability.into(),
+        tools: argv(&[tool]),
+        ..Guard::default()
+    };
+    let controls = Controls {
+        provider: "claude".into(),
+        harness: "claude".into(),
+        inventory: Inventory::Known,
+        held: argv(&["web-search"]),
+        denied: argv(&["web-fetch"]),
+        admits: admits(&[("web-search", &["WebSearch"])]),
+        argv: Vec::new(),
+        selection: Selection {
+            include: argv(&["WebSearch"]),
+            allow: argv(&["WebSearch"]),
+            deny: argv(&["WebFetch"]),
+            flags: claude_flags(),
+        },
+        guards: vec![
+            guard("web-search", "WebSearch"),
+            guard("web-fetch", "WebFetch"),
+        ],
+        provenance: typed(7, &[]),
+    };
+    let composed = compose_for_provider(
+        "claude",
+        &argv(&["--permission-mode", "acceptEdits"]),
+        &argv(&[
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "/w/hands.json",
+            "--allowedTools",
+            "mcp__brokkr__workspace",
+        ]),
+        &controls,
+    )
+    .unwrap();
+    let expected = Expected {
+        identity: Identity {
+            provider: "claude".into(),
+            harness: "claude".into(),
+            model: None,
+        },
+        native: NativeExpectation::Known {
+            held: vec![HeldPower {
+                capability: "web-search".into(),
+                tools: argv(&["WebSearch"]),
+                restrictions: serde_json::Map::new(),
+            }],
+            denied: argv(&["web-fetch"]),
+        },
+        local: LocalExpectation {
+            allow: AllowIntent::Unspecified,
+            sandbox: SandboxIntent::Unspecified,
+            application: Application::Unrestricted,
+        },
+        hands: HandsIntent::Required,
+        template: TemplateExpectation::Declared(argv(&["--permission-mode", "acceptEdits"])),
+    };
+    (controls, expected, composed)
+}
+
+/// The cold Claude command [`claude_final`] composes, as a literal.
+const CLAUDE_COLD: [&str; 16] = [
+    "claude",
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--permission-mode",
+    "acceptEdits",
+    "--tools",
+    "WebSearch",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "/w/hands.json",
+    "--allowedTools",
+    "mcp__brokkr__workspace,WebSearch",
+    "--disallowedTools",
+    "WebFetch",
+];
+
+/// NCC "Final serialization is checked rather than trusted" and "A checked
+/// command cannot be changed before serving" (rebuild unit 13, 13.1): the
+/// complete cold and rejoining Claude commands parse back to exactly the
+/// state written out below by hand, pass into a private checked value
+/// holding the command unchanged, and a checked command changed afterwards
+/// is another command its own check refuses.
+#[test]
+fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() {
+    let (controls, expected, composed) = claude_final();
+    let head = argv(&CLAUDE_COLD[..5]);
+    let cold = [head, composed.extra.clone()].concat();
+    assert_eq!(cold, argv(&CLAUDE_COLD));
+    assert!(composed.managed.is_empty());
+    let parsed = grammar::parse_final("claude", &cold[1..]).unwrap().unwrap();
+    assert_eq!(
+        read_state(&parsed.command),
+        Ok(State {
+            include: Some(argv(&["WebSearch"])),
+            allow: argv(&["mcp__brokkr__workspace", "WebSearch"]),
+            deny: argv(&["WebFetch"]),
+            sandbox: None,
+            controls: vec![
+                ("--permission-mode", argv(&["acceptEdits"])),
+                ("--strict-mcp-config", Vec::new()),
+                ("--mcp-config", argv(&["/w/hands.json"])),
+            ],
+            session: None,
+        })
+    );
+    let check = |command: &[String], session: Option<&str>| {
+        check_final(
+            "claude",
+            command.to_vec(),
+            &composed,
+            &controls,
+            &expected,
+            session,
+        )
+    };
+    let checked = check(&cold, None).unwrap();
+    assert_eq!(checked.argv(), cold.as_slice());
+    // NCP: prompt text that spells a tool-list option, joined to its
+    // option, is one prompt value; the real denial keeps its own position.
+    let mut prompted = cold.clone();
+    prompted.insert(
+        5,
+        "--append-system-prompt=--disallowedTools WebSearch".into(),
+    );
+    assert_eq!(check(&prompted, None).unwrap().into_argv(), prompted);
+    let resumed = [cold.clone(), argv(&["--resume", "session-1"])].concat();
+    assert_eq!(
+        check(&resumed, Some("session-1")).unwrap().into_argv(),
+        resumed
+    );
+    // A rejoin checked cold, or a cold command checked as a rejoin, is not
+    // the command the engine chose.
+    let session = final_refusal(
+        "claude",
+        "expresses the session it rejoins otherwise than the plan composed it: missing, extra \
+         and contradictory state are refused alike",
+    );
+    assert_eq!(check(&resumed, None), Err(session.clone()));
+    assert_eq!(check(&cold, Some("session-1")), Err(session));
+    let mut changed = checked.into_argv();
+    changed.extend(argv(&["--add-dir", "/"]));
+    assert_eq!(
+        check(&changed, None),
+        Err(final_refusal(
+            "claude",
+            "expresses its other capability-bearing options otherwise than the plan composed it: \
+             missing, extra and contradictory state are refused alike",
+        ))
+    );
+}
+
+/// NCC "Final serialization is checked rather than trusted", NCT and RGP
+/// (rebuild unit 13, 13.1): each departure of a final Claude command from
+/// its plan refuses with its exact cause — a dropped denial, an extra
+/// tool, a lost include list, a changed separator, a duplicated engine
+/// prefix option, a session selector that is not a rejoin and a bare word.
+/// An explicitly empty include list is not an absent one, whichever
+/// supported spelling carries it.
+#[test]
+fn every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly() {
+    let (controls, expected, composed) = claude_final();
+    let cold = argv(&CLAUDE_COLD);
+    let edited = |edit: &dyn Fn(&mut Vec<String>)| {
+        let mut command = cold.clone();
+        edit(&mut command);
+        check_final("claude", command, &composed, &controls, &expected, None)
+    };
+    let departed = |what: &str| {
+        Err(final_refusal(
+            "claude",
+            &format!(
+                "expresses {what} otherwise than the plan composed it: missing, extra and \
+                 contradictory state are refused alike"
+            ),
+        ))
+    };
+    assert_eq!(
+        edited(&|command| command.truncate(14)),
+        departed("its deny list")
+    );
+    assert_eq!(
+        edited(&|command| command[13].push_str(",WebFetch")),
+        departed("its allow list")
+    );
+    assert_eq!(
+        edited(&|command| {
+            command.drain(7..9);
+        }),
+        departed("its include list")
+    );
+    assert_eq!(
+        edited(&|command| command[13] = "mcp__brokkr__workspace;WebSearch".into()),
+        Err(final_refusal(
+            "claude",
+            "cannot be read: it carries '--allowedTools' (argument 12), whose value names a tool \
+             that is not a plain name of ASCII letters, digits and '_' leading with a letter, \
+             within 128 bytes",
+        ))
+    );
+    assert_eq!(
+        edited(&|command| command
+            .splice(5..5, argv(&["--output-format", "json"]))
+            .for_each(drop)),
+        Err(final_refusal(
+            "claude",
+            "cannot be read whole (argument 5, '--output-format': it repeats option \
+             '--output-format', which the grammar admits once; a CLI that resolves a duplicate \
+             last-wins would resolve it against the control the engine composed)",
+        ))
+    );
+    assert_eq!(
+        edited(&|command| command.extend(argv(&["--session-id", "session-1"]))),
+        Err(final_refusal(
+            "claude",
+            "cannot be read: it carries '--session-id' (argument 16), a session selector other \
+             than a rejoin's",
+        ))
+    );
+    // A word after the variadic deny list is one more denied value, and a
+    // word after a switch has nowhere to go.
+    assert_eq!(
+        edited(&|command| command.push("hello".into())),
+        departed("its deny list")
+    );
+    assert_eq!(
+        edited(&|command| command.insert(5, "hello".into())),
+        Err(final_refusal(
+            "claude",
+            "cannot be read whole (argument 5, a positional argument, whose text is not echoed: \
+             it is a bare word, and no positional argument is part of the supported shape)",
+        ))
+    );
+
+    // Empty and absent: a plan that holds nothing keeps the hands' empty
+    // include list, which `--tools=` carries as well as `--tools ""`, and
+    // which no command may drop.
+    let controls = Controls {
+        held: Vec::new(),
+        denied: argv(&["web-search", "web-fetch"]),
+        admits: admits(&[]),
+        selection: Selection {
+            include: Vec::new(),
+            allow: Vec::new(),
+            deny: argv(&["WebSearch", "WebFetch"]),
+            flags: claude_flags(),
+        },
+        ..controls
+    };
+    let expected = Expected {
+        native: NativeExpectation::Known {
+            held: Vec::new(),
+            denied: argv(&["web-search", "web-fetch"]),
+        },
+        template: TemplateExpectation::None,
+        ..expected
+    };
+    let fragment = argv(&[
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/w/hands.json",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ]);
+    let composed = compose_for_provider("claude", &[], &fragment, &controls).unwrap();
+    assert_eq!(
+        composed.extra,
+        [
+            fragment.clone(),
+            argv(&["--disallowedTools", "WebSearch,WebFetch"])
+        ]
+        .concat()
+    );
+    let check = |command: Vec<String>| {
+        check_final("claude", command, &composed, &controls, &expected, None)
+    };
+    let split = [argv(&["claude"]), composed.extra.clone()].concat();
+    assert_eq!(check(split.clone()).unwrap().into_argv(), split);
+    let joined = [argv(&["claude", "--tools="]), composed.extra[2..].to_vec()].concat();
+    assert_eq!(check(joined.clone()).unwrap().into_argv(), joined);
+    let absent = [argv(&["claude"]), composed.extra[2..].to_vec()].concat();
+    assert_eq!(check(absent), departed("its include list"));
+}
+
+/// NCC "Managed effects and expected state remain independent" (rebuild
+/// unit 13, 13.1): a final command equal to what was composed still
+/// refuses where the sealed record's typed state says otherwise — another
+/// identity or inventory, a plan that holds or denies other powers, a
+/// held tool made unavailable or a denied one left available, a denial the
+/// plan names no tool for, a nonempty restriction, missing hands, a
+/// missing template or a missing lowered local permission — and a
+/// harness with no grammar or a command with no program is not read.
+#[test]
+fn the_sealed_record_is_checked_independently_of_both_commands() {
+    let (controls, expected, composed) = claude_final();
+    let cold = argv(&CLAUDE_COLD);
+    let check =
+        |command: &[String], composed: &Composed, controls: &Controls, expected: &Expected| {
+            check_final(
+                "claude",
+                command.to_vec(),
+                composed,
+                controls,
+                expected,
+                None,
+            )
+        };
+    let refused = |problem: &str| Err(final_refusal("claude", problem));
+    // The same bytes composed and served, so only the typed record decides.
+    let served = |extra: &[&str]| {
+        let composed = Composed {
+            extra: argv(extra),
+            managed: Vec::new(),
+        };
+        let command = [argv(&CLAUDE_COLD[..5]), argv(extra)].concat();
+        (composed, command)
+    };
+    let with = |expected: Expected| check(&cold, &composed, &controls, &expected);
+    assert_eq!(
+        with(Expected {
+            identity: Identity {
+                provider: "claude-work".into(),
+                ..expected.identity.clone()
+            },
+            ..expected.clone()
+        }),
+        refused("was planned for another harness or provider than its sealed record names")
+    );
+    assert_eq!(
+        with(Expected {
+            native: NativeExpectation::Unmeasured("not measured".into()),
+            ..expected.clone()
+        }),
+        refused("was planned under another native inventory than its sealed record expects")
+    );
+    assert_eq!(
+        with(Expected {
+            native: NativeExpectation::Known {
+                held: Vec::new(),
+                denied: argv(&["web-search", "web-fetch"]),
+            },
+            ..expected.clone()
+        }),
+        refused(
+            "was planned holding, denying or admitting other native powers than its sealed \
+             record expects"
+        )
+    );
+    let mut restricted = expected.clone();
+    if let NativeExpectation::Known { held, .. } = &mut restricted.native {
+        held[0].restrictions = json!({"domains": ["example.org"]})
+            .as_object()
+            .unwrap()
+            .clone();
+    }
+    assert_eq!(
+        with(restricted),
+        refused(
+            "would hold native capability 'web-search' under a nonempty restriction, which slice \
+             one never delivers (operator ruling addendum of 2026-09-25; design D11)"
+        )
+    );
+    let mut parts = CLAUDE_COLD[5..].to_vec();
+    parts[10] = "WebSearch,WebFetch";
+    let (contradicted, command) = served(&parts);
+    assert_eq!(
+        check(&command, &contradicted, &controls, &expected),
+        refused(
+            "does not make tool 'WebSearch' available, which its plan holds for native \
+             capability 'web-search'"
+        )
+    );
+    let mut parts = CLAUDE_COLD[5..14].to_vec();
+    parts[3] = "WebSearch,WebFetch";
+    let (undenied, command) = served(&parts);
+    assert_eq!(
+        check(&command, &undenied, &controls, &expected),
+        refused(
+            "leaves tool 'WebFetch' available, which its plan denies as native capability \
+             'web-fetch'"
+        )
+    );
+    assert_eq!(
+        check(
+            &cold,
+            &composed,
+            &Controls {
+                guards: Vec::new(),
+                ..controls.clone()
+            },
+            &expected
+        ),
+        refused(
+            "cannot be read for the denial of native capability 'web-fetch', for which its plan \
+             names no tool"
+        )
+    );
+    let mut parts = CLAUDE_COLD[5..].to_vec();
+    parts.remove(4);
+    let (handless, command) = served(&parts);
+    assert_eq!(
+        check(&command, &handless, &controls, &expected),
+        refused("does not carry the hands its sealed record requires")
+    );
+    let (templateless, command) = served(&CLAUDE_COLD[7..]);
+    assert_eq!(
+        check(&command, &templateless, &controls, &expected),
+        refused("does not carry the permission template its sealed record declares, once")
+    );
+    assert_eq!(
+        with(Expected {
+            local: LocalExpectation {
+                allow: AllowIntent::Listed(argv(&["Bash(git log:*)"])),
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Direct(argv(&["Bash(git log:*)"])),
+            },
+            ..expected.clone()
+        }),
+        refused("does not carry the local permission for tool 'Bash' its sealed record lowered")
+    );
+    // A lowered local permission the allow list carries is carried.
+    let lowered = Expected {
+        local: LocalExpectation {
+            allow: AllowIntent::Listed(argv(&["WebSearch"])),
+            sandbox: SandboxIntent::Unspecified,
+            application: Application::Direct(argv(&["WebSearch"])),
+        },
+        ..expected.clone()
+    };
+    assert_eq!(with(lowered).unwrap().into_argv(), cold);
+    assert_eq!(
+        with(Expected {
+            template: TemplateExpectation::Declared(argv(&["hello"])),
+            ..expected.clone()
+        }),
+        refused("is sealed with a permission template that cannot be read")
+    );
+    // What the plan composed is read under the same grammar, or refused.
+    for (extra, problem) in [
+        (
+            &["--bogus"][..],
+            "was planned from a composition that cannot be read whole (argument 1, '--bogus': \
+             it names no option)",
+        ),
+        (
+            &["--allowedTools", "Read,,Write"][..],
+            "was planned from a composition that cannot be read: it carries '--allowedTools' \
+             (argument 1), whose value joins an empty pattern: a doubled, leading or trailing \
+             separator",
+        ),
+        (
+            &["--resume", "session-1"][..],
+            "was planned from a composition that selects a session itself",
+        ),
+    ] {
+        let (unread, command) = served(extra);
+        assert_eq!(
+            check(&command[..5], &unread, &controls, &expected),
+            refused(problem),
+            "{extra:?}"
+        );
+    }
+    assert_eq!(
+        check_final("exec", cold.clone(), &composed, &controls, &expected, None),
+        Err(final_refusal(
+            "exec",
+            "has no modelled grammar, so no capability state can be read from it"
+        ))
+    );
+    assert_eq!(
+        check(&[], &composed, &controls, &expected),
+        refused("names no program")
+    );
+}
+
+/// A Codex plan at an inline work site of the read-only class, holding
+/// web-search or denying it, with its measured OFF or without, its sealed
+/// record, and its composition, with `--image resume` among the seat's own
+/// arguments.
+fn codex_final(held: bool, off: bool) -> (Controls, Expected, Composed) {
+    let capability = argv(&["web-search"]);
+    let (holds, denies) = match held {
+        true => (capability, Vec::new()),
+        false => (Vec::new(), capability),
+    };
+    let controls = Controls {
+        provider: "codex".into(),
+        harness: "codex".into(),
+        inventory: Inventory::Known,
+        held: holds.clone(),
+        denied: denies.clone(),
+        admits: match held {
+            true => admits(&[("web-search", &["web_search"])]),
+            false => admits(&[]),
+        },
+        argv: match off {
+            true => argv(&["-c", "web_search=\"disabled\""]),
+            false => Vec::new(),
+        },
+        ..Controls::default()
+    };
+    let composed = compose_for_provider(
+        "codex",
+        &argv(&[
+            "--model",
+            "gpt",
+            "--effort",
+            "high",
+            "--image",
+            "resume",
+            "--sandbox",
+            "read-only",
+        ]),
+        &[],
+        &controls,
+    )
+    .unwrap();
+    let expected = Expected {
+        identity: Identity {
+            provider: "codex".into(),
+            harness: "codex".into(),
+            model: None,
+        },
+        native: NativeExpectation::Known {
+            held: holds
+                .iter()
+                .map(|capability| HeldPower {
+                    capability: capability.clone(),
+                    tools: argv(&["web_search"]),
+                    restrictions: serde_json::Map::new(),
+                })
+                .collect(),
+            denied: denies,
+        },
+        local: LocalExpectation {
+            allow: AllowIntent::Unspecified,
+            sandbox: SandboxIntent::ReadOnly,
+            application: Application::Unrestricted,
+        },
+        hands: HandsIntent::None,
+        template: TemplateExpectation::None,
+    };
+    (controls, expected, composed)
+}
+
+const CODEX_THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
+
+/// NCC, NC3 and RGP (rebuild unit 13, 13.1 and 13.2): a Codex cold command
+/// and its rejoin — the class re-expressed as `sandbox_mode`, the effort as
+/// its assignment, `--image resume` a value, the offered thread and the
+/// stdin `-` last — each check against the one composition, and every
+/// departure refuses exactly: a dropped OFF, an OFF behind a terminator, a
+/// dangling assignment, a class expressed twice or changed, another thread,
+/// an OFF where the plan holds the power, no OFF where it denies it,
+/// another class than the record's and missing hands.
+#[test]
+fn a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan() {
+    let (controls, expected, composed) = codex_final(false, true);
+    let cold = argv(&[
+        "codex",
+        "exec",
+        "--json",
+        "-C",
+        "/w",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt",
+        "--image",
+        "resume",
+        "--sandbox",
+        "read-only",
+        "-c",
+        "web_search=\"disabled\"",
+    ]);
+    let rejoin = argv(&[
+        "codex",
+        "exec",
+        "resume",
+        "--json",
+        "-c",
+        "sandbox_mode=\"read-only\"",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt",
+        "--image",
+        "resume",
+        "-c",
+        "web_search=\"disabled\"",
+        CODEX_THREAD,
+        "-",
+    ]);
+    let check = |command: &[String], session: Option<&str>| {
+        check_final(
+            "codex",
+            command.to_vec(),
+            &composed,
+            &controls,
+            &expected,
+            session,
+        )
+    };
+    assert_eq!(check(&cold, None).unwrap().into_argv(), cold);
+    assert_eq!(
+        check(&rejoin, Some(CODEX_THREAD)).unwrap().into_argv(),
+        rejoin
+    );
+    let refused = |problem: &str| Err(final_refusal("codex", problem));
+    let departed = |what: &str| {
+        refused(&format!(
+            "expresses {what} otherwise than the plan composed it: missing, extra and \
+             contradictory state are refused alike"
+        ))
+    };
+    assert_eq!(
+        check(&cold[..13], None),
+        departed("its other capability-bearing options")
+    );
+    let mut fenced = cold.clone();
+    fenced.insert(13, "--".into());
+    assert_eq!(
+        check(&fenced, None),
+        refused("cannot be read whole (argument 13, the terminator '--': it names no option)")
+    );
+    assert_eq!(
+        check(&cold[..14], None),
+        refused(
+            "cannot be read whole (argument 13, '--config': it takes a value and is the last \
+             argument, so it has none)"
+        )
+    );
+    let doubled = [cold.clone(), argv(&["-c", "sandbox_mode=\"read-only\""])].concat();
+    assert_eq!(
+        check(&doubled, None),
+        refused("cannot be read: it expresses the sandbox class a second time (argument 15)")
+    );
+    let mut widened = rejoin.clone();
+    widened[5] = "sandbox_mode=\"danger-full-access\"".into();
+    assert_eq!(
+        check(&widened, Some(CODEX_THREAD)),
+        departed("its sandbox class")
+    );
+    assert_eq!(
+        check(&rejoin, Some("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee")),
+        departed("the session it rejoins")
+    );
+
+    let (controls, expected, composed) = codex_final(true, true);
+    assert_eq!(
+        check_final("codex", cold.clone(), &composed, &controls, &expected, None),
+        refused("switches OFF native capability 'web-search', which its plan holds")
+    );
+    let (controls, expected, composed) = codex_final(false, false);
+    assert_eq!(
+        check_final(
+            "codex",
+            cold[..13].to_vec(),
+            &composed,
+            &controls,
+            &expected,
+            None
+        ),
+        refused(
+            "carries no measured OFF for native capability 'web-search', which its plan denies"
+        )
+    );
+    let (controls, expected, composed) = codex_final(false, true);
+    let other_class = Expected {
+        local: LocalExpectation {
+            sandbox: SandboxIntent::WorkspaceWrite,
+            ..expected.local.clone()
+        },
+        ..expected.clone()
+    };
+    assert_eq!(
+        check_final(
+            "codex",
+            cold.clone(),
+            &composed,
+            &controls,
+            &other_class,
+            None
+        ),
+        refused("does not carry the sandbox class its sealed record expects")
+    );
+    let handed = Expected {
+        hands: HandsIntent::Required,
+        ..expected.clone()
+    };
+    assert_eq!(
+        check_final("codex", cold.clone(), &composed, &controls, &handed, None),
+        refused("does not carry the hands its sealed record requires")
+    );
+    // An assignment with no bounded meaning is not read as inert.
+    let unclassified = [cold.clone(), argv(&["-c", "foo=bar"])].concat();
+    assert_eq!(
+        check_final("codex", unclassified, &composed, &controls, &expected, None),
+        refused(
+            "cannot be read: it carries '--config' (argument 15), whose value assigns a key no \
+             bounded meaning is modelled for, so it is refused rather than passed through as \
+             opaque configuration"
+        )
+    );
+    // Hands are a server the command configures; with them the site's
+    // class rides the hands and is not the record's local class.
+    let server = argv(&["-c", "mcp_servers.brokkr.command=\"brokkr\""]);
+    let served = Composed {
+        extra: [composed.extra.clone(), server.clone()].concat(),
+        managed: composed.managed.clone(),
+    };
+    let command = [cold[..13].to_vec(), server, cold[13..].to_vec()].concat();
+    let handed = Expected {
+        local: LocalExpectation {
+            sandbox: SandboxIntent::WorkspaceWrite,
+            ..handed.local.clone()
+        },
+        ..handed
+    };
+    assert_eq!(
+        check_final("codex", command.clone(), &served, &controls, &handed, None)
+            .unwrap()
+            .into_argv(),
+        command
+    );
+}
+
+/// NCC "Managed effects and expected state remain independent" (rebuild
+/// unit 13): an unmeasured DSH inventory stays unmeasured through the
+/// check, its reason compared, and is never read as a known empty one.
+#[test]
+fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
+    let controls = Controls {
+        provider: "dsh".into(),
+        harness: "dsh".into(),
+        inventory: Inventory::Unmeasured("not measured".into()),
+        ..Controls::default()
+    };
+    let expected = |native: NativeExpectation| Expected {
+        identity: Identity {
+            provider: "dsh".into(),
+            harness: "dsh".into(),
+            model: Some("m".into()),
+        },
+        native,
+        local: LocalExpectation {
+            allow: AllowIntent::Unspecified,
+            sandbox: SandboxIntent::Unspecified,
+            application: Application::Unrestricted,
+        },
+        hands: HandsIntent::None,
+        template: TemplateExpectation::None,
+    };
+    let composed = Composed {
+        extra: argv(&["--model", "m", "--effort", "high"]),
+        managed: Vec::new(),
+    };
+    let command = argv(&["dsh", "--model", "m", "--effort", "high"]);
+    let check = |native| {
+        check_final(
+            "dsh",
+            command.clone(),
+            &composed,
+            &controls,
+            &expected(native),
+            None,
+        )
+    };
+    assert_eq!(
+        check(NativeExpectation::Unmeasured("not measured".into()))
+            .unwrap()
+            .into_argv(),
+        command
+    );
+    for native in [
+        NativeExpectation::Unmeasured("other".into()),
+        NativeExpectation::Known {
+            held: Vec::new(),
+            denied: Vec::new(),
+        },
+    ] {
+        assert_eq!(
+            check(native),
+            Err(final_refusal(
+                "dsh",
+                "was planned under another native inventory than its sealed record expects"
+            ))
+        );
+    }
 }

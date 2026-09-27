@@ -12197,3 +12197,203 @@ stays open.
 
 **Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
 macOS, remote CI and the full engine council.
+
+## Unit 13 — the pure final assessment and shared structural readers, 2026-09-27
+
+Run `0065-rebuild-unit-13-see-the-uni-9db14032`, based on `67571c3b`.
+Production files: `crates/brokkr-protocol/src/native_controls.rs` and
+`adapters.rs` (`native_controls/grammar.rs` needed no change). Tests:
+`adapters/tests.rs` and `native_controls/tests.rs`. Result: **complete**
+for 13.1 and 13.2. Integration at the serving seams stays with units 14
+and 15.
+
+### What changed
+
+- **The pure checker (13.1).** `native_controls.rs` gains `State`,
+  `Checked`, `read_state`, `check_final` and `expected_state`, plus a
+  fifteenth refusal constructor, `Why::Final`, rendered through
+  `refused`. `check_final(harness, command, composed, controls, expected,
+  session)` does four things in order:
+  1. Identity. The launch, the plan and the sealed record name one
+     harness and provider.
+  2. The final parse. `Grammar::parse_final` reads the whole command
+     after its program, so a duplicated prefix option, a terminator, a
+     dangling value or a bare word refuses.
+  3. Exact state. The command's `State` must equal the state of what
+     `compose_for_provider` composed, with the engine's chosen rejoin as
+     the session. The fields compared are the include list (absent and
+     empty kept apart), the allow list, the deny list, the Codex sandbox
+     class (`--sandbox` and a rejoin's `sandbox_mode` are one effect),
+     every other capability-bearing option in order, and the session.
+     Every list is read through `managed_patterns` and every assignment
+     through `setting`.
+  4. The sealed `Expected`, read from typed inputs and never from either
+     command:
+     - the plan holds, denies and admits exactly the record's powers;
+     - no holding carries a nonempty restriction (D11);
+     - Claude and LaneTally: held tools are available and each denied
+       capability's guard tools are not;
+     - Codex: each denial is a measured OFF assignment on
+       `LAUNCH_SETTINGS`, and no holding is switched off;
+     - required hands, a directly applied local permission, the Codex
+       class and a declared template are present.
+
+  Success returns `Checked`, whose argv is private, readable or taken
+  whole, and nothing else. A harness with no grammar is refused, not
+  read.
+- **Shared structural readers (13.2).** `adapters.rs` gains `placed`,
+  which is the one `grammar::parse` of the seat's argv, and `attached`.
+  `codex_selector_conflict`, `effort_split_as` (and so `split_effort`),
+  `sandbox_split`, `codex_resume_blocker`, `claude_selector_conflict`,
+  `claude_restriction_conflict` and `claude_launch`'s `persistent` all
+  read that parse's nodes where the argv parses. So `--image resume`,
+  `-m resume` and `-o resume` are values and no longer selectors.
+  Eligibility is otherwise exactly the old readers': an attached `-sCLASS`
+  or `-s=CLASS` is not read as a class, an attached `-iFILE` still blocks
+  a resume, `-i=FILE` still travels, and every cause and returned token is
+  unchanged. DSH's effort extraction reads under the `dsh` grammar.
+  Where the argv does not parse whole (a by-hand option the grammar does
+  not model, a dangling value or a doubled option), no token can be told
+  from a value. There each reader keeps its earlier spelling-based
+  reading, which only refuses or declines. An engine launch parses every
+  origin and refuses what does not parse before it composes.
+
+### Tests
+
+- `adapters/tests.rs`:
+  - New: `an_inert_resume_value_stays_a_value_through_selection_eligibility_and_the_final_parse`
+    (`:1946`). The selector cases, the by-hand cold command
+    `codex exec --json -C /w --image resume`, and five shim-driven
+    offers each assert the whole recorded argv and the launch row:
+    - `--image resume` resumes as `exec resume --json -c
+      sandbox_mode="read-only" --image resume <thread> -`, and
+      `parse_final` places exactly `--json`, the class and `--image
+      resume`;
+    - `-i=a.png` resumes;
+    - `-ia.png` goes cold as `incompatible-argv`;
+    - `-sread-only` and `-s=read-only` go cold as
+      `sandbox-unavailable`.
+  - New: `the_claude_and_effort_readers_judge_parsed_options_with_their_own_causes`
+    (`:2084`). It checks the exact repeated-`--mcp-config` and lone-`-`
+    causes, a joined prompt value spelling `--model`, an unreadable
+    effort level left in place, and `--effort=high` extracted.
+  - **One assertion moved with the intended change.** In
+    `a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too`,
+    the case `(["-m", "resume"], "resume")` asserted that the word was
+    refused in a value position "deliberately". That is the behaviour
+    13.2 removes, so the case now lives in the new test as admitted.
+- `native_controls/tests.rs`:
+  - `a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged`
+    (`:6738`). It covers:
+    - the composed cold command against a 16-token literal;
+    - its `State` against a hand-written literal;
+    - cold and `--resume` checks returning the argv unchanged;
+    - a joined prompt value spelling `--disallowedTools` (NCP);
+    - a session mismatch in both directions;
+    - a checked argv extended afterwards, which its own check refuses.
+  - `every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly`
+    (`:6814`). Each departure gets its exact full cause: a dropped deny
+    list, an extra allow tool, a dropped include list, a `;` separator,
+    a duplicated `--output-format`, `--session-id`, a trailing word (one
+    more denied value) and a word after a switch. The empty include
+    list is accepted as `--tools ""` or `--tools=`, and refused absent.
+  - `the_sealed_record_is_checked_independently_of_both_commands`
+    (`:6949`). It runs every typed refusal with composed equal to served:
+    - another provider, another inventory, other held or denied powers,
+      and a nonempty restriction;
+    - a held tool denied, a denied tool left in the include list, and a
+      denial with no guard tool;
+    - missing hands, a missing template and a missing local permission,
+      beside the matching positive;
+    - an unreadable template;
+    - an unparsable, unreadable or session-selecting composition;
+    - `exec`, and an empty command.
+  - `a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan`
+    (`:7212`). The cold command and the rejoin both check, and both carry
+    `--image resume`. Refused, each exactly:
+    - a dropped OFF, an OFF behind `--`, and a dangling `-c`;
+    - a class expressed twice, a widened class and another thread;
+    - an OFF while the power is held, and no OFF while it is denied;
+    - another record class, missing hands, and `-c foo=bar`.
+    Hands present with a server assignment is the positive.
+  - `an_unmeasured_dsh_command_checks_only_under_its_own_reason` (`:7387`).
+  - Forced by the new constructor, in the unit's own suite:
+    `constructor()` lists `Why::Final => 14`, and `CONSTRUCTORS` is now
+    15. The invariant `every_refusal_line_is_one_bounded_line_naming_no_payload`
+    drives `check_final` with each adversary as the harness and as a
+    restricted held capability. Every line stays within 512 scalar values
+    and names no sentinel.
+
+No fixture migration and no standing-admission line: every changed test
+line is in the unit's two named test files.
+
+### Baseline red on `67571c3b`
+
+With the new adapters test in place and no production change,
+`an_inert_resume_value_…` FAILED at `adapters/tests.rs:1955`
+(`codex_selector_conflict(["--image", "resume"])`: left `Some("resume")`,
+right `None`). The native_controls tests name `check_final`, which does
+not exist at `67571c3b`, so they cannot compile there. Their binding is
+shown by the mutations below.
+
+### Mutations (each compiled, was caught, then restored)
+
+The line numbers are those observed at the time, before `cargo fmt` and
+the last test additions.
+
+| | Mutation | Caught by |
+|---|---|---|
+| M1 | `codex_selector_conflict`: the parsed early return `&& false` | `an_inert_resume_value_…` at `adapters/tests.rs:1955` (`Some("resume")`) |
+| M2 | `sandbox_split`: extract every `--sandbox` spelling (`true \|\|`) | the same test at `:2039`, where `class-attached` resumed |
+| M3 | `codex_resume_blocker`: the attached guard `&& false` | the same test at `:2039`, where `image-attached` resumed |
+| M4 | `check_final`: compare only the session | three tests: the Codex dropped OFF (`native_controls/tests.rs:7219`), the extended checked argv (`:6788`) and the dropped deny list (`:6823`) |
+| M5 | `read_state`: an empty include list read as absent | the absent `--tools` case (`:6927`) |
+| M6 | `expected_state`: held-tool availability `&& false` | `:7004` |
+| M7 | `expected_state`: Codex switched-off holding `&& false` | `:7253` |
+| M9 | `expected_state`: template counted `> 1` instead of `!= 1` | `:7044` |
+| M10 | `expected_state`: nonempty restriction `&& false` | `:6994` |
+| M11 | `claude_restriction_conflict` (parsed): duplicate `&& false` | `adapters/tests.rs:2086` |
+
+M6, M7 and M9 were first compiled together. M9 was masked by M6's
+earlier panic in the same test, so it was re-run alone. After the
+restores, the production diff carries no `&& false`, `true ||` or `> 1 {`.
+
+### Gates
+
+Observed in this session:
+
+- `cargo fmt --all -- --check` and `git diff --check`: clean.
+- `cargo test -p brokkr-protocol --lib`: 509 passed, 0 failed.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- An earlier `cargo test --workspace --all-features --locked` run
+  (before the last test additions and the cause rewording): 77 `test
+  result: ok` summaries, with no `FAILED`, `panicked` or `error` line.
+
+On the final tree, after every restore:
+
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: finished with no warning.
+- `cargo test --workspace --all-features --locked --no-fail-fast`: exit 0,
+  77 `test result: ok` summaries, and no `FAILED` or `panicked` line.
+- `compile --bundle bundles/self` and `compile --bundle bundles/verify`:
+  both compiled.
+
+### Follow-ups, not done here
+
+- The composer's own reading of engine-owned list values
+  (`grammar::node_patterns` in `compose_or_exclude`, `typed_conflict` and
+  `authored_server_conflict`) is not rewired. Neither is `bundle.rs`'s
+  `config_key`, which is outside this unit's files. The final check reads
+  every list through `managed_patterns` and every assignment through
+  `setting`, so a loosely read value will refuse there once units 14 and
+  15 consume `Checked` at the seams.
+- DSH's `split_dsh_model`, `split_dsh_patch`, `dsh_input_boundaries` and
+  `dsh_control_conflict` are unchanged. They already refuse every residual,
+  and the DSH grammar is exactly model, effort and route. DSH's final
+  launcher command has no grammar of its own, so its seam belongs to
+  unit 14.
+- Where an argv does not parse whole, the readers keep their earlier
+  conservative readings. Only a by-hand driver reaches them.
+
+**Pending:** exact coverage outside the box (`scripts/coverage-exact.sh`),
+macOS, remote CI and the full engine council.
