@@ -8,6 +8,7 @@
 //! what the store holds.
 
 use super::*;
+use brokkr_store::test_support::plant_event;
 use brokkr_store::StoreError;
 use std::path::{Path, PathBuf};
 
@@ -43,12 +44,8 @@ fn replay_upto(db: &Path, name: &str, manifest: &Value, keep: usize) -> Store {
         .take(keep)
     {
         let envelope: EventEnvelope = serde_json::from_str(line).unwrap();
-        connection
-            .execute(
-                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![name, envelope.seq as i64, envelope.event_hash, line],
-            )
-            .unwrap();
+        let seq = envelope.seq as i64;
+        plant_event(&connection, name, &seq, &envelope.event_hash, line).unwrap();
     }
     store
 }

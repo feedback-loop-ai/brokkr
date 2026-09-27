@@ -69,6 +69,7 @@ ratatui = { workspace = true }
 rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
 
 [dev-dependencies]
+brokkr-store = { workspace = true, features = ["test-support"] }
 rusqlite = { workspace = true }
 # The layering test parses `cargo metadata` into types (decision 0071
 # ruling 3); serde is already in the graph through serde_json.

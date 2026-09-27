@@ -3,6 +3,7 @@ use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
 use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2, PRODUCER_EFFECTS};
 use brokkr_core::fold::Cursor;
 use brokkr_core::EventType;
+use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::Command;
@@ -3123,16 +3124,8 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
 pub(crate) fn broken_chain_store(db: &std::path::Path, run_id: &str) {
     running_store(db, run_id);
     let events = Store::open(db).unwrap().load(run_id).unwrap();
-    let mut tampered = serde_json::to_value(&events[1]).unwrap();
-    tampered["seq"] = json!(3);
-    tampered["previous_hash"] = json!(ZERO_HASH);
-    rusqlite::Connection::open(db)
-        .unwrap()
-        .execute(
-            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, 3, ?2, ?3)",
-            rusqlite::params![run_id, events[1].event_hash, tampered.to_string()],
-        )
-        .unwrap();
+    let journal = rusqlite::Connection::open(db).unwrap();
+    plant_broken_link(&journal, &events[1], 3).unwrap();
 }
 
 /// One broken chain reads ONE way on every fleet surface (#377): the
@@ -3704,11 +3697,8 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
     let connection = rusqlite::Connection::open(db).unwrap();
     for line in ndjson.lines().filter(|line| !line.trim().is_empty()) {
         let event: brokkr_core::envelope::EventEnvelope = serde_json::from_str(line).unwrap();
-        connection
-            .execute(
-                "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![name, event.seq as i64, event.event_hash, line],
-            )
+        let seq = event.seq as i64;
+        brokkr_store::test_support::plant_event(&connection, name, &seq, &event.event_hash, line)
             .unwrap();
     }
 }
@@ -3906,6 +3896,16 @@ fn contention_is_recognised_through_the_whole_error_chain_and_nothing_else_is() 
     // in this file would meet one.
     let bare: anyhow::Error = contended().into();
     assert!(contention(&bare).is_some());
+
+    // And out of an import, whose store variant is transparent too: a
+    // busy journal leaves `brokkr import` with the contended exit.
+    let import =
+        anyhow::Error::from(brokkr_store::ImportError::Store(contended())).context("importing r1");
+    assert_eq!(report(&import), ExitCode::from(CONTENDED_EXIT));
+    let collision: anyhow::Error = brokkr_store::ImportError::Collision("r1".into()).into();
+    assert!(contention(&collision).is_none());
+    let import_moved: anyhow::Error = brokkr_store::ImportError::Store(moved()).into();
+    assert!(contention(&import_moved).is_none());
 
     // The fenced-append refusal next door is NOT contention, by either
     // road: it is a verdict about content, and giving it the retryable

@@ -193,17 +193,7 @@ fn plant_unfenced(db: &std::path::Path, run_id: &str, payload: Value, now: Offse
         .attempt(Some("attempt-1"))
         .at(now.format(&Rfc3339).unwrap())
         .sealed();
-    rusqlite::Connection::open(db)
-        .unwrap()
-        .execute(
-            "INSERT INTO events (run_id, seq, event_hash, envelope) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![
-                run_id,
-                envelope.seq as i64,
-                envelope.event_hash,
-                serde_json::to_string(&envelope).unwrap()
-            ],
-        )
+    brokkr_store::test_support::plant_envelope(&rusqlite::Connection::open(db).unwrap(), &envelope)
         .unwrap();
 }
 

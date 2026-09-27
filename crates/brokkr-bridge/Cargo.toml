@@ -21,5 +21,6 @@ time = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]
+brokkr-store = { workspace = true, features = ["test-support"] }
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
