@@ -1961,6 +1961,11 @@ and saved as a patch rather than committed (evidence.md, "Unit 12-fix-e").
 - **Pending:** the operator's ruling on the one expectation; then the
   workspace run, exact coverage outside the box, macOS, remote CI and the
   council.
+- **Second return (same run, 2026-09-27).** Triage re-ruled chore, and no
+  operator addendum admits the expectation. Both saved patches still hash
+  and apply clean on `3ab20db9`. With `full.patch` applied,
+  `adapters/tests.rs:15027` fails again, then the patch was reverted.
+  Result: **oversized** again, waiting on the same ruling.
 
 ## 13. Unit 13 — Build final assessment and share structural consumers
 

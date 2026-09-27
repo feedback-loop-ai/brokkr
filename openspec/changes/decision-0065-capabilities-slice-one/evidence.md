@@ -11883,3 +11883,24 @@ Standing-admission lines: none. 12.1 and 12.2 stay ticked; 15.2 stays open.
 **Pending:** the operator's ruling on the one expectation; then the
 workspace run, exact coverage outside the box, macOS, remote CI and the
 full engine council.
+
+### Second return, 2026-09-27
+
+Triage re-ruled the unit chore, and implement was fired again in the same
+run. `operator-ruling-2026-09-23.md` has no addendum after 2026-09-26, so
+nothing admits the `adapters/tests.rs:15027` expectation. The framing grants
+no wider admission either. This visit rebuilt nothing and re-checked the
+saved work on `3ab20db9`:
+
+- `sha256sum`: `full.patch` is `ee3e77e5…ab1a5` and
+  `adapters-tests.proposed.patch` is `0f18e8bd…ea238`. Both match the
+  hashes above.
+- `git apply --check` passes for both.
+- With `full.patch` applied, `cargo test -p brokkr-protocol --lib
+  --all-features --locked
+  an_authored_plugin_or_later_list_value_is_refused_at_the_final_command`
+  gave 0 passed and 1 failed. It panicked at `adapters/tests.rs:15027:5`
+  with `assertion left == right failed`.
+- `git apply -R` restored the tree, and `git status` was clean.
+
+Result: **oversized** again, waiting on the same ruling.
