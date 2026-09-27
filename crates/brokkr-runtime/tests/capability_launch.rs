@@ -324,6 +324,87 @@ fn solo_sealed(operator: &Operator, adapters: &Path, context: &CapabilityContext
     }
 }
 
+/// The authored command of the inline site `label`: a single seat's, or
+/// the panel member `seat:member`'s.
+fn inline_command(bundle: &Bundle, label: &str) -> Vec<String> {
+    let (seat, member) = label.split_once(':').unwrap_or((label, ""));
+    match &bundle.seats[seat].body {
+        SeatBody::Single { command, .. } if member.is_empty() => command.clone(),
+        SeatBody::Panel { members, .. } => members
+            .iter()
+            .find(|each| each.name == member)
+            .map(|each| each.command.clone())
+            .unwrap_or_else(|| panic!("{label} is no panel member")),
+        _ => panic!("{label} is a single seat or a panel member"),
+    }
+}
+
+/// Review return F2 of rebuild unit 14a4a: [`sealed_launch`]'s cold Codex
+/// command, then judged by `check_final` as rebuild unit 14 serves it —
+/// against the sealed record, its plan, and the serving inputs dispatch
+/// seals beside them (the selected candidate's composition, or the inline
+/// site's recorded dialect and hands, the boundary fragment its class
+/// selects), with the box's transport bound to the executable and workdir
+/// the engine composed the spawn with. The checked argv, or the refusal.
+fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<String>, String> {
+    use brokkr_protocol::native_controls::{
+        check_final, managed, Checked, Dialect, LaunchRecord, Origin, Serving, Transport,
+    };
+    let facts = &bundle.sites[label];
+    let (spawn, _) = sealed(bundle, label, candidate);
+    let command = sealed_launch(bundle, label, candidate)?;
+    let carried = match facts.chain.get(candidate) {
+        Some(link) => match &link.lowering {
+            brokkr_runtime::agents::Lowering::Composed(composition) => {
+                (*composition.serving).clone()
+            }
+            _ => panic!("{label}[{candidate}] carries no composition"),
+        },
+        None => facts.inline_serving().expect("the inline site's dialect"),
+    };
+    let boundary = match spawn.class {
+        Some(brokkr_runtime::SeatClass::Gate) => carried.dialect.boundary.gate,
+        Some(brokkr_runtime::SeatClass::Work) => carried.dialect.boundary.work,
+        None => Vec::new(),
+    };
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let controls = managed(&json!({"native_controls": outcome.controls()}))?.unwrap();
+    let record = LaunchRecord::decode(Some(&spawn.launch_record()))?;
+    let authored: Vec<String> = record
+        .segments
+        .iter()
+        .filter(|segment| segment.origin == Origin::Authored)
+        .flat_map(|segment| segment.argv.iter().cloned())
+        .collect();
+    let brokkr = std::env::current_exe().unwrap();
+    check_final(
+        "codex",
+        command,
+        &controls,
+        &record.expected,
+        Dialect {
+            permissions: carried.dialect.permissions.as_ref(),
+            sandbox: &carried.dialect.sandbox,
+            hands: &carried.dialect.hands,
+            boundary: &boundary,
+        },
+        Serving {
+            program: "codex",
+            workdir: "/w",
+            authored: &authored,
+            pins: &carried.pins,
+            hands: carried.spec.as_ref().map(|spec| Transport {
+                brokkr: &brokkr,
+                workdir: Path::new("/w"),
+                spec,
+            }),
+            ..Default::default()
+        },
+    )
+    .map(Checked::into_argv)
+    .map_err(|refusal| refusal.cause)
+}
+
 /// [`sealed`] over `facts` — the site's own, or a copy a test has moved —
 /// with what the seal said: the expected state is filled from those facts
 /// and the spawn composed from them, through the engine's own functions.
@@ -350,10 +431,7 @@ fn sealing_moved(
     let link = facts.chain.get(candidate);
     let argv: Vec<String> = match link {
         Some(link) => link.argv.clone(),
-        None => match &bundle.seats[label].body {
-            SeatBody::Single { command, .. } => command.clone(),
-            _ => panic!("{label} is a single seat"),
-        },
+        None => inline_command(bundle, label),
     };
     let built = match bundle.boundary.is_boxed() {
         true => brokkr_runtime::engine::BuiltBoundary::Namespace,
@@ -812,7 +890,9 @@ fn boxed_hands(bundle: &Bundle, label: &str) -> Vec<String> {
 /// launch ends in its adapter's `hands.workspace` fragment as the engine's
 /// `hands` segment, expanded for the box exactly as the fallback's is; its
 /// plan types that segment's whole length as the box's hands, as the
-/// fallback's does; and the driver composes the same launch from both.
+/// fallback's does; and the driver composes the same launch from both,
+/// which the final check passes as the exact cold command (review return
+/// F2).
 #[test]
 fn a_boxed_inline_seats_hands_are_emitted_and_typed_as_an_agent_backed_seats_are() {
     let operator = Operator::new();
@@ -827,14 +907,89 @@ fn a_boxed_inline_seats_hands_are_emitted_and_typed_as_an_agent_backed_seats_are
         (
             segments.last().unwrap().clone(),
             outcome.controls()["hands"].clone(),
-            sealed_launch(&bundle, label, candidate),
+            checked_launch(&bundle, label, candidate),
         )
     };
     let expanded = boxed_hands(&bundle, "boxed");
     let (hands, typed, launched) = served("boxed", 0);
     assert_eq!(hands, json!({"origin": "hands", "argv": expanded}));
     assert_eq!(typed, json!(expanded.len()));
+    assert_eq!(launched, Ok(checked_codex(&expanded)));
     assert_eq!((hands, typed, launched), served("chain", 1));
+}
+
+/// The cold command the final check passes for a boxed Codex site on
+/// `gpt-6-astra` at `high` that holds nothing, with `hands` its box's
+/// expanded `hands.workspace` fragment, and web search switched off
+/// behind it: written out, never composed.
+fn checked_codex(hands: &[String]) -> Vec<String> {
+    let lead = [
+        "codex",
+        "exec",
+        "--json",
+        "-C",
+        "/w",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+    ];
+    [
+        lead.map(String::from).to_vec(),
+        hands.to_vec(),
+        OFF.map(String::from).to_vec(),
+    ]
+    .concat()
+}
+
+/// Review return F2 of rebuild unit 14a4a, the path 14b serves: a compiled
+/// inline Codex panel member with boxed hands passes the final check —
+/// its cold command rebuilt from its sealed record, its plan and its
+/// recorded dialect and hands, with the box's transport bound as the
+/// engine bound it — as exactly the command an agent-backed Codex member
+/// of the same panel passes.
+#[test]
+fn a_compiled_inline_codex_panel_member_with_hands_passes_the_final_check_as_an_agent_member_does()
+{
+    let operator = Operator::new();
+    write(
+        operator.root(),
+        "bundle/policy.json",
+        &json!({"phases": ["judges", "review", "done"], "initial": "judges",
+            "terminal": ["done"], "rules": [
+                {"id": "A", "from": "judges", "result": "pass", "next": "review", "reason": "r"},
+                {"id": "B", "from": "judges", "result": "fail", "next": "review", "reason": "r"},
+                {"id": "C", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}),
+    );
+    write(
+        operator.root(),
+        "bundle/bundle.json",
+        &json!({"name": "panel", "policy": "policy.json", "seats": {
+            "judges": {"results": ["pass", "fail"], "aggregate": "unanimous-pass", "panel": {
+                "inline": {"role": "roles/role.md",
+                    "hands": {"kind": "workspace", "network": false, "binds": []},
+                    "driver": {"command": ["{brokkr}", "driver", "codex", "--",
+                                           "--model", "gpt-6-astra", "--effort", "high"]}},
+                "agent": {"agent": "searcher"}}},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+    let bundle = Bundle::compile_with_capabilities(
+        &operator.root().join("bundle"),
+        &operator.root().join("agents"),
+        &workspace().join("adapters"),
+        Some("private"),
+        None,
+        Boundary::Namespace,
+        &CapabilityContext::no_grants("private", operator.root()),
+    )
+    .unwrap();
+    let expected = checked_codex(&boxed_hands(&bundle, "judges:inline"));
+    assert_eq!(
+        checked_launch(&bundle, "judges:inline", 0),
+        Ok(expected.clone())
+    );
+    assert_eq!(checked_launch(&bundle, "judges:agent", 0), Ok(expected));
 }
 
 /// Unit 4 (design D5.7): an office's direct allow list, compiled for an

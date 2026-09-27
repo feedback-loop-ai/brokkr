@@ -2678,6 +2678,68 @@ fn an_inline_sites_plan_types_its_hands_as_an_agent_backed_sites_plan_does() {
     assert_eq!(typed(None), (json!(0), json!(10), None));
 }
 
+/// Review return F1 of rebuild unit 14a4a: an INHERITED inline site's
+/// hands expand against the layer that wrote the seat, as an inherited
+/// agent-backed site's hands segment does, never against the leaf that
+/// merely extends it. The fragment ends in `--output-schema ./schema.json`,
+/// so the two directories are told apart.
+#[test]
+fn an_inherited_inline_sites_hands_expand_against_its_owning_layer_as_an_agents_do() {
+    use brokkr_protocol::native_controls::{Origin, Segment};
+    let fixture = AgentFixture::new();
+    let workspace = with_schema(&CODEX_WORKSPACE);
+    let mut codex = codex();
+    codex["hands"]["workspace"] = json!(workspace);
+    fixture.write("adapters/codex.json", codex);
+    declare_sandbox(&fixture, "read-only");
+    let base = fixture.root.join("base");
+    std::fs::create_dir_all(base.join("roles")).unwrap();
+    std::fs::copy(
+        fixture.bundle().join("roles/work.md"),
+        base.join("roles/work.md"),
+    )
+    .unwrap();
+    std::fs::write(
+        base.join("policy.json"),
+        serde_json::to_vec(&policy()).unwrap(),
+    )
+    .unwrap();
+    let mut config = sandbox_seat(&fixture, None);
+    config["name"] = json!("base");
+    config["seats"]["review"]["driver"]["command"] = codex_inline(&[]);
+    config["seats"]["review"]["hands"] =
+        json!({"kind": "workspace", "network": false, "binds": []});
+    std::fs::write(
+        base.join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.bundle().join("bundle.json"),
+        serde_json::to_vec(&json!({"name": "fixture", "extends": "base"})).unwrap(),
+    )
+    .unwrap();
+    let bundle =
+        Bundle::compile_with(&fixture.bundle(), &fixture.library(), &fixture.adapters()).unwrap();
+    let agent = match &bundle.sites["work"].chain[0].lowering {
+        crate::agents::Lowering::Composed(composition) => composition
+            .segments
+            .iter()
+            .find(|segment| segment.origin == Origin::Hands)
+            .cloned(),
+        other => panic!("work composes: {other:?}"),
+    };
+    let expanded = expand_command(&base, &workspace);
+    assert_eq!(
+        (bundle.sites["review"].inline_hands.clone(), agent),
+        (
+            Some(Segment::new(Origin::Hands, &expanded)),
+            Some(Segment::new(Origin::Hands, &expanded))
+        )
+    );
+    assert_ne!(expanded, expand_command(&fixture.bundle(), &workspace));
+}
+
 /// The fixture codex's fragments followed by `--output-schema
 /// ./schema.json`: an inert option whose bundle-relative value the
 /// compile's expansion rewrites, so a carrier expanded with its segment is

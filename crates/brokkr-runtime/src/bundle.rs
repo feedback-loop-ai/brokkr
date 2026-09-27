@@ -1763,6 +1763,9 @@ impl Bundle {
                 None => (None, CapabilityAdapters::of(pin_adapters.as_ref())),
             };
             for (phase, raw) in &resolved.seats {
+                // The layer that wrote the seat, as its agent's hands
+                // segment is expanded against (review return F1).
+                let dir = &resolved.roots[resolved.seat_origin[phase]];
                 record_capabilities(
                     &authority, library, adapters, boundary, dir, phase, raw, &mut sites,
                 )?;

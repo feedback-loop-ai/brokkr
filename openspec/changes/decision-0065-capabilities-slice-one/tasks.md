@@ -2611,6 +2611,32 @@ follows through on ruling (B). 14.1 stays open until 14b. Production:
 - **Pending.** 14a4b (`:6457`, `:6751`), then 14b, exact coverage outside
   the box, macOS, remote CI and the council.
 
+Unit 14a4a, review return (same run, from `73ff236e`; evidence.md, "Review
+return, 2026-09-27"). **Result: complete.** 14.1 stays open until 14b.
+
+- F1: `bundle.rs:1768` expands each seat's inline hands against the layer
+  that wrote the seat, as an agent's are. It was the leaf. The new
+  inherited regression in `bundle/agent_tests.rs` was red under the
+  restored leaf directory (`bundle/schema.json` against
+  `base/schema.json`), and it passes with the fix.
+- F2: the claim that the inline seat's command passes the final check
+  had not been observed, and it is corrected in evidence.md.
+  - `capability_launch.rs` now has `checked_launch`, which runs the
+    existing `check_final` on the sealed cold command with the sealed
+    inputs and a transport consistent with the engine's.
+  - A compiled inline Codex panel member with hands and an agent member
+    both pass it. Each gives the exact written-out command.
+  - The 14a4a parity test now requires that `Ok`.
+  - Mutations: no emission makes the driver refuse on the count, and an
+    untyped plan makes `check_final` refuse on the count, the refusal
+    `:2781` met. Each was restored to a pass.
+- Fixture migrations and standing-admission lines: none.
+- **Gates.** fmt, clippy, the runtime suite, `driver_conformance` and both
+  bundles are clean. The workspace suite, strict OpenSpec and `git diff
+  --check` are recorded in evidence.md.
+- **Pending.** 14a4b, 14b, exact coverage outside the box, macOS, remote
+  CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)

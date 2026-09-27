@@ -14923,7 +14923,8 @@ touched. They belong to 14a4b.
   So the dialect, the plan and the emission all read one fact.
   `record_capabilities` takes the directory the inline command was expanded
   against: `dir` for the seats and `law.dir` for the dialect wrapper's
-  synthetic site.
+  synthetic site. (The seats' `dir` was the leaf's. The review return
+  below, F1, makes it the layer that wrote the seat.)
 - `bundle.rs:4704`, `:4715` (`site_capabilities`): the inline serving's
   `Provenance.hands` is that segment's length, and its `fragment` is the
   segment. This is what a candidate's plan gets from `hands_fragment` and
@@ -15012,8 +15013,12 @@ then byte-identical to this unit's diff (`git diff --no-index` of
   These are exactly the three refusals the third visit recorded, shifted by
   this unit's 52 inserted lines: `:3804` (the unpaired record), `:6509`
   (the plan denies `web-fetch`) and `:6803` (not the engine's workspace
-  hands). No count refusal remains. The new parity test, and both OFF-pair
-  tests' boxed inline seat, pass `check_final` in `served_cold`.
+  hands). No count refusal remains. (Corrected by the review return below,
+  F2: this line first said the new parity test and both OFF-pair tests'
+  boxed inline seat pass `check_final` in `served_cold`. That was not
+  observed. The parity test compared two `Result`s without requiring
+  success, and the OFF-pair helpers never reach `check_final`. The checked
+  positive is now committed.)
 - `driver_conformance.rs` (`with-14b-conformance.log`): 22 passed and 2
   failed. `:2781` no longer meets the count check. It now departs later:
   "the final command of harness 'codex' departs at argument 12 from the
@@ -15050,3 +15055,107 @@ then byte-identical to this unit's diff (`git diff --no-index` of
 re-run from its saved patch, which will also meet the `:2781` fixture
 departure above. Also pending: exact coverage outside the box, macOS,
 remote CI and the council.
+
+### Review return, 2026-09-27: F1 (inherited seat directory) and F2 (a checked positive)
+
+Same run, `0065-rebuild-unit-14-see-the-uni-fee33bd3`, returned from review
+(residual, medium) at `73ff236e`. Production: one statement in
+`crates/brokkr-runtime/src/bundle.rs`. `engine.rs` did not move. The logs
+are in `.forge/unit-14a4a/return-f/`.
+
+- **F1.** `record_capabilities` was handed the leaf compile directory for
+  every seat. So an inherited inline site's hands were expanded against
+  the leaf, while the equivalent agent's hands segment was expanded
+  against the layer that wrote the seat (`resolved.roots[seat_origin]`,
+  `bundle.rs:1466`). `bundle.rs:1768` now hands each seat that same owning
+  directory. A seat that is not inherited is unchanged, because its owning
+  root is the leaf.
+  - New test:
+    `bundle/agent_tests.rs::an_inherited_inline_sites_hands_expand_against_its_owning_layer_as_an_agents_do`
+    (`:2687`). A base layer writes an inline Codex seat with boxed hands
+    and a boxed agent-backed Codex seat, and the leaf only `extends` it.
+    The fragment ends in `--output-schema ./schema.json`. The inline
+    site's `inline_hands` and the agent's composed `hands` segment are
+    both exactly `expand_command(base, fragment)`, and that differs from
+    the leaf's expansion (`:2740`).
+  - Baseline red and mutation. The pre-fix statement was restored as a
+    compiling mutation: the owning root was bound as `_owning`, and the
+    leaf `dir` was passed on (`f1-mut.log`). The test failed at `:2729`
+    with `left: (Some(… "/tmp/…/bundle/schema.json"), Some(…
+    "/tmp/…/base/schema.json"))`. The inline site took the leaf and the
+    agent took the base, which is the defect F1 names. Restored, it passes
+    (`f1-probe.log`, 2 passed).
+- **F2.** The 14a4a parity test compared two `sealed_launch` results and
+  never required success, and `sealed_launch` does not call `check_final`.
+  So the claim that the inline seat's command passes the final check was
+  not observed; it is corrected above.
+  - New test helper `checked_launch` in `capability_launch.rs` (`:349`).
+    It takes `sealed_launch`'s cold Codex command and hands it to the
+    existing `native_controls::check_final`, with the inputs 14b's
+    `served_cold` hands it:
+    - the plan through `managed`, and the sealed record through
+      `LaunchRecord::decode`;
+    - the serving inputs dispatch seals beside them: the candidate's
+      composition, or the inline site's `inline_serving()`, with the
+      boundary fragment its class selects;
+    - the authored words by their recorded origin;
+    - the box's `Transport` bound to `current_exe()` and `/w`, the
+      executable and workdir the engine composed the spawn with. Engine
+      and check run in one process here, so the transport inputs agree.
+      That is the consistency the review asks for; the
+      subprocess-driver departure at `driver_conformance.rs:2781` under
+      14b's patch stays 14b's.
+  - The helper returns the checked argv or the refusal's cause. It is
+    not a production change and does not ship 14b.
+  - `inline_command` (`:329`) replaces the single-seat-only lookup inside
+    `sealing_moved`, so a panel member's authored command is composed the
+    way a seat's is.
+  - New test:
+    `capability_launch.rs::a_compiled_inline_codex_panel_member_with_hands_passes_the_final_check_as_an_agent_member_does`
+    (`:952`). This is the path 14b serves. A panel with an inline Codex
+    member that has boxed hands, and an agent-backed member (`searcher`),
+    is compiled under `namespace` against the shipped adapters. Both
+    `checked_launch` results are `Ok` and equal to `checked_codex`
+    (`:925`): the literal `codex exec --json -C /w -c
+    model_reasoning_effort="high" --model gpt-6-astra`, then
+    `boxed_hands(bundle, "judges:inline")`, then the OFF pair. That value
+    is written out and never composed.
+  - The 14a4a parity test (`:897`) now uses `checked_launch`, and it
+    asserts `Ok(checked_codex(..))` for the inline seat (`:917`) before
+    comparing it with the fallback.
+  - Mutations, each compiled, run and restored (`git diff` of `engine.rs`
+    empty afterwards):
+    - M2', `engine.rs` `.chain(handed.cloned().filter(|_| false))`
+      (`f2-mut-engine.log`): both tests fail. The panel test fails at
+      `:988` with the driver's "the capability plan for provider 'codex'
+      types 8 arguments of the engine's fragment as the box's hands, but
+      the fragment carries 0". The parity test fails at `:915` (the
+      last segment is the authored one).
+    - M1', `bundle.rs` `hands: inline_hands.len() * 0`
+      (`f2-mut-bundle.log`): both fail. The panel test fails at `:988`
+      with `check_final`'s own "was planned typing another count of its
+      fragment as the box's hands than its sealed hands and its adapter's
+      measured fragment give". That is the refusal `:2781` met on
+      `24c51d8f`, now observed through `check_final` itself. The parity
+      test fails at `:916` (`left: Number(0)`, `right: Number(8)`).
+  - Restored, both pass (`f2-pass.log`).
+- Fixture migrations and standing-admission lines: none. This visit's
+  test edits are in the unit's own suites.
+- **Gates.**
+  - `cargo fmt --all -- --check` is clean after `cargo fmt --all`.
+  - `cargo clippy --workspace --all-targets --all-features --locked -- -D
+    warnings` is clean (`f-clippy.log`).
+  - `cargo test -p brokkr-runtime --all-features --locked
+    --no-fail-fast`: every summary `ok`, with 573 lib tests and 55 in
+    `capability_launch` (`f-runtime.log`).
+  - `cargo test -p brokkr-cli --test driver_conformance`: 24 passed
+    (`f-conformance.log`).
+  - `bundles/self` and `bundles/verify` compile.
+  - `cargo test --workspace --all-features --locked --no-fail-fast`: 77
+    summaries, all `ok`, and no `FAILED` or `panicked` line
+    (`f-workspace.log`).
+  - `openspec validate --all --strict`: 18 passed, 0 failed
+    (`f-openspec.log`). `git diff --check` is clean.
+
+**Pending.** 14a4b (`:6457` and `:6751`), then 14b re-run from its saved
+patch, exact coverage outside the box, macOS, remote CI and the council.
