@@ -1,4 +1,4 @@
-# 0073 — Many hands: the core is complete for one operator and extensible by contract, so an enterprise layer builds on it and never forks it
+# 0073 — Many hands: one operator on many hosts is the open core, many people is an extension, and the core is extensible by contract so the enterprise layer never forks it
 
 Status: proposed
 Date: 2026-09-27
@@ -8,8 +8,14 @@ Date: 2026-09-27
 The operator asked how a team uses Brokkr, then said what the question
 really is (2026-09-27): single-operator use is right for open source, team
 use is an enterprise feature, and **the architecture must be extensible in
-a way that lets Brokkr go enterprise.** This decision is about that
-extensibility. It does not specify enterprise features.
+a way that lets Brokkr go enterprise.** They then sharpened where the line
+falls. The case is not only a team: it is one person running several
+Brokkr processes and containers, on two or three physical machines and
+more virtual ones. So the line is **one person versus many people**, not
+one machine versus many. One operator on many hosts is the open core;
+many people is an extension. This decision covers the multi-host core and
+the extensibility the enterprise layer needs. It does not specify
+enterprise features.
 
 Brokkr already has one extension that works this way. A model harness is
 not compiled into the engine: it is a driver behind a frozen, versioned
@@ -19,7 +25,18 @@ Decision 0071 made that a principle: "the plugin boundary is a process".
 The shape this decision needs is already proven. It is not yet applied
 to the concerns a team or an enterprise adds.
 
-Those concerns, taken from what a team would ask for:
+A single operator on many hosts already has a lot. Evidence through git
+works from any machine. Decision 0026 keeps one journal per hearth, and
+decision 0029's fence assumes one host, which is the right model for many
+machines: no journal is ever shared across a network. Decision 0027
+relocates a run from one journal to another byte-identically, and the
+runs table already records `origin_host` and `imported_from`. Secrets
+are resolved per host (0012), and an operator's own subscriptions are
+legitimately theirs on every machine they own. What is missing is naming
+the host on every run, one view across every host, and a way to hand
+work to a particular machine.
+
+The concerns an enterprise adds, taken from what a team would ask for:
 - **who is acting:** named operators, roles, signed attribution of
   rulings;
 - **who may act:** who may rule, apply the by-hand label, accept a
@@ -41,19 +58,71 @@ to patch the core. That is the fork this decision prevents.
 
 ## Rulings
 
-1. **The line.** The open core is complete for one operator: engine,
-   gates, realms, capabilities, the queue for one person, and evidence
-   through git (0033, 0038). A small team can already work on it, because
-   every pull request carries a self-verifying run. Everything a team or an
-   organization adds is an **extension**. It attaches only through the
-   seams in ruling 3, never by patching, forking or feature-flagging core
+1. **The line is people, not machines.** The open core is complete for
+   one operator, on as many hosts as that operator runs: engine, gates,
+   realms, capabilities, the queue, the fleet of rulings 2 and 3, and
+   evidence through git (0033, 0038). A small team can already work on it,
+   because every pull request carries a self-verifying run. Everything that
+   exists because more than one person acts (roles, attribution between
+   people, shared accounts, grants on someone else's behalf) is an
+   **extension**. It attaches only through the
+   seams in ruling 5, never by patching, forking or feature-flagging core
    code.
 
    **Enforcement binding:** the core crates never depend on an
    extension. A dependency lint refuses any core crate importing a crate
    outside the core workspace members.
 
-2. **An extension is a process behind a versioned contract**, as a
+2. **One operator, many hosts: every host is a hearth.** *(Core.)*
+   - **One journal per host.** A host is any machine, virtual machine or
+     container that runs Brokkr with its own journal. A container running
+     Brokkr is a host: its journal lives on a volume, and it has its own
+     host id. That is distinct from decision 0046's `container`
+     boundary, which boxes one seat. No journal is ever shared across
+     hosts or placed on a network filesystem (0026, 0029, #394).
+   - **Host identity on every run.** Each host has a stable host id,
+     generated once and kept beside its journal. Every run manifest records
+     it, and every readout that names a run can show it, extending the
+     `origin_host` the runs table already keeps for imported runs.
+   - **One view across hosts.** A deterministic verb, `brokkr collect`,
+     gathers runs from the operator's hosts into a read-only fleet journal
+     under decision 0027. It reads published anchors from the repository's
+     `brokkr-runs/*` refs, or a host's canonical export. Collection is
+     verification-gated, adopts each run once, and never merges journals.
+     The TUI and the web console read the fleet journal like any other,
+     grouped by host.
+   - **Personal accounts travel with their owner.** An operator's own
+     subscriptions and keys may serve that operator's runs on any of their
+     hosts. The account-class question (which account may serve whom)
+     arises only between people.
+
+   **Enforcement binding:** a host id in the next run-manifest version and
+   in the runs readout; `collect` built on 0027's import gates, with a
+   test that a tampered anchor is refused and a second collect adopts
+   nothing; and a fleet-journal TUI test.
+
+3. **Work reaches a host through git, claimed once.** *(Core; proposed
+   mechanism.)* Each host keeps its own queue in its own journal and runs
+   its own dispatcher (0068 ruling 1 is unchanged). Across hosts, a
+   *fleet queue* lives in the repository as `refs/forge/queue/*`: each
+   entry is a small file (recipe, repository, feature text, realm map,
+   priority, and optional host requirements). A host's dispatcher claims
+   an entry by pushing a claim commit. Git's atomic ref update means
+   exactly one host wins, and a losing push re-reads and moves on. The
+   winning host copies the entry into its own journal's queue, and from
+   there 0068 governs it. Host requirements are matched against what the
+   host declares: a route (for example the Spark's local model), a
+   boundary (bubblewrap on Linux, seatbelt on macOS), or an operating
+   system. A host that cannot meet them never claims. The claim records
+   the host id, and the run's manifest carries the fleet entry id, so the
+   fleet view can join them. No server holds the queue.
+
+   **Enforcement binding:** the fleet-entry schema; claim and requirement
+   matching in the dispatcher; and a two-host test on one machine, with
+   two journals and one bare repository, in which a race yields exactly
+   one claim and an unmet requirement never claims.
+
+4. **An extension is a process behind a versioned contract**, as a
    driver is (0071). Each seam is a contract in `contracts/`, frozen like
    every other, with a JSON envelope over stdio or a file. An extension is
    an executable the realm names. The core invokes it, reads a typed
@@ -67,7 +136,7 @@ to patch the core. That is the fork this decision prevents.
    test, and the seam's refusal tests: absent, non-zero exit, malformed
    output and timeout, each an exact refusal.
 
-3. **The seams.** Each seam has a core default, which is exactly today's
+5. **The seams.** Each seam has a core default, which is exactly today's
    single-operator behaviour. With no extension configured, nothing
    changes.
 
@@ -90,7 +159,7 @@ to patch the core. That is the fork this decision prevents.
    the event and manifest contracts; and, per seam, a core test that the
    default reproduces today's behaviour exactly.
 
-4. **Every seam is consulted at one place, and its verdict is journaled.**
+6. **Every seam is consulted at one place, and its verdict is journaled.**
    The engine calls each seam from one function, never ad hoc: the
    operator-command path, the acceptance check, the gate, the dispatcher's
    admission and the secret resolver. Each call's verdict (seam, extension
@@ -102,26 +171,29 @@ to patch the core. That is the fork this decision prevents.
    test that an act governed by an extension carries its verdict record
    and the extension's digest in the manifest.
 
-5. **Evidence remains the interface between people.** Published anchors
+7. **Evidence remains the interface between people and hosts.** Published anchors
    stay self-verifying without any server, and 0027's import stays the
-   only way a run enters another journal. A team view is an events
-   subscriber or a collector over imports. It is never a shared, writable
+   only way a run enters another journal. The fleet view (ruling 2) and
+   any team view are collectors over imports or events subscribers. It is never a shared, writable
    journal, and never a network filesystem: the lock contention measured
    on 2026-09-25 and 2026-09-26 (#394) and decision 0029's single-host
    fence both rule that out.
 
-6. **Enterprise features are out of this tree's scope.** Roles, signed
-   rulings, the team view, the shared runner host, account classes,
-   per-operator cost and standing grants are built outside the core,
+8. **Enterprise features are out of this tree's scope.** Roles, signed
+   rulings between people, a team view across people, a shared runner fed
+   by several people, account classes, per-person cost and standing
+   grants are built outside the core,
    against the seams. This decision does not specify them, and a later
    one may, wherever they live. It **amends decision 0025 ruling 7** as
    follows. The core carries the grant *seam* and its refusals (an
    uncovered act refuses). The grant schema and its verification move to
    the extension that verifies it.
 
-7. **Enactment, in order.** Each seam lands with its inert default, so
+9. **Enactment, in order.** Each seam lands with its inert default, so
    every slice ships with no behaviour change:
-   - (i) the extension boundary itself (ruling 2), then identity and
+   - (0) the multi-host core: host identity and `collect` (ruling 2),
+     then the git-claimed fleet queue (ruling 3), once 0068 is built;
+   - (i) the extension boundary itself (ruling 4), then identity and
      authority, with the optional `operator` field;
    - (ii) admission on the dispatcher, when 0068 is built;
    - (iii) the events stream and secrets;
@@ -133,7 +205,9 @@ to patch the core. That is the fork this decision prevents.
 ## Consequences
 
 - The open core loses nothing and gains no configuration: a single
-  operator never sees a seam.
+  operator never sees a seam. An operator with many hosts gains host
+  ids, a fleet view and a way to hand work to a machine, all without a
+  server.
 - An enterprise layer can be a separate repository of executables that
   speak the frozen contracts. The core's release cadence does not bind it,
   and it binds nothing in the core.
@@ -156,10 +230,13 @@ to patch the core. That is the fork this decision prevents.
   late, and every seam retrofitted after the fact means the core is
   patched after the fact.
 - **One journal on a network filesystem, or a central server as the
-  store of record.** Rejected by ruling 5.
+  store of record.** Rejected by ruling 7.
 
 ## Open questions for the operator
 
+- The fleet queue in git (ruling 3) is a proposal. Is git the right
+  coordination medium, or should a claim go through a host the operator
+  designates (ssh), with git carrying only evidence?
 - Is the seam list complete? Candidates not included: notification
   (tell someone a run parked) and billing export, both of which the
   events seam may cover.
