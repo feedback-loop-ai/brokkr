@@ -227,15 +227,7 @@ fn claim_reads_the_bound_file_and_requires_the_digest_before_the_shape() {
 fn claim_refuses_absolute_traversal_and_escaping_values() {
     let (dir, _) = binding(SHIPPED.as_bytes(), "route.yml");
     let workdir = dir.path().to_string_lossy().into_owned();
-    // An absolute path is spelled differently per platform, and the
-    // refusal under test is the one `Path::is_absolute` decides, so the
-    // proof holds on both rather than being gated to one. Selected by
-    // `#[cfg]` and not by `cfg!`, so the arm this platform does not use
-    // is never compiled — a runtime branch would leave a line the exact
-    // coverage gate can never reach.
-    #[cfg(windows)]
-    let absolute = "C:\\Windows\\win.ini";
-    #[cfg(not(windows))]
+    // The refusal under test is the one `Path::is_absolute` decides.
     let absolute = "/etc/passwd";
     for (value, needle) in [(absolute, "absolute"), ("../escape.yml", "`..`")] {
         let input = json!({

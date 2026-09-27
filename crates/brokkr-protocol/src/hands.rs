@@ -246,14 +246,11 @@ impl Bind {
     }
 }
 
-/// The engine's home as an environment table states it: `HOME`, or on
-/// Windows `USERPROFILE`, or nothing — the `~` every bind and every
-/// toolchain locator resolves against.
+/// The engine's home as an environment table states it: `HOME`, or
+/// nothing — the `~` every bind and every toolchain locator resolves
+/// against.
 pub fn home_dir(env: &std::collections::BTreeMap<String, String>) -> PathBuf {
-    let home = env.get("HOME");
-    #[cfg(windows)]
-    let home = home.or_else(|| env.get("USERPROFILE"));
-    home.map(PathBuf::from).unwrap_or_default()
+    env.get("HOME").map(PathBuf::from).unwrap_or_default()
 }
 
 /// `~/x` against the host home; anything else as written.
@@ -667,37 +664,11 @@ pub fn box_argv(
 
 /// The engine's own uid and gid: what the box maps to `runner`, and what
 /// the unboxed network prefix maps root back to (decision 0046 ruling 4).
-#[cfg(unix)]
 pub fn ids() -> (u32, u32) {
     // SAFETY: getuid/getgid take no arguments, read process credentials
     // and cannot fail.
     unsafe { (libc_getuid(), libc_getgid()) }
 }
-
-#[cfg(not(unix))]
-pub fn ids() -> (u32, u32) {
-    (65_534, 65_534)
-}
-
-/// The closed Windows process-startup set. Carried verbatim when set
-/// on Windows only (decision 0046 ruling 4;
-/// design DD10); on every other host these names are not consulted.
-const WINDOWS_BOOTSTRAP: [&str; 14] = [
-    "USERPROFILE",
-    "HOMEDRIVE",
-    "HOMEPATH",
-    "SYSTEMROOT",
-    "SYSTEMDRIVE",
-    "WINDIR",
-    "COMSPEC",
-    "PATHEXT",
-    "TEMP",
-    "TMP",
-    "USERNAME",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "PROGRAMDATA",
-];
 
 /// The environment an unboxed exec dispatch starts in under `harness`
 /// and `open` (decision 0046 ruling 4; design DD10): the box's own
@@ -711,9 +682,7 @@ const WINDOWS_BOOTSTRAP: [&str; 14] = [
 ///   carries `.ssh`, `.netrc` and `.cargo/credentials.toml`;
 /// - `PATH`, `USER` and `LOGNAME`: the engine's own, each only when set
 ///   there — the box's fixed `PATH` names mounts that exist only inside a
-///   namespace, and a `runner` name would not match the operator's uid.
-///   Windows matches names without ASCII case and emits these canonical
-///   keys, so the engine's `Path` survives the cleared environment;
+///   namespace, and a `runner` name would not match the operator's uid;
 /// - `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: the operator's
 ///   `~/.cargo`, `~/.rustup`, `~/.npm` exactly when the spec's binds
 ///   declare that path, as the box sets them; a bind's `mask` is declared
@@ -722,38 +691,12 @@ const WINDOWS_BOOTSTRAP: [&str; 14] = [
 ///   stands inside a box, never set here, because it is the marker every
 ///   box-building test skips on;
 /// - the box's fixed switches, the gpgsign triple, and the bundle's git
-///   identity;
-/// - on Windows only, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`,
-///   `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `PATHEXT`, `TEMP`,
-///   `TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA`,
-///   matched without ASCII case and inherited verbatim only when set.
+///   identity.
 ///
 /// Pure over its inputs, so the table is read directly by tests.
 /// Clearing the environment confines nothing on disk: an unboxed script
 /// may open any host path the operator's uid may read.
 pub fn unboxed_environment(
-    engine_env: &std::collections::BTreeMap<String, String>,
-    home: &Path,
-    spec: &HandsSpec,
-    identity: &[(String, String)],
-    private_home: &Path,
-    private_tmp: &Path,
-) -> std::collections::BTreeMap<String, String> {
-    unboxed_environment_on(
-        cfg!(windows),
-        engine_env,
-        home,
-        spec,
-        identity,
-        private_home,
-        private_tmp,
-    )
-}
-
-/// Keep both platform tables executable on every host, so Linux tests
-/// pin Windows inheritance as well as the Unix table.
-fn unboxed_environment_on(
-    windows: bool,
     engine_env: &std::collections::BTreeMap<String, String>,
     home: &Path,
     spec: &HandsSpec,
@@ -768,15 +711,7 @@ fn unboxed_environment_on(
     set("HOME", private_home.to_string_lossy().into_owned());
     set("TMPDIR", private_tmp.to_string_lossy().into_owned());
     for key in ["PATH", "USER", "LOGNAME", HANDS_BOX_ENV] {
-        let value = if windows {
-            engine_env
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(key))
-                .map(|(_, value)| value)
-        } else {
-            engine_env.get(key)
-        };
-        if let Some(value) = value {
+        if let Some(value) = engine_env.get(key) {
             set(key, value.clone());
         }
     }
@@ -809,27 +744,7 @@ fn unboxed_environment_on(
     for (key, value) in identity {
         set(key, value.clone());
     }
-    bootstrap(windows, engine_env, &mut table);
     table
-}
-
-/// On Windows only, the process-bootstrap set passes verbatim.
-fn bootstrap(
-    windows: bool,
-    engine_env: &std::collections::BTreeMap<String, String>,
-    table: &mut std::collections::BTreeMap<String, String>,
-) {
-    if !windows {
-        return;
-    }
-    for (key, value) in engine_env {
-        if WINDOWS_BOOTSTRAP
-            .iter()
-            .any(|name| name.eq_ignore_ascii_case(key))
-        {
-            table.insert(key.clone(), value.clone());
-        }
-    }
 }
 
 /// The network narrowing an unboxed exec dispatch runs behind on Linux
@@ -886,7 +801,6 @@ pub fn probe_network_prefix(
         .is_ok_and(|status| status.success())
 }
 
-#[cfg(unix)]
 extern "C" {
     #[link_name = "getuid"]
     fn libc_getuid() -> u32;

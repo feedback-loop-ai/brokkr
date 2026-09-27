@@ -2163,15 +2163,10 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
 #[test]
 fn hostile_confirmed_paths_stay_portable_display_data() {
     let mut world = world();
-    // Windows forbids the operator, quote and backslash characters in a
-    // path component, so the hostile fixture keeps the portable-display
-    // alphabet there; the Unix fixture carries the complete shell
-    // fragment. Both exercise the same escaping proof.
-    let hostile_home = world.path().join(if cfg!(windows) {
-        "home $(x) `t` ;a&b%c!d é😀"
-    } else {
-        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
-    });
+    // The fixture carries the complete shell fragment.
+    let hostile_home = world
+        .path()
+        .join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
     std::fs::create_dir_all(&hostile_home).unwrap();
     world.home = hostile_home;
     let home_text = world.home.to_str().unwrap().to_string();

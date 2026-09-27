@@ -45,7 +45,7 @@ pub(crate) struct Transcript {
 impl Transcript {
     /// Resolve the home through the same environment the child inherits.
     pub(crate) fn resolve(kind: Kind) -> Result<Self, String> {
-        let operator_home = std::env::var_os("HOME").or(std::env::var_os("USERPROFILE"));
+        let operator_home = std::env::var_os("HOME");
         resolved(
             kind,
             match kind {
@@ -158,12 +158,7 @@ fn codex_home_from(codex_home: Option<OsString>, home: Option<OsString>) -> Opti
 /// The operator's dsh home: `$DSH_HOME` when set and non-empty, else
 /// `~/.dsh` — the resolution the harness itself uses for its sessions.
 pub(crate) fn dsh_home() -> Option<PathBuf> {
-    dsh_home_from(
-        std::env::var_os("DSH_HOME"),
-        // Eager on purpose: a lazy fallback is a function no Unix test
-        // can reach, and the gate counts functions.
-        std::env::var_os("HOME").or(std::env::var_os("USERPROFILE")),
-    )
+    dsh_home_from(std::env::var_os("DSH_HOME"), std::env::var_os("HOME"))
 }
 
 /// `dsh_home` over its two inputs, so every branch is a plain test.

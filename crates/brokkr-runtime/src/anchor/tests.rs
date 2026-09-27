@@ -255,14 +255,8 @@ fn the_patch_identity_survives_a_rebase_and_names_the_file_that_changed() {
 /// that is its sibling's too.
 #[test]
 fn a_path_is_a_name_not_a_pattern_and_keeps_its_own_id() {
-    // The colon is pathspec magic and the point of the test; NTFS reads it
-    // as a stream separator, so Windows keeps the glob and the non-ASCII
-    // byte and drops the colon.
-    let odd = if cfg!(windows) {
-        "docs/a[1]ð.md"
-    } else {
-        "docs/:a[1]ð.md"
-    };
+    // The colon is pathspec magic and the point of the test.
+    let odd = "docs/:a[1]ð.md";
     let dir = repo();
     git(
         dir.path(),

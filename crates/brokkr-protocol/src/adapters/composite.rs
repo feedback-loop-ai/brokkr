@@ -2910,14 +2910,8 @@ fn stop_cause(candidate: &Path, operation: &str, errno: rustix::io::Errno) -> Co
 /// finds nothing (security hold 2026-09-20, S1b; controller
 /// reproduction). Resolution is not a property of a string's characters
 /// beyond this one predicate.
-#[cfg(unix)]
 fn is_explicit_path(command: &str) -> bool {
     command.contains('/')
-}
-
-#[cfg(windows)]
-fn is_explicit_path(command: &str) -> bool {
-    command.contains(['/', '\\'])
 }
 
 /// The two spellings no lookup may begin on, refused BEFORE any
@@ -3897,22 +3891,10 @@ fn native_obstruction(file: &mut std::fs::File, len: u64) -> Result<(), String> 
 /// environment this process would hand a child: a path is used
 /// directly, a name is searched. The answer carries what the selection
 /// established beside the file.
-#[cfg(unix)]
 fn select(command: &str) -> Result<Selected, CompositeError> {
     // Production's `Command::new(name)` changes nothing in the child's
     // environment, which is the `posix_spawnp` form (`Operation`).
     select_as(command, std::env::var_os("PATH"), Operation::Spawn)
-}
-
-/// `select` on Windows: an unchanged child environment is resolved
-/// against the application, system and parent-`PATH` directories in that
-/// order, which is the lookup an explicitly removed child `PATH` gets
-/// too — and not the one a child `PATH` equal to the parent's gets,
-/// which would search the parent's entries ahead of the application
-/// directory.
-#[cfg(windows)]
-fn select(command: &str) -> Result<Selected, CompositeError> {
-    select_in(command, None)
 }
 
 /// Resolve `command` to the canonical file alone: the suite's question.
@@ -3940,7 +3922,7 @@ fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
 /// lookup would not execute is selected, and nothing it would execute is
 /// silently swapped for another. Production has no explicit-`PATH`
 /// caller: the selection is `select`, and this entry serves the suites.
-#[cfg(all(unix, test))]
+#[cfg(test)]
 fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
     select_as(command, path, Operation::Exec)
 }
@@ -3994,218 +3976,6 @@ fn lookup_in(
         selected.invocation.argv0 = std::ffi::OsString::from(command);
         selected
     })
-}
-
-/// `select_in` on Windows: `path` is the child's explicit `PATH` —
-/// present, or removed from a changed environment — and the parent's
-/// `PATH` is the process's own, exactly the two inputs
-/// `std::process::Command` resolves a program against there. The
-/// production selection hands `None`: a child whose environment is
-/// unchanged is resolved against the same application, system and
-/// parent-`PATH` directories as one whose `PATH` was removed, so the
-/// one lookup serves both. No Windows selection establishes a Node
-/// runtime: a PE declares no interpreter to follow. The head is retained
-/// all the same, from the same admission that inspected the image, so
-/// the observation reads selection's bytes on every platform.
-#[cfg(windows)]
-fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
-    refuse_unspellable(command)?;
-    windows_lookup(command, path.as_deref(), std::env::var_os("PATH"))
-}
-
-/// Rust's Windows program resolution (library/std/src/sys/process/
-/// windows.rs, `resolve_exe`), reimplemented rather than borrowed from
-/// the Unix loop: a program with a separator is a path, tried with an
-/// appended `.exe` before the literal spelling unless it already ends in
-/// `.exe`; a file name is searched — child `PATH` if the child's
-/// environment was changed, the application directory, the system
-/// directory, the Windows directory, then the parent's `PATH`, skipping
-/// empty entries — with `.exe` appended when the name has no extension.
-/// The first entry that EXISTS is the selection; `CreateProcessW` then
-/// either runs it or fails, and never tries a later entry, so an
-/// existing candidate that cannot load is a refusal here too.
-#[cfg(windows)]
-fn windows_lookup(
-    command: &str,
-    child: Option<&std::ffi::OsStr>,
-    parent: Option<std::ffi::OsString>,
-) -> Result<Selected, CompositeError> {
-    if command.ends_with(['/', '\\']) {
-        return Err(CompositeError::Config(format!(
-            "'{command}' has no file name"
-        )));
-    }
-    let has_exe_suffix = command
-        .as_bytes()
-        .get(command.len().wrapping_sub(4)..)
-        .is_some_and(|tail| tail.eq_ignore_ascii_case(b".exe"));
-    if is_explicit_path(command) {
-        let candidate = if has_exe_suffix {
-            PathBuf::from(command)
-        } else {
-            let mut with_suffix = std::ffi::OsString::from(command);
-            with_suffix.push(".exe");
-            let with_suffix = PathBuf::from(with_suffix);
-            match std::fs::symlink_metadata(&with_suffix).is_ok() {
-                true => with_suffix,
-                false => PathBuf::from(command),
-            }
-        };
-        return admit_windows(&candidate);
-    }
-    let file: std::ffi::OsString = match command.contains('.') {
-        true => command.into(),
-        false => format!("{command}.exe").into(),
-    };
-    let mut directories: Vec<PathBuf> = Vec::new();
-    if let Some(child) = child {
-        directories.extend(std::env::split_paths(child).filter(|dir| !dir.as_os_str().is_empty()));
-    }
-    if let Ok(mut application) = std::env::current_exe() {
-        application.pop();
-        directories.push(application);
-    }
-    directories.extend(windows_system_directories());
-    if let Some(parent) = parent {
-        directories
-            .extend(std::env::split_paths(&parent).filter(|dir| !dir.as_os_str().is_empty()));
-    }
-    for dir in directories {
-        let candidate = dir.join(&file);
-        if std::fs::symlink_metadata(&candidate).is_ok() {
-            return admit_windows(&candidate);
-        }
-    }
-    Err(CompositeError::Config(format!(
-        "'{command}' is not on the Windows search path"
-    )))
-}
-
-/// The system and Windows directories, as `GetSystemDirectoryW` and
-/// `GetWindowsDirectoryW` report them: the two fixed entries of the
-/// search `CreateProcessW`'s callers in std consult.
-#[cfg(windows)]
-fn windows_system_directories() -> Vec<PathBuf> {
-    use std::os::windows::ffi::OsStringExt;
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
-        fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
-    }
-    let mut directories = Vec::new();
-    for query in [GetSystemDirectoryW, GetWindowsDirectoryW] {
-        let mut buffer = vec![0u16; 1024];
-        // SAFETY: `buffer` is a live, writable region of exactly the
-        // length passed, in UTF-16 units; the call writes at most that
-        // many units and answers the length written, or the length
-        // needed when the buffer is too small, or zero on failure.
-        let written = unsafe { query(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
-        if written == 0 || written >= buffer.len() {
-            continue;
-        }
-        directories.push(PathBuf::from(std::ffi::OsString::from_wide(
-            &buffer[..written],
-        )));
-    }
-    directories
-}
-
-/// Admit a Windows candidate the search selected: a regular file that is
-/// not a batch script dispatched through `cmd.exe`, a PE image of this
-/// target's machine, word size and subsystem whose headers and sections
-/// lie inside the file, and one the OS itself reports as a native
-/// binary of this target's word size (`GetBinaryTypeW`, a read-only
-/// query that loads nothing). A dangling link, a directory, a malformed
-/// image, an image of another format or a binary type the OS names
-/// otherwise refuses by cause (review 2026-09-20, R7).
-#[cfg(windows)]
-fn admit_windows(candidate: &Path) -> Result<Selected, CompositeError> {
-    let refuse = |why: String| CompositeError::Config(format!("{}: {why}", candidate.display()));
-    let metadata = std::fs::metadata(candidate)
-        .map_err(|error| refuse(format!("cannot be inspected: {error}")))?;
-    if !metadata.is_file() {
-        return Err(refuse("is not a regular file".to_string()));
-    }
-    let extension = candidate
-        .extension()
-        .and_then(std::ffi::OsStr::to_str)
-        .map(str::to_ascii_lowercase);
-    if matches!(extension.as_deref(), Some("bat" | "cmd")) {
-        return Err(refuse(
-            "is a batch script, whose cmd.exe dispatch this resolver does not establish"
-                .to_string(),
-        ));
-    }
-    let mut file = std::fs::File::open(candidate)
-        .map_err(|error| refuse(format!("cannot be read: {error}")))?;
-    let image = image::inspect(&mut file, metadata.len())
-        .map_err(|why| refuse(format!("is not a loadable native image: {why}")))?;
-    if image.kind != image::NATIVE {
-        return Err(refuse(format!(
-            "is a {} image, which this target does not load",
-            image.kind
-        )));
-    }
-    let binary_type = windows_binary_type(candidate)
-        .map_err(|why| refuse(format!("is not an executable the OS recognizes: {why}")))?;
-    if binary_type != WINDOWS_BINARY_TYPE {
-        return Err(refuse(format!(
-            "is binary type {binary_type} to the OS, which is not this target's {WINDOWS_BINARY_TYPE}"
-        )));
-    }
-    // The head this admission read, retained with the selection: the
-    // observation's first-line check reads these bytes and never reopens
-    // the file after the version probe ran it (review 2026-09-20, F6).
-    let (_, head) =
-        open_head(candidate).map_err(|error| refuse(format!("cannot be read: {error}")))?;
-    canonicalize(candidate).map(|path| Selected {
-        path,
-        invocation: DshInvocation::of(candidate),
-        node: None,
-        head,
-    })
-}
-
-/// The `GetBinaryTypeW` answer this target executes as itself:
-/// `SCS_64BIT_BINARY` (6) on a 64-bit target, `SCS_32BIT_BINARY` (0) on
-/// a 32-bit one. A DOS, 16-bit Windows, OS/2, POSIX or PIF binary is
-/// another type, and so is a 32-bit image on a 64-bit target, which
-/// `CreateProcessW` would run under WOW64 as a different runtime.
-#[cfg(windows)]
-const WINDOWS_BINARY_TYPE: u32 = if cfg!(target_pointer_width = "64") {
-    6
-} else {
-    0
-};
-
-/// The OS's own classification of an executable file, without loading
-/// it: `GetBinaryTypeW` reads the image headers and answers the binary
-/// type, or fails for a file that is not an executable at all.
-#[cfg(windows)]
-fn windows_binary_type(candidate: &Path) -> Result<u32, String> {
-    use std::os::windows::ffi::OsStrExt;
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetBinaryTypeW(application: *const u16, binary_type: *mut u32) -> i32;
-        fn GetLastError() -> u32;
-    }
-    let wide: Vec<u16> = candidate
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let mut binary_type = 0u32;
-    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the
-    // call, and `binary_type` is a live `u32` the call writes once.
-    let answered = unsafe { GetBinaryTypeW(wide.as_ptr(), &mut binary_type) };
-    if answered == 0 {
-        // SAFETY: reads the calling thread's last-error value.
-        let error = unsafe { GetLastError() };
-        return Err(format!("GetBinaryTypeW failed with error {error}"));
-    }
-    Ok(binary_type)
 }
 
 /// The selected executable, exactly as the seams carry it: a path the

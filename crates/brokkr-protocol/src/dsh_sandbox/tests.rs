@@ -13,29 +13,6 @@ fn same_place(answered: &str, built: &Path) -> bool {
     resolve(Path::new(answered)) == resolve(built)
 }
 
-/// A host path spelled the way THIS platform spells an absolute one.
-/// What `--bwrap`, `--store` and `--trusted` must BE is absolute, and
-/// which spellings are absolute is the operating system's answer, not a
-/// shape: Windows calls a rooted path with no drive letter RELATIVE, so
-/// a bare `/usr/bin/bwrap` literal there measures the fixture rather
-/// than the runner — the runner refuses it before it reads a single
-/// profile token, and every argv assertion behind that refusal stops
-/// meaning anything. The drive prefix is the whole difference, because
-/// every Rust path API takes forward slashes on Windows too, so the
-/// shapes below stay the ones a reader recognises.
-#[cfg(windows)]
-macro_rules! absolute {
-    ($path:literal) => {
-        concat!("C:", $path)
-    };
-}
-#[cfg(not(windows))]
-macro_rules! absolute {
-    ($path:literal) => {
-        $path
-    };
-}
-
 /// One name inside a directory, spelled the way the runner spells it.
 /// The runner composes its argv with `Path::join`, which uses the host's
 /// own separator; a `/` a test glues on by hand agrees with that on Unix
@@ -76,7 +53,7 @@ fn dsh_workspace_write_profile(workspace: &Path) -> Vec<String> {
 }
 
 /// The absolute bubblewrap the driver probed and the runner must exec.
-const BWRAP: &str = absolute!("/usr/bin/bwrap");
+const BWRAP: &str = "/usr/bin/bwrap";
 
 /// A linked worktree's administrative layout on disk, exactly as `git
 /// worktree add` writes it: `<common>/worktrees/<name>` with a `gitdir`
@@ -1077,31 +1054,21 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
     assert!(runner_argv(&s(&head))
         .unwrap_err()
         .contains("--bwrap is required"));
-    assert!(runner_argv(&s(
-        &[&head[..], &["--bwrap", absolute!("/bin/bwrap")][..]].concat()
-    ))
-    .unwrap_err()
-    .contains("--store is required"));
+    assert!(
+        runner_argv(&s(&[&head[..], &["--bwrap", "/bin/bwrap"][..]].concat()))
+            .unwrap_err()
+            .contains("--store is required")
+    );
     assert!(runner_argv(&s(&[
         &head[..],
-        &[
-            "--bwrap",
-            absolute!("/bin/bwrap"),
-            "--store",
-            absolute!("/tmp/store")
-        ][..]
+        &["--bwrap", "/bin/bwrap", "--store", "/tmp/store"][..]
     ]
     .concat()))
     .unwrap_err()
     .contains("--trusted is required"));
     assert!(runner_argv(&s(&[
         &head[..],
-        &[
-            "--bwrap",
-            absolute!("/bin/bwrap"),
-            "--bwrap",
-            absolute!("/other/bwrap")
-        ][..]
+        &["--bwrap", "/bin/bwrap", "--bwrap", "/other/bwrap"][..]
     ]
     .concat()))
     .unwrap_err()
@@ -1122,11 +1089,11 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
             &head[..],
             &[
                 "--bwrap",
-                pick("--bwrap", absolute!("/bin/bwrap")),
+                pick("--bwrap", "/bin/bwrap"),
                 "--store",
-                pick("--store", absolute!("/tmp/store")),
+                pick("--store", "/tmp/store"),
                 "--trusted",
-                pick("--trusted", absolute!("/tmp/trusted")),
+                pick("--trusted", "/tmp/trusted"),
             ][..],
         ]
         .concat()))

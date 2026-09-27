@@ -247,8 +247,8 @@ None of the scripts carries an executable bit; each is invoked as
   nothing publishes it: `aur.archlinux.org` accepts pushes from a
   registered maintainer's SSH key, which is the operator's account and
   not a workflow secret.
-- **winget.** Per-release manifests submitted to `microsoft/winget-pkgs`
-  run on that project's review cadence, not ours.
+- **winget.** Windows is not a host (decision 0063), so no Windows
+  package manager is a channel; WSL2 takes the Linux channels.
 - **snap, flatpak.** Deferred. Both want their own build and runtime
   story, which is the opposite of this directory's one rule.
 

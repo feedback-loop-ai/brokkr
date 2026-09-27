@@ -3,26 +3,6 @@ use crate::env_guard::EnvGuard;
 use crate::transcript::{dsh_home, dsh_home_from};
 use std::path::Path;
 
-/// A host path spelled the way THIS platform spells an absolute one.
-/// `dsh_git_runner_scope` absolutizes the workdir against the host, and
-/// Windows calls a rooted path with no drive letter relative — so it
-/// answers `/work/wt` with the current drive prepended, and a literal
-/// `/work/wt` on the other side of the comparison is measuring the
-/// fixture rather than the driver. Only the prefix differs; every Rust
-/// path API takes forward slashes on Windows too.
-#[cfg(windows)]
-macro_rules! absolute {
-    ($path:literal) => {
-        concat!("C:", $path)
-    };
-}
-#[cfg(not(windows))]
-macro_rules! absolute {
-    ($path:literal) => {
-        $path
-    };
-}
-
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("secrets.env");
@@ -8064,34 +8044,30 @@ fn the_transcript_root_is_kept_under_the_harness_home_and_survives_the_seat() {
 #[test]
 fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     let linked = GitFacts {
-        git_dir: Some(PathBuf::from(absolute!("/main/.git/worktrees/wt"))),
-        common_dir: Some(PathBuf::from(absolute!("/main/.git"))),
+        git_dir: Some(PathBuf::from("/main/.git/worktrees/wt")),
+        common_dir: Some(PathBuf::from("/main/.git")),
         identity: Vec::new(),
     };
-    let scope = dsh_git_runner_scope(absolute!("/work/wt"), &linked, "workspace-write")
+    let scope = dsh_git_runner_scope("/work/wt", &linked, "workspace-write")
         .expect("a linked worktree needs the runner");
-    assert_eq!(scope.workspace, PathBuf::from(absolute!("/work/wt")));
-    assert_eq!(
-        scope.git_dir,
-        PathBuf::from(absolute!("/main/.git/worktrees/wt"))
-    );
-    assert_eq!(scope.common_dir, PathBuf::from(absolute!("/main/.git")));
+    assert_eq!(scope.workspace, PathBuf::from("/work/wt"));
+    assert_eq!(scope.git_dir, PathBuf::from("/main/.git/worktrees/wt"));
+    assert_eq!(scope.common_dir, PathBuf::from("/main/.git"));
 
     // The workspace's own git directory is already inside the writable
     // root, so a primary checkout needs nothing.
     let primary = GitFacts {
-        git_dir: Some(PathBuf::from(absolute!("/repo/.git"))),
-        common_dir: Some(PathBuf::from(absolute!("/repo/.git"))),
+        git_dir: Some(PathBuf::from("/repo/.git")),
+        common_dir: Some(PathBuf::from("/repo/.git")),
         identity: Vec::new(),
     };
-    assert!(dsh_git_runner_scope(absolute!("/repo"), &primary, "workspace-write").is_none());
+    assert!(dsh_git_runner_scope("/repo", &primary, "workspace-write").is_none());
     // A subdirectory of a checkout cannot reach the git directory the
     // session cwd does not contain, but its git directory IS the shared
     // repository: the driver refuses rather than mounting the whole shared
     // `.git` writable (decision 0054).
-    assert!(dsh_git_runner_scope(absolute!("/repo/src"), &primary, "workspace-write").is_some());
-    let refused =
-        dsh_sandbox_row_for(absolute!("/repo/src"), &primary, "workspace-write").unwrap_err();
+    assert!(dsh_git_runner_scope("/repo/src", &primary, "workspace-write").is_some());
+    let refused = dsh_sandbox_row_for("/repo/src", &primary, "workspace-write").unwrap_err();
     assert!(
         refused.contains("shared repository's own git directory"),
         "{refused}"
@@ -8099,14 +8075,9 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     assert!(refused.starts_with("dsh driver: "), "{refused}");
     // No writes to confine, and not a repository at all.
     for mode in ["read-only", "danger-full-access"] {
-        assert!(dsh_git_runner_scope(absolute!("/work/wt"), &linked, mode).is_none());
+        assert!(dsh_git_runner_scope("/work/wt", &linked, mode).is_none());
     }
-    assert!(dsh_git_runner_scope(
-        absolute!("/work/wt"),
-        &GitFacts::default(),
-        "workspace-write"
-    )
-    .is_none());
+    assert!(dsh_git_runner_scope("/work/wt", &GitFacts::default(), "workspace-write").is_none());
     // A workdir that is not a path at all names no writable root to be
     // outside of, so there is nothing to scope.
     assert!(dsh_git_runner_scope("", &linked, "workspace-write").is_none());
@@ -8115,11 +8086,10 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     // then refuses, rather than the driver guessing a worktree name.
     let shared_only = GitFacts {
         git_dir: None,
-        common_dir: Some(PathBuf::from(absolute!("/main/.git"))),
+        common_dir: Some(PathBuf::from("/main/.git")),
         identity: Vec::new(),
     };
-    let scope =
-        dsh_git_runner_scope(absolute!("/work/wt"), &shared_only, "workspace-write").unwrap();
+    let scope = dsh_git_runner_scope("/work/wt", &shared_only, "workspace-write").unwrap();
     assert_eq!(scope.git_dir, scope.common_dir);
     assert!(dsh_sandbox::scope_refusal(&scope)
         .unwrap()

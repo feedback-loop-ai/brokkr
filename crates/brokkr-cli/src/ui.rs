@@ -300,19 +300,8 @@ fn root_error(error: &std::io::Error) -> Discovery {
 /// Whether a recorded home uses the current target's native absolute
 /// syntax, so that a foreign-platform spelling is refused before any
 /// filesystem call rather than reinterpreted as a host-relative path.
-#[cfg(unix)]
 fn native_absolute_home(home: &str) -> bool {
     home.starts_with('/')
-}
-
-#[cfg(windows)]
-fn native_absolute_home(home: &str) -> bool {
-    let bytes = home.as_bytes();
-    (bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes[2] == b'\\' || bytes[2] == b'/'))
-        || ((home.starts_with("\\\\") || home.starts_with("//")) && home.len() > 2)
 }
 
 /// Locate one safely opened local source for a validated reference. No
