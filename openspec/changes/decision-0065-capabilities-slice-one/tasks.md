@@ -2180,6 +2180,10 @@ until the patch lands and is reviewed.
 - **Pending.** The ruling, then the patch; integration (14.1, 15.1,
   15.2), exact coverage outside the box, macOS, remote CI and the
   council.
+- **Re-fire, 2026-09-27 (same run, after triage re-ruled `chore`).** No
+  addendum since `be1f094d`, so the stop stands (evidence.md, "Unit
+  13-fix re-fire"). Both saved patches still apply to `be1f094d` and still
+  hold; 13.1 and 13.2 stay unticked.
 
 ## 14. Unit 14 — Integrate checked cold commands
 

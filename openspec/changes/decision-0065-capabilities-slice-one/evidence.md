@@ -13171,3 +13171,35 @@ Lines are the ones each run reported; rows added later moved some of them.
 **Pending:** the operator's ruling on the two expectations, then the patch.
 After that: exact coverage outside the box, macOS, remote CI, serving
 integration (14.1, 15.1, 15.2) and the council.
+
+## Unit 13-fix re-fire — the stop stands, 2026-09-27
+
+Triage re-ruled the oversized return `chore`, and implement fired again in
+the same run (`0065-rebuild-unit-13-see-the-uni-7fa17ffb`). The bounded
+return to triage cannot grant scope. `operator-ruling-2026-09-23.md` has no
+addendum after "2026-09-27: rebuild unit 12-fix-e's one expectation", so
+the two `capability_launch.rs` expectations are still outside both standing
+admissions. This visit re-verified the saved work and did not rebuild it.
+
+- **The patches are intact.** `sha256sum` gives `dc9621e1…0b619` for
+  `.forge/unit-13-fix/full.patch` and `0289eaa7…f83a8` for
+  `capability-launch.proposed.patch`. Both pass `git apply --check` on
+  `be1f094d`.
+- **The stop is real.** With `full.patch` alone, `cargo test --locked -p
+  brokkr-runtime --test capability_launch --
+  a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened
+  every_position_reproduction_refuses_by_provenance_and_typed_origins_launch`
+  fails 0 passed / 2 failed. The panics are at `capability_launch.rs:6574`
+  and `:6982`, and in both the difference is only `"--tools", "Bash"` (left)
+  against `"--tools", ""` (right), beside `--allowedTools Bash(ls:*)`. The
+  old expectation writes an include list that makes the typed `ls` allow
+  unusable. F6 fixes exactly that.
+- **The proposed patch closes it.** With both patches applied, the same
+  two tests pass (2 passed). `cargo test --locked -p brokkr-protocol`
+  passes: 524 unit, 99 integration (2 ignored) and 1 doctest.
+- **The tree is restored.** Both patches were reversed (`git apply -R`),
+  and `git status --short` was empty afterwards. No production or test
+  file moved in this visit.
+
+**Pending:** the operator's ruling on the two expectations. After it, apply
+both patches, run the full gates, commit, then the council.
