@@ -25,7 +25,7 @@ Every baseline names the tool and version that produced it: a `producedBy` objec
 
 | Check | What fails | Where it runs |
 |---|---|---|
-| `ratchet.sh crap` | A function's cyclomatic complexity above its allowance, a measurement not at 100% coverage, a scan and an LCOV that disagree about which files exist, or a report that is empty or not a JSON object | The coverage job, after the exact gate, on its LCOV |
+| `ratchet.sh crap` | A function's cyclomatic complexity above its allowance, a measurement not at 100% coverage, a scan and an LCOV that disagree about which files exist, or a report or baseline that breaks the contract both are read by: one JSON object with a non-empty `entries` array, each entry a non-empty `file` and `function`, a whole `line` from 1, a finite `cyclomatic` from 1, a numeric `coverage` and a finite `crap`, whose CRAP is its cyclomatic complexity at 100% coverage | The coverage job, after the exact gate, on its LCOV |
 | `ratchet.sh api` | A library crate's public API that differs from its snapshot, or a snapshot with no crate | The coverage job, on the same pinned nightly |
 | `ratchet.sh files` | A Rust file longer than its allowance | The `ratchets` job ("baseline ratchets") |
 | `ratchet.sh clones` | A jscpd clone whose fingerprint is not in its scope's baseline, a scan that read no file, or a report that is empty or not a report | The `ratchets` job ("baseline ratchets") |
@@ -34,7 +34,7 @@ Every baseline names the tool and version that produced it: a `producedBy` objec
 
 **Allowances.** A function may reach CC 15 or its baseline, whichever is higher, as the operator ruled on 2026-09-26 (decision 0071 ruling 4). A new function stays within 15, an existing one may change freely up to 15, and one already over 15 may only shrink. A file may grow to its ceiling or its baseline, whichever is higher.
 
-**Matching.** cargo-crap matches a function to its baseline by file and name, not by line, so an edit above a function does not make it new. A function moved to another file, or renamed, is new. If it is over CC 15, its baseline entry moves with a ruling (see below).
+**Matching.** The ratchet matches a function to `crap-baseline.json` by its own file and name, not by line, so an edit above a function does not make it new. A function moved to another file, or renamed, is new: with no baseline entry at its own file, it may reach only CC 15, whatever status cargo-crap gives it. If it is over CC 15, its baseline entry moves with a ruling (see below). Cfg twins of one file and name pair in line order, as `baselines` pairs them: the first twin in the report is judged against the first twin in the baseline, the second against the second, and a twin with no baseline twin at its place is new. cargo-crap's own pairing is not trusted here. It pairs a function with a same-named entry in another file, as `moved` when its score did not change and as `improved` or `regressed`, with `previous_file`, when it did. Two files that share only a filename, such as `src/old/mod.rs` and `src/new/mod.rs`, it pairs as one file, reporting `unchanged` with no `previous_file`.
 
 **Every listing, and when it may be empty.** `ratchet.sh`'s one table names every file under `quality/` as a rule, a doc or a listing. `baselines` iterates that table, and the tests enumerate it through `ratchet.sh listings`, so a new baseline cannot arrive unguarded. Each listing has an entry counter and an empty policy:
 

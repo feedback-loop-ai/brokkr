@@ -6,7 +6,8 @@
 # read, or a measurement that produced nothing, is a refusal.
 #
 #   ratchet.sh crap [lcov]       cyclomatic complexity, after the exact gate
-#   ratchet.sh crap-judge <json> the verdict on a cargo-crap --baseline report
+#   ratchet.sh crap-judge <json> <baseline>
+#                                the verdict on a cargo-crap --baseline report
 #   ratchet.sh files             lines per Rust file
 #   ratchet.sh clones            jscpd fingerprints, per scope
 #   ratchet.sh api               the public-API snapshots, on the pinned nightly
@@ -41,38 +42,105 @@ verdict() {
   refuse "$what: $(wc -l < "$offenses" | tr -d ' ') finding(s)"
 }
 
+# crap_unreadable <path>: each way <path> breaks the contract both
+# complexity documents keep, the cargo-crap report and the committed
+# baseline alike, one per line; nothing when it keeps it. The file is one
+# JSON document, an object whose `entries` array is not empty. Each entry
+# has a non-empty `file` and `function`, a whole `line` from 1, a finite
+# `cyclomatic` from 1, a numeric `coverage` and a finite `crap`, and at 100%
+# coverage its CRAP is its cyclomatic complexity (CC² × (1 − coverage)³ +
+# CC). The file is slurped because `jq -e` exits by a file's last document
+# while `--slurpfile` readers take the first, and every number is checked
+# finite because jq types NaN as a number that no comparison holds for.
+crap_unreadable() {
+  jq -r -s '
+    def finite: type == "number" and (isnan | not) and (isinfinite | not);
+    def text: type == "string" and length > 0;
+    def shown: if type == "number" and isnan then "NaN" else tojson end;
+    def contract:
+      if (.file | text | not) then "file \(.file | shown) is not a non-empty string"
+      elif (.function | text | not) then "function \(.function | shown) is not a non-empty string"
+      elif (.line | finite and . >= 1 and . == floor) | not then "line \(.line | shown) is not a whole number from 1"
+      elif (.cyclomatic | finite and . >= 1) | not then "cyclomatic \(.cyclomatic | shown) is not a finite number from 1"
+      elif (.coverage | type) != "number" then "coverage \(.coverage | shown) is not a number"
+      elif (.crap | finite | not) then "crap \(.crap | shown) is not a finite number"
+      elif .coverage == 100 and .crap != .cyclomatic
+      then "crap \(.crap) is not its cyclomatic \(.cyclomatic) at 100% coverage"
+      else empty end;
+    if length != 1 then "\(length) JSON documents, not one"
+    elif (.[0] | type) != "object" then "not a JSON object"
+    elif (.[0].entries | type) != "array" or (.[0].entries | length) == 0 then "no entries: no function was measured"
+    else .[0].entries | to_entries[] | .key as $i | .value
+      | if type != "object" then "entry \($i): not an object" else contract | "entry \($i): \(.)" end
+    end' "$1" 2> /dev/null || echo "not readable JSON"
+}
+
+# crap_readable <path> <what>: refuse <path> unless it keeps the contract.
+crap_readable() {
+  [ -f "$1" ] || refuse "no $2 at $1"
+  crap_unreadable "$1" > "$scratch/unreadable"
+  [ -s "$scratch/unreadable" ] || return 0
+  sed 's/^/  /' "$scratch/unreadable" >&2
+  refuse "the $2 at $1 is not one this check reads"
+}
+
+# How both complexity checks pair entries, the judge and `baselines`: the
+# entries of one file and function name (cfg twins) are numbered in line
+# order, `twin`, and the i-th twin of a key on one side is the i-th twin of
+# that key on the other, found by `twin_key`.
+crap_twins='
+  def twins: [.entries[]] | group_by([.file, .function])
+    | map(sort_by(.line) | to_entries | map(.value + {twin: .key})) | add // [];
+  def twin_key: [.file, .function, .twin] | tojson;
+  def by_twin: twins | map({key: twin_key, value: .}) | from_entries;'
+
 crap_judge() {
-  local report="$1" cc
-  [ -f "$report" ] || refuse "no cargo-crap report at $report"
-  # A tool that wrote nothing measured nothing: jq reads no value from an
-  # empty file and exits 0, so emptiness and shape are refused first.
-  [ -s "$report" ] || refuse "the cargo-crap report at $report is empty"
-  jq -e 'type == "object"' "$report" > /dev/null 2>&1 ||
-    refuse "the cargo-crap report at $report is not a JSON object"
+  local report="$1" baseline="$2" cc
+  crap_readable "$report" "cargo-crap report"
+  crap_readable "$baseline" "complexity baseline"
+  # A baseline entry below 100% coverage carries a CRAP inflated past its
+  # complexity (CC squared plus CC with no coverage), which measure.sh writes
+  # from a partial LCOV. Such a baseline was not measured at the gate, so it
+  # is refused rather than read.
+  jq -e -s 'all(.[0].entries[]; .coverage == 100)' "$baseline" > /dev/null ||
+    refuse "the complexity baseline at $baseline holds an entry below 100% coverage, whose CRAP is not its complexity"
   cc="$(ceiling ccNewFunction)"
-  # cargo-crap matches a function to its baseline by file and name, not by
-  # line, so an edit above a function does not make it new. An existing
-  # function may grow to the ceiling or its baseline, whichever is higher;
-  # a new one only to the ceiling. At the gate's 100% coverage CRAP equals
-  # cyclomatic complexity, so anything less than 100% is refused.
-  jq -r --argjson cc "$cc" '
-    def known: IN("new", "regressed", "unchanged", "improved");
-    def allowance: if .status == "new" then $cc else ([.baseline_crap, $cc] | max) end;
-    if (.entries | type) != "array" or (.entries | length) == 0
-    then "no function was measured"
-    elif (.diagnostics.source_only.count | type) != "number" or (.diagnostics.lcov_only.count | type) != "number"
+  # cargo-crap's pairing is not trusted for the allowance. It pairs a
+  # function with a same-named baseline entry in another file: as `moved`
+  # when its score did not change, and as `improved` or `regressed`, with
+  # `previous_file`, when it did. Two files that share only a filename
+  # (src/old/mod.rs, src/new/mod.rs) it pairs as one file, reporting
+  # `unchanged` with no `previous_file`. So the allowance is read from the
+  # committed baseline, by the entry's own file, name and twin number
+  # (crap_twins, as `baselines` pairs them). A function with no baseline
+  # entry at its own file and twin number is new, whatever its status: it
+  # may reach only the ceiling, and one over it moves its baseline entry
+  # with a ruling (quality/README.md). One with an entry may grow to the
+  # ceiling or its baseline's cyclomatic complexity, whichever is higher:
+  # the same field `baselines` guards, so a raise has one home. Matching is
+  # not by line, so an edit above a function does not make it new. At the
+  # gate's 100% coverage CRAP equals cyclomatic complexity, which the
+  # contract holds, so anything less than 100% is refused.
+  jq -r -n --argjson cc "$cc" --slurpfile report "$report" --slurpfile base "$baseline" "$crap_twins"'
+    def known: IN("new", "regressed", "unchanged", "improved", "moved");
+    ($base[0] | by_twin) as $was
+    | $report[0]
+    | if (.diagnostics.source_only.count | type) != "number" or (.diagnostics.lcov_only.count | type) != "number"
     then "the report carries no source and LCOV match counts"
-    elif .diagnostics.source_only.count > 0 or .diagnostics.lcov_only.count > 0
+    elif .diagnostics.source_only.count != 0 or .diagnostics.lcov_only.count != 0
     then "the scan and the LCOV disagree: \(.diagnostics.source_only.count) source file(s) with no coverage, \(.diagnostics.lcov_only.count) covered file(s) not scored"
-    else .entries[]
+    else twins[]
       | "\(.file):\(.line) \(.function)" as $at
+      | $was[twin_key].cyclomatic as $old
       | if (.status | type) != "string" or (.status | known | not) then "\($at): status \(.status) is not one this check reads"
         elif .coverage != 100 then "\($at): \(.coverage)% covered, so CRAP is not cyclomatic complexity"
-        elif (.crap | type) != "number" then "\($at): no CRAP score"
-        elif .status != "new" and (.baseline_crap | type) != "number" then "\($at): matched a baseline with no CRAP score"
-        elif .crap > allowance then "\($at): CC \(.crap) over \(allowance) (\(.status))"
+        elif $old == null then
+          if .cyclomatic > $cc
+          then "\($at): CC \(.cyclomatic) over \($cc), new: no baseline entry at this file\(if .twin > 0 then " for twin #\(.twin)" else "" end) (\(.status))"
+          else empty end
+        elif .cyclomatic > ([$old, $cc] | max) then "\($at): CC \(.cyclomatic) over its baseline \([$old, $cc] | max) (\(.status))"
         else empty end
-    end' "$report" > "$scratch/crap.offenses" || refuse "the cargo-crap report is not readable JSON"
+    end' > "$scratch/crap.offenses" || refuse "the cargo-crap report is not readable JSON"
   verdict "cyclomatic complexity" "$scratch/crap.offenses"
 }
 
@@ -81,7 +149,7 @@ crap() {
   [ -f "$lcov" ] || refuse "no LCOV at $lcov: run scripts/coverage-exact.sh first"
   [ -f "$out/crap-baseline.json" ] || refuse "no quality/crap-baseline.json"
   crap_report "$lcov" "$scratch/crap.json" --baseline "$out/crap-baseline.json"
-  crap_judge "$scratch/crap.json"
+  crap_judge "$scratch/crap.json" "$out/crap-baseline.json"
 }
 
 # parse_file_lines <file> <label> <noun> <dest>: the "<count> <path>" entries
@@ -201,6 +269,21 @@ json_holds() {
       return 1
     }
   done
+}
+
+# crap_holds <path>: refuse a complexity baseline, on either side, that
+# breaks the contract the judge reads (crap_unreadable).
+crap_holds() {
+  local side held=0
+  for side in "$scratch/base" "$1"; do
+    crap_unreadable "$side" > "$scratch/unreadable"
+    [ -s "$scratch/unreadable" ] || continue
+    held=1
+    LABEL="$1" SIDE="$([ "$side" = "$1" ] && echo here || echo "at $rev")" awk '
+      { printf "%s: %s (%s)\n", ENVIRON["LABEL"], $0, ENVIRON["SIDE"] }
+    ' "$scratch/unreadable" >> "$scratch/malformed"
+  done
+  return "$held"
 }
 
 # listing_holds <path> <line regex> <what>: refuse a text baseline, on either
@@ -360,20 +443,14 @@ raised_since() {
   git ls-tree -r --name-only "$rev" -- quality/ | while IFS= read -r path; do
     [ -e "$path" ] || printf '%s: removed\n' "$path"
   done >> "$scratch/raised"
-  # Complexity: a function over the ceiling that is new or grew. Twins of one
-  # name in one file pair in line order.
-  if pair quality/crap-baseline.json &&
-    json_holds quality/crap-baseline.json '(.entries | type) == "array" and (.entries | length) > 0
-      and all(.entries[]; (.file | type) == "string" and (.function | type) == "string"
-        and (.line | type) == "number" and (.cyclomatic | type) == "number")' \
-      "no baseline entry parsed, or an entry without file, function, line and cyclomatic"; then
-    jq -r -n --argjson cc "$cc" --slurpfile base "$scratch/base" --slurpfile head "$out/crap-baseline.json" '
-      def keyed: [.entries[]] | group_by([.file, .function])
-        | map(sort_by(.line) | to_entries[] | {key: "\(.value.file) \(.value.function) #\(.key)", value: .value.cyclomatic})
-        | from_entries;
-      ($base[0] | keyed) as $b | ($head[0] | keyed) as $h
-      | $h | to_entries[] | select(.value > $cc and (($b[.key] // -1) < .value))
-      | "crap-baseline.json: \(.key) at CC \(.value) (was \($b[.key] // "absent"))"' >> "$scratch/raised"
+  # Complexity: a function over the ceiling that is new or grew, read by the
+  # judge's contract and paired as the judge pairs it (crap_twins).
+  if pair quality/crap-baseline.json && crap_holds quality/crap-baseline.json; then
+    jq -r -n --argjson cc "$cc" --slurpfile base "$scratch/base" --slurpfile head "$out/crap-baseline.json" "$crap_twins"'
+      ($base[0] | by_twin) as $b
+      | $head[0] | twins[] | $b[twin_key].cyclomatic as $was
+      | select(.cyclomatic > $cc and ($was // -1) < .cyclomatic)
+      | "crap-baseline.json: \(.file) \(.function) #\(.twin) at CC \(.cyclomatic) (was \($was // "absent"))"' >> "$scratch/raised"
   fi
   # File size: a file over its ceiling that is new or grew, its ceiling
   # following its path.
@@ -503,12 +580,12 @@ baselines() {
 
 case "${1:-}" in
   crap) shift; crap "$@" ;;
-  crap-judge) shift; crap_judge "${1:?crap-judge needs a report}" ;;
+  crap-judge) shift; crap_judge "${1:?crap-judge needs a report}" "${2:?crap-judge needs the baseline}" ;;
   files) files ;;
   clones) clones ;;
   api) api ;;
   baselines) shift; baselines "$@" ;;
   listings) listings ;;
   table) quality_table ;;
-  *) refuse "usage: ratchet.sh crap [lcov] | crap-judge <report> | files | clones | api | baselines <rev> | listings | table" ;;
+  *) refuse "usage: ratchet.sh crap [lcov] | crap-judge <report> <baseline> | files | clones | api | baselines <rev> | listings | table" ;;
 esac
