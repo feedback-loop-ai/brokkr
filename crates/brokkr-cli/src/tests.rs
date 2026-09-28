@@ -1142,6 +1142,29 @@ fn loopback_server(responses: Vec<String>) -> (String, std::thread::JoinHandle<(
     (format!("http://{address}"), handle)
 }
 
+/// A completed run named `bridge-run` in `db`, whose manifest seals
+/// `base_url` as its Looper callback audience.
+fn completed_bridge_run(db: &std::path::Path, base_url: &str) {
+    let base_manifest = json!({
+        "engine":"0.2.0", "event_schema":1, "database_schema":1,
+        "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
+    });
+    let mut shell_bundle = compiled_recipe("recipes/fast");
+    shell_bundle.name = "fast".into();
+    shell_bundle.manifest = base_manifest.clone();
+    let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", base_url);
+    dispatch.recipe.compiled_sha256 = sha256_hex(&base_manifest);
+    dispatch = dispatch.sealed();
+    let manifest = build_run_manifest_v2(&base_manifest, dispatch).unwrap();
+    let mut store = Store::open(db).unwrap();
+    store
+        .create_run("bridge-run", "feature", "fast", &manifest)
+        .unwrap();
+    store
+        .append_next("bridge-run", EventType::RunCompleted, json!({}), None, None)
+        .unwrap();
+}
+
 #[test]
 fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
     let dir = tempfile::tempdir().unwrap();
@@ -1159,24 +1182,7 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
             })
             .collect(),
     );
-    let base_manifest = json!({
-        "engine":"0.2.0", "event_schema":1, "database_schema":1,
-        "driver_protocol":1, "bundle_name":"fast", "files":{"bundle.json":"a".repeat(64)}
-    });
-    let mut shell_bundle = compiled_recipe("recipes/fast");
-    shell_bundle.name = "fast".into();
-    shell_bundle.manifest = base_manifest.clone();
-    let mut dispatch = dispatch_for(&shell_bundle, "bridge-run", &base_url);
-    dispatch.recipe.compiled_sha256 = sha256_hex(&base_manifest);
-    dispatch = dispatch.sealed();
-    let manifest = build_run_manifest_v2(&base_manifest, dispatch).unwrap();
-    let mut store = Store::open(&db).unwrap();
-    store
-        .create_run("bridge-run", "feature", "fast", &manifest)
-        .unwrap();
-    store
-        .append_next("bridge-run", EventType::RunCompleted, json!({}), None, None)
-        .unwrap();
+    completed_bridge_run(&db, &base_url);
 
     let mut env = EnvGuard::lock();
     let token_name = format!("BROKKR_TEST_TOKEN_{}", std::process::id());
@@ -1201,22 +1207,31 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
         .to_string()
         .contains("credential is empty"));
     env.set(&token_name, "test-token");
-    assert!(run_with(
-        cli(Cmd::Bridge(BridgeArgs {
-            run: "missing-run".into(),
-            journal: at(&db),
-            looper_url: "http://127.0.0.1:1".into(),
-            token_env: token_name.clone(),
-            follow: false,
-            interval_ms: 0,
-        })),
-        unmapped(),
-        ui::serve,
-        Some(1),
-        None,
-        run_tui,
-    )
-    .is_err());
+    let sync_once_at = |run: &str| {
+        run_with(
+            cli(Cmd::Bridge(BridgeArgs {
+                run: run.into(),
+                journal: at(&db),
+                looper_url: "http://127.0.0.1:1".into(),
+                token_env: token_name.clone(),
+                follow: false,
+                interval_ms: 0,
+            })),
+            unmapped(),
+            ui::serve,
+            Some(1),
+            None,
+            run_tui,
+        )
+    };
+    assert!(sync_once_at("missing-run").is_err());
+    // A run the selector resolves, synced against a Looper other than the
+    // one its manifest sealed: the sync itself refuses, and the verb
+    // returns that refusal rather than printing a report.
+    assert_eq!(
+        format!("{:#}", sync_once_at("bridge-run").unwrap_err()),
+        "producer transport: transport origin does not match the sealed callback audience"
+    );
     assert_eq!(
         run_with(
             cli(command(false)),
