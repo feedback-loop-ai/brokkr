@@ -3298,6 +3298,163 @@ fn a_skipped_tree_holds_no_second_name_for_a_consumed_file() {
     assert_eq!(observed, expected);
 }
 
+// ------------------------- unit 16-fix-e: the walk names what it cannot see
+
+/// The walk's refusal of `consumer`'s entry `key`, which it could not
+/// observe for `cause`.
+fn unobserved_entry(consumer: &str, key: &str, cause: &str) -> String {
+    format!(
+        "{consumer}, whose entry '{key}' the walk that pins the layer cannot observe ({cause}): it \
+         was removed, replaced or made unobservable after the read. A consumed input the walk \
+         cannot observe is refused rather than pinned unobserved (decision 0065 slice one, \
+         design D7)"
+    )
+}
+
+/// The walk's refusal of the layer's directory `key`, which it could not
+/// list for `cause`.
+fn unlisted_directory(key: &str, cause: &str) -> String {
+    format!(
+        "bundle directory './{key}' cannot be listed ({cause}): the walk that pins a layer lists \
+         every directory it enters, a skipped tree's included where it holds each consumed file \
+         to one name, so a directory it cannot list is refused rather than passed over (decision \
+         0065 slice one, design D7)"
+    )
+}
+
+/// Rebuild unit 16-fix-e, F1 (16.1; capability-manifest-and-prompts: a
+/// missing consumed input refuses with a bounded source/site/kind/path
+/// cause): once the walk has listed the layer, a consumed entry it can no
+/// longer observe names who read it, standalone and inherited. The table
+/// `policy.json` is removed as the walk reaches `aa.bin`, listed before it;
+/// and `roles/` is moved aside as the walk reaches `zz.md`, a hard link to
+/// the charter listed after it, whose target entry is then asked. On
+/// `af773294` the first said only "bundle io: No such file or directory".
+#[cfg(unix)]
+#[test]
+fn a_consumed_entry_the_walk_cannot_observe_names_who_read_it() {
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for inherited in [false, true] {
+        let library = Library::new();
+        let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+        let compiled = if inherited { &leaf } else { &base };
+        let (early, late) = (base.join("aa.bin"), base.join("zz.md"));
+        std::fs::write(&early, "walked before the table\n").unwrap();
+        let policy = base.join("policy.json");
+        let remove: Box<dyn FnOnce()> = Box::new(move || std::fs::remove_file(&policy).unwrap());
+        let table = said_acting(compiled, vec![(ReadStage::Walked, early.clone(), remove)]);
+        let ruling = serde_json::to_vec(&base_policy()).unwrap();
+        std::fs::write(base.join("policy.json"), ruling).unwrap();
+        std::fs::remove_file(&early).unwrap();
+        std::fs::hard_link(base.join("roles/role.md"), &late).unwrap();
+        let (roles, aside) = (base.join("roles"), library.path().join("aside"));
+        let away: Box<dyn FnOnce()> = Box::new(move || std::fs::rename(&roles, &aside).unwrap());
+        let role = said_acting(compiled, vec![(ReadStage::Walked, late, away)]);
+        observed.push((inherited, table, role));
+        let refused = |consumer: &str, key: &str| {
+            let refusal = unobserved_entry(consumer, key, "entity not found");
+            match inherited {
+                false => format!("bundle: {refusal}"),
+                true => format!("bundle: bundle: {refusal} (composed: derived -> base)"),
+            }
+        };
+        expected.push((
+            inherited,
+            refused(&table_by(&base, "policy.json"), "policy.json"),
+            // `review`, read first, also names the charter `work` names.
+            refused(&role_by(&base, "review", "roles/role.md"), "roles/role.md"),
+        ));
+    }
+    assert_eq!(observed, expected);
+}
+
+/// Rebuild unit 16-fix-e, F3 (16.1; design D7): the search of a skipped tree
+/// for a second name follows no link. `dialects/out` links to a directory
+/// outside the layer holding one it cannot list, and `dialects/up` links
+/// back to the layer: neither is descended, so both identities stand as
+/// they stood without them (on `af773294`, following `out` refused with a
+/// bare "bundle io: Permission denied"). A directory INSIDE the skipped tree
+/// that the walk cannot list is refused naming it, standalone and
+/// inherited.
+#[cfg(unix)]
+#[test]
+fn a_skipped_tree_is_searched_without_following_a_link() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let mode = |path: &Path, bits| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).unwrap()
+    };
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+    std::fs::create_dir_all(base.join("dialects")).unwrap();
+    let before = (said(&base), said(&leaf));
+    assert!(before.0.starts_with("compiled to"), "{}", before.0);
+    let (outside, private) = (
+        library.path().join("outside"),
+        base.join("dialects/private"),
+    );
+    std::fs::create_dir_all(outside.join("locked")).unwrap();
+    symlink(&outside, base.join("dialects/out")).unwrap();
+    symlink("..", base.join("dialects/up")).unwrap();
+    mode(&outside.join("locked"), 0o000);
+    let linked = (said(&base), said(&leaf));
+    std::fs::create_dir(&private).unwrap();
+    mode(&private, 0o000);
+    let locked = (said(&base), said(&leaf));
+    mode(&private, 0o755);
+    mode(&outside.join("locked"), 0o755);
+    let refused = unlisted_directory("dialects/private", "permission denied");
+    assert_eq!(
+        (linked, locked),
+        (
+            before,
+            (
+                format!("bundle: {refused}"),
+                format!("bundle: bundle: {refused} (composed: derived -> base)")
+            )
+        )
+    );
+}
+
+/// Rebuild unit 16-fix-e, F2 (16.2; decision 0046 ruling 4): a re-walk of a
+/// leaf's own directory, which consumed nothing, passes over the top-level
+/// names the walk skips without entering them, as `layer_drift` reaches it
+/// for a script at the layer's root. Operator configuration written there
+/// after the compile — the realm map, a dialect, a capability definition,
+/// and a dialect directory it could not even list — names no drift; a file
+/// the layer pins does.
+#[cfg(unix)]
+#[test]
+fn a_root_rewalk_passes_over_what_the_walk_skips() {
+    use std::os::unix::fs::PermissionsExt;
+    let library = Library::new();
+    let (_, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+    let bundle = Bundle::compile(&leaf).unwrap();
+    assert_eq!(layer_drift(&bundle, &leaf), None);
+    for dir in ["dialects/private", "capabilities"] {
+        std::fs::create_dir_all(leaf.join(dir)).unwrap();
+    }
+    for file in [
+        "realms.json",
+        "dialects/claude.json",
+        "capabilities/read.json",
+    ] {
+        std::fs::write(leaf.join(file), "{}\n").unwrap();
+    }
+    let private = leaf.join("dialects/private");
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let skipped = layer_drift(&bundle, &leaf);
+    std::fs::write(leaf.join("notes.md"), "# pinned\n").unwrap();
+    let added = layer_drift(&bundle, &leaf);
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        (skipped, added),
+        (
+            None,
+            Some(("derived".to_string(), "added: notes.md".to_string()))
+        )
+    );
+}
+
 /// Rebuild unit 16-fix-d, F2 (16.1, 16.2; design D7): two consumed names
 /// for one file are refused. `review`'s charter `roles/review.md` is a hard
 /// link to `work`'s `roles/role.md`; each is a key a bound read consumed,

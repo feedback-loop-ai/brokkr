@@ -18871,3 +18871,165 @@ run on this visit.
   unreadable directory under `dialects/` or `capabilities/` now refuses a
   compile that previously ignored it. That is fail-closed, and consistent
   with the pinned walk.
+
+*Corrected by unit 16-fix-e (chief F5 on `af773294`):* the link-cycle half
+of that follow-up was not observed and does not hold. The chief compiled a
+temporary copy of `bundles/verify` with `dialects/up -> ..` on `af773294`
+and it compiled, digest unchanged (`f7cbd4bb…`). What was observed to refuse
+on `af773294` is an unreadable directory reached in a skipped tree
+(16-fix-e's baseline below: "bundle io: Permission denied (os error 13)").
+16-fix-e stops the search from following links there at all.
+
+## Unit 16-fix-e — the walk names what it cannot see, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-fd9035f4`, based on `af773294`. It
+answers the chief's F1–F5 on `af773294`, under the operator's ruling of
+2026-09-28 (the security surface is closed; F4 stays pending until a
+case-folding or macOS host can show it). Production: `bundle.rs` only.
+Tests: `bundle/compose_tests.rs`. Scratch logs are under
+`.forge/unit-16-fix-e/` (not committed).
+
+### Production
+
+**F1.** `one_entry` now maps a failure to observe a consumed entry to
+`unobserved`: the consumer, as that input's own refusals open (declaring
+`bundle.json`, and `'policy' names …`, `seat … names role …` or "the
+layer's declaring document"), the entry key, bounded, and the io kind. It
+does this for the entry under its own consumed key (`symlink_metadata`, and
+the parent `metadata` in `entry_of`) and, for an entry under no consumed key
+that IS a consumed file, for the target entry it is compared with. An entry
+under no consumed key whose own metadata fails is not known to be a consumed
+file, and keeps the plain io error.
+
+**F3.** The collection loop asks a skipped-tree entry for its own type
+(`DirEntry::file_type`, which does not follow links), so a linked directory
+there is one unpinned entry and is never descended. The pinned tree is
+unchanged: it still follows contained linked directories with
+`Path::is_dir`. A directory the walk cannot list (`read_dir`, or a failing
+entry or entry type) is refused by `unlisted`, naming it as `'./<key>'` in
+the layer, with the io kind. This applies to pinned directories too, since
+it is the same call; the refusal was a bare io error there before.
+
+**F2.** No production change. The branch `if skipped && consumed.is_empty()`
+is behaviour-preserving (a layer that consumed nothing has nothing to hold
+to one name). It is now exercised, and its one observable effect, which is
+not entering a skipped directory it cannot list, is asserted.
+
+### Tests
+
+New, in `bundle/compose_tests.rs`, with helpers `unobserved_entry` and
+`unlisted_directory`:
+
+- **`a_consumed_entry_the_walk_cannot_observe_names_who_read_it` (F1).**
+  Standalone and inherited, in one assertion. Two rows per mode:
+  - At `ReadStage::Walked` for `aa.bin`, which is listed before the table,
+    `policy.json` is removed. Expected: the table's consumer
+    (`<base>/bundle.json: 'policy' names 'policy.json'`), entry
+    `'policy.json'`, `(entity not found)`.
+  - At `ReadStage::Walked` for `zz.md`, a hard link to the charter listed
+    after it, `roles/` is moved out of the layer. Expected: the charter's
+    first consumer (`seat 'review' names role 'roles/role.md'`; both base
+    seats name that file and `review` is read first), entry
+    `'roles/role.md'`, `(entity not found)`.
+  - Inherited cells are the same refusal wrapped as `bundle: bundle: …
+    (composed: derived -> base)`.
+- **`a_skipped_tree_is_searched_without_following_a_link` (F3).** With
+  `dialects/out` linked to a directory outside the layer that holds an
+  unlistable (mode 000) directory, and `dialects/up -> ..`, both identities
+  equal those compiled without them. An unlistable `dialects/private` is
+  refused as `bundle directory './dialects/private' cannot be listed
+  (permission denied)…`, standalone and inherited. Modes are restored
+  before the assertion.
+- **`a_root_rewalk_passes_over_what_the_walk_skips` (F2).** After compiling
+  the leaf, `realms.json`, `dialects/claude.json`,
+  `capabilities/read.json` and an unlistable `dialects/private` are written
+  into it. `layer_drift(&bundle, &leaf)` (a script at the layer's root, as
+  `layer_drift` reaches it) is `None`. After `notes.md` is added it is
+  `Some(("derived", "added: notes.md"))`.
+
+### Baseline (`af773294`'s `bundle.rs`, these tests)
+
+`baseline-af773294.log`: 1 passed, 2 failed.
+
+- F1 test, left: every cell `bundle io: No such file or directory (os error
+  2)`, inherited `bundle: bundle io: … (composed: derived -> base)`. This is
+  the chief's F1, reproduced deterministically.
+- F3 test, left: every cell `bundle io: Permission denied (os error 13)`,
+  both with the links (following `out`) and with `dialects/private`.
+- F2 test: passes. That is expected, because the branch existed and was
+  unexercised.
+
+### Mutations (each compiles; restored from the saved candidate after each)
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| M1: a consumed key's failure is a bare io error (`Some(_) => found?,`) | F1 test: the standalone table cell is `bundle io: No such file or directory (os error 2)`. 2 passed | `m1.log` |
+| M2: the target entry's failure is a bare io error (`entry == target?`) | F1 test: the charter cells are `bundle io: No such file or directory (os error 2)`, while the table cells hold. 2 passed | `m2.log` |
+| M3: skipped trees follow links (`path.is_dir()` for skipped entries) | F3 test: the linked cells are `bundle: bundle directory './dialects/out/locked' cannot be listed (permission denied)…`. 2 passed | `m3.log` |
+| M4: the listing refusal is off (`std::fs::read_dir(&current)?`) | F3 test: the `dialects/private` cells are `bundle io: Permission denied (os error 13)`. 2 passed | `m4.log` |
+| M5: the root rewalk enters skipped trees (`if skipped && false {`) | F2 test: `layer_drift` is `Some(("derived", "bundle: bundle directory './dialects/private' cannot be listed (permission denied)…"))`. 2 passed | `m5.log` |
+
+The file was restored and checked with `cmp` against the saved candidate.
+The compose suite then passed 57 (54 before, plus these three).
+
+### Coverage diagnostic (not the gate)
+
+`cargo +nightly-2026-09-05 llvm-cov clean --workspace`, then `cargo
++nightly-2026-09-05 llvm-cov --locked -p brokkr-runtime --lib --branch
+--lcov` (`runtime-clean.lcov`; 606 passed). A first run without the clean
+merged stale profiles from an earlier source graph (counts on comment
+lines), so it was discarded. For `bundle.rs` lines 6660–6929 (`walk_files`,
+`unlisted`, `unobserved`, `one_entry`, `entry_of`, `consumed_entry`), there
+is no `DA` record at 0 and no `BRDA` record at 0 or `-`:
+
+- F2: `DA:6692,6` (the `continue`) and `BRDA:6691,1,2,6` /
+  `BRDA:6691,1,3,279` (`consumed.is_empty()`). On `af773294` the member's
+  report had `DA:6687,0` and `BRDA:6686,1,2,0`.
+- F3: `BRDA:6694,0,0,279` / `0,1,6427` (skipped or not). `unlisted`
+  (`FN:6794`) `FNDA:14`, and the `refuse` closure (`FN:6677`) `FNDA:14`.
+- F1: `unobserved` (`FN:6810`) `FNDA:4`. The consumed-key closure
+  (`FN:6836`) has `FNDA:2`, and the target-entry closure (`FN:6849`) has
+  `FNDA:2`.
+
+`scripts/coverage-exact.sh` stays the external gate, and it is pending.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok.
+  The runtime lib has 606 (`workspace.log`), up from 603 by the three new
+  tests.
+- `compile --bundle bundles/verify`: `f7cbd4bb…`, unchanged
+  (`verify.log`). `bundles/self`: `45dc1c7e…`, unchanged (`self.log`).
+- `openspec validate --all --strict --no-interactive`: 18 passed.
+- `git diff --check`: clean.
+
+The default-feature workspace suite was not run on this visit.
+
+### Pending
+
+- **F4, and with it 16.1.** The case-insensitive rows of the spelling
+  refusal (`POLICY.JSON`, `TABLE.JSON`) are unobserved. They need a
+  case-folding or macOS host. Not claimed.
+- The link-cycle case on a shipped bundle was not re-run on this head: this
+  seat refuses `ln`. The same shape (`dialects/up -> ..`) is a row of the F3
+  test, on a canonical temporary fixture.
+- macOS: `openat`/`readlinkat` and the flag values.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council.
+
+### Follow-ups, not built here
+
+- An entry under no consumed key whose own metadata fails mid-walk is still
+  a bare io error: it is not known to be a consumed input. A directory
+  removed after listing, above a consumed file, is refused naming the
+  directory, not the consumer.

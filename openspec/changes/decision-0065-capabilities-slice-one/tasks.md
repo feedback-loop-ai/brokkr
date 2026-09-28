@@ -3607,6 +3607,54 @@ pending.**
   - Exact coverage outside the box.
   - Remote CI and the council.
 
+Unit 16-fix-e (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-fd9035f4`,
+based on `af773294`; evidence.md, "Unit 16-fix-e"). It finishes unit 16 on
+the chief's F1–F5 for `af773294` under the operator's ruling of 2026-09-28.
+Production: `bundle.rs` only. Tests: `bundle/compose_tests.rs`. **16.2 and
+16.3 stay closed. 16.1 stays open: its case-insensitive refusal row (F4) is
+still unobserved and is not claimed.**
+
+- **F1, the refusal names who read it.** A consumed entry the walk has
+  listed but can no longer observe is refused naming its consumer (the
+  declaring document, the input kind and site, the reference), its entry and
+  the io kind, never a bare `bundle io:`. This covers the entry under its
+  own key and, for a second name, the target entry it is compared with.
+  - New test `a_consumed_entry_the_walk_cannot_observe_names_who_read_it`,
+    standalone and inherited. The table is removed at the `Walked` seam for
+    `aa.bin`, listed before it; `roles/` is moved aside at the `Walked` seam
+    for `zz.md`, a hard link to the charter listed after it.
+  - Red on `af773294`: every cell said "bundle io: No such file or directory
+    (os error 2)". Caught by M1 (the table rows) and M2 (the charter rows).
+- **F2, every branch exercised.** New test
+  `a_root_rewalk_passes_over_what_the_walk_skips`: `layer_drift` over a
+  leaf's own directory, which consumed nothing, with a realm map, a dialect,
+  a capability definition and an unlistable dialect directory written after
+  the compile, names no drift; a new pinned file is `added: notes.md`.
+  Green on `af773294` by design (the branch was already there, unexercised).
+  Caught by M5 (the branch off: the unlistable directory is then refused).
+  The crate-scoped branch coverage is recorded in evidence.md.
+- **F3, skipped trees are not followed out.** The search of a skipped tree
+  now asks each entry's own type: a linked directory there is one entry,
+  never descended. A directory the walk cannot list, skipped or not, is
+  refused naming it (`'./dialects/private'`) and the io kind.
+  - New test `a_skipped_tree_is_searched_without_following_a_link`. Links
+    out of the layer (to a tree with an unlistable directory) and back to
+    its root leave both identities unchanged, and an unlistable
+    `dialects/private` is refused naming it, standalone and inherited.
+  - Red on `af773294`: every cell said "bundle io: Permission denied (os
+    error 13)". Caught by M3 (links followed) and M4 (the listing refusal
+    off).
+- **F5.** The 16-fix-d follow-up claimed a link cycle under a skipped tree
+  refuses. It did not; the correction is in evidence.md.
+- **F4.** Still pending, and 16.1 with it.
+- **Standing-admission lines and fixture migrations:** none.
+- **Gates.** fmt and clippy are clean. Workspace, all features: 77 results,
+  all ok; the runtime lib has 606. `bundles/self` (`45dc1c7e…`) and
+  `bundles/verify` (`f7cbd4bb…`) are unchanged. Strict OpenSpec (18) and
+  `git diff --check` are clean.
+- **Pending.** F4 and with it 16.1; macOS; exact coverage outside the box;
+  remote CI and the council.
+
 ## 17. Unit 17 — Select charter owner and source at compile
 
 - [ ] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)

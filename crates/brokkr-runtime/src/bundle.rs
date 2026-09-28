@@ -6662,7 +6662,10 @@ fn manifest_for(
 /// second entry whenever the layer consumed anything (rebuild unit 16-fix-d,
 /// return F1). It is never pinned, so an unconsulted definition there moves
 /// no identity; but a hard link there to a consumed file is a second name for
-/// it inside the layer all the same, and is refused on the same terms.
+/// it inside the layer all the same, and is refused on the same terms. That
+/// search never follows a link (16-fix-e, F3): a linked directory there is
+/// one entry, not a tree, so it cannot leave the layer or loop. A directory
+/// the walk cannot list, skipped or not, is refused naming it.
 fn walk_files(
     dir: &Path,
     scope: &Path,
@@ -6671,8 +6674,10 @@ fn walk_files(
     let mut stack = vec![(scope.to_path_buf(), false)];
     let (mut paths, mut unpinned) = (Vec::new(), Vec::new());
     while let Some((current, skipped)) = stack.pop() {
-        for entry in std::fs::read_dir(&current)? {
-            let path = entry?.path();
+        let refuse = |error| unlisted(dir, &current, error);
+        for entry in std::fs::read_dir(&current).map_err(refuse)? {
+            let entry = entry.map_err(refuse)?;
+            let path = entry.path();
             // A scaffold may also be the workspace from which Brokkr is
             // invoked. Its realm map and dialect library are workspace
             // declarations pinned into the RUN manifest, never bundle files:
@@ -6686,7 +6691,12 @@ fn walk_files(
             if skipped && consumed.is_empty() {
                 continue;
             }
-            if path.is_dir() {
+            let tree = if skipped {
+                entry.file_type().map_err(refuse)?.is_dir()
+            } else {
+                path.is_dir()
+            };
+            if tree {
                 stack.push((path, skipped));
             } else if skipped {
                 unpinned.push(path);
@@ -6778,6 +6788,36 @@ fn walk_files(
     Ok(files)
 }
 
+/// The refusal of `directory`, under the layer `dir`, which the walk could
+/// not list (rebuild unit 16-fix-e, F3): named by its place in the layer,
+/// with the kind of failure, never an unbounded io message.
+fn unlisted(dir: &Path, directory: &Path, error: std::io::Error) -> CompileError {
+    let key = walk_key(dir, directory).unwrap_or_default();
+    CompileError::Invalid(format!(
+        "bundle directory {} cannot be listed ({}): the walk that pins a layer lists every \
+         directory it enters, a skipped tree's included where it holds each consumed file to one \
+         name, so a directory it cannot list is refused rather than passed over (decision 0065 \
+         slice one, design D7)",
+        bounded_reference(&format!("./{key}")),
+        error.kind()
+    ))
+}
+
+/// The refusal of a consumed input whose entry `key` the walk could not
+/// observe (rebuild unit 16-fix-e, F1): removed, replaced or made
+/// unobservable after the read. It names who consumed it, as the input's own
+/// refusals do, and the kind of failure, never a bare io message.
+fn unobserved(held: &Supplied, key: &str, error: &std::io::Error) -> CompileError {
+    CompileError::Invalid(format!(
+        "{}, whose entry {} the walk that pins the layer cannot observe ({}): it was removed, \
+         replaced or made unobservable after the read. A consumed input the walk cannot observe \
+         is refused rather than pinned unobserved (decision 0065 slice one, design D7)",
+        held.consumer,
+        bounded_reference(key),
+        error.kind()
+    ))
+}
+
 /// Hold the walked `path`, keyed `rel` and consumed as `supplied` or not, to
 /// the one-entry rule of [`walk_files`], `named` holding each consumed
 /// file's first entry.
@@ -6789,7 +6829,14 @@ fn one_entry(
     consumed: &BTreeMap<String, Supplied>,
     named: &mut BTreeMap<(u64, u64), (Entry, String)>,
 ) -> Result<(), CompileError> {
-    let Some((held, entry)) = consumed_entry(path, consumed)? else {
+    // A consumed key the walk cannot observe names who read it (16-fix-e,
+    // F1); an entry under no consumed key is not known to be one.
+    let found = consumed_entry(path, consumed);
+    let found = match supplied {
+        Some(supplied) => found.map_err(|error| unobserved(supplied, rel, &error))?,
+        None => found?,
+    };
+    let Some((held, entry)) = found else {
         return Ok(());
     };
     // A path through a linked directory lists the target's own entry again:
@@ -6797,7 +6844,10 @@ fn one_entry(
     // another name for it.
     let same = match supplied {
         Some(supplied) => supplied.id == held.id,
-        None => entry == entry_of(&dir.join(&held.target))?,
+        None => {
+            let target = entry_of(&dir.join(&held.target));
+            entry == target.map_err(|error| unobserved(held, &held.target, &error))?
+        }
     };
     if !same {
         return Err(CompileError::Invalid(format!(
