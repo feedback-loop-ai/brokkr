@@ -3140,6 +3140,11 @@ and S16-3/SC4. 16.1, 16.2 and 16.3 stay closed. Production: `bundle.rs` and
   parent renamed over the target before the open is refused. This holds for
   equal bytes and changed bytes. The post-open checks run while the handle
   holds the file, so its number cannot be reused.
+  **Corrected by unit 16-fix (R2):** this overstated the binding. The kind
+  check was a path `metadata` taken before any handle existed, so nothing
+  held the checked file between that check and the open. A file unlinked
+  and recreated there could take its freed number, and `bb90cebb` then
+  accepted and compiled the new file (observed on ext4, below).
 - **Bounded, sourced refusals (SC3).** A missing or unresolvable input now
   names the declaring layer's file, the seat (for a role), the kind and the
   reference. The clause is "which does not exist" or "which cannot be
@@ -3186,6 +3191,72 @@ completed because of the classifier. No production or test file moved.
   (`f7cbd4bb…`) compile. Strict OpenSpec (18) and `git diff --check` are
   clean.
 - Pending: exact coverage outside the box, macOS, remote CI and the council.
+
+Unit 16-fix (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-ae47dd7f`,
+based on `bb90cebb`; evidence.md, "Unit 16-fix"). **Result: complete, with
+the pending items below.** It repairs the council's R1–R3 under "one read,
+one set of bytes". 16.1, 16.2 and 16.3 stay closed on this visit's
+evidence. The SECURITY-HOLD is the council's to lift, not this record's.
+Production: `bundle.rs` and `bundle/compose.rs` only.
+
+- **R1, declaring documents.** `read_layers` reads each layer's
+  `bundle.json` through `bound_input`, once. It parses that buffer and keeps
+  its digest (`Pinned`). `Consumed` now carries the layer's document and its
+  optional table. `check` refuses a walk that does not pin the document's
+  bytes, then checks the table as before. Every ancestor is checked in
+  `resolve` before its digest is sealed, overridden ones included; the leaf
+  is checked in `assemble` (`Resolved::leaf_read`). A `bundle.json` that
+  links out of its layer, or is not a regular file, is refused like any
+  consumed input.
+- **R2, no metadata-then-path gap.** The pre-open path `metadata` is gone.
+  `read_bound` opens the target once, non-blocking, and checks the handle's
+  own kind. It reads from that handle. Then, while the handle still holds
+  the file, it requires the written path to resolve to the same contained
+  target, and that target to be the held file. Nothing reopens the path.
+  `ReadStage` now runs `Opened`, `Checked` (the handle's kind), `Read`
+  (before re-verification).
+  - Correction of 16.1's earlier claim: a file put at the target before the
+    open is the file opened and checked. It is bound, not refused. Any
+    replacement after the open is refused.
+  - The resolution is not descended by directory handle (no `openat`
+    without a new dependency or `unsafe`). `read_bound`'s documentation
+    now says so, instead of the overstrong claim.
+- **R3, aliases.** Where no step of the written path is a link, the
+  reference is keyed by its target's name, the name the directory lists. So
+  a case or normalization alias binds to the listed entry. Through a link it
+  keeps the written spelling. A key the walk does not list gets a new
+  refusal ("lists under no entry of the name it was read by: … an alias … or
+  that entry was removed after the read"), never "bytes changed".
+- **Tests** (`bundle/compose_tests.rs`). Five new:
+  `a_declaring_document_replaced_after_its_read_is_refused`,
+  `a_declaring_document_is_bound_like_any_consumed_input`,
+  `an_input_unlinked_and_recreated_after_its_check_is_never_read`,
+  `a_bound_read_supplies_its_handles_bytes_and_never_a_second_reads` and
+  `a_reference_is_keyed_by_the_entry_its_directory_lists`.
+- **Unit 16's own tests, changed:**
+  - `a_replacement_between_check_and_read_…`: the removal row now expects
+    *replaced* (it said "cannot be read (entity not found)"), and a new
+    socket row covers a failed open.
+  - `a_table_link_retargeted_…`: it retargets at the next bound read (the
+    charter, or the overriding leaf's table), because a retarget before
+    verification is now refused as replaced. Its expected refusal is
+    unchanged.
+  - Each change is bound (evidence.md).
+- **Proof.**
+  - Baseline on `bb90cebb`: 5 reds on tmpfs. On the ext4 root there are 6,
+    including the inode reuse (`number reused: true`, compiled).
+  - Mutations MA–MN each compile, fail their intended assertion, and are
+    restored. MI (key always the written spelling) survives on Linux: no
+    Linux filesystem here accepts an alias, so it is pending on macOS.
+- Standing-admission lines and fixture migrations: none.
+- **Gates.** fmt and clippy are clean. The runtime suite passes (25
+  results, lib 588), as does the workspace suite with and without all
+  features (77 results each, 0 failed). `bundles/self` (`45dc1c7e…`) and
+  `bundles/verify` (`f7cbd4bb…`) compile unchanged. Strict OpenSpec (18) and
+  `git diff --check` are clean.
+- **Pending.** Exact coverage outside the box. macOS: the R3 alias branch,
+  MI, and the socket row's "uncategorized error" wording. Remote CI and the
+  council.
 
 ## 17. Unit 17 — Select charter owner and source at compile
 

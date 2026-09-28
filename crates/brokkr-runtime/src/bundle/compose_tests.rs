@@ -2057,11 +2057,11 @@ fn a_missing_or_unresolvable_input_names_its_source_kind_and_reference() {
 /// only the binding can tell: a link retargeted to another contained file,
 /// a file renamed over the target, and a parent directory swapped for a
 /// link out of the layer, each after the open; and a FIFO renamed over the
-/// target after its kind was checked, which the non-blocking handle's own
-/// kind refuses as a replacement without waiting for a writer. A target
-/// removed before the
-/// open is refused with its cause. Each case has its own library, so no
-/// fixture writes into another's FIFO.
+/// target after the handle's kind was checked, which the verification
+/// refuses as a replacement without waiting for a writer. A target removed
+/// after that check is refused as replaced (unit 16-fix), and a socket,
+/// which cannot be opened, with its cause. Each case has its own library,
+/// so no fixture writes into another's FIFO.
 #[cfg(unix)]
 #[test]
 fn a_replacement_between_check_and_read_is_refused_never_read() {
@@ -2152,7 +2152,8 @@ fn a_replacement_between_check_and_read_is_refused_never_read() {
         said_replacing(&base, &policy, ReadStage::Checked, pipe),
         format!("bundle: {}", policy_escape(&base, "policy.json", REPLACED))
     );
-    // Removed after the check: the open fails and says why, naming no bytes.
+    // Removed after the handle's check (unit 16-fix): the handle still holds
+    // the file, which no longer stands at the target, so it is replaced.
     let library = Library::new();
     let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
     let policy = base.join("policy.json");
@@ -2162,12 +2163,24 @@ fn a_replacement_between_check_and_read_is_refused_never_read() {
     };
     assert_eq!(
         said_replacing(&base, &policy, ReadStage::Checked, remove),
+        format!("bundle: {}", policy_escape(&base, "policy.json", REPLACED))
+    );
+    // A socket cannot be opened at all: the open fails and says why, naming
+    // no bytes. It is bound at the library's root and moved in, because a
+    // socket's path is capped.
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "sock.json");
+    let bound = library.path().join("s");
+    let _listener = std::os::unix::net::UnixListener::bind(&bound).unwrap();
+    std::fs::rename(&bound, base.join("sock.json")).unwrap();
+    assert_eq!(
+        said(&base),
         format!(
             "bundle: {}",
             policy_escape(
                 &base,
-                "policy.json",
-                "which cannot be read (entity not found)"
+                "sock.json",
+                "which cannot be read (uncategorized error)"
             )
         )
     );
@@ -2175,10 +2188,11 @@ fn a_replacement_between_check_and_read_is_refused_never_read() {
 
 /// Rebuild unit 16, second visit (16.1; design D7; review S16-2, C2, SC1):
 /// the handle must hold the very file the kind check examined. A regular
-/// file renamed over the target after that check and before the open, and
-/// a parent directory replaced by another holding a regular file of the
-/// same name, are refused as replaced — with EQUAL bytes, where only the
-/// binding can tell, and with changed bytes, which are never read. The
+/// file renamed over the target after that check, and a parent directory
+/// replaced by another holding a regular file of the same name, are refused
+/// as replaced — with EQUAL bytes, where only the binding can tell, and with
+/// changed bytes, which are never read. Unit 16-fix: the check examines the
+/// handle, so "after the check" is after the open, never between. The
 /// table is raced standalone and the role inherited, where the refusal
 /// names the ancestor that declared it.
 #[cfg(unix)]
@@ -2306,12 +2320,15 @@ fn a_table_changed_between_its_read_and_its_walk_is_refused() {
 /// Rebuild unit 16, second visit (16.2; design D7; review S16-1, C1, SC2):
 /// the parsed buffer is bound to the entry the layer's identity names the
 /// table by — the reference as written — and not only to the file that was
-/// read. `table.json -> a.json` is read, then retargeted to `b.json`, a
-/// valid ruling of other bytes, with `a.json` left in place. The walk then
-/// pins `table.json` as `b.json`'s bytes while `a.json` still matches what
-/// was parsed, so one identity would name two governing tables: refused at
-/// the leaf and at an ancestor whose rule the leaf overrides. Unraced, the
-/// same on-disk state compiles, to the identity of the table it reads.
+/// read. `table.json -> a.json` is read and verified, then retargeted to
+/// `b.json`, a valid ruling of other bytes, with `a.json` left in place. The
+/// walk then pins `table.json` as `b.json`'s bytes while `a.json` still
+/// matches what was parsed, so one identity would name two governing
+/// tables: refused at the leaf and at an ancestor whose rule the leaf
+/// overrides. Unraced, the same on-disk state compiles, to the identity of
+/// the table it reads. Unit 16-fix: a retarget before the read's own
+/// verification is refused there as replaced, so the retarget runs at the
+/// next bound read — the leaf's charter, or the overriding leaf's table.
 #[cfg(unix)]
 #[test]
 fn a_table_link_retargeted_after_its_read_is_refused() {
@@ -2335,8 +2352,9 @@ fn a_table_link_retargeted_after_its_read_is_refused() {
         base.join("bundle.json").display()
     );
     symlink("a.json", &link).unwrap();
+    let charter = base.join("roles/role.md");
     assert_eq!(
-        said_replacing(&base, &first, ReadStage::Read, retarget(link.clone())),
+        said_replacing(&base, &charter, ReadStage::Read, retarget(link.clone())),
         retargeted,
         "leaf"
     );
@@ -2351,8 +2369,9 @@ fn a_table_link_retargeted_after_its_read_is_refused() {
     );
     std::fs::remove_file(&link).unwrap();
     symlink("a.json", &link).unwrap();
+    let own = library.path().join("tabled/policy.json");
     assert_eq!(
-        said_replacing(&tabled, &first, ReadStage::Read, retarget(link.clone())),
+        said_replacing(&tabled, &own, ReadStage::Read, retarget(link.clone())),
         retargeted,
         "overridden ancestor"
     );
@@ -2363,6 +2382,303 @@ fn a_table_link_retargeted_after_its_read_is_refused() {
     std::fs::remove_file(&link).unwrap();
     symlink("a.json", &link).unwrap();
     assert_ne!(said(&base), unraced, "the table a link names is identity");
+}
+
+// ---------------------------------- unit 16-fix: one read, one set of bytes
+
+/// A `base` document whose table is read from `policy`.
+fn document_naming(policy: &str) -> Vec<u8> {
+    let mut bundle = base_bundle();
+    bundle["policy"] = json!(policy);
+    serde_json::to_vec(&bundle).unwrap()
+}
+
+/// The refusal of a layer whose declaring document the walk does not pin
+/// as it was read.
+fn document_changed(layer: &Path) -> String {
+    format!(
+        "{}: the layer's declaring document changed between the read that composed the layer \
+         and the walk that pinned it. What a run is composed from must be what its identity \
+         names, so it is refused (decision 0065 slice one, design D7)",
+        layer.join("bundle.json").display()
+    )
+}
+
+/// Rebuild unit 16-fix, R1 (16.2; design D7): a layer's declaring document
+/// is bound like its table. `base/bundle.json` names `a.json`, and `b.json`,
+/// another valid ruling, stands beside it. Once `a.json` is read, the
+/// document is rewritten to name `b.json`, and both tables stay. The walk
+/// then pins the new document and both tables, which is exactly the file
+/// map a stable compile of the new document seals — so a raced compile
+/// ruled by `a.json` would share its identity with one ruled by `b.json`.
+/// Refused at the leaf, at an ancestor, at an ancestor whose rule the leaf
+/// overrides, and at a composed leaf's own document. Unraced, the two
+/// documents compile to two identities.
+#[test]
+fn a_declaring_document_replaced_after_its_read_is_refused() {
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "a.json");
+    let table = |name: &str, policy: Value| {
+        std::fs::write(base.join(name), serde_json::to_vec(&policy).unwrap()).unwrap();
+    };
+    table("a.json", base_policy());
+    table("b.json", other_policy());
+    let document = base.join("bundle.json");
+    let rename_to_b = || {
+        let document = document.clone();
+        move || std::fs::write(&document, document_naming("b.json")).unwrap()
+    };
+    let first = base.join("a.json");
+    let stable_b = {
+        std::fs::write(&document, document_naming("b.json")).unwrap();
+        said(&base)
+    };
+    std::fs::write(&document, document_naming("a.json")).unwrap();
+    let stable_a = said(&base);
+    assert!(stable_a.starts_with("compiled to"), "{stable_a}");
+    assert_ne!(stable_a, stable_b, "each document is its own identity");
+    let expected = format!("bundle: {}", document_changed(&base));
+    assert_eq!(
+        said_replacing(&base, &first, ReadStage::Read, rename_to_b()),
+        expected,
+        "leaf; the stable compile of the new document is {stable_b}"
+    );
+    std::fs::write(&document, document_naming("a.json")).unwrap();
+    assert_eq!(
+        said_replacing(&leaf, &first, ReadStage::Read, rename_to_b()),
+        expected,
+        "ancestor"
+    );
+    std::fs::write(&document, document_naming("a.json")).unwrap();
+    let tabled = library.recipe(
+        "tabled",
+        &json!({"name": "tabled", "extends": "base", "policy": "policy.json",
+                "override": {"rules": ["WORK"]}}),
+        Some(
+            &json!({"rules": [{"id": "WORK", "from": "work", "result": "complete",
+                                "next": "review", "reason": "the leaf's own ruling"}]}),
+        ),
+    );
+    assert_eq!(
+        said_replacing(&tabled, &first, ReadStage::Read, rename_to_b()),
+        expected,
+        "overridden ancestor"
+    );
+    std::fs::write(&document, document_naming("a.json")).unwrap();
+    // The composed leaf's own document, rewritten once its own table is
+    // read: refused where the leaf's identity is sealed.
+    let own = tabled.join("policy.json");
+    let rewrite_leaf = {
+        let document = tabled.join("bundle.json");
+        move || {
+            let widened = json!({"name": "tabled", "extends": "base", "policy": "policy.json",
+                                 "description": "rewritten after its read",
+                                 "override": {"rules": ["WORK"]}});
+            std::fs::write(&document, serde_json::to_vec(&widened).unwrap()).unwrap()
+        }
+    };
+    assert_eq!(
+        said_replacing(&tabled, &own, ReadStage::Read, rewrite_leaf),
+        format!(
+            "bundle: bundle: {} (composed: tabled -> base)",
+            document_changed(&tabled)
+        ),
+        "composed leaf"
+    );
+}
+
+/// Rebuild unit 16-fix, R1 (16.1; design D7): the declaring document is
+/// read through the same binding as every consumed input, so a
+/// `bundle.json` that links out of its layer is refused even with equal
+/// bytes, standalone and as an ancestor, and a directory standing there is
+/// refused by its kind.
+#[cfg(unix)]
+#[test]
+fn a_declaring_document_is_bound_like_any_consumed_input() {
+    use std::os::unix::fs::symlink;
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+    let outside = library.path().join("outside.json");
+    std::fs::copy(base.join("bundle.json"), &outside).unwrap();
+    std::fs::remove_file(base.join("bundle.json")).unwrap();
+    symlink(&outside, base.join("bundle.json")).unwrap();
+    let refused = |layer: &Path, place: &str| {
+        format!(
+            "bundle: {}: the layer's declaring document, {place}. What a run is composed from \
+             must be what its identity names, so it is refused (decision 0065 slice one, design \
+             D7)",
+            layer.join("bundle.json").display()
+        )
+    };
+    assert_eq!(said(&base), refused(&base, OUTWARD));
+    assert_eq!(said(&leaf), refused(&base, OUTWARD), "ancestor");
+    std::fs::remove_file(base.join("bundle.json")).unwrap();
+    std::fs::create_dir(base.join("bundle.json")).unwrap();
+    assert_eq!(said(&base), refused(&base, NONREGULAR));
+    // A base with no document at all says so as it always has.
+    std::fs::remove_dir(base.join("bundle.json")).unwrap();
+    assert_eq!(
+        said(&leaf),
+        "bundle io: No such file or directory (os error 2)",
+        "absent"
+    );
+}
+
+/// Rebuild unit 16-fix, R2 (16.1; design D7): once the handle's kind is
+/// checked, the target is unlinked and a file of equal or changed bytes is
+/// created in its place — first filling any lower free numbers, so that
+/// wherever the filesystem hands a freed number out again, the new file
+/// takes the checked file's. It cannot here: the handle still holds that
+/// file, so its number is not free, and the read is refused as replaced,
+/// standalone and inherited. The assertion message says whether a number
+/// was reused, which is what the baseline this repairs accepted.
+#[cfg(unix)]
+#[test]
+fn an_input_unlinked_and_recreated_after_its_check_is_never_read() {
+    use std::os::unix::fs::MetadataExt;
+    for (label, policy) in [("equal", base_policy()), ("changed", other_policy())] {
+        for inherited in [false, true] {
+            let library = Library::new();
+            let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+            let target = base.join("policy.json");
+            let reused = std::rc::Rc::new(std::cell::Cell::new(false));
+            let recreate = {
+                let (target, base, reused) = (target.clone(), base.clone(), reused.clone());
+                let bytes = serde_json::to_vec(&policy).unwrap();
+                move || {
+                    let checked = std::fs::metadata(&target).unwrap().ino();
+                    std::fs::remove_file(&target).unwrap();
+                    for spare in 0..64 {
+                        let path = base.join(format!("spare-{spare}.json"));
+                        std::fs::write(&path, &bytes).unwrap();
+                        if std::fs::metadata(&path).unwrap().ino() == checked {
+                            reused.set(true);
+                            std::fs::rename(&path, &target).unwrap();
+                            return;
+                        }
+                    }
+                    std::fs::write(&target, &bytes).unwrap();
+                }
+            };
+            let compiled = if inherited { &leaf } else { &base };
+            assert_eq!(
+                said_replacing(compiled, &target, ReadStage::Checked, recreate),
+                format!("bundle: {}", policy_escape(&base, "policy.json", REPLACED)),
+                "{label} bytes, inherited: {inherited}, number reused: {}",
+                reused.get()
+            );
+        }
+    }
+}
+
+/// Rebuild unit 16-fix, R2 (16.2; design D7): the bytes are the handle's,
+/// from its one read. After the handle's check the target is moved aside
+/// and another ruling put in its place; after the read the held file is
+/// moved back. The handle read the held file, which stands at the target
+/// again when the binding is verified, so the compile succeeds — to the
+/// very identity an undisturbed compile seals. A second read of the path
+/// would have parsed the other ruling.
+#[test]
+fn a_bound_read_supplies_its_handles_bytes_and_never_a_second_reads() {
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
+    let target = base.join("policy.json");
+    let aside = base.join("aside.json");
+    let stable = said(&base);
+    assert!(stable.starts_with("compiled to"), "{stable}");
+    let swap = {
+        let (target, aside) = (target.clone(), aside.clone());
+        let other = serde_json::to_vec(&other_policy()).unwrap();
+        move |at: ReadStage| match at {
+            ReadStage::Checked => {
+                std::fs::rename(&target, &aside).unwrap();
+                std::fs::write(&target, &other).unwrap();
+            }
+            ReadStage::Read => std::fs::rename(&aside, &target).unwrap(),
+            ReadStage::Opened => {}
+        }
+    };
+    let watched = target.clone();
+    READ_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |at, reached| {
+            if reached == watched {
+                swap(at);
+            }
+        }));
+    });
+    let raced = said(&base);
+    READ_HOOK.with(|hook| *hook.borrow_mut() = None);
+    assert_eq!(raced, stable);
+}
+
+/// Rebuild unit 16-fix, R3 (16.2; design D7): a reference is keyed by the
+/// entry its directory lists. A plain reference is keyed by its target, so
+/// where the filesystem accepts a case alias (macOS) `POLICY.JSON` binds to
+/// `policy.json` and compiles; a link reached by an alias spelling, whose
+/// own entry the walk lists under another name, is refused for exactly that
+/// — never as changed bytes. Where the filesystem accepts no alias (Linux),
+/// both spellings are missing, which is said as missing. On every host, a
+/// link removed after the read is refused as unlisted, not as changed.
+#[cfg(unix)]
+#[test]
+fn a_reference_is_keyed_by_the_entry_its_directory_lists() {
+    use std::os::unix::fs::symlink;
+    let unlisted = |layer: &Path, reference: &str| {
+        format!(
+            "bundle: {}: 'policy' names '{reference}', which the walk that pinned the layer \
+             lists under no entry of the name it was read by: the reference reached its table \
+             through a case or normalization alias the filesystem accepted, or that entry was \
+             removed after the read. The table a run is ruled by must be named by an entry its \
+             identity pins, so it is refused; write the reference as its directory lists it \
+             (decision 0065 slice one, design D7)",
+            layer.join("bundle.json").display()
+        )
+    };
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "POLICY.JSON");
+    let accepts_alias = std::fs::symlink_metadata(base.join("POLICY.JSON")).is_ok();
+    if accepts_alias {
+        let bundle = Bundle::compile(&base).unwrap();
+        let bytes = std::fs::read(base.join("policy.json")).unwrap();
+        assert_eq!(
+            (
+                bundle.manifest["files"].get("policy.json"),
+                bundle.manifest["files"].get("POLICY.JSON")
+            ),
+            (Some(&json!(sha256_bytes(&bytes))), None),
+            "the alias binds to the listed entry"
+        );
+    } else {
+        assert_eq!(
+            said(&base),
+            format!(
+                "bundle: {}: 'policy' names 'POLICY.JSON', which does not exist",
+                base.join("bundle.json").display()
+            )
+        );
+    }
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "TABLE.JSON");
+    symlink("policy.json", base.join("table.json")).unwrap();
+    let expected = match accepts_alias {
+        true => unlisted(&base, "TABLE.JSON"),
+        false => format!(
+            "bundle: {}: 'policy' names 'TABLE.JSON', which does not exist",
+            base.join("bundle.json").display()
+        ),
+    };
+    assert_eq!(said(&base), expected, "alias accepted: {accepts_alias}");
+    // Every host: the link read by its listed name, removed once the read
+    // is verified, before the walk.
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "table.json");
+    let link = base.join("table.json");
+    symlink("policy.json", &link).unwrap();
+    let remove = move || std::fs::remove_file(&link).unwrap();
+    assert_eq!(
+        said_replacing(&base, &base.join("roles/role.md"), ReadStage::Read, remove),
+        unlisted(&base, "table.json")
+    );
 }
 
 /// Finding H4, the aliases: neither a spelling nor a link hides the target.

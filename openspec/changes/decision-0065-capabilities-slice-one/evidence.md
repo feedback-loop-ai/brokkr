@@ -17192,7 +17192,15 @@ conditions also stay:
 The file is open during those checks, so its inode number cannot be reused
 under them. A regular file, FIFO or parent directory renamed over the target
 between the check and the open is refused as replaced, with equal bytes and
-with changed bytes. The standard library has no `openat`, so the resolution
+with changed bytes.
+
+> **Corrected by unit 16-fix (R2).** The paragraph above overstates the
+> binding. The kind check's `(dev, ino)` came from a path `metadata` taken
+> before any handle existed. Nothing held the checked file between that check
+> and the open, so its number could be freed and reused. An unlink and
+> recreate in that gap was accepted at `bb90cebb`: see "Unit 16-fix", baseline
+> row `an_input_unlinked_…` (`number reused: true`). `read_bound`'s own
+> documentation made the same overstatement and is corrected there. The standard library has no `openat`, so the resolution
 is not descended by directory handle. The binding is to the same inode:
 first the checked inode, then the held one, found at the contained,
 link-free canonical target while it is held.
@@ -17449,3 +17457,249 @@ None.
 **Pending.** Exact coverage (`scripts/coverage-exact.sh`) outside the box,
 macOS, remote CI and the council, whose review of `9075fb60` has not yet
 completed.
+
+## Unit 16-fix — one read, one set of bytes, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-ae47dd7f`, based on `bb90cebb`.
+**Result: complete, with the pending items at the end.** This visit repairs
+the chief's surviving findings R1–R3 on unit 16's council, which ruled
+SECURITY-HOLD. R4 (verdict advocacy in the earlier notes) is rejected, and
+nothing here argues for a gate outcome.
+
+The production files are `bundle.rs` and `bundle/compose.rs`. The tests are
+in `bundle/compose_tests.rs`. Scratch logs are in `.forge/unit-16d/` (not
+committed).
+
+### What changed, finding by finding
+
+**R1 — every consumed declaring document is bound.**
+
+- `read_layers` reads each layer's `bundle.json` through `bound_input(dir,
+  "bundle.json")`, once. The buffer is parsed strictly, and its keys and
+  digest are kept as the layer's `Pinned` record.
+- `Consumed` is now per layer: `{file, document: Pinned, table:
+  Option<TableRead>}`. `check` refuses first when the walk does not hold the
+  document's digest under its keys, and then judges the table.
+- `resolve` checks every ancestor before sealing its digest, overridden
+  ancestors included. `assemble` checks the leaf through
+  `Resolved::leaf_read`, which replaces `table_read`.
+- The chief's race (`policy = a.json` rewritten to `b.json` after `a.json`
+  is read, with both kept) is now refused. At `bb90cebb` the raced compile
+  sealed `84389e9d…`, the very digest of a stable compile of the `b.json`
+  document, while it was ruled by `a.json`.
+- A `bundle.json` that links out of its layer (equal bytes) or is a
+  directory is refused through the same binding. An absent one still reads
+  `bundle io: No such file or directory (os error 2)`.
+- A non-UTF-8 `bundle.json` is still `bundle io:`, now with the
+  `FromUtf8Error` text rather than "stream did not contain valid UTF-8". No
+  test asserted the old text.
+
+**R2 — no metadata-then-path gap.**
+
+- The path `metadata` taken before the open is deleted.
+- `read_bound` opens the contained target once (`O_NONBLOCK`), at
+  `ReadStage::Opened`. It checks the handle's own kind (`Checked`), reads
+  from that handle (`Read`), and only then re-verifies. While the handle
+  still holds its file, `written.canonicalize()` must equal the target, and
+  the target's `(dev, ino)` must be the held file's. A held file's number
+  cannot be reused, so this is identity, not coincidence.
+- Nothing reopens by pathname. The walk's later hash of the same entry is
+  only compared with the buffer's digest (D7, "carry the consumed digest
+  into the walk and compare"); it is never used as the consumed bytes.
+- What `bound_input` now documents, and no more:
+  - a file put at the target before the open is the file opened and
+    checked, so it is bound, not refused;
+  - any replacement after the open is refused, with equal bytes too;
+  - in-place writes into the held file are caught by the walk comparison;
+  - the resolution is not descended by directory handle.
+- `brokkr-runtime` has no `libc` and no `unsafe`, and `openat` would need
+  either one. So "owner-rooted" is met here by re-resolving from the owner's
+  canonical root while the handle is held. Whether that satisfies D7's
+  wording is recorded as an assumption for the council.
+
+**R3 — reference keys and aliases.**
+
+- The target's key is the name its directory lists (it comes from
+  `canonicalize`). Where no step of the written reference is a link
+  (`through_link`, component by component `symlink_metadata`), the reference
+  is keyed by the target's key. So an accepted case or normalization alias
+  binds to the listed entry. Through a link, the key stays the written
+  spelling: the link's own entry, which S16-1 needs.
+- `Pinned::standing` tells `Held`, `Changed` and `Unlisted` apart. A key the
+  walk does not list gets its own refusal ("… lists under no entry of the
+  name it was read by: the reference reached its table through a case or
+  normalization alias the filesystem accepted, or that entry was removed
+  after the read …"), never the "bytes changed" race diagnosis.
+
+### Tests
+
+New, in `bundle/compose_tests.rs`:
+
+- `a_declaring_document_replaced_after_its_read_is_refused` (R1).
+  - At `a.json`'s `Read`, `base/bundle.json` is rewritten to name `b.json`.
+  - It asserts the whole document refusal at the leaf (`base` alone), at an
+    ancestor (`derived`), and at an overridden ancestor (`tabled` overrides
+    `WORK`).
+  - For a composed leaf, `tabled`'s own document is rewritten at its own
+    table's `Read`; the refusal is wrapped with `(composed: tabled -> base)`.
+  - Controls: the two documents compile, unraced, to two identities.
+- `a_declaring_document_is_bound_like_any_consumed_input` (R1). An outward
+  `bundle.json` link with equal bytes is refused standalone and as an
+  ancestor. A directory is refused by kind. An absent document gives the
+  unchanged io refusal.
+- `an_input_unlinked_and_recreated_after_its_check_is_never_read` (R2).
+  - At `Checked`, the target is unlinked. Up to 64 spare files are created
+    until one takes the checked file's number, and that one is renamed in.
+    Otherwise the file is simply written.
+  - Rows: equal and changed bytes, standalone and inherited. Each expects
+    *replaced*.
+  - The assertion message reports `number reused`.
+- `a_bound_read_supplies_its_handles_bytes_and_never_a_second_reads` (R2).
+  - At `Checked`, the target is moved aside and another ruling written in
+    its place. At `Read`, the held file is moved back.
+  - The compile must succeed, to exactly the undisturbed compile's
+    identity.
+- `a_reference_is_keyed_by_the_entry_its_directory_lists` (R3).
+  - It probes whether the canonical temp root accepts `POLICY.JSON` for
+    `policy.json`.
+  - If it does (macOS), the plain alias compiles with `files["policy.json"]`
+    pinned and no `POLICY.JSON` key, and a link reached by an alias is
+    refused as unlisted.
+  - If it does not (Linux, here), both spellings are "which does not
+    exist", which tells a missing file apart from an accepted alias.
+  - On every host, a `table.json` link removed after its verified read (at
+    the charter's `Read`) is refused as unlisted.
+
+Unit 16's own tests, changed:
+
+- `a_replacement_between_check_and_read_is_refused_never_read`, removal row.
+  After the handle's check, the held file is no longer at the target, so
+  the row now expects *replaced* (it said "which cannot be read (entity not
+  found)"). A new row renames a bound Unix socket in. The open fails, "which
+  cannot be read (uncategorized error)" on Linux, which keeps the failed-open
+  refusal reached.
+- `a_table_link_retargeted_after_its_read_is_refused`. A retarget before
+  verification is now refused as replaced, so the retarget moves to the next
+  bound read: the leaf's charter, or the overriding leaf's own table. The
+  expected refusal is unchanged.
+- `a_replacement_before_the_open_…`: doc comment only. `Checked` now falls
+  after the open.
+
+### Baseline reds on `bb90cebb`
+
+`bb90cebb`'s `bundle.rs` and `compose.rs` were checked out under this
+visit's tests. Nothing needed disabling, because the stage names exist
+there.
+
+On the default temp root (tmpfs), `baseline-tmpfs.txt` has 34 passed and 5
+failed:
+
+- `a_declaring_document_replaced_…` `:2441` (leaf): left `"compiled to
+  84389e9d…"`, which the message names as the stable compile of the new
+  document.
+- `a_declaring_document_is_bound_…` `:2513`: left `"compiled to c4061ec5…"`.
+  The outward `bundle.json` compiled.
+- `a_bound_read_supplies_…` `:2604`: left is the *replaced* refusal.
+  `bb90cebb` examined the path before any handle.
+- `a_reference_is_keyed_…` `:2671`: left is the "bytes changed" diagnosis
+  for a removed link entry.
+- `a_replacement_between_check_and_read_…` `:2164`: left `"… which cannot be
+  read (entity not found) …"`.
+
+`an_input_unlinked_…` passed on tmpfs, which never hands a freed number out
+again. The ext4 runs used a **scratch, uncommitted** `Library::new` rooted at
+`.forge/unit-16d/tmp` on the root filesystem: this seat refuses environment
+prefixes and cargo config files, so `TMPDIR` could not be set. In
+`baseline-ext4.txt` there are 33 passed and 6 failed: the same five, plus
+`an_input_unlinked_…` `:2557`, `"equal bytes, inherited: false, number
+reused: true"`, left `"compiled to 23eea2dc…"`. That is the R2 reproduction:
+`bb90cebb` compiled the recreated file.
+
+The production patch was re-applied, and `cmp` against the saved
+`prod.patch` was identical. With it, both roots pass 39 of 39
+(`head-ext4.txt`, `head.txt`).
+
+### Mutations
+
+Each mutation is one compiling edit to production. Each ran `cargo test -p
+brokkr-runtime --all-features --locked --lib bundle::compose_tests` on the
+ext4 scratch root, and each was restored by `git checkout HEAD -- …` plus
+`git apply prod.patch`, with `cmp` identical after every one. Line numbers
+are the logs' own. The absent-document row, added last after `:2517`, shifts
+later tests by seven lines in the committed file: `:2557` is `:2564`,
+`:2604` is `:2611` and `:2671` is `:2678`.
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| MA: document check off (`if false && …`) | `a_declaring_document_replaced_…` `:2441` leaf: left `"compiled to 84389e9d…"`. 38 passed | `ma.txt` |
+| MB: hashing a re-read (`check` re-hashes `std::fs::read(file)`) | the same assertion, the same left. 38 passed | `mb.txt` |
+| MC: ancestor check discarded (`let _ = …check(&files)`) | same test `:2447` `ancestor`, where the leaf row passed first: left `"compiled to edb91c81…"`. Also the moved `a_table_link_retargeted_…` `:2373` overridden ancestor (`1b856bde…`, as N2) and `a_table_changed_…` `:2306`. 36 passed | `mc.txt` |
+| MD: leaf check only when nothing composed | same test `:2480` `composed leaf`: left `"compiled to 3d9d9140…"`. 38 passed | `md.txt` |
+| ME1: re-open by path after `Checked` (the handle held during the hook) | `a_bound_read_supplies_…` `:2604` ("bytes changed") and the removal row `:2164` ("cannot be read (entity not found)"). The inode test is not reached: the hook ran while the handle held the file. 37 passed | `me.txt` |
+| ME2: re-open by path, the handle dropped before `Checked` (`bb90cebb`'s gap) | `an_input_unlinked_…` `:2557` `"equal bytes, inherited: true, number reused: true"`: left `"compiled to 6ad7ff5d…"`. The standalone row got no reused number in that run and refused. Also `:2604`, `:2164`. 36 passed | `me2.txt` |
+| MF: a second read, `std::fs::read(target)` | hung on the FIFO row (a blocking open, as the first visit's M6). Stopped at 600 s. No result is claimed | — |
+| MF′: a second read, non-blocking reopen | `a_bound_read_supplies_…` `:2604`: left "bytes changed". Also `:2164`. 37 passed | `mf.txt` |
+| MG: re-verification off (`true \|\| …`) | `a_replacement_before_the_open_…` `:2215` (equal file: `"compiled to c4061ec5…"`); `a_replacement_between_…` `:2083` (`"compiled to c94f2b74…"`); `an_input_unlinked_…` `:2557` (`number reused: false`, `"compiled to 7561a728…"`). 36 passed | `mg.txt` |
+| MH: unlisted said as changed (`else if false && …`) | `a_reference_is_keyed_…` `:2671`: left "bytes changed". 38 passed | `mh.txt` |
+| MI: key always the written spelling (`\|\| true`) | **none: 39 passed.** On Linux the two keys are the same, so only an alias-accepting host (macOS) can bind this. Pending | `mi.txt` |
+| MJ: key always the target (`&& false`) | `a_reference_is_keyed_…` `:2671` (`"compiled to 5188385c…"`) and `a_table_link_retargeted_…` `:2356` leaf (`"compiled to 133ffff8…"`, as N1). 37 passed | `mj.txt` |
+| MK: handle kind check off | `a_declaring_document_is_bound_…` `:2517` ("cannot be read (is a directory)") and `a_fifo_supplies_…` `:1957` (`"compiled to 65b3e78b…"`). 37 passed | `mk.txt` |
+| MN: absent document as `Invalid` | `a_declaring_document_is_bound_…` `:2520` `absent`: left `"bundle: No such file or directory (os error 2)"`. 38 passed | `mn.txt` |
+
+### Coverage diagnostic (not the gate)
+
+`cargo llvm-cov -p brokkr-runtime --all-features --lib --lcov`, run after
+`cargo llvm-cov clean --workspace` (`lcov.info`), gave these counts for the
+new code:
+
+- `through_link`: executed.
+- The `unreadable` closure: 1, from the socket row.
+- The non-regular refusal: 7. The *replaced* refusal: 15.
+- Both key arms: 24 and 8,037.
+- The `Changed` and `Unlisted` arms, and the document refusal: executed.
+
+It found the absent-document arm unhit, so the absent row and MN were
+added. This report carries two instantiations of the crate and zero records
+on comment and closing lines, so it does not stand in for
+`scripts/coverage-exact.sh`.
+
+### Standing-admission lines and fixture migrations
+
+None. No file outside the two production files, `bundle/compose_tests.rs`,
+tasks.md and this file moved.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 results, lib
+  588 passed (`runtime.txt`).
+- `cargo test --workspace --all-features --locked`: 77 results, 0 failed
+  (`workspace.txt`). `cargo test --workspace`: 77 results, 0 failed
+  (`workspace-default.txt`).
+- `compile --bundle bundles/self`: `45dc1c7e…`. `bundles/verify`:
+  `f7cbd4bb…`. Both are unchanged.
+- `openspec validate --all --strict --no-interactive`: 18 passed.
+- `git diff --check`: clean.
+
+The absent-document row came after the full runs. After it, the focused
+suite (39), the runtime suite, fmt and clippy were run again (`final-*.txt`).
+
+**Pending.**
+
+- Exact coverage outside the box.
+- macOS: the alias branch of `a_reference_is_keyed_…`, and with it MI; the
+  socket row's "uncategorized error" (EOPNOTSUPP there, unobserved); the
+  `/private/var` roots.
+- Remote CI.
+- The council. The SECURITY-HOLD stands until it rules.
+
+### Follow-ups, not built here
+
+- A resolution descended by directory handle (`openat` with `O_NOFOLLOW`
+  per step) needs `libc` or `unsafe` in `brokkr-runtime`, which touches
+  `Cargo.toml` or adds FFI.
+- Dispatch still reads a role by its written path (unit 18).
+- The walk still re-reads every file it pins. For consumed files that read
+  is compared with the consumed digest, never substituted for it.

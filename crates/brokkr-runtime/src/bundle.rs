@@ -2027,11 +2027,12 @@ impl Bundle {
             boundary,
             Some(capability_record),
         )?;
-        // Design D7: the leaf's table was parsed from one bound buffer
-        // before this walk hashed the leaf; the two agree or nothing seals.
-        if let Some(table) = &resolved.table_read {
-            table.check(manifest["files"].as_object().expect("manifest files"))?;
-        }
+        // Design D7: the leaf's declaring document and its table were each
+        // parsed from one bound buffer before this walk hashed the leaf; the
+        // walk agrees with both or nothing seals.
+        resolved
+            .leaf_read
+            .check(manifest["files"].as_object().expect("manifest files"))?;
         // Second council H6: every agent charter this compile bound, kept
         // where a projection of the site facts cannot lose it.
         let charters: CharterPins = sites
@@ -4422,11 +4423,15 @@ fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
     })
 }
 
-/// One consumed active input, read through a handle bound to its contained
-/// target (operator ruling 3; decision 0065 slice one, design D7).
+/// One consumed input, read through a handle bound to its contained target
+/// (operator ruling 3; decision 0065 slice one, design D7).
 pub(crate) struct BoundInput {
-    /// The file-map key the declaring layer's walk writes for the reference
-    /// as written: the entry the layer's identity names the input by.
+    /// The file-map key under which the declaring layer's walk pins what the
+    /// reference names: the entry the layer's identity names the input by.
+    /// Where no step of the written path is a link it is the target's own
+    /// key, so a case or normalization alias the filesystem accepted is
+    /// bound to the name its directory lists; through a link it is the
+    /// written spelling, which is the link's own entry.
     pub(crate) key: String,
     /// The file-map key the declaring layer's walk writes for the target.
     pub(crate) target_key: String,
@@ -4485,14 +4490,16 @@ fn walk_key(root: &Path, path: &Path) -> Option<String> {
     )
 }
 
-/// Where a bound read stands, for the tests' controlled replacements.
+/// Where a bound read stands, for the tests' controlled replacements, in
+/// the order a read reaches them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReadStage {
-    /// The target resolved inside the layer and was a regular file.
-    Checked,
-    /// A handle is open on the path the check resolved.
+    /// A handle is open on the contained target; nothing is checked yet.
     Opened,
-    /// The handle's bytes are in the buffer.
+    /// The handle's own kind was checked: it holds a regular file.
+    Checked,
+    /// The handle's bytes are in the buffer, and the binding is about to be
+    /// verified again.
     Read,
 }
 
@@ -4532,27 +4539,34 @@ const O_NONBLOCK: i32 = 0x0004;
 /// Decision 0065 slice one, design D7, under operator ruling 3 ("It is not
 /// pinned and admitted"): resolve what `reference` names against the
 /// declaring layer's canonical `root`, require the target to stand inside
-/// that layer and outside every tree the walk skips, require a regular
-/// file, and read it through ONE handle that is proved to be that target.
+/// that layer and outside every tree the walk skips, and read it ONCE,
+/// through one handle, into the one buffer a caller parses and hashes.
 ///
 /// A link inside the layer is followed; one whose target leaves the layer
 /// is refused even where the walk would pin the bytes it reaches, because
 /// the walk pins a link only by those bytes and a retarget to equal bytes
-/// moves nothing. Kind is checked before any open, so a FIFO, device or
-/// directory never supplies bytes and a FIFO never blocks the compile; that
-/// check's `(dev, ino)` is the file the rest of the read is bound to. The
-/// handle is opened non-blocking and must hold that very file, of that
-/// kind. While the handle holds it, so no other file can take its number,
-/// the written path is resolved again from the layer's root: it must still
-/// resolve to the same contained target, and that target must still be the
-/// file the handle holds. A replacement of the file, of a link along the
-/// path or of a parent directory, before the open or after it, is refused,
-/// with equal bytes too, and the bytes a caller uses are only those the
-/// bound handle supplied.
+/// moves nothing. What is checked is the handle, never the path: the
+/// target is opened non-blocking, so a FIFO never blocks the compile, and
+/// the handle's own kind must be a regular file before a byte is read, so a
+/// FIFO, device or directory never supplies any. After the read, while the
+/// handle still holds its file, so no other file can take that file's
+/// number, the written path is resolved again from the layer's root: it
+/// must still resolve to the same contained target, and that target must
+/// still be the file the handle holds. So the bytes returned are the bytes
+/// of a regular file that stood at the contained target from the open to
+/// the end of the read, or the read is refused.
 ///
-/// The answer carries two file-map keys: the target's, and the reference's
-/// own as written — the entry under which the declaring layer's walk pins
-/// what the reference names when that layer's identity is sealed.
+/// What this does not claim: the resolution is not descended by directory
+/// handle (the standard library has no `openat`), so the binding is by the
+/// held file's identity, not by the path's. A file put at the target
+/// BEFORE the open is the file opened and checked; a file, link or parent
+/// replaced AFTER the open is refused, with equal bytes too. Bytes written
+/// in place into the held file are its bytes: the declaring layer's walk,
+/// compared with the buffer's digest before its identity is sealed, is what
+/// refuses them.
+///
+/// The answer carries two file-map keys: the target's, and the entry under
+/// which the declaring layer's walk pins what the reference names.
 pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
     if let Some(place) = unpinned_active_input(root, reference) {
         return Err(InputFault::Place(place));
@@ -4571,21 +4585,15 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
     if let Some(place) = skipped_top_level(root, &target) {
         return Err(InputFault::Place(place));
     }
-    // Kind before any open, so a FIFO, device or directory is never opened.
-    let checked = std::fs::metadata(&target).map_err(InputFault::Missing)?;
-    if !checked.is_file() {
-        return Err(InputFault::Place(
-            "which is not a regular file; only a regular file's bytes are read, hashed and \
-             pinned, and a FIFO, device or directory could supply bytes the walk never hashed"
-                .to_string(),
-        ));
-    }
-    at_stage(ReadStage::Checked, &target);
-    let bytes = read_bound(&written, &target, &checked)?;
-    at_stage(ReadStage::Read, &target);
-    // The written spelling as the walk reaches it: `unpinned_active_input`
-    // has refused every spelling that leaves the layer or steps up.
-    let key = walk_key(root, &folded(&written)).unwrap_or_default();
+    let bytes = read_bound(&written, &target)?;
+    // Through a link, the link's own entry as written: `unpinned_active_input`
+    // has refused every spelling that leaves the layer or steps up. Without
+    // one, the written path IS the target, and the target's key is the name
+    // its directory lists, whatever spelling the filesystem accepted.
+    let key = match through_link(root, reference) {
+        true => walk_key(root, &folded(&written)).unwrap_or_default(),
+        false => target_key.clone(),
+    };
     Ok(BoundInput {
         key,
         target_key,
@@ -4593,16 +4601,21 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
     })
 }
 
-/// The handle half of [`bound_input`] on a supported host. The handle must
-/// hold the file `checked` examined — its `(dev, ino)`, and a regular file
-/// itself — so a file, FIFO or parent renamed over the target between the
-/// check and the open is refused rather than read, with equal bytes too.
+/// Whether any step of `reference`, taken from `root` as written, is a link.
+fn through_link(root: &Path, reference: &str) -> bool {
+    let mut step = root.to_path_buf();
+    Path::new(reference).components().any(|part| {
+        step.push(part);
+        std::fs::symlink_metadata(&step).is_ok_and(|meta| meta.file_type().is_symlink())
+    })
+}
+
+/// The handle half of [`bound_input`] on a supported host: one open, the
+/// handle's kind, one read from that handle, and then — the handle still
+/// holding its file — the written path must resolve to the same contained
+/// target, which must be the held file. Nothing reopens the path.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn read_bound(
-    written: &Path,
-    target: &Path,
-    checked: &std::fs::Metadata,
-) -> Result<Vec<u8>, InputFault> {
+fn read_bound(written: &Path, target: &Path) -> Result<Vec<u8>, InputFault> {
     use std::io::Read;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let unreadable = |error: std::io::Error| {
@@ -4615,9 +4628,18 @@ fn read_bound(
         .map_err(unreadable)?;
     at_stage(ReadStage::Opened, target);
     let held = file.metadata().map_err(unreadable)?;
-    let still = held.is_file()
-        && (held.dev(), held.ino()) == (checked.dev(), checked.ino())
-        && written.canonicalize().ok().as_deref() == Some(target)
+    if !held.is_file() {
+        return Err(InputFault::Place(
+            "which is not a regular file; only a regular file's bytes are read, hashed and \
+             pinned, and a FIFO, device or directory could supply bytes the walk never hashed"
+                .to_string(),
+        ));
+    }
+    at_stage(ReadStage::Checked, target);
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(unreadable)?;
+    at_stage(ReadStage::Read, target);
+    let still = written.canonicalize().ok().as_deref() == Some(target)
         && std::fs::metadata(target)
             .is_ok_and(|now| (now.dev(), now.ino()) == (held.dev(), held.ino()));
     if !still {
@@ -4627,15 +4649,13 @@ fn read_bound(
                 .to_string(),
         ));
     }
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).map_err(unreadable)?;
     Ok(bytes)
 }
 
 /// No supported host lacks the binding; any other refuses rather than
 /// reading an input it cannot bind (design D7).
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn read_bound(_: &Path, _: &Path, _: &std::fs::Metadata) -> Result<Vec<u8>, InputFault> {
+fn read_bound(_: &Path, _: &Path) -> Result<Vec<u8>, InputFault> {
     Err(InputFault::Place(
         "which this host cannot read through a handle bound to its contained target".to_string(),
     ))

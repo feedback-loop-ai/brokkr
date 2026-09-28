@@ -88,10 +88,11 @@ pub struct Resolved {
     pub chain: Vec<Ancestor>,
     /// Every layer's directory, leaf first.
     pub roots: Vec<PathBuf>,
-    /// The policy bytes the LEAF's own table was parsed from, compared
-    /// with the leaf's walk when its manifest is built. Each ancestor's is
-    /// compared here, before its digest is sealed.
-    pub table_read: Option<Consumed>,
+    /// The bytes the LEAF's declaring document and its own table were
+    /// parsed from, compared with the leaf's walk when its manifest is
+    /// built. Each ancestor's are compared here, before its digest is
+    /// sealed.
+    pub leaf_read: Consumed,
 }
 
 impl Resolved {
@@ -130,6 +131,8 @@ struct Layer {
     dir: PathBuf,
     file: PathBuf,
     document: Map<String, Value>,
+    /// Where the layer's walk must pin the bytes `document` was parsed from.
+    read: Pinned,
 }
 
 /// `^[a-z0-9][a-z0-9-]*$`, checked BEFORE any path is built so `../x`,
@@ -173,7 +176,21 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         // `capabilities` field, would weaken a requirement before any
         // validation saw it. Every layer is read this way, so a leaf that
         // replaces a seat cannot hide what its ancestor wrote twice.
-        let parsed = brokkr_core::canonical::parse_strict(&std::fs::read_to_string(&file)?)
+        // The document is consumed like any active input (design D7): ONE
+        // bound read, whose buffer is parsed here and whose digest the
+        // layer's walk must pin before its identity is sealed.
+        let bound = super::bound_input(&dir, "bundle.json").map_err(|fault| match fault {
+            super::InputFault::Missing(error) => CompileError::Io(error),
+            super::InputFault::Place(place) => invalid(format!(
+                "{}: the layer's declaring document, {place}. What a run is composed from must \
+                 be what its identity names, so it is refused (decision 0065 slice one, design \
+                 D7)",
+                file.display()
+            )),
+        })?;
+        let read = Pinned::of(bound.key, bound.target_key, &bound.bytes);
+        let text = String::from_utf8(bound.bytes).map_err(std::io::Error::other)?;
+        let parsed = brokkr_core::canonical::parse_strict(&text)
             .map_err(|problem| invalid(format!("{}: {problem}", file.display())))?;
         let document: Map<String, Value> = serde_json::from_value(parsed)?;
         let name = document
@@ -197,6 +214,7 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
             dir: dir.clone(),
             file: file.clone(),
             document,
+            read,
         });
         if layers.len() > MAX_LAYERS {
             return Err(invalid(format!(
@@ -339,7 +357,7 @@ struct Merged {
     table_from: BTreeMap<String, PathBuf>,
     rule_from: BTreeMap<String, PathBuf>,
     /// Layer index -> the policy bytes that layer's table was parsed from.
-    consumed: BTreeMap<usize, Consumed>,
+    consumed: BTreeMap<usize, TableRead>,
 }
 
 fn rule_id(rule: &Value) -> Option<&str> {
@@ -410,7 +428,7 @@ fn union_names(base: Option<&Value>, own: &[Value]) -> Value {
 
 /// A layer's own policy table, the file it was read from — the file every
 /// table-level refusal names — and the bytes it was parsed from.
-type LayerTable = (Map<String, Value>, PathBuf, Consumed);
+type LayerTable = (Map<String, Value>, PathBuf, TableRead);
 
 /// The layer's own policy table, read relative to THAT layer's
 /// directory. A layer that declares no `policy` contributes no table.
@@ -449,51 +467,111 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
     // its digest rides to the layer's walk, which must agree before the
     // layer's identity is sealed.
     let table: Map<String, Value> = serde_json::from_slice(&bound.bytes)?;
-    let consumed = Consumed {
-        file: layer.file.clone(),
+    let read = TableRead {
         reference,
-        keys: [bound.key, bound.target_key],
-        digest: brokkr_core::canonical::sha256_bytes(&bound.bytes),
+        pinned: Pinned::of(bound.key, bound.target_key, &bound.bytes),
     };
-    Ok(Some((table, layer.dir.join(relative), consumed)))
+    Ok(Some((table, layer.dir.join(relative), read)))
 }
 
-/// The policy bytes one layer's table was parsed from, as they must stand
-/// in that layer's file map (design D7): the walk hashes the layer after
-/// the read, so the two are compared before the identity is sealed rather
-/// than assumed to agree.
-pub struct Consumed {
-    file: PathBuf,
-    /// The authored reference, already bounded for a refusal.
-    reference: String,
-    /// The walk's keys for the reference as written — the entry the layer's
-    /// identity names the table by — and for the target that was read.
+/// Where one consumed buffer must stand in its layer's file map: the
+/// walk's key for the entry the reference names and for the target that
+/// was read, and the digest of the buffer that was parsed. Neither key is
+/// ever hashed from a second read; the walk's own hash of each is what is
+/// compared with it.
+#[derive(Clone)]
+struct Pinned {
     keys: [String; 2],
     digest: String,
 }
 
-impl Consumed {
-    /// Refuse a layer whose walk pinned other bytes than the table was
-    /// parsed from — or none at all — for the declaring layer's `files`,
-    /// under the reference's own entry or the target's. A link retargeted
-    /// after the read moves the first while the file that was read keeps
-    /// the second, so both are asked.
-    pub fn check(&self, files: &Map<String, Value>) -> Result<(), CompileError> {
-        let pinned = |key: &String| files.get(key).and_then(Value::as_str);
-        if self
+/// How a layer's walk holds one consumed buffer.
+enum Standing {
+    /// Under both keys, with the buffer's digest.
+    Held,
+    /// Under a key, with other bytes.
+    Changed,
+    /// Not under one of its keys at all: the walk lists no entry by that
+    /// name.
+    Unlisted,
+}
+
+impl Pinned {
+    fn of(key: String, target_key: String, bytes: &[u8]) -> Pinned {
+        Pinned {
+            keys: [key, target_key],
+            digest: brokkr_core::canonical::sha256_bytes(bytes),
+        }
+    }
+
+    fn standing(&self, files: &Map<String, Value>) -> Standing {
+        let pinned: Vec<Option<&str>> = self
             .keys
             .iter()
-            .all(|key| pinned(key) == Some(self.digest.as_str()))
-        {
-            return Ok(());
+            .map(|key| files.get(key).and_then(Value::as_str))
+            .collect();
+        if pinned.iter().all(|at| *at == Some(self.digest.as_str())) {
+            Standing::Held
+        } else if pinned.contains(&None) {
+            Standing::Unlisted
+        } else {
+            Standing::Changed
         }
-        Err(invalid(format!(
-            "{}: 'policy' names {}, whose bytes changed between the read that parsed them and \
-             the walk that pinned them. The table a run is ruled by must be the table its \
-             identity names, so it is refused (decision 0065 slice one, design D7)",
-            self.file.display(),
-            self.reference
-        )))
+    }
+}
+
+/// A layer's table read: the authored reference, already bounded for a
+/// refusal, and where its buffer must stand.
+struct TableRead {
+    reference: String,
+    pinned: Pinned,
+}
+
+/// The bytes one layer was composed from — its declaring document, and its
+/// own table when it declares one — as they must stand in that layer's file
+/// map (design D7). The walk hashes the layer after the reads, so the two
+/// are compared before the identity is sealed rather than assumed to agree.
+pub struct Consumed {
+    file: PathBuf,
+    document: Pinned,
+    table: Option<TableRead>,
+}
+
+impl Consumed {
+    /// Refuse a layer whose walk pinned other bytes than its document or its
+    /// table was parsed from, or none at all under the name it was read by.
+    /// A link retargeted after the read moves the reference's own entry
+    /// while the file that was read keeps the target's, so both are asked.
+    pub fn check(&self, files: &Map<String, Value>) -> Result<(), CompileError> {
+        let file = self.file.display();
+        if !matches!(self.document.standing(files), Standing::Held) {
+            return Err(invalid(format!(
+                "{file}: the layer's declaring document changed between the read that composed \
+                 the layer and the walk that pinned it. What a run is composed from must be what \
+                 its identity names, so it is refused (decision 0065 slice one, design D7)"
+            )));
+        }
+        let Some(table) = &self.table else {
+            return Ok(());
+        };
+        let reference = &table.reference;
+        match table.pinned.standing(files) {
+            Standing::Held => Ok(()),
+            Standing::Changed => Err(invalid(format!(
+                "{file}: 'policy' names {reference}, whose bytes changed between the read that \
+                 parsed them and the walk that pinned them. The table a run is ruled by must be \
+                 the table its identity names, so it is refused (decision 0065 slice one, design \
+                 D7)"
+            ))),
+            Standing::Unlisted => Err(invalid(format!(
+                "{file}: 'policy' names {reference}, which the walk that pinned the layer lists \
+                 under no entry of the name it was read by: the reference reached its table \
+                 through a case or normalization alias the filesystem accepted, or that entry \
+                 was removed after the read. The table a run is ruled by must be named by an \
+                 entry its identity pins, so it is refused; write the reference as its \
+                 directory lists it (decision 0065 slice one, design D7)"
+            ))),
+        }
     }
 }
 
@@ -963,7 +1041,12 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
     // own ancestors' digests, so a change at any depth moves every
     // digest derived from it.
     let mut chain: Vec<Ancestor> = Vec::new();
-    let mut consumed = merged.consumed;
+    let mut tables = merged.consumed;
+    let consumed = |index: usize, tables: &mut BTreeMap<usize, TableRead>| Consumed {
+        file: layers[index].file.clone(),
+        document: layers[index].read.clone(),
+        table: tables.remove(&index),
+    };
     for (index, layer) in layers.iter().enumerate().skip(1).rev() {
         // An ancestor's digest covers its own files and its own
         // ancestors — never the leaf's agent resolution or the adapter
@@ -991,11 +1074,10 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
             .as_object()
             .expect("manifest files")
             .clone();
-        // Every layer's table is compared, an overridden ancestor's too:
-        // its bytes were read and parsed whatever the leaf later replaced.
-        if let Some(table) = consumed.remove(&index) {
-            table.check(&files)?;
-        }
+        // Every layer's document and table are compared, an overridden
+        // ancestor's too: its bytes were read and parsed whatever the leaf
+        // later replaced.
+        consumed(index, &mut tables).check(&files)?;
         chain.insert(
             0,
             Ancestor {
@@ -1008,6 +1090,7 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
         );
     }
 
+    let leaf_read = consumed(0, &mut tables);
     let mut document = merged.document;
     document.insert("seats".into(), Value::Object(merged.seats.clone()));
     Ok(Resolved {
@@ -1019,6 +1102,6 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
         case_origin: merged.case_from,
         chain,
         roots: layers.into_iter().map(|layer| layer.dir).collect(),
-        table_read: consumed.remove(&0),
+        leaf_read,
     })
 }
