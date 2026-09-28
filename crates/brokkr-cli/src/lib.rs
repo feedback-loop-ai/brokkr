@@ -17,6 +17,7 @@ mod cli_args;
 mod compare;
 mod doctor;
 mod fleet;
+mod hands;
 mod init;
 mod ledger;
 mod muninn;
@@ -741,48 +742,6 @@ pub enum HandsCommand {
     },
 }
 
-fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
-    use brokkr_protocol::hands;
-    let parse_spec = |spec: &str| -> anyhow::Result<hands::HandsSpec> {
-        let raw: serde_json::Value = serde_json::from_str(spec)?;
-        hands::HandsSpec::parse(&raw).map_err(|problem| anyhow::anyhow!("--spec: {problem}"))
-    };
-    match command {
-        HandsCommand::Serve { workdir, spec } => {
-            let spec = parse_spec(&spec)?;
-            // The session outlives every call: overlay upper layers live
-            // here until the harness closes the server's stdin, or a
-            // termination signal ends the server (#415).
-            let session = hands::Session::create("serve")?;
-            session.remove_on_termination()?;
-            let stdin = std::io::stdin();
-            let (input, output) = (stdin.lock(), std::io::stdout());
-            let path = session.path();
-            hands::serve(input, output, &workdir, path, &spec, &hands::execute)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        HandsCommand::Exec {
-            workdir,
-            bundle_root,
-            spec,
-            command,
-        } => {
-            let spec = parse_spec(&spec)?;
-            // Only the leading separator is ours; a command may carry
-            // its own `--`.
-            let command: Vec<String> = match command.first().map(String::as_str) {
-                Some("--") => command[1..].to_vec(),
-                _ => command,
-            };
-            let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
-                .map_err(anyhow::Error::msg)?;
-            Ok(ExitCode::from(
-                u8::try_from(code.clamp(0, 255)).unwrap_or(1),
-            ))
-        }
-    }
-}
-
 use boundary::refuse_unboxable;
 
 /// The payload the LONG-STANDING adapters (claude, lanetally, codex,
@@ -879,10 +838,15 @@ fn report(error: &anyhow::Error) -> ExitCode {
             ExitCode::from(CONTENDED_EXIT)
         }
         None => {
-            eprintln!("error: {}", safe_lines(&format!("{error:#}")));
+            eprintln!("{}", failure_line(error));
             ExitCode::from(1)
         }
     }
+}
+
+/// What an uncontended failure prints on stderr.
+fn failure_line(error: &anyhow::Error) -> String {
+    format!("error: {}", safe_lines(&format!("{error:#}")))
 }
 
 /// Sanitize an error display line by line, keeping the chain's own line
@@ -2023,7 +1987,7 @@ fn run_with(
         Cmd::Bridge(args) => exchange::bridge(workspace, args, bridge_iteration_limit),
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
-        Cmd::Hands { command } => hands(command),
+        Cmd::Hands { command } => hands::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
         Cmd::Recipes { command } => setup::recipes(workspace, command),

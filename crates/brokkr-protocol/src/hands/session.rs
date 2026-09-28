@@ -9,12 +9,21 @@
 //! cannot take its lock refuses to exist. A SIGKILLed owner can do
 //! neither, and on a RAM-backed `/tmp` its tree costs memory until
 //! something removes it: every run, resume and rerun reaps before it
-//! drives. A tree is reaped only when BOTH the pid its name records is
-//! dead AND no process holds its lock, so a live owner's tree is never
-//! touched, whether its pid was reused, it is a pre-#415 server that took
-//! no lock, or it runs in a pid namespace whose pids mean nothing here. A
-//! lock the reaper cannot probe is no answer: it keeps the tree and says
-//! why.
+//! drives. A tree is reaped only when BOTH the pid its name records reads
+//! dead here AND no process holds its lock, so a LOCKED tree is never
+//! touched, whether its owner's pid was reused or it runs in a pid
+//! namespace whose pids mean nothing here. A session's own tree is never
+//! seen unlocked: it is built under a name the reaper does not read and
+//! renamed into place once its lock is held.
+//!
+//! A tree with NO lock file is not protected. It was left by a server
+//! from before #415, which took no lock, and it is reaped when its
+//! recorded pid reads dead here. That covers a live pre-#415 server in a
+//! foreign pid namespace sharing the temporary directory: its tree can be
+//! removed under it. The operator's ruling of 2026-09-28 accepted that
+//! risk for a one-release transition, from 0.12.0 until 0.13.0 ends it;
+//! from then on a lockless tree is kept and said, never reaped. A lock
+//! the reaper cannot probe is no answer: it keeps the tree and says why.
 
 use std::fmt;
 use std::fs::File;
@@ -29,6 +38,9 @@ use signal_hook::iterator::Signals;
 use thiserror::Error;
 
 const PREFIX: &str = "brokkr-hands-";
+/// What a session's tree is named before its lock is held: a prefix the
+/// reaper never reads as a session's.
+const STAGING: &str = ".staging-";
 /// The file inside the tree whose lock the owner holds for its life.
 const LOCK: &str = ".owner.lock";
 /// The signals that end a server by default and that it can observe.
@@ -81,15 +93,18 @@ impl Session {
     }
 
     fn create_in(tmp: &Path, label: &str, lock: Flock) -> Result<Session, SessionError> {
-        let dir = tmp.join(format!(
+        let name = format!(
             "{PREFIX}{label}-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir)?;
-        let session = Session {
-            lock: File::create(dir.join(LOCK))?,
-            dir,
+        );
+        // Built under a name `owner_pid` rejects, so no reaper considers
+        // the tree before its lock is held, and renamed into place after.
+        let staged = tmp.join(format!("{STAGING}{name}"));
+        std::fs::create_dir_all(&staged)?;
+        let mut session = Session {
+            lock: File::create(staged.join(LOCK))?,
+            dir: staged,
         };
         // A session holding no lock would read as unowned the moment its
         // pid reads as dead, as it does from another pid namespace: it
@@ -98,6 +113,9 @@ impl Session {
             path: session.dir.join(LOCK),
             cause: said(errno),
         })?;
+        let dir = tmp.join(name);
+        std::fs::rename(&session.dir, &dir)?;
+        session.dir = dir;
         Ok(session)
     }
 
@@ -241,14 +259,19 @@ fn zombie(_: Pid) -> bool {
     false
 }
 
-/// Whether a process holds the tree's lock. A tree with no lock file (a
-/// pre-#415 owner, or one killed before it locked) is free. A lock file
+/// Whether a process holds the tree's lock. A tree with no lock file was
+/// left by a pre-#415 server, which took no lock, and reads as free: it
+/// is NOT protected, and a live one in a foreign pid namespace sharing the
+/// temporary directory, whose pid reads dead here, loses its tree. The
+/// operator's ruling of 2026-09-28 accepted that for one release; 0.13.0
+/// ends the transition and keeps and says a lockless tree. A lock file
 /// that is not a regular file, or that cannot be read, opened or locked
 /// for any reason but another's hold, is no answer. Nothing here blocks:
 /// the file is opened non-blocking, never through a symlink.
 fn probe(tree: &Path, lock: Flock) -> Probe {
     let path = tree.join(LOCK);
     match rustix::fs::lstat(&path) {
+        // TODO(0.13.0, #415): the lockless transition ends; keep and say.
         Err(Errno::NOENT) => return Probe::Free,
         Err(errno) => return Probe::Unprobed(Unprobed::Stat(errno)),
         Ok(stat) if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile => {

@@ -14,6 +14,30 @@ fn planted(tmp: &Path, label: &str, pid: &str) -> PathBuf {
     tree
 }
 
+/// A live session whose tree is renamed to record `pid`, as a live owner
+/// whose pid reads dead here looks: its lock still holds. The session is
+/// returned so the lock lives as long as the caller keeps it.
+fn held_under(tmp: &Path, pid: &str) -> (Session, PathBuf) {
+    let session = Session::create_in(tmp, "serve", flock).unwrap();
+    let tree = tmp.join(format!("{PREFIX}serve-{pid}-{}", uuid::Uuid::new_v4()));
+    std::fs::rename(session.path(), &tree).unwrap();
+    (session, tree)
+}
+
+thread_local! {
+    /// Where `listing` looks, and every name it saw there.
+    static LISTING: std::cell::RefCell<(PathBuf, Vec<String>)> = std::cell::RefCell::default();
+}
+
+/// A lock that lists the temporary directory the moment before it locks.
+fn listing(fd: BorrowedFd<'_>) -> Result<(), Errno> {
+    LISTING.with_borrow_mut(|(tmp, seen)| {
+        let names = std::fs::read_dir(tmp).unwrap();
+        seen.extend(names.map(|entry| entry.unwrap().file_name().into_string().unwrap()));
+    });
+    flock(fd)
+}
+
 /// A filesystem that refuses every lock.
 fn refused(_: BorrowedFd<'_>) -> Result<(), Errno> {
     Err(Errno::NOLCK)
@@ -133,8 +157,9 @@ fn a_lock_that_is_not_a_regular_file_is_kept_without_blocking() {
         } else {
             &tree.join(LOCK)
         };
-        let fifo_mode = Mode::from_raw_mode(0o600);
-        rustix::fs::mknodat(rustix::fs::CWD, at, FileType::Fifo, fifo_mode, 0).unwrap();
+        // mkfifo(1), because rustix offers no FIFO call on macOS.
+        let made = std::process::Command::new("mkfifo").arg(at).status();
+        assert!(made.unwrap().success());
         if through_a_symlink {
             std::os::unix::fs::symlink(&fifo, tree.join(LOCK)).unwrap();
         }
@@ -177,12 +202,7 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
     let unowned = planted(tmp.path(), "serve", &dead);
     let unheld = planted(tmp.path(), "exec", &dead);
     std::fs::write(unheld.join(LOCK), "").unwrap();
-    // A live owner whose pid reads as dead here: its lock still holds.
-    let held = Session::create_in(tmp.path(), "serve", flock).unwrap();
-    let foreign = tmp
-        .path()
-        .join(format!("{PREFIX}serve-{dead}-{}", uuid::Uuid::new_v4()));
-    std::fs::rename(held.path(), &foreign).unwrap();
+    let (_held, foreign) = held_under(tmp.path(), &dead);
     // A lock that cannot be opened is not an answer.
     let unreadable = planted(tmp.path(), "serve", &dead);
     std::os::unix::fs::symlink(LOCK, unreadable.join(LOCK)).unwrap();
@@ -230,4 +250,43 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
         reap_dead_sessions_in(&tmp.path().join("absent"), flock),
         Reaped::default()
     );
+}
+
+/// The one-release lockless transition, the operator's ruling of
+/// 2026-09-28 that 0.13.0 ends: a tree with no lock file whose pid reads
+/// dead is reaped, and a tree whose pid reads dead but whose lock is held
+/// is kept.
+#[test]
+fn until_0_13_0_a_lockless_dead_tree_is_reaped_and_a_held_one_kept() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dead = dead_pid().to_string();
+    let lockless = planted(tmp.path(), "serve", &dead);
+    let (_held, locked) = held_under(tmp.path(), &dead);
+    assert_eq!(
+        reap_dead_sessions_in(tmp.path(), flock).to_string(),
+        format!(
+            "hands: reaped {}: its owner is dead and holds no lock\n",
+            lockless.display()
+        )
+    );
+    assert!(!lockless.exists());
+    assert!(locked.join(LOCK).is_file());
+}
+
+/// A tree mid-creation is never one a reaper reads: until its lock is
+/// held it carries a name `owner_pid` rejects, and it takes its own name
+/// only once locked.
+#[test]
+fn a_tree_mid_creation_is_never_reapable() {
+    let tmp = tempfile::tempdir().unwrap();
+    LISTING.set((tmp.path().to_path_buf(), Vec::new()));
+    let session = Session::create_in(tmp.path(), "serve", listing).unwrap();
+    let (_, seen) = LISTING.take();
+    let name = session.path().file_name().unwrap().to_str().unwrap();
+    assert_eq!(seen, [format!("{STAGING}{name}")]);
+    assert_eq!(owner_pid(&seen[0]), None);
+    assert_eq!(probe(session.path(), flock), Probe::Held);
+    let now: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().collect();
+    assert_eq!(now.len(), 1);
+    assert_eq!(now[0].as_ref().unwrap().file_name(), name);
 }

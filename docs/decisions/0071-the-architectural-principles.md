@@ -326,14 +326,26 @@ no decision has named.
 A hands server, an exec box and doctor's probe each hold a session tree,
 `brokkr-hands-<label>-<pid>-<uuid>` under the temporary directory, and
 hold an exclusive lock on its `.owner.lock` for their whole life. A
-session that cannot take that lock refuses to exist, and `hands serve`
-refuses to start with the lock's path and the errno on stderr.
+session builds its tree under a name the reaper does not read, and
+renames it into place only once the lock is held, so its tree is never
+seen unlocked. A session that cannot take that lock refuses to exist,
+and `hands serve` refuses to start with the lock's path and the errno on
+stderr.
 
 - **What is reaped, and when.** Every `run`, `resume` and `rerun`, before
   it drives, removes each tree whose name this code wrote, whose recorded
   pid is dead (the kernel answers no such process, or on Linux names it
   a zombie), and whose lock no process holds or which has no lock file.
   It says each removal on stderr, one line naming the tree.
+- **Which trees are not protected, and until when.** A locked tree is
+  never reaped while its lock is held, whatever its pid reads here. A
+  tree with no lock file, left by a server from before #415, is reaped
+  whenever its recorded pid reads dead here. That covers a live pre-#415
+  server in a foreign pid namespace sharing the temporary directory,
+  whose tree can be removed under it. The operator's ruling of
+  2026-09-28 accepted that risk for a one-release transition: #415 ships
+  in 0.12.0, and 0.13.0 ends the transition, after which a lockless tree
+  is kept and said, never reaped.
 - **What is kept and said.** A tree whose pid is alive, whose name is
   not one this code writes, or whose lock another process holds is kept
   in silence. A tree whose lock cannot be probed is kept, and the start
