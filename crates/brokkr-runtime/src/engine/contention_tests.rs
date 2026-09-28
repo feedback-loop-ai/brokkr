@@ -146,6 +146,54 @@ fn contention_where_a_park_is_lawful_parks_with_the_lock_it_lost_named() {
     fold(&events).expect("a journal that parked on contention still folds");
 }
 
+/// The same park met through `drive()`: at a `Park` cursor the engine's
+/// own `run/parked` meets a peer's lock and hands the contention up, and
+/// the lock lets go within the lawful end's patience. The drive ends in
+/// the lawful end's park, naming the lock, and the cursor's own reason is
+/// never written.
+#[test]
+fn a_drive_that_meets_the_lock_at_a_park_ends_in_the_lawful_ends_park() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = in_flight(dir.path());
+    let run_id = engine.run_id.clone();
+    let settled = json!({"effect_id": "effect-1", "attempt_id": "attempt-1", "reason": "gone"});
+    engine
+        .store
+        .append_next(&run_id, EventType::EffectIndeterminate, settled, None, None)
+        .unwrap();
+    let before = engine.store.load(&run_id).unwrap().len();
+    let patience = std::time::Duration::from_millis(200);
+    engine.store.set_patience(patience).unwrap();
+
+    let holder = write_lock_on(&dir.path().join("realm.db"));
+    let end = drive_beside(&mut engine, move || {
+        // Past the park's one patience, within the lawful end's.
+        std::thread::sleep(patience * 3 / 2);
+        drop(holder);
+    })
+    .expect("a park the lock lets go of in time is an ending");
+
+    let reason = end.state.park_reason.clone().unwrap();
+    let waited = reason
+        .strip_prefix(
+            "journal contention: contended: a peer still held the journal's write lock after ",
+        )
+        .and_then(|rest| rest.strip_suffix("ms of append; nothing was written"))
+        .and_then(|ms| ms.parse::<u128>().ok());
+    assert!(waited >= Some(patience.as_millis()), "{reason}");
+    assert_eq!(end.state.status, Status::AwaitingOperator);
+    let events = engine.store.load(&run_id).unwrap();
+    assert_eq!(events.len(), before + 1);
+    let last = events.last().unwrap();
+    assert_eq!(
+        (last.event_type, &last.payload),
+        (
+            EventType::RunParked,
+            &json!({"reason": reason, "evidence": {}})
+        )
+    );
+}
+
 /// Where the fold does NOT admit a park, the engine says so by handing
 /// the typed contention back — it does not forge a `run/parked` the fold
 /// would refuse. An engine that ends on contention must leave a journal

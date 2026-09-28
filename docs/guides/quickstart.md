@@ -667,11 +667,14 @@ Neither number is a claim about your machine. Run the script.
   on a world writes the same journal, and SQLite's write lock is not a
   fair queue. On 2026-09-25, three or four drivers on one journal met a
   42 s wait against the 30 s patience (#394). A working seat's
-  checkpoints now wait out a peer's lock. An attempt's terminal event
-  gets three patiences, then three more for the same outcome, and the
-  run carries on once it lands. A lock that outlasts all six ends the
-  engine with the attempt open, and the next `resume` settles it as
-  restarted and parks.
+  checkpoints now wait out a peer's lock. When the seat stops, the
+  checkpoints still held get three patiences, its terminal event three,
+  and the same outcome three more, so an attempt can wait nine
+  patiences to settle. Each marker the engine journals for a panel
+  member or a sequence step gets three of its own. The run carries on
+  once the outcome lands. A lock that outlasts them all ends the engine
+  with the attempt open, and the next `resume` settles it as restarted
+  and parks.
   Nothing caps writers until decision 0068's dispatcher is built (#430).
 - **`ui` serves one journal.** Every verb that opens a journal takes
   `--realms` and opens the journal the map names unless `--db` outranks

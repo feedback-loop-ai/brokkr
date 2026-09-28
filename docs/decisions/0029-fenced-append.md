@@ -150,3 +150,41 @@ payload is unchanged. The operator ruled the typed `OperatorCommand`,
 and `CommandWord` and `FencedCommand` into brokkr-runtime's, in the
 same ruling. The fence's `Head` stays private to brokkr-runtime's
 `engine/operator.rs`.
+
+## Addendum — 2026-09-28, proposed: a peer's lock in flight settles the attempt within a bound (#394)
+
+Status: proposed; only the operator accepts this addendum.
+
+Ruling 3 says a stale fold refuses and is never retried. A peer that only
+holds the journal's write lock is a different accident:
+`StoreError::Contended` wrote nothing, so the same append made later is
+the same call. #394 found that such a lock, held past the store's one
+patience while a seat was working, ended the engine and threw the
+attempt away. The wait measured was 42 s, against a 30 s patience. The
+fix changes what the journal shows, and this addendum states the rule:
+
+1. A working seat's checkpoints that meet the lock are held in order and
+   retried each time the seat hands over another. The seat is never
+   stopped. The hold is bounded at 16 MiB of serialized checkpoints
+   (`HELD_BYTES`), plus the one row that finds it empty.
+2. When the seat stops, held checkpoints get three settling patiences
+   (`SETTLING_PATIENCES`). A terminal event gets three, and if the lock
+   outlasts them the engine holds that outcome and tries it three more
+   times in the lawful end. Each marker the engine journals for a panel
+   member or a sequence step gets three of its own. Every other event
+   gets one.
+3. Evidence lost to a full hold, or stranded when the lock outlasts the
+   settlement, settles its site `effect/indeterminate` with the count
+   named. It is never read as the driver's success.
+4. A stopped attempt with no outcome held is settled at `EffectInFlight`
+   by `effect/indeterminate` naming the lock, then `run/parked` names it
+   too, so the next resume finds nothing open.
+5. Past the bound nothing is writable. The engine hands the typed
+   contention back with the attempt open, and the next `resume` settles
+   it as restarted and parks.
+
+The operator ruled on 2026-09-28 that this bound is accepted as designed.
+Its acceptance criterion "never an unsettled attempt" cannot be met while
+nothing is writable, and was ruled out of scope. A spill file and an
+attempt-wide bound are #433's; the remaining refinements are #464's. No
+contract, event type or frozen byte moves.
