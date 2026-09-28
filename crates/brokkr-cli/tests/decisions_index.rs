@@ -551,13 +551,28 @@ fn key_value(line: &str) -> Option<(&str, String, &str)> {
         .then_some((key, undressed, value.trim()))
 }
 
+/// A header line that opens on `Status`, undressed, with or without its
+/// colon: the reader takes the first, so any other is a second status.
+fn is_status(line: &str) -> bool {
+    let undressed: String = line.chars().filter(|c| !DRESSING.contains(c)).collect();
+    undressed.trim_start().starts_with("Status")
+}
+
 /// The ledger markers in one decision's header, each with the line it was
 /// read from. A key `near_marker` reads as a misspelt or dressed marker is
-/// refused, never skipped.
+/// refused, never skipped, and so is a second `Status` line.
 fn read_markers(decision: &mut Decision, findings: &mut Vec<Located>) {
     let number = decision.number;
+    let status_at = decision.lines[&Marker::Status];
     let lines: Vec<String> = header(&decision.text).map(str::to_string).collect();
     for (line, at) in lines.into_iter().zip(1..) {
+        if at != status_at && is_status(&line) {
+            findings.push(decision.place(Some(at)).holds(Finding::RepeatedMarker {
+                decision: number,
+                key: "Status",
+            }));
+            continue;
+        }
         let Some((key, undressed, value)) = key_value(&line) else {
             continue;
         };
@@ -1577,6 +1592,29 @@ fn a_marker_is_read_once_and_exactly() {
             key: "Amends"
         }]
     );
+    // A second status is refused, bold, dressed or without its colon.
+    for second in [
+        "Status: enacted",
+        "**Status:** accepted",
+        "_Status_: enacted",
+        "Status enacted",
+    ] {
+        let findings = Fixture::new()
+            .edit(
+                "0001",
+                "Status: accepted\n",
+                &format!("Status: accepted\n{second}\n"),
+            )
+            .findings();
+        assert_eq!(
+            findings,
+            vec![Finding::RepeatedMarker {
+                decision: 1,
+                key: "Status"
+            }],
+            "{second}"
+        );
+    }
 }
 
 #[test]
@@ -1671,6 +1709,10 @@ fn every_refusal_names_its_file_and_line() {
             vec![
                 "docs/decisions/0001-one.md:3: 0001: status 'enacted' is not one of proposed, accepted, superseded, withdrawn".to_string(),
             ],
+        ),
+        (
+            Fixture::new().edit("0001", "Built: built", "Status: enacted\nBuilt: built"),
+            vec!["docs/decisions/0001-one.md:4: 0001: 'Status:' appears more than once".to_string()],
         ),
         (
             Fixture::new().edit("0003", "partial (#7)", "partial (#+7)"),
