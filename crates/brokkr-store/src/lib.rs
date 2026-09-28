@@ -574,6 +574,25 @@ impl Store {
         self.append(run_id, None, event_type, payload, causation_id, attempt_id)
     }
 
+    /// [`Store::append_next`], spending none of this store's patience: a
+    /// peer that holds the write lock returns [`StoreError::Contended`] at
+    /// once, and nothing was written. For a writer that keeps the row and
+    /// offers it again later, so a peer's lock costs it no wait (#394).
+    pub fn append_next_without_waiting(
+        &mut self,
+        run_id: &str,
+        event_type: EventType,
+        payload: Value,
+        causation_id: Option<String>,
+        attempt_id: Option<String>,
+    ) -> Result<EventEnvelope, StoreError> {
+        let patience = self.patience;
+        self.set_patience(std::time::Duration::ZERO)?;
+        let appended = self.append_next(run_id, event_type, payload, causation_id, attempt_id);
+        self.set_patience(patience)?;
+        appended
+    }
+
     /// Append, but only onto the head the caller decided against —
     /// compare-and-append.
     ///

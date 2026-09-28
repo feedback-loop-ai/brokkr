@@ -663,6 +663,20 @@ Neither number is a claim about your machine. Run the script.
 - **One journal per world.** A realms map names a set of repositories
   and exactly one `journal` they share (`forge.realms/v1`). There is no
   per-realm journal.
+- **Three drivers per journal is the practical ceiling.** Every driver
+  on a world writes the same journal, and SQLite's write lock is not a
+  fair queue. On 2026-09-25, three or four drivers on one journal met a
+  42 s wait against the 30 s patience (#394). A working seat's
+  checkpoints are now held behind a peer's lock without waiting, so the
+  seat never stalls. When the seat stops, the
+  checkpoints still held get three patiences, its terminal event three,
+  and the same outcome three more, so an attempt can wait nine
+  patiences to settle. Each marker the engine journals for a panel
+  member or a sequence step gets three of its own. The run carries on
+  once the outcome lands. A lock that outlasts them all ends the engine
+  with the attempt open, and the next `resume` settles it as restarted
+  and parks.
+  Nothing caps writers until decision 0068's dispatcher is built (#430).
 - **`ui` serves one journal.** Every verb that opens a journal takes
   `--realms` and opens the journal the map names unless `--db` outranks
   it (#374), but `ui` refuses a world whose realms name several hearths
