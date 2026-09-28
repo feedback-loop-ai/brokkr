@@ -99,7 +99,7 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
 type Roster = [(&'static str, &'static str, &'static str)];
 
 const PANEL_REVIEW: &Roster = &[
-    ("intake", "claude-sonnet-5", "intake.md"),
+    ("intake", "claude-sonnet-5-5", "intake.md"),
     ("implement", "claude-opus-5-5", "implementer.md"),
     ("review:correctness", "gpt-6-sol", "review-correctness.md"),
     ("review:security", "claude-fable-5-1", "review-security.md"),
@@ -134,7 +134,7 @@ const TRIAGE: &Roster = &[
     ),
 ];
 const SELF: &Roster = &[
-    ("intake", "claude-sonnet-5", "intake.md"),
+    ("intake", "claude-sonnet-5-5", "intake.md"),
     ("implement", "claude-opus-5-5", "implementer.md"),
     ("review", "gpt-6-astra", "reviewer.md"),
 ];
