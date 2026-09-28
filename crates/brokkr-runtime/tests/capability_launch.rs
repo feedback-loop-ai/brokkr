@@ -4555,7 +4555,10 @@ fn sealed_rejoin(
 /// dropped OFF, an unreadable sealed input, a record missing beside its
 /// serving inputs, and a record that counterfeits an origin (the engine's
 /// segment as the recipe's, or the recipe's words as the engine's) each
-/// refuse the rejoin with the whole reason. The Codex
+/// refuse the rejoin with the whole reason; so does a record emptied,
+/// reversed or grown by a hands token, which no longer reassembles the
+/// arguments the driver was handed, on a rejoin and on the fallback served
+/// cold alike. The Codex
 /// assessments are the ones the bundle compiled from the shipped adapter;
 /// Claude's shipped shape is unmeasured, so its rows are handed a supported
 /// one to reach the rejoin at all.
@@ -4689,6 +4692,23 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
         .concat())
     };
     let mode = ["--permission-mode", "acceptEdits"];
+
+    // A record that no longer reassembles the arguments the driver was
+    // handed, refused before any of its origins is read.
+    let unassembled = |first: usize, recorded: usize, supplied: usize| {
+        Err(format!(
+            "refusing the private launch record: its segments do not reassemble the arguments \
+             supplied; they first differ at argument {first} ({recorded} recorded, {supplied} \
+             supplied), and an argument whose origin is not recorded is never trusted by its \
+             bytes (decision 0065 slice one, design D5.7)"
+        ))
+    };
+    let segments = |tamper: fn(&mut Vec<Value>)| -> Tamper {
+        Box::new(move |input| tamper(input["launch_record"]["segments"].as_array_mut().unwrap()))
+    };
+    let grown = |segments: &mut Vec<Value>| {
+        segments.push(json!({"origin": "hands", "argv": ["mcp__brokkr__workspace"]}))
+    };
 
     type Tamper = Box<dyn FnOnce(&mut Value)>;
     type Row<'a> = (
@@ -4866,8 +4886,53 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
                     .to_string(),
             ),
         ),
+        (
+            "codex agent, its record emptied",
+            &denied,
+            "agent",
+            0,
+            ["harness", "none"],
+            segments(|segments| segments.clear()),
+            unassembled(0, 0, 6),
+        ),
+        (
+            "codex agent, its record reversed",
+            &denied,
+            "agent",
+            0,
+            ["harness", "none"],
+            segments(|segments| segments.reverse()),
+            unassembled(0, 6, 6),
+        ),
+        (
+            "codex agent, its record grown by a hands token",
+            &denied,
+            "agent",
+            0,
+            ["harness", "none"],
+            segments(grown),
+            unassembled(6, 7, 6),
+        ),
+        (
+            "the selected fallback, its record grown by a hands token",
+            &boxed,
+            "chain",
+            1,
+            ["namespace", "boxed"],
+            segments(grown),
+            unassembled(12, 13, 12),
+        ),
+        (
+            "boxed claude, its record reversed",
+            &boxed,
+            "chain",
+            0,
+            ["namespace", "boxed"],
+            segments(|segments| segments.reverse()),
+            unassembled(0, 13, 13),
+        ),
     ];
-    assert_eq!(rows.len(), 14);
+    assert_eq!(rows.len(), 19);
     let failures: Vec<String> = rows
         .into_iter()
         .filter_map(

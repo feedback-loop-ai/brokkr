@@ -16149,3 +16149,102 @@ None. No file outside the three named ones moved.
 council. Whether a resumed provider honours the re-imposed controls is
 still unmeasured and owed to the controller. This is composition and
 launch evidence only.
+
+## Unit 15, review return — the whole record reassembles the handed arguments, 2026-09-28
+
+Same run, second implement visit, based on `8809662a`. The chief's SC15-1
+(medium) is answered here. Production file: `adapters.rs` only.
+
+### The finding, and the correction
+
+The record above said **complete** and closed 15.2 too early. `served`
+decoded the sealed `launch_record` but read only its `authored` segments.
+It never checked the whole ordered record against the driver's arguments.
+`composed_launch` checks the legacy `launch_arguments` pair, and
+`inline_codex_final` skips agent-backed seats, so an agent Codex rejoin's
+record could be emptied, reversed or grown under empty grants and still be
+served its exact successful `exec resume`. The first mutation below (M1)
+reproduces that finding exactly: under it, all five new compiled rows
+return `Ok` with the full resume or cold argv.
+
+### What was built
+
+`served` (`adapters.rs:3021`) takes `handed`, the arguments the driver was
+handed. Before it reads any origin (`:3046`), it runs
+`native_controls::reassemble(&record.segments, handed)`. This is the same
+check `engine::verify_record` runs at the dispatch door against
+`spawn.argv[extras_start..]`. It refuses with that function's whole
+reason. Callers:
+
+- **Codex** (`codex_launch_and_cold`): the driver's `extra` for both the
+  rejoin and the cold replacement. Each is checked independently.
+- **Claude/LaneTally** (`claude_launch`): the pre-composition `extra`,
+  kept as `handed` (`:3451`) before it is shadowed by the composed
+  arguments.
+- **DSH** (`dsh_served`, `:4526`): the `extra` that `invoke_dsh_with` was
+  handed.
+
+The cold launches of unit 14b go through the same `served`, so they gain
+the same check. No other file's production moved.
+
+### Tests
+
+- `adapters/tests.rs`, in
+  `an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked`
+  (`:16727` to `:16762`). Three tampered records of the sealed inline
+  launch are each served as the rejoin (with its thread) and as the cold
+  replacement (with none). Each gets the exact refusal:
+  - emptied: first differs at argument 0, 0 recorded, 6 supplied;
+  - reversed: at 0, 6 of 6;
+  - grown by a `hands` segment: at 6, 7 recorded, 6 supplied.
+- `capability_launch.rs`, in
+  `a_compiled_rejoin_is_served_only_as_its_final_check_returns_it`. The
+  table grows from 14 rows to 19 (`:4935`). An `unassembled` helper
+  (`:4698`) writes the reason. The new rows:
+  - Codex agent rejoin, record emptied: `(0, 0, 6)`.
+  - Codex agent rejoin, record reversed: `(0, 6, 6)`.
+  - Codex agent rejoin, grown by a `hands` `mcp__brokkr__workspace`
+    token: `(6, 7, 6)`. This is the reviewer's case.
+  - The selected fallback, declined and served cold, grown: `(12, 13, 12)`.
+  - A boxed Claude rejoin, record reversed: `(0, 13, 13)`.
+- The ten `dsh_served` calls and the two direct `served` calls in
+  `adapters/tests.rs` pass the new argument (`&[]`, the DSH fixtures'
+  handed arguments, or the Codex fixture's `extra`). No assertion moved.
+  The file is named by the unit.
+
+### Baseline red and mutations
+
+Each mutation was one compiling edit at `adapters.rs:3046`, then
+restored.
+
+| Mutation | Result |
+| --- | --- |
+| M1: the check removed (HEAD `8809662a`'s behaviour; the baseline) | failed: all five new rows returned `Ok` with the full argv; the Codex unit test at `:16749` (emptied; got the later `departs at argument 7` refusal) |
+| M2: checked only when the record is empty | failed: the rows for Codex reversed, Codex grown, fallback grown and Claude reversed; the unit test at `:16749` (reversed, served `Ok`) |
+| M3: checked only on a rejoin (`chosen.session.is_some()`) | failed: "the selected fallback, its record grown by a hands token"; the unit test's replacement assertion at `:16753` |
+
+After restoring, `capability_launch` passed 58 and the protocol lib passed
+541.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt --all` rewrapped
+  the new test lines.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test --workspace --all-features --locked`: no test binary has a
+  failure (a count of non-`0 failed` summaries returned 0). This includes
+  `capability_launch` (58), the protocol lib (541) and the runtime lib
+  (574).
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`:
+  compiles.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage outside the box, macOS, remote CI and the
+council. Live resumed-provider enforcement is still owed to the
+controller.

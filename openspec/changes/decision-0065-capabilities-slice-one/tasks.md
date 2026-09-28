@@ -2903,6 +2903,45 @@ close here. Production: `adapters.rs` only.
   council. Whether a resumed provider honours the controls is still owed
   to the controller.
 
+Unit 15, review return (2026-09-28, same run, based on `8809662a`;
+evidence.md, "Unit 15, review return"). The chief's SC15-1 (medium) stands:
+the record above closed 15.2 too early. `served` read only the authored
+segments of the sealed record and never checked the whole ordered record
+against the driver's arguments. An agent-backed Codex rejoin whose record
+was emptied, reversed or grown by a hands token was served as if intact.
+**Result: complete.** 15.1 and 15.2 close on this return.
+
+- `served` (`adapters.rs:3021`) takes `handed`, the arguments the driver
+  was handed. It refuses with `reassemble`'s whole reason
+  (`native_controls::reassemble`) before it reads any origin (`:3046`).
+  Every caller passes its own: Codex `extra` for the rejoin and the cold
+  replacement, Claude/LaneTally's pre-composition `extra` (`:3451`), and
+  DSH's `extra` through `dsh_served` (`:4526`). Cold launches go through
+  the same function, so unit 14b's cold seams gain the same check.
+- Tests:
+  - `adapters/tests.rs`: the Codex rejoin test runs three tampered records
+    (emptied, reversed, grown) through the rejoin and the replacement
+    separately. Each gets the exact reassembly refusal.
+  - `capability_launch.rs`: the compiled table grows from 14 rows to 19. The
+    new rows are the Codex agent rejoin with its record emptied (0 of 6),
+    reversed (at 0) and grown (at 6, 7 of 6); the selected fallback served
+    cold with its record grown (at 12, 13 of 12); and a boxed Claude rejoin
+    with its record reversed (at 0, 13 of 13).
+  - The DSH `dsh_served` calls and the two direct `served` calls in
+    `adapters/tests.rs` pass the new argument. That file is named by the
+    unit, so this is not an admission.
+- Mutations: M1 drops the check, which is HEAD's behaviour and the baseline
+  red. All five new rows and the Codex unit test fail. M2 checks only an
+  empty record: four rows and the unit test fail on reversal. M3 checks
+  only rejoins: the fallback row and the unit test's replacement assertion
+  fail. All restored; the tests pass.
+- Fixture migrations and standing-admission lines: none.
+- Gates: fmt and clippy are clean. `cargo test --workspace --all-features
+  --locked` has no binary with a failure. `bundles/self` compiles. Strict
+  OpenSpec passes 18. `git diff --check` is clean.
+- **Pending.** Exact coverage outside the box, macOS, remote CI and the
+  council. Live resumed-provider enforcement is still owed.
+
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
 - [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)

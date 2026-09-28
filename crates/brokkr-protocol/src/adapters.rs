@@ -2753,8 +2753,14 @@ fn codex_launch_and_cold(
         ..Default::default()
     };
     let session = plan.rejoining.clone();
-    plan.command = served("codex", plan.command, input, chosen(session.as_deref()))?;
-    let cold = served("codex", cold, input, chosen(None))?;
+    plan.command = served(
+        "codex",
+        plan.command,
+        extra,
+        input,
+        chosen(session.as_deref()),
+    )?;
+    let cold = served("codex", cold, extra, input, chosen(None))?;
     Ok((plan, cold))
 }
 
@@ -2994,8 +3000,10 @@ const UNPAIRED: &str =
 /// the command a launch spawns, cold, rejoining or a rejected rejoin's cold
 /// replacement, once [`check_final`] has proved that it expresses exactly
 /// its sealed plan. Where the engine sealed the launch, the record and the
-/// typed serving inputs sealed beside it (rebuild unit 14a2) are decoded
-/// and the check is handed them with the engine's serving choices:
+/// typed serving inputs sealed beside it (rebuild unit 14a2) are decoded,
+/// the record's whole ordered segments must reassemble `handed`, the
+/// arguments the driver was handed, and the check is handed them with the
+/// engine's serving choices:
 /// `chosen`'s executable, workdir, the session it rejoins (`None` cold)
 /// and, for DSH, overlay, stream reading and prompt; the recipe's words by
 /// their recorded origin; the result path where the door is the capture;
@@ -3013,12 +3021,13 @@ const UNPAIRED: &str =
 fn served(
     harness: &str,
     command: Vec<String>,
+    handed: &[String],
     input: &Value,
     chosen: crate::native_controls::Serving<'_>,
 ) -> Result<Vec<String>, String> {
     use crate::native_controls::{
-        check_final, managed, Dialect, LaunchRecord, Origin, SealedServing, Serving, Transport,
-        SERVING_INPUTS,
+        check_final, managed, reassemble, Dialect, LaunchRecord, Origin, SealedServing, Serving,
+        Transport, SERVING_INPUTS,
     };
     let record = match (input.get("launch_record"), input.get(SERVING_INPUTS)) {
         (None, None) => return Ok(command),
@@ -3030,6 +3039,11 @@ fn served(
     };
     let record = LaunchRecord::decode(Some(record))?;
     let sealed = SealedServing::decode(input.get(SERVING_INPUTS))?;
+    // The whole ordered record, not only its authored segments, must
+    // reassemble the arguments this driver was handed: a record emptied,
+    // reordered or grown around them has no origin to read the recipe's
+    // words by, and is refused (NCC; tasks 15.1 and 15.2).
+    reassemble(&record.segments, handed)?;
     let authored: Vec<String> = record
         .segments
         .iter()
@@ -3434,6 +3448,7 @@ fn claude_launch(
         return Err(conflict);
     }
     let composed = composed_launch(provider, extra, input)?;
+    let handed = extra;
     let extra = composed.extra.as_slice();
     // `--no-session-persistence` is admitted — it is a legitimate thing
     // for a seat to want — and it makes the shape nonresumable, which is
@@ -3470,7 +3485,7 @@ fn claude_launch(
             session: launch.rejoining.as_deref(),
             ..Default::default()
         };
-        launch.command = served(provider, launch.command, input, chosen)?;
+        launch.command = served(provider, launch.command, handed, input, chosen)?;
         Ok(launch)
     };
     let Some(session) = session else {
@@ -4481,7 +4496,7 @@ fn invoke_dsh_with(
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let launch = dsh_launch(&bin, extra, workdir, session, input)?;
-    let command = dsh_served(&bin, &launch, prompt, workdir, input)?;
+    let command = dsh_served(&bin, &launch, extra, prompt, workdir, input)?;
     invoke_dsh_launch_observed(launch, command, workdir, emit, wait, &mut |_| {})
 }
 
@@ -4491,6 +4506,7 @@ fn invoke_dsh_with(
 fn dsh_served(
     bin: &str,
     launch: &DshLaunch,
+    handed: &[String],
     prompt: &str,
     workdir: &str,
     input: &Value,
@@ -4507,7 +4523,7 @@ fn dsh_served(
         prompt: Some(prompt),
         ..Default::default()
     };
-    served("dsh", command, input, chosen)
+    served("dsh", command, handed, input, chosen)
 }
 
 /// `invoke_dsh_with` over an already-settled launch, so the qualified

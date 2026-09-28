@@ -16527,14 +16527,14 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     let settled = launch();
     let cold = words(&[bin, "--profile", "headless", "--patch", &overlay(&settled)]);
     assert_eq!(
-        dsh_served(bin, &settled, prompt, workdir, &input),
+        dsh_served(bin, &settled, &[], prompt, workdir, &input),
         Ok([cold.clone(), words(&[prompt])].concat())
     );
     let mut streamed = launch();
     streamed.stream_json = true;
     streamed.command = dsh_command(bin, &overlay(&streamed), true, None);
     assert_eq!(
-        dsh_served(bin, &streamed, prompt, workdir, &input),
+        dsh_served(bin, &streamed, &[], prompt, workdir, &input),
         Ok(words(&[
             bin,
             "--profile",
@@ -16553,7 +16553,7 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     let mut elsewhere = launch();
     elsewhere.command = cold.clone();
     assert_eq!(
-        dsh_served(bin, &elsewhere, prompt, workdir, &input),
+        dsh_served(bin, &elsewhere, &[], prompt, workdir, &input),
         refused(
             "departs at argument 4 from the complete command its sealed inputs and the \
              engine's serving choices rebuild: missing, extra, reordered and respelled \
@@ -16568,7 +16568,7 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
         &format!("--patch={}", overlay(&joined)),
     ]);
     assert_eq!(
-        dsh_served(bin, &joined, prompt, workdir, &input),
+        dsh_served(bin, &joined, &[], prompt, workdir, &input),
         refused(
             "cannot be read whole (argument 3, a positional argument, whose text is not echoed: \
              it stands where the '--profile headless --patch' lead a dsh serving command opens \
@@ -16578,7 +16578,7 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     let mut doubled = launch();
     doubled.command = [doubled.command.clone(), words(&["--profile", "headless"])].concat();
     assert_eq!(
-        dsh_served(bin, &doubled, prompt, workdir, &input),
+        dsh_served(bin, &doubled, &[], prompt, workdir, &input),
         refused(
             "cannot be read whole (argument 5, a positional argument, whose text is not echoed: \
              it stands after the overlay, where only the seat's prompt as the last argument, or \
@@ -16590,7 +16590,7 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     let mut unpaired = input.clone();
     unpaired.as_object_mut().unwrap().remove(SERVING_INPUTS);
     assert_eq!(
-        dsh_served(bin, &settled, prompt, workdir, &unpaired),
+        dsh_served(bin, &settled, &[], prompt, workdir, &unpaired),
         Err(
             "refusing to invoke the agent CLI: the input carries a sealed launch record or \
              sealed serving inputs without the capability plan and the record they are sealed \
@@ -16601,7 +16601,7 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     );
     unpaired.as_object_mut().unwrap().remove("launch_record");
     assert_eq!(
-        dsh_served(bin, &settled, prompt, workdir, &unpaired),
+        dsh_served(bin, &settled, &[], prompt, workdir, &unpaired),
         Ok([cold, words(&[prompt])].concat())
     );
 
@@ -16713,13 +16713,58 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
         ))
     };
     assert_eq!(
-        served("codex", rejoined.clone(), &input, chosen(None)),
+        served("codex", rejoined.clone(), &extra, &input, chosen(None)),
         departs(2)
     );
     assert_eq!(
-        served("codex", cold.clone(), &input, chosen(Some(THREAD))),
+        served("codex", cold.clone(), &extra, &input, chosen(Some(THREAD))),
         departs(2)
     );
+
+    // Each is checked against the whole ordered record, not only its
+    // authored words: a record emptied, reversed or grown by a hands token
+    // refuses the rejoin and the replacement alike.
+    let unassembled = |first: usize, recorded: usize| {
+        Err(format!(
+            "refusing the private launch record: its segments do not reassemble the arguments \
+             supplied; they first differ at argument {first} ({recorded} recorded, 6 supplied), \
+             and an argument whose origin is not recorded is never trusted by its bytes \
+             (decision 0065 slice one, design D5.7)"
+        ))
+    };
+    let tampered = |tamper: fn(&mut Vec<Value>)| {
+        let mut tampered = input.clone();
+        tamper(
+            tampered["launch_record"]["segments"]
+                .as_array_mut()
+                .unwrap(),
+        );
+        tampered
+    };
+    let records = [
+        (tampered(|segments| segments.clear()), unassembled(0, 0)),
+        (tampered(|segments| segments.reverse()), unassembled(0, 6)),
+        (
+            tampered(|segments| segments.push(json!({"origin": "hands", "argv": ["x"]}))),
+            unassembled(6, 7),
+        ),
+    ];
+    for (record, refusal) in &records {
+        assert_eq!(
+            &served(
+                "codex",
+                rejoined.clone(),
+                &extra,
+                record,
+                chosen(Some(THREAD))
+            ),
+            refusal
+        );
+        assert_eq!(
+            &served("codex", cold.clone(), &extra, record, chosen(None)),
+            refusal
+        );
+    }
 
     // What refuses the rejoin itself, each with its whole reason.
     let rejoin = |input: &Value| {
@@ -16867,7 +16912,7 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
 
     let (rejoin, overlay) = launch(Some(session), Some(session));
     assert_eq!(
-        dsh_served(bin, &rejoin, prompt, workdir, &input),
+        dsh_served(bin, &rejoin, &[], prompt, workdir, &input),
         Ok([
             bin,
             "--profile",
@@ -16885,11 +16930,14 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
     );
     let (opened, _) = launch(Some(session), None);
     assert_eq!(
-        dsh_served(bin, &opened, prompt, workdir, &input),
+        dsh_served(bin, &opened, &[], prompt, workdir, &input),
         departs(7)
     );
     let (named, _) = launch(None, Some(session));
-    assert_eq!(dsh_served(bin, &named, prompt, workdir, &input), departs(7));
+    assert_eq!(
+        dsh_served(bin, &named, &[], prompt, workdir, &input),
+        departs(7)
+    );
 
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
