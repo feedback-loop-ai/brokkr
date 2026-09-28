@@ -791,7 +791,7 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
         let mut implement: Vec<String> = prefix.iter().map(|s| s.to_string()).collect();
         implement.extend([
             "--model".to_string(),
-            "claude-opus-5".to_string(),
+            "claude-opus-5-5".to_string(),
             "--effort".to_string(),
             "high".to_string(),
             "--allowedTools".to_string(),
