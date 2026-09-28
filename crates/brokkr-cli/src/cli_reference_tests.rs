@@ -11,15 +11,18 @@
 //! `bash`, `shell`, `zsh`, `console`, or one with no language; a fence
 //! that prompts anywhere holds output too, and so only its `$ ` lines
 //! are commands), in a blockquote as well as out of one. A line that
-//! names `brokkr` is split by the same word splitter that parses it, and
-//! every `brokkr` command it joins with `&&`, `;` or a pipe is handed
-//! whole to clap, past any leading `NAME=value` words and keywords such
-//! as `if` and `do`. Every other `brokkr` on the line, in a quote, a
-//! substitution, an argument, a comment or another program's words, is
-//! refused, and so is one in any other fence, one without a prompt in a
-//! fence that prompts, a fence that never closes, an unquoted `$`
-//! expansion, and a shell construct the word splitter does not know.
-//! `cargo run -p brokkr-cli -- …` names the crate, not `brokkr`.
+//! names `brokkr` is split by the same word splitter that parses it,
+//! continuations joined as the shell joins them, and every `brokkr`
+//! command it joins with `&&`, `;` or a pipe is handed whole to clap,
+//! past any leading `NAME=value` words and keywords such as `if` and
+//! `do`. A path to `brokkr` (`./brokkr`, `target/release/brokkr`) as the
+//! program word runs it and is parsed too, as are the words after `--`
+//! in `cargo run -p brokkr-cli -- …`; as an argument, such a path names a
+//! file. Every other `brokkr` on the line, in a quote, a substitution, an
+//! argument, a comment or another program's words, is refused, and so is
+//! one in any other fence, one without a prompt in a fence that prompts,
+//! a fence that never closes, an unquoted `$` expansion, and a shell
+//! construct the word splitter does not know.
 
 use std::path::{Path, PathBuf};
 
@@ -446,16 +449,36 @@ const KEYWORDS: [&str; 9] = [
     "if", "then", "elif", "else", "while", "until", "do", "!", "{",
 ];
 
-/// How many times `text` names `brokkr` as a word of its own, wherever
-/// it stands: quoted, escaped, inside a substitution, in a comment, or
-/// before a `:`. Quotes and backslashes are taken off first, as the word
-/// splitter takes them off. A path or a URL that passes through a
-/// `brokkr` directory names a file, and `brokkr-cli` the crate, not it.
-fn mentions(text: &str) -> usize {
+/// How many of `text`'s tokens `named` accepts. Quotes and backslashes
+/// are taken off first, as the word splitter takes them off, and a token
+/// runs through letters, digits, `-`, `_`, `.` and `/`.
+fn count(text: &str, named: fn(&str) -> bool) -> usize {
     text.replace(['\'', '"', '\\'], "")
         .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/')))
-        .filter(|token| *token == "brokkr")
+        .filter(|token| named(token))
         .count()
+}
+
+/// How many times `text` names `brokkr` as a word of its own, wherever
+/// it stands: quoted, escaped, inside a substitution, in a comment, or
+/// before a `:`. A path or a URL that passes through or ends in a
+/// `brokkr` directory names a file, and `brokkr-cli` the crate, not it.
+fn mentions(text: &str) -> usize {
+    count(text, |token| token == "brokkr")
+}
+
+/// Whether a word runs `brokkr` when it is a command's program word:
+/// `brokkr` itself, or a path to it such as `./brokkr` or
+/// `target/release/brokkr`. As an argument, such a path names a file.
+fn executable(word: &str) -> bool {
+    word == "brokkr" || word.ends_with("/brokkr")
+}
+
+/// How many words in `text` could run `brokkr`: an [`executable`] one,
+/// or the `brokkr-cli` crate [`cargo_run`] runs. Every line that holds
+/// one is read.
+fn executables(text: &str) -> usize {
+    count(text, |token| executable(token) || token == "brokkr-cli")
 }
 
 /// A shell assignment word, `NAME=value`, which may lead a command.
@@ -476,12 +499,34 @@ fn program_word(argv: &[String]) -> usize {
         .unwrap_or(argv.len())
 }
 
-/// The `brokkr` command one split command runs, from `brokkr` on, or
-/// nothing when it runs another program. A `brokkr` anywhere else is
+/// The `brokkr` command one split command runs, as clap is handed it, or
+/// nothing when it runs another program: from an [`executable`] program
+/// word on, or what [`cargo_run`] runs. A `brokkr` anywhere else is
 /// [`stray`]: this reader cannot tell whether it runs.
-fn program(argv: &[String]) -> Option<&[String]> {
+fn program(argv: &[String]) -> Option<Vec<String>> {
     let argv = &argv[program_word(argv)..];
-    (argv.first().map(String::as_str) == Some("brokkr")).then_some(argv)
+    match argv.first() {
+        Some(word) if executable(word) => Some(argv.to_vec()),
+        _ => cargo_run(argv),
+    }
+}
+
+/// The `brokkr` command a `cargo run -p brokkr-cli` runs: `brokkr` and
+/// the words after `--`, parsed as any other `brokkr` command is.
+fn cargo_run(argv: &[String]) -> Option<Vec<String>> {
+    let dashes = argv.iter().position(|word| word == "--");
+    let (cargo, arguments) = argv.split_at(dashes.unwrap_or(argv.len()));
+    let package = cargo
+        .windows(2)
+        .any(|pair| matches!(pair[0].as_str(), "-p" | "--package") && pair[1] == "brokkr-cli")
+        || cargo
+            .iter()
+            .any(|word| matches!(word.as_str(), "-pbrokkr-cli" | "--package=brokkr-cli"));
+    let runs = cargo.first().is_some_and(|word| word == "cargo")
+        && cargo.iter().any(|word| word == "run")
+        && package;
+    let brokkr = std::iter::once("brokkr".to_string());
+    runs.then(|| brokkr.chain(arguments.iter().skip(1).cloned()).collect())
 }
 
 /// The first word on a split line that names `brokkr` and is not the
@@ -551,11 +596,22 @@ fn fence_marker(line: &str) -> Option<(&str, &str)> {
     (length >= 3).then(|| (&trimmed[..length], trimmed[length..].trim()))
 }
 
+/// How many spaces `line` begins with.
+fn indentation(line: &str) -> usize {
+    line.len() - line.trim_start_matches(' ').len()
+}
+
+/// `line` with up to `indent` leading spaces taken off, as a fence
+/// opened that far in takes them off its lines.
+fn outdent(line: &str, indent: usize) -> &str {
+    &line[indentation(line).min(indent)..]
+}
+
 /// Every fence in a Markdown document, in order, or the line of one that
 /// never closes.
 fn fences(doc: &str) -> Result<Vec<Fence<'_>>, (usize, String)> {
     let mut found = Vec::new();
-    let mut open: Option<(Fence<'_>, &str, usize)> = None;
+    let mut open: Option<(Fence<'_>, &str, usize, usize)> = None;
     for (index, line) in doc.lines().enumerate() {
         match open.as_mut() {
             None => {
@@ -564,6 +620,7 @@ fn fences(doc: &str) -> Result<Vec<Fence<'_>>, (usize, String)> {
                     let language = info.split_whitespace().next().unwrap_or("").to_string();
                     let lines = Vec::new();
                     let opened = index + 1;
+                    let indent = indentation(rest);
                     open = Some((
                         Fence {
                             opened,
@@ -572,22 +629,23 @@ fn fences(doc: &str) -> Result<Vec<Fence<'_>>, (usize, String)> {
                         },
                         marker,
                         depth,
+                        indent,
                     ));
                 }
             }
-            Some((fence, marker, depth)) => {
+            Some((fence, marker, depth, indent)) => {
                 let rest = unquote(line, *depth).1;
                 match fence_marker(rest) {
                     Some((close, "")) if close.starts_with(*marker) => {
-                        found.extend(open.take().map(|(fence, _, _)| fence));
+                        found.extend(open.take().map(|(fence, ..)| fence));
                     }
-                    _ => fence.lines.push((index + 1, rest)),
+                    _ => fence.lines.push((index + 1, outdent(rest, *indent))),
                 }
             }
         }
     }
     match open {
-        Some((fence, _, _)) => Err((fence.opened, "this fence never closes".to_string())),
+        Some((fence, ..)) => Err((fence.opened, "this fence never closes".to_string())),
         None => Ok(found),
     }
 }
@@ -597,15 +655,15 @@ fn fences(doc: &str) -> Result<Vec<Fence<'_>>, (usize, String)> {
 const UNPROMPTED: &str = "a line naming `brokkr` without a `$ ` prompt in a fence \
                           that prompts elsewhere; prompt it, or move output into a text fence";
 
-/// A line that names `brokkr`, with any `$ ` prompt taken off, for
-/// [`refusal`] to account for every mention. In a fence that prompts, a
-/// line without a prompt is output, and one that names `brokkr` is
-/// refused: a forgotten prompt and output that looks like a command are
-/// told apart by the author, not guessed.
+/// A line that names `brokkr` or a path to it, with any `$ ` prompt taken
+/// off, for [`refusal`] to account for every mention. In a fence that
+/// prompts, a line without a prompt is output, and one that names either
+/// is refused: a forgotten prompt and output that looks like a command
+/// are told apart by the author, not guessed.
 fn command_of(line: &str, prompted: bool) -> Result<Option<&str>, &'static str> {
     let line = line.trim_start();
     match line.strip_prefix("$ ") {
-        _ if mentions(line) == 0 => Ok(None),
+        _ if executables(line) == 0 => Ok(None),
         Some(command) => Ok(Some(command)),
         None if prompted => Err(UNPROMPTED),
         None => Ok(Some(line)),
@@ -619,26 +677,30 @@ fn commands_in(fence: &Fence<'_>) -> Result<Vec<Fenced>, (usize, String)> {
     if NOT_SHELLS.contains(&language) {
         return Ok(Vec::new());
     }
-    let console = language == "console";
     let prompted = fence
         .lines
         .iter()
         .any(|(_, line)| line.trim_start().starts_with("$ "));
+    // A continuation in a console fence, or in one that prompts, carries
+    // the shell's `> ` prompt.
+    let continued = prompted || language == "console";
     let mut found = Vec::new();
     let mut lines = fence.lines.iter();
     while let Some(&(number, line)) = lines.next() {
-        // A line is judged whole, its continuations joined, so a `brokkr`
-        // on one is read with the command it continues.
+        // A line is judged whole, its continuations joined as the shell
+        // joins them, the backslash and the newline taken off and nothing
+        // else, so a `brokkr` on one is read with the command it continues.
         let mut text = line.to_string();
         while text.ends_with('\\') {
             let Some(&(_, next)) = lines.next() else {
                 break;
             };
-            // A console continuation carries the shell's `> ` prompt.
-            let next = next.trim();
             text.pop();
-            text.push(' ');
-            text.push_str(next.strip_prefix("> ").filter(|_| console).unwrap_or(next));
+            text.push_str(
+                next.strip_prefix("> ")
+                    .filter(|_| continued)
+                    .unwrap_or(next),
+            );
         }
         let Some(command) =
             command_of(&text, prompted).map_err(|problem| (number, problem.to_string()))?
@@ -823,13 +885,14 @@ fn refusal(line: &str) -> Option<String> {
         Ok(commands) => commands,
         Err(problem) => return Some(problem),
     };
-    let parsed: Vec<&[String]> = commands.iter().filter_map(|argv| program(argv)).collect();
+    let parsed: Vec<Vec<String>> = commands.iter().filter_map(|argv| program(argv)).collect();
     if let Some(problem) = parsed.iter().find_map(|argv| clap_refusal(argv)) {
         return Some(problem);
     }
+    let split: usize = commands.iter().flatten().map(|word| mentions(word)).sum();
     match stray(&commands) {
         Some(word) => Some(unparsed(word)),
-        None if mentions(line) > parsed.len() => Some(DROPPED.to_string()),
+        None if mentions(line) > split => Some(DROPPED.to_string()),
         None => None,
     }
 }
@@ -916,7 +979,7 @@ fn the_fence_reader_joins_continuations_and_reads_only_prompted_lines_beside_a_p
         [
             Fenced {
                 line: 2,
-                text: "brokkr inspect  --run latest # the newest".to_string(),
+                text: "brokkr inspect   --run latest # the newest".to_string(),
             },
             Fenced {
                 line: 6,
@@ -931,6 +994,20 @@ fn the_fence_reader_joins_continuations_and_reads_only_prompted_lines_beside_a_p
             "```console\n$ brokkr runs\nbrokkr wacth --run latest\n```\n"
         ),
         [format!("doc.md:3: {UNPROMPTED}")]
+    );
+    // The shell takes off the backslash and the newline and nothing else,
+    // so a word broken across lines is one word, in a fence indented in a
+    // list item as out of one.
+    let wacth = "error: unrecognized subcommand 'wacth'";
+    assert_eq!(
+        refusals_in(
+            "doc.md",
+            "```sh\nbrok\\\nkr wacth\n```\n  ```sh\n  brokkr wa\\\n  cth\n  ```\n"
+        ),
+        [
+            format!("doc.md:2: `brokkr wacth`: {wacth}"),
+            format!("doc.md:6: `brokkr wacth`: {wacth}"),
+        ]
     );
 }
 
@@ -948,16 +1025,21 @@ fn the_fence_reader_reads_unprompted_console_blockquotes_and_continuation_prompt
             },
             Fenced {
                 line: 5,
-                text: "brokkr run --bundle .  --feature x".to_string(),
+                text: "brokkr run --bundle .   --feature x".to_string(),
             },
             Fenced {
                 line: 9,
-                text: "brokkr run  --bogus".to_string(),
+                text: "brokkr run --bogus".to_string(),
             },
         ]
     );
     assert_eq!(
         refusals_in("doc.md", "```console\nbrokkr runs --bogus\n```\n"),
+        ["doc.md:2: `brokkr runs --bogus`: error: unexpected argument '--bogus' found"]
+    );
+    // A fence with no language that prompts carries the same `> `.
+    assert_eq!(
+        refusals_in("doc.md", "```\n$ brokkr runs \\\n> --bogus\n```\n"),
         ["doc.md:2: `brokkr runs --bogus`: error: unexpected argument '--bogus' found"]
     );
 }
@@ -983,8 +1065,8 @@ fn the_fence_reader_refuses_what_it_cannot_read() {
 #[test]
 fn the_fence_reader_sees_brokkr_past_tabs_assignments_and_wrappers() {
     let wacth = "error: unrecognized subcommand 'wacth'";
-    // `cargo run -p brokkr-cli` names the crate; `cargo install brokkr`
-    // names `brokkr` where nothing parses it.
+    // `cargo run -p brokkr-cli -- runs` runs `brokkr runs`, which parses;
+    // `cargo install brokkr` names `brokkr` where nothing parses it.
     assert_eq!(
         refusals_in(
             "doc.md",
@@ -1020,6 +1102,35 @@ fn the_fence_reader_sees_brokkr_past_tabs_assignments_and_wrappers() {
     assert_eq!(refusal("brokkr inspect --run \"$RUN\""), None);
 }
 
+/// A path to `brokkr` as the program word runs it, and `cargo run -p
+/// brokkr-cli` runs it with the words after `--`: both are parsed. As an
+/// argument, the path names a file.
+#[test]
+fn the_fence_reader_parses_a_path_to_brokkr_and_what_cargo_run_runs() {
+    let wacth = "error: unrecognized subcommand 'wacth'";
+    let doc = "```sh\n./brokkr wacth\n~/.cargo/bin/brokkr wacth\n\
+               brokkr runs && target/release/brokkr wacth\ncd ./brokkr && ./brokkr runs\n\
+               cargo run -p brokkr-cli -- wacth\ncargo run --locked -p brokkr-cli -- runs\n\
+               cargo run --package=brokkr-cli\ncargo run -p brokkr-cli -- runs # brokkr\n```\n";
+    assert_eq!(
+        refusals_in("doc.md", doc),
+        [
+            format!("doc.md:2: `./brokkr wacth`: {wacth}"),
+            format!("doc.md:3: `~/.cargo/bin/brokkr wacth`: {wacth}"),
+            format!("doc.md:4: `brokkr runs && target/release/brokkr wacth`: {wacth}"),
+            format!("doc.md:6: `cargo run -p brokkr-cli -- wacth`: {wacth}"),
+            // With no `--`, clap is handed a bare `brokkr` and refuses it
+            // with the help it prints, whose first line is the about.
+            "doc.md:8: `cargo run --package=brokkr-cli`: Deterministic delivery engine".to_string(),
+            format!("doc.md:9: `cargo run -p brokkr-cli -- runs # brokkr`: {DROPPED}"),
+        ]
+    );
+    assert_eq!(
+        fenced_commands("```console\n$ brokkr runs\n./brokkr wacth\n```\n").unwrap_err(),
+        (3, UNPROMPTED.to_string())
+    );
+}
+
 #[test]
 fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
     let wacth = "error: unrecognized subcommand 'wacth'";
@@ -1033,7 +1144,7 @@ fn the_fence_reader_reads_brokkr_wherever_the_word_splitter_finds_it() {
             format!("doc.md:3: `for x in a; do brokkr wacth; done`: {wacth}"),
             format!("doc.md:4: `'brokkr' wacth`: {wacth}"),
             "doc.md:5: `RUN=$(brokkr costs --run latest)`: a $( substitution".to_string(),
-            format!("doc.md:6: `sudo  brokkr runs`: {}", unparsed("brokkr")),
+            format!("doc.md:6: `sudo   brokkr runs`: {}", unparsed("brokkr")),
             format!(
                 "doc.md:8: `cd ./brokkr && git commit -m \"brokkr starter\"`: {}",
                 unparsed("brokkr starter")
