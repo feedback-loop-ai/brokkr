@@ -804,7 +804,7 @@ fn a_grandchild_holding_the_pipes_does_not_outlast_the_deadline() {
 }
 
 /// An end that cannot be proven — a pipe something outside the tree
-/// still holds, a group the kernel would not signal, a leader that would
+/// still holds, a running group the kernel would not signal, a leader that would
 /// not be reaped, a table that cannot be read — leaves the outcome the
 /// driver reached as it reached it, typed, and the cleanup unresolved
 /// beside it: the report never certifies the attempt (#403).
@@ -831,7 +831,9 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
     let stderr_held = attempt(process);
 
     let answering = format!("read -r hello; {}", capabilities());
-    let mut process = spawned(&command(&answering), std::path::Path::new("."), None);
+    // A member still runs, so the table does not read the refused group gone.
+    let member = format!("sleep 5 >/dev/null 2>&1 & {answering}");
+    let mut process = spawned(&command(&member), std::path::Path::new("."), None);
     process.host.kill_group = |_| Err(rustix::io::Errno::PERM);
     let group = i32::try_from(process.child.id()).unwrap();
     let kill_refused = attempt(process);

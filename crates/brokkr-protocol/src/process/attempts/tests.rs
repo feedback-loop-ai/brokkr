@@ -67,6 +67,15 @@ fn forbidden(_: &Identity) -> std::io::Result<()> {
     Err(Errno::PERM.into())
 }
 
+/// A table whose group `GROUP` has a member still running beside its
+/// zombie leader.
+fn populated() -> Result<Vec<Entry>, TableError> {
+    Ok(table([
+        zombie(row(GROUP, me(), GROUP)),
+        row(RECORDED, GROUP, GROUP),
+    ]))
+}
+
 /// The tracker records the leader's descendants to any depth, a process
 /// that left its session included, and an orphan still in the group, and
 /// keeps following what it recorded once the leader is closed; a zombie
@@ -414,6 +423,7 @@ fn a_closed_group_is_not_signalled_and_every_refusal_is_carried() {
     let host = |kill_group: KillGroup, kill: fn(&Identity) -> std::io::Result<()>| Host {
         kill_group,
         kill,
+        table: populated,
         ..Host::REAL
     };
     let mut live = closed(GROUP, &[], &[]);
@@ -455,5 +465,47 @@ fn a_closed_group_is_not_signalled_and_every_refusal_is_carried() {
             pid: RECORDED,
             error: std::io::Error::from(Errno::PERM).to_string(),
         })
+    );
+}
+
+/// #403 on macOS: Darwin answers a signal to a group whose members are
+/// all zombies with EPERM. A fresh read of the table decides it: a group
+/// with no member running is gone, as ESRCH's is; one with a member
+/// running, or a table that cannot be read, is a refusal, and parks.
+#[test]
+fn a_group_refused_with_eperm_is_gone_only_when_the_table_shows_it_gone() {
+    fn zombies() -> Result<Vec<Entry>, TableError> {
+        Ok(table([
+            zombie(row(GROUP, me(), GROUP)),
+            zombie(row(RECORDED, GROUP, GROUP)),
+            row(STRANGER, 1, STRANGER),
+        ]))
+    }
+    let refused = |table| Host {
+        kill_group: |_| Err(Errno::PERM),
+        kill: spared,
+        table,
+        ..Host::REAL
+    };
+    let live = Live {
+        open: true,
+        ..closed(GROUP, &[], &[])
+    };
+    let kill = Unsettled::Kill {
+        group: GROUP,
+        errno: Errno::PERM.raw_os_error(),
+    };
+    assert_eq!(live.kill(refused(zombies)), Ok(()));
+    assert_eq!(live.kill(refused(populated)), Err(kill.clone()));
+    assert_eq!(
+        live.kill(refused(|| Err(TableError::NoSelf { pid: 0 }))),
+        Err(kill.clone())
+    );
+    assert_eq!(
+        kill.to_string(),
+        format!(
+            "its process group {GROUP} could not be signalled: {}",
+            std::io::Error::from(Errno::PERM)
+        )
     );
 }

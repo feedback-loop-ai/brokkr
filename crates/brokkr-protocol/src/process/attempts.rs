@@ -283,11 +283,13 @@ impl Registry {
 impl Live {
     /// SIGKILL the group while its leader is unreaped, and every identity
     /// recorded or doubted. The first refusal, once every kill was tried.
+    /// A group refusal is read against the table (`tree::group_refused`),
+    /// under the lock every caller holds.
     fn kill(&self, host: Host) -> Result<(), Unsettled> {
         let group = self.group.as_raw_pid();
         let refused = self
             .open
-            .then(|| tree::refused((host.kill_group)(self.group)))
+            .then(|| tree::group_refused(self.group, (host.kill_group)(self.group), host.table))
             .flatten()
             .map(|errno| Unsettled::Kill {
                 group,

@@ -283,3 +283,26 @@ pub(super) fn read(table: fn() -> Result<Vec<Entry>, TableError>) -> Result<Vec<
 pub(super) fn refused(error: rustix::io::Result<()>) -> Option<Errno> {
     error.err().filter(|errno| *errno != Errno::SRCH)
 }
+
+/// A refusal of the signal to `group`. ESRCH is none, and so is EPERM
+/// when a fresh read of `table` shows no member of the group running:
+/// Darwin answers a group whose members are all zombies or exiting with
+/// EPERM, having found the group and signalled nobody. Linux signals a
+/// zombie, so its EPERM names a member it would not signal, which the
+/// same read shows running. One code serves both. A table that cannot be
+/// read proves nothing, and the refusal stands.
+pub(super) fn group_refused(
+    group: Pid,
+    signalled: rustix::io::Result<()>,
+    table: fn() -> Result<Vec<Entry>, TableError>,
+) -> Option<Errno> {
+    let gone = || {
+        let group = group.as_raw_pid();
+        read(table).is_ok_and(|entries| {
+            !entries
+                .iter()
+                .any(|entry| entry.pgid == group && !entry.zombie)
+        })
+    };
+    refused(signalled).filter(|errno| *errno != Errno::PERM || !gone())
+}
