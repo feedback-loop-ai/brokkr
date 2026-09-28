@@ -70,18 +70,27 @@ fn rerun_resolves_latest() {
 }
 
 #[test]
-fn conclude_resolves_latest_to_the_run_it_stops() {
+fn conclude_resolves_latest_to_the_run_it_stops_and_refuses_an_empty_run() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     stopped_mid_flight_run(&db, "stranded", &json!({"engine": "0.3.6", "files": {}}));
-    let conclude = Cmd::Conclude(ConcludeArgs {
-        run: "latest".into(),
-        reason: "the engine moved on without it".into(),
-        journal: at(&db),
-    });
-    assert_eq!(run(cli(conclude)).unwrap(), ExitCode::from(Exit::Stopped));
-    let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    let events = || Store::open(&db).unwrap().load("stranded").unwrap();
+    let conclude = |run: &str| {
+        Cmd::Conclude(ConcludeArgs {
+            run: run.into(),
+            reason: "the engine moved on without it".into(),
+            journal: at(&db),
+        })
+    };
+    // `--run "$RUN"` with RUN unset names no run, not the sole one.
+    let journaled = events().len();
+    assert_eq!(refusal(conclude("")), Some(Refusal::Blank));
+    assert_eq!(events().len(), journaled);
+    assert_eq!(
+        run(cli(conclude("latest"))).unwrap(),
+        ExitCode::from(Exit::Stopped)
+    );
+    assert_eq!(fold(&events()).unwrap().status, Status::Stopped);
 }
 
 #[test]

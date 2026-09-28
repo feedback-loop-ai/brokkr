@@ -36,6 +36,9 @@ pub(crate) enum Refusal {
     Missing,
     /// Several runs matched: a guess would be unsafe.
     Ambiguous,
+    /// The selector is empty. It is a prefix of every id, so taken as
+    /// one it would name the sole run: `--run "$RUN"` with `RUN` unset.
+    Blank,
 }
 
 /// A selector refusal that remembers its kind.
@@ -64,8 +67,15 @@ pub(crate) fn refusal_kind(error: &anyhow::Error) -> Option<Refusal> {
 /// prefix is never ambiguous with itself. Otherwise a prefix must match
 /// exactly one run: matching several is an error that names the
 /// candidates, because picking one for the operator would be a guess
-/// about which run they meant.
+/// about which run they meant. An empty selector names no run and is
+/// refused before any prefix is tried.
 pub(crate) fn resolve(runs: &[RunRef<'_>], requested: &str) -> Result<String> {
+    if requested.is_empty() {
+        return Err(refusal(
+            Refusal::Blank,
+            "an empty --run names no run; pass an id, a prefix or 'latest'".to_string(),
+        ));
+    }
     if requested == LATEST {
         // Ordering by the recorded stamp rather than trusting the
         // query's ORDER BY: "newest" is a property of the runs, not of

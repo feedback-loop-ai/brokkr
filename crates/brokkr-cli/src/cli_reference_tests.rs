@@ -10,10 +10,12 @@
 //! fence (`sh`, `bash`, `shell`, `zsh`, or `console`, where a fence that
 //! prompts anywhere holds output too and so only its `$ ` lines are
 //! commands), in a blockquote as well as out of one, and every `brokkr`
-//! command a line joins with `&&`, `;` or a pipe is parsed; one standing
-//! in any other fence, one without a prompt in a console fence that
-//! prompts, a fence that never closes, and a shell construct the word
-//! splitter does not know are each refused rather than skipped.
+//! command a line joins with `&&`, `;` or a pipe is parsed, past any
+//! leading `NAME=value` words; one standing in any other fence or behind
+//! a wrapper such as `env` or `sudo`, one without a prompt in a console
+//! fence that prompts, a fence that never closes, an unquoted `$`
+//! expansion, and a shell construct the word splitter does not know are
+//! each refused rather than skipped.
 
 use std::path::{Path, PathBuf};
 
@@ -416,7 +418,61 @@ const NOT_SHELLS: [&str; 7] = [
 ];
 
 /// What starts a second command on a line: a pipe, `&&`, `||`, `&`, `;`.
-const JOINS: [&str; 3] = ["|", "&", ";"];
+const JOINS: [char; 3] = ['|', '&', ';'];
+
+/// Commands that run the word after them, flags and all, which this
+/// reader does not parse: `brokkr` behind one is refused, not skipped.
+const WRAPPERS: [&str; 6] = ["env", "sudo", "time", "exec", "nohup", "command"];
+
+/// A shell assignment word, `NAME=value`, which may lead a command.
+fn assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        name.chars()
+            .next()
+            .is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
+            && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
+    })
+}
+
+/// The `brokkr` command one split command runs, from `brokkr` on, past
+/// any leading assignments; nothing when it runs another program; and a
+/// refusal when `brokkr` stands behind a wrapper this reader cannot see
+/// past.
+fn program<W: AsRef<str>>(argv: &[W]) -> Result<Option<&[W]>, String> {
+    let start = argv
+        .iter()
+        .position(|word| !assignment(word.as_ref()))
+        .unwrap_or(argv.len());
+    let argv = &argv[start..];
+    match argv.first().map(AsRef::as_ref) {
+        Some("brokkr") => Ok(Some(argv)),
+        Some(wrapper) if WRAPPERS.contains(&wrapper) => wrapped(wrapper, &argv[1..]).map(|()| None),
+        _ => Ok(None),
+    }
+}
+
+/// Refuse a `brokkr` a wrapper runs: the first word past the assignments,
+/// wrappers and flags that follow it, or any `brokkr` after such a flag,
+/// whose value may be the word the wrapper runs. `sudo dnf install
+/// brokkr` runs `dnf`, and passes.
+fn wrapped<W: AsRef<str>>(wrapper: &str, rest: &[W]) -> Result<(), String> {
+    let skipped = rest
+        .iter()
+        .map(AsRef::as_ref)
+        .take_while(|word| assignment(word) || WRAPPERS.contains(word) || word.starts_with('-'))
+        .count();
+    let flagged = rest[..skipped]
+        .iter()
+        .any(|word| word.as_ref().starts_with('-'));
+    let mut after = rest[skipped..].iter().map(AsRef::as_ref);
+    let runs = after.next() == Some("brokkr");
+    match runs || (flagged && after.any(|word| word == "brokkr")) {
+        true => Err(format!(
+            "a `brokkr` behind `{wrapper}`, which this reader cannot see past"
+        )),
+        false => Ok(()),
+    }
+}
 
 /// One `brokkr` command a fence carries, continuation lines joined.
 #[derive(Debug, PartialEq, Eq)]
@@ -502,8 +558,9 @@ fn fences(doc: &str) -> Result<Vec<Fence<'_>>, (usize, String)> {
 const UNPROMPTED: &str = "a `brokkr` line without a `$ ` prompt in a console fence \
                           that prompts elsewhere; prompt it, or move output into a text fence";
 
-/// A line that runs `brokkr`, with any `$ ` prompt taken off: it starts
-/// with `brokkr` or joins a `brokkr` command after another. In a fence
+/// A line that runs `brokkr`, with any `$ ` prompt taken off: one of the
+/// commands it joins runs `brokkr` by [`program`]'s rule, words split on
+/// any whitespace, or stands it behind a wrapper. In a fence
 /// that prompts, a line without a prompt is output, and one that reads
 /// as a `brokkr` command is refused: a forgotten prompt and output that
 /// looks like a command are told apart by the author, not guessed.
@@ -513,11 +570,10 @@ fn command_of(line: &str, prompted: bool) -> Result<Option<&str>, &'static str> 
         Some(command) => (command, false),
         None => (line, prompted),
     };
-    let runs = line == "brokkr"
-        || line.starts_with("brokkr ")
-        || JOINS
-            .iter()
-            .any(|join| line.contains(&format!("{join} brokkr")));
+    let runs = line.split(JOINS).any(|command| {
+        let argv: Vec<&str> = command.split_whitespace().collect();
+        !matches!(program(&argv), Ok(None))
+    });
     match (runs, unprompted) {
         (false, _) => Ok(None),
         (true, false) => Ok(Some(line)),
@@ -609,7 +665,7 @@ fn words(line: &str) -> Result<Vec<Vec<String>>, String> {
             '<' if word.is_none() => word = Some(placeholder(&mut chars)?),
             '\'' | '"' => quoted(character, &mut chars, word.get_or_insert_with(String::new))?,
             '`' => return Err("a backtick substitution".to_string()),
-            '$' if chars.peek() == Some(&'(') => return Err("a $( substitution".to_string()),
+            '$' => dollar(&mut chars, &mut word)?,
             '\\' => match chars.next() {
                 Some(c) => word.get_or_insert_with(String::new).push(c),
                 None => return Err("a trailing backslash".to_string()),
@@ -642,6 +698,22 @@ fn redirect(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Result<(), 
     match target {
         0 => Err("a redirect with no target".to_string()),
         _ => Ok(()),
+    }
+}
+
+/// An unquoted `$`: a lone one is a literal, and an expansion is refused,
+/// because the words it becomes are the shell's to decide, not the page's.
+fn dollar(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    word: &mut Option<String>,
+) -> Result<(), String> {
+    match chars.peek() {
+        Some('(') => Err("a $( substitution".to_string()),
+        Some(c) if !c.is_whitespace() => Err("an unquoted $ expansion".to_string()),
+        _ => {
+            word.get_or_insert_with(String::new).push('$');
+            Ok(())
+        }
     }
 }
 
@@ -705,10 +777,11 @@ fn substitution(
 /// command on it does.
 fn refusal(line: &str) -> Option<String> {
     match words(line) {
-        Ok(commands) => commands
-            .iter()
-            .filter(|argv| argv[0] == "brokkr")
-            .find_map(|argv| clap_refusal(argv)),
+        Ok(commands) => commands.iter().find_map(|argv| match program(argv) {
+            Ok(Some(argv)) => clap_refusal(argv),
+            Ok(None) => None,
+            Err(problem) => Some(problem),
+        }),
         Err(problem) => Some(problem),
     }
 }
@@ -857,6 +930,41 @@ fn the_fence_reader_refuses_what_it_cannot_read() {
         fenced_commands("prose\n```sh\nbrokkr runs\n").unwrap_err(),
         (2, "this fence never closes".to_string())
     );
+}
+
+#[test]
+fn the_fence_reader_sees_brokkr_past_tabs_assignments_and_wrappers() {
+    let wacth = "error: unrecognized subcommand 'wacth'";
+    assert_eq!(
+        refusals_in(
+            "doc.md",
+            "```sh\nFOO=x brokkr wacth\nbrokkr\twacth\ncargo install brokkr\n```\n"
+        ),
+        [
+            format!("doc.md:2: `FOO=x brokkr wacth`: {wacth}"),
+            format!("doc.md:3: `brokkr\twacth`: {wacth}"),
+        ]
+    );
+    let behind = "which this reader cannot see past";
+    assert_eq!(
+        refusals_in(
+            "doc.md",
+            "```sh\nenv FOO=x brokkr runs\nsudo dnf install brokkr\nsudo -u me brokkr runs\n```\n"
+        ),
+        [
+            format!("doc.md:2: `env FOO=x brokkr runs`: a `brokkr` behind `env`, {behind}"),
+            format!("doc.md:4: `sudo -u me brokkr runs`: a `brokkr` behind `sudo`, {behind}"),
+        ]
+    );
+    assert_eq!(
+        fenced_commands("```console\n$ brokkr runs\nsudo brokkr runs\n```\n").unwrap_err(),
+        (3, UNPROMPTED.to_string())
+    );
+    assert_eq!(
+        refusal("brokkr inspect --run $RUN"),
+        Some("an unquoted $ expansion".to_string())
+    );
+    assert_eq!(refusal("brokkr inspect --run \"$RUN\""), None);
 }
 
 #[test]

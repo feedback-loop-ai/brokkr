@@ -1,4 +1,5 @@
 use super::*;
+use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
 use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
 use brokkr_core::fold::Cursor;
@@ -1224,14 +1225,13 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
             run_tui,
         )
     };
-    assert!(sync_once_at("missing-run").is_err());
-    // A run the selector resolves, synced against a Looper other than the
-    // one its manifest sealed: the sync itself refuses, and the verb
-    // returns that refusal rather than printing a report.
-    assert_eq!(
-        format!("{:#}", sync_once_at("bridge-run").unwrap_err()),
-        "producer transport: transport origin does not match the sealed callback audience"
-    );
+    let missing = selector::refusal_kind(&sync_once_at("missing-run").unwrap_err());
+    assert_eq!(missing, Some(selector::Refusal::Missing));
+    // A resolved run synced against a Looper its manifest did not seal:
+    // the sync refuses, and the verb returns that refusal, not a report.
+    let mismatch = sync_once_at("bridge-run").unwrap_err();
+    let mismatch = mismatch.downcast_ref::<BridgeError>();
+    assert!(matches!(mismatch, Some(BridgeError::AudienceMismatch)));
     assert_eq!(
         run_with(
             cli(command(false)),
