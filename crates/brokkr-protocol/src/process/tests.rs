@@ -1199,8 +1199,8 @@ fn stopped_engine(
     driver: fn(&Seats) -> Vec<String>,
     host: Host,
 ) {
-    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
-    for signal in [SIGINT, SIGTERM, SIGHUP] {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
+    for signal in [SIGINT, SIGTERM, SIGHUP, SIGQUIT] {
         // SAFETY: setting a default disposition, before any handler exists.
         unsafe { libc::signal(signal, libc::SIG_DFL) };
     }
@@ -1292,13 +1292,13 @@ fn assert_ended(seats: &Seats, tree: [i32; 2], signal: i32) {
 }
 
 /// #403: the driver leads a session of its own, so a signal to the
-/// engine's group (a terminal's Ctrl-C or hangup, a supervisor's SIGTERM)
-/// does not reach its tree. The engine ends every live attempt, the detached
-/// grandchild included, and exits 128 plus the signal.
+/// engine's group (a terminal's Ctrl-C, Ctrl-\ or hangup, a supervisor's
+/// SIGTERM) does not reach its tree. The engine ends every live attempt,
+/// the detached grandchild included, and exits 128 plus the signal.
 #[test]
 fn a_stopped_engine_ends_its_attempts_before_it_exits() {
-    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
-    for signal in [SIGINT, SIGTERM, SIGHUP] {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
+    for signal in [SIGINT, SIGTERM, SIGHUP, SIGQUIT] {
         let seats = Seats::new();
         let (mut engine, _registered, tree) = engine_in_its_own_group(&seats, "engine");
         signal_group(&engine, signal);

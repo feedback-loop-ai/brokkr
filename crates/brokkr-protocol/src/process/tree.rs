@@ -34,13 +34,30 @@
 //! attempt ends it with its own tree. When there are several, the stray
 //! is ended and every one of them parks. When there is none, the stray is
 //! the engine's own (git's detached maintenance, say). Every read of the
-//! table is taken under the registry's lock, in order. A signal to an
-//! identity rides a pidfd
-//! checked against the start stamp. So no descendant the engine can see
-//! is left running while an attempt is certified settled. A kernel that
+//! table is taken under the registry's lock, in order, and the read
+//! before a spawn is taken afresh, never shared with an earlier one, so
+//! an orphan of the engine's own born before it is not the attempt's. A
+//! signal to an identity rides a pidfd checked against the start stamp.
+//! So, but for the residual below, no descendant the engine can see is
+//! left running while an attempt is certified settled. A kernel that
 //! refuses the engine the subreaper or a pidfd leaves the second means
 //! absent: a kill that saw any descendant then parks, naming the means
 //! that was missing.
+//!
+//! One Linux residual remains, the table-read race, accepted by the
+//! operator's ruling of 2026-09-28 and closed by construction only by
+//! per-attempt cgroup containment (#472). A Linux read is a `/proc`
+//! listing followed by one stat read per pid. Suppose a failed driver's
+//! last live descendant forks a detached child after the listing and
+//! exits before its own row is read. That read shows nothing of the
+//! attempt running, and so sets the attempt's end. The next read, up to
+//! the tracker's 100 ms later, finds the child with the engine, born
+//! after that end, and files it as the engine's own. Cleanup can then be
+//! certified while the child runs.
+//!
+//! The driver leading a session of its own has one more consequence: a
+//! SIGKILL to the engine's process group no longer reaches a seat's tree.
+//! Only the stop signals the engine handles (`attempts`) end it.
 //!
 //! Every read fails closed. A table that cannot be read, a row that
 //! cannot be read or parsed, a `ps` that exits nonzero and a snapshot

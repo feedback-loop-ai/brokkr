@@ -91,26 +91,36 @@ determinate was not.
   not yet ended when it was born, as the start stamps order it. One such
   attempt ends it with its own tree. When there are several, the stray
   is ended and every one of them parks. When there is none, the stray is
-  the engine's own, as git's detached maintenance is. So on Linux no
-  descendant the engine can see is left running while an attempt is
-  certified settled.
+  the engine's own, as git's detached maintenance is. The read before a
+  driver starts is taken afresh, never shared with an earlier one, so an
+  orphan of the engine's own born before it is not taken for the
+  attempt's. So on Linux, but for the residual below, no descendant the
+  engine can see is left running while an attempt is certified settled.
   A kernel that refuses the engine the subreaper or a pidfd leaves this
   second means absent, and then a kill that saw any descendant parks,
   naming the means that was missing.
-- Every attempt ends the same way, whatever ended it: `shutdown`, written
+- Every attempt ends the same way, whatever ended it, but for the
+  engine's signal stop below: `shutdown`, written
   without waiting past the grace; a bounded grace for the driver to exit;
   a read of the table, then SIGKILL to the group and to every identity the
   attempt owns; a bounded reap; and a bounded wait for the process table
   to show nothing of the tree running. A zombie counts as gone. The group
   is signalled only while its leader is unreaped, so its id cannot name
   another process.
-- The engine ends every live attempt the same way when SIGINT, SIGTERM or
-  SIGHUP tells it to stop, strays included. It then waits, within the
-  settle bound, for the table to read every attempt gone, and exits with
-  128 plus the signal. When it cannot prove that, it says why and exits
-  125. The driver no longer shares the engine's session, so a terminal's
-  Ctrl-C or hangup would not otherwise reach it. A signal the engine
-  inherited as ignored (`nohup`) stays ignored.
+- When SIGINT, SIGTERM, SIGHUP or SIGQUIT tells the engine to stop, it
+  ends every live attempt more bluntly: no `shutdown` message, no grace,
+  and no reap of the driver. It reads the table once, SIGKILLs every
+  attempt's group whose leader is unreaped and every identity each
+  attempt owns, strays included, then reads the table again, signalling
+  what still runs, until it reads every attempt gone or the settle bound
+  passes. It exits with 128 plus the signal when every attempt read gone
+  and no missing means casts doubt on one. Otherwise it says why and
+  exits 125. The driver no longer shares the engine's session, so a
+  terminal's Ctrl-C, Ctrl-\ or hangup would not otherwise reach it. Nor
+  does a SIGKILL to the engine's process group, which reached a seat's
+  tree while the driver shared that group: only the stop signals the
+  engine handles end it now. A signal the engine inherited as ignored
+  (`nohup`) stays ignored.
 - The report returns only once the tree is proven gone, so the retry
   this decision allows cannot overlap it.
 - An end that cannot be proven is `indeterminate`, by this decision's own
@@ -129,10 +139,22 @@ determinate was not.
   and the engine journals both. A checkpoint the journal refused changes
   the outcome acted on, never the outcome received. The engine never
   certifies the outcome or retries it.
+- One Linux residual remains, the table-read race, accepted by the
+  operator's ruling of 2026-09-28. A Linux read of the table is a
+  `/proc` listing followed by one stat read per pid. Suppose a failed
+  driver's last live descendant forks a detached child after the listing
+  and exits before its own row is read. That read shows nothing of the
+  attempt running, and so sets the attempt's end. The next read, up to
+  the tracker's 100 ms later, finds the child with the engine, born
+  after that end, and files it as the engine's own. Cleanup can then be
+  certified while the child runs. It is inherent to polling the table;
+  per-attempt cgroup containment, filed as #472, closes it by
+  construction.
 - macOS has no subreaper and no pidfd. There the engine reads the table
   synchronously at the kill, ends what it attributes, and parks on any
-  doubt. The operator's ruling of 2026-09-28 (LINUX CLOSED, MACOS
-  RESIDUAL ACCEPTED) accepts one residual there: a descendant that
+  doubt. The operator's earlier ruling of 2026-09-28 (LINUX CLOSED,
+  MACOS RESIDUAL ACCEPTED) accepts one residual there, beside the Linux
+  one above: a descendant that
   leaves the group and whose parent exits between two reads of the
   table, faster than the tracker's 100 ms interval, is reparented to
   launchd unseen. Separately, and not a limit of settlement: without a

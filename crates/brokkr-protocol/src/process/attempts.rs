@@ -5,10 +5,11 @@
 //! Starting the first attempt makes the engine a child subreaper on
 //! Linux, starts the thread that records every live attempt's
 //! descendants and attributes the orphans the engine adopts, and installs
-//! the stop handler: SIGINT, SIGTERM and SIGHUP end every live attempt
-//! before the engine exits. The driver leads a session of its own, so a
-//! signal to the engine's group, a terminal's Ctrl-C or hangup, no longer
-//! reaches it; the handler is what does.
+//! the stop handler: SIGINT, SIGTERM, SIGHUP and SIGQUIT end every live
+//! attempt before the engine exits. The driver leads a session of its
+//! own, so a signal to the engine's group, a terminal's Ctrl-C, Ctrl-\ or
+//! hangup, no longer reaches it; the handler is what does. Nor does a
+//! SIGKILL to the engine's group, which no handler sees.
 //!
 //! Every read of the table is taken under the registry's lock, so reads
 //! are observed in the order they were taken, and "the read before" names
@@ -21,7 +22,7 @@ use std::sync::{Mutex, MutexGuard, Once, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use rustix::process::{getpid, Pid};
-use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 use signal_hook::iterator::Signals;
 
 use super::table::{self, Entry, Identity, TableError};
@@ -108,26 +109,7 @@ impl Attempt {
         // SAFETY: `detach` runs between fork and exec, and makes system
         // calls and allocates nothing.
         unsafe { std::os::unix::process::CommandExt::pre_exec(builder, detach) };
-        // A read from the last tracker interval serves: an orphan that
-        // comes to the engine after it meets this attempt's running leader,
-        // which rules the attempt out as its source (`Live::left`).
-        let now = Instant::now();
-        let since = now.checked_sub(TRACK).unwrap_or(now);
-        let mut live = live();
-        let before = live
-            .read_since(host.table, since)
-            .map_err(Unspawned::Table)?;
-        let child = builder.spawn().map_err(Unspawned::Spawn)?;
-        let key = NEXT.fetch_add(1, Ordering::Relaxed);
-        let attempt = Live {
-            group: Pid::from_child(&child),
-            open: true,
-            recorded: BTreeSet::new(),
-            before: before.into_iter().map(|entry| entry.id).collect(),
-            doubted: BTreeSet::new(),
-            ended: None,
-        };
-        live.attempts.insert(key, attempt);
+        let (child, key) = live().admit(host.table, builder)?;
         Ok((child, Attempt { key }))
     }
 
@@ -185,6 +167,28 @@ fn read_and_kill(key: u64, host: Host, then: fn(&mut Live)) -> Result<(), Unsett
 }
 
 impl Registry {
+    /// Read `table` afresh, spawn the driver `builder`, and register its
+    /// group. The read is never an earlier one shared: an orphan of the
+    /// engine's own born after that read and before the spawn would be
+    /// missing from `before`, and were the driver to exit before the next
+    /// read, it would be attributed to this attempt and killed with it.
+    /// What remains is one born between this read and the fork itself.
+    fn admit(&mut self, table: Table, builder: &mut Command) -> Result<(Child, u64), Unspawned> {
+        let before = self.read(table).map_err(Unspawned::Table)?;
+        let child = builder.spawn().map_err(Unspawned::Spawn)?;
+        let key = NEXT.fetch_add(1, Ordering::Relaxed);
+        let attempt = Live {
+            group: Pid::from_child(&child),
+            open: true,
+            recorded: BTreeSet::new(),
+            before: before.into_iter().map(|entry| entry.id).collect(),
+            doubted: BTreeSet::new(),
+            ended: None,
+        };
+        self.attempts.insert(key, attempt);
+        Ok((child, key))
+    }
+
     /// Read the table, and observe what it shows.
     fn read(&mut self, table: Table) -> Result<Vec<Entry>, Unsettled> {
         let began = Instant::now();
@@ -524,13 +528,14 @@ fn probe() -> Option<Unsettled> {
     None
 }
 
-/// SIGINT, SIGTERM and SIGHUP end every live attempt, and the engine then
-/// exits 128 plus the signal, as the signal's own default would have
-/// ended it, once the table reads every one of them gone; otherwise it
-/// says why and exits `UNPROVEN_STOP`. A signal the engine inherited as
-/// ignored (`nohup`, a shell's background job) stays ignored.
+/// SIGINT, SIGTERM, SIGHUP and SIGQUIT end every live attempt, and the
+/// engine then exits 128 plus the signal, as the signal's own default
+/// would have ended it, once the table reads every one of them gone;
+/// otherwise it says why and exits `UNPROVEN_STOP`. A signal the engine
+/// inherited as ignored (`nohup`, a shell's background job) stays
+/// ignored.
 fn stop_on_signals(host: Host) {
-    let signals: Vec<i32> = [SIGINT, SIGTERM, SIGHUP]
+    let signals: Vec<i32> = [SIGINT, SIGTERM, SIGHUP, SIGQUIT]
         .into_iter()
         .filter(|signal| !ignored(*signal))
         .collect();

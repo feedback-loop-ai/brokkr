@@ -169,6 +169,41 @@ fn a_read_that_began_after_the_ask_is_shared() {
     assert_eq!(reads(), (1, 2));
 }
 
+/// #403: the read before a spawn is taken afresh. An orphan of the
+/// engine's own (git's detached maintenance) born after the last read and
+/// before the spawn is in the attempt's `before`, so once its driver exits
+/// unseen, the orphan is the engine's, and the attempt's close does not
+/// signal it.
+#[test]
+fn an_orphan_born_after_the_last_read_and_before_a_spawn_is_not_the_attempts() {
+    use std::sync::atomic::AtomicBool;
+    static BORN: AtomicBool = AtomicBool::new(false);
+    static SIGNALLED: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+    fn planted() -> Result<Vec<Entry>, TableError> {
+        let orphan = BORN.load(Ordering::Relaxed);
+        Ok(table(orphan.then(|| row(STRANGER, me(), STRANGER))))
+    }
+    fn recorded(id: &Identity) -> std::io::Result<()> {
+        SIGNALLED.lock().unwrap().push(id.pid);
+        Ok(())
+    }
+    let mut registry = registry([]);
+    registry.read(planted).unwrap();
+    BORN.store(true, Ordering::Relaxed);
+    let (mut driver, key) = registry.admit(planted, &mut Command::new("true")).unwrap();
+    driver.wait().unwrap();
+    // The next read shows the orphan, and not the driver.
+    registry.read(planted).unwrap();
+    let host = Host {
+        kill_group: |_| Ok(()),
+        kill: recorded,
+        ..Host::REAL
+    };
+    assert_eq!(registry.attempts[&key].kill(host), Ok(()));
+    assert_eq!(*SIGNALLED.lock().unwrap(), Vec::<i32>::new());
+    assert_eq!(registry.unowned, ids([&row(STRANGER, me(), STRANGER)]));
+}
+
 /// #403 finding 1: every running child of the engine outside its own
 /// group that no live attempt explains is a stray, whatever its session:
 /// a job that shell job control moved to a group of its own, orphaned
