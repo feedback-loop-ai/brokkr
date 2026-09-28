@@ -18712,3 +18712,162 @@ The default-feature workspace suite was not run on this visit.
 - The walk still follows a linked directory by path. That includes one
   whose target stands outside the layer, which only a bound read refuses.
   That is pre-existing and unchanged here.
+
+## Unit 16-fix-d, second return — skipped trees, the failing candidate, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-1d9ed775`, based on `39f6fddd`. This
+visit answers the council's F1–F4 on `39f6fddd`. F5 (closure advocacy in a
+member's notes) is not acted on. Production: `bundle.rs` only
+(`compose.rs` is unchanged). Tests: `bundle/compose_tests.rs`. Scratch
+logs are in `.forge/u16f/*` (not committed).
+
+Method: as for the first return. Candidates were saved to
+`.forge/u16f/*.cand`. Baselines ran this visit's test file against older
+production files. Each mutation edited the candidate, ran `cargo test -p
+brokkr-runtime --all-features --locked --lib bundle::`, and was restored
+with `cp` from the candidate. `cmp` then showed all three files equal to
+their candidates. After that, the only edit reformatted the new `unpinned`
+loop's key line: shortened by hand, then `cargo fmt`. None of the mutations
+touched it. The restored
+run then passed (239, `restored.log`). Line numbers in logs are those of
+the candidate.
+
+### Corrections to the unit 16-fix-d return section above
+
+- *"Each row below was observed on `95d4ff19` and under a mutation"* (in
+  tasks.md) did not hold for the inherited half of
+  `two_consumed_names_for_one_file_are_refused`. It is red in
+  `baseline-95d4.log`, but `.forge/u16e/m1.log`–`m6.log` all show the test
+  passing, and `.forge/u16d/m2.log` stops at the old standalone assertion.
+  M3 below observes it.
+- *"No baseline red exists for it"* was accurate for
+  `a_lookup_that_fails_…`. But the old case the chief named was never
+  reproduced: one candidate lookup succeeding beside one that fails. F2
+  below reproduces it.
+- The one-entry rule did not reach the top-level names the walk skips.
+  `walk_files` passed over `realms.json`, `dialects/` and `capabilities/`
+  before `consumed_entry` ran. A hard link to a consumed file there was
+  never refused, as the council's CLI probe showed.
+
+### What changed
+
+**F1, skipped trees.** `walk_files` now marks each stacked directory as
+skipped or not. When `consumed` is empty, a skipped top-level name is
+passed over as before. Otherwise the walk descends it and collects its
+non-directory paths as `unpinned`. They are never read, hashed or keyed.
+After every pinned entry has been judged, each unpinned path is held to the
+same rule by `one_entry`, which is the body of the old loop moved into a
+function, with its refusal text unchanged. A hard link there is refused as
+another name for the consumed file. A path there through a contained
+linked directory is the target's own entry, and is accepted as it is in
+the pinned tree. A lookup error while searching a skipped tree refuses,
+as any other walk error does.
+
+**F2.** No production change. The alias search was already deleted in
+`e5c58a8c`. What was missing was the reproduction.
+
+### Tests
+
+New, in `bundle/compose_tests.rs`:
+
+- **`a_skipped_tree_holds_no_second_name_for_a_consumed_file` (F1).** The
+  rows are `capabilities/second.json`, `dialects/second.json` and
+  `realms.json`. For each, a byte copy of `policy.json` at that name leaves
+  the standalone and inherited identities unchanged (the control). The copy
+  is then replaced by a hard link to `policy.json`, which must be refused
+  as `another_name(<row>, "policy.json")`, standalone and inherited. All
+  six cells are compared in one assertion.
+- **`a_failing_lookup_beside_another_name_binds_neither` (F2).** It uses
+  `hidden_at_every_observation` with the new `failing` flag:
+  - At each observation, `policy.json` is hidden behind the hard links
+    `h.json` and `h2.json`.
+  - It is put back between the read's two observations, and again at
+    `Walked` for `zz.md`.
+  - `h2.json` is removed as soon as anything reaches `Entered` for it, so
+    any lookup of it fails.
+
+  The expected result is the walk's unlisted-key refusal, with the table's
+  context.
+
+Changed: `hidden_at_every_observation` gained the `failing` parameter. Its
+two existing callers pass `false`, and their assertions are unchanged.
+
+### Baselines
+
+The command for each was `cargo test -p brokkr-runtime --all-features
+--locked --lib bundle::compose_tests`.
+
+- **`39f6fddd`'s production files** (`baseline-39f6.log`): 53 passed, 1
+  failed. The F1 test's left shows every row compiling. Standalone is
+  `compiled to c4061ec5…`, the unlinked fixture's identity, and inherited is
+  `compiled to 6ad7ff5d…`, in all three rows.
+- **`95d4ff19`'s production files** (`baseline-95d4.log`): 45 passed, 9
+  failed. The F1 test is red with the same six identities. The F2 test's
+  left is the two-other-names refusal ("…while 'h.json' and 'h2.json' both
+  name the file that was read…"). Here the failing lookup is never reached:
+  nothing looks `h2.json` up before the listing refuses.
+- **`95d4ff19` with a fault injection** (`baseline-95d4-injected.log`,
+  patch `baseline-95d4-injection.patch`): 45 passed, 9 failed. The patch is
+  three hunks. A thread-local holds the listed directory's path, `observe`
+  sets it before each `listed` call, and `listed` calls
+  `at_stage(ReadStage::Entered, <dir>/<candidate>)` before opening each
+  candidate. With it, the lookup of `h2.json` fails (`NotFound`) and
+  `is_ok_and` discards it. `h.json` is the singleton at each observation,
+  and the F2 test's left is **`compiled to 3f843a52…`**: the chief's F3 on
+  16-fix-c, reproduced. On this head, no lookup of `h2.json` is ever made,
+  so the same hook is inert.
+
+### Mutations
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| M1: a skipped name is always passed over (`if skipped {`) | the F1 test, all six cells `compiled to` the unlinked identities. 238 passed | `m1.log` |
+| M2: skipped directories are not descended (`if !skipped { stack.push(…) }`) | the F1 test: the `capabilities/` and `dialects/` rows compile, while the `realms.json` row is still refused standalone and inherited. 238 passed | `m2.log` |
+| M3: the two-names refusal is off (`if false && *first_entry != entry`) | `two_consumed_names_…`, both halves in one assertion: left `("compiled to 2662257a…", "compiled to 5cdd9efb…")`. 238 passed | `m3.log` |
+| M4: the unlisted-key refusal is off (`.find(\|(key, _)\| false && …)`) | the F2 test: left "bundle file 'h.json' is another name for 'policy.json'…". Also `a_name_that_no_longer_resolves_…` and `a_spelling_…`. 236 passed | `m4.log` |
+
+Unmutated: 239 passed (`bundle::`, `cand.log` for the 54 compose tests),
+and again once restored (`restored.log`).
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+All on the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok.
+  The runtime lib has 603 (`workspace.log`), up from 601 by the two new
+  tests.
+- `compile --bundle bundles/self`: `45dc1c7e…`. `bundles/verify`:
+  `f7cbd4bb…`. Both are unchanged (`self.log`, `verify.log`).
+- `openspec validate --all --strict --no-interactive`: 18 passed.
+- `git diff --check`: clean.
+
+The default-feature workspace suite and the coverage diagnostic were not
+run on this visit.
+
+### Pending
+
+- **The case-insensitive rows of the spelling refusal, and with them
+  16.1 (F4).** This seat was refused `chattr +F` on a directory under the
+  worktree, and `unshare`, so no casefolded directory could be made. The
+  unlisted-key refusal for `POLICY.JSON` and `TABLE.JSON` still needs a run
+  on macOS or a casefolded Linux directory. The retired alias-positive
+  proof is not owed.
+- macOS: `openat`/`readlinkat` and the flag values.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council.
+
+### Follow-ups, not built here
+
+- A skipped tree is now descended whenever a layer consumed anything, and
+  it follows linked directories as the pinned walk does. A link cycle or an
+  unreadable directory under `dialects/` or `capabilities/` now refuses a
+  compile that previously ignored it. That is fail-closed, and consistent
+  with the pinned walk.

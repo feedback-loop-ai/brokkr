@@ -3079,7 +3079,7 @@ for. No production file moved.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
-- [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1) Reopened by unit 16-fix-c (2026-09-28): the alias acceptance's proof (baseline red, caught mutation, restored pass on a filesystem that accepts a case alias) is pending, so this task is not claimed complete. Unit 16-fix-d (2026-09-28): the alias surface was removed under the refusal ruling, so the pending alias-positive proof is retired, not claimed; a spelling its directory does not list is refused on every filesystem. Kept open by the 16-fix-d return (2026-09-28, council F5): the case-insensitive row of that refusal is unobserved (it needs macOS or a casefolded directory, and this seat refuses `unshare`), so this task is not claimed complete until that refusal is observed.
+- [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1) Reopened by unit 16-fix-c (2026-09-28): the alias acceptance's proof (baseline red, caught mutation, restored pass on a filesystem that accepts a case alias) is pending, so this task is not claimed complete. Unit 16-fix-d (2026-09-28): the alias surface was removed under the refusal ruling, so the pending alias-positive proof is retired, not claimed; a spelling its directory does not list is refused on every filesystem. Kept open by the 16-fix-d return (2026-09-28, council F5): the case-insensitive row of that refusal is unobserved (it needs macOS or a casefolded directory, and this seat refuses `unshare`), so this task is not claimed complete until that refusal is observed. Still open after the second 16-fix-d return (2026-09-28, council F4 on `39f6fddd`): this seat was refused `chattr +F` as well, so that row stays unobserved.
 
 - [x] 16.2 Unit 16 binds regular policy read/hash/parse to owner pin, comparing later walk before sealing. Verify FIFO/changed-buffer refusal and allowed identity movement. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 3. (previous 5.2)
 
@@ -3531,6 +3531,73 @@ evidence. 16.1 stays open: its case-insensitive refusal row is pending.**
   - fmt and clippy are clean.
   - Runtime: 25 results, lib 601.
   - Workspace, all features: 77 results, 0 failed.
+  - `bundles/self` (`45dc1c7e…`) and `bundles/verify` (`f7cbd4bb…`) are
+    unchanged.
+  - Strict OpenSpec (18) and `git diff --check` are clean.
+- **Pending.**
+  - The case-insensitive rows of the spelling refusal, and with them 16.1.
+  - macOS `openat`/`readlinkat` and the flag values.
+  - Exact coverage outside the box.
+  - Remote CI and the council.
+
+*Corrected by the second 16-fix-d return (council on `39f6fddd`, F1–F4):*
+
+- "Each row below was observed on `95d4ff19` and under a mutation" did not
+  hold for the inherited half of `two_consumed_names_…`. It was red on
+  `95d4ff19`, but no recorded mutation failed that test: M1–M6 all show it
+  passing.
+- F2 (the chief's F3 on 16-fix-c) was not closed. `a_lookup_that_fails_…`
+  has no baseline red. The old case, one candidate lookup succeeding and
+  another failing, had neither a reproduction nor a red.
+- The walk skipped `realms.json`, `dialects/` and `capabilities/` before its
+  one-entry check, so a hard link to a consumed file there was never
+  refused.
+
+Unit 16-fix-d, second return (2026-09-28, run
+`0065-rebuild-unit-16-see-the-uni-1d9ed775`, based on `39f6fddd`;
+evidence.md, "Unit 16-fix-d, second return"). It answers the council's F1–F4
+on `39f6fddd`; F5 is not acted on. Production: `bundle.rs` only. Tests:
+`bundle/compose_tests.rs`. **16.2 and 16.3 stay closed on this visit's
+evidence. 16.1 stays open: its case-insensitive refusal row is still
+pending.**
+
+- **F1, skipped trees.** Whenever a layer consumed anything, the walk now
+  also searches the trees under the names it skips, but it pins nothing
+  there. Each file there is held to the same one-entry rule
+  (`one_entry`, shared with the pinned walk). A layer that consumed nothing
+  never reads them.
+  - New test `a_skipped_tree_holds_no_second_name_for_a_consumed_file`.
+    Hard links at `capabilities/second.json`, `dialects/second.json` and
+    `realms.json` are each refused as another name for `policy.json`,
+    standalone and inherited, in one comparison. As a control, a copy at
+    the same name leaves both identities unchanged.
+  - Red on `39f6fddd` and `95d4ff19`: all six cells compiled to the
+    unlinked identities. Caught by M1 (no skipped tree searched: all rows)
+    and M2 (skipped directories not descended: the two directory rows,
+    while `realms.json` still refused).
+- **F2, the old failing candidate.** New test
+  `a_failing_lookup_beside_another_name_binds_neither`. `policy.json` is
+  hidden behind `h.json` and `h2.json` at each observation and put back
+  between them. `h2.json` is removed when anything looks it up.
+  - On `95d4ff19` plus a test-only hook in `listed`, called before each
+    candidate's lookup, the lookup of `h2.json` failed and was discarded.
+    `h.json` was then bound, and the compile sealed `compiled to 3f843a52…`.
+    Without the hook, `95d4ff19` refused two other names, because the lookup
+    never failed.
+  - On this head no entry is looked up in the name's place. The walk
+    refuses the unlisted key. Caught by M4 (that refusal off: `h.json` is
+    then refused as another name).
+- **F3, the inherited half.** M3 disables the two-names refusal.
+  `two_consumed_names_…` then fails with both halves in one assertion:
+  `compiled to 2662257a…` standalone and `compiled to 5cdd9efb…` inherited.
+- **F4.** Still pending. This seat was refused `chattr +F` as well as
+  `unshare`, so no casefolded directory was available.
+- **Helper change:** `hidden_at_every_observation` takes `failing`. Both
+  existing callers pass `false`, and their assertions are unchanged.
+- **Standing-admission lines and fixture migrations:** none.
+- **Gates.**
+  - fmt and clippy are clean.
+  - Workspace, all features: 77 results, all ok. The runtime lib has 603.
   - `bundles/self` (`45dc1c7e…`) and `bundles/verify` (`f7cbd4bb…`) are
     unchanged.
   - Strict OpenSpec (18) and `git diff --check` are clean.

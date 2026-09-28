@@ -6657,30 +6657,39 @@ fn manifest_for(
 /// consumed file is one name whose target is the other; and a path through
 /// a contained linked directory lists the target's own entry again, which
 /// is that entry, never a second one ([`Entry`]).
+///
+/// A tree under a top-level name the walk skips is still searched for such a
+/// second entry whenever the layer consumed anything (rebuild unit 16-fix-d,
+/// return F1). It is never pinned, so an unconsulted definition there moves
+/// no identity; but a hard link there to a consumed file is a second name for
+/// it inside the layer all the same, and is refused on the same terms.
 fn walk_files(
     dir: &Path,
     scope: &Path,
     consumed: &BTreeMap<String, Supplied>,
 ) -> Result<BTreeMap<String, String>, CompileError> {
-    let mut stack = vec![scope.to_path_buf()];
-    let mut paths = Vec::new();
-    while let Some(current) = stack.pop() {
+    let mut stack = vec![(scope.to_path_buf(), false)];
+    let (mut paths, mut unpinned) = (Vec::new(), Vec::new());
+    while let Some((current, skipped)) = stack.pop() {
         for entry in std::fs::read_dir(&current)? {
             let path = entry?.path();
             // A scaffold may also be the workspace from which Brokkr is
             // invoked. Its realm map and dialect library are workspace
             // declarations pinned into the RUN manifest, never bundle files:
             // changing either must not move the strategy's identity.
-            if current == dir
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(unpinned_top_level)
-            {
+            let skipped = skipped
+                || current == dir
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(unpinned_top_level);
+            if skipped && consumed.is_empty() {
                 continue;
             }
             if path.is_dir() {
-                stack.push(path);
+                stack.push((path, skipped));
+            } else if skipped {
+                unpinned.push(path);
             } else if path.is_file() {
                 // A secrets store inside the bundle would ride the
                 // manifest digest: rotation would change the digest AND
@@ -6750,45 +6759,70 @@ fn walk_files(
         if supplied.is_none() {
             at_stage(ReadStage::Walked, &path);
         }
-        if let Some((held, entry)) = consumed_entry(&path, consumed)? {
-            // A path through a linked directory lists the target's own
-            // entry again: the same file, under the same entry, is the
-            // consumed file and not another name for it.
-            let same = match supplied {
-                Some(supplied) => supplied.id == held.id,
-                None => entry == entry_of(&dir.join(&held.target))?,
-            };
-            if !same {
-                return Err(CompileError::Invalid(format!(
-                    "bundle file {} is another name for {}, the file a bound read consumed: a \
-                     layer's identity names a consumed file by the entry it was read by, and a \
-                     second name for it inside the layer is refused rather than walked as a file \
-                     nothing consumed (decision 0065 slice one, design D7)",
-                    bounded_reference(&rel),
-                    bounded_reference(&held.target)
-                )));
-            }
-            let (first_entry, first) = named
-                .entry(held.id)
-                .or_insert_with(|| (entry.clone(), rel.clone()));
-            if *first_entry != entry {
-                return Err(CompileError::Invalid(format!(
-                    "bundle files {} and {} are two names for one file a bound read consumed: a \
-                     layer's identity names a consumed file by exactly one entry, and a second \
-                     name for it inside the layer, consumed or not, is refused rather than bound \
-                     twice (decision 0065 slice one, design D7)",
-                    bounded_reference(first),
-                    bounded_reference(&rel)
-                )));
-            }
-        }
+        one_entry(dir, &path, &rel, supplied, consumed, &mut named)?;
         let digest = match supplied {
             Some(supplied) => supplied.digest.clone(),
             None => sha256_bytes(&std::fs::read(&path)?),
         };
         files.insert(rel, digest);
     }
+    // Judged after every pinned entry, so a consumed file's first entry is
+    // the one it was read by; nothing here is read or pinned.
+    for path in unpinned {
+        let rel = path
+            .strip_prefix(dir)
+            .expect("walked under dir")
+            .to_string_lossy();
+        one_entry(dir, &path, &rel, None, consumed, &mut named)?;
+    }
     Ok(files)
+}
+
+/// Hold the walked `path`, keyed `rel` and consumed as `supplied` or not, to
+/// the one-entry rule of [`walk_files`], `named` holding each consumed
+/// file's first entry.
+fn one_entry(
+    dir: &Path,
+    path: &Path,
+    rel: &str,
+    supplied: Option<&Supplied>,
+    consumed: &BTreeMap<String, Supplied>,
+    named: &mut BTreeMap<(u64, u64), (Entry, String)>,
+) -> Result<(), CompileError> {
+    let Some((held, entry)) = consumed_entry(path, consumed)? else {
+        return Ok(());
+    };
+    // A path through a linked directory lists the target's own entry again:
+    // the same file, under the same entry, is the consumed file and not
+    // another name for it.
+    let same = match supplied {
+        Some(supplied) => supplied.id == held.id,
+        None => entry == entry_of(&dir.join(&held.target))?,
+    };
+    if !same {
+        return Err(CompileError::Invalid(format!(
+            "bundle file {} is another name for {}, the file a bound read consumed: a layer's \
+             identity names a consumed file by the entry it was read by, and a second name for \
+             it inside the layer is refused rather than walked as a file nothing consumed \
+             (decision 0065 slice one, design D7)",
+            bounded_reference(rel),
+            bounded_reference(&held.target)
+        )));
+    }
+    let (first_entry, first) = named
+        .entry(held.id)
+        .or_insert_with(|| (entry.clone(), rel.to_string()));
+    if *first_entry != entry {
+        return Err(CompileError::Invalid(format!(
+            "bundle files {} and {} are two names for one file a bound read consumed: a layer's \
+             identity names a consumed file by exactly one entry, and a second name for it \
+             inside the layer, consumed or not, is refused rather than bound twice (decision \
+             0065 slice one, design D7)",
+            bounded_reference(first),
+            bounded_reference(rel)
+        )));
+    }
+    Ok(())
 }
 
 /// One directory entry: the `(dev, ino)` of the directory that holds it,

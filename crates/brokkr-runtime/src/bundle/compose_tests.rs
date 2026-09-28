@@ -3137,12 +3137,23 @@ fn another_name(other: &str, consumed: &str) -> String {
 /// `supply`, once the read is verified another valid ruling B is written at
 /// `policy.json`, and once the walk has passed it, A is put back, to be
 /// hidden again by the walk's own verification.
+///
+/// With `failing`, `h2.json` is made a second hard link to A with `h.json`
+/// at each observation, and removed as soon as anything looks it up, so its
+/// lookup fails; once the walk has passed its table, A is put back as with
+/// `supply`, without B.
 #[cfg(unix)]
-fn hidden_at_every_observation(library: &Library, base: &Path, supply: bool) -> String {
+fn hidden_at_every_observation(
+    library: &Library,
+    base: &Path,
+    supply: bool,
+    failing: bool,
+) -> String {
     use std::os::unix::fs::MetadataExt;
     let later = base.join("zz.md");
     std::fs::write(&later, "# walked after the table\n").unwrap();
     let (policy, link) = (base.join("policy.json"), base.join("h.json"));
+    let second = base.join("h2.json");
     let (aside, spare) = (library.path().join("aside"), library.path().join("spare"));
     let held = std::fs::metadata(&policy).unwrap().ino();
     let other = serde_json::to_vec(&other_policy()).unwrap();
@@ -3154,10 +3165,16 @@ fn hidden_at_every_observation(library: &Library, base: &Path, supply: bool) -> 
             let holds = std::fs::symlink_metadata(&policy).is_ok_and(|meta| meta.ino() == held);
             match at {
                 ReadStage::Entered if path == policy && holds => {
-                    if !link.exists() {
-                        std::fs::hard_link(&policy, &link).unwrap();
+                    let names = [&link, &second];
+                    for name in &names[..1 + usize::from(failing)] {
+                        if !name.exists() {
+                            std::fs::hard_link(&policy, name).unwrap();
+                        }
                     }
                     std::fs::rename(&policy, &aside).unwrap();
+                }
+                ReadStage::Entered if failing && path == second => {
+                    std::fs::remove_file(&second).unwrap();
                 }
                 ReadStage::Read if read.iter().any(|name| name == path) => {
                     std::fs::rename(&aside, &policy).unwrap();
@@ -3165,8 +3182,10 @@ fn hidden_at_every_observation(library: &Library, base: &Path, supply: bool) -> 
                 ReadStage::Verified if supply && read.iter().any(|name| name == path) => {
                     std::fs::write(&policy, &other).unwrap();
                 }
-                ReadStage::Walked if supply && path == later => {
-                    std::fs::rename(&policy, &spare).unwrap();
+                ReadStage::Walked if (supply || failing) && path == later => {
+                    if supply {
+                        std::fs::rename(&policy, &spare).unwrap();
+                    }
                     std::fs::rename(&aside, &policy).unwrap();
                 }
                 _ => {}
@@ -3194,7 +3213,7 @@ fn a_name_hidden_at_every_observation_binds_no_other_entry() {
     let library = Library::new();
     let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
     assert_eq!(
-        hidden_at_every_observation(&library, &base, true),
+        hidden_at_every_observation(&library, &base, true, false),
         format!("bundle: {}", another_name("h.json", "policy.json"))
     );
 }
@@ -3213,12 +3232,70 @@ fn a_name_that_no_longer_resolves_is_refused_not_found_elsewhere() {
     let library = Library::new();
     let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
     assert_eq!(
-        hidden_at_every_observation(&library, &base, false),
+        hidden_at_every_observation(&library, &base, false, false),
         format!(
             "bundle: {}",
             unwalked(&table_by(&base, "policy.json"), "policy.json")
         )
     );
+}
+
+/// Rebuild unit 16-fix-d, return F2 (16.1, 16.2; design D7): the case
+/// `95d4ff19` accepted, one entry holding the read file whose lookup
+/// succeeds beside another whose lookup FAILS. At each observation
+/// `policy.json` is hidden behind `h.json` and `h2.json`, and put back
+/// between them and once the walk has passed it. `95d4ff19` searched the
+/// directory for the absent name and discarded the failed lookup of
+/// `h2.json`, so `h.json` stood alone, was bound at every observation, and
+/// the compile sealed it. Now nothing is looked up in the name's place: the
+/// read binds `policy.json` exactly, and the walk, which lists no entry of
+/// it, refuses.
+#[cfg(unix)]
+#[test]
+fn a_failing_lookup_beside_another_name_binds_neither() {
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
+    assert_eq!(
+        hidden_at_every_observation(&library, &base, false, true),
+        format!(
+            "bundle: {}",
+            unwalked(&table_by(&base, "policy.json"), "policy.json")
+        )
+    );
+}
+
+/// Rebuild unit 16-fix-d, return F1 (16.1, 16.2; design D7): a hard link to
+/// the consumed table under a top-level name the walk skips is a second name
+/// for it inside the layer all the same, refused standalone and inherited.
+/// A copy at the same name, the same bytes in another file, is no name for
+/// it and moves neither identity: the skipped trees stay unpinned.
+#[cfg(unix)]
+#[test]
+fn a_skipped_tree_holds_no_second_name_for_a_consumed_file() {
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for other in [
+        "capabilities/second.json",
+        "dialects/second.json",
+        "realms.json",
+    ] {
+        let library = Library::new();
+        let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+        std::fs::create_dir_all(base.join("dialects")).unwrap();
+        let before = (said(&base), said(&leaf));
+        assert!(before.0.starts_with("compiled to"), "{other}: {}", before.0);
+        std::fs::copy(base.join("policy.json"), base.join(other)).unwrap();
+        assert_eq!((said(&base), said(&leaf)), before, "{other}: a copy");
+        std::fs::remove_file(base.join(other)).unwrap();
+        std::fs::hard_link(base.join("policy.json"), base.join(other)).unwrap();
+        let refused = another_name(other, "policy.json");
+        observed.push((other, said(&base), said(&leaf)));
+        expected.push((
+            other,
+            format!("bundle: {refused}"),
+            format!("bundle: bundle: {refused} (composed: derived -> base)"),
+        ));
+    }
+    assert_eq!(observed, expected);
 }
 
 /// Rebuild unit 16-fix-d, F2 (16.1, 16.2; design D7): two consumed names
