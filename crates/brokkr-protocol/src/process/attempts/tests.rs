@@ -2,10 +2,13 @@ use super::*;
 
 use rustix::io::Errno;
 
-/// Pids no test process has as a child, so a reap of one reaps nothing.
-const GROUP: i32 = 4_000_001;
-const RECORDED: i32 = 4_000_002;
-const STRANGER: i32 = 4_000_003;
+/// Pids no process can have: above Linux's PID_MAX_LIMIT (4,194,304) and
+/// macOS's 99,999, so a reap of one reaps nothing, and a row planted at
+/// one is born after this test process, whose own row `table` adds and
+/// whose pid on a busy Linux host can pass four million.
+const GROUP: i32 = 1_000_000_001;
+const RECORDED: i32 = 1_000_000_002;
+const STRANGER: i32 = 1_000_000_003;
 
 fn me() -> i32 {
     getpid().as_raw_pid()
