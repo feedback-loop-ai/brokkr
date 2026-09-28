@@ -17,7 +17,8 @@
 //! past any leading `NAME=value` words and keywords such as `if` and
 //! `do`. A path to `brokkr` (`./brokkr`, `target/release/brokkr`) as the
 //! program word runs it and is parsed too, as are the words after `--`
-//! in `cargo run -p brokkr-cli -- …`; as an argument, such a path names a
+//! in `cargo run -p brokkr-cli -- …` or `cargo r`, whose other options
+//! before `--` must leave its binary alone; as an argument, such a path names a
 //! file. Every other `brokkr` on the line, in a quote, a substitution, an
 //! argument, a comment or another program's words, is refused, and so is
 //! one in any other fence, one without a prompt in a fence that prompts,
@@ -480,16 +481,10 @@ fn ends_in_brokkr(token: &str) -> bool {
     token.ends_with("brokkr")
 }
 
-/// How many times `text` [`ends_in_brokkr`], wherever it stands: quoted,
-/// escaped, inside a substitution or an expansion, in a comment, or
-/// before a `:`.
-fn mentions(text: &str) -> usize {
-    count(text, ends_in_brokkr)
-}
-
-/// How many times `text` names `brokkr` or its crate. Every line that
-/// names one is read, and every word that names one outside what
-/// [`program`] allows it is refused.
+/// How many times `text` names `brokkr` or its crate, wherever it stands:
+/// quoted, escaped, inside a substitution or an expansion, in a comment,
+/// or before a `:`. Every line that names one is read, and every word
+/// that names one outside what [`program`] allows it is refused.
 fn names(text: &str) -> usize {
     count(text, |token| ends_in_brokkr(token) || names_crate(token))
 }
@@ -514,14 +509,22 @@ fn program_word(argv: &[String]) -> usize {
 
 /// What one split command runs, as far as `brokkr` goes.
 enum Program {
-    /// A `brokkr` command, as clap is handed it, and the index of the one
-    /// word that runs it: an [`executable`] program word, or the package
-    /// word of the `cargo run -p brokkr-cli` that runs `brokkr` with the
+    /// A `brokkr` command, as clap is handed it, and the indices of the
+    /// words that run it: an [`executable`] program word, or the package
+    /// words of the `cargo run -p brokkr-cli` that runs `brokkr` with the
     /// words after `--`.
-    Brokkr { word: usize, argv: Vec<String> },
+    Brokkr {
+        words: Vec<usize>,
+        argv: Vec<String>,
+    },
     /// A cargo subcommand other than `run`, such as `cargo build -p
-    /// brokkr-cli`: it may name the crate, and it runs no `brokkr`.
-    Cargo,
+    /// brokkr-cli`: it runs no `brokkr`, and may name the crate only in the
+    /// words at these indices, the values of [`crate_word`]'s options.
+    Cargo { words: Vec<usize> },
+    /// A `cargo run` that names the crate and carries, at this index
+    /// before `--`, a word outside [`RUN_OPTIONS`] and the package, which
+    /// may change what runs.
+    Unread { word: usize },
     /// Any other command, a `cargo run` in any other form among them.
     Other,
 }
@@ -533,7 +536,7 @@ fn program(argv: &[String]) -> Program {
     let at = program_word(argv);
     match argv.get(at).map(String::as_str) {
         Some(word) if executable(word) => Program::Brokkr {
-            word: at,
+            words: vec![at],
             argv: argv[at..].to_vec(),
         },
         Some("cargo") => cargo(argv, at),
@@ -541,50 +544,107 @@ fn program(argv: &[String]) -> Program {
     }
 }
 
+/// The options `cargo run` may carry before `--` beside the package:
+/// none of them changes which binary runs.
+const RUN_OPTIONS: [&str; 6] = [
+    "--locked",
+    "--release",
+    "--offline",
+    "--frozen",
+    "-q",
+    "--quiet",
+];
+
+/// The index of the word that names the `brokkr-cli` crate as the value
+/// of the cargo option at `index`, past which the next option stands:
+/// `-p brokkr-cli`, `--package brokkr-cli`, `--package=brokkr-cli` or
+/// `-pbrokkr-cli`, and, outside `cargo run`, the crate's manifest after
+/// `--manifest-path` or its directory after `--path`.
+fn crate_word(options: &[String], index: usize, run: bool) -> Option<usize> {
+    match (
+        options[index].as_str(),
+        options.get(index + 1).map(String::as_str),
+    ) {
+        ("--package=brokkr-cli" | "-pbrokkr-cli", _) => Some(index),
+        ("-p" | "--package", Some("brokkr-cli")) => Some(index + 1),
+        ("--manifest-path", Some("crates/brokkr-cli/Cargo.toml"))
+        | ("--path", Some("crates/brokkr-cli"))
+            if !run =>
+        {
+            Some(index + 1)
+        }
+        _ => None,
+    }
+}
+
+/// The words of a `cargo run`'s options, before `--`, that name the
+/// crate, or the index of the first word that is neither the package nor
+/// one of [`RUN_OPTIONS`].
+fn run_options(options: &[String]) -> Result<Vec<usize>, usize> {
+    let mut words = Vec::new();
+    let mut index = 1;
+    while let Some(word) = options.get(index) {
+        if let Some(named) = crate_word(options, index, true) {
+            words.push(named);
+            index = named + 1;
+        } else if RUN_OPTIONS.contains(&word.as_str()) {
+            index += 1;
+        } else {
+            return Err(index);
+        }
+    }
+    Ok(words)
+}
+
 /// What a `cargo` at `at` runs. Its subcommand is the word straight
-/// after it; only `cargo run` with `-p brokkr-cli`, `--package
-/// brokkr-cli` or `--package=brokkr-cli` before any `--` is read as
-/// `brokkr`, and a subcommand this reader cannot place, behind an option
-/// or a `+toolchain`, is [`Program::Other`].
+/// after it; `cargo run`, or its alias `cargo r`, whose options before
+/// `--` are the package and [`RUN_OPTIONS`] alone, is read as `brokkr`,
+/// one that names the crate beside any other option is
+/// [`Program::Unread`], and a subcommand this reader cannot place,
+/// behind an option or a `+toolchain`, is [`Program::Other`].
 fn cargo(argv: &[String], at: usize) -> Program {
     let rest = &argv[at + 1..];
     let dashes = rest.iter().position(|word| word == "--");
     let (options, arguments) = rest.split_at(dashes.unwrap_or(rest.len()));
-    let package = options
-        .iter()
-        .enumerate()
-        .find_map(|(index, word)| {
-            match (word.as_str(), options.get(index + 1).map(String::as_str)) {
-                ("--package=brokkr-cli", _) => Some(index),
-                ("-p" | "--package", Some("brokkr-cli")) => Some(index + 1),
-                _ => None,
+    let place = |index: usize| at + 1 + index;
+    match options.first().map(String::as_str) {
+        Some("run" | "r") => match run_options(options) {
+            Ok(words) if !words.is_empty() => Program::Brokkr {
+                words: words.into_iter().map(place).collect(),
+                argv: std::iter::once("brokkr".to_string())
+                    .chain(arguments.iter().skip(1).cloned())
+                    .collect(),
+            },
+            Err(index) if options.iter().any(|word| names(word) > 0) => {
+                Program::Unread { word: place(index) }
             }
-        })
-        .map(|index| at + 1 + index);
-    match (options.first().map(String::as_str), package) {
-        (Some("run"), Some(word)) => Program::Brokkr {
-            word,
-            argv: std::iter::once("brokkr".to_string())
-                .chain(arguments.iter().skip(1).cloned())
+            _ => Program::Other,
+        },
+        Some(sub) if !sub.starts_with(['-', '+']) => Program::Cargo {
+            words: (1..options.len())
+                .filter_map(|index| crate_word(options, index, false))
+                .map(place)
                 .collect(),
         },
-        (Some(sub), _) if sub != "run" && !sub.starts_with(['-', '+']) => Program::Cargo,
         _ => Program::Other,
     }
 }
 
 /// The first word on a split line that names `brokkr` or its crate where
-/// its [`Program`] does not allow it: one nothing parses.
+/// its [`Program`] does not allow it, one nothing parses, or the word
+/// that leaves a `cargo run` unread.
 fn stray(commands: &[Vec<String>]) -> Option<&String> {
     commands.iter().find_map(|argv| {
         let program = program(argv);
         argv.iter().enumerate().find_map(|(index, word)| {
-            let allowed = match &program {
-                Program::Brokkr { word, .. } => index == *word,
-                Program::Cargo => mentions(word) == 0,
-                Program::Other => false,
+            let refused = match &program {
+                Program::Brokkr { words, .. } | Program::Cargo { words } => {
+                    !words.contains(&index) && names(word) > 0
+                }
+                Program::Unread { word } => index == *word,
+                Program::Other => names(word) > 0,
             };
-            (!allowed && names(word) > 0).then_some(word)
+            refused.then_some(word)
         })
     })
 }
@@ -607,7 +667,8 @@ fn unparsed(word: &str) -> String {
 /// path to it or its crate as a file, a repository or a package, never
 /// running it. Each is accepted exactly as written, and an edit to one is
 /// refused until it is ruled on here again.
-const NAMED_NOT_RUN: [&str; 8] = [
+const NAMED_NOT_RUN: [&str; 9] = [
+    "cargo binstall brokkr-cli",
     "gh repo fork feedback-loop-ai/brokkr --clone",
     "cd ./brokkr",
     "git clone https://github.com/feedback-loop-ai/brokkr ~/src/brokkr",
@@ -954,7 +1015,7 @@ fn refusal(line: &str) -> Option<String> {
     };
     let problem = commands.iter().find_map(|argv| match program(argv) {
         Program::Brokkr { argv, .. } => clap_refusal(&argv),
-        Program::Cargo | Program::Other => None,
+        Program::Cargo { .. } | Program::Unread { .. } | Program::Other => None,
     });
     if problem.is_some() {
         return problem;
@@ -1327,8 +1388,8 @@ fn the_fence_reader_refuses_every_brokkr_it_did_not_parse() {
 
 /// A path to `brokkr`, an expansion's default and the crate `cargo run`
 /// runs are refused wherever nothing parses them, as `brokkr` is; a cargo
-/// subcommand that runs nothing may name the crate, and a line of
-/// [`NAMED_NOT_RUN`] is accepted as written and no other way.
+/// subcommand that runs nothing may name the crate as its package, and a
+/// line of [`NAMED_NOT_RUN`] is accepted as written and no other way.
 #[test]
 fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
     let doc = "```sh\n\
@@ -1342,11 +1403,8 @@ fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
                ${BROKKR:-brokkr} wacth\n\
                \"${BROKKR-brokkr}\" wacth\n\
                sudo cargo run -p brokkr-cli -- wacth\n\
-               cargo run --manifest-path crates/brokkr-cli/Cargo.toml -- wacth\n\
-               cargo run -pbrokkr-cli -- wacth\n\
                cd crates/brokkr-cli && cargo run -- wacth\n\
                cargo +nightly run -p brokkr-cli -- wacth\n\
-               cargo run -p brokkr-cli --bin brokkr -- runs\n\
                cargo test -p brokkr-cli run\n\
                cargo build --release --locked -p brokkr-cli\n\
                \"$DIR\"brokkr wacth\n\
@@ -1379,26 +1437,20 @@ fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
             line(11, "sudo cargo run -p brokkr-cli -- wacth", "brokkr-cli"),
             line(
                 12,
-                "cargo run --manifest-path crates/brokkr-cli/Cargo.toml -- wacth",
-                "crates/brokkr-cli/Cargo.toml"
-            ),
-            line(13, "cargo run -pbrokkr-cli -- wacth", "-pbrokkr-cli"),
-            line(
-                14,
                 "cd crates/brokkr-cli && cargo run -- wacth",
                 "crates/brokkr-cli"
             ),
             line(
-                15,
+                13,
                 "cargo +nightly run -p brokkr-cli -- wacth",
                 "brokkr-cli"
             ),
-            line(16, "cargo run -p brokkr-cli --bin brokkr -- runs", "brokkr"),
-            line(19, "\"$DIR\"brokkr wacth", "$DIRbrokkr"),
+            line(16, "\"$DIR\"brokkr wacth", "$DIRbrokkr"),
         ]
     );
     // Edited by one trailing space, each is read and refused.
     let edited = [
+        unparsed("brokkr-cli"),
         unparsed("feedback-loop-ai/brokkr"),
         unparsed("./brokkr"),
         unparsed("https://github.com/feedback-loop-ai/brokkr"),
@@ -1412,6 +1464,58 @@ fn the_fence_reader_refuses_a_path_to_brokkr_or_its_crate_it_did_not_parse() {
         assert_eq!(refusal(named), None, "{named}");
         assert_eq!(refusal(&format!("{named} ")), Some(refused), "{named}");
     }
+}
+
+/// `cargo run`, or its alias `cargo r`, is read as `brokkr` only when
+/// every option before `--` is the package or one of [`RUN_OPTIONS`]; any
+/// other word there is refused by name. Any other cargo subcommand may
+/// name the crate as its package, manifest or path, and nowhere else.
+#[test]
+fn the_fence_reader_reads_cargo_run_only_beside_options_that_keep_its_binary() {
+    let wacth = "error: unrecognized subcommand 'wacth'";
+    let doc = "```sh\n\
+               cargo r -p brokkr-cli -- wacth\n\
+               cargo r --locked -p brokkr-cli -- wacth\n\
+               cargo r -pbrokkr-cli -- wacth\n\
+               cargo run -pbrokkr-cli -- wacth\n\
+               cargo run -q --release --offline --frozen --quiet --package brokkr-cli -- runs\n\
+               cargo r --manifest-path crates/brokkr-cli/Cargo.toml -- wacth\n\
+               cargo run -p brokkr-cli --bin helper -- runs\n\
+               cargo run -p brokkr-cli --example x -- runs\n\
+               cargo run -p brokkr-cli --bin brokkr -- runs\n\
+               cargo watch -x \"run -p brokkr-cli -- wacth\"\n\
+               cargo install --path crates/brokkr-cli\n\
+               cargo test --manifest-path crates/brokkr-cli/Cargo.toml\n\
+               ```\n";
+    let line = |number: usize, text: &str, word: &str| {
+        format!("doc.md:{number}: `{text}`: {}", unparsed(word))
+    };
+    assert_eq!(
+        refusals_in("doc.md", doc),
+        [
+            format!("doc.md:2: `cargo r -p brokkr-cli -- wacth`: {wacth}"),
+            format!("doc.md:3: `cargo r --locked -p brokkr-cli -- wacth`: {wacth}"),
+            format!("doc.md:4: `cargo r -pbrokkr-cli -- wacth`: {wacth}"),
+            format!("doc.md:5: `cargo run -pbrokkr-cli -- wacth`: {wacth}"),
+            line(
+                7,
+                "cargo r --manifest-path crates/brokkr-cli/Cargo.toml -- wacth",
+                "--manifest-path"
+            ),
+            line(8, "cargo run -p brokkr-cli --bin helper -- runs", "--bin"),
+            line(
+                9,
+                "cargo run -p brokkr-cli --example x -- runs",
+                "--example"
+            ),
+            line(10, "cargo run -p brokkr-cli --bin brokkr -- runs", "--bin"),
+            line(
+                11,
+                "cargo watch -x \"run -p brokkr-cli -- wacth\"",
+                "run -p brokkr-cli -- wacth"
+            ),
+        ]
+    );
 }
 
 #[test]
