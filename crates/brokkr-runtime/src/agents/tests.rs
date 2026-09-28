@@ -1515,6 +1515,53 @@ fn the_record_carries_names_and_digests_and_moves_with_its_inputs() {
     );
 }
 
+/// Rebuild unit 17 (design D7; task 17.1): the resolution carries its
+/// charter's binding as the library loaded it — the library's canonical
+/// root however it was reached, the reference as the definition wrote it,
+/// the canonical target inside that root and the digest the record pins —
+/// and every fallback candidate is the same office, told the same charter.
+#[test]
+fn a_resolution_carries_its_charter_owner_reference_target_and_digest() {
+    let tree = ready();
+    std::os::unix::fs::symlink("c.md", tree.library_root().join("charters/linked.md")).unwrap();
+    let mut body = agent_body();
+    body["charter"] = json!("charters/linked.md");
+    tree.write("agents/tester.json", &body);
+    // Loaded through the fixture's alias, as an operator's path may be.
+    let alias = tree._guard.path().join("alias/agents");
+    let library = Library::load(&alias).unwrap();
+    let resolution = resolve(
+        &library,
+        &tree.adapters(),
+        &Availability::unspecified(),
+        "tester",
+    )
+    .unwrap();
+    let target = tree.library_root().join("charters/c.md");
+    assert_eq!(
+        resolution.charter_source,
+        CharterSource {
+            library: tree.library_root(),
+            reference: "charters/linked.md".to_string(),
+            target: target.clone(),
+            digest: brokkr_core::canonical::sha256_bytes(b"# charter\n"),
+        }
+    );
+    assert_eq!(resolution.charter, target);
+    assert_eq!(
+        resolution.record["charter_digest"],
+        json!(resolution.charter_source.digest)
+    );
+    assert_eq!(
+        resolution
+            .candidates
+            .iter()
+            .map(|candidate| (candidate.agent.as_str(), candidate.model.as_str()))
+            .collect::<Vec<_>>(),
+        [("tester", "opus"), ("tester", "sonnet")]
+    );
+}
+
 // ------------------------------------------------------- strict parsing
 
 /// T5/AC-20: every rejection names the file and the key, so an operator

@@ -101,6 +101,13 @@ pub struct Agent {
     /// Absolute, canonicalised, proven contained within the library root.
     pub charter: PathBuf,
     pub charter_digest: String,
+    /// The `charter` reference as the definition wrote it, before it was
+    /// resolved to `charter` (rebuild unit 17; design D7).
+    pub charter_reference: String,
+    /// The canonical root of the library this definition was loaded from:
+    /// the tree that owns and contains its charter, wherever that tree
+    /// stands relative to any recipe (rebuild unit 17; design D7).
+    pub library: PathBuf,
     /// Ordered preference chain of abstract model names.
     pub models: Vec<String>,
     /// The effort hired with each candidate (decision 0035 ruling 5),
@@ -136,7 +143,29 @@ pub struct Agent {
     pub source: Value,
 }
 
+/// Where an office's charter was bound (rebuild unit 17; design D7): the
+/// library that owns it, the reference its definition wrote, the canonical
+/// target that reference resolved to inside that library, and the digest
+/// the library record already pins for the bytes read there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CharterSource {
+    pub library: PathBuf,
+    pub reference: String,
+    pub target: PathBuf,
+    pub digest: String,
+}
+
 impl Agent {
+    /// The binding of this office's charter, as its library loaded it.
+    pub fn charter_source(&self) -> CharterSource {
+        CharterSource {
+            library: self.library.clone(),
+            reference: self.charter_reference.clone(),
+            target: self.charter.clone(),
+            digest: self.charter_digest.clone(),
+        }
+    }
+
     /// The office's local declaration as one value (design D5.2): the two
     /// fields are stored where they were always stored, and this assembles
     /// them for the narrower rather than keeping a duplicate beside them.
@@ -1023,6 +1052,10 @@ pub struct Report {
 pub struct Resolution {
     pub agent: String,
     pub charter: PathBuf,
+    /// The charter's binding, selected with the office every candidate
+    /// below serves (rebuild unit 17): a fallback candidate is the same
+    /// office on another model, and is told the same charter.
+    pub charter_source: CharterSource,
     pub limits: Option<Limits>,
     pub inputs: Option<Vec<String>>,
     /// Ordered; `[0]` is the choice and the rest are the bounded
@@ -1611,6 +1644,7 @@ pub(crate) fn resolve_report(
         hands: agent.hands.clone(),
         agent: agent.name.clone(),
         charter: agent.charter.clone(),
+        charter_source: agent.charter_source(),
         limits: agent.limits,
         inputs: agent.inputs.clone(),
         candidates,

@@ -6,7 +6,7 @@
 //! missing role never loads at all.
 
 use brokkr_protocol::hands::HandsSpec;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
@@ -418,6 +418,10 @@ pub struct SiteFacts {
     /// launch went ahead on whatever the file said by then. The binding is
     /// carried outside the manifest, because the path is the host's and
     /// bundle identity is not.
+    /// Rebuild unit 17: every site with a charter carries it, an inline
+    /// site's bound to the layer that declared its role, so its owner is
+    /// selected where the site is compiled and never guessed from a path.
+    /// `None` at an exec site, which has no charter.
     pub charter: Option<CharterPin>,
     /// Decision 0065 slice one (design D5.2): the EFFECTIVE typed local
     /// declaration of this executable site — the office's narrowed by the
@@ -484,17 +488,61 @@ pub struct InlineSandbox {
     pub door: crate::agents::ResultDoor,
 }
 
-/// Every agent charter one compile bound, keyed by the path the seat will
-/// be told from. Held on the [`Bundle`] rather than only per site, so the
-/// pin survives every projection of the site facts (second council H6).
-pub type CharterPins = BTreeMap<PathBuf, CharterPin>;
+/// Every charter one compile bound, keyed by the path the seat will be told
+/// from, with every binding a site selected for that path. Held on the
+/// [`Bundle`] rather than only per site, so the pin survives every
+/// projection of the site facts (second council H6; rebuild unit 17).
+pub type CharterPins = BTreeMap<PathBuf, BTreeSet<CharterPin>>;
 
-/// One agent charter as its library record pinned it (second council H6).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One charter as the compile bound it (second council H6; rebuild unit 17,
+/// design D7): the owner selected with the site, the reference as written,
+/// the path the seat is told, the canonical target the compile read, and the
+/// digest the owner already pins for those bytes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CharterPin {
-    pub agent: String,
+    pub owner: CharterOwner,
+    pub reference: String,
     pub path: PathBuf,
+    pub target: PathBuf,
     pub digest: String,
+}
+
+/// Who pins a charter (rebuild unit 17): the layer that declared an inline
+/// role, with the key its file map pins the role under, or the library an
+/// agent was loaded from, with its own contained root.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CharterOwner {
+    Layer { dir: PathBuf, key: String },
+    Library { agent: String, root: PathBuf },
+}
+
+impl CharterPin {
+    /// The owner and the key a dispatch refusal names. A layer is found by
+    /// its exact directory, never by the longest root a path starts with;
+    /// `None` where no layer of this bundle is that directory.
+    fn named(&self, bundle: &Bundle) -> Option<(String, String)> {
+        match &self.owner {
+            CharterOwner::Layer { dir, key } => {
+                let name = match dir == &bundle.dir {
+                    true => &bundle.name,
+                    false => {
+                        &bundle
+                            .chain
+                            .iter()
+                            .find(|ancestor| &ancestor.dir == dir)?
+                            .name
+                    }
+                };
+                Some((format!("layer '{name}'"), key.clone()))
+            }
+            CharterOwner::Library { agent, .. } => Some((
+                format!("agent '{agent}'"),
+                self.path
+                    .file_name()
+                    .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
+            )),
+        }
+    }
 }
 
 impl SiteFacts {
@@ -1620,7 +1668,7 @@ impl Bundle {
                     &mut sites,
                 )?;
                 SeatBody::Single {
-                    role_path: parse_role(dir, phase, raw, &charters)?,
+                    role_path: parse_role(dir, phase, raw, &charters, &mut sites)?,
                     command: parse_command(dir, phase, raw, &secrets)?,
                     candidates: Vec::new(),
                 }
@@ -2040,13 +2088,16 @@ impl Bundle {
             &resolved.leaf_digests(),
         )?;
         resolved.check_leaf(manifest["files"].as_object().expect("manifest files"))?;
-        // Second council H6: every agent charter this compile bound, kept
-        // where a projection of the site facts cannot lose it.
-        let charters: CharterPins = sites
-            .values()
-            .filter_map(|site| site.charter.clone())
-            .map(|charter| (charter.path.clone(), charter))
-            .collect();
+        // Second council H6: every charter this compile bound, kept where a
+        // projection of the site facts cannot lose it, with each binding a
+        // site selected for its path (rebuild unit 17).
+        let mut charters = CharterPins::new();
+        for charter in sites.values().filter_map(|site| site.charter.clone()) {
+            charters
+                .entry(charter.path.clone())
+                .or_default()
+                .insert(charter);
+        }
         Ok(Bundle {
             hands,
             inline_resume,
@@ -2651,13 +2702,19 @@ fn resolve_reference(
     // Second council H6: the charter this site will be told, bound to the
     // digest its library record pins, so the dispatch door can compare the
     // bytes it is about to hand over against the bytes the compile read.
+    // Rebuild unit 17: its owner is the library the office was loaded
+    // from, with that library's own root, whether it stands outside the
+    // recipe or inside it.
+    let source = &resolution.charter_source;
     site_facts(sites, site_key).charter = Some(CharterPin {
-        agent: resolution.agent.clone(),
+        owner: CharterOwner::Library {
+            agent: resolution.agent.clone(),
+            root: source.library.clone(),
+        },
+        reference: source.reference.clone(),
         path: resolution.charter.clone(),
-        digest: resolution.record["charter_digest"]
-            .as_str()
-            .expect("the resolver writes the charter digest")
-            .to_string(),
+        target: source.target.clone(),
+        digest: source.digest.clone(),
     });
     // The capability pass judges exactly the chain this site will run
     // (decision 0065): one outcome per candidate, never their union.
@@ -5122,8 +5179,8 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
 /// A path with its `.` and `..` folded away, without touching the disk:
 /// the spelling a layer's file map keys a file under. `Path::components`
 /// already drops every `.` but a leading one, and every path folded here is
-/// absolute — a reference joined to its layer's canonical root, or a role
-/// path the compile wrote — so only `..` is left to fold.
+/// absolute — a reference joined to its layer's canonical root — so only
+/// `..` is left to fold.
 fn folded(path: &Path) -> PathBuf {
     let mut folded = PathBuf::new();
     for component in path.components() {
@@ -5141,10 +5198,15 @@ fn folded(path: &Path) -> PathBuf {
 /// about to be told must still be the bytes its layer's file map pinned.
 /// The driver reads a role when it renders the prompt, long after the
 /// compile that hashed it; without this check an edit in between reaches
-/// the seat as fresh instructions under the old identity. The owning layer
-/// is found as [`layer_drift`] finds it, and the role is read through any
-/// link exactly as the walk read it, so a link retargeted since the compile
-/// is a change like any other. `None` where the pin holds.
+/// the seat as fresh instructions under the old identity. The role is read
+/// through any link exactly as the walk read it, so a link retargeted since
+/// the compile is a change like any other. `None` where the pin holds.
+///
+/// Rebuild unit 17: the owner is the one the compile selected with each
+/// site that is told this path — the declaring layer of an inline role, the
+/// library of an agent's charter — found by the exact path, never by the
+/// longest layer root the path starts with, and never by folding a spelling
+/// onto a neighbouring pin. Every binding of the path must hold.
 ///
 /// Second council H6: A CHARTER NO LAYER KEYS IS NOT A CHARTER NOBODY
 /// PINNED. An agent's charter stands in the library, outside every
@@ -5165,57 +5227,19 @@ fn folded(path: &Path) -> PathBuf {
 /// `Err((owner, what))` is the pin's complaint, in the two pieces the
 /// dispatch refusal is written from.
 pub fn charter_text(bundle: &Bundle, role: &Path) -> Result<String, (String, String)> {
-    let role = folded(role);
-    let layer = bundle
-        .roots
-        .iter()
-        .filter(|root| role.starts_with(root))
-        .max_by_key(|root| root.components().count());
-    let pin = layer.and_then(|layer| {
-        let (name, pinned) = if layer == &bundle.dir {
-            (&bundle.name, bundle.manifest["files"].as_object()?)
-        } else {
-            let ancestor = bundle
-                .chain
-                .iter()
-                .find(|ancestor| &ancestor.dir == layer)?;
-            (&ancestor.name, &ancestor.files)
-        };
-        let key = role
-            .strip_prefix(layer)
-            .expect("role under layer")
-            .iter()
-            .map(|part| part.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join("/");
-        Some((
-            format!("layer '{name}'"),
-            key.clone(),
-            pinned.get(&key)?.as_str()?.to_string(),
-        ))
-    });
-    // The library pin, for a charter that stands outside every layer — or
-    // inside one whose map does not key it, which an agent's charter can
-    // be when the library is nested under the recipe.
-    let pin = pin.or_else(|| {
-        let charter = bundle
-            .charters
-            .values()
-            .find(|charter| folded(&charter.path) == role)?;
-        Some((
-            format!("agent '{}'", charter.agent.clone()),
-            charter
-                .path
-                .file_name()
-                .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
-            charter.digest.clone(),
-        ))
-    });
-    let Some((name, key, digest)) = pin else {
-        // Neither route pins it. After a compile every role is one or the
-        // other — an inline charter stands inside its layer, where the
-        // walk keys it, and an agent's is pinned by its library record —
-        // so reaching here means the bundle's identity does not answer for
+    let pins: Vec<((String, String), &String)> = bundle
+        .charters
+        .get(role)
+        .into_iter()
+        .flatten()
+        .map(|pin| Some((pin.named(bundle)?, &pin.digest)))
+        .collect::<Option<_>>()
+        .unwrap_or_default();
+    let Some(((name, key), _)) = pins.first().cloned() else {
+        // No site was bound to it. After a compile every role is bound —
+        // an inline charter to the layer that declared it, an agent's to
+        // the library it was loaded from — so reaching here means the
+        // bundle's identity does not answer for
         // what this seat is about to be told, and the launch stops.
         //
         // A RELATIVE role was not produced by this engine at all:
@@ -5223,16 +5247,17 @@ pub fn charter_text(bundle: &Bundle, role: &Path) -> Result<String, (String, Str
         // library resolves an absolute charter, so an absolute path is the
         // only shape a compile writes. Such a role reads as it always did.
         if !role.is_absolute() {
-            return Ok(std::fs::read_to_string(&role).unwrap_or_default());
+            return Ok(std::fs::read_to_string(role).unwrap_or_default());
         }
         return Err((
             format!("bundle '{}'", bundle.name),
             format!("unpinned: {}", role.display()),
         ));
     };
-    let bytes = std::fs::read(&role).map_err(|_| (name.clone(), format!("missing: {key}")))?;
-    if sha256_bytes(&bytes) != digest {
-        return Err((name, format!("changed: {key}")));
+    let bytes = std::fs::read(role).map_err(|_| (name.clone(), format!("missing: {key}")))?;
+    let read = sha256_bytes(&bytes);
+    if let Some(((name, key), _)) = pins.iter().find(|(_, digest)| **digest != read) {
+        return Err((name.clone(), format!("changed: {key}")));
     }
     // The pin is over BYTES; what a seat is told is text. A charter whose
     // bytes are not text is refused rather than rendered with its
@@ -5873,7 +5898,7 @@ fn parse_selected_body(
         enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
         record_hands(what, raw, None, secrets, sites)?;
         let body = SeatBody::Single {
-            role_path: parse_role(dir, what, raw, charters)?,
+            role_path: parse_role(dir, what, raw, charters, sites)?,
             command: parse_command(dir, what, raw, secrets)?,
             candidates: Vec::new(),
         };
@@ -6073,7 +6098,7 @@ fn parse_panel(
                     sites,
                 )?;
                 (
-                    parse_role(dir, &site, member_raw, charters)?,
+                    parse_role(dir, &site, member_raw, charters, sites)?,
                     parse_command(dir, &site, member_raw, secrets)?,
                     Vec::new(),
                     None,
@@ -6345,7 +6370,7 @@ fn parse_sequence(
                 sites,
             )?;
             StepBody::Single {
-                role_path: parse_role(dir, &what, step_raw, charters)?,
+                role_path: parse_role(dir, &what, step_raw, charters, sites)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,
                 candidates: Vec::new(),
             }
@@ -6397,6 +6422,7 @@ fn parse_role(
     what: &str,
     raw: &Value,
     charters: &Charters,
+    sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<PathBuf, CompileError> {
     let Some(role_rel) = raw.get("role").and_then(Value::as_str) else {
         if raw
@@ -6433,13 +6459,27 @@ fn parse_role(
     // refusal names the declaring file, the seat and the reference, bounded.
     // The verified buffer's digest is what the declaring layer's walk takes
     // for the charter's keys (rebuild unit 16-fix-b, F3), so it is kept.
+    // Rebuild unit 17: the site is bound here to that layer, the key its
+    // map pins the reference under, the target the read resolved and the
+    // buffer's digest, so no later reader has to guess its owner.
     let source = dir.join("bundle.json");
     let (site, reference) = (bounded_site(what), bounded_reference(role_rel));
     match bound_input(dir, role_rel) {
         Ok(bound) => {
+            let role = dir.join(role_rel);
+            site_facts(sites, what).charter = Some(CharterPin {
+                owner: CharterOwner::Layer {
+                    dir: dir.to_path_buf(),
+                    key: bound.held.binding.key.clone(),
+                },
+                reference: role_rel.to_string(),
+                path: role.clone(),
+                target: dir.join(&bound.held.binding.target_key),
+                digest: sha256_bytes(&bound.bytes),
+            });
             let read = compose::CharterRead::of(dir, site, reference, bound);
             charters.borrow_mut().push(read);
-            Ok(dir.join(role_rel))
+            Ok(role)
         }
         Err(InputFault::Missing(error)) => Err(CompileError::Invalid(format!(
             "{}: seat {site} names role {reference}, {}",

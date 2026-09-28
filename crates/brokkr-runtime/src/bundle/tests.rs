@@ -850,7 +850,8 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
         dir,
         "work",
         &json!({"role":"missing.md"}),
-        &Default::default()
+        &Default::default(),
+        &mut BTreeMap::new()
     )
     .is_err());
 

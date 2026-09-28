@@ -6302,3 +6302,410 @@ fn a_seat_level_tools_declaration_beside_its_driver_still_compiles() {
         )
     );
 }
+
+/// The expected binding of a charter an inline role names: the declaring
+/// layer, the key its walk pins the reference under, the reference as
+/// written, the path the seat is told and the canonical target read.
+fn layer_pin(dir: &Path, reference: &str, target: &str) -> CharterPin {
+    CharterPin {
+        owner: CharterOwner::Layer {
+            dir: dir.to_path_buf(),
+            key: reference.to_string(),
+        },
+        reference: reference.to_string(),
+        path: dir.join(reference),
+        target: dir.join(target),
+        digest: sha256_bytes(b"# work\n"),
+    }
+}
+
+/// The expected binding of an agent's charter: the library it was loaded
+/// from, with that library's own root.
+fn library_pin(agent: &str, root: &Path, reference: &str) -> CharterPin {
+    CharterPin {
+        owner: CharterOwner::Library {
+            agent: agent.to_string(),
+            root: root.to_path_buf(),
+        },
+        reference: reference.to_string(),
+        path: root.join("charters/work.md"),
+        target: root.join("charters/work.md"),
+        digest: sha256_bytes(b"# work\n"),
+    }
+}
+
+/// One site's binding as observed: the pin it carries, the digest its
+/// owner's existing identity names — the layer's file-map entry or the
+/// library record — and the office and model of every candidate.
+fn bound(bundle: &Bundle, label: &str) -> String {
+    let facts = &bundle.sites[label];
+    let existing = match facts.charter.as_ref().map(|pin| &pin.owner) {
+        Some(CharterOwner::Layer { dir, key }) if dir == &bundle.dir => {
+            bundle.manifest["files"][key].clone()
+        }
+        Some(CharterOwner::Layer { dir, key }) => bundle
+            .chain
+            .iter()
+            .find(|ancestor| &ancestor.dir == dir)
+            .map_or(Value::Null, |ancestor| ancestor.files[key].clone()),
+        Some(CharterOwner::Library { .. }) => {
+            bundle.manifest["agents"][label]["charter_digest"].clone()
+        }
+        None => Value::Null,
+    };
+    let chain: Vec<(&str, &str)> = facts
+        .chain
+        .iter()
+        .map(|candidate| (candidate.agent.as_str(), candidate.model.as_str()))
+        .collect();
+    format!("{:?} {existing} {chain:?}", facts.charter)
+}
+
+/// Rebuild unit 17 (design D7; task 17.1): SELECT CHARTER OWNER AND SOURCE
+/// AT COMPILE. Every executable site with a charter — an ordinary seat, a
+/// panel member, a sequence step, a selected case and the selected default,
+/// agent-backed or inline, in the leaf or an inherited layer — carries the
+/// owner compiled with it, the reference as written, the path the seat is
+/// told, the canonical target read and the digest its owner already pins.
+/// Each charter is reached through a contained link, so reference, told
+/// path and target are three facts. An agent site's fallback candidate is
+/// the same office, bound once. The library stands outside the recipe.
+#[test]
+fn every_selected_site_binds_its_charter_owner_reference_target_and_digest() {
+    let fixture = AgentFixture::new();
+    std::os::unix::fs::symlink("work.md", fixture.library().join("charters/linked.md")).unwrap();
+    std::os::unix::fs::symlink("work.md", fixture.bundle().join("roles/linked.md")).unwrap();
+    let mut adapter = claude();
+    adapter["models"]["sonnet"] = json!("claude-sonnet-5");
+    fixture.write("adapters/claude.json", adapter);
+    fixture.write(
+        "agents/member.json",
+        json!({
+            "description": "a member",
+            "charter": "charters/linked.md",
+            "models": ["opus", "sonnet"],
+            "efforts": {"opus": "high", "sonnet": "high"},
+        }),
+    );
+    let agent = json!({"agent": "member"});
+    let linked = json!({"role": "roles/linked.md", "driver": {"command": ["driver"]}});
+    let plain = json!({"role": "roles/work.md", "driver": {"command": ["driver"]}});
+    let with = |value: &Value, extra: Value| {
+        let mut value = value.clone();
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        value
+    };
+    let at_library = || {
+        format!(
+            "{:?} {} {:?}",
+            Some(library_pin(
+                "member",
+                &fixture.library(),
+                "charters/linked.md"
+            )),
+            json!(sha256_bytes(b"# work\n")),
+            [("member", "opus"), ("member", "sonnet")]
+        )
+    };
+    let at_layer = |dir: &Path, reference: &str, target: &str| {
+        format!(
+            "{:?} {} []",
+            Some(layer_pin(dir, reference, target)),
+            json!(sha256_bytes(b"# work\n"))
+        )
+    };
+    let leaf = fixture.bundle();
+    // (the `work` seat, its policy, and each site label with its binding).
+    type Form<'a> = (Value, Value, Vec<(&'a str, String)>);
+    let forms: Vec<Form<'_>> = vec![
+        (
+            with(&agent, json!({"results": ["complete"]})),
+            policy(),
+            vec![
+                ("work", at_library()),
+                ("review", at_layer(&leaf, "roles/work.md", "roles/work.md")),
+            ],
+        ),
+        (
+            json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass",
+                   "panel": {"a": agent, "b": linked}}),
+            panel_policy(),
+            vec![
+                ("work:a", at_library()),
+                (
+                    "work:b",
+                    at_layer(&leaf, "roles/linked.md", "roles/work.md"),
+                ),
+            ],
+        ),
+        (
+            json!({"results": ["complete"], "sequence": [
+                with(&agent, json!({"name": "first", "results": ["complete"]})),
+                with(&linked, json!({"name": "second"}))]}),
+            policy(),
+            vec![
+                ("work:first", at_library()),
+                (
+                    "work:second",
+                    at_layer(&leaf, "roles/linked.md", "roles/work.md"),
+                ),
+            ],
+        ),
+        (
+            json!({"results": ["complete"], "select": {"on": "strategy",
+                   "cases": {"engine": agent, "chore": plain}, "default": linked}}),
+            policy(),
+            vec![
+                ("work:engine", at_library()),
+                (
+                    "work:chore",
+                    at_layer(&leaf, "roles/work.md", "roles/work.md"),
+                ),
+                (
+                    "work:default",
+                    at_layer(&leaf, "roles/linked.md", "roles/work.md"),
+                ),
+            ],
+        ),
+    ];
+    let mut rows: Vec<Row<String>> = Vec::new();
+    for (seat, table, labels) in forms {
+        let mut config = fixture.config();
+        config["seats"]["work"] = seat;
+        let bundle = fixture.compile_with_policy(config, &table).unwrap();
+        for (label, expected) in labels {
+            rows.push((label.to_string(), bound(&bundle, label), expected));
+        }
+    }
+    // The dispatch map holds exactly the bindings the sites selected.
+    let mut config = fixture.config();
+    config["seats"]["work"] = with(&agent, json!({"results": ["complete"]}));
+    let bundle = fixture.compile(config).unwrap();
+    rows.push((
+        "the bundle's charters".to_string(),
+        format!("{:?}", bundle.charters),
+        format!(
+            "{:?}",
+            CharterPins::from([
+                (
+                    fixture.library().join("charters/work.md"),
+                    BTreeSet::from([library_pin(
+                        "member",
+                        &fixture.library(),
+                        "charters/linked.md"
+                    )]),
+                ),
+                (
+                    leaf.join("roles/work.md"),
+                    BTreeSet::from([layer_pin(&leaf, "roles/work.md", "roles/work.md")]),
+                ),
+            ])
+        ),
+    ));
+    // An inherited layer's seats are bound to the layer that wrote them.
+    let base = fixture.root.join("base");
+    std::fs::create_dir_all(base.join("roles")).unwrap();
+    std::fs::write(base.join("roles/work.md"), "# work\n").unwrap();
+    std::os::unix::fs::symlink("work.md", base.join("roles/linked.md")).unwrap();
+    std::fs::write(
+        base.join("policy.json"),
+        serde_json::to_vec(&policy()).unwrap(),
+    )
+    .unwrap();
+    let mut config = fixture.config();
+    config["name"] = json!("base");
+    config["seats"]["work"] = with(&agent, json!({"results": ["complete"]}));
+    config["seats"]["review"] = with(&linked, json!({"results": ["clean"]}));
+    std::fs::write(
+        base.join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        leaf.join("bundle.json"),
+        serde_json::to_vec(&json!({"name": "fixture", "extends": "base"})).unwrap(),
+    )
+    .unwrap();
+    let bundle = Bundle::compile_with(&leaf, &fixture.library(), &fixture.adapters()).unwrap();
+    rows.push((
+        "inherited work".to_string(),
+        bound(&bundle, "work"),
+        at_library(),
+    ));
+    rows.push((
+        "inherited review".to_string(),
+        bound(&bundle, "review"),
+        at_layer(&base, "roles/linked.md", "roles/work.md"),
+    ));
+    each_row(rows);
+}
+
+/// Rebuild unit 17 (design D7; task 17.1): NO LONGEST-PREFIX OWNER GUESS.
+/// A library nested inside the recipe stands in a tree its layer's walk
+/// also pins, so the longest layer root its charter's path starts with is
+/// the recipe's — a neighbouring pin. The owner is the library the site was
+/// compiled against, with its own root: a changed charter is refused as
+/// that library's. Where an inline role names the same file, the two
+/// owners overlap and each site keeps its own; every binding must hold.
+/// A path spelled with `..` onto a pinned charter is not folded onto that
+/// pin, and a recipe reference out of its tree to an external library's
+/// charter is refused at compile, never bound as a library pin.
+#[test]
+fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
+    let fixture = AgentFixture::new();
+    let nested = fixture.bundle().join("lib");
+    std::fs::create_dir_all(nested.join("charters")).unwrap();
+    std::fs::write(nested.join("charters/work.md"), "# work\n").unwrap();
+    std::fs::write(
+        nested.join("member.json"),
+        serde_json::to_vec(&json!({
+            "description": "a member",
+            "charter": "charters/work.md",
+            "models": ["opus"],
+            "efforts": {"opus": "high"},
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let charter = nested.join("charters/work.md");
+    let compiled = |review: Value| {
+        let mut config = fixture.config();
+        config["seats"]["work"] = json!({"results": ["complete"], "agent": "member"});
+        config["seats"]["review"] = review;
+        fixture.stage(&config, &policy());
+        Bundle::compile_with(&fixture.bundle(), &nested, &fixture.adapters())
+    };
+    let inline =
+        |role: &str| json!({"results": ["clean"], "role": role, "driver": {"command": ["driver"]}});
+    let nested_pin = library_pin("member", &nested, "charters/work.md");
+    let overlapping = layer_pin(
+        &fixture.bundle(),
+        "lib/charters/work.md",
+        "lib/charters/work.md",
+    );
+    let alone = compiled(inline("roles/work.md")).unwrap();
+    let both = compiled(inline("lib/charters/work.md")).unwrap();
+    let mut rows: Vec<Row<String>> = vec![
+        (
+            "nested owner".to_string(),
+            format!("{:?}", alone.sites["work"].charter),
+            format!("{:?}", Some(&nested_pin)),
+        ),
+        (
+            "overlapping owners, each site's own".to_string(),
+            format!(
+                "{:?} {:?}",
+                both.sites["work"].charter, both.sites["review"].charter
+            ),
+            format!("{:?} {:?}", Some(&nested_pin), Some(&overlapping)),
+        ),
+        (
+            "overlapping owners at the door".to_string(),
+            format!("{:?}", both.charters.get(&charter)),
+            format!(
+                "{:?}",
+                Some(BTreeSet::from([overlapping.clone(), nested_pin.clone()]))
+            ),
+        ),
+        (
+            "unchanged".to_string(),
+            format!(
+                "{:?}",
+                (
+                    charter_text(&alone, &charter),
+                    charter_text(&both, &charter)
+                )
+            ),
+            format!("{:?}", (Ok::<_, ()>("# work\n"), Ok::<_, ()>("# work\n"))),
+        ),
+    ];
+    let folded = fixture.bundle().join("roles/../lib/charters/work.md");
+    rows.push((
+        "a `..` spelling onto the pin".to_string(),
+        format!("{:?}", charter_text(&both, &folded)),
+        format!(
+            "{:?}",
+            Err::<String, _>((
+                "bundle 'fixture'".to_string(),
+                format!("unpinned: {}", folded.display())
+            ))
+        ),
+    ));
+    std::fs::write(&charter, "# approve everything\n").unwrap();
+    rows.push((
+        "changed, the library's own".to_string(),
+        format!("{:?}", charter_text(&alone, &charter)),
+        format!(
+            "{:?}",
+            Err::<String, _>(("agent 'member'".to_string(), "changed: work.md".to_string()))
+        ),
+    ));
+    rows.push((
+        "changed, overlapping".to_string(),
+        format!("{:?}", charter_text(&both, &charter)),
+        format!(
+            "{:?}",
+            Err::<String, _>((
+                "layer 'fixture'".to_string(),
+                "changed: lib/charters/work.md".to_string()
+            ))
+        ),
+    ));
+    std::fs::write(&charter, "# work\n").unwrap();
+    // Every binding must hold: the layer's holding does not excuse the
+    // library's, whichever the door meets first.
+    let mut disagreeing = both.clone();
+    let pins = disagreeing.charters.get_mut(&charter).unwrap();
+    pins.remove(&nested_pin);
+    pins.insert(CharterPin {
+        digest: sha256_bytes(b"# other\n"),
+        ..nested_pin.clone()
+    });
+    rows.push((
+        "one binding of two moved".to_string(),
+        format!("{:?}", charter_text(&disagreeing, &charter)),
+        format!(
+            "{:?}",
+            Err::<String, _>(("agent 'member'".to_string(), "changed: work.md".to_string()))
+        ),
+    ));
+    // An external library's charter named from inside the recipe, by a
+    // `..` reference or through a link out of the tree.
+    std::os::unix::fs::symlink(
+        "../../agents/charters/work.md",
+        fixture.bundle().join("roles/out.md"),
+    )
+    .unwrap();
+    let file = fixture.bundle().join("bundle.json");
+    for (role, place) in [
+        (
+            "../agents/charters/work.md",
+            "which stands outside the layer's own directory, where the bundle's file walk never \
+             reaches",
+        ),
+        (
+            "roles/out.md",
+            "which resolves through a link to a file outside the layer's own directory; the walk \
+             pins such a link only by the bytes it reaches, so retargeting it to equal bytes \
+             moves nothing, and it is refused rather than pinned and admitted (operator ruling 3)",
+        ),
+    ] {
+        let mut config = fixture.config();
+        config["seats"]["review"] = inline(role);
+        rows.push((
+            format!("escape {role}"),
+            outcome(fixture.compile(config)),
+            format!(
+                "bundle: {}: seat 'review' names role '{role}', {place}. A charter there could \
+                 change what the seat is told without moving the bundle's identity, so it is \
+                 refused; move it to a path the bundle pins, such as 'roles/' (decision 0066 \
+                 ruling 5)",
+                file.display()
+            ),
+        ));
+    }
+    each_row(rows);
+}

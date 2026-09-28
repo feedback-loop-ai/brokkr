@@ -572,6 +572,8 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         description,
         charter,
         charter_digest,
+        charter_reference: charter_rel,
+        library: root.to_path_buf(),
         models,
         efforts,
         allow,

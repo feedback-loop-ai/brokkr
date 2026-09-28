@@ -19391,3 +19391,165 @@ such a target in this session.
 - Exact coverage outside the box (`scripts/coverage-exact.sh`).
 - Remote CI.
 - The council.
+
+## Unit 17 — select charter owner and source at compile, 2026-09-29
+
+Run `0065-rebuild-unit-17-see-the-uni-d263ffa3`, based on `7f1ab492`. It
+closes 17.1. Production: `crates/brokkr-runtime/src/bundle.rs`, `agents.rs`
+and `agents/load.rs`. Tests: `bundle/agent_tests.rs` and `agents/tests.rs`.
+Scratch material is under `.forge/unit-17/` (not committed).
+
+### Production
+
+- **The library records where it bound a charter** (`agents/load.rs`,
+  `agents.rs`). `Agent` gains `charter_reference`, the `charter` value as the
+  definition wrote it, and `library`, the canonical root the definition was
+  loaded from. `CharterSource` puts together the library root, the reference,
+  the canonical target (the existing `charter`) and the existing
+  `charter_digest`. `Resolution::charter_source` carries it with the office
+  that every candidate serves. The fallback candidates are that office on
+  other models, so they share one binding.
+- **Every site with a charter is bound at compile** (`bundle.rs`).
+  `CharterPin` is now `{owner, reference, path, target, digest}`, and
+  `CharterOwner` is `Layer {dir, key}` or `Library {agent, root}`.
+  - An agent site takes `Library` from its resolution's `CharterSource`. It no
+    longer reads `record["charter_digest"]` back out of JSON.
+  - An inline site is bound in `parse_role` from the handle-bound read of
+    unit 16. The owner is the declaring layer's directory. The key is the
+    file-map key of the reference as written (`Binding::key`). The target is
+    the layer joined to `Binding::target_key`. The digest is that of the
+    verified buffer, which the layer's walk pins under those keys (16-fix-b).
+    This covers the leaf and inherited layers, and ordinary, member, step,
+    case and default sites. `parse_role` takes `sites` so it can record this.
+    Exec sites have no role and get no binding.
+- **`Bundle::charters` holds every site's binding.** It maps the told path
+  to a `BTreeSet<CharterPin>`, so a path two owners bind keeps both.
+- **The longest-prefix owner guess is gone from `charter_text`.** The door
+  looks up the exact path the seat is told and checks every binding of that
+  path. A layer is named by its exact directory. There is no search for the
+  longest layer root the path starts with, no lexical `..` fold onto a pin,
+  and no fallback from a layer to a neighbouring library pin. Refusal wording
+  is unchanged: `layer '<name>'` with its key, `agent '<name>'` with the
+  file name, and `bundle '<name>'` for `unpinned`. `folded` stays, because
+  it is still used by `unpinned_active_input` and the spelling key.
+- Nothing enters the manifest. `bundles/self` and `bundles/verify` digests
+  are unchanged (below). No new identity inventory or manifest version.
+
+### Tests
+
+- **`agents/tests.rs::a_resolution_carries_its_charter_owner_reference_target_and_digest`
+  (new).** The library is loaded through the fixture's alias and the charter
+  is reached through a contained link (`charters/linked.md` → `c.md`). The
+  test asserts the exact `CharterSource`: the canonical library root, the
+  reference as written, the canonical target and the digest. It also asserts
+  that `charter` equals the target, that the record's `charter_digest`
+  equals the carried digest, and that the candidates are `[(tester, opus),
+  (tester, sonnet)]`.
+- **`bundle/agent_tests.rs::every_selected_site_binds_its_charter_owner_reference_target_and_digest`
+  (new, 12 rows, `each_row`).** It uses an external library and a two-model
+  office (a primary and a fallback candidate). Every charter is reached
+  through a contained link, so reference, told path and target are three
+  facts. Rows:
+  - an agent seat and an inline seat;
+  - a panel's agent and inline members (`work:a`, `work:b`);
+  - a sequence's agent and inline steps;
+  - a select's agent case, inline case and inline default;
+  - the bundle's whole `charters` map;
+  - an inherited layer's agent and inline seats, bound to `base`.
+
+  Each site row asserts the exact pin, the digest its owner's existing
+  identity names (the layer's `files[key]`, the ancestor's `files[key]`, or
+  the library record's `charter_digest`), and every candidate's office and
+  model.
+- **`bundle/agent_tests.rs::a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified`
+  (new, 10 rows).** The library is nested at `bundle/lib`, a tree the layer's
+  walk also pins. Rows:
+  - The nested owner is `Library {member, bundle/lib}`.
+  - Overlapping owners: an inline role naming the same file. Each site keeps
+    its own owner, and the door holds both bindings.
+  - Unchanged, both bundles return `Ok("# work\n")`.
+  - A `roles/../lib/charters/work.md` spelling is `unpinned`.
+  - Changed, the library's own charter refuses as `agent 'member'` /
+    `changed: work.md`.
+  - Changed, the overlapping charter refuses as `layer 'fixture'` /
+    `changed: lib/charters/work.md`.
+  - One binding of two moved: refused as `agent 'member'`, although the
+    layer's binding holds.
+  - A `../agents/charters/work.md` reference, and a link out of the tree to
+    the external library's charter, each refuse at compile with the full
+    unit-16 place reason. Neither is bound as a library pin.
+- The existing dispatch tests in `engine/boundary_tests.rs` pass unchanged:
+  `a_charter_that_moved_since_the_compile_refuses_the_dispatch` and
+  `a_library_charter_that_moved_since_the_compile_refuses_the_dispatch`.
+
+### Baseline (`7f1ab492`)
+
+The new tests do not compile on `7f1ab492`, because `CharterOwner`,
+`CharterSource` and the pin's new fields do not exist there. To observe the
+behaviour, all three production files and the tests were checked out at
+`HEAD`, and a scratch probe was added to `bundle/agent_tests.rs`. It used the
+nested library, the `..` spelling and a changed charter, with no new types.
+It printed:
+
+`folded=Ok("# work\n") changed=Err(("layer 'fixture'", "changed: lib/charters/work.md")) inline_site_charter=Some(None)`
+
+That is:
+
+- The `..` spelling was folded onto the pin and admitted.
+- The nested library's charter was claimed by the longest layer root.
+- An inline site carried no binding.
+
+The fixed tree was then restored with `git apply` of the saved diff.
+`git diff | cmp` against the saved diff reported them identical, and the
+runtime lib passed 612.
+
+### Mutations (each compiles; restored by hand after each)
+
+| Mutation | Fails (exact rows) |
+| --- | --- |
+| M1: `charter_text`'s longest-prefix guess, `..` fold and library fallback restored on the new pins | nested: `a .. spelling onto the pin` (`Ok`), `changed, the library's own` (`layer 'fixture'` / `changed: lib/charters/work.md`), `one binding of two moved` (`Ok`) |
+| M2: inline target recorded as the written path | every-site: `work:b`, `work:second`, `work:default`, `inherited review` |
+| M3: inline key taken from `target_key` | every-site: the same four rows; also `engine::boundary_tests::a_charter_that_moved_since_the_compile_refuses_the_dispatch` (panicked at boundary_tests.rs:1430) |
+| M4: library owner root taken as the declaring layer's `dir` | every-site: `work`, `work:a`, `work:first`, `work:engine`, `the bundle's charters`, `inherited work`; nested: `nested owner` and both overlapping rows |
+| M5: `Bundle::charters` built from library-owned bindings only (the old shape) | every-site: `the bundle's charters`; nested: `overlapping owners at the door`, `changed, overlapping` |
+| M6: the door checks only the first binding of a path | nested: `one binding of two moved` (`Ok`) |
+| M7: `charter_reference` recorded as the joined absolute path | the `agents/tests.rs` test (tests.rs:1541); every-site: the six library rows; nested: the three owner rows |
+
+After M7 was restored, `grep -rn MUTATION crates/` found nothing, and the
+suites passed.
+
+### Standing-admission lines and fixture migrations
+
+- `crates/brokkr-runtime/src/bundle/tests.rs:853–854`
+  (`role_secret_command_and_confinement_boundaries_are_explicit`): a
+  trailing comma and one argument line, `&mut BTreeMap::new()`, in its
+  direct `parse_role` call.
+  The new `sites` parameter forces it. It adds and removes no assertion, and
+  the test's `is_err()` claim is unchanged.
+- Fixture migrations: none.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean, after one `type Form` alias in the new test.
+- `cargo test -p brokkr-runtime --all-features --locked`: all ok (lib 612).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok.
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+### Pending
+
+- Dispatch consumption of the selected binding per site, including the
+  owner-containment and target recheck and equal-byte retargets: unit 18.
+  Start and pinned resume: unit 19. This unit changed the door only as far
+  as removing the guess.
+- macOS.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`). No coverage
+  diagnostic was run this visit.
+- Remote CI.
+- The council.

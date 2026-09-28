@@ -3748,7 +3748,36 @@ refusal row, is still unobserved and is not claimed.**
 
 ## 17. Unit 17 — Select charter owner and source at compile
 
-- [ ] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)
+- [x] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)
+
+Unit 17 (2026-09-29, run `0065-rebuild-unit-17-see-the-uni-d263ffa3`,
+based on `7f1ab492`; evidence.md, "Unit 17"). Production: `bundle.rs`,
+`agents.rs`, `agents/load.rs`. Tests: `bundle/agent_tests.rs`,
+`agents/tests.rs`. **17.1 closes.**
+
+- Every site with a charter carries `CharterPin {owner, reference, path,
+  target, digest}`. The owner is `Layer {dir, key}` for an inline role,
+  bound from unit 16's handle read, or `Library {agent, root}` for an
+  agent's charter, from the library's new `CharterSource`.
+  `Bundle::charters` holds every binding of a path.
+- `charter_text` looks up the exact told path and checks every binding. It
+  no longer takes the longest layer root, folds `..` onto a pin, or falls
+  back to a neighbouring pin. Its refusal wording is unchanged.
+- Proved at every site form (seat, member, step, case, default; leaf and
+  inherited), including the fallback candidate, external, nested and
+  overlapping owners. A `..` spelling is refused, and a recipe reference out
+  to an external library refuses at compile.
+- Baseline on `7f1ab492`, by scratch probe: `..` admitted, the nested
+  library's charter claimed by `layer 'fixture'`, no inline binding.
+  Mutations M1–M7 each fail named rows.
+- Standing-admission line: `bundle/tests.rs:853–854`, the forced `sites`
+  argument. Fixture migrations: none.
+- Gates: fmt and clippy clean; runtime lib 612; workspace 77 results, all
+  ok; `bundles/self`/`verify` digests unchanged; strict OpenSpec (18) and
+  `git diff --check` clean.
+- **Pending.** Per-site consumption with the target recheck (unit 18);
+  start and resume (unit 19); macOS; exact coverage outside the box; remote
+  CI and the council.
 
 ## 18. Unit 18 — Consume the bound charter and render its buffer
 
