@@ -2971,6 +2971,13 @@ and 15.2 are reopened: the record above closed them too early.
 - **Pending.** SC15-R2-1, then exact coverage outside the box, macOS,
   remote CI and the council.
 
+Unit 15, fourth visit (2026-09-28, same run, re-fired by triage, based on
+`e6f45e97`; evidence.md, "Unit 15, fourth visit"). **Result: oversized
+again.** No addendum rules the 15-fix-a/15-fix-b split. The guard was
+re-measured and then reverted: 92 protocol lib and 19 `capability_launch`
+failures. 15.1 and 15.2 stay open. Fixture migrations and standing-admission
+lines: none.
+
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
 - [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)

@@ -16366,3 +16366,34 @@ These ran on the tree as committed, with `adapters.rs` equal to `4a2b3a6a`.
 
 **Pending.** SC15-R2-1 (the split above), exact coverage outside the box,
 macOS, remote CI and the council.
+
+## Unit 15, fourth visit — oversized again, no ruling on the split, 2026-09-28
+
+Same run, re-fired by triage as a chore, based on `e6f45e97`. **Result:
+oversized.** No addendum in `operator-ruling-2026-09-23.md` rules the
+15-fix-a/15-fix-b split. That file last moved in `a05475f0` (14b's rulings).
+`served` still returns the composed command for `(None, None)`
+(`adapters.rs:3033`), whatever `native_controls` holds.
+
+The one-arm guard was applied again: refuse when `native_controls` is
+present and neither sealed input is. It was measured and then reverted. No
+other edits were made.
+
+- `cargo test -p brokkr-protocol --lib`: 449 passed, **92 failed**. Among
+  them are
+  `work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own`
+  and
+  `the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it`.
+- `cargo test -p brokkr-runtime --test capability_launch`: 39 passed, **19
+  failed**. The failures refuse at `inline[0]`, `work[0]` and
+  `judges:inherits[0]` with the guard's reason.
+- After `git checkout crates/brokkr-protocol/src/adapters.rs`, the protocol
+  lib passed 541 and `capability_launch` passed 58. `git status` is clean.
+
+The previous record counted 93 protocol failures. This visit counts 92, and
+the breakdown was not re-taken. The blocker is unchanged: the guard needs
+the plan-carrying fixtures sealed first (15-fix-a). No standing admission
+covers that migration.
+
+Fixture migrations and standing-admission lines: none. **Pending.** The
+operator's ruling on the split, then everything the previous record lists.
