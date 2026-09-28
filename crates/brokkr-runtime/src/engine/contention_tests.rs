@@ -711,17 +711,14 @@ fn pipe_filling_line() -> String {
 #[test]
 fn a_seat_writing_behind_a_peers_lock_is_never_held_past_its_deadline() {
     let dir = tempfile::tempdir().unwrap();
-    let (signal, wait) = (
-        |name| signal_line(dir.path(), name),
-        |name| wait_line(dir.path(), name),
-    );
+    let at = dir.path();
     let middle = [
-        signal("working"),
-        wait("locked"),
+        signal_line(at, "working"),
+        wait_line(at, "locked"),
         checkpoint_line("held"),
         pipe_filling_line(),
-        signal("drained"),
-        wait("released"),
+        signal_line(at, "drained"),
+        wait_line(at, "released"),
     ];
     let deadline = 3;
     // A patience that outlasts the seat's deadline many times over.
