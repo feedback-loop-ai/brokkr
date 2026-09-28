@@ -14136,11 +14136,12 @@ struct Seal {
     template: crate::native_controls::TemplateExpectation,
     dialect: crate::native_controls::SealedDialect,
     spec: Option<crate::hands::HandsSpec>,
+    pins: Vec<String>,
 }
 
 impl Seal {
     /// Every handed argument the recipe's, with no local declaration, no
-    /// template, no hands and no dialect.
+    /// template, no pins, no hands and no dialect.
     fn authored(count: usize) -> Seal {
         use crate::native_controls::{AllowIntent, Application, LocalExpectation, SandboxIntent};
         Seal {
@@ -14153,7 +14154,34 @@ impl Seal {
             template: crate::native_controls::TemplateExpectation::None,
             dialect: Default::default(),
             spec: None,
+            pins: Vec::new(),
         }
+    }
+
+    /// A Claude seat as dispatch composes it (rebuild unit 15-fix-b): the
+    /// recipe's `authored` arguments, the adapter's declared permission
+    /// `template` and its `pins`, then the typed `allow`, lowered onto the
+    /// adapter's `--allowedTools` as the engine's local segment.
+    fn claude(authored: usize, template: &[&str], pins: &[&str], allow: &[&str]) -> Seal {
+        use crate::native_controls::{AllowIntent, Application, ListFlag, Origin};
+        let owned = |parts: &[&str]| parts.iter().map(|part| part.to_string()).collect();
+        let mut seal = Seal::authored(authored);
+        seal.runs.push((Origin::Template, template.len()));
+        seal.runs.push((Origin::Template, pins.len()));
+        if !template.is_empty() {
+            seal.template = crate::native_controls::TemplateExpectation::Declared(owned(template));
+        }
+        seal.pins = owned(pins);
+        seal.dialect.permissions = Some(ListFlag {
+            flag: "--allowedTools".into(),
+            separator: ",".into(),
+        });
+        if !allow.is_empty() {
+            seal.runs.push((Origin::Local, 2));
+            seal.local.allow = AllowIntent::Listed(owned(allow));
+            seal.local.application = Application::Direct(owned(allow));
+        }
+        seal
     }
 
     /// The recipe's `authored` arguments, then the engine's lowered Codex
@@ -14284,7 +14312,7 @@ fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Value {
     input["launch_record"] = record.value();
     input[SERVING_INPUTS] = SealedServing {
         dialect: seal.dialect,
-        pins: Vec::new(),
+        pins: seal.pins,
         spec: seal.spec,
     }
     .value();
@@ -14674,6 +14702,112 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
     }
 }
 
+/// Rebuild unit 15-fix-b (SC15-R2-1): the engine's plan handed with NEITHER
+/// sealed input is refused whole before anything is spawned, and each
+/// command a launch can serve is refused on its own: an eligible Codex
+/// rejoin with the session it rejoins, the cold command that replaces it
+/// where the harness rejects it before any work, and a cold Claude launch.
+/// The same Codex launch sealed as dispatch seals it is an eligible rejoin,
+/// so what refuses is the missing pair and nothing else. A launch with no
+/// plan either keeps the by-hand exemption, which
+/// `a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouched`
+/// proves.
+#[cfg(unix)]
+#[test]
+fn the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam() {
+    use crate::native_controls::Serving;
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.to_str().unwrap();
+    let argv = root.join("argv");
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
+    let shim = executable(
+        &root,
+        "codex-refusing-unsealed",
+        &format!(
+            "#!/bin/sh\n{version}cat >/dev/null\nprintf '%s\\n' \"$*\" >> {argv}\n\
+             case \"$*\" in\n\
+             *resume*) printf 'Error: no rollout found for thread id\\n' >&2; exit 1 ;;\n\
+             esac\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n",
+            argv = argv.display()
+        ),
+    );
+    let bin = shim.to_str().unwrap();
+    let extra = vec!["--sandbox".to_string(), "read-only".into()];
+    let unsealed = engine_input(
+        enabled_input(CODEX_SHAPE, CODEX_VERSION, &root),
+        codex_denied(),
+        &extra,
+        0,
+    );
+
+    // Driven whole, the eligible rejoin refuses before either spawn.
+    let mut emitted = Vec::new();
+    let refused = with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &extra,
+            "prompt",
+            &unsealed,
+            Some(THREAD),
+            &[],
+            &mut |event| emitted.push(event.clone()),
+        )
+        .err()
+    });
+    assert_eq!(refused.as_deref(), Some(UNSEALED_REFUSAL));
+    assert_eq!(recorded(&argv), Vec::<String>::new(), "nothing is spawned");
+    assert_eq!(launch_rows(&emitted), Vec::<&Value>::new());
+
+    // Sealed, the same launch is an eligible rejoin with its cold
+    // replacement; unsealed, each of the two is refused on its own.
+    let sealed = sealed_pair(
+        unsealed.clone(),
+        &extra,
+        Seal::codex_template(0, &["--sandbox", "read-only"]),
+    );
+    let (rejoin, cold) =
+        codex_launch_and_cold(bin, &extra, workdir, Some(THREAD), &sealed).unwrap();
+    assert_eq!(rejoin.rejoining.as_deref(), Some(THREAD));
+    let chosen = |session| Serving {
+        program: bin,
+        workdir,
+        session,
+        ..Default::default()
+    };
+    assert_eq!(
+        served(
+            "codex",
+            rejoin.command,
+            &extra,
+            &unsealed,
+            chosen(Some(THREAD))
+        ),
+        Err(UNSEALED_REFUSAL.to_string()),
+        "the eligible rejoin"
+    );
+    assert_eq!(
+        served("codex", cold, &extra, &unsealed, chosen(None)),
+        Err(UNSEALED_REFUSAL.to_string()),
+        "its cold replacement"
+    );
+
+    // The Claude cold seam.
+    let seat = vec!["--permission-mode".to_string(), "acceptEdits".into()];
+    let claude = engine_input(
+        json!({"workdir": workdir}),
+        claude_plan(&[], &[], &["WebSearch", "WebFetch"]),
+        &seat,
+        0,
+    );
+    assert_eq!(
+        claude_launch("claude", &seat, None, &claude, CLAUDE_SHAPE, None).err(),
+        Some(UNSEALED_REFUSAL.to_string())
+    );
+}
+
 /// An authored argument that reaches the capability is refused before any
 /// provider work, on the cold and the warm path alike, held or not: two
 /// controls are never ordered against each other. The refusal names the
@@ -15013,13 +15147,51 @@ fn every_authored_spelling_the_shipped_codex_adapter_guards_is_refused() {
         // `--profile` is the exception: the grammar classifies it as a
         // LOADING channel, because a named codex profile is another
         // configuration document and what it can configure includes
-        // servers — so it is refused whatever its value spells.
+        // servers — so it is refused whatever its value spells. Each launch
+        // is sealed as dispatch seals it (rebuild unit 15-fix-b), so the final
+        // check judges it: a result capture, a class, a second workdir or an
+        // added directory in the recipe's words is refused with its reason,
+        // whatever the value spells.
         for flag in list("value_flags") {
             let extra = [format!("{flag}=--search")];
-            let launched = codex_launch("codex", &extra, "/w", None, &all_authored(&input, &extra))
+            let sealed = sealed_pair(all_authored(&input, &extra), &extra, Seal::authored(1));
+            let launched = codex_launch("codex", &extra, "/w", None, &sealed)
                 .map(|launch| carries_off(&launch.command))
                 .map_err(|error| format!("{flag}: {error}"));
+            let checked =
+                |problem: &str| Err(format!("{flag}: {}", checked_refusal("codex", problem)));
             match flag.as_str() {
+                "-o" | "--output-last-message" => assert_eq!(
+                    launched,
+                    checked(
+                        "carries a result capture ('--output-last-message') in the recipe's words \
+                         other than the engine's one capture into the result path it owns, a \
+                         harness write path outside the result sink"
+                    )
+                ),
+                "-s" | "--sandbox" => assert_eq!(
+                    launched,
+                    checked(
+                        "cannot be read: it carries '--sandbox' (argument 5), whose value names \
+                         no sandbox class: read-only, workspace-write or danger-full-access"
+                    )
+                ),
+                "-C" | "--cd" => assert_eq!(
+                    launched,
+                    checked(
+                        "cannot be read whole (argument 5, '--cd': it repeats option '--cd', \
+                         which the grammar admits once; a CLI that resolves a duplicate \
+                         last-wins would resolve it against the control the engine composed)"
+                    )
+                ),
+                "--add-dir" => assert_eq!(
+                    launched,
+                    checked(
+                        "is served with the recipe's words or its adapter's pins carrying what \
+                         cannot be read, a session or a capability-bearing effect, which only its \
+                         sealed plan composes"
+                    )
+                ),
                 "-p" | "--profile" => assert_eq!(
                     launched,
                     Err(format!(
@@ -15524,11 +15696,16 @@ fn an_authored_plugin_or_later_list_value_is_refused_at_the_final_command() {
         )
     );
     // The joined spelling is inert text and reaches the command whole,
-    // beside a denial that is really delivered.
+    // beside a denial that is really delivered. The launch is sealed as
+    // dispatch seals it, and its plan lowers no local list, as its argv
+    // carries none (rebuild unit 15-fix-b).
+    let mut unlisted = claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
+    unlisted["local"] = json!([]);
     assert_eq!(
-        claude_composed(
+        claude_sealed(
             &["--append-system-prompt=--disallowedTools hello"],
-            claude_plan(&[], &[], &["WebSearch", "WebFetch"])
+            unlisted,
+            Seal::authored(1)
         ),
         Ok([
             &CLAUDE_HEAD[..],
@@ -15550,52 +15727,65 @@ fn an_authored_plugin_or_later_list_value_is_refused_at_the_final_command() {
 /// "configures a server or admits its tools". It narrows access: the
 /// pattern is preserved, the engine's own native denial merges into the
 /// same list, and the list flag reaches the harness once.
+///
+/// Sealed as dispatch seals it (rebuild unit 15-fix-b), the authored list is
+/// the recipe's words, and the final check refuses it by construction: it is
+/// never refused as a grant, but a pattern is not a plain tool name, and a
+/// list in the recipe's words carries a capability-bearing effect only the
+/// sealed plan composes. The plan lowers no local list, as the argv carries
+/// none.
 #[test]
 fn an_authored_mcp_denial_is_subtraction_and_survives_beside_the_native_one() {
-    let denied = || claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
-    for (case, extra, composed) in [
-        (
-            "canonical",
-            vec!["--disallowedTools", "mcp__*"],
-            vec!["--disallowedTools", "mcp__*,WebSearch,WebFetch"],
-        ),
-        (
-            "alias",
-            vec!["--disallowed-tools", "mcp__*"],
-            vec!["--disallowed-tools", "mcp__*,WebSearch,WebFetch"],
-        ),
+    let denied = || {
+        let mut plan = claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
+        plan["local"] = json!([]);
+        plan
+    };
+    let pattern = "cannot be read: it carries '--disallowedTools' (argument 5), whose value names \
+                   a tool that is not a plain name of ASCII letters, digits and '_' leading with \
+                   a letter, within 128 bytes";
+    let words = "is served with the recipe's words or its adapter's pins carrying what cannot be \
+                 read, a session or a capability-bearing effect, which only its sealed plan \
+                 composes";
+    for (case, extra, problem) in [
+        ("canonical", vec!["--disallowedTools", "mcp__*"], pattern),
+        ("alias", vec!["--disallowed-tools", "mcp__*"], pattern),
         (
             "joined",
             vec!["--disallowedTools=mcp__ungranted__fetch"],
-            vec!["--disallowedTools=mcp__ungranted__fetch,WebSearch,WebFetch"],
+            words,
         ),
         (
             "a later denied value",
             vec!["--disallowedTools", "Read", "mcp__ungranted__fetch"],
-            vec![
-                "--disallowedTools",
-                "Read",
-                "mcp__ungranted__fetch,WebSearch,WebFetch",
-            ],
+            words,
         ),
     ] {
-        let expected: Vec<String> = [&CLAUDE_HEAD[..], &composed[..]]
-            .concat()
-            .iter()
-            .map(|part| part.to_string())
-            .collect();
-        assert_eq!(claude_composed(&extra, denied()), Ok(expected), "{case}");
-        // LaneTally shares the branch and the outcome.
-        let owned: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
-        let input = engine_input(
-            json!({"workdir": "/w", "seat": "research"}),
-            denied(),
-            &owned,
-            0,
+        assert_eq!(
+            claude_sealed(&extra, denied(), Seal::authored(extra.len())),
+            Err(checked_refusal("claude", problem)),
+            "{case}"
         );
-        assert!(
-            claude_launch("lanetally", &owned, None, &input, LANETALLY_SHAPE, None).is_ok(),
-            "{case}: lanetally keeps the subtraction too"
+        // LaneTally shares the branch and the outcome, under a plan
+        // planned for it.
+        let owned: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
+        let mut plan = denied();
+        plan["provider"] = json!("lanetally");
+        plan["harness"] = json!("lanetally");
+        let input = sealed_pair(
+            engine_input(
+                json!({"workdir": "/w", "seat": "research"}),
+                plan,
+                &owned,
+                0,
+            ),
+            &owned,
+            Seal::authored(owned.len()),
+        );
+        assert_eq!(
+            claude_launch("lanetally", &owned, None, &input, LANETALLY_SHAPE, None).err(),
+            Some(checked_refusal("lanetally", problem)),
+            "{case}: lanetally refuses it too"
         );
     }
 }
@@ -15615,12 +15805,16 @@ fn an_authored_mcp_denial_is_subtraction_and_survives_beside_the_native_one() {
 /// WebSearch` deny-list positive still delivers both denials.
 #[test]
 fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
+    // Each launch is sealed as dispatch seals it, the permission mode the
+    // adapter's template; its plan lowers no local list, as the seat's argv
+    // carries none (rebuild unit 15-fix-b).
     let seat = ["--permission-mode", "acceptEdits"];
     let with_off = |off: &[&str]| {
         let mut plan = claude_plan(&[], &[], &["WebFetch"]);
         plan["off"] = json!(["web-search", "web-fetch"]);
         plan["on"] = json!([]);
         plan["argv"] = json!(off);
+        plan["local"] = json!([]);
         plan
     };
     // Unit 12-fix-b (I1): the list a limit calls for is filled from the
@@ -15631,7 +15825,7 @@ fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
         ("explicitly empty", vec!["--tools="], vec!["--tools", ""]),
     ] {
         assert_eq!(
-            claude_composed(&seat, with_off(&off)),
+            claude_sealed(&seat, with_off(&off), Seal::claude(0, &seat, &[], &[])),
             Ok([
                 &CLAUDE_HEAD[..],
                 &["--permission-mode", "acceptEdits"],
@@ -15648,7 +15842,11 @@ fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
     // The positive control the chief kept: a deny-list OFF still delivers
     // both denials, in one list, exactly once.
     assert_eq!(
-        claude_composed(&seat, with_off(&["--disallowedTools", "WebSearch"])),
+        claude_sealed(
+            &seat,
+            with_off(&["--disallowedTools", "WebSearch"]),
+            Seal::claude(0, &seat, &[], &[])
+        ),
         Ok([
             &CLAUDE_HEAD[..],
             &[
@@ -15674,6 +15872,9 @@ fn an_explicitly_restrictive_managed_tool_list_reaches_the_final_command() {
 /// 2.1.266 help gives Claude Code and which carries a whole settings
 /// document; the engine writes the operator's canonical JSON into it and
 /// interprets none of it. The grant is synthetic; the option is not.
+///
+/// Sealed as dispatch seals it (rebuild unit 15-fix-b), the restriction is
+/// the held power's, and the final check refuses it, cold and resumed.
 #[cfg(unix)]
 #[test]
 fn a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands() {
@@ -15695,42 +15896,43 @@ fn a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands() {
         .collect();
     let mut plan = claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"]);
     plan["argv"] = json!(["--settings", RESTRICTION]);
+    plan["local"] = json!([]);
     let session = "019c4b7e-0000-7000-8000-000000000001";
     let mut input = enabled_input(CLAUDE_SHAPE, CLAUDE_VERSION, std::path::Path::new("/w"));
     input["seat"] = json!("research");
     let input = engine_input(input, plan, &extra, 0);
-
-    let expected: Vec<String> = [
-        bin,
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--permission-mode",
-        "acceptEdits",
-        // An unboxed seat names no include list, so the additive include
-        // creates none: the harness's whole set already holds the tool.
-        "--allowedTools",
-        "WebSearch",
-        "--disallowedTools",
-        "WebFetch",
-        "--settings",
-        RESTRICTION,
-    ]
-    .iter()
-    .map(|part| part.to_string())
-    .collect();
-    let cold = claude_launch(bin, &extra, None, &input, CLAUDE_SHAPE, None).unwrap();
-    assert_eq!(cold.command, expected);
-    assert!(cold.rejoining.is_none() && cold.refusal.is_none());
-
-    let warm = claude_launch(bin, &extra, Some(session), &input, CLAUDE_SHAPE, None).unwrap();
-    assert_eq!(
-        warm.command,
-        [expected, vec!["--resume".into(), session.to_string()]].concat()
+    // Sealed as dispatch seals it (rebuild unit 15-fix-b): the permission
+    // mode is the adapter's template, no local list is lowered, and the held
+    // power carries the realm's restriction exactly as written.
+    let mut input = sealed_pair(
+        input,
+        &extra,
+        Seal::claude(0, &["--permission-mode", "acceptEdits"], &[], &[]),
     );
-    assert_eq!(warm.rejoining.as_deref(), Some(session));
-    assert!(warm.refusal.is_none());
+    let mut record =
+        crate::native_controls::LaunchRecord::decode(Some(&input["launch_record"])).unwrap();
+    if let crate::native_controls::NativeExpectation::Known { held, .. } =
+        &mut record.expected.native
+    {
+        held[0].restrictions = serde_json::from_str(RESTRICTION).unwrap();
+    }
+    input["launch_record"] = record.value();
+    // Slice one never delivers a nonempty restriction (operator ruling
+    // addendum of 2026-09-25; design D11): the final check refuses the cold
+    // launch and the actual resume alike, each on its own.
+    let refused = checked_refusal(
+        "claude",
+        "would hold native capability 'web-search' under a nonempty restriction, which slice \
+         one never delivers (operator ruling addendum of 2026-09-25; design D11)",
+    );
+    assert_eq!(
+        claude_launch(bin, &extra, None, &input, CLAUDE_SHAPE, None).err(),
+        Some(refused.clone())
+    );
+    assert_eq!(
+        claude_launch(bin, &extra, Some(session), &input, CLAUDE_SHAPE, None).err(),
+        Some(refused)
+    );
 }
 
 /// Claude's held native tools are folded into the seat's own lists ONCE:
@@ -15741,17 +15943,25 @@ fn a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands() {
 #[test]
 fn claude_admits_only_held_native_tools_beside_its_hands() {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let boxed = s(&[
-        "--permission-mode",
-        "acceptEdits",
+    // Boxed, everything after the permission mode is the adapter's hands
+    // fragment — the engine's, recorded as such (decision 0066 ruling 4) —
+    // typed and bound to the transport's own document as dispatch binds it;
+    // unboxed, the permission mode is the adapter's template and the local
+    // list the typed allow the engine lowers. Each launch is sealed as
+    // dispatch seals it (rebuild unit 15-fix-b).
+    let template = ["--permission-mode", "acceptEdits"];
+    let mut boxed_seal = Seal::claude(0, &template, &[], &[]);
+    let hands = boxed_seal.hands(&[
         "--tools",
         "",
         "--strict-mcp-config",
         "--mcp-config",
-        "/run/hands.json",
+        "{hands_mcp_json}",
         "--allowedTools",
         "mcp__brokkr__workspace",
     ]);
+    let document = hands[4].as_str();
+    let boxed = [s(&template), hands.clone()].concat();
     let head = s(&[
         "claude",
         "-p",
@@ -15759,16 +15969,18 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
         "stream-json",
         "--verbose",
     ]);
-    // Boxed, everything after the permission mode is the adapter's hands
-    // fragment — the engine's, recorded as such (decision 0066 ruling 4);
-    // unboxed, the whole argv is the agent's own.
     let launch = |extra: &[String], mut plan: Value| {
-        let managed = match extra == boxed.as_slice() {
-            true => boxed.len() - 2,
-            false => 0,
+        let (managed, seal) = match extra == boxed.as_slice() {
+            true => {
+                // A boxed seat lowers no local list: its allow is dormant.
+                plan["local"] = json!([]);
+                (hands.len(), boxed_seal.clone())
+            }
+            false => (0, Seal::claude(0, &template, &[], &["Bash(git:*)"])),
         };
         plan["hands"] = json!(managed);
         let input = engine_input(json!({"workdir": "/w"}), plan, extra, managed);
+        let input = sealed_pair(input, extra, seal);
         claude_launch("claude", extra, None, &input, CLAUDE_SHAPE, None)
             .unwrap()
             .command[head.len()..]
@@ -15786,7 +15998,7 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
             "WebSearch",
             "--strict-mcp-config",
             "--mcp-config",
-            "/run/hands.json",
+            document,
             "--allowedTools",
             "mcp__brokkr__workspace,WebSearch",
             "--disallowedTools",
@@ -15815,7 +16027,7 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
             "WebSearch,WebFetch",
             "--strict-mcp-config",
             "--mcp-config",
-            "/run/hands.json",
+            document,
             "--allowedTools",
             "mcp__brokkr__workspace,WebSearch,WebFetch",
         ])
@@ -15943,72 +16155,114 @@ fn claude_composed(extra: &[&str], plan: Value) -> Result<Vec<String>, String> {
     claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None).map(|plan| plan.command)
 }
 
+/// [`claude_composed`] with the input sealed as dispatch seals it by `seal`
+/// ([`sealed_pair`]; rebuild unit 15-fix-b), so what it returns is what the
+/// final check serves.
+fn claude_sealed(extra: &[&str], plan: Value, seal: Seal) -> Result<Vec<String>, String> {
+    let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
+    let input = engine_input(
+        json!({"workdir": "/w", "seat": "research"}),
+        plan,
+        &extra,
+        0,
+    );
+    let input = sealed_pair(input, &extra, seal);
+    claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None).map(|plan| plan.command)
+}
+
 /// A local permission survives under every spelling the installed CLI gives
 /// its list flags (design D6; task 7.4): split or joined, camel or kebab,
 /// the seat's own list gains the engine's names where it stands, in the
 /// spelling the seat wrote, and each list flag reaches the harness exactly
 /// once — never a managed twin beside it, refused as a duplicate.
+///
+/// Sealed as dispatch seals it (rebuild unit 15-fix-b), a list in the
+/// recipe's words is refused whatever its spelling: a deny list by the final
+/// check, and an allow list by the composition, since no typed `tools.allow`
+/// lowered it. The local permission that launches is the typed one, lowered
+/// onto `--allowedTools`, which gains the held tool where it stands.
 #[test]
 fn a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag() {
     let denied = || claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
     let search = || claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"]);
-    for (case, extra, plan, composed) in [
+    let words = checked_refusal(
+        "claude",
+        "is served with the recipe's words or its adapter's pins carrying what cannot be read, a \
+         session or a capability-bearing effect, which only its sealed plan composes",
+    );
+    let words = words.as_str();
+    let unlowered = "refusing to invoke the agent CLI: the adapter template's '--allowedTools' \
+                     allow list names tool 'Bash' for provider 'claude', which no realm holding \
+                     admits, the site's typed hands do not carry and its typed 'tools.allow' did \
+                     not lower; an allowance is admitted by the typed contribution that made it, \
+                     never by its spelling or by the list it stands in (design D6)";
+    for (case, extra, plan, refused) in [
         (
             "split, canonical",
             vec!["--disallowedTools", "Bash(rm:*)"],
             denied(),
-            vec!["--disallowedTools", "Bash(rm:*),WebSearch,WebFetch"],
+            words,
         ),
         (
             "joined, canonical",
             vec!["--disallowedTools=Bash(rm:*)"],
             denied(),
-            vec!["--disallowedTools=Bash(rm:*),WebSearch,WebFetch"],
+            words,
         ),
         (
             "split, kebab",
             vec!["--disallowed-tools", "Bash(rm:*)"],
             denied(),
-            vec!["--disallowed-tools", "Bash(rm:*),WebSearch,WebFetch"],
+            words,
         ),
         (
             "joined, kebab",
             vec!["--disallowed-tools=Bash(rm:*)"],
             denied(),
-            vec!["--disallowed-tools=Bash(rm:*),WebSearch,WebFetch"],
+            words,
         ),
         (
             "split kebab allow list, search held",
             vec!["--allowed-tools", "Bash(git:*)"],
             search(),
-            vec![
-                "--allowed-tools",
-                "Bash(git:*),WebSearch",
-                "--disallowedTools",
-                "WebFetch",
-            ],
+            unlowered,
         ),
         (
             "joined camel allow list, search held",
             vec!["--allowedTools=Bash(git:*)"],
             search(),
-            vec![
-                "--allowedTools=Bash(git:*),WebSearch",
-                "--disallowedTools",
-                "WebFetch",
-            ],
+            unlowered,
         ),
     ] {
+        // The seat declares no typed allow, so its plan lowers none.
+        let mut plan = plan;
+        plan["local"] = json!([]);
         assert_eq!(
-            claude_composed(&extra, plan),
-            Ok([&CLAUDE_HEAD[..], &composed[..]]
-                .concat()
-                .iter()
-                .map(|part| part.to_string())
-                .collect()),
+            claude_sealed(&extra, plan, Seal::authored(extra.len())),
+            Err(refused.to_string()),
             "{case}"
         );
     }
+    assert_eq!(
+        claude_sealed(
+            &["--allowedTools", "Bash(git:*)"],
+            search(),
+            Seal::claude(0, &[], &[], &["Bash(git:*)"])
+        ),
+        Ok([
+            &CLAUDE_HEAD[..],
+            &[
+                "--allowedTools",
+                "Bash(git:*),WebSearch",
+                "--disallowedTools",
+                "WebFetch"
+            ]
+        ]
+        .concat()
+        .iter()
+        .map(|part| part.to_string())
+        .collect())
+    );
     // Nothing held, every list joined in aliases (rebuild unit 12-fix-c,
     // operator admission): the typed local permission is subject to the
     // template's hard limit, which does not name it, so it refuses whole.
@@ -16130,8 +16384,13 @@ fn an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list() {
             vec!["--allowedTools", "WebSearch,WebFetch"],
         ),
     ] {
+        // Sealed as dispatch seals it (rebuild unit 15-fix-b): the permission
+        // mode is the adapter's template and the model its pin, and the
+        // plan lowers no local list, as the seat's argv carries none.
+        let mut plan = plan;
+        plan["local"] = json!([]);
         assert_eq!(
-            claude_composed(&extra, plan),
+            claude_sealed(&extra, plan, Seal::claude(0, &local[..2], &local[2..], &[])),
             Ok([&CLAUDE_HEAD[..], &extra[..], &managed[..]]
                 .concat()
                 .iter()
@@ -16140,18 +16399,16 @@ fn an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list() {
             "{case}"
         );
     }
-    // Beside local lists of its own: each gains the names where it stands.
+    // Beside a local list of its own, the typed allow the engine lowers: it
+    // gains the held name where it stands. A list in the recipe's words
+    // beside it is refused by the final check (rebuild unit 15-fix-b).
+    let search = || claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"]);
+    let lowered = ["--allowedTools", "Bash(git:*)"];
     assert_eq!(
-        claude_composed(
-            &[
-                "--permission-mode",
-                "acceptEdits",
-                "--allowedTools",
-                "Bash(git:*)",
-                "--disallowedTools",
-                "Bash(rm:*)",
-            ],
-            claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"])
+        claude_sealed(
+            &[&local[..2], &lowered[..]].concat(),
+            search(),
+            Seal::claude(0, &local[..2], &[], &["Bash(git:*)"])
         ),
         Ok([
             &CLAUDE_HEAD[..],
@@ -16161,13 +16418,30 @@ fn an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list() {
                 "--allowedTools",
                 "Bash(git:*),WebSearch",
                 "--disallowedTools",
-                "Bash(rm:*),WebFetch",
+                "WebFetch",
             ]
         ]
         .concat()
         .iter()
         .map(|part| part.to_string())
         .collect())
+    );
+    assert_eq!(
+        claude_sealed(
+            &[
+                &["--disallowedTools", "Bash(rm:*)"],
+                &local[..2],
+                &lowered[..]
+            ]
+            .concat(),
+            search(),
+            Seal::claude(2, &local[..2], &[], &["Bash(git:*)"])
+        ),
+        Err(checked_refusal(
+            "claude",
+            "is served with the recipe's words or its adapter's pins carrying what cannot be \
+             read, a session or a capability-bearing effect, which only its sealed plan composes"
+        ))
     );
     // A selection before the hands is a hard limit (rebuild unit 12-fix;
     // design D6): a held tool it does not name refuses at the launch, never
@@ -16350,6 +16624,15 @@ fn checked_refusal(harness: &str, problem: &str) -> String {
     )
 }
 
+/// The whole refusal of a launch that carries the engine's plan with neither
+/// sealed input (rebuild unit 15-fix-b; SC15-R2-1), spelled independently of
+/// the driver's constant.
+const UNSEALED_REFUSAL: &str =
+    "refusing to invoke the agent CLI: the input carries the engine's capability plan without the \
+     sealed launch record and sealed serving inputs it is served beside, so its final command \
+     cannot be checked; a launch the engine governs is never served as an unsealed one (rebuild \
+     unit 15; design D6)";
+
 /// An inline Codex site's driver input as the engine writes it: the plan,
 /// the argv's two parts, the result path and door, and the sealed launch
 /// record whose segments are `authored` then the engine's `local` fragment
@@ -16432,8 +16715,9 @@ fn inline_codex_input(
 /// harness would read the literal key and leave search on (codex-cli
 /// rust-v0.154.0 config_override.rs and overrides.rs, per the chief). The
 /// shipped work seat and gate, and the canonical spellings of the OFF value,
-/// launch; so do a launch with no record and an agent's, whose class rides
-/// its hands and is not judged here.
+/// launch. An agent's launch, whose class rides its hands, is not judged
+/// here but by the final check, and the plan with no record is refused
+/// (rebuild unit 15-fix-b).
 #[test]
 fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it() {
     use crate::native_controls::{HandsIntent, SandboxIntent};
@@ -16636,8 +16920,8 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     // An agent's record is not an inline Codex launch, but since rebuild unit
     // 14 its cold command is checked whole, so the duplicate is refused
-    // there too. A launch sealed with nothing is not judged, and the
-    // duplicate is left to the harness.
+    // there too. The engine's plan sealed with nothing is refused before it
+    // is judged (rebuild unit 15-fix-b): it is never served unchecked.
     let doubled = ["--json", "--sandbox", "workspace-write"];
     let (extra, mut input) = inline_codex_input(
         json!({"workdir": "/w"}),
@@ -16647,18 +16931,6 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
         work,
         HandsIntent::Required,
     );
-    let launched = s(&[
-        "codex",
-        "exec",
-        "--json",
-        "-C",
-        "/w",
-        "--json",
-        "--sandbox",
-        "workspace-write",
-        "-c",
-        "web_search=\"disabled\"",
-    ]);
     assert_eq!(
         codex_command("codex", &extra, "/w", None, &input),
         Err(checked_refusal(
@@ -16675,7 +16947,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
         .remove(crate::native_controls::SERVING_INPUTS);
     assert_eq!(
         codex_command("codex", &extra, "/w", None, &input),
-        Ok(launched)
+        Err(UNSEALED_REFUSAL.to_string())
     );
 }
 
@@ -16685,8 +16957,8 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
 /// so a prompt that reads like options stays one positional. A launch
 /// command whose overlay separator changed, or that carries an option the
 /// driver already composed, refuses with the check's whole reason. One
-/// half of the sealed pair without the other refuses, and a launch sealed
-/// with nothing is served as composed.
+/// half of the sealed pair without the other refuses, and so does the
+/// engine's plan sealed with neither (rebuild unit 15-fix-b).
 #[cfg(unix)]
 #[test]
 fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
@@ -16817,7 +17089,9 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
         )
     );
 
-    // Half the sealed pair refuses; nothing sealed is served as composed.
+    // Half the sealed pair refuses, and so does the plan with neither half
+    // (rebuild unit 15-fix-b): only a launch with no plan either is served as
+    // composed.
     let mut unpaired = input.clone();
     unpaired.as_object_mut().unwrap().remove(SERVING_INPUTS);
     assert_eq!(
@@ -16833,7 +17107,7 @@ fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
     unpaired.as_object_mut().unwrap().remove("launch_record");
     assert_eq!(
         dsh_served(bin, &settled, &[], prompt, workdir, &unpaired),
-        Ok([cold, words(&[prompt])].concat())
+        Err(UNSEALED_REFUSAL.to_string())
     );
 
     match prior_home {

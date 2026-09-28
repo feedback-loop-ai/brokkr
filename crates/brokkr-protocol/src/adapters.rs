@@ -2996,6 +2996,16 @@ const UNPAIRED: &str =
      command cannot be checked; a sealed launch is never served unchecked (rebuild unit 14; \
      design D6)";
 
+/// The whole refusal of a launch that carries the engine's plan with neither
+/// sealed input (rebuild unit 15-fix-b; SC15-R2-1): dispatch seals both
+/// wherever it writes a plan, so a plan alone is a governed launch stripped
+/// of what it is checked by.
+const UNSEALED: &str =
+    "refusing to invoke the agent CLI: the input carries the engine's capability plan without the \
+     sealed launch record and sealed serving inputs it is served beside, so its final command \
+     cannot be checked; a launch the engine governs is never served as an unsealed one (rebuild \
+     unit 15; design D6)";
+
 /// Rebuild units 14 and 15 (operator ruling 2 of 2026-09-23; design D6):
 /// the command a launch spawns, cold, rejoining or a rejected rejoin's cold
 /// replacement, once [`check_final`] has proved that it expresses exactly
@@ -3011,10 +3021,11 @@ const UNPAIRED: &str =
 /// read back from the argv. The spawn is handed [`Checked::into_argv`] and
 /// nothing else.
 ///
-/// A launch with no record and no serving inputs was not sealed: a driver
-/// run by hand, which this check gives no guarantee, is served as composed,
-/// as the inline judgment serves it (rebuild unit 5d-fix-c2). One half of
-/// the sealed pair without the other, or without its plan, refuses.
+/// A launch with no plan, no record and no serving inputs was not sealed: a
+/// driver run by hand, which this check gives no guarantee, is served as
+/// composed, as the inline judgment serves it (rebuild unit 5d-fix-c2). A
+/// plan with neither sealed input refuses (rebuild unit 15-fix-b), and so
+/// does one half of the sealed pair without the other, or without its plan.
 ///
 /// [`check_final`]: crate::native_controls::check_final
 /// [`Checked::into_argv`]: crate::native_controls::Checked::into_argv
@@ -3030,7 +3041,8 @@ fn served(
         Transport, SERVING_INPUTS,
     };
     let record = match (input.get("launch_record"), input.get(SERVING_INPUTS)) {
-        (None, None) => return Ok(command),
+        (None, None) if input.get("native_controls").is_none() => return Ok(command),
+        (None, None) => return Err(UNSEALED.to_string()),
         (Some(record), Some(_)) => record,
         _ => return Err(UNPAIRED.to_string()),
     };

@@ -16622,3 +16622,215 @@ passed 541.
 
 **Pending.** The same ruling as above, then 15-fix-b, exact coverage
 outside the box, macOS, remote CI and the council.
+
+## Unit 15-fix-b — the unsealed-plan guard, 2026-09-28
+
+Run `0065-rebuild-unit-15-see-the-uni-d4133989`, based on `a7518495`. The
+commission carried the operator's two rulings of 2026-09-28. The first ruled
+the split: 15-fix-a, then 15-fix-b. The second, on the ten, admitted the
+changes to the ten tests 15-fix-a could not migrate. **Result: complete.**
+SC15-R2-1 is answered. 15.1 and 15.2 close.
+
+### What was built
+
+The only production file is `crates/brokkr-protocol/src/adapters.rs`. In
+`served`, the `(None, None)` arm now serves the command as composed only
+when the input carries no `native_controls` either. The engine's plan with
+neither `launch_record` nor `serving_inputs` refuses with a new whole,
+bounded reason, `UNSEALED`:
+
+> refusing to invoke the agent CLI: the input carries the engine's
+> capability plan without the sealed launch record and sealed serving
+> inputs it is served beside, so its final command cannot be checked; a
+> launch the engine governs is never served as an unsealed one (rebuild
+> unit 15; design D6)
+
+The text is the one unit 15 measured (`.forge/unit-15-fix-a/guard.patch`).
+Only a launch with no plan and no sealed input keeps the by-hand exemption.
+The pairing rule for one half of the pair is unchanged (`UNPAIRED`). The doc
+comments of `served` and `UNSEALED` say so.
+
+### Tests (`crates/brokkr-protocol/src/adapters/tests.rs`)
+
+**New:** `the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`.
+It uses a Codex shim that rejects any `resume` before work, and the engine's
+denied plan with neither sealed input.
+
+- The eligible rejoin, driven whole through `invoke` with `Some(THREAD)`,
+  returns exactly `UNSEALED`. The shim records no argv, and no
+  `harness-started` row is emitted.
+- The same launch sealed as dispatch seals it (`sealed_pair`,
+  `Seal::codex_template`) is an eligible rejoin
+  (`rejoining == Some(THREAD)`). Its rejoin command and its cold
+  replacement are each handed to `served` with the unsealed input, the
+  rejoin with its session and the replacement with none. Each refuses with
+  exactly `UNSEALED`: the rows "the eligible rejoin" and "its cold
+  replacement".
+- The Claude cold seam: `claude_launch` with the plan and no seal returns
+  exactly `UNSEALED`.
+
+The DSH and inline Codex cold seams are the changed rows of the two
+exemption tests below. The expected reason is the test constant
+`UNSEALED_REFUSAL`, a literal spelled apart from the driver's constant. The
+by-hand exemption stays proved by
+`a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouched`,
+which did not change.
+
+### The ten, as ruled
+
+**The two exemption tests.** Their sealed rows are unchanged.
+
+- `a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it`:
+  the row with the plan and neither sealed input was `Ok(cold + prompt)`. It
+  is now `Err(UNSEALED_REFUSAL)`.
+- `the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it`:
+  the row with the record and serving inputs removed was `Ok(launched)`. It
+  is now `Err(UNSEALED_REFUSAL)`. The unused `launched` literal is removed.
+
+**The five authored-content tests.** Each is sealed and asserts the exact
+refusal, or, where a row's purpose is a launch, the typed declaration.
+
+- `every_authored_spelling_the_shipped_codex_adapter_guards_is_refused`: the
+  `{flag}=--search` value rows are sealed (`Seal::authored(1)`). `-m`,
+  `--model`, `-i`, `--image`, `--output-schema` and `--effort` still launch,
+  with the OFF pair exactly when the plan carries it. `-p` and `--profile`
+  keep their refusal. The final check now refuses the rest, each with its
+  whole reason (`checked_refusal("codex", …)`):
+  - `-o` and `--output-last-message`: "carries a result capture
+    ('--output-last-message') in the recipe's words other than the engine's
+    one capture into the result path it owns, a harness write path outside
+    the result sink";
+  - `-s` and `--sandbox`: "cannot be read: it carries '--sandbox'
+    (argument 5), whose value names no sandbox class: read-only,
+    workspace-write or danger-full-access";
+  - `-C` and `--cd`: "cannot be read whole (argument 5, '--cd': it repeats
+    option '--cd', which the grammar admits once; …)";
+  - `--add-dir`: "is served with the recipe's words or its adapter's pins
+    carrying what cannot be read, a session or a capability-bearing effect,
+    which only its sealed plan composes".
+
+  Each outcome was observed by one run with the seal in place before it was
+  asserted (`.forge/unit-15-fix-b/probe-spelling2.txt`).
+- `an_authored_mcp_denial_is_subtraction_and_survives_beside_the_native_one`:
+  sealed, each row asserts the final check's refusal for Claude and for
+  LaneTally. It is never refused as a grant. The canonical and alias rows
+  (`mcp__*`) give "cannot be read: it carries '--disallowedTools'
+  (argument 5), whose value names a tool that is not a plain name …". The
+  joined row and the later-value row give the recipe's-words refusal. The
+  LaneTally row's plan now names `lanetally` as its provider and harness, as
+  dispatch writes it. The check refuses a plan for another harness first.
+- `a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag`:
+  - The four deny-list spellings, sealed, give the recipe's-words refusal.
+  - The two authored allow-list spellings give the composition's exact
+    refusal: "the adapter template's '--allowedTools' allow list names tool
+    'Bash' … its typed 'tools.allow' did not lower …".
+  - The launch is now a new typed row. Typed allow `Bash(git:*)`, lowered
+    onto `--allowedTools` (`Seal::claude(0, &[], &[], &["Bash(git:*)"])`),
+    composes `--allowedTools Bash(git:*),WebSearch --disallowedTools
+    WebFetch`.
+  - The two later assertions, the hard limit and the seat's duplicate,
+    refuse before `served` and are unchanged.
+- `a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands`:
+  sealed as dispatch seals a nonempty grant, the held `web-search` carries
+  the realm's restriction object in the record. The cold launch and the
+  actual resume each refuse with "would hold native capability 'web-search'
+  under a nonempty restriction, which slice one never delivers (operator
+  ruling addendum of 2026-09-25; design D11)".
+- `claude_admits_only_held_native_tools_beside_its_hands`:
+  - The boxed rows now carry typed hands. The adapter's workspace fragment
+    is bound by `Seal::hands`, and the expected `--mcp-config` value is the
+    transport's own document in place of `/run/hands.json`. A boxed seat
+    lowers no local list, so their plan's `local` is `[]`.
+  - The unboxed row is the template plus the typed allow, lowered.
+  - Every other expected token is unchanged. The authored-admission refusals
+    are unchanged.
+
+**The three contradictory-plan tests.** `local` is re-planted to what the
+argv carries, and each asserts its sealed outcome.
+
+- `an_authored_plugin_or_later_list_value_is_refused_at_the_final_command`:
+  in the joined `--append-system-prompt=…` row, `local` is `[]` and the seal
+  is `Seal::authored(1)`. The expected command is unchanged.
+- `an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list`:
+  - In the three rows, `local` is `[]`. The permission mode is sealed as
+    the template and `--model claude-fable-5` as its pin. The expected
+    commands are unchanged.
+  - The "beside local lists of its own" assertion splits in two. The typed
+    allow `Bash(git:*)` gains `WebSearch` where it stands, with
+    `--disallowedTools WebFetch`. An authored `--disallowedTools Bash(rm:*)`
+    beside it is refused with the recipe's-words reason.
+- `an_explicitly_restrictive_managed_tool_list_reaches_the_final_command`:
+  `local` is `[]`, and the seat is sealed as its template. The expected
+  commands are unchanged.
+
+**Fixture support.** It is in the same file and adds no assertion.
+
+- `Seal` gains a `pins` field, which `sealed_pair` now seals.
+- `Seal::claude` seals the recipe's words, the template, the pins and a
+  typed allow lowered onto `--allowedTools`, in dispatch's order.
+- `claude_sealed` is `claude_composed` with the pair sealed.
+
+### Baseline reds
+
+- **Under the guard, with the old fixtures.** `cargo test -q -p
+  brokkr-protocol --lib -- --skip
+  a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it`
+  ran 531 passed and 9 failed (`.forge/unit-15-fix-b/guard-protocol-skip.txt`).
+  The nine are the ten less the DSH test. The DSH test failed alone.
+  Without the skip, lock poisoning made 50 fail (`guard-protocol.txt`).
+- **With the new tests, on `a7518495`'s `adapters.rs`.** This was
+  `git checkout` of the production file only. The run skipped the DSH test
+  and the new test, because each poisons `ADAPTER_ENV` when it fails:
+  539 passed, and 1 failed,
+  `the_final_cold_command_of_an_inline_codex_launch_…`, at its unsealed row
+  (left `Ok([... "--json", "--sandbox", "workspace-write", ...])`). Run
+  alone, the DSH test failed at its unsealed row (left `Ok([...
+  "--patch", ..., prompt])`), and the new test failed at the `invoke`
+  assertion (left `None`) (`baseline-head-skip2.txt`,
+  `baseline-head-dsh.txt`, `baseline-head-new.txt`). The seven migrated
+  tests pass there too: each is a migration, not a new behaviour.
+
+### Mutations
+
+Each mutation is one compiling edit to the guard's arm in `adapters.rs`.
+The file was restored from `.forge/unit-15-fix-b/prod.patch` afterwards.
+
+| Mutation | Fails | Passes |
+| --- | --- | --- |
+| M1: exempt when `chosen.session.is_none()` | the new test at "its cold replacement" (left `Ok([... "exec", "--json", "-C", ..., "--sandbox", "read-only", "-c", "web_search=\"disabled\""])`); the DSH row; the inline Codex row | `a_launch_with_no_computed_authority_…` |
+| M2: exempt when `chosen.session.is_some()` | the new test at "the eligible rejoin" (left `Ok([... "exec", "resume", ...])`) | the DSH and inline Codex tests, and the by-hand test |
+| M3: exempt when `harness == "claude"` | the new test at the Claude cold row (left `None`) | — |
+| M4: exempt when `harness == "dsh"` | the DSH row only | the inline Codex test and the new test |
+| M5: no exemption at all | `a_launch_with_no_computed_authority_…` at its by-hand launch (`unwrap` on the `UNSEALED` error), among 86 of 540 | — |
+
+Under M2, `invoke` still refuses before any spawn, because the cold
+replacement is served before either command runs. The rejoin's own
+refusal is proved only by its independent row, which is why the new test
+checks each serving on its own. Logs: `m1.txt`, `m1-new.txt`, `m2.txt`,
+`m2-new.txt`, `m3-new.txt`, `m4.txt`, `m4-new.txt` and `m5.txt`. After the
+restore, `git diff crates/brokkr-protocol/src/adapters.rs` shows the guard
+alone.
+
+### Standing-admission lines
+
+None. No file outside `adapters.rs` and `adapters/tests.rs` moved.
+
+### Gates
+
+These ran on the tree as committed.
+
+- `cargo fmt --all -- --check`: clean, after `cargo fmt --all`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -q -p brokkr-protocol`: lib 542 passed, and every other binary
+  is ok.
+- `cargo test -q -p brokkr-runtime`: 25 binaries, all ok;
+  `capability_launch` 58.
+- `cargo test -q -p brokkr-cli`: 33 results, all ok.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`:
+  compiles.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage outside the box, macOS, remote CI and the
+council.

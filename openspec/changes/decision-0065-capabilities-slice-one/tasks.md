@@ -2855,9 +2855,9 @@ complete.** 14.1 closes here. Production: `adapters.rs` only.
 
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
-- [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
+- [x] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
 
-- [ ] 15.2 Units 12–15 integrate refusal/provenance across compile and private launch input; close only after unit 15 covers cold, actual resume and replacement. Verify counterfeit/missing origins, structural substitutions and candidate replacement before work. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 4.7)
+- [x] 15.2 Units 12–15 integrate refusal/provenance across compile and private launch input; close only after unit 15 covers cold, actual resume and replacement. Verify counterfeit/missing origins, structural substitutions and candidate replacement before work. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 4.7)
 
 Unit 15 (2026-09-28, run `0065-rebuild-unit-15-see-the-uni-4a097606`, based
 on `51dcf6b5`; evidence.md, "Unit 15"). **Result: complete.** 15.1 and 15.2
@@ -3012,6 +3012,43 @@ evidence.md, "Unit 15-fix-a, re-fired"). **Result: blocked.** No ruling
 has landed since the blocked record, and the framing has not changed. The
 guard was re-applied and re-measured, and it fails the same ten tests. It
 was then reverted. No test file moved. 15.1 and 15.2 stay open.
+
+Unit 15-fix-b (2026-09-28, run `0065-rebuild-unit-15-see-the-uni-d4133989`,
+based on `a7518495`; evidence.md, "Unit 15-fix-b"). **Result: complete.**
+15.1 and 15.2 close on this evidence. This answers SC15-R2-1, under the
+operator's rulings of 2026-09-28 on the split and on the ten.
+
+- Production, `adapters.rs` only: `served` refuses with the whole reason
+  `UNSEALED` when the input carries `native_controls` with neither
+  `launch_record` nor `serving_inputs`. Only a launch with no plan and no
+  sealed input keeps the by-hand exemption.
+- New test: `the_engines_plan_with_neither_sealed_input_is_refused_at_every_seam`.
+  It covers the eligible Codex rejoin, driven whole with nothing spawned,
+  then that rejoin and its cold replacement each through `served` on its
+  own, then the Claude cold seam. The DSH and inline Codex cold seams are
+  the two exemption tests' changed rows.
+- The ten tests are changed as ruled; evidence.md lists each change:
+  - The two exemption rows now assert the exact `UNSEALED` refusal.
+  - The five authored-content tests are sealed. They assert the final
+    check's exact refusal, or, where the row's purpose is a launch, the
+    typed allow or typed hands with the transport's own document.
+  - The three contradictory-plan tests re-plant `local` to `[]`.
+- Fixture moves beyond the ruled ones, all in `adapters/tests.rs`:
+  - `Seal` gains `pins` and `Seal::claude`, and `claude_sealed` is added.
+  - Where a sealed row's argv carries no lowered list, its plan's `local`
+    is `[]` (evidence.md names each test).
+  - The LaneTally row's plan names LaneTally.
+- Baseline red: under the guard with the old fixtures, the ten failed. The
+  migrated tests passed after the change. Against `a7518495`'s
+  `adapters.rs`, three failed, each on its unsealed row: the DSH row, the
+  inline Codex row, and the new test.
+- Mutations M1 to M5, each compiling and restored: exempt cold servings,
+  exempt rejoins, exempt Claude, exempt DSH, and drop the by-hand exemption.
+  Each fails exactly the rows it should.
+- Standing-admission lines: none.
+- Gates: fmt, clippy, the protocol, runtime and CLI suites, `bundles/self`,
+  strict OpenSpec (18 passed) and `git diff --check` are clean.
+- Pending: exact coverage outside the box, macOS, remote CI and the council.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
