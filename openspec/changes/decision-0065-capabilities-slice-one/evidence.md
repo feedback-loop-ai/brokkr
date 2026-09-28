@@ -17153,3 +17153,208 @@ here), remote CI and the council.
 - The walk itself (`walk_files`) still follows links out of a layer when it
   hashes files that no compile consumes. That is unchanged and outside
   this unit.
+
+## Unit 16, second visit — the review return, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-dcd20d0c`, based on `d9751252`.
+**Result: complete.** This visit answers the three completed review
+positions of run `0065-rebuild-unit-16-see-the-uni-2d820f61`. The security
+position was refused by the classifier twice and never completed. The
+production files are `bundle.rs` and `bundle/compose.rs`, as the unit names.
+The tests are in `bundle/compose_tests.rs`. Scratch logs are in
+`.forge/unit-16b/` (not committed).
+
+### What changed, finding by finding
+
+**S16-1 / C1 / SC2 — the declared reference's pin.** `BoundInput` now
+carries two walk keys:
+
+- `key`: the reference as written, folded as the walk reaches it;
+- `target_key`: the canonical target.
+
+`Consumed` keeps both keys, and `check` requires the parsed digest under
+**each** of them. The walk pins a link under its own name by the bytes it
+reaches. So if `table.json -> a.json` is retargeted to `b.json` after the
+read, `files["table.json"]` moves while `files["a.json"]` still matches, and
+the check refuses. One file map can no longer name two governing tables.
+The comparison still runs before each layer's identity is sealed: ancestors
+(overridden ones included) in `resolve`, and the leaf in `assemble`.
+
+**S16-2 / C2 / SC1 — the checked file is the file read.** `bound_input`
+keeps the `metadata` of the kind check. `read_bound` requires the handle's
+`(dev, ino)` to equal that check's `(dev, ino)`. The existing post-open
+conditions also stay:
+
+- the handle is a regular file;
+- the written path still resolves to the target;
+- the target is still the handle's file.
+
+The file is open during those checks, so its inode number cannot be reused
+under them. A regular file, FIFO or parent directory renamed over the target
+between the check and the open is refused as replaced, with equal bytes and
+with changed bytes. The standard library has no `openat`, so the resolution
+is not descended by directory handle. The binding is to the same inode:
+first the checked inode, then the held one, found at the contained,
+link-free canonical target while it is held.
+
+**SC3 — bounded, sourced diagnostics.**
+
+- `missing_clause` says "which does not exist" (NotFound) or "which cannot
+  be resolved (<io kind>)".
+- The role refusal is now `<layer>/bundle.json: seat <site> names role
+  <reference>, <clause>`. It was `seat '…' role file '…' does not exist`,
+  with no source.
+- The table refusal is `<layer>/bundle.json: 'policy' names <reference>,
+  <clause>`. It was the bare `bundle io: No such file or directory (os
+  error 2)`.
+- Every role, table and pin refusal renders the authored reference through
+  the new `bounded_reference`: printable ASCII without `'`, whole up to 128
+  bytes; otherwise the first 64 bytes and the length. The site goes through
+  the existing `bounded_site`.
+- Plain references render exactly as before, so no assertion outside the
+  unit moved.
+
+**S16-3 / SC4 — containment proofs that reach their assertions.** The
+target key is taken by `let Some(target_key) = walk_key(root, &target) else
+{ refuse }`. The containment refusal and the key are now one step, and the
+`expect("contained target")` is gone. `a_link_out_of_the_layer_is_refused_even_with_equal_bytes`
+is split:
+
+- `a_role_link_out_of_the_layer_is_refused_even_with_equal_bytes` holds the
+  role's file and directory links, standalone and inherited;
+- `a_table_link_out_of_the_layer_is_refused_even_with_equal_bytes` holds the
+  table's link, standalone and inherited.
+
+Each binds independently (N6–N8 below).
+
+### Tests
+
+- **`a_table_link_retargeted_after_its_read_is_refused` (new).**
+  `table.json -> a.json` and `b.json` holds another valid ruling. At
+  `ReadStage::Read` on `a.json`, the link is retargeted to `b.json`, and
+  `a.json` stays. The whole pin refusal is asserted:
+  - at the leaf (base compiled standalone);
+  - at an ancestor whose `WORK` rule the leaf `tabled` overrides.
+
+  Unraced, `table.json -> b.json` compiles, and switching the link back to
+  `a.json` moves the digest.
+- **`a_replacement_before_the_open_is_refused_with_equal_or_changed_bytes`
+  (new).** At `ReadStage::Checked`, for equal bytes and then changed bytes:
+  - a regular file is renamed over `policy.json`;
+  - `tables/` is renamed aside and replaced by a new directory holding
+    `policy.json`.
+
+  Separately, for an equal and then a changed charter, a regular file is
+  renamed over the inherited `roles/work.md`. Every row asserts the whole
+  *replaced* refusal.
+- **`a_missing_or_unresolvable_input_names_its_source_kind_and_reference`
+  (new).** For the role and for the table, standalone and inherited, it
+  asserts the exact refusals for:
+  - an absent file ("which does not exist");
+  - a parent that is a regular file ("which cannot be resolved (not a
+    directory)");
+  - a reference of 5,000 `./` steps before `capabilities/…`, named as
+    `'./…./…' (<n> bytes, not echoed in full)` with its skipped-tree
+    clause.
+
+  Inherited refusals name the ancestor's `bundle.json`.
+- **`a_fifo_supplies_no_charter_and_no_table`.** The absent-table row, which
+  blessed the bare io error, is removed. The new test above asserts that
+  case exactly.
+
+### Baseline reds on `d9751252`
+
+`d9751252`'s `bundle.rs` and `compose.rs` were checked out under this
+visit's tests (`baseline.txt`). No test needed disabling: the stage hook
+exists there. The run gave 31 passed and 3 failed:
+
+- `a_missing_or_unresolvable_…`, row `roles/absent.md`: left `"bundle: seat
+  'work' role file 'roles/absent.md' does not exist"`. The right side names
+  `…/base/bundle.json`.
+- `a_replacement_before_the_open_…`, equal-bytes file row: left `"compiled to
+  c4061ec5…"`. The swap was accepted.
+- `a_table_link_retargeted_…`, `leaf` row: left `"compiled to 133ffff8…"`.
+  The raced compile sealed.
+
+The production patch was re-applied. `git diff` of the two files was
+byte-identical to the saved `prod.patch` (`cmp`).
+
+### Mutations
+
+Each mutation is one compiling edit to production, and each was restored
+by `git checkout HEAD -- …` plus `git apply prod.patch`. After the last one,
+`cmp` of the diff against `prod.patch` was identical. Each ran
+`cargo test -p brokkr-runtime --all-features --locked --lib
+bundle::compose_tests`.
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| N1: reference key not compared (`.keys.iter().skip(1)`) | `a_table_link_retargeted_…` `leaf`: left `"compiled to 133ffff8…"`. 33 passed | `n1.txt` |
+| N2: ancestor compare before seal off (`.filter(\|_\| false)`) | `a_table_link_retargeted_…` `overridden ancestor`, where the leaf row passed first: left `"compiled to 1b856bde…"`. Also `a_table_changed_…`'s ancestor row | `n2.txt` |
+| N3: leaf compare in `assemble` off | `a_table_link_retargeted_…` `leaf`; `a_table_changed_…` standalone: left `"compiled to 465f103f…"` | `n3.txt` |
+| N4: the pin comparison removed entirely (`\|\| true` in `check`) | `a_table_changed_…` standalone, and `a_table_link_retargeted_…` `leaf`. Both are raced compiles that sealed | `n4.txt` |
+| N5: checked `(dev, ino)` not compared (`\|\| true`) | `a_replacement_before_the_open_…` equal-bytes `file:` row: left `"compiled to c4061ec5…"` | `n5.txt` |
+| N5b: … not compared under `/tables/` only | the same test's equal-bytes `parent:` row, where the file row passed first: left `"compiled to 0f40e321…"` | `n5b.txt` |
+| N5c: … not compared for `.md` only | the same test's `role: # base` row, with both table rows passing: left `"compiled to db826bf4…"` | `n5c.txt` |
+| N5d: … not compared when sizes differ | the same test's changed-bytes `file:` row: left `"compiled to 465f103f…"`, the replacement ruling's own identity. Without the binding, its bytes would have been parsed and sealed | `n5d.txt` |
+| N6: containment off (`.or(Some(String::new()))`) | `a_role_link_out_…` (`roles/linked.md # base`, left `"compiled to 66fee5e8…"`); `a_table_link_out_…` (left is the pin clause, not the outward clause); `a_symlink_and_a_parent_step_…` (`# contained target`, left `"compiled to 572ad5bc…"`). No panic | `n6.txt` |
+| N7: role containment off alone (`.md`) | `a_role_link_out_…` and `a_symlink_and_a_parent_step_…`, at their assertions. `a_table_link_out_…` passed | `n7.txt` |
+| N8: table containment off alone (`.json`) | `a_table_link_out_…` only: left is the pin clause, since the pin check still refuses the escape under another cause. The role test passed | `n8.txt` |
+| N9: missing table as a bare io error (`error.into()`) | `a_missing_or_unresolvable_…` `absent.json`, where both role rows passed first: left `"bundle io: No such file or directory (os error 2)"` | `n9.txt` |
+| N10: role missing refusal without its source | the same test, `roles/absent.md`: left `"bundle: seat 'work' names role 'roles/absent.md', which does not exist"` | `n10.txt` |
+| N11: NotADirectory said as "does not exist" | the same test, `flat/role.md`: left `"… which does not exist"` | `n11.txt` |
+| N12a: table reference unbounded (`format!("'{relative}'")`) | the same test, `policy`, where the long role row passed first: left is a 10,412-byte line | `n12a.txt` |
+| N12b: role reference unbounded | the same test, `role`: left is a 10,416-byte line | `n12b.txt` |
+
+The first visit's M3 (handle kind off, `true || held.is_file()`) was
+re-run on this tree (`m3-recheck.txt`): 34 passed. The checked-identity
+comparison now refuses the FIFO renamed over the target first, so M3 no
+longer binds on its own. The handle-kind check is kept for the one case the
+identity check cannot see: a nonregular file that takes the checked file's
+freed inode number between the check and the open. No test can plant that.
+
+Row reach: the standalone and inherited role rows go through one
+`bound_input` call for the declaring layer, so no mutation separates them.
+The inherited row runs after the standalone row passes in every unmutated
+run.
+
+### Standing-admission lines and fixture migrations
+
+None. No file outside the two production files, `bundle/compose_tests.rs`,
+tasks.md and this file moved.
+
+### Gates
+
+These ran on the tree as committed.
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 binaries, all
+  ok, lib 583 passed (`runtime-final.txt`).
+- `cargo test -p brokkr-cli --all-features --locked`: 33 binaries, all ok,
+  lib 482 passed (`cli-final.txt`).
+- `cargo test --workspace --all-features --locked --exclude brokkr-cli
+  --exclude brokkr-runtime`: 20 results, 0 failed (`workspace-rest.txt`).
+- `compile --bundle bundles/self`: digest `45dc1c7e…`.
+  `compile --bundle bundles/verify`: digest `f7cbd4bb…`. Both are unchanged
+  from the first visit.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage outside the box, macOS (the `/private/var` roots
+and the `O_NONBLOCK` spelling run only on Linux here), remote CI and the
+council.
+
+### Follow-ups, not built here
+
+- A resolution descended by directory handle (`openat` with `O_NOFOLLOW`)
+  would need a new dependency or `unsafe` FFI, with per-architecture flag
+  values. D9 says no new dependency is needed. `brokkr-runtime` has no
+  `unsafe` today; `brokkr-protocol` does (`hands.rs` getuid,
+  `composite.rs` confstr). It is not built in this unit's two files. The
+  binding here is by inode identity, and whether that meets D7's
+  "owner-rooted" wording is the council's to judge.
+- The first visit's follow-ups stand: dispatch reads a role by its written
+  path (unit 18), and the walk still follows links out of a layer for files
+  no compile consumes.

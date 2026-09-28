@@ -3124,6 +3124,50 @@ and 16.3 close here. Production: `bundle.rs` and `bundle/compose.rs` only.
   one new unhit line (a missing table), and an assertion now covers it.
 - Pending: exact coverage outside the box, macOS, remote CI and the council.
 
+Unit 16, second visit (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-dcd20d0c`,
+based on `d9751252`; evidence.md, "Unit 16, second visit"). **Result:
+complete.** It answers the review return: S16-1/C1/SC2, S16-2/C2/SC1, SC3
+and S16-3/SC4. 16.1, 16.2 and 16.3 stay closed. Production: `bundle.rs` and
+`bundle/compose.rs` only.
+
+- **The declared reference is pinned (S16-1, C1, SC2).** `bound_input` also
+  returns the walk key of the reference as written. `Consumed::check` needs
+  the parsed digest under that key and under the target's key. A link
+  retargeted after the read, with the old target left in place, is refused
+  at the leaf and at an overridden ancestor.
+- **The handle holds the checked file (S16-2, C2, SC1).** The kind check's
+  `(dev, ino)` is kept. The handle must hold that same file, so a file or a
+  parent renamed over the target before the open is refused. This holds for
+  equal bytes and changed bytes. The post-open checks run while the handle
+  holds the file, so its number cannot be reused.
+- **Bounded, sourced refusals (SC3).** A missing or unresolvable input now
+  names the declaring layer's file, the seat (for a role), the kind and the
+  reference. The clause is "which does not exist" or "which cannot be
+  resolved (<io kind>)". A table no longer surfaces a bare io error. An
+  authored reference goes through the new `bounded_reference`, and the site
+  through `bounded_site`. Over 128 bytes, a reference is named by its lead
+  and its length.
+- **Independent containment proofs (S16-3, SC4).** The target's key is taken
+  by `let … else`, so the outward refusal no longer depends on the
+  `expect("contained target")` panic. The outward test is split into role
+  and table tests. Their mutations reach the exact assertions.
+- Tests in `bundle/compose_tests.rs`:
+  - Three new: `a_table_link_retargeted_after_its_read_is_refused`,
+    `a_replacement_before_the_open_is_refused_with_equal_or_changed_bytes`
+    and `a_missing_or_unresolvable_input_names_its_source_kind_and_reference`.
+  - The FIFO test's bare-io absent row moves to the last of these.
+- Three baseline reds were observed on `d9751252`. Mutations N1–N12b each
+  compile, fail their intended assertion, and are restored. The first
+  visit's M3 (handle kind) is now subsumed by the identity check and no
+  longer binds on its own. It stays as a guard against inode reuse.
+- Standing-admission lines and fixture migrations: none.
+- Gates: fmt, clippy, the runtime (25 binaries, 583 lib) and CLI (33
+  binaries, 482 lib) suites, and the other workspace crates (20 results,
+  0 failed) all pass. `bundles/self` (`45dc1c7e…`) and `bundles/verify`
+  (`f7cbd4bb…`) compile. Strict OpenSpec (18 passed) and
+  `git diff --check` are clean.
+- Pending: exact coverage outside the box, macOS, remote CI and the council.
+
 ## 17. Unit 17 — Select charter owner and source at compile
 
 - [ ] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)

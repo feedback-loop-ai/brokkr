@@ -4425,18 +4425,64 @@ fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
 /// One consumed active input, read through a handle bound to its contained
 /// target (operator ruling 3; decision 0065 slice one, design D7).
 pub(crate) struct BoundInput {
-    /// The file-map key the declaring layer's walk writes for the target.
+    /// The file-map key the declaring layer's walk writes for the reference
+    /// as written: the entry the layer's identity names the input by.
     pub(crate) key: String,
+    /// The file-map key the declaring layer's walk writes for the target.
+    pub(crate) target_key: String,
     /// The bytes the handle supplied: the buffer a caller hashes and parses.
     pub(crate) bytes: Vec<u8>,
 }
 
-/// Why an active input was not bound. `Missing` is the caller's own
-/// question, because a missing charter and a missing table are not said in
-/// the same words; `Place` is the clause a refusal carries.
+/// Why an active input was not bound. `Missing` is said by
+/// [`missing_clause`] in the caller's own sentence, because a missing
+/// charter and a missing table are not said in the same words; `Place` is
+/// the clause a refusal carries.
 pub(crate) enum InputFault {
     Missing(std::io::Error),
     Place(String),
+}
+
+/// The clause for an input whose target could not be resolved: absent, or
+/// unresolvable with the io kind that says why.
+pub(crate) fn missing_clause(error: &std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "which does not exist".to_string(),
+        kind => format!("which cannot be resolved ({kind})"),
+    }
+}
+
+/// An authored input reference rendered for a refusal, bounded (decision
+/// 0065 slice one, rebuild unit 16): the same shape as [`bounded_site`],
+/// over the printable ASCII a path is written in other than the quote. A
+/// reference of at most 128 such bytes is quoted whole; any other is named
+/// by its leading run of them, at most 64, and its length in bytes, so ten
+/// thousand bytes of `./` cannot become a ten-thousand-byte reason.
+pub(crate) fn bounded_reference(reference: &str) -> String {
+    let printable = |byte: &u8| (b' '..=b'~').contains(byte) && *byte != b'\'';
+    if reference.len() <= 128 && reference.bytes().all(|byte| printable(&byte)) {
+        return format!("'{reference}'");
+    }
+    let lead: String = reference
+        .bytes()
+        .take_while(printable)
+        .take(64)
+        .map(char::from)
+        .collect();
+    format!("'{lead}…' ({} bytes, not echoed in full)", reference.len())
+}
+
+/// The file-map key the walk writes for `path` in the layer at `root`, or
+/// `None` when `path` does not stand inside it.
+fn walk_key(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    Some(
+        relative
+            .iter()
+            .map(|part| part.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
 }
 
 /// Where a bound read stands, for the tests' controlled replacements.
@@ -4493,20 +4539,27 @@ const O_NONBLOCK: i32 = 0x0004;
 /// is refused even where the walk would pin the bytes it reaches, because
 /// the walk pins a link only by those bytes and a retarget to equal bytes
 /// moves nothing. Kind is checked before any open, so a FIFO, device or
-/// directory never supplies bytes and a FIFO never blocks the compile. The
-/// handle is opened non-blocking, its own kind is checked, and the path is
-/// resolved again after the open: it must still resolve to the same
-/// target, and that target must be the very file the handle holds. A
-/// replacement of the file, of a link along the path or of a parent
-/// directory in between is refused, with equal bytes too, and the bytes a
-/// caller uses are only those the bound handle supplied.
+/// directory never supplies bytes and a FIFO never blocks the compile; that
+/// check's `(dev, ino)` is the file the rest of the read is bound to. The
+/// handle is opened non-blocking and must hold that very file, of that
+/// kind. While the handle holds it, so no other file can take its number,
+/// the written path is resolved again from the layer's root: it must still
+/// resolve to the same contained target, and that target must still be the
+/// file the handle holds. A replacement of the file, of a link along the
+/// path or of a parent directory, before the open or after it, is refused,
+/// with equal bytes too, and the bytes a caller uses are only those the
+/// bound handle supplied.
+///
+/// The answer carries two file-map keys: the target's, and the reference's
+/// own as written — the entry under which the declaring layer's walk pins
+/// what the reference names when that layer's identity is sealed.
 pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
     if let Some(place) = unpinned_active_input(root, reference) {
         return Err(InputFault::Place(place));
     }
     let written = root.join(reference);
     let target = written.canonicalize().map_err(InputFault::Missing)?;
-    if !target.starts_with(root) {
+    let Some(target_key) = walk_key(root, &target) else {
         return Err(InputFault::Place(
             "which resolves through a link to a file outside the layer's own directory; the \
              walk pins such a link only by the bytes it reaches, so retargeting it to equal \
@@ -4514,15 +4567,13 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
              ruling 3)"
                 .to_string(),
         ));
-    }
+    };
     if let Some(place) = skipped_top_level(root, &target) {
         return Err(InputFault::Place(place));
     }
     // Kind before any open, so a FIFO, device or directory is never opened.
-    if !std::fs::metadata(&target)
-        .map_err(InputFault::Missing)?
-        .is_file()
-    {
+    let checked = std::fs::metadata(&target).map_err(InputFault::Missing)?;
+    if !checked.is_file() {
         return Err(InputFault::Place(
             "which is not a regular file; only a regular file's bytes are read, hashed and \
              pinned, and a FIFO, device or directory could supply bytes the walk never hashed"
@@ -4530,24 +4581,28 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
         ));
     }
     at_stage(ReadStage::Checked, &target);
-    let bytes = read_bound(&written, &target)?;
+    let bytes = read_bound(&written, &target, &checked)?;
     at_stage(ReadStage::Read, &target);
-    let key = target
-        .strip_prefix(root)
-        .expect("contained target")
-        .iter()
-        .map(|part| part.to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/");
-    Ok(BoundInput { key, bytes })
+    // The written spelling as the walk reaches it: `unpinned_active_input`
+    // has refused every spelling that leaves the layer or steps up.
+    let key = walk_key(root, &folded(&written)).unwrap_or_default();
+    Ok(BoundInput {
+        key,
+        target_key,
+        bytes,
+    })
 }
 
-/// The handle half of [`bound_input`] on a supported host. The handle is
-/// checked to be a regular file itself: the target was one when
-/// [`bound_input`] looked, so a handle of any other kind means the file was
-/// replaced in between.
+/// The handle half of [`bound_input`] on a supported host. The handle must
+/// hold the file `checked` examined — its `(dev, ino)`, and a regular file
+/// itself — so a file, FIFO or parent renamed over the target between the
+/// check and the open is refused rather than read, with equal bytes too.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn read_bound(written: &Path, target: &Path) -> Result<Vec<u8>, InputFault> {
+fn read_bound(
+    written: &Path,
+    target: &Path,
+    checked: &std::fs::Metadata,
+) -> Result<Vec<u8>, InputFault> {
     use std::io::Read;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let unreadable = |error: std::io::Error| {
@@ -4561,6 +4616,7 @@ fn read_bound(written: &Path, target: &Path) -> Result<Vec<u8>, InputFault> {
     at_stage(ReadStage::Opened, target);
     let held = file.metadata().map_err(unreadable)?;
     let still = held.is_file()
+        && (held.dev(), held.ino()) == (checked.dev(), checked.ino())
         && written.canonicalize().ok().as_deref() == Some(target)
         && std::fs::metadata(target)
             .is_ok_and(|now| (now.dev(), now.ino()) == (held.dev(), held.ino()));
@@ -4579,7 +4635,7 @@ fn read_bound(written: &Path, target: &Path) -> Result<Vec<u8>, InputFault> {
 /// No supported host lacks the binding; any other refuses rather than
 /// reading an input it cannot bind (design D7).
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn read_bound(_: &Path, _: &Path) -> Result<Vec<u8>, InputFault> {
+fn read_bound(_: &Path, _: &Path, _: &std::fs::Metadata) -> Result<Vec<u8>, InputFault> {
     Err(InputFault::Place(
         "which this host cannot read through a handle bound to its contained target".to_string(),
     ))
@@ -5877,17 +5933,22 @@ fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileErr
     // declaring layer and the refusal names that layer's file. The charter
     // is read through a handle bound to its contained, regular target
     // (operator ruling 3; design D7), so a link out of the layer, a FIFO
-    // or a replacement mid-read refuses here rather than at the seat.
+    // or a replacement mid-read refuses here rather than at the seat. Every
+    // refusal names the declaring file, the seat and the reference, bounded.
+    let source = dir.join("bundle.json");
+    let (site, reference) = (bounded_site(what), bounded_reference(role_rel));
     match bound_input(dir, role_rel) {
         Ok(_) => Ok(dir.join(role_rel)),
-        Err(InputFault::Missing(_)) => Err(CompileError::Invalid(format!(
-            "seat '{what}' role file '{role_rel}' does not exist"
+        Err(InputFault::Missing(error)) => Err(CompileError::Invalid(format!(
+            "{}: seat {site} names role {reference}, {}",
+            source.display(),
+            missing_clause(&error)
         ))),
         Err(InputFault::Place(place)) => Err(CompileError::Invalid(format!(
-            "{}: seat '{what}' names role '{role_rel}', {place}. A charter there could change \
-             what the seat is told without moving the bundle's identity, so it is refused; move \
-             it to a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
-            dir.join("bundle.json").display()
+            "{}: seat {site} names role {reference}, {place}. A charter there could change what \
+             the seat is told without moving the bundle's identity, so it is refused; move it to \
+             a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
+            source.display()
         ))),
     }
 }

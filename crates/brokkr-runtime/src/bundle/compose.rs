@@ -429,11 +429,17 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
     // an ancestor read from under a name the file walk skips. Second
     // council H5: the table is resolved to the file that will be READ —
     // canonically, through every link — and operator ruling 3 (design D7)
-    // binds that read to the contained, regular target by handle.
+    // binds that read to the contained, regular target by handle. Every
+    // refusal names the declaring layer's file and the reference, bounded.
+    let reference = super::bounded_reference(relative);
     let bound = super::bound_input(&layer.dir, relative).map_err(|fault| match fault {
-        super::InputFault::Missing(error) => error.into(),
+        super::InputFault::Missing(error) => invalid(format!(
+            "{}: 'policy' names {reference}, {}",
+            layer.file.display(),
+            super::missing_clause(&error)
+        )),
         super::InputFault::Place(place) => invalid(format!(
-            "{}: 'policy' names '{relative}', {place}. A table there could change how a run is \
+            "{}: 'policy' names {reference}, {place}. A table there could change how a run is \
              ruled without moving the bundle's identity, so it is refused; move it to a path \
              the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
             layer.file.display()
@@ -445,8 +451,8 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
     let table: Map<String, Value> = serde_json::from_slice(&bound.bytes)?;
     let consumed = Consumed {
         file: layer.file.clone(),
-        reference: relative.to_string(),
-        key: bound.key,
+        reference,
+        keys: [bound.key, bound.target_key],
         digest: brokkr_core::canonical::sha256_bytes(&bound.bytes),
     };
     Ok(Some((table, layer.dir.join(relative), consumed)))
@@ -458,20 +464,31 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
 /// than assumed to agree.
 pub struct Consumed {
     file: PathBuf,
+    /// The authored reference, already bounded for a refusal.
     reference: String,
-    key: String,
+    /// The walk's keys for the reference as written — the entry the layer's
+    /// identity names the table by — and for the target that was read.
+    keys: [String; 2],
     digest: String,
 }
 
 impl Consumed {
     /// Refuse a layer whose walk pinned other bytes than the table was
-    /// parsed from — or none at all — for the declaring layer's `files`.
+    /// parsed from — or none at all — for the declaring layer's `files`,
+    /// under the reference's own entry or the target's. A link retargeted
+    /// after the read moves the first while the file that was read keeps
+    /// the second, so both are asked.
     pub fn check(&self, files: &Map<String, Value>) -> Result<(), CompileError> {
-        if files.get(&self.key).and_then(Value::as_str) == Some(self.digest.as_str()) {
+        let pinned = |key: &String| files.get(key).and_then(Value::as_str);
+        if self
+            .keys
+            .iter()
+            .all(|key| pinned(key) == Some(self.digest.as_str()))
+        {
             return Ok(());
         }
         Err(invalid(format!(
-            "{}: 'policy' names '{}', whose bytes changed between the read that parsed them and \
+            "{}: 'policy' names {}, whose bytes changed between the read that parsed them and \
              the walk that pinned them. The table a run is ruled by must be the table its \
              identity names, so it is refused (decision 0065 slice one, design D7)",
             self.file.display(),
