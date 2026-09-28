@@ -2978,6 +2978,35 @@ re-measured and then reverted: 92 protocol lib and 19 `capability_launch`
 failures. 15.1 and 15.2 stay open. Fixture migrations and standing-admission
 lines: none.
 
+Unit 15-fix-a (2026-09-28, run `0065-rebuild-unit-15-see-the-uni-a2f84ac0`,
+based on `0558fa5d`; evidence.md, "Unit 15-fix-a"). **Result: blocked.**
+Tests only; `adapters.rs` is unchanged.
+
+- Unit 15's `UNSEALED` arm was re-applied only for measurement, then
+  reverted. Before migration it broke 92 protocol lib tests (79 by
+  `ADAPTER_ENV` poisoning) and 19 in `capability_launch`.
+- Helpers:
+  - Runtime: `seal_as_dispatch` seals the way `mark_capabilities` does.
+    `try_launch` and `rejoin` use it.
+  - Protocol: `sealed_pair` and `Seal` sit beside `engine_input`.
+- Under the guard, all 19 runtime tests pass, and 82 of 92 protocol tests.
+  Seven of those 82 had their fixtures migrated. Each test is named in
+  evidence.md.
+- Four fixture inputs moved beyond adding the pair, and need a ruling:
+  - the class order;
+  - counterfeit hands replaced by the shipped fragment;
+  - `model_verbosity` replaced by `model_reasoning_effort`;
+  - a read-only class without a capture, sealed as a template.
+- Ten tests cannot pass with their assertions unchanged:
+  - Two assert the unsealed-with-plan exemption. 15-fix-b must change them.
+  - Five assert that authored content launches, content the final check
+    refuses by construction: `-o`, authored lists, `--settings`, and
+    `/run/hands.json`.
+  - In three, `claude_plan`'s `local` contradicts the argv.
+- 15.1 and 15.2 stay open. Standing-admission lines: none.
+- Gates: fmt, clippy, the protocol and runtime suites, `bundles/self`,
+  strict OpenSpec (18 passed) and `git diff --check` are clean.
+
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
 - [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)

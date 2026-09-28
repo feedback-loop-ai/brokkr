@@ -16397,3 +16397,202 @@ covers that migration.
 
 Fixture migrations and standing-admission lines: none. **Pending.** The
 operator's ruling on the split, then everything the previous record lists.
+
+## Unit 15-fix-a — the sealed fixtures, blocked on ten tests, 2026-09-28
+
+Run `0065-rebuild-unit-15-see-the-uni-a2f84ac0`, based on `0558fa5d`. The
+commission carried the operator's ruling of 2026-09-28: 15-fix-a, then
+15-fix-b. 15-fix-a is tests only. Every plan-carrying driver fixture moves
+to the sealed form dispatch uses. Each migrated test's assertions stay
+unchanged. **Result: blocked.** 101 of the 111 tests the guard broke pass
+under it after the migration. The other ten cannot pass with their
+assertions unchanged, whatever the seal.
+
+No production file moved. `adapters.rs` equals `0558fa5d`. The files are
+`crates/brokkr-protocol/src/adapters/tests.rs` and
+`crates/brokkr-runtime/tests/capability_launch.rs`.
+
+### The guard, re-measured
+
+Unit 15's `UNSEALED` arm was rebuilt from its record, with the refusal
+text its failures printed. The arm refuses when `native_controls` is
+present and neither sealed input is. It was saved as
+`.forge/unit-15-fix-a/guard.patch`, applied only for measurement, and
+reverted with `git checkout crates/brokkr-protocol/src/adapters.rs`.
+
+Before any migration, under the guard:
+
+- `cargo test -p brokkr-protocol --lib`: 449 passed, 92 failed.
+- `cargo test -p brokkr-runtime --test capability_launch`: 39 passed, 19
+  failed.
+
+79 of the 92 protocol failures were `PoisonError` at
+`ADAPTER_ENV.lock()`. A test that panics while holding the lock poisons
+every later test that takes it. Only 13 failed on their own. The
+`hands::tests` network-prefix test in unit 15's count of 93 fails only by
+poisoning, and passed in this run. The totals are 93 + 19 = 112 in unit
+15's run and 92 + 19 = 111 here.
+
+### The helpers
+
+- **Runtime.** `seal_as_dispatch` in `capability_launch.rs` follows
+  `mark_capabilities` in order. It calls `expected_state`, then
+  `serving_inputs` under the bundle's boundary, then `SiteSpawn::seal`. It
+  writes `launch_record` and `serving_inputs` into the input. Where dispatch
+  would set a refusal instead, it returns that refusal. `try_launch` and
+  `rejoin` now call it. Neither adds or removes an assertion.
+- **Protocol.** `sealed_pair` and `Seal` sit beside `engine_input` in
+  `adapters/tests.rs`. The record's segments reassemble the handed
+  arguments, as runs of `(origin, count)`. The expected state holds,
+  denies and admits exactly what the decoded plan does, for the plan's
+  provider and harness. The serving inputs carry the seal's dialect and
+  typed hands. Production writes `admits` for every held power
+  (`capabilities.rs:2096`), so the helper adds an empty `admits` entry for
+  any held power the plan fixture leaves out.
+- `Seal::codex_class` seals a class the engine lowers onto the adapter's
+  work fragment. `Seal::codex_template` seals a class the adapter declares
+  in its permission template. `Seal::hands` binds a declared workspace
+  fragment, as the engine binds it, to this executable, the workdir `/w`
+  and the default typed hands.
+
+### Migrated, and passing under the guard
+
+**Runtime: 19 of 19.** Each test reaches the driver through `try_launch`
+or `rejoin`. Under the guard, `capability_launch` passed 58 of 58
+(`.forge/unit-15-fix-a/final-guard-runtime.txt`):
+
+- `a_codex_adapter_whose_effort_flag_assigns_a_permission_table_refuses_the_compile`
+- `a_codex_seat_that_does_not_hold_search_is_launched_with_it_switched_off`
+- `a_codex_seat_that_holds_search_is_launched_without_the_off_pair`
+- `a_codex_that_could_not_switch_search_off_is_unseatable_boxed_and_unboxed`
+- `a_known_native_power_with_no_valid_denial_refuses_the_seat`
+- `a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened`
+- `a_native_control_declared_as_argv_reaches_the_final_claude_command`
+- `a_restriction_value_moves_the_manifest_digest_even_where_it_is_inactive`
+- `an_adapter_whose_model_or_effort_pin_carries_a_permission_control_refuses_the_compile`
+- `an_agent_backed_claude_seat_seals_its_declared_template_and_refuses_a_contradiction`
+- `an_authored_capability_option_refuses_the_compile_under_every_grant_state`
+- `an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still_launch`
+- `an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_round`
+- `an_explicit_include_list_an_adapter_declares_is_never_widened_by_a_grant`
+- `an_inline_claude_seat_whose_adapter_declares_no_template_gets_none`
+- `an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_local_limits`
+- `an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body`
+- `the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_limits`
+- `the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_engines_own`
+
+**Protocol: 82 of 92.** Seven tests had fixtures migrated:
+
+- `a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held`
+- `an_eligible_codex_resume_reimposes_the_capability_control`
+- `an_authored_config_still_turns_a_rejoin_cold_and_the_fallback_stays_denied`
+- `a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off_once`
+- `a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied`
+- `an_authored_native_control_is_refused_whatever_the_seat_holds` (the
+  inert `--model=--search` launch)
+- `a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouched`
+  (the denied cold replacement)
+
+The other 75 needed no change. With the seven migrated, they pass under the
+guard. They had failed only by lock poisoning, or they refuse before
+`served`. Under the guard, `cargo test -p brokkr-protocol --lib -- --skip
+a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it` ran
+531 passed and 9 failed, with no `PoisonError`
+(`.forge/unit-15-fix-a/final-guard-protocol-skip.txt`). The skipped test
+failed on its own (`final-guard-dsh.txt`). The ten failures are listed
+below.
+
+### Fixture inputs that moved beyond adding the pair
+
+The operator should rule on each of these. None changes an assertion.
+
+1. **Class order.** In `an_eligible_codex_resume_…` and
+   `an_authored_config_…`, the class now follows the recipe's words.
+   Dispatch composes the authored part first, and the check refuses the old
+   order at the cold replacement.
+2. **Counterfeit hands.** `a_cold_codex_…` (boxed) and `a_boxed_codex_offer_…`
+   authored hands as `-c mcp_servers.brokkr.command="/bin/brokkr"`. They are
+   now the shipped `hands.workspace` fragment, bound as the engine binds
+   it, and the plan's `hands` count names it. The check requires the
+   transport's whole server. Composition requires the typed hands to carry
+   their class. It refused a six-argument server with "carry no sandbox
+   class".
+3. **An authored key.** `an_authored_config_…`'s authored
+   `-c model_verbosity="low"` is now `-c model_reasoning_effort="low"`. The
+   final check refused the old key: "assigns a key no bounded meaning is
+   modelled for". The effort key is the one inert key. The rejoin still
+   turns cold on `incompatible-argv`, as asserted.
+4. **Read-only without a capture.** The read-only class in these tests has
+   no capture, so it is sealed as the adapter's declared permission
+   template. The inline judgment reads a lowered read-only class as a
+   gate's. It refused it: "no contribution carries the engine's capture".
+
+### The ten that cannot pass with their assertions unchanged
+
+Under the guard, each fails with the guard's reason. Where a seal was
+tried, the failure is the check's reason below.
+
+- **They assert the exemption the guard removes.** 15-fix-b must change
+  these two assertions. Neither can be migrated.
+  - `a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it`:
+    "nothing sealed is served as composed", with the plan still present.
+  - `the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it`:
+    "a launch sealed with nothing is not judged".
+- **They assert that authored content launches, which the final check
+  refuses by construction.**
+  - `every_authored_spelling_the_shipped_codex_adapter_guards_is_refused`:
+    `-o=--search` is asserted to launch. Once sealed, the check refused it
+    as "a result capture … in the recipe's words", even without the guard.
+    That seal was reverted.
+  - `an_authored_mcp_denial_is_subtraction_and_survives_beside_the_native_one`:
+    authored `--disallowedTools mcp__*`. Sealed, the check refused it with
+    "names a tool that is not a plain name".
+  - `a_local_claude_permission_is_kept_under_every_spelling_of_its_list_flag`:
+    authored list flags. Sealed, the check refused it: "the recipe's words
+    … carrying … a capability-bearing effect".
+  - `a_held_supported_restriction_reaches_the_cold_and_resumed_claude_commands`:
+    `--settings` is in the plan's argv. By reading `sealed_inputs`, not by
+    a measured seal: the check refuses a held power with a nonempty
+    restriction (D11) and any unjudged control in the native contribution.
+  - `claude_admits_only_held_native_tools_beside_its_hands`: the boxed rows
+    assert the literal `/run/hands.json`. By reading, not measured: the
+    check requires the transport's own document. The unboxed row could be
+    sealed.
+- **Their plan fixture contradicts their argv.** `claude_plan` records
+  `"local": ["Bash(git:*)"]` as a list the engine lowered, but these argvs
+  do not carry it. Sealing needs `local` re-planted per test, which is a
+  plan change the ruling does not admit.
+  - `an_authored_plugin_or_later_list_value_is_refused_at_the_final_command`:
+    sealed, it "departs at argument 6".
+  - `an_unboxed_claude_seat_holds_a_native_tool_without_gaining_a_tool_list`:
+    sealed, it "departs at argument 5".
+  - `an_explicitly_restrictive_managed_tool_list_reaches_the_final_command`:
+    sealed, the explicit `--tools` "does not name tool 'Bash'".
+
+The Claude seal was a scratch helper in `claude_composed`. It sealed
+`--permission-mode acceptEdits` as the template and the plan's `local` as a
+direct lowering onto `--allowedTools`. Its output is in
+`.forge/unit-15-fix-a/e1-claude-seal.txt`. It was removed, because it makes
+none of these pass.
+
+### Gates
+
+These ran on the tree as committed, without the guard.
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -q -p brokkr-protocol`: 541 passed in the lib; 3 binaries,
+  none failed.
+- `cargo test -q -p brokkr-runtime`: 25 binaries, all ok;
+  `capability_launch` 58.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`:
+  compiles.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+Standing-admission lines: none.
+
+**Pending.** A ruling on the ten tests and the four fixture moves above.
+Then 15-fix-b, exact coverage outside the box, macOS, remote CI and the
+council.

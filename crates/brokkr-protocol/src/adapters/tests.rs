@@ -14125,6 +14125,172 @@ fn engine_input(mut input: Value, plan: Value, extra: &[String], managed: usize)
     input
 }
 
+/// What one sealed launch declares beside its plan: its record's segments
+/// as runs of `(origin, count)` over the handed arguments, in order; its
+/// typed local declaration and permission template; and the adapter's
+/// dialect and typed hands the serving inputs carry.
+#[derive(Clone)]
+struct Seal {
+    runs: Vec<(crate::native_controls::Origin, usize)>,
+    local: crate::native_controls::LocalExpectation,
+    template: crate::native_controls::TemplateExpectation,
+    dialect: crate::native_controls::SealedDialect,
+    spec: Option<crate::hands::HandsSpec>,
+}
+
+impl Seal {
+    /// Every handed argument the recipe's, with no local declaration, no
+    /// template, no hands and no dialect.
+    fn authored(count: usize) -> Seal {
+        use crate::native_controls::{AllowIntent, Application, LocalExpectation, SandboxIntent};
+        Seal {
+            runs: vec![(crate::native_controls::Origin::Authored, count)],
+            local: LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            },
+            template: crate::native_controls::TemplateExpectation::None,
+            dialect: Default::default(),
+            spec: None,
+        }
+    }
+
+    /// The recipe's `authored` arguments, then the engine's lowered Codex
+    /// `class` as its local segment, the adapter's `fragment` for it.
+    fn codex_class(
+        authored: usize,
+        class: crate::native_controls::SandboxIntent,
+        fragment: &[&str],
+    ) -> Seal {
+        let mut seal = Seal::authored(authored);
+        seal.runs
+            .push((crate::native_controls::Origin::Local, fragment.len()));
+        seal.local.sandbox = class;
+        seal.dialect.sandbox = fragment.iter().map(|part| part.to_string()).collect();
+        seal
+    }
+}
+
+impl Seal {
+    /// The recipe's `authored` arguments, then a Codex adapter's declared
+    /// permission template `template`, which carries one class.
+    fn codex_template(authored: usize, template: &[&str]) -> Seal {
+        let mut seal = Seal::authored(authored);
+        seal.runs
+            .push((crate::native_controls::Origin::Template, template.len()));
+        seal.template = crate::native_controls::TemplateExpectation::Declared(
+            template.iter().map(|part| part.to_string()).collect(),
+        );
+        seal
+    }
+
+    /// The box's hands appended as the engine composes them: the adapter's
+    /// declared workspace `fragment` bound to this executable, the workdir
+    /// `/w` and the default typed hands, as dispatch binds them. The
+    /// expanded arguments are returned for the fixture to hand the driver.
+    fn hands(&mut self, fragment: &[&str]) -> Vec<String> {
+        let fragment: Vec<String> = fragment.iter().map(|part| part.to_string()).collect();
+        let brokkr = std::env::current_exe().unwrap();
+        let spec = crate::hands::HandsSpec::default();
+        let hands = crate::native_controls::Transport {
+            brokkr: &brokkr,
+            workdir: std::path::Path::new("/w"),
+            spec: &spec,
+        }
+        .expand(&fragment)
+        .expect("a UTF-8 executable and workdir");
+        self.runs
+            .push((crate::native_controls::Origin::Hands, hands.len()));
+        self.dialect.hands = fragment;
+        self.spec = Some(spec);
+        hands
+    }
+}
+
+/// The Codex workspace server's three assignments, as `adapters/codex.json`
+/// declares them after its class.
+const CODEX_SERVER: [&str; 6] = [
+    "-c",
+    "mcp_servers.brokkr.command=\"{brokkr}\"",
+    "-c",
+    "mcp_servers.brokkr.args={hands_args_toml}",
+    "-c",
+    "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+];
+
+/// `input`, which carries the engine's plan and the argv's two parts
+/// ([`engine_input`]), sealed as dispatch seals it (`mark_capabilities`;
+/// rebuild unit 15-fix-a): the launch record whose segments reassemble
+/// `extra` by `seal`'s runs and whose expected state holds, denies and
+/// admits exactly what the plan does, for the plan's provider and harness;
+/// and the serving inputs sealed beside it. The plan answers for what each
+/// held power admits, as the engine writes every plan.
+fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Value {
+    use crate::native_controls::{
+        Expected, HandsIntent, HeldPower, Identity, Inventory, LaunchRecord, NativeExpectation,
+        SealedServing, Segment, SERVING_INPUTS,
+    };
+    let controls = crate::native_controls::managed(&input)
+        .expect("a readable plan")
+        .expect("a plan");
+    for capability in &controls.held {
+        if !controls.admits.contains_key(capability) {
+            input["native_controls"]["admits"][capability] = json!([]);
+        }
+    }
+    let native = match &controls.inventory {
+        Inventory::Known => NativeExpectation::Known {
+            held: controls
+                .held
+                .iter()
+                .map(|capability| HeldPower {
+                    capability: capability.clone(),
+                    tools: controls.admits.get(capability).cloned().unwrap_or_default(),
+                    restrictions: Default::default(),
+                })
+                .collect(),
+            denied: controls.denied.clone(),
+        },
+        Inventory::Unmeasured(reason) => NativeExpectation::Unmeasured(reason.clone()),
+    };
+    let mut at = 0;
+    let segments = seal
+        .runs
+        .iter()
+        .map(|&(origin, count)| {
+            at += count;
+            Segment::new(origin, &extra[at - count..at])
+        })
+        .collect();
+    assert_eq!(at, extra.len(), "the runs cover every handed argument");
+    let record = LaunchRecord {
+        segments,
+        expected: Expected {
+            identity: Identity {
+                provider: controls.provider.clone(),
+                harness: controls.harness.clone(),
+                model: None,
+            },
+            native,
+            local: seal.local,
+            hands: match seal.spec {
+                Some(_) => HandsIntent::Required,
+                None => HandsIntent::None,
+            },
+            template: seal.template,
+        },
+    };
+    input["launch_record"] = record.value();
+    input[SERVING_INPUTS] = SealedServing {
+        dialect: seal.dialect,
+        pins: Vec::new(),
+        spec: seal.spec,
+    }
+    .value();
+    input
+}
+
 /// The same input with `extra` recorded as WHOLLY authored: what the engine
 /// writes for an inline seat, whose argv is all the recipe's.
 fn all_authored(input: &Value, extra: &[String]) -> Value {
@@ -14146,17 +14312,17 @@ fn carries_off(command: &[String]) -> bool {
 /// the argv says — never a claim about what the provider then does.
 #[test]
 fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
+    use crate::native_controls::SandboxIntent;
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let boxed = s(&[
-        "--model",
-        "gpt-6-astra",
-        "--effort",
-        "high",
-        "--sandbox",
-        "read-only",
-        "-c",
-        "mcp_servers.brokkr.command=\"/bin/brokkr\"",
-    ]);
+    // Boxed, the tokens after the pins are the adapter's hands fragment:
+    // the engine's, recorded as such, and so not an authored server. Each
+    // seat is sealed as dispatch seals it (rebuild unit 15-fix-a): the box's
+    // hands bound as the engine binds them, and unboxed, the class the
+    // engine lowers onto the adapter's work fragment.
+    let pins = s(&["--model", "gpt-6-astra", "--effort", "high"]);
+    let mut boxed_seal = Seal::authored(pins.len());
+    let hands = boxed_seal.hands(&[&["--sandbox", "read-only"][..], &CODEX_SERVER].concat());
+    let boxed = [pins, hands].concat();
     let unboxed = s(&[
         "--model",
         "gpt-6-astra",
@@ -14165,10 +14331,31 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
         "--sandbox",
         "workspace-write",
     ]);
-    // Boxed, the last two tokens are the adapter's hands fragment: the
-    // engine's, recorded as such, and so not an authored server.
-    for (case, extra, managed) in [("boxed", &boxed, 2), ("unboxed", &unboxed, 0)] {
-        let input = engine_input(json!({"workdir": "/w"}), codex_denied(), extra, managed);
+    let seal = |case: &str| match case {
+        "boxed" => boxed_seal.clone(),
+        _ => Seal::codex_class(
+            4,
+            SandboxIntent::WorkspaceWrite,
+            &["--sandbox", "workspace-write"],
+        ),
+    };
+    let managed_of = |case: &str| match case {
+        "boxed" => boxed.len() - 4,
+        _ => 0,
+    };
+    for (case, extra) in [("boxed", &boxed), ("unboxed", &unboxed)] {
+        let managed = managed_of(case);
+        let plan = |mut plan: Value| {
+            plan["hands"] = json!(managed);
+            plan
+        };
+        let input = engine_input(
+            json!({"workdir": "/w"}),
+            plan(codex_denied()),
+            extra,
+            managed,
+        );
+        let input = sealed_pair(input, extra, seal(case));
         let denied = codex_launch("codex", extra, "/w", None, &input).unwrap();
         // The whole argv: the seat's own controls intact, the pair LAST.
         let mut expected = s(&[
@@ -14189,7 +14376,8 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
         expected.extend(s(&CODEX_OFF));
         assert_eq!(denied.command, expected, "{case}: denied");
 
-        let input = engine_input(json!({"workdir": "/w"}), codex_held(), extra, managed);
+        let input = engine_input(json!({"workdir": "/w"}), plan(codex_held()), extra, managed);
+        let input = sealed_pair(input, extra, seal(case));
         let held = codex_launch("codex", extra, "/w", None, &input).unwrap();
         expected.truncate(expected.len() - 2);
         assert_eq!(held.command, expected, "{case}: held");
@@ -14216,22 +14404,32 @@ fn an_eligible_codex_resume_reimposes_the_capability_control() {
     ] {
         let argv = dir.path().join(format!("argv-{case}"));
         let shim = codex_shim(dir.path(), &format!("codex-{case}"), &argv);
+        // The class is the engine's lowered segment, after the recipe's
+        // words, as dispatch composes and seals it (rebuild unit 15-fix-a).
         let extra: Vec<String> = [
-            "--sandbox",
-            "workspace-write",
             "--model",
             "gpt-6-astra",
             "--effort",
             "high",
+            "--sandbox",
+            "workspace-write",
         ]
         .iter()
         .map(|part| part.to_string())
         .collect();
-        let input = engine_input(
-            enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
-            plan,
+        let input = sealed_pair(
+            engine_input(
+                enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                plan,
+                &extra,
+                0,
+            ),
             &extra,
-            0,
+            Seal::codex_class(
+                4,
+                crate::native_controls::SandboxIntent::WorkspaceWrite,
+                &["--sandbox", "workspace-write"],
+            ),
         );
         let launch =
             codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input).unwrap();
@@ -14270,15 +14468,27 @@ fn an_authored_config_still_turns_a_rejoin_cold_and_the_fallback_stays_denied() 
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let shim = codex_shim(dir.path(), "codex-authored", &dir.path().join("argv"));
-    let extra: Vec<String> = ["--sandbox", "read-only", "-c", "model_verbosity=\"low\""]
-        .iter()
-        .map(|part| part.to_string())
-        .collect();
-    let input = engine_input(
-        enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
-        codex_denied(),
+    // The class is the adapter's template, after the recipe's words, as
+    // dispatch composes and seals it; the authored assignment is the one key
+    // the final check reads as inert (rebuild unit 15-fix-a).
+    let extra: Vec<String> = [
+        "-c",
+        "model_reasoning_effort=\"low\"",
+        "--sandbox",
+        "read-only",
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect();
+    let input = sealed_pair(
+        engine_input(
+            enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+            codex_denied(),
+            &extra,
+            0,
+        ),
         &extra,
-        0,
+        Seal::codex_template(2, &["--sandbox", "read-only"]),
     );
     let launch = codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input).unwrap();
     assert_eq!(launch.refusal, Some("incompatible-argv"));
@@ -14311,13 +14521,25 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
         "--sandbox",
         "read-only",
     ]);
-    let hands = s(&["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\""]);
+    // Sealed as dispatch seals it (rebuild unit 15-fix-a). With the hands
+    // fragment, the seat's class and the workspace server after it are the
+    // shipped `hands.workspace` fragment, which the engine binds; the seat's
+    // own argv carries its class in the adapter's declared template.
+    let mut boxed_seal = Seal::authored(4);
+    let shipped = boxed_seal.hands(&[&["--sandbox", "read-only"][..], &CODEX_SERVER].concat());
+    let hands = shipped[2..].to_vec();
     let boxed_extra = [seat.clone(), hands.clone()].concat();
     // `managed` is how many trailing tokens of `extra` the engine appended.
     let site = |hands: &str, plan: Value, extra: &[String], managed: usize| {
         let mut input = enabled_assessment(CODEX_SHAPE, CODEX_VERSION, "namespace", "none");
         input["hands"] = json!(hands);
-        engine_input(input, plan, extra, managed)
+        let (seal, managed) = match managed {
+            0 => (Seal::codex_template(4, &["--sandbox", "read-only"]), 0),
+            _ => (boxed_seal.clone(), shipped.len()),
+        };
+        let mut plan = plan;
+        plan["hands"] = json!(managed);
+        sealed_pair(engine_input(input, plan, extra, managed), extra, seal)
     };
 
     // The control: unboxed, the offer is taken and the pair rides it.
@@ -14406,11 +14628,15 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
         ("held", codex_held(), ""),
     ] {
         std::fs::remove_file(&argv).ok();
-        let input = engine_input(
-            enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
-            plan,
+        let input = sealed_pair(
+            engine_input(
+                enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                plan,
+                &extra,
+                0,
+            ),
             &extra,
-            0,
+            Seal::codex_template(0, &["--sandbox", "read-only"]),
         );
         let mut emitted = Vec::new();
         let invocation = with_codex_bin(&shim, || {
@@ -14491,7 +14717,8 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
         // split pair is ambiguous and is refused rather than guessed at
         // (second council H3).
         let inert = s(&["--model=--search"]);
-        assert!(codex_launch("codex", &inert, "/w", None, &all_authored(&input, &inert)).is_ok());
+        let sealed = sealed_pair(all_authored(&input, &inert), &inert, Seal::authored(1));
+        assert!(codex_launch("codex", &inert, "/w", None, &sealed).is_ok());
         let ambiguous = s(&["--model", "--search"]);
         let Err(error) = codex_launch(
             "codex",
@@ -14889,7 +15116,11 @@ fn a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouc
         ["codex", "exec", "--json", "-C", "/w"]
     );
     assert_eq!(cold(&missing).err().as_deref(), Some(refusal));
-    let denied = engine_input(by_hand.clone(), codex_denied(), &[], 0);
+    let denied = sealed_pair(
+        engine_input(by_hand.clone(), codex_denied(), &[], 0),
+        &[],
+        Seal::authored(0),
+    );
     assert_eq!(
         cold(&denied).unwrap(),
         [

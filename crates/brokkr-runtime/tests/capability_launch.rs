@@ -248,7 +248,7 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
         true => brokkr_runtime::engine::BuiltBoundary::Namespace,
         false => brokkr_runtime::engine::BuiltBoundary::Harness,
     };
-    let spawn = brokkr_runtime::engine::compose_site_at(
+    let mut spawn = brokkr_runtime::engine::compose_site_at(
         Some(facts),
         built,
         brokkr_runtime::SeatClass::Work,
@@ -260,16 +260,45 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
         "/w/result.json",
         None,
     );
-    let argv = &spawn.argv;
-    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
     // The plan AND the argv's two parts, each exactly as the engine writes
     // it: the driver refuses a launch whose provenance it cannot reassemble.
-    let input = json!({"workdir": "/w", "seat": label, "native_controls": outcome.controls(),
-                       "launch_arguments": spawn.launch_arguments()});
+    let mut input = json!({"workdir": "/w", "seat": label, "native_controls": outcome.controls(),
+                           "launch_arguments": spawn.launch_arguments()});
+    // Beside the plan, the record and serving inputs sealed exactly as
+    // dispatch seals them (`mark_capabilities`), or dispatch's refusal
+    // where it seals none (rebuild unit 15-fix-a).
+    seal_as_dispatch(bundle, label, candidate, &mut spawn, &mut input)?;
+    let argv = &spawn.argv;
+    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
     match outcome.provider.as_str() {
         "codex" => brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input),
         _ => brokkr_protocol::adapters::claude_command("claude", extra, None, &input),
     }
+}
+
+/// Seal `spawn`'s launch record and the serving inputs beside it into
+/// `input`, through the engine's own `expected_state` and `serving_inputs`
+/// in `mark_capabilities`' order, or answer the refusal dispatch sets on a
+/// spawn it cannot seal.
+fn seal_as_dispatch(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    spawn: &mut brokkr_runtime::engine::SiteSpawn,
+    input: &mut Value,
+) -> Result<(), String> {
+    use brokkr_protocol::native_controls::SERVING_INPUTS;
+    use brokkr_runtime::engine::{expected_state, serving_inputs, LAUNCH_RECORD};
+    let facts = &bundle.sites[label];
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let link = facts.chain.get(candidate);
+    let expected = expected_state(outcome, link, Some(facts))?;
+    let serving = serving_inputs(link, Some(facts), spawn.class, bundle.boundary)?;
+    spawn.seal(expected)?;
+    input[LAUNCH_RECORD] = spawn.launch_record();
+    input[SERVING_INPUTS] = serving.value();
+    spawn.serving = Some(serving);
+    Ok(())
 }
 
 /// One compiled site and candidate composed as [`try_launch`] composes it,
@@ -544,7 +573,7 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
     };
     // Composed from the site's facts, as dispatch composes it, so an inline
     // seat's lowered class is the engine's own segment (rebuild unit 5d).
-    let spawn = brokkr_runtime::engine::compose_site_at(
+    let mut spawn = brokkr_runtime::engine::compose_site_at(
         Some(facts),
         brokkr_runtime::engine::BuiltBoundary::Harness,
         brokkr_runtime::SeatClass::Work,
@@ -556,14 +585,16 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
         "/w/result.json",
         None,
     );
-    let argv = &spawn.argv;
-    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-    let input = json!({
+    let mut input = json!({
         "workdir": "/w", "seat": label, "boundary": boundary, "hands": "none",
         "resume_context": {"assessment": assessment},
         "native_controls": outcome.controls(),
         "launch_arguments": spawn.launch_arguments(),
     });
+    seal_as_dispatch(bundle, label, 0, &mut spawn, &mut input)
+        .unwrap_or_else(|refusal| panic!("{label} unsealed: {refusal}"));
+    let argv = &spawn.argv;
+    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
     brokkr_protocol::adapters::codex_command(
         shim.to_str().unwrap(),
         extra,
