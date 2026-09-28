@@ -20,7 +20,7 @@ ever looks at it.
 - [Commits, signing, and how your PR actually lands](#commits-signing-and-how-your-pr-actually-lands)
 - [The decision culture](#the-decision-culture)
 - [What is frozen](#what-is-frozen)
-- [Recipes and adapters: the surface that never faces the core gates](#recipes-and-adapters-the-surface-that-never-faces-the-core-gates)
+- [Recipes and adapters: data the Rust suite witnesses](#recipes-and-adapters-data-the-rust-suite-witnesses)
 - [Contribution licensing](#contribution-licensing)
 
 ## What you need installed
@@ -283,8 +283,8 @@ that one too:
 cargo run --locked -p brokkr-cli -- compile --bundle recipes/<name>
 ```
 
-and expect a digest test to move — see
-[recipes and adapters](#recipes-and-adapters-the-surface-that-never-faces-the-core-gates).
+and expect a witness digest to move — see
+[recipes and adapters](#recipes-and-adapters-data-the-rust-suite-witnesses).
 
 ### Exact coverage
 
@@ -872,16 +872,18 @@ decisions (0003–0005) it stands on.
 `recipes/*/policy.json` is *not* the production table — it is bundle
 data, and adding or editing a recipe's own table is an ordinary change.
 
-## Recipes and adapters: the surface that never faces the core gates
+## Recipes and adapters: data the Rust suite witnesses
 
 `recipes/`, `bundles/`, `agents/` and `adapters/` are data. A change to
-any of them is JSON and Markdown, not Rust, and it does not face the
-gates a `crates/` change faces: there is no clippy run over a policy
-table, no MSRV question for a role charter, and the coverage gate reads
-`crates/` source, so a new recipe adds no uncovered lines to it.
+any of them is JSON and Markdown, not Rust: there is no clippy run over
+a policy table, no MSRV question for a role charter, and the coverage
+gate reads `crates/` source, so a new recipe adds no uncovered lines to
+it. It still runs through `cargo test --workspace` like any other
+change, because the Rust suite compiles that data and pins its
+identity, and so it faces the same required checks.
 
-This is the honest contribution surface for a first change. What a data
-change *does* face:
+This is the honest contribution surface for a first change, and it
+should not need a Rust edit. What a data change faces:
 
 1. **`brokkr compile`.** Every recipe and bundle in the tree is compiled
    by `every_bundle_in_the_tree_compiles` in
@@ -891,16 +893,39 @@ change *does* face:
    the closed condition vocabulary, aggregate/result agreement, seat
    classes and the trust tier a gate seat requires (decision
    [0021](../decisions/0021-model-policy.md)).
-2. **The digest tests.** A recipe's identity is the SHA-256 of its
+2. **The witness table.** A recipe's identity is the SHA-256 of its
    canonical manifest, which covers every file in it — the policy table,
-   the charters, the driver command names. `recipes/fast`,
-   `recipes/node`, `recipes/preflight` and `bundles/verify` have that
-   digest pinned in `witness_digests.rs`. Editing one of them moves the
-   digest and fails a test **on purpose**: the point is that a charter
+   the charters, the driver command names — and the adapter declarations
+   its seats consult. The bundles listed under `bundles` in
+   [`crates/brokkr-runtime/tests/witnesses.json`](../../crates/brokkr-runtime/tests/witnesses.json)
+   have that digest pinned, and every charter under `agents/charters/`
+   is pinned under `charters`. Editing one of them, or an adapter a
+   pinned bundle resolves through, moves a digest and fails
+   `witness_digests.rs` **on purpose**: the point is that a charter
    cannot be softened or a tool added to a driver's list without the
-   change being visible as an identity change. Re-pin it deliberately,
-   in the same commit, with the reason in the commit message.
-3. **Whatever recipe-specific tests exist.** `recipes/node` has
+   change being visible as an identity change. The failure lists every
+   moved witness at once, as a table of old and new values. Re-pin them
+   all with one command:
+
+   ```
+   BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+   ```
+
+   It rewrites `witnesses.json` in place and refuses where `CI` is set.
+   Commit the rewritten file in the same commit as the change, say in
+   the message why each value moved, and paste the failure's table into
+   the pull request. The reviewed diff of that file is the witness.
+3. **The adapter properties.** `library_data.rs` holds every adapter to
+   what its data must satisfy rather than to a copy of it: each model
+   resolves to a route whose egress the file declares, each route named
+   in `routes`, `credentials` or `effortless_routes` is one a mapped
+   model reaches, each effortless route gives a dated reason naming the
+   release it was measured on, and each alias is either hired by an
+   agent or listed in the
+   [alias catalogue](provider-adapters.md#the-alias-catalogue). Adding
+   an alias no agent hires is an edit to the adapter file, to its row
+   in that catalogue, and a bless.
+4. **Whatever recipe-specific tests exist.** `recipes/node` has
    `node_recipe_gates.rs` proving its gate seats refuse an untrusted
    driver; `recipes/preflight` has `preflight_shape.rs` proving its
    table stays terminal after review. A new recipe making a structural

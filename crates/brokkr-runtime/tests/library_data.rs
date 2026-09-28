@@ -1,22 +1,26 @@
 //! T3/T4: the shipped `agents/` library and `adapters/` data.
 //!
-//! Each shared charter is pinned by digest. The witnesses were re-recorded
-//! when decision 0019's closing sweep changed their living prose. Two agents
-//! deliberately share a charter file — identical bytes, differing only in
-//! tools — so nothing is copied to make the roster look tidy.
-//! Decision 0041 rulings 4 and 5 deliberately move the implement and review
-//! pins: implementers learn the bounded-return vocabulary, while every judge
-//! becomes read-only and reports the return instead of applying it.
+//! Every charter is pinned by digest in the witness table
+//! (`witnesses.json`, #358). Two agents deliberately share a charter file
+//! — identical bytes, differing only in tools — so nothing is copied to
+//! make the roster look tidy.
 //! Decision 0043 retires verifier and shipper from this model library; the
 //! roster test accounts for their boxed exec scripts instead.
 //! Decision 0058 seats the `recipes/gpt-flash` forced crew as fifteen scoped
 //! `gpt-flash-*` offices: each reuses a library charter, names exactly one
 //! model, and carries no fallback chain, which is why the resolution test
 //! below exempts those offices by name from the standard chain assertion.
+//!
+//! The adapter data is proved by properties rather than retyped (#358):
+//! a model added to an adapter is checked by what it must satisfy, so the
+//! edit that adds it touches the adapter, the witness table and the
+//! guide's catalogue row, and no Rust.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use brokkr_runtime::{resolve_agent, Adapters, Availability, Library};
+use brokkr_runtime::agents::Adapter;
+use brokkr_runtime::{resolve_agent, resolve_route, Adapters, Availability, EgressClass, Library};
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -27,84 +31,10 @@ fn workspace() -> PathBuf {
         .to_path_buf()
 }
 
-/// The current bytes of every shared charter. Decision 0041 ruling 8 moves
-/// the affected witnesses because repository rules left the office text and
-/// the three sequence disclaimers disappeared. Decision 0042 moves the four
-/// SDD office charters as dialect-specific prose leaves them. Decision 0071
-/// (#333) moves the eight pinned here that build, design or judge code, as
-/// their charters gained its principles; each value is the test's own
-/// reported digest.
-const CHARTERS: [(&str, &str); 12] = [
-    (
-        "chief-architect.md",
-        "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
-    ),
-    (
-        // Moved by proposed decision 0056 ruling 10: the SDD smith
-        // persists task progress before the next group and reconciles it
-        // against the worktree on recovery, warm or cold. Moved again by
-        // the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the condensed
-        // scope, evidence and targeted-edit paragraph.
-        // Moved again by decision 0071 (#333): the design paragraph.
-        "implementer-sdd.md",
-        "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
-    ),
-    (
-        // Moved by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
-        // scope and evidence paragraphs and the targeted-edit sentence.
-        // Moved again by decision 0071 (#333): the design paragraph.
-        "implementer.md",
-        "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
-    ),
-    (
-        "intake.md",
-        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
-    ),
-    (
-        "position-robustness.md",
-        "6d7926ae2f207ca576f65d949dae79501cfeccca5cd0ae436b2e85ce8969241a",
-    ),
-    (
-        "position-simplicity.md",
-        "22a5d52aa78e3b1d9ba28afdcdb938b1f2857d7c5a946dbd10a205fc4d1e880f",
-    ),
-    (
-        "review-correctness.md",
-        "40fe2d11b6d20ee7964d503aea72548605758ee20f8bae521ad65664028dbea1",
-    ),
-    (
-        "review-adversarial.md",
-        "b188aed4546a8af672835f7fea2de1ac1c13d1f6ae783baafd8644e440743251",
-    ),
-    (
-        "review-chief.md",
-        "199acde1e2e1cdd41d432f58c2f9a5ea6d74fa80d26c06302ad464125774b7e8",
-    ),
-    (
-        "review-security.md",
-        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
-    ),
-    (
-        "review-spec-compliance.md",
-        "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
-    ),
-    (
-        "reviewer.md",
-        "311489fc120a0bec72ffd0302bac12e60f184ca0e6d4c9e168f4e88453f6c410",
-    ),
-];
+#[path = "support/witnesses.rs"]
+mod witnesses;
 
-/// Charters authored here rather than moved: they have no pre-move
-/// bytes to be compared against, and are listed so the accounting below
-/// stays exact instead of merely permissive.
-const AUTHORED_CHARTERS: [&str; 6] = [
-    "analyst.md",
-    "clarifier.md",
-    "muninn.md",
-    "release-manager.md",
-    "researcher.md",
-    "triage.md",
-];
+use witnesses::Witnesses;
 
 /// Decision 0041's remaining model library roster after decision 0043.
 /// `implementer-engine` temporarily shares the implementer charter until
@@ -182,29 +112,24 @@ fn adapters() -> Adapters {
 #[test]
 fn the_charter_bytes_match_their_recorded_identities() {
     let root = workspace().join("agents/charters");
-    for (name, digest) in CHARTERS {
+    let pinned = Witnesses::load(&workspace()).charters;
+    for (name, digest) in &pinned {
         let bytes = std::fs::read(root.join(name))
             .unwrap_or_else(|e| panic!("charter {name} must exist: {e}"));
         assert_eq!(
             brokkr_core::canonical::sha256_bytes(&bytes),
-            digest,
+            *digest,
             "charter {name} is not the text it was moved from"
         );
     }
-    let present: Vec<String> = std::fs::read_dir(&root)
+    let present: BTreeSet<String> = std::fs::read_dir(&root)
         .unwrap()
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
-    for name in AUTHORED_CHARTERS {
-        assert!(
-            root.join(name).is_file(),
-            "authored charter {name} must exist"
-        );
-    }
     assert_eq!(
-        present.len(),
-        CHARTERS.len() + AUTHORED_CHARTERS.len(),
+        present,
+        pinned.into_keys().collect::<BTreeSet<_>>(),
         "no charter is unaccounted for"
     );
 }
@@ -385,35 +310,13 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
     assert!(exec.tool_permissions.is_none());
     assert!(exec.mcp.is_none());
     assert!(exec.models.is_empty());
-    // `codex` DOES map models now, and the reason the old pin's "no
-    // established mapping" no longer holds is evidence: `codex debug
-    // models` on the installed codex-cli 0.148.0 named the three gpt-5.6
-    // slugs with visibility "list" and supported_in_api true, and the
-    // 0.153.2 catalog lists `gpt-6-astra` beside them at priority 1
-    // (decision 0045). The abstract names are codex's own family words —
-    // deliberately NOT claude tiers, for the reason `dsh` below spells
-    // out.
+    // `codex` maps models, and its map is proved where its evidence is
+    // (`the_shipped_codex_adapter_maps_the_models_its_own_cli_names`);
+    // every alias it maps is held to the properties below.
     let codex = adapters
         .providers()
         .find(|adapter| adapter.provider == "codex")
         .unwrap();
-    for (abstract_name, concrete) in [
-        ("astra", "gpt-6-astra"),
-        ("sol", "gpt-6-sol"),
-        ("terra", "gpt-5.6-terra"),
-        ("luna", "gpt-6-luna"),
-    ] {
-        assert_eq!(
-            codex.models.get(abstract_name).map(String::as_str),
-            Some(concrete),
-            "codex maps the {abstract_name} lane its own CLI catalog names"
-        );
-    }
-    assert_eq!(
-        codex.models.len(),
-        4,
-        "four catalogued lanes, no invented ones"
-    );
     assert_eq!(codex.model_flag.as_deref(), Some("--model"));
     // Still no tool restriction — but now for a MEASURED reason rather
     // than a bare "unsupported". The capability stays `None`, so the
@@ -431,77 +334,184 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
         gap.contains("--sandbox"),
         "the gap names codex's real restriction axis: {gap}"
     );
-    // `dsh` maps the lanes this tree has evidence for, each verified
-    // with a completion against its provider on 2026-09-02: DeepSeek's
-    // own API serves `deepseek-v4-pro` (bare id — the dated spellings
-    // live only in LaneTally's price rows), and Model Studio's Token Plan
-    // catalogue serves the eight behind `dashscope/`, its own DeepSeek
-    // snapshot dated in the id. `flash` pins `deepseek-flash`, the name
-    // DeepSeek's pricing page gives DeepSeek-V4.1-Flash; the retired
-    // `deepseek-v4-flash` and the expired beta
-    // `deepseek-v4.1-flash-expires-on-0910` both answer as
-    // `deepseek-flash` (completions against DeepSeek's API, 2026-09-25),
-    // so neither is pinned.
-    // `spark/` is the operator's DGX Spark: SGLang serving
-    // RadixArk/Qwen3.8-Flash-Next-NVFP4 as `qwen3.8-flash` (256k context,
-    // qwen3_coder tool parser, radix prefix cache), verified with a
-    // headless dsh turn on 2026-09-02; the route lives in the dsh profile
-    // and costs electricity, not cents. `meta/` and `meta-contributor/`
-    // are Muse Spark 1.3 through OpenRouter (openrouter.ai/api/v1,
-    // OpenAI-compatible, Meta as sole upstream at Meta's own prices)
-    // under two ids that differ only in terms: the bare id is not used
-    // to improve Meta's products, the `-contributor` id is, at a
-    // fraction of the price. Two routes, one key name, because egress
-    // is a property of the route (decision 0036) and the terms are the
-    // egress fact. The route is the FIRST segment; OpenRouter's own
-    // `meta/` inside the id names the model, not a route, which is why
-    // the concrete ids carry `meta/` twice. Switched from Meta's own
-    // endpoint on 2026-09-05 when its billing refused the operator's
-    // card, and verified the same day with a headless dsh turn on the
-    // contributor route: the record names provider and model, reports
-    // usage, and carries Meta's reasoning encrypted.
-    // Abstract names are NOT claude tiers, so no chain written for one
-    // provider silently lands on the other. The flag is the shared
-    // `--model` grammar; the driver turns `<provider>/<id>` into the
-    // overlay dsh's launcher reads. Tools stay unexpressible, and the
-    // data says so.
+    // `dsh` maps the lanes the provider-adapters guide gives the evidence
+    // for. The flag is the shared `--model` grammar; the driver turns
+    // `<route>/<id>` into the overlay dsh's launcher reads. Tools stay
+    // unexpressible, and the data says so.
     let dsh = adapters
         .providers()
         .find(|adapter| adapter.provider == "dsh")
         .unwrap();
-    let lanes: Vec<(&str, &str)> = dsh
-        .models
-        .iter()
-        .map(|(name, id)| (name.as_str(), id.as_str()))
-        .collect();
-    assert_eq!(
-        lanes,
-        [
-            ("flash", "deepseek-flash"),
-            ("glm", "dashscope/glm-5.2"),
-            ("glm-flash", "spark-glm/GLM-5.3-Flash-EXL3"),
-            ("glm53", "dashscope/glm-5.3"),
-            ("muse", "meta/meta/muse-spark-1.3"),
-            (
-                "muse-contributor",
-                "meta-contributor/meta/muse-spark-1.3-contributor"
-            ),
-            ("pro", "deepseek-v4-pro"),
-            ("qwen-flash", "dashscope/qwen3.8-flash"),
-            ("qwen-max", "dashscope/qwen3.8-max"),
-            ("qwen-plus", "dashscope/qwen3.7-plus"),
-            ("qwen36-flash", "dashscope/qwen3.6-flash"),
-            ("qwen37-max", "dashscope/qwen3.7-max"),
-            ("spark-flash", "spark/qwen3.8-flash"),
-            ("studio-flash", "dashscope/deepseek-v4-flash-0731"),
-            ("studio-flash41", "dashscope/deepseek-v4.1-flash"),
-            ("studio-pro", "dashscope/deepseek-v4-pro"),
-        ]
-    );
     assert_eq!(dsh.model_flag.as_deref(), Some("--model"));
     assert!(
         dsh.tool_permissions.is_none(),
         "dsh cannot express a tool restriction, and says so"
+    );
+}
+
+/// The first `/`-separated segment of every model id an adapter maps: the
+/// routes its data can reach.
+fn reached_routes(adapter: &Adapter) -> BTreeSet<&str> {
+    adapter
+        .models
+        .values()
+        .filter_map(|id| resolve_route(adapter, id).0)
+        .collect()
+}
+
+/// #358: every model resolves to a route with a declared egress. An
+/// unprefixed id takes the adapter's own class; a prefixed one takes the
+/// class `routes` declares for its route, or the floor for a route the
+/// file does not class (decision 0036 ruling 1). And every route the file
+/// names — classed, keyed or effortless — is one some mapped model
+/// reaches, so a misspelt prefix cannot leave a ruling on a route nothing
+/// uses while the model beside it falls to the floor.
+#[test]
+fn every_model_resolves_to_a_route_with_a_declared_egress() {
+    for adapter in adapters().providers() {
+        let provider = &adapter.provider;
+        for (alias, id) in &adapter.models {
+            let declared = match resolve_route(adapter, id).0 {
+                None => adapter.egress,
+                Some(route) => adapter
+                    .routes
+                    .get(route)
+                    .copied()
+                    .unwrap_or(EgressClass::Uncontracted),
+            };
+            assert_eq!(
+                resolve_route(adapter, id).1,
+                declared,
+                "{provider} '{alias}' ({id}) resolves to a class its data does not declare"
+            );
+        }
+        let reached = reached_routes(adapter);
+        let named = adapter
+            .routes
+            .keys()
+            .chain(adapter.credentials.keys())
+            .chain(adapter.effortless_routes.keys());
+        for route in named {
+            assert!(
+                reached.contains(route.as_str()),
+                "{provider} names route '{route}', which no model it maps reaches"
+            );
+        }
+    }
+}
+
+/// A `YYYY-MM-DD` date anywhere in `text`.
+fn carries_a_date(text: &str) -> bool {
+    let shape = |window: &[u8]| {
+        window.iter().enumerate().all(|(at, byte)| match at {
+            4 | 7 => *byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
+    };
+    text.as_bytes().windows(10).any(shape)
+}
+
+/// #358: every route with no effort levels carries a dated, measured
+/// reason: a `YYYY-MM-DD` date, and the release of the adapter's own
+/// binary the refusal was measured on (`<binary> <version>`). A seat on
+/// such a route pins no effort (decision 0035 addendum 2026-09-11), so the
+/// reason is what a reader has in place of a level table.
+#[test]
+fn every_effortless_route_carries_a_dated_measured_reason() {
+    for adapter in adapters().providers() {
+        let measured_on = format!("{} ", adapter.binary);
+        for (route, reason) in &adapter.effortless_routes {
+            let provider = &adapter.provider;
+            assert!(
+                carries_a_date(reason),
+                "{provider} effortless route '{route}' gives no YYYY-MM-DD date: {reason}"
+            );
+            let release = reason.match_indices(&measured_on).any(|(at, _)| {
+                reason[at + measured_on.len()..].starts_with(|c: char| c.is_ascii_digit())
+            });
+            assert!(
+                release,
+                "{provider} effortless route '{route}' names no '{measured_on}<version>' \
+                 it was measured on: {reason}"
+            );
+        }
+    }
+}
+
+/// One backticked name, alone in its cell.
+fn ticked(cell: &str, line: &str) -> String {
+    cell.strip_prefix('`')
+        .and_then(|cell| cell.strip_suffix('`'))
+        .filter(|name| !name.is_empty() && !name.contains('`'))
+        .unwrap_or_else(|| panic!("unreadable alias catalogue row: {line}"))
+        .to_string()
+}
+
+/// The guide's alias catalogue: provider → the aliases it declares no
+/// shipped agent hires. A header, row or repeated provider this reader
+/// does not recognise fails the test rather than being skipped.
+fn catalogue() -> BTreeMap<String, BTreeSet<String>> {
+    let guide = std::fs::read_to_string(workspace().join("docs/guides/provider-adapters.md"))
+        .expect("the provider-adapters guide");
+    let (_, section) = guide
+        .split_once("\n### The alias catalogue\n")
+        .expect("the guide declares an alias catalogue");
+    let mut rows = section
+        .lines()
+        .skip_while(|line| !line.starts_with('|'))
+        .take_while(|line| line.starts_with('|'));
+    assert_eq!(
+        (rows.next(), rows.next()),
+        (
+            Some("| Adapter | Aliases no shipped agent hires |"),
+            Some("|---|---|")
+        ),
+        "the alias catalogue's header"
+    );
+    let mut catalogue = BTreeMap::new();
+    for line in rows {
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        let ["", provider, aliases, ""] = cells[..] else {
+            panic!("unreadable alias catalogue row: {line}")
+        };
+        let aliases = aliases.split(", ").map(|alias| ticked(alias, line));
+        let previous = catalogue.insert(ticked(provider, line), aliases.collect::<BTreeSet<_>>());
+        assert!(previous.is_none(), "a second catalogue row for {provider}");
+    }
+    catalogue
+}
+
+/// #358 (decision 0071 ruling 6): every alias an adapter maps is hired by
+/// a library agent, or listed in the guide's declared catalogue, and the
+/// catalogue lists exactly the aliases nothing hires — so it cannot keep a
+/// name the adapter dropped or an agent has since hired.
+#[test]
+fn every_alias_is_hired_or_catalogued() {
+    let library = library();
+    let hired: BTreeSet<&str> = library
+        .names()
+        .iter()
+        .flat_map(|name| library.agent(name).unwrap().models.iter())
+        .map(String::as_str)
+        .collect();
+    let unhired: BTreeMap<String, BTreeSet<String>> = adapters()
+        .providers()
+        .map(|adapter| {
+            let aliases = adapter
+                .models
+                .keys()
+                .filter(|alias| !hired.contains(alias.as_str()));
+            (
+                adapter.provider.clone(),
+                aliases.cloned().collect::<BTreeSet<_>>(),
+            )
+        })
+        .filter(|(_, aliases)| !aliases.is_empty())
+        .collect();
+    assert_eq!(
+        catalogue(),
+        unhired,
+        "the guide's alias catalogue must list exactly the aliases no agent hires"
     );
 }
 

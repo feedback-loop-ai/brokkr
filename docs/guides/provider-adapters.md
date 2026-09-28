@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.5-rc.2 · serves flash, glm, glm-flash, glm53, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-flash41, studio-pro · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
+ok       dsh: 0.1.5-rc.2 · serves flash, glm, … · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
@@ -245,6 +245,36 @@ with `brokkr export`. `brokkr bridge --run <id> --looper-url <url>` tails only t
 verified public store API and synchronizes ordered evidence plus fenced commands;
 it reads its bearer credential from `LOOPER_API_KEY` (or `--token-env`), never
 from a command-line value or the journal.
+
+### The alias catalogue
+
+Every alias an adapter maps is either hired by an agent under `agents/`
+or listed here: kept on offer for a recipe's inline seat or an
+operator's own, with no library office behind it (decision
+[0071](../decisions/0071-the-architectural-principles.md) ruling 6).
+`every_alias_is_hired_or_catalogued` in
+`crates/brokkr-runtime/tests/library_data.rs` holds this table to the
+adapter files and the library in both directions: an unhired alias
+missing from its row fails, and so does a listed alias that an agent
+now hires or the adapter no longer maps.
+
+| Adapter | Aliases no shipped agent hires |
+|---|---|
+| `claude` | `haiku` |
+| `codex` | `luna`, `terra` |
+| `dsh` | `glm`, `glm-flash`, `glm53`, `muse`, `muse-contributor`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
+| `lanetally` | `fable-tallied`, `opus-tallied`, `sonnet-tallied` |
+
+Adding an alias is therefore an edit to its adapter file and, until an
+agent hires it, to its row above. An adapter file is bundle data, so
+the edit also moves the witness digest of every pinned bundle that
+resolves a seat through that adapter; re-pin them with one command and
+commit the rewritten `crates/brokkr-runtime/tests/witnesses.json`
+beside the change:
+
+```
+BROKKR_BLESS=1 cargo test -p brokkr-runtime --test witness_digests
+```
 
 ## Hands
 

@@ -1,12 +1,7 @@
 //! Decision 0041 adoption pins: library-backed sites resolve the roster's
-//! current first hire and the charter recorded in the compiled manifest.
-//! The fable pins deliberately moved to `claude-fable-5-1` under ruling 1;
-//! ruling 2 moved tools and model choices into one office definition.
-//! Rulings 4 and 5 move the charter witnesses again: judges no longer fix,
-//! implementers answer returned findings, and spec compliance can return a
-//! defective specification to design.
-//! Ruling 8 moves the affected charter witnesses once more: repository rules
-//! now come from the realm's house rather than the portable office.
+//! current first hire and the charter recorded in the compiled manifest,
+//! whose digest is the witness table's pin (`witnesses.json`, #358).
+//! Ruling 2 moved tools and model choices into one office definition.
 //! Decision 0045 moves the self bundle's review site across the vendor
 //! line: the last judge before ship is hired on codex's `astra`.
 
@@ -33,6 +28,11 @@ fn compile(relative: &str) -> Bundle {
     )
     .unwrap_or_else(|e| panic!("{relative} must compile: {e}"))
 }
+
+#[path = "support/witnesses.rs"]
+mod witnesses;
+
+use witnesses::Witnesses;
 
 /// Every invocation site of a bundle: label → (charter path, argv).
 fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
@@ -94,118 +94,49 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
     out
 }
 
-/// site → (concrete model id, current charter digest). Decision 0071 (#333)
-/// moves the pin of every office whose charter gained its principles; each
-/// value is the test's own reported digest.
+/// site → (concrete model id, the charter under `agents/charters/` it
+/// resolves). The charter's digest is the witness table's pin (#358).
 type Roster = [(&'static str, &'static str, &'static str)];
 
 const PANEL_REVIEW: &Roster = &[
-    (
-        "intake",
-        "claude-sonnet-5",
-        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
-    ),
-    (
-        "implement",
-        "claude-opus-5-5",
-        // Moved by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
-        // implementer charter gained its scope and evidence paragraphs.
-        // Moved again by decision 0071 (#333): the design paragraph.
-        "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
-    ),
-    (
-        "review:correctness",
-        "gpt-6-sol",
-        "40fe2d11b6d20ee7964d503aea72548605758ee20f8bae521ad65664028dbea1",
-    ),
-    (
-        "review:security",
-        "claude-fable-5-1",
-        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
-    ),
+    ("intake", "claude-sonnet-5", "intake.md"),
+    ("implement", "claude-opus-5-5", "implementer.md"),
+    ("review:correctness", "gpt-6-sol", "review-correctness.md"),
+    ("review:security", "claude-fable-5-1", "review-security.md"),
 ];
 
 const TRIAGE: &Roster = &[
-    (
-        "implement:design",
-        "claude-opus-5-5",
-        // Moved by proposed decision 0056 ruling 10: the SDD smith's
-        // charter gained the progress-timing and recovery clauses. Moved
-        // again by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
-        // condensed scope and evidence paragraph.
-        // Moved again by decision 0071 (#333): the design paragraph.
-        "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
-    ),
+    ("implement:design", "claude-opus-5-5", "implementer-sdd.md"),
     (
         "review:design:positions:spec-compliance",
         "claude-opus-5-5",
-        "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
+        "review-spec-compliance.md",
     ),
     (
         "review:design:positions:security",
         "claude-fable-5-1",
-        "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
+        "review-security.md",
     ),
-    (
-        "design:chief",
-        "claude-fable-5-1",
-        "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
-    ),
-    (
-        "specify:author",
-        "claude-fable-5-1",
-        "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
-    ),
-    (
-        "tasks:author",
-        "claude-opus-5-5",
-        // Moved by proposed decision 0056 ruling 10: the SDD smith's
-        // charter gained the progress-timing and recovery clauses. Moved
-        // again by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
-        // condensed scope and evidence paragraph.
-        // Moved again by decision 0071 (#333): the design paragraph.
-        "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
-    ),
-    (
-        "clarify:judge",
-        "claude-opus-5-5",
-        "5028f0624c92272ce12a4cc50fd771e86591436dd912d31b2127687a3d233fa7",
-    ),
-    (
-        "analyze:judge",
-        "claude-fable-5-1",
-        "2a2a606dab2737936ba5efd2e972c4c2f36300a9cce39f2c09c836091d08408f",
-    ),
+    ("design:chief", "claude-fable-5-1", "chief-architect.md"),
+    ("specify:author", "claude-fable-5-1", "chief-architect.md"),
+    ("tasks:author", "claude-opus-5-5", "implementer-sdd.md"),
+    ("clarify:judge", "claude-opus-5-5", "clarifier.md"),
+    ("analyze:judge", "claude-fable-5-1", "analyst.md"),
     (
         "design:positions:simplicity",
         "claude-opus-5-5",
-        "22a5d52aa78e3b1d9ba28afdcdb938b1f2857d7c5a946dbd10a205fc4d1e880f",
+        "position-simplicity.md",
     ),
     (
         "design:positions:robustness",
         "gpt-6-sol",
-        "6d7926ae2f207ca576f65d949dae79501cfeccca5cd0ae436b2e85ce8969241a",
+        "position-robustness.md",
     ),
 ];
 const SELF: &Roster = &[
-    (
-        "intake",
-        "claude-sonnet-5",
-        "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
-    ),
-    (
-        "implement",
-        "claude-opus-5-5",
-        // Moved by the Opus 5.5 / Fable 5.1 prompt audit (acffed37): the
-        // implementer charter gained its scope and evidence paragraphs.
-        // Moved again by decision 0071 (#333): the design paragraph.
-        "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
-    ),
-    (
-        "review",
-        "gpt-6-astra",
-        "311489fc120a0bec72ffd0302bac12e60f184ca0e6d4c9e168f4e88453f6c410",
-    ),
+    ("intake", "claude-sonnet-5", "intake.md"),
+    ("implement", "claude-opus-5-5", "implementer.md"),
+    ("review", "gpt-6-astra", "reviewer.md"),
 ];
 
 fn expected_argv(site: &str, model: &str) -> Vec<String> {
@@ -279,7 +210,9 @@ fn expected_argv(site: &str, model: &str) -> Vec<String> {
 fn assert_adopted(relative: &str, roster: &Roster) {
     let bundle = compile(relative);
     let sites = sites(&bundle);
-    for (site, model, charter_digest) in roster {
+    let charters = Witnesses::load(&workspace()).charters;
+    for (site, model, charter_name) in roster {
+        let charter_digest = &charters[*charter_name];
         let (charter, argv) = sites
             .get(*site)
             .unwrap_or_else(|| panic!("{relative} has no site '{site}'"));
