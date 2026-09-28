@@ -2729,7 +2729,7 @@ fn codex_launch_and_cold(
     // ordering two controls against each other is not a ruling.
     let composed = composed_launch("codex", extra, input)?;
     let cold = codex_cold(bin, &composed.extra, workdir, &composed.managed);
-    let plan = codex_plan(
+    let mut plan = codex_plan(
         bin,
         &composed.extra,
         workdir,
@@ -2742,6 +2742,16 @@ fn codex_launch_and_cold(
     let rejoin = plan.rejoining.is_some();
     inline_codex_final(input, &composed, workdir, &plan.command, rejoin)?;
     inline_codex_final(input, &composed, workdir, &cold, false)?;
+    // A cold launch serves only what the final check returns (rebuild unit
+    // 14); a rejoin and its cold replacement are checked in unit 15.
+    if plan.rejoining.is_none() {
+        let chosen = crate::native_controls::Serving {
+            program: bin,
+            workdir,
+            ..Default::default()
+        };
+        plan.command = served_cold("codex", plan.command, input, chosen)?;
+    }
     Ok((plan, cold))
 }
 
@@ -2967,6 +2977,90 @@ fn codex_rejoin(
     // only when the prompt positional is `-` (verified against 0.148.0).
     command.push("-".into());
     Ok((command, class))
+}
+
+/// The whole refusal of a launch that carries sealed inputs without the
+/// ones they are sealed beside (rebuild unit 14).
+const UNPAIRED: &str =
+    "refusing to invoke the agent CLI: the input carries a sealed launch record or sealed serving \
+     inputs without the capability plan and the record they are sealed beside, so its final \
+     command cannot be checked; a sealed launch is never served unchecked (rebuild unit 14; \
+     design D6)";
+
+/// Rebuild unit 14 (operator ruling 2 of 2026-09-23; design D6): the cold
+/// command a launch spawns, once [`check_final`] has proved that it
+/// expresses exactly its sealed plan. Where the engine sealed the launch,
+/// the record and the typed serving inputs sealed beside it (rebuild unit
+/// 14a2) are decoded and the check is handed them with the engine's serving
+/// choices: `chosen`'s executable, workdir and, for DSH, overlay, stream
+/// reading and prompt; the recipe's words by their recorded origin; the
+/// result path where the door is the capture; and the box's hands bound to
+/// this executable and workdir. Nothing is read back from the argv. The
+/// spawn is handed [`Checked::into_argv`] and nothing else.
+///
+/// A launch with no record and no serving inputs was not sealed: a driver
+/// run by hand, which this check gives no guarantee, is served as composed,
+/// as the inline judgment serves it (rebuild unit 5d-fix-c2). One half of
+/// the sealed pair without the other, or without its plan, refuses.
+///
+/// [`check_final`]: crate::native_controls::check_final
+/// [`Checked::into_argv`]: crate::native_controls::Checked::into_argv
+fn served_cold(
+    harness: &str,
+    command: Vec<String>,
+    input: &Value,
+    chosen: crate::native_controls::Serving<'_>,
+) -> Result<Vec<String>, String> {
+    use crate::native_controls::{
+        check_final, managed, Dialect, LaunchRecord, Origin, SealedServing, Serving, Transport,
+        SERVING_INPUTS,
+    };
+    let record = match (input.get("launch_record"), input.get(SERVING_INPUTS)) {
+        (None, None) => return Ok(command),
+        (Some(record), Some(_)) => record,
+        _ => return Err(UNPAIRED.to_string()),
+    };
+    let Some(controls) = managed(input)? else {
+        return Err(UNPAIRED.to_string());
+    };
+    let record = LaunchRecord::decode(Some(record))?;
+    let sealed = SealedServing::decode(input.get(SERVING_INPUTS))?;
+    let authored: Vec<String> = record
+        .segments
+        .iter()
+        .filter(|segment| segment.origin == Origin::Authored)
+        .flat_map(|segment| segment.argv.iter().cloned())
+        .collect();
+    let brokkr = std::env::current_exe().unwrap_or_default();
+    let dialect = &sealed.dialect;
+    check_final(
+        harness,
+        command,
+        &controls,
+        &record.expected,
+        Dialect {
+            permissions: dialect.permissions.as_ref(),
+            sandbox: &dialect.sandbox,
+            hands: &dialect.hands,
+            boundary: &dialect.boundary,
+            stands: dialect.stands,
+        },
+        Serving {
+            authored: &authored,
+            pins: &sealed.pins,
+            output: last_message_door(input)
+                .then(|| input["result_path"].as_str().unwrap_or_default()),
+            session: None,
+            hands: sealed.spec.as_ref().map(|spec| Transport {
+                brokkr: &brokkr,
+                workdir: Path::new(chosen.workdir),
+                spec,
+            }),
+            ..chosen
+        },
+    )
+    .map(crate::native_controls::Checked::into_argv)
+    .map_err(|refusal| refusal.at_launch(input))
 }
 
 /// The complete serving command one built-in driver spawns for a composed
@@ -3362,25 +3456,37 @@ fn claude_launch(
         confirms_from_locator: true,
         effort: None,
     };
+    // A cold launch serves only what the final check returns (rebuild unit
+    // 14); a rejoin is checked in unit 15.
+    let workdir = input.get("workdir").and_then(Value::as_str).unwrap_or("");
+    let cold = |mut launch: LaunchPlan| {
+        let chosen = crate::native_controls::Serving {
+            program: bin,
+            workdir,
+            ..Default::default()
+        };
+        launch.command = served_cold(provider, launch.command, input, chosen)?;
+        Ok(launch)
+    };
     let Some(session) = session else {
         let qualification = qualify(&gate, &probe, None);
-        return Ok(plan(None, None, qualification.observed));
+        return cold(plan(None, None, qualification.observed));
     };
     // The gate first, as on the codex and dsh paths: a closed gate names
     // its own reason, whatever the offered id or the seat's argv looks
     // like.
     if let ResumeGate::Disabled(reason) = &gate {
-        return Ok(plan(None, Some(reason), None));
+        return cold(plan(None, Some(reason), None));
     }
     if !plain_claude_session(session) {
-        return Ok(plan(None, Some("invalid-session-id"), None));
+        return cold(plan(None, Some("invalid-session-id"), None));
     }
     if !persistent {
-        return Ok(plan(None, Some("nonpersistent-session"), None));
+        return cold(plan(None, Some("nonpersistent-session"), None));
     }
     let qualification = qualify(&gate, &probe, originating_harness_version(input));
     match qualification.refusal {
-        Some(refusal) => Ok(plan(None, Some(refusal), qualification.observed)),
+        Some(refusal) => cold(plan(None, Some(refusal), qualification.observed)),
         None => Ok(plan(
             Some(session.to_string()),
             None,
@@ -4370,13 +4476,43 @@ fn invoke_dsh_with(
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
     let launch = dsh_launch(&bin, extra, workdir, session, input)?;
-    invoke_dsh_launch(launch, prompt, workdir, emit, wait)
+    let command = dsh_served(&bin, &launch, prompt, workdir, input)?;
+    invoke_dsh_launch_observed(launch, command, workdir, emit, wait, &mut |_| {})
+}
+
+/// The command one DSH launch spawns: its command, then the prompt as data,
+/// and for a cold launch only what the final check returns (rebuild unit
+/// 14). A rejoin is checked in unit 15.
+fn dsh_served(
+    bin: &str,
+    launch: &DshLaunch,
+    prompt: &str,
+    workdir: &str,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    let mut command = launch.command.clone();
+    command.push(prompt.to_string());
+    if launch.rejoining.is_some() {
+        return Ok(command);
+    }
+    let overlay = launch.overlay.path().to_string_lossy();
+    let chosen = crate::native_controls::Serving {
+        program: bin,
+        workdir,
+        overlay: Some(&overlay),
+        stream: launch.stream_json,
+        prompt: Some(prompt),
+        ..Default::default()
+    };
+    served_cold("dsh", command, input, chosen)
 }
 
 /// `invoke_dsh_with` over an already-settled launch, so the qualified
 /// stream-json arm is reachable from a test without a real composite
-/// install and its node probe. Production reaches it only through
-/// `dsh_launch`, which still performs every qualification check.
+/// install and its node probe. Production never reaches it: its launches
+/// come through `dsh_launch`, which still performs every qualification
+/// check, and are served through [`dsh_served`].
+#[cfg(test)]
 fn invoke_dsh_launch(
     launch: DshLaunch,
     prompt: &str,
@@ -4384,16 +4520,19 @@ fn invoke_dsh_launch(
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
-    invoke_dsh_launch_observed(launch, prompt, workdir, emit, wait, &mut |_| {})
+    let mut command = launch.command.clone();
+    command.push(prompt.to_string());
+    invoke_dsh_launch_observed(launch, command, workdir, emit, wait, &mut |_| {})
 }
 
 /// `invoke_dsh_launch` with this ONE invocation's observer of the
-/// confirmation's completed observations. Production watches nothing; a
-/// test reads here exactly what the watcher consumed — never a second
-/// walk of its own — and only once the watcher has ruled on it.
+/// confirmation's completed observations, spawning exactly `command`.
+/// Production watches nothing; a test reads here exactly what the watcher
+/// consumed — never a second walk of its own — and only once the watcher
+/// has ruled on it.
 fn invoke_dsh_launch_observed(
     mut launch: DshLaunch,
-    prompt: &str,
+    command: Vec<String>,
     workdir: &str,
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
@@ -4435,8 +4574,6 @@ fn invoke_dsh_launch_observed(
     if !launch.stream_json {
         hold.finish(emit);
     }
-    let mut command = launch.command.clone();
-    command.push(prompt.to_string());
     // Everything the seat committed lives in the private store and
     // nowhere else until the promotion below moves it. Returning early
     // would drop the store — and the seat's work with it — behind an

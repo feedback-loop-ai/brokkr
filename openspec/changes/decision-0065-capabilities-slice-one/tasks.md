@@ -2381,7 +2381,7 @@ ticked. The only production change is in `native_controls.rs`;
 
 ## 14. Unit 14 — Integrate checked cold commands
 
-- [ ] 14.1 Unit 14 parses full serialized cold commands and compares exact plan state. Verify dropped OFF/terminator/separator/prefix-duplicate refusal and typed positives. Requirements: [Codex web-search OFF uses the controller's measured fragment][NC2], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.1)
+- [x] 14.1 Unit 14 parses full serialized cold commands and compares exact plan state. Verify dropped OFF/terminator/separator/prefix-duplicate refusal and typed positives. Requirements: [Codex web-search OFF uses the controller's measured fragment][NC2], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.1)
 
 Unit 14 (2026-09-27, run `0065-rebuild-unit-14-see-the-uni-e639d515`,
 based on `22358e51`; evidence.md, "Unit 14 — stopped before
@@ -2813,6 +2813,45 @@ Unit 14a4c second visit (2026-09-28, run
   - `git diff --check`: clean.
 - **Pending.** 14b (its saved patch must name `Dialect::stands`), exact
   coverage outside the box, macOS, remote CI and the council.
+
+Unit 14b, fourth visit (2026-09-28, run `0065-rebuild-unit-14-see-the-uni-cd674eef`,
+based on `eb36be47`; evidence.md, "Unit 14b — fourth visit"). **Result:
+complete.** 14.1 closes here. Production: `adapters.rs` only.
+
+- The saved patch landed with two edits. `served_cold` passes the sealed
+  `stands`. The test helper `seal_serving` seals through the engine's own
+  `serving_inputs`. The Codex, Claude/LaneTally and DSH cold seams now spawn
+  only `Checked::into_argv`.
+- `:6457` and `:6751` (now `:6838`, `:7146`) pass. `driver_conformance.rs:2781`
+  (now `:3334`) passes with one standing-admission line (below). The
+  in-scope row "unmeasured, no plan" (now `:4141`) expects the unpaired
+  refusal.
+- The integration moved two more expectations in the named suites. The probe
+  pair `:7370` now expects the driver's own refusal prefix under `open`.
+  An agent record's authored `--json` (`adapters/tests.rs:16410`) is now
+  refused.
+- New tests:
+  - A ten-row compiled table (`capability_launch.rs:1059`): exact positives;
+    dropped OFF for Claude and Codex; the `:` separator; cross-origin
+    `--verbose` and `--json`. It also pins a boxed Claude seat's dropped
+    deny list as still denied behind `--tools ""`.
+  - A DSH seam test (`adapters/tests.rs:16461`).
+  - A LaneTally refusal inside the serving-child test (`:2942`).
+  - An authored terminator is refused at composition, before any seam, by
+    `native_controls.rs`, so no row was committed for it.
+- Baseline reds on HEAD's `adapters.rs`: seven assertions across three
+  tests. Mutations M1–M5b each failed named rows and were restored.
+- Standing-admission line: `driver_conformance.rs:3186-3190`. It rewrites
+  the test binary's path to `brokkr_bin()` in the captured Start, because
+  the in-process engine binds the test binary. No assertion was added or
+  removed, and no tested behaviour changed. The council should rule on it.
+  Fixture migrations: none.
+- **Gates.** fmt and clippy are clean. The protocol suite passed (539, 99
+  and 1). `brokkr-runtime` returned 25 summaries `ok`, and `brokkr-cli` 33
+  `ok`. Both bundles compile. Strict OpenSpec: 18 passed. `git diff
+  --check`: clean.
+- **Pending.** Exact coverage outside the box, macOS, remote CI and the
+  council. Unit 15 checks rejoins and the cold replacement.
 
 ## 15. Unit 15 — Integrate eligible resume and replacement
 

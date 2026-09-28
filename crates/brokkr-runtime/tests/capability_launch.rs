@@ -281,16 +281,37 @@ fn sealed(
     label: &str,
     candidate: usize,
 ) -> (brokkr_runtime::engine::SiteSpawn, Value) {
+    use brokkr_protocol::native_controls::SERVING_INPUTS;
     use brokkr_runtime::engine::{verify_record, LAUNCH_RECORD};
-    let (spawn, sealing) = sealing(bundle, label, candidate, &bundle.sites[label]);
+    let facts = &bundle.sites[label];
+    let (mut spawn, sealing) = sealing(bundle, label, candidate, facts);
     assert_eq!(sealing, Ok(()), "{label}[{candidate}]");
-    let input = json!({LAUNCH_RECORD: spawn.launch_record()});
+    let serving = seal_serving(bundle, &mut spawn, facts, facts.chain.get(candidate));
+    let input = json!({LAUNCH_RECORD: spawn.launch_record(), SERVING_INPUTS: serving});
     assert_eq!(
         verify_record(&spawn, &input),
         Ok(()),
         "{label}[{candidate}]"
     );
     (spawn, input)
+}
+
+/// The serving inputs dispatch seals beside `spawn`'s record (rebuild unit
+/// 14a2), set on the spawn so its door admits them and returned as the
+/// driver is handed them. They are sealed by the engine's own
+/// `serving_inputs` under the bundle's boundary, as dispatch seals them.
+fn seal_serving(
+    bundle: &Bundle,
+    spawn: &mut brokkr_runtime::engine::SiteSpawn,
+    facts: &brokkr_runtime::bundle::SiteFacts,
+    link: Option<&brokkr_runtime::agents::Candidate>,
+) -> Value {
+    let sealed =
+        brokkr_runtime::engine::serving_inputs(link, Some(facts), spawn.class, bundle.boundary)
+            .expect("the site's serving inputs");
+    let value = sealed.value();
+    spawn.serving = Some(sealed);
+    value
 }
 
 /// [`try_launch`] through the dispatch door (rebuild unit 12-fix-c, C3):
@@ -1001,6 +1022,248 @@ fn a_compiled_inline_codex_panel_member_with_hands_passes_the_final_check_as_an_
         Ok(expected.clone())
     );
     assert_eq!(checked_launch(&bundle, "judges:agent", 0), Ok(expected));
+}
+
+/// [`sealed_launch`] with the input dispatch writes changed by `tamper`
+/// before the driver is handed it, and the extras by `extra`.
+fn tampered_launch(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    tamper: impl FnOnce(&mut Value, &mut Vec<String>),
+) -> Result<Vec<String>, String> {
+    let (spawn, mut input) = sealed(bundle, label, candidate);
+    let outcome = &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate];
+    input["workdir"] = json!("/w");
+    input["seat"] = json!(label);
+    input["native_controls"] = outcome.controls();
+    input["launch_arguments"] = spawn.launch_arguments();
+    let argv = &spawn.argv;
+    let mut extra = argv[argv.iter().position(|part| part == "--").unwrap() + 1..].to_vec();
+    tamper(&mut input, &mut extra);
+    match outcome.provider.as_str() {
+        "codex" => brokkr_protocol::adapters::codex_command("codex", &extra, "/w", None, &input),
+        _ => brokkr_protocol::adapters::claude_command("claude", &extra, None, &input),
+    }
+}
+
+/// Rebuild unit 14 (task 14.1): at the Codex and Claude cold seams, a
+/// compiled, sealed launch is served only as the final check returns it,
+/// written out here independently of any composer; and the driver refuses
+/// a command that departs from its sealed inputs. The plan's OFF dropped,
+/// a sealed fragment's separator changed, and an authored option that
+/// repeats one the driver composes (a cross-origin duplicate) each refuse
+/// with the check's whole reason. The command is never read back from the
+/// argv, so none of them is reconciled.
+#[test]
+fn a_compiled_cold_command_is_served_only_as_its_final_check_returns_it() {
+    let operator = Operator::new();
+    let context = CapabilityContext::no_grants("private", operator.root());
+    let boxed = operator
+        .compile(&context, Boundary::Namespace, None, Some(json!({})))
+        .unwrap();
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+        ],
+    );
+    let unboxed = solo_bundle(&operator, &workspace().join("adapters"), &context).unwrap();
+    // An authored option inserted first, as the recipe's own word: in the
+    // extras, the argv's authored part and the record's authored segment.
+    type Tamper = Box<dyn FnOnce(&mut Value, &mut Vec<String>)>;
+    let authored = |option: &'static str| -> Tamper {
+        Box::new(move |input, extra| {
+            extra.insert(0, option.into());
+            for part in [
+                "/launch_arguments/authored",
+                "/launch_record/segments/0/argv",
+            ] {
+                let part = input.pointer_mut(part).unwrap();
+                part.as_array_mut().unwrap().insert(0, json!(option));
+            }
+        })
+    };
+    let refused = |harness: &str, problem: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: the final command of harness '{harness}' \
+             {problem}; a complete command is parsed back before its spawn and must express \
+             exactly the capability state its sealed plan records, so it is refused rather than \
+             spawned (operator ruling 2 of 2026-09-23; design D6)"
+        ))
+    };
+    let repeats = |at: usize, option: &str| {
+        format!(
+            "cannot be read whole (argument {at}, '{option}': it repeats option '{option}', \
+             which the grammar admits once; a CLI that resolves a duplicate last-wins would \
+             resolve it against the control the engine composed)"
+        )
+    };
+    // The shipped Claude adapter's `hands.workspace` fragment, expanded for
+    // the box as `boxed_hands` expands Codex's.
+    let adapter: Value =
+        serde_json::from_slice(&std::fs::read(workspace().join("adapters/claude.json")).unwrap())
+            .unwrap();
+    let fragment: Vec<String> =
+        serde_json::from_value(adapter["hands"]["workspace"].clone()).unwrap();
+    let claude_hands = brokkr_protocol::native_controls::Transport {
+        brokkr: &std::env::current_exe().unwrap(),
+        workdir: Path::new("/w"),
+        spec: &boxed.hands["chain"],
+    }
+    .expand(&fragment)
+    .unwrap();
+    let words = |words: &[&str]| {
+        words
+            .iter()
+            .map(|word| word.to_string())
+            .collect::<Vec<_>>()
+    };
+    let claude = |mode: &[&str], hands: &[String], deny: &[&str]| {
+        let lead = [
+            "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ];
+        let pins = ["--model", "claude-opus-5-5", "--effort", "high"];
+        Ok([
+            words(&lead),
+            words(mode),
+            words(&pins),
+            hands.to_vec(),
+            words(deny),
+        ]
+        .concat())
+    };
+    let deny = ["--disallowedTools", "WebFetch,WebSearch"];
+    let mode = ["--permission-mode", "acceptEdits"];
+    let codex = Ok(checked_codex(&boxed_hands(&boxed, "boxed")));
+    type Row<'a> = (
+        &'static str,
+        &'a Bundle,
+        &'static str,
+        usize,
+        Tamper,
+        Result<Vec<String>, String>,
+    );
+    let rows: Vec<Row> = vec![
+        (
+            "claude as sealed",
+            &unboxed,
+            "work",
+            0,
+            Box::new(|_, _| {}),
+            claude(&[], &[], &deny),
+        ),
+        (
+            "boxed claude as sealed",
+            &boxed,
+            "chain",
+            0,
+            Box::new(|_, _| {}),
+            claude(&mode, &claude_hands, &deny),
+        ),
+        (
+            "codex as sealed",
+            &boxed,
+            "chain",
+            1,
+            Box::new(|_, _| {}),
+            codex.clone(),
+        ),
+        (
+            "inline codex as sealed",
+            &boxed,
+            "boxed",
+            0,
+            Box::new(|_, _| {}),
+            codex,
+        ),
+        (
+            "claude, the OFF dropped",
+            &unboxed,
+            "work",
+            0,
+            Box::new(|input, _| input["native_controls"]["selection"]["deny"] = json!([])),
+            refused(
+                "claude",
+                "leaves tool 'WebFetch' available, which its plan denies as native capability \
+                 'web-fetch'",
+            ),
+        ),
+        // Behind `--tools ""` neither tool is available, so the denial is
+        // still what the command expresses.
+        (
+            "boxed claude, the OFF dropped behind an empty tool list",
+            &boxed,
+            "chain",
+            0,
+            Box::new(|input, _| input["native_controls"]["selection"]["deny"] = json!([])),
+            claude(&mode, &claude_hands, &[]),
+        ),
+        (
+            "claude, the denial's separator changed",
+            &unboxed,
+            "work",
+            0,
+            Box::new(|input, _| {
+                input["native_controls"]["selection"]["flags"]["deny"]["separator"] = json!(":")
+            }),
+            refused(
+                "claude",
+                "cannot be read: it carries '--disallowedTools' (argument 9), whose value names \
+                 a tool that is not a plain name of ASCII letters, digits and '_' leading with a \
+                 letter, within 128 bytes",
+            ),
+        ),
+        (
+            "codex, the OFF dropped",
+            &boxed,
+            "chain",
+            1,
+            Box::new(|input, _| input["native_controls"]["argv"] = json!([])),
+            refused(
+                "codex",
+                "carries no measured OFF for native capability 'web-search', which its plan \
+                 denies",
+            ),
+        ),
+        (
+            "claude, an authored --verbose beside the driver's",
+            &unboxed,
+            "work",
+            0,
+            authored("--verbose"),
+            refused("claude", &repeats(5, "--verbose")),
+        ),
+        (
+            "inline codex, an authored --json beside the driver's",
+            &boxed,
+            "boxed",
+            0,
+            authored("--json"),
+            refused("codex", &repeats(7, "--json")),
+        ),
+    ];
+    assert_eq!(rows.len(), 10);
+    let failures: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(label, bundle, site, candidate, tamper, expected)| {
+            let observed = tampered_launch(bundle, site, candidate, tamper);
+            (observed != expected)
+                .then(|| format!("row {label}:\n  left:  {observed:?}\n  right: {expected:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// Unit 4 (design D5.7): an office's direct allow list, compiled for an
@@ -2636,39 +2899,66 @@ fn an_inline_lanetally_seats_typed_allow_reaches_the_wrappers_final_command_with
         "native_controls": outcome.controls(),
         "launch_arguments": spawn.launch_arguments(),
         "launch_record": sealed_input["launch_record"],
+        "serving_inputs": sealed_input["serving_inputs"],
     });
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "lanetally_serving_child",
-            "--exact",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env(SERVE_LANETALLY, serde_json::to_string(&extra).unwrap())
-        .env("BROKKR_LANETALLY_BIN", &wrapper)
-        .env_remove("FORGE_LANETALLY_BIN")
-        .env("HOME", &home)
-        .env("PATH", "/usr/bin:/bin")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    for message in [
-        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
-               "engine_version": "test"}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
-               "effect_id": "fx", "attempt_id": "a1", "seat": "work", "input": input}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
-    ] {
-        writeln!(stdin, "{message}").unwrap();
-    }
-    drop(stdin);
-    let out = child.wait_with_output().unwrap();
-    let said = String::from_utf8_lossy(&out.stdout).into_owned();
+    let serve = |input: &Value| {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "lanetally_serving_child",
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(SERVE_LANETALLY, serde_json::to_string(&extra).unwrap())
+            .env("BROKKR_LANETALLY_BIN", &wrapper)
+            .env_remove("FORGE_LANETALLY_BIN")
+            .env("HOME", &home)
+            .env("PATH", "/usr/bin:/bin")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for message in [
+            json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
+                   "engine_version": "test"}),
+            json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
+                   "effect_id": "fx", "attempt_id": "a1", "seat": "work", "input": input}),
+            json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
+        ] {
+            writeln!(stdin, "{message}").unwrap();
+        }
+        drop(stdin);
+        let out = child.wait_with_output().unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    // Rebuild unit 14: the same sealed launch with its plan's denial
+    // dropped is refused at the wrapper's cold seam, and the wrapper is
+    // never spawned.
+    let mut undenied = input.clone();
+    undenied["native_controls"]["selection"]["deny"] = json!([]);
+    let said = serve(&undenied);
+    let result = said
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|message| message["type"] == "result")
+        .unwrap_or_else(|| panic!("one result: {said}"));
+    assert_eq!(
+        result["error"],
+        "refusing to invoke the agent CLI: the final command of harness 'lanetally' leaves \
+         tool 'WebFetch' available, which its plan denies as native capability 'web-fetch'; a \
+         complete command is parsed back before its spawn and must express exactly the \
+         capability state its sealed plan records, so it is refused rather than spawned \
+         (operator ruling 2 of 2026-09-23; design D6)",
+        "the driver said: {said}"
+    );
+    assert!(!recorded.exists(), "the wrapper was spawned: {said}");
+
+    let said = serve(&input);
     let spawned = std::fs::read_to_string(&recorded)
         .unwrap_or_else(|_| panic!("the wrapper was never spawned; the driver said: {said}"));
     assert_eq!(
@@ -2765,6 +3055,7 @@ fn inline_codex_launching(
     Result<Vec<String>, String>,
     String,
 ) {
+    use brokkr_protocol::native_controls::SERVING_INPUTS;
     use brokkr_runtime::engine::{expected_state, result_door, verify_record, LAUNCH_RECORD};
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[0];
     let SeatBody::Single { command, .. } = &bundle.seats[label].body else {
@@ -2787,12 +3078,13 @@ fn inline_codex_launching(
     let sealing =
         expected_state(outcome, None, Some(facts)).and_then(|expected| spawn.seal(expected));
     let record = spawn.launch_record();
+    let serving = seal_serving(bundle, &mut spawn, facts, None);
     let gate = class == brokkr_runtime::SeatClass::Gate;
     let door = result_door(Boundary::Harness, gate, Some(facts), None).word();
     // Handed as dispatch hands it: the seat, the native plan, the result
     // path the spawn was composed with, and the door `mark_delivery` writes
     // where it is the capture.
-    let mut handed = json!({LAUNCH_RECORD: record, "seat": label,
+    let mut handed = json!({LAUNCH_RECORD: record, SERVING_INPUTS: serving, "seat": label,
                             "native_controls": outcome.controls(),
                             "result_path": "/w/result.json"});
     if door == "last-message" {
@@ -3739,8 +4031,10 @@ fn unread_plan(named: &str) -> String {
 /// missing `native_controls` key and a plan with no argv each refuse — and
 /// proves that the delivered launch itself expresses each sealed denial, so a
 /// plan whose OFF argv was replaced by another admitted assignment refuses.
-/// An unmeasured inventory seals no denial, and its launch without a plan
-/// stands. An unreadable plan refuses with one fixed cause, and neither a
+/// An unmeasured inventory seals no denial, and the door admits its launch
+/// without a plan; since rebuild unit 14 the driver then refuses it, because
+/// a sealed cold command is served only once it is checked against its plan.
+/// An unreadable plan refuses with one fixed cause, and neither a
 /// newline nor a long value it carries reaches the reason. The seat is named
 /// in admission's bounded representation: a dotted label keeps its identity,
 /// and a long label with a newline is named by its lead and length.
@@ -3848,7 +4142,11 @@ fn an_inline_codex_launch_requires_its_native_plan_and_proves_each_sealed_denial
             "work",
             &unmeasured,
             no_plan(),
-            "launched".into(),
+            "refused: refusing to invoke the agent CLI: the input carries a sealed launch record \
+             or sealed serving inputs without the capability plan and the record they are sealed \
+             beside, so its final command cannot be checked; a sealed launch is never served \
+             unchecked (rebuild unit 14; design D6)"
+                .into(),
         ),
         (
             "an unreadable plan carrying a newline and a long value",
@@ -7066,6 +7364,8 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
 /// the engine itself (14a4c's review return, F1): a run started in a world
 /// whose realm declares the boundary, its dispatch seam sealing the site's
 /// composed spawn, and the command checked against what that seam wrote.
+/// Since rebuild unit 14 the Claude driver runs the same check at its cold
+/// seam, so under `open` it is the driver that refuses.
 #[test]
 fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open() {
     use brokkr_protocol::native_controls::{SealedServing, SERVING_INPUTS};
@@ -7164,10 +7464,11 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
     assert_eq!(
         open,
         Err(
-            "the final command of harness 'claude' is sealed with hands that are not the \
-             engine's workspace hands; a complete command is parsed back before its spawn and \
-             must express exactly the capability state its sealed plan records, so it is \
-             refused rather than spawned (operator ruling 2 of 2026-09-23; design D6)"
+            "refusing to invoke the agent CLI: the final command of harness 'claude' is sealed \
+             with hands that are not the engine's workspace hands; a complete command is \
+             parsed back before its spawn and must express exactly the capability state its \
+             sealed plan records, so it is refused rather than spawned (operator ruling 2 of \
+             2026-09-23; design D6)"
                 .to_string()
         )
     );

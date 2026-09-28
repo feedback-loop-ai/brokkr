@@ -6263,9 +6263,10 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
         &start,
         &mut |body| bodies.push(body),
         |prompt, input, _bindings, mut emit| {
+            let command = [launch.command.clone(), vec![prompt.to_string()]].concat();
             invoke_dsh_launch_observed(
                 launch,
-                prompt,
+                command,
                 input["workdir"].as_str().unwrap(),
                 &mut emit,
                 |_| panic!("the qualified arm does not poll the child"),
@@ -16107,6 +16108,17 @@ fn final_carrying(canonical: &str, at: usize, origin: &str, effect: &str) -> Str
     ))
 }
 
+/// The whole refusal of a cold command the final check refuses at the
+/// driver (rebuild unit 14): `problem`, in the check's own words.
+fn checked_refusal(harness: &str, problem: &str) -> String {
+    format!(
+        "refusing to invoke the agent CLI: the final command of harness '{harness}' {problem}; a \
+         complete command is parsed back before its spawn and must express exactly the \
+         capability state its sealed plan records, so it is refused rather than spawned \
+         (operator ruling 2 of 2026-09-23; design D6)"
+    )
+}
+
 /// An inline Codex site's driver input as the engine writes it: the plan,
 /// the argv's two parts, the result path and door, and the sealed launch
 /// record whose segments are `authored` then the engine's `local` fragment
@@ -16149,10 +16161,29 @@ fn inline_codex_input(
             template: TemplateExpectation::None,
         },
     };
+    // Beside the record, the serving inputs sealed with it (rebuild unit
+    // 14a2): the class fragment as the adapter declares it, where the
+    // engine lowers one, and the typed hands where they are required.
+    let required = hands == crate::native_controls::HandsIntent::Required;
+    let serving = crate::native_controls::SealedServing {
+        dialect: crate::native_controls::SealedDialect {
+            sandbox: match required {
+                true => Vec::new(),
+                false => local
+                    .iter()
+                    .map(|part| part.replace("/w/result.json", "{result_path}"))
+                    .collect(),
+            },
+            ..Default::default()
+        },
+        pins: Vec::new(),
+        spec: required.then(crate::hands::HandsSpec::default),
+    };
     let extra = [authored.clone(), local.clone()].concat();
     let mut input = engine_input(base, plan, &extra, local.len());
     input["seat"] = json!("inline");
     input["launch_record"] = record.value();
+    input[crate::native_controls::SERVING_INPUTS] = serving.value();
     input["result_path"] = json!("/w/result.json");
     if class == SandboxIntent::ReadOnly {
         input["result_delivery"] = json!("last-message");
@@ -16372,8 +16403,10 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    // No record, and an agent's record: neither is an inline Codex launch,
-    // so the duplicate the rows above refuse is left to the harness.
+    // An agent's record is not an inline Codex launch, but since rebuild unit
+    // 14 its cold command is checked whole, so the duplicate is refused
+    // there too. A launch sealed with nothing is not judged, and the
+    // duplicate is left to the harness.
     let doubled = ["--json", "--sandbox", "workspace-write"];
     let (extra, mut input) = inline_codex_input(
         json!({"workdir": "/w"}),
@@ -16397,13 +16430,185 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
     ]);
     assert_eq!(
         codex_command("codex", &extra, "/w", None, &input),
-        Ok(launched.clone())
+        Err(checked_refusal(
+            "codex",
+            "cannot be read whole (argument 5, '--json': it repeats option '--json', which the \
+             grammar admits once; a CLI that resolves a duplicate last-wins would resolve it \
+             against the control the engine composed)"
+        ))
     );
     input.as_object_mut().unwrap().remove("launch_record");
+    input
+        .as_object_mut()
+        .unwrap()
+        .remove(crate::native_controls::SERVING_INPUTS);
     assert_eq!(
         codex_command("codex", &extra, "/w", None, &input),
         Ok(launched)
     );
+}
+
+/// Rebuild unit 14 (task 14.1) at the DSH cold seam: a sealed launch the
+/// production composer settled spawns exactly what the final check
+/// returns, the prompt appended as data before the check, never after it,
+/// so a prompt that reads like options stays one positional. A launch
+/// command whose overlay separator changed, or that carries an option the
+/// driver already composed, refuses with the check's whole reason. One
+/// half of the sealed pair without the other refuses, and a launch sealed
+/// with nothing is served as composed.
+#[cfg(unix)]
+#[test]
+fn a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it() {
+    use crate::native_controls::{
+        AllowIntent, Application, Expected, HandsIntent, Identity, LaunchRecord, LocalExpectation,
+        NativeExpectation, SandboxIntent, SealedServing, TemplateExpectation, SERVING_INPUTS,
+    };
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let workdir = root.to_str().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &root);
+
+    let reason = "unsupported mcp and tool_permissions do not establish absence of native egress";
+    let mut input = engine_input(
+        json!({"workdir": workdir}),
+        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+               "reason": reason}),
+        &[],
+        0,
+    );
+    let record = LaunchRecord {
+        segments: Vec::new(),
+        expected: Expected {
+            identity: Identity {
+                provider: "dsh".into(),
+                harness: "dsh".into(),
+                model: None,
+            },
+            native: NativeExpectation::Unmeasured(reason.into()),
+            local: LocalExpectation {
+                allow: AllowIntent::Unspecified,
+                sandbox: SandboxIntent::Unspecified,
+                application: Application::Unrestricted,
+            },
+            hands: HandsIntent::None,
+            template: TemplateExpectation::None,
+        },
+    };
+    input["launch_record"] = record.value();
+    input[SERVING_INPUTS] = SealedServing::default().value();
+    let bin = "/nonexistent/dsh";
+    let launch = || {
+        dsh_launch_with(bin, &[], workdir, None, &input, || {
+            panic!("the disabled gate must not recompute the composite")
+        })
+        .unwrap()
+    };
+    let prompt = "--disallowedTools WebSearch --session x";
+    let words = |words: &[&str]| {
+        words
+            .iter()
+            .map(|word| word.to_string())
+            .collect::<Vec<_>>()
+    };
+    let overlay = |launch: &DshLaunch| launch.overlay.path().to_str().unwrap().to_string();
+    let refused = |problem: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: the final command of harness 'dsh' {problem}; a \
+             complete command is parsed back before its spawn and must express exactly the \
+             capability state its sealed plan records, so it is refused rather than spawned \
+             (operator ruling 2 of 2026-09-23; design D6)"
+        ))
+    };
+
+    // As the composer settled it, cold and streamed: the prompt is the last
+    // argument, one positional however it reads.
+    let settled = launch();
+    let cold = words(&[bin, "--profile", "headless", "--patch", &overlay(&settled)]);
+    assert_eq!(
+        dsh_served(bin, &settled, prompt, workdir, &input),
+        Ok([cold.clone(), words(&[prompt])].concat())
+    );
+    let mut streamed = launch();
+    streamed.stream_json = true;
+    streamed.command = dsh_command(bin, &overlay(&streamed), true, None);
+    assert_eq!(
+        dsh_served(bin, &streamed, prompt, workdir, &input),
+        Ok(words(&[
+            bin,
+            "--profile",
+            "headless",
+            "--patch",
+            &overlay(&streamed),
+            "--output-format",
+            "stream-json",
+            "--new",
+            prompt,
+        ]))
+    );
+
+    // The overlay another launch staged, the overlay's separator changed,
+    // and an option the driver composed carried again.
+    let mut elsewhere = launch();
+    elsewhere.command = cold.clone();
+    assert_eq!(
+        dsh_served(bin, &elsewhere, prompt, workdir, &input),
+        refused(
+            "departs at argument 4 from the complete command its sealed inputs and the \
+             engine's serving choices rebuild: missing, extra, reordered and respelled \
+             arguments are refused alike"
+        )
+    );
+    let mut joined = launch();
+    joined.command = words(&[
+        bin,
+        "--profile",
+        "headless",
+        &format!("--patch={}", overlay(&joined)),
+    ]);
+    assert_eq!(
+        dsh_served(bin, &joined, prompt, workdir, &input),
+        refused(
+            "cannot be read whole (argument 3, a positional argument, whose text is not echoed: \
+             it stands where the '--profile headless --patch' lead a dsh serving command opens \
+             with belongs)"
+        )
+    );
+    let mut doubled = launch();
+    doubled.command = [doubled.command.clone(), words(&["--profile", "headless"])].concat();
+    assert_eq!(
+        dsh_served(bin, &doubled, prompt, workdir, &input),
+        refused(
+            "cannot be read whole (argument 5, a positional argument, whose text is not echoed: \
+             it stands after the overlay, where only the seat's prompt as the last argument, or \
+             '--output-format stream-json', belongs)"
+        )
+    );
+
+    // Half the sealed pair refuses; nothing sealed is served as composed.
+    let mut unpaired = input.clone();
+    unpaired.as_object_mut().unwrap().remove(SERVING_INPUTS);
+    assert_eq!(
+        dsh_served(bin, &settled, prompt, workdir, &unpaired),
+        Err(
+            "refusing to invoke the agent CLI: the input carries a sealed launch record or \
+             sealed serving inputs without the capability plan and the record they are sealed \
+             beside, so its final command cannot be checked; a sealed launch is never served \
+             unchecked (rebuild unit 14; design D6)"
+                .to_string()
+        )
+    );
+    unpaired.as_object_mut().unwrap().remove("launch_record");
+    assert_eq!(
+        dsh_served(bin, &settled, prompt, workdir, &unpaired),
+        Ok([cold, words(&[prompt])].concat())
+    );
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 /// Rebuild unit 5d-fix-c2 (chief F2): the REJOIN the driver composes for an

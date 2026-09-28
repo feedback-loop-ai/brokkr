@@ -15827,3 +15827,175 @@ The gates were re-run on `9f5a00f9`, and the output is transcribed in
 
 **Pending.** 14b, whose saved patch must name `Dialect::stands`. Also
 exact coverage outside the box, macOS, remote CI and the council.
+
+## Unit 14b — fourth visit: the cold seams serve only what the check returns, 2026-09-28
+
+Run `0065-rebuild-unit-14-see-the-uni-cd674eef`, based on `eb36be47`.
+Named production file: `crates/brokkr-protocol/src/adapters.rs`, and no
+other production file moved. **Result: complete.** 14.1 closes here. Scratch
+output is in `.forge/unit-14b/v4-*.txt`.
+
+### What was built
+
+The saved patch `.forge/unit-14b/unit-14b-seams.patch` applied with `git
+apply` and needed two edits:
+
+- `served_cold` passes the sealed `stands` into `Dialect`, which 14a4c added
+  (`adapters.rs:3008`). Without it the crate did not compile (`E0063`).
+- The test helper `seal_serving` (`capability_launch.rs:303`) now seals
+  through the engine's own `serving_inputs` under the bundle's boundary, in
+  place of the patch's hand copy of it. That copy named no `stands` and
+  did not compile (`E0063`).
+
+The rest is the patch as the first visit recorded it. `served_cold` decodes
+the sealed record and serving inputs, runs `check_final`, and hands the
+spawn `Checked::into_argv`. It is called at:
+
+- Codex: `codex_launch_and_cold`, cold plans only.
+- Claude and LaneTally: every cold return of `claude_launch`.
+- DSH: `dsh_served`, which appends the prompt before the check.
+
+A launch sealed with nothing is served as composed. One half of the pair
+without the other, or the pair without a plan, refuses (`UNPAIRED`,
+`:2984`). Rejoins are unit 15's.
+
+### The three failures A and B named, and the one in scope
+
+With the patch and the edits above:
+
+- `capability_launch.rs:6838` (the old `:6457`) and `:7146` (the old
+  `:6751`) pass. 14a4b and 14a4c removed their refusals.
+- `driver_conformance.rs:3334` (the old `:2781`) departed at argument 12
+  (`v4-driver.txt`). That argument is
+  `mcp_servers.brokkr.command="…/target/debug/deps/driver_conformance-…"`.
+  The engine in that test runs inside the test binary, so the hands it binds
+  name the test binary. The driver under test is `target/debug/brokkr` and
+  binds itself. In production one executable is both. This is the fixture
+  artifact 14a4a predicted, not a production mismatch. A scratch print of
+  the captured `launch_arguments` showed it; the print was removed. See the
+  standing-admission line below. With it, the suite has 24 passed and 0
+  failed (`v4-driver2.txt`). `:3209`'s `PoisonError` went with it.
+- The in-scope row, "unmeasured, no plan" (`capability_launch.rs:4141`, the
+  old `:3752`), now expects the unpaired refusal in full. The door admits
+  the launch without a plan, because an unmeasured inventory seals no
+  denial. The driver then refuses it, because a sealed launch is never
+  served unchecked. The test's doc comment says so.
+
+The integration also moved one expectation in each named test file:
+
+- The probe pair `an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open`
+  (`capability_launch.rs:7370`): under `open`, the Claude driver now
+  refuses at its seam before the test's own check runs. The expected text
+  gains the driver's `refusing to invoke the agent CLI: ` prefix, and the
+  problem text is the same. The doc comment says so.
+- `adapters/tests.rs:16410`: an agent record's authored `--json` beside the
+  driver's own was launched unjudged. It is now the check's refusal
+  (`checked_refusal`, `:16113`). This change is from the saved patch.
+
+### New tests
+
+- `a_compiled_cold_command_is_served_only_as_its_final_check_returns_it`
+  (`capability_launch.rs:1059`, through `tampered_launch`, `:1029`). Ten rows
+  over compiled bundles, each with an exact value. It covers an unboxed
+  inline Claude seat, and under `namespace` the boxed Claude agent (`chain`
+  0), the Codex agent (`chain` 1) and the boxed inline Codex seat.
+  - Positives, written out and not composed: Claude unboxed and boxed; Codex
+    agent and inline (`checked_codex`).
+  - Dropped OFF: Claude with `selection.deny` emptied refuses, because
+    `WebFetch` is left available. Codex with its OFF argv emptied refuses
+    with "carries no measured OFF".
+  - A boxed Claude seat's dropped deny list still launches, because its `--tools ""`
+    leaves neither tool available. That is the check judging capability
+    state, and the row pins it.
+  - Changed separator (design C2): Claude's deny separator set to `:`
+    refuses, because `WebFetch:WebSearch` is not a plain tool name.
+  - Cross-origin duplicates: an authored `--verbose` (Claude) and an
+    authored `--json` (inline Codex), each beside the driver's own, refuse
+    as repeats.
+- `a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it`
+  (`adapters/tests.rs:16461`), over a launch `dsh_launch_with` settles:
+  - It serves cold and streamed exactly, with an option-like prompt as the
+    one last positional.
+  - Another launch's staged overlay departs at argument 4. A `--patch=`
+    joined separator refuses. An option carried after the overlay refuses.
+  - The record without serving inputs refuses `UNPAIRED`. Nothing sealed
+    is served as composed.
+- LaneTally: the serving-child test (`capability_launch.rs:2839`) now also
+  serves the same sealed launch with its deny list emptied (`:2942`). The
+  driver's result is the check's refusal for harness `lanetally`, and the
+  wrapper is never spawned.
+
+An authored terminator never reaches a cold seam. A scratch row showed the
+driver refusing it at composition: "the arguments of seat 'work' do not
+parse: the 'claude' command grammar cannot place argument 1 (the terminator
+'--')". The same held for the inline Codex seat. That refusal is in
+`native_controls.rs` and not in this unit, so no mutation here binds it, and
+the row was not committed. The check's own terminator refusal is 13.1's
+(`native_controls/tests.rs:8825`).
+
+### Baseline reds
+
+HEAD's `adapters.rs` and `adapters/tests.rs` were restored beside the new
+runtime tests (`v4-baseline-launch.txt`): 54 passed and 3 failed.
+
+- The new table: five refusal rows launched unchecked. These were Claude
+  with its OFF dropped, the separator, Codex with its OFF dropped, and the
+  `--verbose` and `--json` duplicates.
+- The probe pair: the unprefixed check refusal.
+- "unmeasured, no plan": `launched`.
+
+The DSH test calls `dsh_served`, which does not exist on HEAD. M3 is its red.
+
+### Mutations
+
+Each was one compiling edit to `adapters.rs`, restored from
+`.forge/unit-14b/v4-adapters.rs.fixed` and confirmed with `cmp`. Lines are
+cited as they stand in the committed tree. The raw outputs were taken one
+line earlier in `capability_launch.rs`, before `type Tamper` was added.
+
+| Mutation | Failed |
+| --- | --- |
+| M1: no check at the Codex seam | `capability_launch` rows "codex, the OFF dropped", "inline codex, an authored --json" and "unmeasured, no plan"; `adapters/tests.rs:16431` |
+| M2: no check at the Claude/LaneTally seam | rows "claude, the OFF dropped", "…separator changed" and "…authored --verbose"; the probe pair (`:7464`); LaneTally (`:2950`) |
+| M3: `dsh_served` serves unchecked | DSH test `:16555` (another launch's overlay); 38 more fail only on the poisoned `ADAPTER_ENV` lock |
+| M4a: the DSH prompt appended after the check | DSH test `:16529`: the check refuses a command with no prompt |
+| M4b: one argument appended to the checked Codex argv | rows "codex as sealed" and "inline codex as sealed" |
+| M5: half the sealed pair served unchecked | DSH test `:16592` |
+| M5b: a sealed pair with no plan served unchecked | row "unmeasured, no plan" |
+
+After each restore, the suites below passed.
+
+### Standing-admission line and fixture migrations
+
+- **Standing-admission line**:
+  `crates/brokkr-cli/tests/driver_conformance.rs:3186-3190`, in
+  `capture_proof_input`. It replaces the test binary's path with
+  `brokkr_bin()` in the captured Start. The fixture's in-process engine
+  stands in for the brokkr binary, and this unit's check at the driver
+  reaches it. The line adds no assertion and removes none. The gate's
+  decision and the cold fallback that the two tests assert did not change.
+  Without the line, `:3334` fails at argument 12 (`v4-driver.txt`). The
+  council should rule on it: the fixture swaps the engine's executable, not
+  the driver.
+- Fixture migrations: none.
+
+### Gates
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean (`v4-clippy.txt`). It first flagged a `type_complexity` in the new
+  test, which was factored into `type Tamper`.
+- `cargo test -p brokkr-protocol --all-features --locked`: 539, 99 (2
+  ignored) and 1 passed, none failed (`v4-gate-protocol.txt`).
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 summaries, all
+  `ok` (`v4-gate-runtime.txt`). `capability_launch` was then re-run alone
+  after the last edit: 57 passed.
+- `cargo test -p brokkr-cli --all-features --locked`: 33 summaries, all
+  `ok`, exit 0 (`v4-gate-cli.txt`).
+- `bundles/self` and `bundles/verify` compile.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage outside the box, macOS, remote CI and the
+council. Unit 15 checks rejoins and the cold replacement.

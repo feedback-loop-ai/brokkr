@@ -3183,7 +3183,12 @@ fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
         let value: Value = serde_json::from_str(line)
             .unwrap_or_else(|error| panic!("{}: {error}: {line:?}", entry.path().display()));
         if value["seat"] == label {
-            return value["input"].clone();
+            // The engine here is this test binary, so the hands it binds
+            // name it; the brokkr driver binds itself (rebuild unit 14).
+            let exe = std::env::current_exe().unwrap();
+            let text = value["input"].to_string();
+            return serde_json::from_str(&text.replace(exe.to_str().unwrap(), brokkr_bin()))
+                .unwrap();
         }
         seen.push(value["seat"].clone());
     }
