@@ -4634,12 +4634,16 @@ pub(crate) enum ReadStage {
     /// The walk is about to judge, then read and hash, a file under no
     /// consumed key.
     Walked,
-    /// The walk is about to list a directory: one in a skipped tree is not
-    /// yet checked to be the directory its parent listed there.
+    /// The walk is about to open and list a directory: one in a skipped tree
+    /// is not yet opened through its parent's handle.
     Listing,
-    /// A directory in a skipped tree was checked to be the directory its
-    /// parent listed there, and is about to be listed.
+    /// A directory in a skipped tree was opened through its parent's handle
+    /// and checked to be the directory its parent listed there, and is about
+    /// to be listed through that handle.
     DirectoryChecked,
+    /// The walk listed this entry in a tree it skips, and is about to ask
+    /// what it is without following a link.
+    Skipped,
 }
 
 #[cfg(test)]
@@ -4700,6 +4704,33 @@ const O_NOFOLLOW: i32 = 0o100_000;
 const O_NOFOLLOW: i32 = 0o400_000;
 #[cfg(target_os = "macos")]
 const O_NOFOLLOW: i32 = 0x0100;
+/// `O_DIRECTORY`: the open fails unless it reaches a directory, so the walk
+/// never opens a file or device where it lists a directory. Linux spells it
+/// per the same architecture families.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "m68k",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    )
+))]
+const O_DIRECTORY: i32 = 0o40_000;
+#[cfg(all(
+    target_os = "linux",
+    not(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "m68k",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    ))
+))]
+const O_DIRECTORY: i32 = 0o200_000;
+#[cfg(target_os = "macos")]
+const O_DIRECTORY: i32 = 0x0010_0000;
 /// `O_CLOEXEC`, which the standard library sets on every file it opens.
 #[cfg(target_os = "linux")]
 const O_CLOEXEC: i32 = 0o2_000_000;
@@ -4728,7 +4759,9 @@ const REPLACED: &str = "which was replaced while it was read: the file the read 
 
 // The library calls the owner-rooted resolution is made of, which the
 // standard library does not expose: a lookup of one name inside an open
-// directory, and the text of a link standing there.
+// directory, and the text of a link standing there. And the walk's: the
+// listing of an open directory through its handle, with the `errno` that says
+// a listing ended in error.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 extern "C" {
     fn openat(
@@ -4743,12 +4776,114 @@ extern "C" {
         buf: *mut std::ffi::c_char,
         size: usize,
     ) -> isize;
+    #[cfg_attr(
+        all(target_os = "macos", target_arch = "x86_64"),
+        link_name = "fdopendir$INODE64"
+    )]
+    fn fdopendir(fd: std::ffi::c_int) -> *mut std::ffi::c_void;
+    #[cfg_attr(all(target_os = "linux", target_env = "gnu"), link_name = "readdir64")]
+    #[cfg_attr(
+        all(target_os = "macos", target_arch = "x86_64"),
+        link_name = "readdir$INODE64"
+    )]
+    fn readdir(dir: *mut std::ffi::c_void) -> *const u8;
+    fn closedir(dir: *mut std::ffi::c_void) -> std::ffi::c_int;
+    #[cfg_attr(target_os = "linux", link_name = "__errno_location")]
+    #[cfg_attr(target_os = "macos", link_name = "__error")]
+    fn errno() -> *mut std::ffi::c_int;
+}
+
+/// Where `d_name` stands in the entry each host's `readdir` returns, after
+/// its 64-bit `d_ino` (at 0) and `d_off`/`d_seekoff` (at 8): Linux's
+/// `dirent64` then has `d_reclen` and `d_type`, macOS's 64-bit-inode
+/// `dirent` `d_reclen`, `d_namlen` and `d_type`.
+#[cfg(target_os = "linux")]
+const NAME_AT: usize = 19;
+#[cfg(target_os = "macos")]
+const NAME_AT: usize = 21;
+
+/// Every name the directory `handle` holds lists, but `.` and `..`, read
+/// through a copy of that handle and never by a path (rebuild unit 16-fix-e,
+/// second return F2). A listing that cannot be opened or ends in error is an
+/// error: the caller fails closed.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn names_in(handle: &std::fs::File) -> std::io::Result<Vec<OsString>> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::{AsRawFd, IntoRawFd};
+    let copy = handle.try_clone()?;
+    // SAFETY: `copy` is a descriptor nothing else uses. On success the
+    // stream owns it, so it is released from `copy`; on failure `copy`
+    // still owns it and closes it.
+    let dir = unsafe { fdopendir(copy.as_raw_fd()) };
+    let dir = std::ptr::NonNull::new(dir).ok_or_else(std::io::Error::last_os_error)?;
+    let _owned_by_the_stream = copy.into_raw_fd();
+    let mut names = Vec::new();
+    let ended = loop {
+        // SAFETY: `errno` is this thread's; `dir` is an open stream, and an
+        // entry it returns is valid until the next call, with a
+        // NUL-terminated name at `NAME_AT`.
+        let entry = unsafe {
+            *errno() = 0;
+            readdir(dir.as_ptr())
+        };
+        let Some(entry) = std::ptr::NonNull::new(entry.cast_mut()) else {
+            break std::io::Error::last_os_error();
+        };
+        // SAFETY: as above, `entry` is the entry `readdir` just returned.
+        let name = unsafe { std::ffi::CStr::from_ptr(entry.as_ptr().add(NAME_AT).cast()) };
+        if !matches!(name.to_bytes(), b"." | b"..") {
+            names.push(OsStr::from_bytes(name.to_bytes()).to_os_string());
+        }
+    };
+    // SAFETY: `dir` is open and closed exactly once, here.
+    unsafe { closedir(dir.as_ptr()) };
+    (ended.raw_os_error() == Some(0))
+        .then_some(names)
+        .ok_or(ended)
+}
+
+/// A handle on the directory at `path`, reached as a path is (a pinned
+/// tree's contained linked directory included), which opens nothing but a
+/// directory and never waits.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn directory(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_DIRECTORY | O_NONBLOCK)
+        .open(path)
+}
+
+/// A handle on the directory `name` inside the directory `parent` holds,
+/// never following a link it names.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn directory_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<std::fs::File> {
+    open_at(parent, name, O_DIRECTORY)
+}
+
+/// No supported host lacks a listing through a handle (decision 0063); any
+/// other refuses rather than listing a layer by its path.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn directory(_: &Path) -> std::io::Result<std::fs::File> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// As [`directory`]: any other host lists nothing.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn directory_at(_: &std::fs::File, _: &OsStr) -> std::io::Result<std::fs::File> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// As [`directory`]: any other host lists nothing.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn names_in(_: &std::fs::File) -> std::io::Result<Vec<OsString>> {
+    Err(std::io::ErrorKind::Unsupported.into())
 }
 
 /// Open `name` inside the directory `parent` holds, non-blocking, never
-/// following a link it names.
+/// following a link it names, with any further `flags`.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn open_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<std::fs::File> {
+fn open_at(parent: &std::fs::File, name: &OsStr, flags: i32) -> std::io::Result<std::fs::File> {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::{AsRawFd, FromRawFd};
     let name = std::ffi::CString::new(name.as_bytes())?;
@@ -4758,7 +4893,7 @@ fn open_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<std::fs::Fil
         openat(
             parent.as_raw_fd(),
             name.as_ptr(),
-            O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC,
+            O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC | flags,
         )
     };
     if fd < 0 {
@@ -4858,7 +4993,7 @@ fn observe(root: &Path, reference: &Path) -> Result<Observation, InputFault> {
             continue;
         }
         let parent = &stack.last().expect("the layer's directory stays").0;
-        match open_at(parent, &name) {
+        match open_at(parent, &name, 0) {
             Ok(file) => {
                 let id = identity(&file).map_err(InputFault::Missing)?;
                 steps.push(Step::Entry(name.clone(), id));
@@ -6670,23 +6805,28 @@ fn manifest_for(
 /// no identity; but a hard link there to a consumed file is a second name for
 /// it inside the layer all the same, and is refused on the same terms. That
 /// search never follows a link (16-fix-e, F3): a linked directory there is
-/// one entry, not a tree, so it cannot leave the layer or loop, and a
-/// directory there is listed only while it is the one its parent listed
-/// ([`listing`]; 16-fix-e, return F3). A directory the walk cannot list,
-/// skipped or not, is refused naming it, and naming who read a consumed
-/// entry it holds.
+/// one entry, not a tree, so it cannot leave the layer or loop; a directory
+/// there is opened through its parent's handle, never following a link, and
+/// listed through that handle only while it is the one its parent listed
+/// ([`listing`]; 16-fix-e, return F3 and second return F2); and an entry
+/// there it cannot ask what it is is refused naming it (16-fix-e, second
+/// return F1). A directory the walk cannot list, skipped or not, is refused
+/// naming it, and naming who read a consumed entry it holds.
 fn walk_files(
     dir: &Path,
     scope: &Path,
     consumed: &BTreeMap<String, Supplied>,
 ) -> Result<BTreeMap<String, String>, CompileError> {
-    // Each directory to list, with the `(dev, ino)` its parent listed it as
-    // when it stands in a skipped tree.
-    let mut stack = vec![(scope.to_path_buf(), None)];
+    // Each directory to list, with how its parent found it when it stands
+    // in a skipped tree.
+    let mut stack: Vec<(PathBuf, Option<Found>)> = vec![(scope.to_path_buf(), None)];
     let (mut paths, mut unpinned) = (Vec::new(), Vec::new());
     while let Some((current, found)) = stack.pop() {
-        for entry in listing(dir, &current, found, consumed)? {
-            let path = entry.path();
+        let in_skipped = found.is_some();
+        let (handle, names) = listing(dir, &current, found, consumed)?;
+        let handle = std::rc::Rc::new(handle);
+        for name in names {
+            let path = current.join(&name);
             // A consumed entry is the one entry it was read by, never a tree
             // to descend (16-fix-e, return F1): whatever stands there now is
             // judged by its own check, which names who read it.
@@ -6695,23 +6835,21 @@ fn walk_files(
             // invoked. Its realm map and dialect library are workspace
             // declarations pinned into the RUN manifest, never bundle files:
             // changing either must not move the strategy's identity.
-            let skipped = found.is_some()
-                || current == dir
-                    && path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(unpinned_top_level);
+            let skipped =
+                in_skipped || current == dir && name.to_str().is_some_and(unpinned_top_level);
             if skipped && consumed.is_empty() {
                 continue;
             }
             if skipped {
                 // Asked of the entry, never its target (16-fix-e, F3): a
-                // linked directory here is one entry, not a tree.
-                let meta = entry
-                    .metadata()
-                    .map_err(|error| unlisted(dir, &current, error, consumed))?;
+                // linked directory here is one entry, not a tree. An entry
+                // it cannot ask is refused as itself (second return F1).
+                at_stage(ReadStage::Skipped, &path);
+                let meta = std::fs::symlink_metadata(&path)
+                    .map_err(|error| unobservable(dir, &path, &error))?;
                 if meta.is_dir() {
-                    stack.push((path, Some(node(&meta))));
+                    let found = (std::rc::Rc::clone(&handle), name, node(&meta));
+                    stack.push((path, Some(found)));
                 } else {
                     unpinned.push(path);
                 }
@@ -6805,32 +6943,48 @@ fn walk_files(
     Ok(files)
 }
 
-/// The entries of `current`, a directory under the layer `dir`, as the walk
-/// lists them. One in a skipped tree was `found` by its parent's listing as
-/// the directory with that `(dev, ino)`, asked without following a link
-/// (rebuild unit 16-fix-e, return F3): it is listed only while that entry is
-/// still that directory, checked before the listing and again after it, so a
-/// link or anything else put in its place is refused before a name listed
-/// through it is walked, and the walk never descends out of the layer.
+/// How the walk found a directory in a skipped tree: the handle on the
+/// directory its parent's listing named it in, its name there, and the
+/// `(dev, ino)` it was, asked without following a link.
+type Found = (std::rc::Rc<std::fs::File>, OsString, (u64, u64));
+
+/// The names `current`, a directory under the layer `dir`, lists, and the
+/// handle they were listed through: the listing reads that handle, never a
+/// path (rebuild unit 16-fix-e, second return F2). A pinned directory is
+/// opened as its path reaches it. One in a skipped tree was `found` by its
+/// parent's listing (return F3): it is opened through its parent's handle,
+/// never following a link, and listed only while that handle holds the
+/// directory found and its entry still stands as it, checked when it is
+/// opened and again after the listing. A link or anything else put in its
+/// place is refused before a name listed there is walked, and the walk never
+/// opens or lists a directory outside the layer.
 fn listing(
     dir: &Path,
     current: &Path,
-    found: Option<(u64, u64)>,
+    found: Option<Found>,
     consumed: &BTreeMap<String, Supplied>,
-) -> Result<Vec<std::fs::DirEntry>, CompileError> {
-    let stands = |id| std::fs::symlink_metadata(current).is_ok_and(|meta| node(&meta) == id);
+) -> Result<(std::fs::File, Vec<OsString>), CompileError> {
+    let refuse = |error| unlisted(dir, current, error, consumed);
     at_stage(ReadStage::Listing, current);
-    if found.is_some_and(|id| !stands(id)) {
-        return Err(replaced(dir, current, "before"));
-    }
-    if found.is_some() {
-        at_stage(ReadStage::DirectoryChecked, current);
-    }
-    let listed = std::fs::read_dir(current).and_then(Iterator::collect);
-    if found.is_some_and(|id| !stands(id)) {
+    let Some((parent, name, id)) = found else {
+        let handle = directory(current).map_err(refuse)?;
+        let names = names_in(&handle).map_err(refuse)?;
+        return Ok((handle, names));
+    };
+    let stands = || std::fs::symlink_metadata(current).is_ok_and(|meta| node(&meta) == id);
+    let opened = directory_at(&parent, &name)
+        .and_then(|handle| handle.metadata().map(|meta| (handle, node(&meta))));
+    let handle = match opened {
+        Ok((handle, held)) if held == id => handle,
+        Err(error) if stands() => return Err(refuse(error)),
+        _ => return Err(replaced(dir, current, "before")),
+    };
+    at_stage(ReadStage::DirectoryChecked, current);
+    let names = names_in(&handle).map_err(refuse)?;
+    if !stands() {
         return Err(replaced(dir, current, "while"));
     }
-    listed.map_err(|error| unlisted(dir, current, error, consumed))
+    Ok((handle, names))
 }
 
 /// The refusal of `directory`, in a skipped tree under the layer `dir`,
@@ -6843,6 +6997,23 @@ fn replaced(dir: &Path, directory: &Path, moment: &str) -> CompileError {
          parent listed there and never through a link, so a directory replaced there is refused \
          rather than followed (decision 0065 slice one, design D7)",
         bounded_reference(&format!("./{key}"))
+    ))
+}
+
+/// The refusal of the entry at `path`, in a skipped tree under the layer
+/// `dir`, which the walk listed but could not ask what it is (rebuild unit
+/// 16-fix-e, second return F1 and F3): named by its own place in the layer,
+/// never as its directory, with the kind of failure, never an unbounded io
+/// message.
+fn unobservable(dir: &Path, path: &Path, error: &std::io::Error) -> CompileError {
+    let key = walk_key(dir, path).unwrap_or_default();
+    CompileError::Invalid(format!(
+        "bundle entry {}, in a tree the walk skips, cannot be observed ({}): the walk asks each \
+         entry there what it is, without following a link, to hold each consumed file to one \
+         name, so an entry it cannot observe is refused rather than passed over (decision 0065 \
+         slice one, design D7)",
+        bounded_reference(&format!("./{key}")),
+        error.kind()
     ))
 }
 

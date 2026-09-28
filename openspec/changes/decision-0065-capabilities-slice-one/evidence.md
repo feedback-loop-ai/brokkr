@@ -19093,6 +19093,14 @@ path through the restored in-layer directory, so it is refused unless the
 path is swapped out again for that check too. No test exercises that double
 swap.
 
+**Correction (second return, F2).** This overstated the guarantee. The walk
+never descended the outside tree, but it did list it. A single link swapped in
+at `DirectoryChecked`, after the first check, was followed by `read_dir`. That
+opened and read the outside directory, and only then did the second check
+refuse. On `0fcec52f`, inotify saw `IN_OPEN` and `IN_ACCESS` on the outside
+directory; see "Unit 16-fix-e, second return" for the log. No double swap was
+needed. The second return binds the listing to a handle.
+
 ### Tests
 
 New, in `bundle/compose_tests.rs`, with helpers `locked_in_place_of` and
@@ -19196,6 +19204,190 @@ The default-feature workspace suite was not run on this visit.
 - macOS: `openat`/`readlinkat`, the flag values, and `DirEntry::metadata` as
   a no-follow lookup there. It is documented not to traverse links, but that
   has not been observed on macOS.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council.
+
+## Unit 16-fix-e, second return — the listing is bound to a handle, 2026-09-28
+
+Same run, `0065-rebuild-unit-16-see-the-uni-fd9035f4`, returned from review
+of `0fcec52f`. It answers the chief's findings on that head:
+
+- F1 (MEDIUM): the child-metadata closure was never run (`FNDA:0`).
+- F2 (LOW): `read_dir` followed a link swapped in, and listed the outside
+  directory.
+- F3 (LOW): a child's metadata failure was named as its parent's listing.
+
+The chief's F4 (run integrity) asks for no code. The earlier F4, the
+case-insensitive refusal row, stays pending under the operator's ruling of
+2026-09-28. Production: `bundle.rs` only. Tests: `bundle/compose_tests.rs`.
+Scratch logs are under `.forge/unit-16-fix-e-2/` (not committed).
+
+### Production
+
+**Every directory is listed through a handle (F2).** `listing` now returns
+the names and the handle they were read through. It no longer returns
+`DirEntry`s from `read_dir(path)`.
+
+- The listing is `names_in`: `fdopendir` on a copy of the handle, then
+  `readdir`, with `.` and `..` dropped. An error that ends the listing is an
+  error. These FFI declarations and the `d_name` offsets are the ones
+  `95d4ff19` carried for the retired alias search. That includes
+  `readdir64` on glibc and the `$INODE64` names on x86_64 macOS.
+- A pinned directory is opened as its path reaches it, as `read_dir` did,
+  so contained linked directories are still followed. The open uses
+  `O_DIRECTORY | O_NONBLOCK`, so it opens nothing but a directory and never
+  waits.
+- A directory in a skipped tree is not opened when it is found. It is
+  stacked as `Found`: its parent's handle (shared through an `Rc`; from
+  reading the code, not measured, the handles held open are then bounded by
+  the tree's depth, not its breadth), its name, and the `(dev, ino)` that
+  `symlink_metadata` gave for it. When it is popped, it is opened with
+  `openat(parent, name, O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)`,
+  and `open_at` now takes extra flags for this. The handle must hold that
+  same `(dev, ino)`:
+  - An open that fails where the entry still stands as found is `unlisted`,
+    naming the directory. An unreadable directory gets this.
+  - Any other failure, or a handle on a different directory, is `replaced
+    … before`. The walk never opens a link there, so an outside directory is
+    never opened.
+- Once open and checked (the `DirectoryChecked` seam), the handle is
+  listed. After that, the path must still stand as found, or the result is
+  `replaced … while`. A name listed there is judged by its path, so this
+  holds those paths to the directory that was listed.
+- `O_DIRECTORY` is spelled per host, in the same architecture families as
+  `O_NOFOLLOW`. Any host other than Linux or macOS refuses to list (decision
+  0063), as `observe` already refuses to read there.
+
+**An entry that cannot be observed is named as itself (F1, F3).** Each
+skipped-tree entry is asked `std::fs::symlink_metadata(path)` after the new
+`Skipped` seam. It is still asked without following a link. A failure is
+refused by the new `unobservable`: `bundle entry './<key>', in a tree the
+walk skips, cannot be observed (<kind>): …`. That names the entry and the
+failed observation, not its directory's listing. No consumed entry can stand
+in a skipped tree (`bound_input` refuses it there), so no consumer is named.
+
+**Seams.** `ReadStage::Skipped` is new. `Listing` now means "about to open
+and list". `DirectoryChecked` now means "opened through the parent's handle,
+checked, about to be listed". The existing rows keep their words: a swap at
+`Listing` is still refused `before` the listing, and one at
+`DirectoryChecked` `while` it happens.
+
+**Unchanged.** The one-name check (`one_entry`), `unlisted`, `replaced`, and
+consumed-entry handling are unchanged. The loop over the layer's root, with
+the `consumed.is_empty()` branch, is unchanged too.
+
+### Tests
+
+In `bundle/compose_tests.rs`:
+
+- **`opened_while` (new helper, Linux).** It puts an inotify watch
+  (`IN_OPEN | IN_ACCESS`) on a directory and returns, beside what the act
+  said, every event mask seen while it ran. On macOS it returns no events,
+  so there only the refusal is observed.
+- **`a_skipped_directory_replaced_by_a_link_is_not_followed` (extended;
+  F2).** Standalone and inherited, three rows:
+  - `Listing` with a link: `before`.
+  - `Listing` with a new directory put in place: `before`. This row is new.
+  - `DirectoryChecked` with a link: `while`.
+
+  Each row now also asserts that inotify saw nothing open or read the
+  outside directory (`[]`). The refusals and the standing-identity cells are
+  as before.
+- **`a_skipped_entry_the_walk_cannot_observe_is_refused_naming_it` (new;
+  F1, F3).** Standalone and inherited. `realms.json` (top level) and
+  `dialects/gone.json` are each removed at the `Skipped` seam. A control
+  compile with the entry standing succeeds first. Expected:
+  `unobservable_entry(key, "entity not found")`.
+
+### Baseline (`0fcec52f` plus a `Skipped` seam only)
+
+The seam is saved as `baseline-seam.diff`: `at_stage(Skipped)` before
+`entry.metadata()`. Result in `baseline.log`: 0 passed, 2 failed.
+
+- F2 test: the `DirectoryChecked` rows saw
+  `[1073741856, 1073741825]` = `IN_OPEN|IN_ISDIR`, `IN_ACCESS|IN_ISDIR` on
+  the outside directory. This is the chief's F2, observed. Every other cell
+  matched.
+- F1/F3 test: `dialects/gone.json` said `bundle directory './dialects'
+  cannot be listed (entity not found)`. `realms.json` said `<base>/bundle.json:
+  the layer's declaring document, whose entry 'bundle.json' stands in bundle
+  directory './' cannot be listed (entity not found)`, which misnames the
+  failure and attributes it to the declaring document. This is the chief's
+  F3.
+
+### Mutations (each compiles; restored by hand after each)
+
+Each ran the compose suite (60 tests).
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| M1: the entry's failure propagated bare (`symlink_metadata(&path)?`) | new F1 test: every cell `bundle io: No such file or directory (os error 2)`. 59 passed | `m1.log` |
+| M2: a skipped directory opened by its path (`directory(current)`) | F2 test: the `Listing` link rows saw `[1073741856]`, the outside directory opened. 59 passed | `m2.log` |
+| M3: the checked directory listed by its path again (`names_in(&directory(current)…)`) | F2 test: the `DirectoryChecked` rows saw `[1073741856, 1073741825]`. 59 passed | `m3.log` |
+| M4: no check after the listing (`if false && !stands()`) | F2 test: the `DirectoryChecked` rows said `bundle entry './dialects/inner' … cannot be observed (entity not found)`. 59 passed | `m4.log` |
+| M5: no identity check on the opened handle (`Ok((handle, _)) => handle`) | F2 test: the new-directory rows said `was replaced while`, having listed it. 59 passed | `m5.log` |
+| M6: an open failure always read as a replacement (`if false && stands()`) | `a_skipped_tree_is_searched_without_following_a_link`: `'./dialects/private' was replaced before…` instead of `cannot be listed (permission denied)`. 59 passed | `m6.log` |
+| M7: skipped entries asked through links (`std::fs::metadata`) | `a_skipped_tree_is_searched_without_following_a_link` (`'./dialects/out' was replaced before…`) and the F2 test. 58 passed | `m7.log` |
+
+After M7 was restored, `cmp` against the saved fixed source reported them
+identical.
+
+### Coverage diagnostic (not the gate)
+
+Commands:
+
+- `cargo +nightly-2026-09-05 llvm-cov clean --workspace`
+- `cargo +nightly-2026-09-05 llvm-cov --locked -p brokkr-runtime --lib
+  --branch --lcov` (`runtime.lcov`; 609 passed)
+
+The `bundle.rs` record was compared with the previous visit's
+`runtime-final.lcov`:
+
+- Zero `DA`/`BRDA`/`FNDA` records: 71 now, 72 before. The one removed is the
+  chief's F1, `FNDA:0,…walk_files…s_0`. The other 71 are the same records,
+  lines after the new FFI shifted by +135: `Bundle::assemble`'s closure, and
+  `DA:941–946`, `1334–1376`, `1452`, `1708–1717`, `1934`, `2700–2728`,
+  `2848`, `5596–5600`, `5625`, `5674`, `5851`, `6161–6164`. These are
+  outside this change and were excluded by the chief.
+- No zero `DA`, `BRDA` or `FNDA` falls in the changed ranges 4790–4910
+  (`names_in`, `directory`, `directory_at`, `open_at`) or 6800–7100
+  (`walk_files`, `listing`, `replaced`, `unobservable`, `unlisted`).
+- `listing`'s match (opened and checked; replaced; unlistable; a link) and
+  the `matches!` over `.`/`..` are all hit.
+
+`scripts/coverage-exact.sh` stays the external gate, and it is pending.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean. One line of `walk_files` was
+  reformatted by `cargo fmt`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok
+  (`workspace.log`). The runtime lib has 609.
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+The fallbacks for hosts other than Linux and macOS were not compiled for
+such a target in this session.
+
+### Pending
+
+- **F4 (earlier chief), and with it 16.1.** The case-insensitive rows of the
+  spelling refusal are unobserved. They need a case-folding or macOS host.
+  Not claimed.
+- macOS: `fdopendir`/`readdir` and their `$INODE64` names on x86_64,
+  `NAME_AT` 21, and the `O_DIRECTORY` value. The no-enumeration proof is
+  Linux-only (inotify).
 - Exact coverage outside the box (`scripts/coverage-exact.sh`).
 - Remote CI.
 - The council.

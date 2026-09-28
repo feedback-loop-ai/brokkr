@@ -3701,6 +3701,51 @@ its case-insensitive refusal row, is still unobserved and is not claimed.**
 - **Pending.** F4 and with it 16.1; macOS; exact coverage outside the box;
   remote CI and the council.
 
+Unit 16-fix-e, second return (2026-09-28, run
+`0065-rebuild-unit-16-see-the-uni-fd9035f4`, based on `0fcec52f`; evidence.md,
+"Unit 16-fix-e, second return"). It answers the chief's F1–F3 on `0fcec52f`.
+Production: `bundle.rs` only. Tests: `bundle/compose_tests.rs`. **16.2 and
+16.3 stay closed. 16.1 stays open: the earlier F4, its case-insensitive
+refusal row, is still unobserved and is not claimed.**
+
+- **F2, the listing is bound to a handle.** Every directory is now listed
+  through a handle (`fdopendir`/`readdir`), never through `read_dir(path)`.
+  A directory in a skipped tree is opened through its parent's handle with
+  `O_DIRECTORY | O_NOFOLLOW`. It is listed only if that handle holds the
+  `(dev, ino)` its parent's no-follow lookup found, and only while its path
+  still stands as that directory. A link put in its place is never opened,
+  so the outside directory is never listed.
+  - `a_skipped_directory_replaced_by_a_link_is_not_followed` now asserts
+    that inotify sees nothing open or read the outside directory. It gains
+    a row with a new directory put in place.
+  - Red on `0fcec52f`: the `DirectoryChecked` rows saw `IN_OPEN` and
+    `IN_ACCESS` on it. Caught by M2 and M3 (a path open or listing
+    restored), M4 (no after-check) and M5 (no identity check).
+- **F1 and F3, an entry that cannot be observed is named as itself.** A
+  skipped-tree entry whose no-follow lookup fails is refused as `bundle
+  entry './<key>', in a tree the walk skips, cannot be observed (<kind>)`.
+  It is never named as its directory's listing.
+  - New test `a_skipped_entry_the_walk_cannot_observe_is_refused_naming_it`,
+    at the new `Skipped` seam, for `realms.json` and `dialects/gone.json`,
+    standalone and inherited.
+  - Red on `0fcec52f` plus the seam: every cell said "bundle directory ...
+    cannot be listed (entity not found)". Caught by M1.
+  - M6 and M7 bind the unlistable/replaced split and the no-follow lookup
+    through the existing `a_skipped_tree_is_searched_without_following_a_link`.
+- **Coverage diagnostic.** The walk's `FNDA:0` closure is gone. No zero
+  `DA`/`BRDA`/`FNDA` falls in the changed ranges. The other zero records are
+  the same as before this visit.
+- **Evidence.** The return's F3 paragraph, which claimed the replacement was
+  never listed, now carries a correction with the observed listing.
+- **Standing-admission lines and fixture migrations:** none.
+- **Gates.** fmt and clippy are clean. Workspace, all features: 77 results,
+  all ok; the runtime lib has 609. `bundles/self` (`45dc1c7e…`) and
+  `bundles/verify` (`f7cbd4bb…`) are unchanged. Strict OpenSpec (18) and
+  `git diff --check` are clean.
+- **Pending.** The earlier F4 and with it 16.1; macOS (`fdopendir`/`readdir`
+  names and offsets, `O_DIRECTORY`); exact coverage outside the box; remote
+  CI and the council.
+
 ## 17. Unit 17 — Select charter owner and source at compile
 
 - [ ] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)

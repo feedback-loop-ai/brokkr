@@ -3526,25 +3526,82 @@ fn replaced_directory(key: &str, moment: &str) -> String {
     )
 }
 
-/// Rebuild unit 16-fix-e, return F3 (16.1; design D7): a directory in a
-/// skipped tree is entered as the directory its parent listed, never through
-/// a link put in its place. `dialects`, an ordinary directory, is replaced by
-/// a link to a directory outside the layer holding one it cannot list: before
-/// the walk checks it, and once it is checked and about to be listed. Each is
-/// refused naming `dialects`, standalone and inherited, and nothing outside
-/// is descended; the link left standing there is one entry, and compiles
-/// with the identity the ordinary directory had. On `e132c3a5` each
-/// replacement was listed and descended, and refused the outside tree's
-/// './dialects/locked'.
+/// What Linux's inotify saw done to the directory `watched` while `act` ran:
+/// the mask of each event that opened or read it (`IN_OPEN`, `IN_ACCESS`),
+/// in order, beside what `act` said. A listing opens and reads the directory
+/// it lists, so an empty list is a directory nothing listed.
+#[cfg(target_os = "linux")]
+fn opened_while(watched: &Path, act: impl FnOnce() -> String) -> (String, Vec<u32>) {
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::FromRawFd;
+    extern "C" {
+        fn inotify_init1(flags: std::ffi::c_int) -> std::ffi::c_int;
+        fn inotify_add_watch(
+            fd: std::ffi::c_int,
+            path: *const std::ffi::c_char,
+            mask: u32,
+        ) -> std::ffi::c_int;
+    }
+    // `IN_NONBLOCK`, and `IN_OPEN | IN_ACCESS`.
+    let (nonblocking, opened_or_read) = (0o4000, 0x20 | 0x01);
+    // SAFETY: a plain call; the descriptor it returns is owned just below.
+    let fd = unsafe { inotify_init1(nonblocking) };
+    assert!(fd >= 0, "inotify: {}", std::io::Error::last_os_error());
+    // SAFETY: `fd` was just returned by `inotify_init1`; nothing else owns it.
+    let mut events = unsafe { std::fs::File::from_raw_fd(fd) };
+    let path = std::ffi::CString::new(watched.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `fd` is open, and `path` is NUL-terminated and outlives the call.
+    let watch = unsafe { inotify_add_watch(fd, path.as_ptr(), opened_or_read) };
+    assert!(watch >= 0, "inotify: {}", std::io::Error::last_os_error());
+    let said = act();
+    let mut buffer = vec![0u8; 64 * 1024];
+    let length = match events.read(&mut buffer) {
+        Ok(length) => length,
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => 0,
+        Err(error) => panic!("inotify: {error}"),
+    };
+    // Each event: `wd`, `mask`, `cookie`, `len`, then `len` bytes of name.
+    let (mut masks, mut at) = (Vec::new(), 0);
+    while at < length {
+        let word = |offset: usize| {
+            u32::from_ne_bytes(buffer[at + offset..at + offset + 4].try_into().unwrap())
+        };
+        masks.push(word(4));
+        at += 16 + word(12) as usize;
+    }
+    (said, masks)
+}
+
+/// macOS has no inotify: there only what `act` said is observed.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn opened_while(_: &Path, act: impl FnOnce() -> String) -> (String, Vec<u32>) {
+    (act(), Vec::new())
+}
+
+/// Rebuild unit 16-fix-e, return F3 and second return F2 (16.1; design D7):
+/// a directory in a skipped tree is entered through its parent's handle as
+/// the directory its parent listed, never through a link put in its place,
+/// and listed through that handle. `dialects`, an ordinary directory, is
+/// replaced by a link to a directory outside the layer holding one it cannot
+/// list, or by a new directory: as the walk is about to open it, and once it
+/// is open and checked and about to be listed. Each is refused naming
+/// `dialects`, standalone and inherited; inotify sees nothing open or read
+/// the outside directory; and what is left standing there compiles with the
+/// identity the ordinary directory had. On `e132c3a5` each replacement was
+/// listed and descended, and refused the outside tree's './dialects/locked';
+/// on `0fcec52f` the link put in place once the directory was checked was
+/// listed, opening and reading the outside directory, before it was refused.
 #[cfg(unix)]
 #[test]
 fn a_skipped_directory_replaced_by_a_link_is_not_followed() {
     use std::os::unix::fs::{symlink, PermissionsExt};
     let (mut observed, mut expected) = (Vec::new(), Vec::new());
     for inherited in [false, true] {
-        for (stage, moment) in [
-            (ReadStage::Listing, "before"),
-            (ReadStage::DirectoryChecked, "while"),
+        for (stage, link, moment) in [
+            (ReadStage::Listing, true, "before"),
+            (ReadStage::Listing, false, "before"),
+            (ReadStage::DirectoryChecked, true, "while"),
         ] {
             let library = Library::new();
             let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
@@ -3557,24 +3614,84 @@ fn a_skipped_directory_replaced_by_a_link_is_not_followed() {
             let locked = outside.join("locked");
             std::fs::create_dir_all(&locked).unwrap();
             std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-            let replaced = dialects.clone();
+            let (replaced, target) = (dialects.clone(), outside.clone());
             let swap: Box<dyn FnOnce()> = Box::new(move || {
                 std::fs::rename(&replaced, &aside).unwrap();
-                symlink(&outside, &replaced).unwrap();
+                match link {
+                    true => symlink(&target, &replaced).unwrap(),
+                    false => std::fs::create_dir(&replaced).unwrap(),
+                }
             });
-            let swapped = said_acting(compiled, vec![(stage, dialects, swap)]);
-            let linked = said(compiled);
+            let (swapped, seen) = opened_while(&outside, || {
+                said_acting(compiled, vec![(stage, dialects, swap)])
+            });
+            let standing = said(compiled);
             std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
-            observed.push((inherited, moment, swapped, linked));
+            observed.push((inherited, stage, link, swapped, seen, standing));
             let refusal = replaced_directory("dialects", moment);
             expected.push((
                 inherited,
-                moment,
+                stage,
+                link,
                 match inherited {
                     false => format!("bundle: {refusal}"),
                     true => format!("bundle: bundle: {refusal} (composed: derived -> base)"),
                 },
+                Vec::<u32>::new(),
                 before,
+            ));
+        }
+    }
+    assert_eq!(observed, expected);
+}
+
+/// The walk's refusal of the entry `key`, in a skipped tree, which it could
+/// not observe for `cause`.
+fn unobservable_entry(key: &str, cause: &str) -> String {
+    format!(
+        "bundle entry './{key}', in a tree the walk skips, cannot be observed ({cause}): the walk \
+         asks each entry there what it is, without following a link, to hold each consumed file \
+         to one name, so an entry it cannot observe is refused rather than passed over (decision \
+         0065 slice one, design D7)"
+    )
+}
+
+/// Rebuild unit 16-fix-e, second return F1 and F3 (16.1; design D7): an
+/// entry in a skipped tree that the walk has listed but can no longer ask
+/// what it is is refused naming that entry and the failed observation, never
+/// as a directory that cannot be listed. `realms.json`, at the layer's top,
+/// and `dialects/gone.json`, below it, are each removed at the new `Skipped`
+/// seam; each compile is refused naming it, standalone and inherited, after
+/// a control compile with the entry standing. On `0fcec52f` plus the seam
+/// each said "bundle directory './' or './dialects' cannot be listed (entity
+/// not found)".
+#[cfg(unix)]
+#[test]
+fn a_skipped_entry_the_walk_cannot_observe_is_refused_naming_it() {
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for inherited in [false, true] {
+        for key in ["realms.json", "dialects/gone.json"] {
+            let library = Library::new();
+            let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+            let compiled = if inherited { &leaf } else { &base };
+            let gone = base.join(key);
+            std::fs::create_dir_all(gone.parent().unwrap()).unwrap();
+            std::fs::write(&gone, "{}\n").unwrap();
+            let control = said(compiled);
+            let removed = gone.clone();
+            let remove: Box<dyn FnOnce()> =
+                Box::new(move || std::fs::remove_file(&removed).unwrap());
+            let refused = said_acting(compiled, vec![(ReadStage::Skipped, gone, remove)]);
+            observed.push((inherited, key, control.starts_with("compiled to"), refused));
+            let refusal = unobservable_entry(key, "entity not found");
+            expected.push((
+                inherited,
+                key,
+                true,
+                match inherited {
+                    false => format!("bundle: {refusal}"),
+                    true => format!("bundle: bundle: {refusal} (composed: derived -> base)"),
+                },
             ));
         }
     }
