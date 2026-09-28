@@ -3007,6 +3007,12 @@ Tests only; `adapters.rs` is unchanged.
 - Gates: fmt, clippy, the protocol and runtime suites, `bundles/self`,
   strict OpenSpec (18 passed) and `git diff --check` are clean.
 
+Unit 15-fix-a, re-fired (2026-09-28, same run, based on `92f037c3`;
+evidence.md, "Unit 15-fix-a, re-fired"). **Result: blocked.** No ruling
+has landed since the blocked record, and the framing has not changed. The
+guard was re-applied and re-measured, and it fails the same ten tests. It
+was then reverted. No test file moved. 15.1 and 15.2 stay open.
+
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
 - [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)

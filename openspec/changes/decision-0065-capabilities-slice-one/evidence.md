@@ -16596,3 +16596,29 @@ Standing-admission lines: none.
 **Pending.** A ruling on the ten tests and the four fixture moves above.
 Then 15-fix-b, exact coverage outside the box, macOS, remote CI and the
 council.
+
+## Unit 15-fix-a, re-fired — still blocked on the same ten, 2026-09-28
+
+Same run, a second implement visit, based on `92f037c3`. The commission
+was unchanged. `operator-ruling-2026-09-23.md` last moved in `a05475f0`,
+before 15-fix-a (`git log -- …/operator-ruling-2026-09-23.md`). No ruling
+has yet admitted the ten tests or the four fixture moves. **Result:
+blocked.** No test or production file moved in this visit.
+
+The guard was re-applied from `.forge/unit-15-fix-a/guard.patch`, measured
+and reverted with `git checkout crates/brokkr-protocol/src/adapters.rs`
+(`git status` was clean afterwards):
+
+- `cargo test -q -p brokkr-protocol --lib -- --skip
+  a_sealed_dsh_cold_command_is_spawned_only_as_its_final_check_returns_it`:
+  531 passed, 9 failed, 1 filtered out. The nine are the ones listed
+  above. Each failed with the guard's refusal.
+- The skipped test run alone: it failed with the guard's refusal, against
+  its asserted `Ok` DSH command.
+- `cargo test -q -p brokkr-runtime --test capability_launch`: 58 passed.
+
+Without the guard, on HEAD, `cargo test -q -p brokkr-protocol --lib`
+passed 541.
+
+**Pending.** The same ruling as above, then 15-fix-b, exact coverage
+outside the box, macOS, remote CI and the council.
