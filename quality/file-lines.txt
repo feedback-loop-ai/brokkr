@@ -10,7 +10,7 @@
    138 crates/brokkr-cli/src/fleet.rs
   1754 crates/brokkr-cli/src/init.rs
    177 crates/brokkr-cli/src/ledger.rs
-  2873 crates/brokkr-cli/src/lib.rs
+  2039 crates/brokkr-cli/src/lib.rs
   1042 crates/brokkr-cli/src/muninn.rs
     67 crates/brokkr-cli/src/muninn/record.rs
    355 crates/brokkr-cli/src/realms.rs
@@ -20,6 +20,11 @@
   3549 crates/brokkr-cli/src/tui.rs
   1323 crates/brokkr-cli/src/ui.rs
    873 crates/brokkr-cli/src/ui/safe_fs.rs
+    16 crates/brokkr-cli/src/verbs.rs
+   307 crates/brokkr-cli/src/verbs/delivery.rs
+   226 crates/brokkr-cli/src/verbs/exchange.rs
+   337 crates/brokkr-cli/src/verbs/readouts.rs
+   213 crates/brokkr-cli/src/verbs/setup.rs
     44 crates/brokkr-core/src/canonical.rs
    523 crates/brokkr-core/src/dispatch.rs
    137 crates/brokkr-core/src/envelope.rs
