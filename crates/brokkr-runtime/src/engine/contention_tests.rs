@@ -1182,27 +1182,74 @@ fn a_settlement_retries_contention_and_nothing_else() {
 fn a_site_that_lost_checkpoints_and_met_a_refusal_names_both() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = in_flight(dir.path());
-    let limit = step("a").to_string().len();
-    let holder = write_lock_on(&dir.path().join("realm.db"));
-    let mut checkpoints = sink(&mut engine, limit, |_| {});
-    checkpoints.offer("", step("a"));
-    checkpoints.offer("", step("b"));
-    drop(holder);
-    checkpoints.offer("", json!({"step": "seat-turn", "turn": "one"}));
-    let settled = checkpoints
-        .settle()
-        .expect("a refusal is an outcome, not a failure");
+    let settled = lost_then_refused(&mut engine, dir.path());
 
     let AttemptOutcome::Indeterminate { reason } = settled.outcome("", succeeded()) else {
         panic!("a site with lost checkpoints was reported as its driver's");
     };
-    assert_eq!(
-        reason,
-        "1 checkpoint(s) were not journaled: a peer held the journal's write lock past this \
-         attempt's 12-byte checkpoint hold; seat record at journal seq 6 violates \
-         contracts/seat-record.v5.schema.json at /"
-    );
+    assert_eq!(reason, LOST_THEN_REFUSED);
     assert_eq!(landed(&engine), ["a"]);
+}
+
+/// Why the site [`lost_then_refused`] settles is indeterminate.
+const LOST_THEN_REFUSED: &str = "1 checkpoint(s) were not journaled: a peer held the journal's \
+     write lock past this attempt's 12-byte checkpoint hold; seat record at journal seq 6 \
+     violates contracts/seat-record.v5.schema.json at /";
+
+/// The settlement of a site that lost a checkpoint to a full hold behind
+/// a peer's lock, then had one refused by the seat-record fence.
+fn lost_then_refused(engine: &mut Engine, dir: &Path) -> checkpoints::Settled {
+    let limit = step("a").to_string().len();
+    let holder = write_lock_on(&dir.join("realm.db"));
+    let mut checkpoints = sink(engine, limit, |_| {});
+    checkpoints.offer("", step("a"));
+    checkpoints.offer("", step("b"));
+    drop(holder);
+    checkpoints.offer("", json!({"step": "seat-turn", "turn": "one"}));
+    checkpoints
+        .settle()
+        .expect("a refusal is an outcome, not a failure")
+}
+
+/// #394 meets #403: a site that lost checkpoints and met the fence's
+/// refusal, on an attempt not proven over. The report keeps the result
+/// its driver sent, carries what the checkpoints left of it as its
+/// refusal, and keeps its unresolved cleanup; the outcome acted on parks
+/// and names both. A site whose checkpoints all landed carries no
+/// refusal.
+#[test]
+fn lost_and_refused_checkpoints_ride_beside_the_received_result_and_an_unresolved_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = in_flight(dir.path());
+    let settled = lost_then_refused(&mut engine, dir.path());
+    let cleanup = Cleanup::Unresolved {
+        reason: brokkr_protocol::process::Unsettled::Group { group: 7 },
+    };
+    let mut report = AttemptReport {
+        cleanup: cleanup.clone(),
+        ..super::tests::report(succeeded(), "")
+    };
+    settled.carry("", &mut report);
+
+    let refused = AttemptOutcome::Indeterminate {
+        reason: LOST_THEN_REFUSED.into(),
+    };
+    assert_eq!(
+        (&report.outcome, &report.refused, &report.cleanup),
+        (&succeeded(), &Some(refused), &cleanup)
+    );
+    assert_eq!(
+        report.settled_outcome(),
+        AttemptOutcome::Indeterminate {
+            reason: format!(
+                "{LOST_THEN_REFUSED}; the attempt is not proven over: its process group 7 \
+                 still had members after the kill"
+            ),
+        }
+    );
+    let mut member = super::tests::report(succeeded(), "");
+    settled.carry("member", &mut member);
+    assert_eq!((&member.outcome, &member.refused), (&succeeded(), &None));
 }
 
 /// A stop riding the attempt keeps its own ending. The attempt is still

@@ -157,7 +157,14 @@ determinate was not.
   pid than its parent, so its row is read first, still naming that
   parent, and the parent exits before its own row is read. That read
   records the child neither as a descendant nor as a stray, and the same
-  certification follows. It is inherent to polling the table;
+  certification follows. A third ordering needs no wrap: a detached
+  descendant born after one read is listed by the next, whose row for the
+  driver is read first and shows it running; the descendant's parent and
+  the driver then exit before the descendant's own row is read, so that
+  row names the engine as its parent while the driver still reads as
+  leading. No attempt could have left it, so it is filed, once, as the
+  engine's own, and a later read that finds nothing of the attempt
+  running certifies the same settlement. It is inherent to polling the table;
   per-attempt cgroup containment, filed as #472, closes it by
   construction.
 - The second Linux residual, the read-to-fork instant, is accepted by the

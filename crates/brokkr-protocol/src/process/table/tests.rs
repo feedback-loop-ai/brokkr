@@ -245,6 +245,26 @@ fn a_kill_by_listing_needs_the_row_whole() {
     );
 }
 
+/// #403: a row that lists the pid under another start stamp names the
+/// process that reused it, not `id`, and is not signalled.
+#[test]
+fn a_kill_by_listing_spares_a_reused_pid() {
+    let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+    let pid = i32::try_from(child.id()).unwrap();
+    let id = parse_ps(&format!("{pid} 1 {pid} S Mon Sep 28 10:00:00 2026"))
+        .unwrap()
+        .id;
+    let reused = format!("{pid} 1 {pid} S Tue Sep 29 10:00:00 2026");
+    kill_listed(&id, listed(output(0, &reused))).unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "a reused pid was signalled"
+    );
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
 /// #403: a `ps` that exits nonzero read no table, whatever it printed,
 /// and a row it printed that does not parse fails the read.
 #[test]

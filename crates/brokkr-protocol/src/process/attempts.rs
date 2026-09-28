@@ -489,8 +489,9 @@ fn start(host: Host) {
 /// Run in each driver between its fork and its exec: lead a session of
 /// its own, so no process of its tree can join the engine's group, and on
 /// Linux adopt its own tree's orphans. Async-signal-safe: system calls,
-/// and an error that allocates nothing.
-fn detach() -> std::io::Result<()> {
+/// and an error that allocates nothing. `process::tests` plays it in a
+/// child that exits normally, since what it covers is lost at the exec.
+pub(super) fn detach() -> std::io::Result<()> {
     rustix::process::setsid()?;
     #[cfg(target_os = "linux")]
     subreaper()?;

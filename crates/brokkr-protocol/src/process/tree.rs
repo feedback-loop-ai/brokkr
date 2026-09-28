@@ -59,7 +59,14 @@
 //! pid than its parent, so its row is read first, still naming that
 //! parent, and the parent exits before its own row is read. That read
 //! records the child neither as a descendant nor as a stray, and the same
-//! certification follows.
+//! certification follows. A third ordering needs no wrap. A detached
+//! descendant born after one read is listed by the next, whose row for
+//! the driver is read first and shows it running. The descendant's parent
+//! and the driver then exit before the descendant's own row is read, so
+//! that row names the engine as its parent while the driver still reads
+//! as leading: no attempt could have left it, and it is filed, once, as
+//! the engine's own. A later read finds nothing of the attempt running,
+//! and the same certification follows.
 //!
 //! The second is the read-to-fork instant, a wrong kill rather than a
 //! missed one. No read is atomic with the fork, so an orphan of the

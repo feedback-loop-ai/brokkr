@@ -1058,8 +1058,52 @@ fn role() {
         "job-engine" => orphaning_engine(&dir, "job"),
         "joiner-engine" => orphaning_engine(&dir, "joiner"),
         "stampless-engine" => stampless_engine(&dir),
+        "detach" => detach_and_record(&dir),
         _ => {}
     }
+}
+
+/// A driver's `detach`, played between this binary's start and its normal
+/// exit rather than between a fork and an exec, where its coverage would
+/// be lost. It writes down the session it then reads, and its pid.
+fn detach_and_record(dir: &str) {
+    attempts::detach().expect("a process that leads no group leaves its session");
+    let session = rustix::process::getsid(None).unwrap().as_raw_pid();
+    let written = format!("{session} {}", std::process::id());
+    std::fs::write(Seats::at(dir).file("seat", "session"), written).unwrap();
+}
+
+/// #403: `detach` leaves the engine's session, so the driver leads one of
+/// its own. It is played under a shell that waits for it: were this
+/// process its parent, a concurrent test's attempt would read it, once in
+/// a session of its own, as an orphan this process adopted, and reap it.
+#[test]
+fn a_detached_child_leads_a_session_of_its_own() {
+    let seats = Seats::new();
+    let status = Command::new("sh")
+        .args([
+            "-c",
+            "\"$0\" --exact process::tests::role --ignored; exit $?",
+        ])
+        .arg(std::env::current_exe().unwrap())
+        .env(ROLE, "detach")
+        .env(ROLE_DIR, &seats.dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(0));
+    let written = std::fs::read_to_string(seats.file("seat", "session")).unwrap();
+    let [session, pid]: [i32; 2] = written
+        .split(' ')
+        .map(|id| id.parse().unwrap())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    assert_eq!(session, pid);
+    let ours = rustix::process::getsid(None).unwrap().as_raw_pid();
+    assert_ne!(session, ours);
 }
 
 /// The table as macOS's `ps` prints it, of every process or of `only`,
