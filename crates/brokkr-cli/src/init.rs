@@ -613,7 +613,7 @@ fn adapter_json(grants: &Grants) -> String {
         "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
         "models": {
             "fable": "claude-fable-5-1",
-            "opus": "claude-opus-5",
+            "opus": "claude-opus-5-5",
             "sonnet": "claude-sonnet-5-5",
             "haiku": "claude-haiku-4-5-20251001"
         },
