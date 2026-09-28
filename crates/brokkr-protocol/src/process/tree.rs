@@ -19,7 +19,8 @@
 //! stamp while the tree is alive, reads the table once more at every
 //! kill, and ends those identities with the group.
 //!
-//! Linux is closed. The engine and every driver are child subreapers. An
+//! Linux is closed but for the two ruled residuals below. The engine and
+//! every driver are child subreapers. An
 //! orphan of the tree goes to its driver while the driver runs, where the
 //! tracker records it as a descendant, and to the engine once the driver
 //! is gone, whatever its session or group. Every running child of the
@@ -38,15 +39,15 @@
 //! before a spawn is taken afresh, never shared with an earlier one, so
 //! an orphan of the engine's own born before it is not the attempt's. A
 //! signal to an identity rides a pidfd checked against the start stamp.
-//! So, but for the residual below, no descendant the engine can see is
+//! So, but for the first residual below, no descendant the engine can see is
 //! left running while an attempt is certified settled. A kernel that
 //! refuses the engine the subreaper or a pidfd leaves the second means
 //! absent: a kill that saw any descendant then parks, naming the means
 //! that was missing.
 //!
-//! One Linux residual remains, the table-read race, accepted by the
-//! operator's ruling of 2026-09-28 and closed by construction only by
-//! per-attempt cgroup containment (#472). A Linux read is a `/proc`
+//! Two Linux residuals remain, both accepted by the operator's rulings of
+//! 2026-09-28 and closed by construction only by per-attempt cgroup
+//! containment (#472). The first is the table-read race. A Linux read is a `/proc`
 //! listing followed by one stat read per pid. Suppose a failed driver's
 //! last live descendant forks a detached child after the listing and
 //! exits before its own row is read. That read shows nothing of the
@@ -54,6 +55,14 @@
 //! the tracker's 100 ms later, finds the child with the engine, born
 //! after that end, and files it as the engine's own. Cleanup can then be
 //! certified while the child runs.
+//!
+//! The second is the read-to-fork instant, a wrong kill rather than a
+//! missed one. No read is atomic with the fork, so an orphan of the
+//! engine's own (git's detached maintenance, say) that the engine adopts
+//! between the fresh read before a spawn and the fork itself is absent
+//! from what ran before the attempt. If the driver exits before the next
+//! read, the attempt is found not leading and not yet ended, the orphan is
+//! attributed to it, and its close kills the engine's own process.
 //!
 //! The driver leading a session of its own has one more consequence: a
 //! SIGKILL to the engine's process group no longer reaches a seat's tree.

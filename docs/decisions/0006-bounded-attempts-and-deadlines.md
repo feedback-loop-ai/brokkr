@@ -150,11 +150,19 @@ determinate was not.
   certified while the child runs. It is inherent to polling the table;
   per-attempt cgroup containment, filed as #472, closes it by
   construction.
+- A second Linux residual, the read-to-fork instant, is accepted by the
+  operator's further ruling of 2026-09-28. It is a wrong kill, not a
+  missed one. No read of the table is atomic with the fork, so an orphan
+  of the engine's own (git's detached maintenance, say) that the engine
+  adopts between the fresh read before a spawn and the fork itself is
+  absent from what ran before the attempt. If the driver exits before
+  the next read, the orphan is attributed to the attempt, and the
+  attempt's close kills it. #472 closes it by construction too.
 - macOS has no subreaper and no pidfd. There the engine reads the table
   synchronously at the kill, ends what it attributes, and parks on any
   doubt. The operator's earlier ruling of 2026-09-28 (LINUX CLOSED,
   MACOS RESIDUAL ACCEPTED) accepts one residual there, beside the Linux
-  one above: a descendant that
+  ones above: a descendant that
   leaves the group and whose parent exits between two reads of the
   table, faster than the tracker's 100 ms interval, is reparented to
   launchd unseen. Separately, and not a limit of settlement: without a
