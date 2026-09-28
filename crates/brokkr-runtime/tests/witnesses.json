@@ -4,14 +4,20 @@
     "bundles/verify": "b606cd1e6b2f89e2ae10cfd85ec8849c43e8a0e6ec2cc2151c584d3580790584",
     "recipes/fast": "fea35589dc0fbb0e302052d8e9ac44f5f8fa61fbcacdca5d24f8edf9d9e19ad8",
     "recipes/gpt-flash": "f945a1638c8550a1b133ea13af4eb6f17114ef2e52da82ad566596ad8db09239",
+    "recipes/landing": "81b1c6bed6491adbca1c54064db85426e3256e436b75d96dd7de9e22c9404afe",
     "recipes/night-shift": "0c535c33db38a7c0e5bf5a89689e3caaca1fe87ddf5a343ba621b7d718895e53",
     "recipes/node": "d2d98190f997d72ce63cb0de4ca30cb89b1907f6a5c999d31c28ca7020674cdc",
     "recipes/panel-review": "4ecbfa8a957d8d994eca7f3a3c3cee73264f42cf7d3b24b986e22ee8c03f85d4",
     "recipes/preflight": "1f6d863befdad0c235aa2c4cc0c3ff708ef3a5185c779a1a7d86c75b418c9a08",
+    "recipes/release": "968231c421f94a99c83fcf6877b20ee3bb20c0c3cff841b9c4f5a635d41b7799",
     "recipes/research": "ecf45c1e2831d23e3ea280fbd385e1f2c168243ef9cfcc0bd93c5fd79bb68f01",
     "recipes/research-dsh": "8f4cce1ad3e96d5b17c18d3b43bd90fdd44289b9d64a5dfaad05a1e53852bd21",
+    "recipes/review-first": "fe4d763f425af1773ee01084a08a33685469f2cd72798fbd313fa1eadc7a6927",
+    "recipes/standby": "35576b2b813e3f7c9bd659aed567a2b77256dbfd4f3e880dd91f8131de5d1aed",
     "recipes/triage": "4e410156ddde186fb2a76500d7e94a8a8fe99fd1eef3e17f65792d012bcfc2c6",
-    "recipes/wager-harness": "6562af6de145331fcad167ce2d9062d4ba68f6c3b05fdf855add4cbce69f62b7"
+    "recipes/wager-harness": "6562af6de145331fcad167ce2d9062d4ba68f6c3b05fdf855add4cbce69f62b7",
+    "recipes/wager-harness-dsh": "7332d8f5b0e635b09b85484b69c7c18d485a5910e49a7e77c85b85b179278d0f",
+    "recipes/wager-harness-muse": "2194c744c35886ef6cf3d030439c33eb44eea41ae8a2c6b7d5b41dc374a507a0"
   },
   "charters": {
     "analyst.md": "2a2a606dab2737936ba5efd2e972c4c2f36300a9cce39f2c09c836091d08408f",

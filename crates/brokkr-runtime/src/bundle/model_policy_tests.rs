@@ -2038,9 +2038,9 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         // model they map resolves to exactly where it stood the day
         // before this decision landed. `dsh` is the exception the
         // operator has since ruled on: its routes are classed in
-        // `adapters/dsh.json`, the one place those rulings live, and
-        // `tests/library_data.rs` proves every model it maps resolves to
-        // a class that file declares.
+        // `adapters/dsh.json`, held to the dated route rulings table of
+        // the provider-adapters guide, and `tests/library_data.rs` proves
+        // both, and that every model it maps resolves to a declared class.
         if provider == "dsh" {
             continue;
         }
@@ -2230,27 +2230,21 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // transcribed, not remembered. On 2026-09-22 (codex-cli 0.154.0)
     // `sol` and `luna` moved to `gpt-6-sol` and `gpt-6-luna`, each probed
     // with a `codex exec` turn; the `gpt-6.0-*` spellings are refused for
-    // a ChatGPT-account codex. `terra` has no 6 release and stays. The abstract names are codex's own family words —
+    // a ChatGPT-account codex. `terra` has no 6 release and stays. The
+    // pairs live once, in `adapters/codex.json` (#358); what holds here
+    // is what each must satisfy: the id is a `gpt-` slug from codex's
+    // own catalog, and the abstract names are codex's own family words —
     // NOT claude tiers, so no fallback chain written for one provider
     // can quietly land on the other.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     let codex = adapters.adapter("codex").expect("a shipped adapter");
-    assert_eq!(
-        codex.models.get("astra").map(String::as_str),
-        Some("gpt-6-astra")
-    );
-    assert_eq!(
-        codex.models.get("sol").map(String::as_str),
-        Some("gpt-6-sol")
-    );
-    assert_eq!(
-        codex.models.get("terra").map(String::as_str),
-        Some("gpt-5.6-terra")
-    );
-    assert_eq!(
-        codex.models.get("luna").map(String::as_str),
-        Some("gpt-6-luna")
-    );
+    assert!(!codex.models.is_empty(), "codex maps its catalog's models");
+    for (alias, id) in &codex.models {
+        assert!(
+            id.starts_with("gpt-"),
+            "codex '{alias}' maps '{id}', which is no slug of codex's catalog"
+        );
+    }
     for claude_tier in ["opus", "sonnet", "haiku", "fable"] {
         assert!(
             !codex.models.contains_key(claude_tier),

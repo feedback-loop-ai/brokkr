@@ -896,10 +896,12 @@ should not need a Rust edit. What a data change faces:
 2. **The witness table.** A recipe's identity is the SHA-256 of its
    canonical manifest, which covers every file in it — the policy table,
    the charters, the driver command names — and the adapter declarations
-   its seats consult. The bundles listed under `bundles` in
-   [`crates/brokkr-runtime/tests/witnesses.json`](../../crates/brokkr-runtime/tests/witnesses.json)
-   have that digest pinned, and every charter under `agents/charters/`
-   is pinned under `charters`. Editing one of them, or an adapter a
+   its seats consult. Every bundle under `recipes/` and `bundles/` has
+   that digest pinned under `bundles` in
+   [`crates/brokkr-runtime/tests/witnesses.json`](../../crates/brokkr-runtime/tests/witnesses.json),
+   and every charter under `agents/charters/` is pinned under
+   `charters`; a new recipe is a new row, and a row dropped from the
+   table fails as `absent`. Editing one of them, or an adapter a
    pinned bundle resolves through, moves a digest and fails
    `witness_digests.rs` **on purpose**: the point is that a charter
    cannot be softened or a tool added to a driver's list without the
@@ -922,9 +924,13 @@ should not need a Rust edit. What a data change faces:
    model reaches, each effortless route gives a dated reason naming the
    release it was measured on, and each alias is either hired by an
    agent or listed in the
-   [alias catalogue](provider-adapters.md#the-alias-catalogue). Adding
+   [alias catalogue](provider-adapters.md#the-alias-catalogue). A
+   route's class is the operator's ruling, so every classed route is
+   also a dated row of the
+   [route rulings](provider-adapters.md#the-route-rulings). Adding
    an alias no agent hires is an edit to the adapter file, to its row
-   in that catalogue, and a bless.
+   in that catalogue (and a route ruling row if it classes a new route),
+   and a bless.
 4. **Whatever recipe-specific tests exist.** `recipes/node` has
    `node_recipe_gates.rs` proving its gate seats refuse an untrusted
    driver; `recipes/preflight` has `preflight_shape.rs` proving its

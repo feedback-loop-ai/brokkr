@@ -246,6 +246,23 @@ verified public store API and synchronizes ordered evidence plus fenced commands
 it reads its bearer credential from `LOOPER_API_KEY` (or `--token-env`), never
 from a command-line value or the journal.
 
+### The route rulings
+
+A route's class is the operator's ruling, not a fact the data can
+prove (decision
+[0036](../decisions/0036-egress-is-a-property-of-the-route.md)), so
+this table is the one literal list of them, each with the date it was
+ruled. `every_classed_route_is_a_dated_ruling_in_the_guide` in
+`crates/brokkr-runtime/tests/library_data.rs` holds every adapter's
+`routes` to exactly these rows: a route classed in an adapter file and
+missing here fails, and so does a row whose class the file no longer
+declares. A route no row names is `uncontracted` by silence.
+
+| Adapter | Route | Egress | Ruled |
+|---|---|---|---|
+| `dsh` | `spark` | `local` | 2026-09-03 |
+| `dsh` | `spark-glm` | `local` | 2026-09-16 |
+
 ### The alias catalogue
 
 Every alias an adapter maps is either hired by an agent under `agents/`

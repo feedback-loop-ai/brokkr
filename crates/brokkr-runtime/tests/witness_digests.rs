@@ -1,6 +1,7 @@
-//! The byte-identity witnesses (decision 0016, spec AC-4; #358): every
-//! pinned bundle's manifest digest and every shipped charter's bytes,
-//! held once as data in `witnesses.json`.
+//! The byte-identity witnesses (decision 0016, spec AC-4; #358): the
+//! manifest digest of every bundle under `recipes/` and `bundles/` and
+//! the bytes of every shipped charter, held once as data in
+//! `witnesses.json`.
 //!
 //! A pinned manifest moves only when its recorded strategy or its
 //! dependencies move: a charter, a role, a table, an adapter declaration
@@ -75,24 +76,44 @@ fn mode(bless: Option<&OsStr>, ci: Option<&OsStr>) -> Mode {
     }
 }
 
-/// Measure every witness the table names: each pinned bundle's compiled
-/// manifest digest, and the bytes of every charter the library ships, so
-/// a charter added or removed is a moved witness too.
-fn measure(root: &Path, pinned: &Witnesses) -> Witnesses {
-    let bundles = pinned
-        .bundles
-        .keys()
+/// Every bundle in the tree, relative to the workspace and sorted: each
+/// directory under `recipes/` and `bundles/` that holds a `bundle.json`.
+/// The witness set is this, never the table's own keys, so a row dropped
+/// from the table reads as a moved witness instead of an unchecked one.
+fn bundles_in_tree(root: &Path) -> Vec<String> {
+    let mut dirs = Vec::new();
+    for parent in ["recipes", "bundles"] {
+        for entry in std::fs::read_dir(root.join(parent))
+            .unwrap_or_else(|e| panic!("{parent} must be readable: {e}"))
+        {
+            let name = entry.expect("a bundle entry").file_name();
+            let relative = format!("{parent}/{}", name.to_string_lossy());
+            if root.join(&relative).join("bundle.json").is_file() {
+                dirs.push(relative);
+            }
+        }
+    }
+    dirs.sort();
+    dirs
+}
+
+/// Measure every witness in the tree: each bundle's compiled manifest
+/// digest, and the bytes of every charter the library ships, so a bundle
+/// or charter added, removed or dropped from the table is a moved witness.
+fn measure(root: &Path) -> Witnesses {
+    let bundles = bundles_in_tree(root)
+        .into_iter()
         .map(|relative| {
             // Explicit roots: since decision 0021 a compile reads adapter
             // data for inline gates too, even though they adopt no agent —
             // a gate seat's trust tier is declared there.
             let bundle = Bundle::compile_with(
-                &root.join(relative),
+                &root.join(&relative),
                 &root.join("agents"),
                 &root.join("adapters"),
             )
             .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
-            (relative.clone(), bundle.manifest_digest())
+            (relative, bundle.manifest_digest())
         })
         .collect();
     let charters = std::fs::read_dir(root.join("agents/charters"))
@@ -202,7 +223,7 @@ const INLINE_ADAPTERS: [(&str, &[(&str, &str)]); 4] = [
 fn pinned_bundles_keep_their_recorded_digest() {
     let root = workspace();
     let pinned = Witnesses::load(&root);
-    let measured = measure(&root, &pinned);
+    let measured = measure(&root);
     let moved = moved(&pinned, &measured);
     let bless = std::env::var_os("BROKKR_BLESS");
     let ci = std::env::var_os("CI");
@@ -298,9 +319,9 @@ fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
-    for relative in Witnesses::load(&root).bundles.keys() {
+    for relative in bundles_in_tree(&root) {
         let bundle = Bundle::compile_with(
-            &root.join(relative),
+            &root.join(&relative),
             &root.join("agents"),
             &root.join("adapters"),
         )
@@ -364,23 +385,18 @@ fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
 #[test]
 fn every_bundle_in_the_tree_compiles() {
     let root = workspace();
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    for parent in ["recipes", "bundles"] {
-        let mut children: Vec<PathBuf> = std::fs::read_dir(root.join(parent))
-            .unwrap_or_else(|e| panic!("{parent} must be readable: {e}"))
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| path.join("bundle.json").is_file())
-            .collect();
-        children.sort();
-        dirs.append(&mut children);
-    }
+    let dirs = bundles_in_tree(&root);
     assert!(dirs.len() >= 5, "expected the shipped recipes and bundles");
     for dir in dirs {
         // Against the in-tree library roots explicitly, rather than by
         // changing the process working directory: two tests share one
         // process, and a global `set_current_dir` would make this suite
         // order-dependent.
-        Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
-            .unwrap_or_else(|e| panic!("{} must compile: {e}", dir.display()));
+        Bundle::compile_with(
+            &root.join(&dir),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap_or_else(|e| panic!("{dir} must compile: {e}"));
     }
 }

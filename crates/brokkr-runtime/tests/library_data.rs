@@ -14,7 +14,8 @@
 //! The adapter data is proved by properties rather than retyped (#358):
 //! a model added to an adapter is checked by what it must satisfy, so the
 //! edit that adds it touches the adapter, the witness table and the
-//! guide's catalogue row, and no Rust.
+//! guide's rows (its catalogue row, and a route ruling row when it
+//! classes a new route), and no Rust.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -439,46 +440,91 @@ fn every_effortless_route_carries_a_dated_measured_reason() {
 }
 
 /// One backticked name, alone in its cell.
-fn ticked(cell: &str, line: &str) -> String {
+fn ticked(cell: &str) -> String {
     cell.strip_prefix('`')
         .and_then(|cell| cell.strip_suffix('`'))
         .filter(|name| !name.is_empty() && !name.contains('`'))
-        .unwrap_or_else(|| panic!("unreadable alias catalogue row: {line}"))
+        .unwrap_or_else(|| panic!("unreadable guide table cell: {cell}"))
         .to_string()
+}
+
+/// The body rows of the provider-adapters guide's table under `### heading`,
+/// cell by cell. A missing section, another header, or a row with another
+/// number of cells fails the test rather than being skipped.
+fn guide_table<const N: usize>(heading: &str, header: [&str; N]) -> Vec<[String; N]> {
+    let guide = std::fs::read_to_string(workspace().join("docs/guides/provider-adapters.md"))
+        .expect("the provider-adapters guide");
+    let (_, section) = guide
+        .split_once(&format!("\n### {heading}\n"))
+        .unwrap_or_else(|| panic!("the guide declares {heading}"));
+    let cells = |line: &str| -> Option<[String; N]> {
+        let inner = line.strip_prefix('|')?.strip_suffix('|')?;
+        let cells: Vec<String> = inner.split('|').map(|c| c.trim().to_string()).collect();
+        cells.try_into().ok()
+    };
+    let mut rows = section
+        .lines()
+        .skip_while(|line| !line.starts_with('|'))
+        .take_while(|line| line.starts_with('|'));
+    assert_eq!(
+        (rows.next().and_then(cells), rows.next().and_then(cells)),
+        (
+            Some(header.map(String::from)),
+            Some(std::array::from_fn(|_| "---".to_string()))
+        ),
+        "{heading}: the table's header"
+    );
+    rows.map(|line| cells(line).unwrap_or_else(|| panic!("unreadable {heading} row: {line}")))
+        .collect()
 }
 
 /// The guide's alias catalogue: provider → the aliases it declares no
 /// shipped agent hires. A header, row or repeated provider this reader
 /// does not recognise fails the test rather than being skipped.
 fn catalogue() -> BTreeMap<String, BTreeSet<String>> {
-    let guide = std::fs::read_to_string(workspace().join("docs/guides/provider-adapters.md"))
-        .expect("the provider-adapters guide");
-    let (_, section) = guide
-        .split_once("\n### The alias catalogue\n")
-        .expect("the guide declares an alias catalogue");
-    let mut rows = section
-        .lines()
-        .skip_while(|line| !line.starts_with('|'))
-        .take_while(|line| line.starts_with('|'));
-    assert_eq!(
-        (rows.next(), rows.next()),
-        (
-            Some("| Adapter | Aliases no shipped agent hires |"),
-            Some("|---|---|")
-        ),
-        "the alias catalogue's header"
-    );
     let mut catalogue = BTreeMap::new();
-    for line in rows {
-        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
-        let ["", provider, aliases, ""] = cells[..] else {
-            panic!("unreadable alias catalogue row: {line}")
-        };
-        let aliases = aliases.split(", ").map(|alias| ticked(alias, line));
-        let previous = catalogue.insert(ticked(provider, line), aliases.collect::<BTreeSet<_>>());
+    let header = ["Adapter", "Aliases no shipped agent hires"];
+    for [provider, aliases] in guide_table("The alias catalogue", header) {
+        let aliases = aliases.split(", ").map(ticked);
+        let previous = catalogue.insert(ticked(&provider), aliases.collect::<BTreeSet<_>>());
         assert!(previous.is_none(), "a second catalogue row for {provider}");
     }
     catalogue
+}
+
+/// #358 (decision 0036): which class a route stands in is the operator's
+/// ruling, so it is kept literally in one place, the guide's dated route
+/// rulings table, and every adapter classes exactly the routes that table
+/// lists, as it lists them. A route classed, reclassified or unclassed in
+/// an adapter file is that row's edit too.
+#[test]
+fn every_classed_route_is_a_dated_ruling_in_the_guide() {
+    let header = ["Adapter", "Route", "Egress", "Ruled"];
+    let mut ruled = BTreeMap::new();
+    for [provider, route, egress, date] in guide_table("The route rulings", header) {
+        assert!(
+            date.len() == 10 && carries_a_date(&date),
+            "the ruling on {provider} {route} gives no YYYY-MM-DD date: {date}"
+        );
+        let class = EgressClass::parse(&ticked(&egress))
+            .unwrap_or_else(|| panic!("the ruling on {provider} {route} names no class: {egress}"));
+        let previous = ruled.insert((ticked(&provider), ticked(&route)), class);
+        assert!(previous.is_none(), "a second ruling on {provider} {route}");
+    }
+    let declared: BTreeMap<(String, String), EgressClass> = adapters()
+        .providers()
+        .flat_map(|adapter| {
+            let provider = &adapter.provider;
+            adapter
+                .routes
+                .iter()
+                .map(move |(route, class)| ((provider.clone(), route.clone()), *class))
+        })
+        .collect();
+    assert_eq!(
+        declared, ruled,
+        "the adapters must class exactly the routes the guide's route rulings list"
+    );
 }
 
 /// #358 (decision 0071 ruling 6): every alias an adapter maps is hired by

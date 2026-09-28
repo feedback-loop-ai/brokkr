@@ -20,7 +20,8 @@ pub(crate) const TABLE: &str = "crates/brokkr-runtime/tests/witnesses.json";
 #[serde(deny_unknown_fields)]
 pub(crate) struct Witnesses {
     /// Bundle directory, relative to the workspace → compiled manifest
-    /// digest. The keys are the set of witnessed bundles.
+    /// digest. Every bundle directory under `recipes/` and `bundles/` is
+    /// a row.
     pub(crate) bundles: BTreeMap<String, String>,
     /// File under `agents/charters/` → SHA-256 of its bytes. Every
     /// charter the library ships is pinned.
