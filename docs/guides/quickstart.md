@@ -667,7 +667,8 @@ Neither number is a claim about your machine. Run the script.
   on a world writes the same journal, and SQLite's write lock is not a
   fair queue. On 2026-09-25, three or four drivers on one journal met a
   42 s wait against the 30 s patience (#394). A working seat's
-  checkpoints now wait out a peer's lock. When the seat stops, the
+  checkpoints are now held behind a peer's lock without waiting, so the
+  seat never stalls. When the seat stops, the
   checkpoints still held get three patiences, its terminal event three,
   and the same outcome three more, so an attempt can wait nine
   patiences to settle. Each marker the engine journals for a panel

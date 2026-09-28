@@ -5,11 +5,13 @@
 //! A checkpoint is telemetry until the attempt's terminal event. So when
 //! an append meets [`StoreError::Contended`], which wrote nothing, the
 //! checkpoint is held, in order, and the held rows are tried again, oldest
-//! first, each time the seat hands over another one. That retry does not
-//! wait: a peer that still has the lock costs the seat nothing, so a burst
-//! behind the lock costs the reader one patience, not one per row. The
-//! seat is never told and never stopped: the lock wait delays the row,
-//! not the work.
+//! first, each time the seat hands over another one. No append made while
+//! the seat works waits, not even the first: the sink runs on the thread
+//! that reads the seat's pipe, and a reader stalled for a patience would
+//! fill that pipe and hold the seat past its deadline, where the watchdog
+//! kills it. A peer that has the lock costs the reader nothing, so the
+//! seat is never told and never stopped: the lock delays the row, not the
+//! work.
 //!
 //! Once the seat stops, what is still held gets its settlement, the
 //! terminal event's treatment: [`SETTLING_PATIENCES`] of the store's
@@ -165,9 +167,9 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
     }
 
     /// Take one checkpoint from a working seat. What is already held goes
-    /// first, without waiting; when that still meets the lock, this one
-    /// joins the hold, or is counted lost when the hold is full. Nothing
-    /// here ever fails the seat.
+    /// first; when that still meets the lock, this one joins the hold, or
+    /// is counted lost when the hold is full. Nothing here waits on the
+    /// lock and nothing here ever fails the seat.
     pub(super) fn offer(&mut self, owner: &str, checkpoint: Value) {
         let contended = self.flush(Store::append_next_without_waiting).is_some();
         if self.refusal.is_some() || self.failure.is_some() {
@@ -185,7 +187,7 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
             bytes,
         });
         if !contended {
-            self.flush(Store::append_next);
+            self.flush(Store::append_next_without_waiting);
         }
     }
 

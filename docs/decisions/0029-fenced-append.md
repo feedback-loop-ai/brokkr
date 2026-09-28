@@ -164,8 +164,9 @@ attempt away. The wait measured was 42 s, against a 30 s patience. The
 fix changes what the journal shows, and this addendum states the rule:
 
 1. A working seat's checkpoints that meet the lock are held in order and
-   retried each time the seat hands over another. The seat is never
-   stopped. The hold is bounded at 16 MiB of serialized checkpoints
+   retried each time the seat hands over another. No append waits on
+   the lock while the seat works, so the thread reading the seat's pipe
+   never stalls and the seat is never stopped. The hold is bounded at 16 MiB of serialized checkpoints
    (`HELD_BYTES`), plus the one row that finds it empty.
 2. When the seat stops, held checkpoints get three settling patiences
    (`SETTLING_PATIENCES`). A terminal event gets three, and if the lock

@@ -463,20 +463,19 @@ fn held_checkpoints_the_lock_outlasts_through_the_settlement_are_counted_not_cla
     );
 }
 
-/// While the seat works, a held row is retried without waiting, so a
-/// burst behind a peer's lock costs the reader the first row's patience
-/// and nothing per row after it: the seat is not stalled on its pipe.
+/// While the seat works, no append waits on a peer's lock, not even the
+/// one that finds the hold empty, so a burst behind the lock costs the
+/// reader nothing: the seat is not stalled on its pipe.
 #[test]
-fn a_burst_behind_a_held_lock_costs_the_reader_one_patience_not_one_per_row() {
+fn a_burst_behind_a_held_lock_never_waits_on_the_reader() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = in_flight(dir.path());
     let patience = std::time::Duration::from_millis(400);
     engine.store.set_patience(patience).unwrap();
     let holder = write_lock_on(&dir.path().join("realm.db"));
     let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, |_| {});
-    checkpoints.offer("", step("a"));
     let burst = std::time::Instant::now();
-    for name in ["b", "c", "d", "e"] {
+    for name in ["a", "b", "c", "d", "e"] {
         checkpoints.offer("", step(name));
     }
     assert!(burst.elapsed() < patience, "{:?}", burst.elapsed());
@@ -583,12 +582,20 @@ read -r done"#;
     single_body(vec!["sh".into(), "-c".into(), script])
 }
 
+/// A seat's deadline where the deadline is not what is under test.
+const UNHURRIED_SECONDS: u64 = 60;
+
 /// The bundle that seats `body`; the seat's deadline is not what is under
 /// test.
 fn seating(dir: &Path, body: SeatBody) -> Bundle {
+    seating_within(dir, body, UNHURRIED_SECONDS)
+}
+
+/// The bundle that seats `body` with a deadline of `timeout_seconds`.
+fn seating_within(dir: &Path, body: SeatBody, timeout_seconds: u64) -> Bundle {
     let mut compiled = bundle(dir, body);
     if let Some(seat) = compiled.seats.get_mut("work") {
-        seat.limits.timeout_seconds = 60;
+        seat.limits.timeout_seconds = timeout_seconds;
     }
     compiled
 }
@@ -596,8 +603,18 @@ fn seating(dir: &Path, body: SeatBody) -> Bundle {
 /// A real engine on `dir`'s journal, about to drive `body` with the
 /// store's `patience`.
 fn driving(dir: &Path, body: SeatBody, patience: std::time::Duration) -> Engine {
+    driving_within(dir, body, patience, UNHURRIED_SECONDS)
+}
+
+/// [`driving`], with the seat's deadline `timeout_seconds`.
+fn driving_within(
+    dir: &Path,
+    body: SeatBody,
+    patience: std::time::Duration,
+    timeout_seconds: u64,
+) -> Engine {
     std::fs::create_dir_all(dir.join("work")).unwrap();
-    let compiled = seating(dir, body);
+    let compiled = seating_within(dir, body, timeout_seconds);
     let store = Store::open(&dir.join("realm.db")).unwrap();
     let work = Some(dir.join("work"));
     let mut engine = Engine::start(store, compiled, "Feature: contention", work).unwrap();
@@ -675,6 +692,66 @@ fn a_seat_working_through_a_peers_lock_keeps_its_attempt() {
         .iter()
         .any(|event| event.event_type == EventType::EffectIndeterminate));
     fold(&events).expect("the journal folds");
+    assert_eq!(ended.state.status, Status::AwaitingOperator);
+}
+
+/// The driver's line that writes more blank bytes than a pipe holds. The
+/// engine skips a blank line, and the seat moves past it only once the
+/// engine has read it all.
+fn pipe_filling_line() -> String {
+    "head -c 262144 /dev/zero | tr '\\0' ' '; echo".to_string()
+}
+
+/// The seat's deadline, end to end: a peer takes the lock as the seat
+/// checkpoints and then writes more than its pipe holds. A reader that
+/// waited out the lock on that checkpoint would leave the seat blocked on
+/// its pipe past its deadline, where the watchdog kills it. The reader
+/// never waits, so the seat finishes within its deadline, and its held
+/// checkpoint lands once the lock lets go.
+#[test]
+fn a_seat_writing_behind_a_peers_lock_is_never_held_past_its_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let (signal, wait) = (
+        |name| signal_line(dir.path(), name),
+        |name| wait_line(dir.path(), name),
+    );
+    let middle = [
+        signal("working"),
+        wait("locked"),
+        checkpoint_line("held"),
+        pipe_filling_line(),
+        signal("drained"),
+        wait("released"),
+    ];
+    let deadline = 3;
+    // A patience that outlasts the seat's deadline many times over.
+    let patience = std::time::Duration::from_secs(deadline * 10);
+    let body = signalling_driver(&middle, &[]);
+    let mut engine = driving_within(dir.path(), body, patience, deadline);
+
+    let ended = drive_beside(&mut engine, || {
+        let holder = lock_at(dir.path(), "working");
+        // Once the seat has drained, or, had the reader stalled so that
+        // it never could, once its deadline has passed.
+        let given_up = std::time::Instant::now() + std::time::Duration::from_secs(deadline + 2);
+        while !dir.path().join("drained").exists() && std::time::Instant::now() < given_up {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        drop(holder);
+        std::fs::write(dir.path().join("released"), "").unwrap();
+    })
+    .expect("a peer's lock on a checkpoint does not end the engine");
+
+    assert_eq!(landed(&engine), ["held"]);
+    assert_eq!(
+        work_events(&engine),
+        [
+            EventType::EffectRequested,
+            EventType::EffectStarted,
+            EventType::EffectCheckpointed,
+            EventType::EffectSucceeded,
+        ]
+    );
     assert_eq!(ended.state.status, Status::AwaitingOperator);
 }
 
