@@ -1862,6 +1862,317 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     );
 }
 
+/// Rebuild unit 18-fix (design D7; task 18.1; council F1): THE OWNER IS THE
+/// DIRECTORY THE COMPILE BOUND, NOT WHATEVER ITS PATH NOW NAMES. One
+/// compiled bundle whose inline charter is owned by its layer and whose
+/// agent's charter is owned by an external library, both under one realm
+/// directory. Each owner's root, and then the realm directory above both,
+/// is renamed away and replaced — by a link to an equal-byte copy outside,
+/// and by an equal-byte copy standing at the very path — and every
+/// dispatch refuses as `replaced` before its driver starts. An owner that
+/// is only gone is `missing`. Renamed back, the SAME bundle dispatches
+/// again with the text its door read.
+#[cfg(unix)]
+#[test]
+fn an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    let bundle = two_owners(&realm, "charters/worker.md");
+    // What each site's door hands its driver, or why it refused; a spawn
+    // that got past the door leaves its own marker.
+    let spawns = std::cell::Cell::new(0);
+    let door = |seat: &str| {
+        spawns.set(spawns.get() + 1);
+        dispatched(
+            &bundle,
+            seat,
+            &root.join(format!("provider-work-{}", spawns.get())),
+        )
+    };
+    let both = || (door("review"), door("work"));
+    let intact = || {
+        (
+            Ok(json!("# review as written\n")),
+            Ok(json!("# work as written\n")),
+        )
+    };
+    assert_eq!(both(), intact());
+    let copy = |from: &Path, to: &Path| {
+        assert!(std::process::Command::new("cp")
+            .arg("-R")
+            .arg(from)
+            .arg(to)
+            .status()
+            .unwrap()
+            .success());
+    };
+    let outside = root.join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    for (moving, layer, library) in [
+        ("recipe", "replaced: roles/review.md", None),
+        ("agents", "", Some("replaced: worker.md")),
+        ("", "replaced: roles/review.md", Some("replaced: worker.md")),
+    ] {
+        let (path, away) = match moving {
+            "" => (realm.clone(), root.join("realm.away")),
+            name => (realm.join(name), realm.join(format!("{name}.away"))),
+        };
+        let expected = |cause: &str| {
+            let layer = match layer.is_empty() {
+                true => intact().0,
+                false => moved("layer 'recipe'", &layer.replace("replaced", cause)),
+            };
+            let library = match library {
+                None => intact().1,
+                Some(key) => moved("agent 'worker'", &key.replace("replaced", cause)),
+            };
+            (layer, library)
+        };
+        let twin = outside.join(path.file_name().unwrap());
+        copy(&path, &twin);
+        std::fs::rename(&path, &away).unwrap();
+        // Gone: the door names what it cannot find.
+        assert_eq!(both(), expected("missing"), "{moving:?} gone");
+        // A link to an equal-byte copy outside, in its place.
+        std::os::unix::fs::symlink(&twin, &path).unwrap();
+        assert_eq!(both(), expected("replaced"), "{moving:?} linked out");
+        std::fs::remove_file(&path).unwrap();
+        // An equal-byte copy standing at the very path.
+        copy(&twin, &path);
+        assert_eq!(both(), expected("replaced"), "{moving:?} copied in");
+        std::fs::remove_dir_all(&path).unwrap();
+        std::fs::remove_dir_all(&twin).unwrap();
+        // Renamed back: the same bundle dispatches again.
+        std::fs::rename(&away, &path).unwrap();
+        assert_eq!(both(), intact(), "{moving:?} restored");
+    }
+    // The owners' own directories, unchanged, moved under a new realm
+    // directory: the directory above them is not the one bound.
+    let away = root.join("realm.away");
+    std::fs::rename(&realm, &away).unwrap();
+    std::fs::create_dir(&realm).unwrap();
+    for owner in ["recipe", "agents", "adapters"] {
+        std::fs::rename(away.join(owner), realm.join(owner)).unwrap();
+    }
+    assert_eq!(
+        both(),
+        (
+            moved("layer 'recipe'", "replaced: roles/review.md"),
+            moved("agent 'worker'", "replaced: worker.md")
+        ),
+        "an ancestor replaced"
+    );
+}
+
+/// Rebuild unit 18-fix (task 18.1; council F3 and F4): EVERY WAY THE DOOR'S
+/// READ FAILS IS REFUSED BY ITS OWN KIND, for both owner kinds, before the
+/// driver starts. A charter that is there but cannot be read is a failed
+/// read (`unreadable`), not a decoding. An owner whose directory the
+/// compile did not bind, and an agent charter the library names through a
+/// `..` — which compiles, but which no bound read names a file by — are
+/// `unbound`. A binding whose layer is not one of the bundle's is a charter
+/// the bundle does not answer for.
+#[cfg(unix)]
+#[test]
+fn every_way_the_dispatch_read_fails_is_refused_by_its_own_kind() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let realm = root.join("realm");
+    let bundle = two_owners(&realm, "charters/worker.md");
+    let spawns = std::cell::Cell::new(0);
+    let both = |bundle: &Bundle| {
+        let door = |seat: &str| {
+            spawns.set(spawns.get() + 1);
+            let marker = root.join(format!("provider-work-{}", spawns.get()));
+            dispatched(bundle, seat, &marker)
+        };
+        (door("review"), door("work"))
+    };
+    let (review, worker) = (
+        realm.join("recipe/roles/review.md"),
+        realm.join("agents/charters/worker.md"),
+    );
+    let mode = |mode: u32| {
+        for path in [&review, &worker] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+    };
+    mode(0o000);
+    assert_eq!(
+        both(&bundle),
+        (
+            moved("layer 'recipe'", "unreadable: roles/review.md"),
+            moved("agent 'worker'", "unreadable: worker.md")
+        )
+    );
+    mode(0o644);
+    let intact = (
+        Ok(json!("# review as written\n")),
+        Ok(json!("# work as written\n")),
+    );
+    assert_eq!(both(&bundle), intact);
+    // A link that climbs out of its owner by `..`.
+    std::fs::write(root.join("outside.md"), "# work as written\n").unwrap();
+    for (path, text) in [
+        (&review, "# review as written\n"),
+        (&worker, "# work as written\n"),
+    ] {
+        std::fs::remove_file(path).unwrap();
+        std::os::unix::fs::symlink("../../../outside.md", path).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "# work as written\n"
+        );
+        let refused = both(&bundle);
+        std::fs::remove_file(path).unwrap();
+        std::fs::write(path, text).unwrap();
+        assert_eq!(
+            refused,
+            match path == &review {
+                true => (
+                    moved("layer 'recipe'", "outward: roles/review.md"),
+                    intact.1.clone()
+                ),
+                false => (
+                    intact.0.clone(),
+                    moved("agent 'worker'", "outward: worker.md")
+                ),
+            }
+        );
+    }
+    let mut unrecorded = bundle.clone();
+    unrecorded.charter_owners.clear();
+    assert_eq!(
+        both(&unrecorded),
+        (
+            moved("layer 'recipe'", "unbound: roles/review.md"),
+            moved("agent 'worker'", "unbound: worker.md")
+        )
+    );
+    let mut foreign = bundle.clone();
+    for pin in foreign
+        .sites
+        .values_mut()
+        .filter_map(|site| site.charter.as_mut())
+    {
+        pin.owner = crate::bundle::CharterOwner::Layer {
+            dir: root.join("elsewhere"),
+            key: pin.reference.clone(),
+        };
+    }
+    assert_eq!(
+        both(&foreign),
+        (
+            moved(
+                "bundle 'recipe'",
+                &format!("unpinned: {}", review.display())
+            ),
+            moved(
+                "bundle 'recipe'",
+                &format!("unpinned: {}", worker.display())
+            )
+        )
+    );
+    let dotted = two_owners(&root.join("dotted"), "charters/../charters/worker.md");
+    assert_eq!(
+        both(&dotted),
+        (
+            Ok(json!("# review as written\n")),
+            moved("agent 'worker'", "unbound: worker.md")
+        )
+    );
+    assert_eq!(both(&bundle), intact);
+}
+
+/// Rebuild unit 18-fix: a recipe under `realm` whose `review` seat's inline
+/// charter its layer owns, and whose `work` seat is the external library's
+/// `worker`, whose definition names its charter as `charter`.
+fn two_owners(realm: &Path, charter: &str) -> Bundle {
+    let write = |relative: &str, body: &str| {
+        let path = realm.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    };
+    write("agents/charters/worker.md", "# work as written\n");
+    write(
+        "agents/worker.json",
+        &json!({"description": "the worker", "charter": charter,
+                "models": ["opus"], "efforts": {"opus": "high"}})
+        .to_string(),
+    );
+    write(
+        "adapters/claude.json",
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/claude.json"),
+        )
+        .unwrap(),
+    );
+    write("recipe/roles/review.md", "# review as written\n");
+    write(
+        "recipe/policy.json",
+        &json!({"phases": ["work", "review", "done"], "initial": "work", "terminal": ["done"],
+                "rules": [
+                    {"id": "W", "from": "work", "result": "complete", "next": "review",
+                     "reason": "r"},
+                    {"id": "R", "from": "review", "result": "clean", "next": "done",
+                     "reason": "r"}]})
+        .to_string(),
+    );
+    write(
+        "recipe/bundle.json",
+        &json!({"name": "recipe", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "agent": "worker"},
+            "review": {"results": ["clean"], "role": "roles/review.md",
+                       "driver": {"command": ["true"]}}}})
+        .to_string(),
+    );
+    Bundle::compile_with_realm(
+        &realm.join("recipe"),
+        &realm.join("agents"),
+        &realm.join("adapters"),
+        None,
+        None,
+        brokkr_core::realms::Boundary::Namespace,
+    )
+    .expect("the recipe compiles")
+}
+
+/// What `seat`'s dispatch door hands its driver, or why it refused. The
+/// driver would leave `marker`; a refusal must leave none.
+fn dispatched(bundle: &Bundle, seat: &str, marker: &Path) -> Result<Value, String> {
+    let SeatBody::Single { role_path, .. } = &bundle.seats[seat].body else {
+        unreachable!("single seats")
+    };
+    let outcome = spawn_site(
+        bundle,
+        &SiteSpawn {
+            charter: bundle.sites[seat].charter.clone(),
+            ..SiteSpawn::inherit(vec!["touch".into(), marker.to_string_lossy().into()])
+        },
+        &json!({"role_path": role_path}),
+        marker.parent().unwrap(),
+        std::time::Duration::from_secs(5),
+    )
+    .map(|(_, input)| input[brokkr_protocol::native_controls::ROLE_TEXT].clone());
+    if outcome.is_err() {
+        assert!(
+            !marker.exists(),
+            "{seat}: no provider work before the refusal"
+        );
+    }
+    outcome
+}
+
+/// The dispatch refusal for a charter of `owner` that moved for `cause`.
+fn moved(owner: &str, cause: &str) -> Result<Value, String> {
+    Err(format!(
+        "dispatch refused: a charter of {owner} moved since the compile ({cause}); what a seat \
+         is told must be the bytes the bundle's identity names (decision 0066 ruling 5)"
+    ))
+}
+
 /// The probe is asked once per engine process and remembered: a second
 /// dispatch of the same engine spawns no second probe.
 #[test]

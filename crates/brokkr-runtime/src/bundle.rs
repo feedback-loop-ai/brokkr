@@ -516,6 +516,17 @@ pub enum CharterOwner {
     Library { agent: String, root: PathBuf },
 }
 
+impl CharterOwner {
+    /// The owner's canonical directory: the declaring layer's, or the
+    /// library's own.
+    pub fn root(&self) -> &PathBuf {
+        match self {
+            CharterOwner::Layer { dir, .. } => dir,
+            CharterOwner::Library { root, .. } => root,
+        }
+    }
+}
+
 impl CharterPin {
     /// The owner and the key a dispatch refusal names. A layer is found by
     /// its exact directory, never by the longest root a path starts with;
@@ -621,6 +632,11 @@ pub struct Bundle {
     /// compile resolved, consulted at the dispatch door for a charter no
     /// layer's file map keys.
     pub charters: CharterPins,
+    /// Rebuild unit 18-fix (council F1): the directory of every owner those
+    /// charters are bound to, as the compile found it, which the dispatch
+    /// door requires each owner still to be. Held outside the manifest, for
+    /// the reason the pins are: the path is the host's.
+    pub charter_owners: CharterOwners,
     /// The phase every path to a non-stop terminal must traverse.
     pub protected_phase: String,
     /// Dialect-owned prose, resolved once at compile time and keyed by the
@@ -2074,6 +2090,18 @@ impl Bundle {
         // seats were bound to, ancestors first, so no consumed file is read
         // again by a walk. The leaf's walk takes its own the same way, and
         // each input must still stand as it was read or nothing seals.
+        // Rebuild unit 18-fix (council F1): each charter owner's directory
+        // is bound first, so the seal's check covers the directory its
+        // charters were read from; one that cannot be bound is left out,
+        // and its charters refuse at the door.
+        let charter_owners: CharterOwners = sites
+            .values()
+            .filter_map(|site| site.charter.as_ref())
+            .filter_map(|pin| {
+                let root = pin.owner.root();
+                Some((root.clone(), owner_identity(root)?))
+            })
+            .collect();
         resolved.seal(charters.into_inner())?;
         let manifest = manifest_for(
             dir,
@@ -2103,6 +2131,7 @@ impl Bundle {
             inline_resume,
             sites,
             charters,
+            charter_owners,
             name,
             description,
             cost,
@@ -4608,7 +4637,8 @@ impl Held {
         let mut again = Vec::new();
         let reread = file.rewind().and_then(|()| file.read_to_end(&mut again));
         let held = reread.map(|_| sha256_bytes(&again));
-        let stands = observe(&self.root, &self.reference).is_ok_and(|now| self.stands(&now));
+        let stands = observe(&self.root, &|| by_path(&self.root), &self.reference)
+            .is_ok_and(|now| self.stands(&now));
         (held.ok().as_deref(), stands) == (Some(digest), true)
     }
 }
@@ -4626,7 +4656,48 @@ struct Observation {
 /// the clause a refusal carries.
 pub(crate) enum InputFault {
     Missing(std::io::Error),
-    Place(String),
+    Place(Place),
+}
+
+/// Where a bound read refused, as the resolver refused it (rebuild unit
+/// 18-fix, F4): the closed kind a dispatch refusal is named by, beside the
+/// clause a compile refusal carries. The kind is set where the refusal is
+/// made and never read back out of the clause's prose.
+pub(crate) struct Place {
+    kind: FaultKind,
+    clause: String,
+}
+
+/// The kinds of place a bound read refuses, each the one word a dispatch
+/// refusal names it by.
+#[derive(Clone, Copy)]
+enum FaultKind {
+    /// A FIFO, device or directory where a regular file must be.
+    Nonregular,
+    /// A link, or a `..`, that leads out of the owner's directory.
+    Outward,
+    /// A file, or an owner's directory, that is no longer the one bound.
+    Replaced,
+    /// A file that is there but cannot be read.
+    Unreadable,
+    /// A reference no bound read can name a file by: a skipped tree, a
+    /// `..` step, too many links, a host that cannot bind a read.
+    Unbound,
+}
+
+impl Place {
+    fn of(kind: FaultKind, clause: impl Into<String>) -> InputFault {
+        InputFault::Place(Place {
+            kind,
+            clause: clause.into(),
+        })
+    }
+}
+
+impl std::fmt::Display for Place {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.clause)
+    }
 }
 
 /// The clause for an input whose target could not be resolved: absent, or
@@ -4991,7 +5062,10 @@ fn unopened(error: std::io::Error) -> InputFault {
         std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => {
             InputFault::Missing(error)
         }
-        kind => InputFault::Place(format!("which cannot be read ({kind})")),
+        kind => Place::of(
+            FaultKind::Unreadable,
+            format!("which cannot be read ({kind})"),
+        ),
     }
 }
 
@@ -5009,7 +5083,7 @@ fn queue(
     let relative = if text.is_absolute() {
         stack.truncate(1);
         text.strip_prefix(root)
-            .map_err(|_| InputFault::Place(OUTWARD.to_string()))?
+            .map_err(|_| Place::of(FaultKind::Outward, OUTWARD))?
     } else {
         text
     };
@@ -5029,12 +5103,15 @@ fn queue(
 /// up in turn, from the link's own directory or, when absolute, from the
 /// layer's. A `..` that would step above the layer, an absolute text outside
 /// it, or more than [`MAX_LINKS`] links is refused. No path is canonicalized
-/// and then opened: every handle is found inside the one before it.
+/// and then opened: every handle is found inside the one before it. The
+/// layer's directory itself is the handle `open` gives: by its path at
+/// compile ([`by_path`]), and at dispatch through [`owner_read`]'s check
+/// that it is still the directory the compile bound.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn observe(root: &Path, reference: &Path) -> Result<Observation, InputFault> {
+fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observation, InputFault> {
     use std::os::unix::fs::MetadataExt;
     let identity = |file: &std::fs::File| file.metadata().map(|meta| (meta.dev(), meta.ino()));
-    let top = std::fs::File::open(root).map_err(InputFault::Missing)?;
+    let top = open()?;
     let id = identity(&top).map_err(InputFault::Missing)?;
     let mut steps = vec![Step::Entry(OsString::new(), id)];
     let mut stack: Vec<Hold> = vec![(top, OsString::new(), id)];
@@ -5044,7 +5121,7 @@ fn observe(root: &Path, reference: &Path) -> Result<Observation, InputFault> {
     while let Some((name, written)) = pending.pop() {
         if name == ".." {
             if stack.len() == 1 {
-                return Err(InputFault::Place(OUTWARD.to_string()));
+                return Err(Place::of(FaultKind::Outward, OUTWARD));
             }
             stack.pop();
             continue;
@@ -5064,9 +5141,13 @@ fn observe(root: &Path, reference: &Path) -> Result<Observation, InputFault> {
                 let text = link_at(parent, &name).map_err(|_| unopened(error))?;
                 links += 1;
                 if links > MAX_LINKS {
-                    return Err(InputFault::Place(format!(
-                        "which resolves through more than {MAX_LINKS} links, so it names no file"
-                    )));
+                    return Err(Place::of(
+                        FaultKind::Unbound,
+                        format!(
+                            "which resolves through more than {MAX_LINKS} links, so it names no \
+                             file"
+                        ),
+                    ));
                 }
                 through_link |= written;
                 steps.push(Step::Link(name, text.clone()));
@@ -5105,10 +5186,21 @@ fn observe(root: &Path, reference: &Path) -> Result<Observation, InputFault> {
 /// No supported host lacks the resolution; any other refuses rather than
 /// reading an input it cannot bind (design D7).
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn observe(_: &Path, _: &Path) -> Result<Observation, InputFault> {
-    Err(InputFault::Place(
-        "which this host cannot read through a handle bound to its contained target".to_string(),
+fn observe(_: &Path, _: Opener<'_>, _: &Path) -> Result<Observation, InputFault> {
+    Err(Place::of(
+        FaultKind::Unbound,
+        "which this host cannot read through a handle bound to its contained target",
     ))
+}
+
+/// How a resolution is given its layer's directory: [`by_path`], or
+/// [`owner_read`]'s checked handle.
+type Opener<'a> = &'a dyn Fn() -> Result<std::fs::File, InputFault>;
+
+/// The layer's directory opened by its canonical path, as the compile
+/// opens it: the compile has just canonicalized that path.
+fn by_path(root: &Path) -> Result<std::fs::File, InputFault> {
+    std::fs::File::open(root).map_err(InputFault::Missing)
 }
 
 /// Decision 0065 slice one, design D7, under operator ruling 3 ("It is not
@@ -5143,15 +5235,21 @@ fn observe(_: &Path, _: &Path) -> Result<Observation, InputFault> {
 /// held file after the read are refused where the layer's walk verifies it
 /// ([`Held::intact`]), before that layer's identity is sealed.
 pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
+    bound_through(root, &|| by_path(root), reference)
+}
+
+/// [`bound_input`] with the layer's directory given by `open`, for both of
+/// the read's resolutions.
+fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<BoundInput, InputFault> {
     use std::io::Read;
     if let Some(place) = unpinned_active_input(root, reference) {
-        return Err(InputFault::Place(place));
+        return Err(Place::of(FaultKind::Unbound, place));
     }
     let reference = PathBuf::from(reference);
-    let observed = observe(root, &reference)?;
+    let observed = observe(root, open, &reference)?;
     let target = root.join(&observed.binding.target_key);
     if let Some(place) = skipped_top_level(root, &target) {
-        return Err(InputFault::Place(place));
+        return Err(Place::of(FaultKind::Unbound, place));
     }
     let held = Held {
         root: root.to_path_buf(),
@@ -5163,17 +5261,95 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
     let mut file = held.handles.last().expect("a resolution ends at a handle");
     at_stage(ReadStage::Opened, &target);
     if !file.metadata().map_err(unopened)?.is_file() {
-        return Err(InputFault::Place(NONREGULAR.to_string()));
+        return Err(Place::of(FaultKind::Nonregular, NONREGULAR));
     }
     at_stage(ReadStage::Checked, &target);
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).map_err(unopened)?;
     at_stage(ReadStage::Read, &target);
-    if !observe(root, &held.reference).is_ok_and(|now| held.stands(&now)) {
-        return Err(InputFault::Place(REPLACED.to_string()));
+    if !observe(root, open, &held.reference).is_ok_and(|now| held.stands(&now)) {
+        return Err(Place::of(FaultKind::Replaced, REPLACED));
     }
     at_stage(ReadStage::Verified, &target);
     Ok(BoundInput { bytes, held })
+}
+
+/// Who an owner's directory is (rebuild unit 18-fix, F1; design D7): the
+/// `(dev, ino)` of every directory from `/` down to it, the owner's own
+/// last, as the compile found them. Recorded before the layers' identities
+/// are sealed, so the seal's check that each consumed input still stands
+/// covers the directory it was read from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerIdentity(Vec<(u64, u64)>);
+
+/// Each charter owner's directory by its canonical path, as the compile
+/// found it.
+pub type CharterOwners = BTreeMap<PathBuf, OwnerIdentity>;
+
+/// The clause an owner's directory that is no longer the one bound carries.
+const OWNER_REPLACED: &str = "whose owner's directory, or a directory above it, is no longer \
+                              the one the compile bound: it was replaced, or reached through a \
+                              link";
+
+/// The owner's directory at the canonical `root`, found from `/` a name at a
+/// time: each looked up inside the directory handle before it, WITHOUT
+/// following a link, and opened as a directory. A link where a directory of
+/// the compiled path stood is a replaced component and refuses; nothing is
+/// opened by the stored path. The handle comes with the [`OwnerIdentity`] of
+/// the directories it was reached through.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn owner_directory(root: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFault> {
+    use std::os::unix::fs::MetadataExt;
+    let identity = |file: &std::fs::File| {
+        file.metadata()
+            .map(|meta| (meta.dev(), meta.ino()))
+            .map_err(unopened)
+    };
+    let mut handle = directory(Path::new("/")).map_err(unopened)?;
+    let mut ancestry = vec![identity(&handle)?];
+    for name in root.strip_prefix("/").unwrap_or(root) {
+        handle = directory_at(&handle, name).map_err(|error| match link_at(&handle, name) {
+            Ok(_) => Place::of(FaultKind::Replaced, OWNER_REPLACED),
+            Err(_) => unopened(error),
+        })?;
+        ancestry.push(identity(&handle)?);
+    }
+    Ok((handle, OwnerIdentity(ancestry)))
+}
+
+/// No supported host lacks the lookup; any other binds no owner.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn owner_directory(_: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFault> {
+    Err(Place::of(
+        FaultKind::Unbound,
+        "which this host cannot read through a handle bound to its owner",
+    ))
+}
+
+/// The owner identity the compile records for `root`: `None` where the
+/// directory cannot be bound, which every later consumption then refuses.
+pub(crate) fn owner_identity(root: &Path) -> Option<OwnerIdentity> {
+    owner_directory(root).ok().map(|(_, identity)| identity)
+}
+
+/// Rebuild unit 18-fix (F1): unit 16's bound read of `reference`, from the
+/// owner's directory at `root` — which each of the read's two resolutions
+/// reaches by [`owner_directory`] and which must be `owner`, the directory
+/// the compile bound, or the read refuses as replaced. One resolver: the
+/// compile's read, given its directory by its path.
+fn owner_read(
+    root: &Path,
+    owner: &OwnerIdentity,
+    reference: &str,
+) -> Result<BoundInput, InputFault> {
+    let open = || {
+        let (handle, now) = owner_directory(root)?;
+        if &now != owner {
+            return Err(Place::of(FaultKind::Replaced, OWNER_REPLACED));
+        }
+        Ok(handle)
+    };
+    bound_through(root, &open, reference)
 }
 
 /// A path with its `.` and `..` folded away, without touching the disk:
@@ -5256,13 +5432,22 @@ pub fn site_charter_text(
     let Some(pin) = pin else {
         return unbound_charter(bundle, role);
     };
+    let (name, key) = owned(bundle, pin)?;
     if role != pin.path {
-        let (name, key) = pin
-            .named(bundle)
-            .unwrap_or_else(|| (format!("bundle '{}'", bundle.name), pin.reference.clone()));
         return Err((name, format!("replaced: {key}")));
     }
     pinned_charter(bundle, pin)
+}
+
+/// The owner and key a pin's refusals name. A pin whose layer is not one of
+/// this bundle's is a charter the bundle's identity does not answer for.
+fn owned(bundle: &Bundle, pin: &CharterPin) -> Result<(String, String), (String, String)> {
+    pin.named(bundle).ok_or_else(|| {
+        (
+            format!("bundle '{}'", bundle.name),
+            format!("unpinned: {}", pin.path.display()),
+        )
+    })
 }
 
 /// A role no site was bound to. After a compile every role is bound — an
@@ -5293,44 +5478,48 @@ fn unbound_charter(bundle: &Bundle, role: &Path) -> Result<String, (String, Stri
 /// The buffer read must hash to the pinned digest, and the file it was read
 /// from must be the target the compile bound: a retarget to equal bytes is
 /// a moved charter, not an unchanged one. Only then is the buffer the text.
+///
+/// Rebuild unit 18-fix (council F1): the owner's directory is not opened by
+/// its stored path, which follows whatever now stands there — a link to an
+/// equal-byte tree outside, or such a tree renamed into place. Both of the
+/// read's resolutions reach it from `/` without following a link, and it
+/// must be the directory the compile bound, it and every directory above it
+/// ([`owner_read`]). An owner the compile could not bind is `unbound`.
 fn pinned_charter(bundle: &Bundle, pin: &CharterPin) -> Result<String, (String, String)> {
-    let Some((name, key)) = pin.named(bundle) else {
-        return Err((
-            format!("bundle '{}'", bundle.name),
-            format!("unpinned: {}", pin.path.display()),
-        ));
+    let (name, key) = owned(bundle, pin)?;
+    let refused = |cause: &str| (name.clone(), format!("{cause}: {key}"));
+    let root = pin.owner.root();
+    let Some(owner) = bundle.charter_owners.get(root) else {
+        return Err(refused("unbound"));
     };
-    let root = match &pin.owner {
-        CharterOwner::Layer { dir, .. } => dir,
-        CharterOwner::Library { root, .. } => root,
-    };
-    let bound = bound_input(root, &pin.reference)
-        .map_err(|fault| (name.clone(), format!("{}: {key}", fault_kind(&fault))))?;
+    let bound =
+        owner_read(root, owner, &pin.reference).map_err(|fault| refused(fault_kind(&fault)))?;
     if sha256_bytes(&bound.bytes) != pin.digest {
-        return Err((name, format!("changed: {key}")));
+        return Err(refused("changed"));
     }
     if root.join(&bound.held.binding.target_key) != pin.target {
-        return Err((name, format!("retargeted: {key}")));
+        return Err(refused("retargeted"));
     }
     // The pin is over BYTES; what a seat is told is text. A charter whose
     // bytes are not text is refused rather than rendered with its
     // undecodable parts replaced, because what the seat would then read is
     // not what the digest names.
-    String::from_utf8(bound.bytes).map_err(|_| (name, format!("unreadable: {key}")))
+    String::from_utf8(bound.bytes).map_err(|_| refused("unreadable"))
 }
 
 /// The one word a dispatch refusal names a failed bound read by: bounded,
-/// never the clause's path or the value that failed. `unbound` is every
-/// other place the read refused: a skipped tree, a `..` step, a chain of
-/// links too long to name a file.
+/// never the clause's path or the value that failed, and taken from the
+/// kind the resolver refused with, never from its prose (council F4).
 fn fault_kind(fault: &InputFault) -> &'static str {
     match fault {
         InputFault::Missing(_) => "missing",
-        InputFault::Place(place) if place == NONREGULAR => "nonregular",
-        InputFault::Place(place) if place == OUTWARD => "outward",
-        InputFault::Place(place) if place == REPLACED => "replaced",
-        InputFault::Place(place) if place.starts_with("which cannot be read") => "unreadable",
-        InputFault::Place(_) => "unbound",
+        InputFault::Place(place) => match place.kind {
+            FaultKind::Nonregular => "nonregular",
+            FaultKind::Outward => "outward",
+            FaultKind::Replaced => "replaced",
+            FaultKind::Unreadable => "unreadable",
+            FaultKind::Unbound => "unbound",
+        },
     }
 }
 

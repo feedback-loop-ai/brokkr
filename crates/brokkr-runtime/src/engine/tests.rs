@@ -99,6 +99,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         inline_resume: BTreeMap::new(),
         sites: Default::default(),
         charters: Default::default(),
+        charter_owners: Default::default(),
     }
 }
 

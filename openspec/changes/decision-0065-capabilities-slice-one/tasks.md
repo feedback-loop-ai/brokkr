@@ -3812,7 +3812,10 @@ close.**
   a sequence with a fallback step, a nested panel (a primary member and an
   unresolved one) and a top-level panel. Each site gets its own charter
   text and full holdings, drops, native and DATA statements, and every
-  prompt re-renders byte-identical after the files change.
+  prompt re-renders byte-identical after the files change. (Corrected by
+  unit 18-fix, council F2: every served fixture here held nothing and
+  asked for nothing, so no granted holding, unmet want, subtraction or
+  provider drop was observed at unit 18; they are observed below.)
 - Baseline probes B1 and B2 and mutations M1–M9 each fail named rows.
 - Standing-admission lines: `engine/tests.rs:4914–4920`
   (`compiled_triage_engine` keeps each site's `charter` when it clears the
@@ -3823,6 +3826,50 @@ close.**
   strict OpenSpec (18) and `git diff --check` clean.
 - **Follow-up.** The relative-`role_path` fallback for unbound fixture
   sites remains.
+- **Pending.** Start and resume (unit 19); macOS; exact coverage outside
+  the box; remote CI and the council.
+
+Unit 18-fix (2026-09-29, run `0065-rebuild-unit-18-see-the-uni-b39bb56a`,
+based on `56873c18`; evidence.md, "Unit 18-fix"). Answers the unit 18
+council's SECURITY-HOLD (F1–F4). Production: `bundle.rs` only. Tests:
+`engine/boundary_tests.rs`, `engine/capability_tests.rs`. **18.1, 18.2 and
+18.3 stay closed, now on what is observed below.**
+
+- **F1.** The dispatch door no longer opens a charter's owner by its stored
+  path. Both of unit 16's resolutions in the door's read (`owner_read`, one
+  resolver: `bound_input`'s body, given its directory) reach the owner from
+  `/` a name at a time without following a link. The owner and every
+  directory above it must be the ones the compile bound (`Bundle::
+  charter_owners`, recorded before the seal). A link where a directory
+  stood, or a replacement directory, refuses as `replaced` before any
+  driver starts. A gone owner is `missing`. The compiled target and digest
+  checks are unchanged.
+- **F2.** Every served fixture now resolves its own asks against a realm
+  that grants `web-search` (Codex) and `web-fetch` (Claude). Observed, each
+  with the selected charter: a held grant (single seat, selected default,
+  panel member `a`); an ungranted want (default, `final`, `b`); a
+  subtraction (fallback `draft`, `a`); a provider-incompatible drop
+  (`draft` on DSH, `final` on Codex); Codex's native OFF (`final`, `b`);
+  DSH's unmeasured statement (`draft`). Nonempty-restriction transport
+  stays deferred (D11).
+- **F3/F4.** Refusal kinds are a closed `FaultKind`, set where the resolver
+  refuses and never read back from its prose. Each arm is reached by an
+  exact refusal with a caught mutation: `unreadable` (a failed read),
+  `outward` (a `..` link), `unbound` (a library `..` charter; an owner not
+  recorded), and a foreign owner (`bundle '…'` / `unpinned`). The two
+  missing-owner fallbacks are now one (`owned`).
+- Baseline reds B1–B2 on `56873c18`; mutations M1–M11, MS1–MS2, MD1–MD3
+  each fail named rows.
+- Standing-admission lines: `engine/resume_tests.rs:291`,
+  `engine/tests.rs:102` and `brokkr-cli/src/recipes/tests.rs:70`, one
+  `charter_owners: Default::default(),` each (a new `Bundle` field every
+  literal must name). No assertion changed. Fixture migrations: none.
+- Gates: fmt and clippy clean; workspace 77 results, all ok (runtime lib
+  616, protocol lib 543, cli lib 482); `bundles/self`/`verify` digests
+  unchanged; strict OpenSpec (18) and `git diff --check` clean.
+- **Follow-up.** The compile still opens a layer by its canonical path and
+  the library still loads its charter by path (units 16–17). A library
+  `..` charter compiles and then refuses at dispatch.
 - **Pending.** Start and resume (unit 19); macOS; exact coverage outside
   the box; remote CI and the council.
 

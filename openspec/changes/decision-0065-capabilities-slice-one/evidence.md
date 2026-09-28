@@ -19770,3 +19770,214 @@ On the final tree, in this session:
   diagnostic was run this visit.
 - Remote CI.
 - The council.
+
+## Unit 18-fix — the owner at the dispatch door, and the serving proof, 2026-09-29
+
+Run `0065-rebuild-unit-18-see-the-uni-b39bb56a`, based on `56873c18`. It
+answers the unit 18 council's SECURITY-HOLD, findings F1–F4 (F5 was a run
+defect and asks nothing of the code). Production: `crates/brokkr-runtime/src/bundle.rs`
+only (`engine.rs` and `adapters.rs` did not need to move). Tests: runtime
+`engine/boundary_tests.rs` and `engine/capability_tests.rs`. Scratch
+material is under `.forge/unit-18-fix/` (not committed).
+
+### Production (`bundle.rs`)
+
+- **F1: the owner is the directory the compile bound.** Before this visit,
+  `pinned_charter` called `bound_input(root, …)`. Its `observe` opened the
+  owner with `File::open(root)`, which follows whatever now stands at that
+  path. Now:
+  - `owner_directory` (`bundle.rs:5301`) reaches the owner from `/` a name
+    at a time, each looked up in the handle before it with
+    `O_NOFOLLOW | O_DIRECTORY`. A name where a link now stands is refused as
+    `replaced` (`OWNER_REPLACED`). One that is gone is `missing`, and one
+    that cannot be opened is `unreadable`. It returns the handle and the
+    `OwnerIdentity` (`:5283`): the `(dev, ino)` of every directory from `/`
+    to the owner.
+  - `owner_read` (`:5340`) is unit 16's read with the owner's directory
+    given by that checked handle. `bound_input`'s body is now
+    `bound_through` (`:5243`), whose two resolutions take the directory
+    from an `Opener`. The compile passes `by_path` (`:5202`), unchanged;
+    `owner_read` passes a closure that calls `owner_directory` and refuses
+    `replaced` unless the identity equals the compiled one. There is one
+    resolver, and nothing on the dispatch path opens a stored pathname.
+  - `Bundle::charter_owners` (`:639`) holds each pin's owner root with its
+    identity. `assemble` records it just before `resolved.seal` (`:2097`),
+    so the seal's check that each layer read still stands covers the
+    directory it was read from. An owner that cannot be bound is left out,
+    and `pinned_charter` (`:5488`) refuses its charters as `unbound`.
+  - The target and bytes checks are unchanged: the compiled canonical
+    target (`retargeted`) and the pinned digest (`changed`). The target is
+    compared by the names the handle-bound resolution took from the verified
+    owner, not by inode. The spec's MPL scenario requires that "unchanged
+    and restored bytes pass", and a restore rewrites the file.
+- **F3: one missing-owner arm.** `owned` (`:5444`) names a pin's owner, or
+  refuses a pin whose layer is not one of the bundle's as `bundle '{name}'`
+  / `unpinned: {path}`. `site_charter_text` calls it before its role-path
+  check and `pinned_charter` calls it first, so the two fallbacks are now
+  one.
+- **F4: a closed fault kind.** `InputFault::Place` now carries `Place`
+  (`:4666`): a `FaultKind` (`:4674`: `Nonregular`, `Outward`, `Replaced`,
+  `Unreadable`, `Unbound`) set where the resolver refuses, beside the
+  clause. `Place` displays as its clause, so every compile refusal (and
+  `compose.rs`, unchanged) reads exactly as before. `fault_kind` (`:5513`)
+  maps the kind to its word and never reads the prose.
+- `CharterOwner::root` (`:522`) gives either owner's directory. Nothing
+  enters the manifest.
+
+### Tests
+
+- **`engine/boundary_tests.rs::an_owner_or_an_ancestor_replaced_since_the_compile_refuses_the_dispatch`
+  (new).** `two_owners` compiles one bundle under `realm/`. Its `review`
+  charter is owned by the recipe layer and its `work` charter by the
+  external library `realm/agents`. `dispatched` spawns the site's own
+  binding with a driver that would `touch` a marker, and asserts no marker
+  after every refusal. With no recompile, for the layer root
+  (`realm/recipe`), the library root (`realm/agents`) and their shared
+  ancestor (`realm`), in turn:
+  - renamed away: `missing: roles/review.md` / `missing: worker.md` for the
+    owners under it, the other `Ok`;
+  - a link to an equal-byte copy outside in its place: `replaced: …`;
+  - an equal-byte copy standing at the very path: `replaced: …`;
+  - renamed back: both `Ok` with their text.
+
+  Last, the owners' own unchanged directories are moved under a new
+  `realm` directory (an ancestor replaced): both `replaced`.
+- **`engine/boundary_tests.rs::every_way_the_dispatch_read_fails_is_refused_by_its_own_kind`
+  (new).** Over the same fixture, both owner kinds:
+  - both charters mode `000`: `unreadable: roles/review.md` /
+    `unreadable: worker.md` (a failed read, not the UTF-8 row);
+  - each charter in turn a link `../../../outside.md` that climbs out:
+    `outward: …`, the other `Ok`;
+  - `charter_owners` cleared: `unbound: …` for both;
+  - both pins' owners pointed at a layer not in the bundle:
+    `bundle 'recipe'` / `unpinned: {path}`;
+  - a library whose definition names `charters/../charters/worker.md`:
+    it compiles, and dispatch refuses `unbound: worker.md`;
+  - restored: both `Ok`.
+- **`engine/capability_tests.rs::every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings`
+  (F2, extended).** `holdings` resolves a site's own asks (office asks, then
+  the seat's subset) on the Codex primary and the DSH fallback. The realm
+  grants `web-search` through `codex-native-search` and `web-fetch` through
+  `claude-native-fetch`, from the shipped definitions and dialects copied
+  under a canonicalised root, and defines `library-docs` without a grant.
+  `chartered` also records the layer's `OwnerIdentity`. Each site's prompt
+  now ends with its own exact paragraph:
+
+  | Site (serving link) | Asks → what it is told |
+  | --- | --- |
+  | `work` (primary) | holds `web-search` (tools: web_search) |
+  | `work:default` (primary; `chore` never runs) | holds `web-search`; `library-docs`: the realm does not grant it to this office |
+  | `work:draft` (DSH fallback) | holds nothing; `web-fetch`: provider 'dsh' cannot carry a binding to provider 'claude'; no native denial is claimed; `web-search`: this seat subtracted it; DSH unmeasured |
+  | `work:finish:final` (primary) | holds nothing; `library-docs` not granted; `web-fetch`: provider 'codex' cannot carry a binding to provider 'claude'; `web-search` switched off natively |
+  | `work:finish:peer` | unresolved: no paragraph, `null` controls |
+  | `work:a` (primary) | holds `web-search`; `web-fetch`: this seat subtracted it |
+  | `work:b` (primary) | holds nothing; `library-docs` not granted; `web-search` switched off natively |
+
+  Rendering after every charter changed, and the hostile `role_path` row,
+  are unchanged. The shared Codex inventory is now `codex_inventory()`,
+  which `two_candidates` uses too.
+
+### Baseline (`56873c18`)
+
+- **B1.** Only `boundary_tests.rs` was new; `bundle.rs` and every other file
+  were checked out at `HEAD`. The F1 test failed at boundary_tests.rs:2006
+  (`"recipe" linked out`): `left: (Ok("# review as written\n"), Ok(…))`
+  where `replaced: roles/review.md` was expected. A scratch copy that
+  printed each row instead of asserting showed all six replacement rows
+  accepted with `Ok` text: layer, library and ancestor, each linked out and
+  copied in. The three `gone` rows were already `missing`.
+- **B2.** In the same checkout, with the loop skipped, the ancestor-only row
+  failed at :2026 (`an ancestor replaced`), both `Ok`.
+- The F3 and F2 tests use `charter_owners`, which does not exist on
+  `56873c18`, so they were not run there. F3 exercises existing arms
+  (`unreadable`, `outward`, `unbound`, the foreign owner) and the new
+  `unbound` owner arm. F2 is a proof defect: production did not change for
+  it. Both are bound by the mutations below.
+- The tree was restored with `git apply` of the saved `.forge/unit-18-fix/wip/fix.diff`.
+  The restored test file compared identical to the saved copy.
+
+### Mutations (each compiles; restored by hand after each)
+
+Line numbers are as observed; the F1 test was refactored onto
+`two_owners`/`dispatched` after M4, and the rows are named by their
+assertion message.
+
+| Mutation | Fails (exact assertion) |
+| --- | --- |
+| M1: `owner_read` opens the owner `by_path` (the stored pathname) | F1 :2006 `"recipe" linked out`, `Ok` for `replaced` |
+| M2: the identity comparison removed (`&& false`) | F1 :2010 `"recipe" copied in`, `Ok` for `replaced` |
+| M3: only the owner's own `(dev, ino)` compared | F1 :2025 `an ancestor replaced`, both `Ok` |
+| M4: a link in the owner's path answered as not a link | F1 :2006 `"recipe" linked out`, `missing` for `replaced` |
+| M5: `Unreadable` named `unbound` | F3 :2003, `unbound` for `unreadable` |
+| M6: `Unbound` named `unreadable` | F3 :2043 (library `..`), `unreadable` for `unbound` |
+| M7: an unrecorded owner named `missing` | F3 :2018, `missing` for `unbound` |
+| M8: the foreign-owner fallback names `layer '…'` | F3 :2032, `layer 'recipe'` for `bundle 'recipe'` |
+| M9 (F4): `unopened` sets `FaultKind::Unbound` at the resolver | F3 :2003, `unbound` for `unreadable` |
+| M10 (F4): the `..`-above-owner refusal sets `Unbound` | F3 :2025 (`..` link), `unbound` for `outward` |
+| M11 (F4): the non-regular refusal sets `Unbound` | layer test :1475 (FIFO), `unbound` for `nonregular` |
+| MS1: `mark_capabilities` ignores the selected link (primary always) | capability :1916, `draft` told Codex's holdings |
+| MS2: `mark_capabilities` reads the first site with capabilities | capability :1782, the default told `chore`'s holdings |
+| MD1: `capabilities.rs` provider-binding check removed | capability :1916, `draft` told `web-fetch`: dsh unmeasured |
+| MD2: `capabilities.rs` subtraction statement removed | capability :1916, `draft` without `web-search` subtracted |
+| MD3: `capabilities.rs` drops an ungranted want silently | capability :1782, the default without `library-docs` |
+
+MS1–MD3 are temporary edits of `engine.rs` and `capabilities.rs`. After
+each was restored, `git diff --stat` listed neither file. A grep of
+`bundle.rs`'s diff showed only the intended `Unbound` producers, with no
+`&& false` or `last()` left.
+
+### Standing-admission lines and fixture migrations
+
+- `crates/brokkr-runtime/src/engine/resume_tests.rs:291`,
+  `crates/brokkr-runtime/src/engine/tests.rs:102` and
+  `crates/brokkr-cli/src/recipes/tests.rs:70`: one
+  `charter_owners: Default::default(),` each. The compiler forced them:
+  `E0063 missing field charter_owners` at each `Bundle` literal. They add or
+  remove no assertion and change no tested behaviour; those fixtures bind no
+  charter.
+- Fixture migrations: none.
+- In this unit's own test files, `chartered` takes the site's
+  `SiteCapabilities` (or none) instead of a flag and records the layer's
+  owner identity. The serving test's expected paragraphs changed from the
+  empty-holdings text to each site's own, bound by MS1–MD3.
+
+### Notes
+
+- **Reading.** "The target's identity must equal the compiled binding" is
+  implemented as follows. The owner and every directory above it must have
+  their compiled `(dev, ino)`. The target is the compiled canonical target,
+  reached name by name from that owner. Its bytes must match the digest. The
+  target file's own inode is not compared, because the spec requires
+  restored bytes to pass: `a_library_charter_that_moved…`'s restore
+  rewrites a removed file.
+- The owner's ancestors are opened read-only as directories. An ancestor
+  its user cannot list, such as an execute-only directory, would refuse at
+  dispatch as `unreadable`. This fails closed. None was observed.
+- **Follow-up.** The compile still opens a layer by its canonical path
+  (unit 16's `by_path`), and the library still loads its charter by
+  canonical path (unit 17). A library `..` charter compiles and then
+  refuses at dispatch as `unbound`.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean.
+- `cargo test --workspace --all-features --locked`: 77 results, all ok
+  (runtime lib 616, protocol lib 543, cli lib 482).
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged.
+  `bundles/verify`: `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+### Pending
+
+- Start and pinned-resume integrity over the owner binding: unit 19.
+- macOS, where the `O_NOFOLLOW`/`O_DIRECTORY` constants and
+  `/private/var` roots are unobserved.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`). No coverage
+  diagnostic was run this visit.
+- Remote CI.
+- The council.
