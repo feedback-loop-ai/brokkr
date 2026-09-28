@@ -15960,8 +15960,15 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
         "--allowedTools",
         "mcp__brokkr__workspace",
     ]);
-    let document = hands[4].as_str();
     let boxed = [s(&template), hands.clone()].concat();
+    // The expected document is an independent literal, never the
+    // transport's own expansion (NC6): only the test's executable, the
+    // canonical fixture value `{brokkr}` binds, is substituted.
+    let exe = std::env::current_exe().unwrap();
+    let exe = exe.to_str().unwrap();
+    let serve = r#"["hands","serve","--workdir","/w","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+    let document = format!(r#"{{"mcpServers":{{"brokkr":{{"args":{serve},"command":"{exe}"}}}}}}"#);
+    let document = document.as_str();
     let head = s(&[
         "claude",
         "-p",
@@ -16008,11 +16015,19 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     // Neither held: the native list stays empty and both are denied.
     assert_eq!(
         launch(&boxed, claude_plan(&[], &[], &["WebSearch", "WebFetch"])),
-        [
-            boxed.clone(),
-            s(&["--disallowedTools", "WebSearch,WebFetch"])
-        ]
-        .concat()
+        s(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--mcp-config",
+            document,
+            "--allowedTools",
+            "mcp__brokkr__workspace",
+            "--disallowedTools",
+            "WebSearch,WebFetch",
+        ])
     );
     // Both held.
     assert_eq!(

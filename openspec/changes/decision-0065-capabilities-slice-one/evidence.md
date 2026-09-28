@@ -16834,3 +16834,114 @@ These ran on the tree as committed.
 
 **Pending.** Exact coverage outside the box, macOS, remote CI and the
 council.
+
+## Unit 15-fix-b, review return — CH15B-1 and CH15B-2, 2026-09-28
+
+Same run, second implement visit, based on `69e0dd75`. **Result:
+complete.** The council's residual named two proof gaps in the record
+above. No production file moves. The only source change is the CH15B-2
+literal in `crates/brokkr-protocol/src/adapters/tests.rs`. 15.1 and 15.2
+stay closed, now on this evidence too.
+
+### CH15B-2 (low): the boxed Claude expectations are independent literals
+
+In `claude_admits_only_held_native_tools_beside_its_hands`, the expected
+`--mcp-config` value was `hands[4]`. `Seal::hands` builds that value with
+`Transport::expand`, which is the serializer the final check uses. The
+neither-held row expected `boxed.clone()`, which is built from the same
+expansion. The test now spells the document as an independent literal: a
+`serve` argument array and the MCP document, in the same form as
+`capability_launch.rs` (SC15-R2-2). The only value substituted is
+`std::env::current_exe()`, the canonical fixture value `{brokkr}` binds.
+The neither-held row's expected command is an ordered literal list. The
+boxed input is still sealed through `Seal::hands`, because the seal must
+reassemble the handed arguments. Only the expectations moved.
+
+- Baseline: the rewritten test passed on the unmutated tree (1 passed).
+- Mutation: `Transport::document` gained a trailing space (one compiling
+  edit to `native_controls.rs`).
+  - The new test failed at the first boxed row (`adapters/tests.rs:15996`).
+    Left and right differ only in the document's tail
+    (`.forge/unit-15-fix-b/r2-doc-new.txt`).
+  - HEAD's version of the test, swapped in for this one run, passed under
+    the same mutation (1 passed, `r2-doc-head.txt`). That is the gap the
+    finding named.
+- Restore: `git checkout` of `native_controls.rs`. The rows at `:16016`
+  and `:16033` compare the same `document` literal. They stop behind the
+  first row under this mutation, and are reached on their own by MT2 and
+  MT3 below.
+
+### CH15B-1 (medium): one enforcement mutation per changed assertion
+
+Each mutation below is one compiling edit to production. It removes the
+protection the named assertion asserts, and the edited file was restored
+with `git checkout` straight after the run. The runs used `cargo test -q
+-p brokkr-protocol --lib -- --test-threads=1 <the eight migrated tests>`.
+None of the eight takes `ADAPTER_ENV`, so no failure poisons another.
+
+Baseline: all eight passed on the unmutated tree (8 passed,
+`r2-base.txt`).
+
+Line numbers are the assertion that failed in the committed test file.
+Files are the logs under `.forge/unit-15-fix-b/`.
+
+| Mutation (file) | Assertion that failed, and how | Log |
+| --- | --- | --- |
+| M6: `captured` never refuses a capture (`if false && (…)`, `native_controls.rs`) | codex spellings, the `-o` row (`:15164`): the capture reason became "sealed with a fragment that captures into a result path the engine did not choose" | `r2-m6.txt` |
+| M7: an unknown sandbox word reads as `CLASSES.first()` (`read_state`) | codex spellings, the `-s` row (`:15172`): the no-sandbox-class reason became the recipe's-words reason | `r2-m7.txt` |
+| M8: the grammar admits a repeated option (`if false && !spec.repeat …`, `grammar.rs`) | codex spellings, the `-C` row (`:15179`): `Ok(true)`, so the duplicate `--cd` launched | `r2-m8.txt` |
+| M9: the inert check drops its authored half (`if !inert(serving.pins)`) | codex `--add-dir` (`:15187`, `Ok(true)`); MCP `joined`, Claude (`:15764`, `Ok([… "--disallowedTools=mcp__ungranted__fetch,WebSearch,WebFetch"])`); local list, `split, canonical` (`:16255`, `Ok([… "Bash(rm:*),WebSearch,WebFetch"])`); unboxed authored deny (`:16444`, `Ok([… "Bash(rm:*),WebFetch", …])`) | `r2-m9.txt` |
+| M9L: the inert check exempts `lanetally` only | MCP `joined: lanetally refuses it too` (`:15785`): `None` | `r2-m9l.txt` |
+| ME: `managed_patterns` accepts any tool name (`grammar.rs`) | MCP `canonical`, Claude (`:15764`): the not-a-plain-name reason became the recipe's-words reason | `r2-me.txt` |
+| MEL: `check_final` skips its read of the final command for `lanetally` only | MCP `canonical: lanetally refuses it too` (`:15785`): same move | `r2-mel.txt` |
+| M11: every carried name reads as a typed local allowance (`final_tools`'s `typed`) | local list, `split kebab allow list, search held` (`:16255`): the composition's unlowered-allow refusal became the recipe's-words refusal. The four deny rows before it passed | `r2-m11.txt` |
+| M12: the D11 restriction refusal never fires (`find(\|power\| false && …)`) | held restriction, cold (`:15928`): refused instead as "sealed with '--settings' in its plan's native controls, an effect whose meaning its sealed record does not establish" | `r2-m12.txt` |
+| M12R: the D11 refusal fires only when `serving.session.is_none()` | held restriction, actual resume (`:15932`), same move. The cold assertion passed | `r2-m12r.txt` |
+| MF1: a held name never joins a list where it stands (`fold_lists`) | local list typed positive (`:16261`); unboxed typed positive (`:16422`); boxed row one (`:15996`). Each gives `Bash(git:*)` or `mcp__brokkr__workspace` without `,WebSearch` | `r2-mf1.txt` |
+| MF2: a list the composition must create is never appended (`fold_lists`) | plugin joined row (`:15704`); restrictive `split` (`:15827`, `Ok` without `--disallowedTools WebFetch`); unboxed `search held` (`:16407`); local list typed positive (`:16261`); boxed row one (`:15996`). Where the check saw the gap, the refusal was "leaves tool … available, which its plan denies" | `r2-mf2.txt` |
+| MT2: a created list is appended only with fewer than two names | restrictive positive control (`:15844`, "leaves tool 'WebSearch' available"), after its three loop rows passed; unboxed `both held` (`:16407`); boxed neither-held row (`:16016`) | `r2-mt2.txt` |
+| MT3: a join into a standing list carries only its first name | boxed both-held row (`:16033`): `mcp__brokkr__workspace,WebSearch` against `…,WebSearch,WebFetch` | `r2-mt3.txt` |
+| MT4: a created list is appended only beside a `--tools` list | the unboxed row. `launch` unwrapped the check's refusal at `:15992`: "leaves tool 'WebSearch' available, which its plan denies". Only the unboxed row denies `WebSearch` without a `--tools` list, and the three boxed rows before it passed | `r2-mt4.txt` |
+| MJ: the Codex composition drops the plan's OFF argv | codex spellings, the launching arm, `-m` (`:15206`): `Ok(false)` against `Ok(true)` | `r2-mj.txt` |
+
+An earlier form of MT4 (a created list only where an include rewrite
+exists) failed the boxed neither-held row first, so it is not counted. An
+earlier form of M11 (`find(|name| false && …)`) panicked at the
+production `expect` in `final_tools` (`native_controls.rs:3185`) rather
+than at an assertion, so it is not counted either.
+
+**What each row shares.** Rows inside one loop are one assertion
+statement. The ones reached on their own above are these. The codex
+`-o`/`-s`/`-C`/`--add-dir`/`_` arms. MCP `canonical` and `joined`, each
+for Claude and for LaneTally. Local deny rows and local allow rows. The
+unboxed `search held` and `both held` rows. The three restrictive loop
+rows, through `split`. The ones not reached on their own are these, and
+each shares its arm's assertion and expected value with a row that was
+reached: `--output-last-message`, `--sandbox`, `--cd`, MCP `alias` and `a
+later denied value`, the three other deny spellings, the joined allow
+spelling, `fetch held`, and restrictive `equals` and `explicitly empty`.
+
+**Restore.** After the last mutation, `git status --short` showed only
+`adapters/tests.rs` modified. `native_controls.rs`, `grammar.rs` and
+`adapters.rs` equal `69e0dd75`.
+
+### Standing-admission lines and fixture migrations
+
+None beyond the CH15B-2 literal, which the ruling on the ten admits for
+this test ("typed hands with the transport's own document").
+
+### Gates
+
+These ran on the tree as committed.
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -q -p brokkr-protocol`: lib 542 passed, then 99 passed
+  (2 ignored), then 1 passed (`r2-gate-protocol.txt`).
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage outside the box, macOS, remote CI and the
+council. The runtime and CLI suites were not re-run in this visit, because
+no file they compile moved.

@@ -3050,6 +3050,33 @@ operator's rulings of 2026-09-28 on the split and on the ten.
   strict OpenSpec (18 passed) and `git diff --check` are clean.
 - Pending: exact coverage outside the box, macOS, remote CI and the council.
 
+Unit 15-fix-b, review return (2026-09-28, same run, based on `69e0dd75`;
+evidence.md, "Unit 15-fix-b, review return"). **Result: complete.** 15.1
+and 15.2 stay closed, now also on the proofs the council's residual asked
+for. No production file moved.
+
+- CH15B-2 (low): in `claude_admits_only_held_native_tools_beside_its_hands`,
+  the expected MCP document and the neither-held row are now independent
+  ordered literals. Only the test executable is substituted. A trailing
+  space on `Transport::document` fails the new test at `:15996`, and HEAD's
+  test passes under it. The mutation was restored.
+- CH15B-1 (medium): each changed sealed assertion now has a baseline pass,
+  a compiling production mutation that removes its protection, the failure
+  it caused, and a restored pass. That is 16 mutations across
+  `native_controls.rs` and `grammar.rs`: the result capture, the
+  sandbox-class read, the repeat rule, the inert recipe's-words check
+  (all harnesses, and LaneTally alone), the plain-name read (all, and
+  LaneTally alone), the carried-allow origin, the D11 restriction (cold,
+  and resume alone), and five list folds (joins, created lists, two-name
+  lists, a first-name-only join, lists beside no `--tools`), plus the
+  Codex OFF argv. Rows that share a loop's assertion with a row reached on
+  their own are listed in evidence.md.
+- Standing-admission lines and fixture migrations: none beyond the ruled
+  CH15B-2 literal.
+- Gates: fmt, clippy, the protocol suite (542 lib), strict OpenSpec (18
+  passed) and `git diff --check` are clean.
+- Pending: exact coverage outside the box, macOS, remote CI and the council.
+
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
 - [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)
