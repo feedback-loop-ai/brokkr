@@ -1,0 +1,42 @@
+{
+  "bundles": {
+    "bundles/self": "611570a8f11a17f62ba84dfb83711cd51c3ce36a3d8437dcacf30f8588bd3860",
+    "bundles/verify": "b606cd1e6b2f89e2ae10cfd85ec8849c43e8a0e6ec2cc2151c584d3580790584",
+    "recipes/fast": "fea35589dc0fbb0e302052d8e9ac44f5f8fa61fbcacdca5d24f8edf9d9e19ad8",
+    "recipes/gpt-flash": "f945a1638c8550a1b133ea13af4eb6f17114ef2e52da82ad566596ad8db09239",
+    "recipes/landing": "81b1c6bed6491adbca1c54064db85426e3256e436b75d96dd7de9e22c9404afe",
+    "recipes/night-shift": "0c535c33db38a7c0e5bf5a89689e3caaca1fe87ddf5a343ba621b7d718895e53",
+    "recipes/node": "d2d98190f997d72ce63cb0de4ca30cb89b1907f6a5c999d31c28ca7020674cdc",
+    "recipes/panel-review": "4ecbfa8a957d8d994eca7f3a3c3cee73264f42cf7d3b24b986e22ee8c03f85d4",
+    "recipes/preflight": "1f6d863befdad0c235aa2c4cc0c3ff708ef3a5185c779a1a7d86c75b418c9a08",
+    "recipes/release": "968231c421f94a99c83fcf6877b20ee3bb20c0c3cff841b9c4f5a635d41b7799",
+    "recipes/research": "ecf45c1e2831d23e3ea280fbd385e1f2c168243ef9cfcc0bd93c5fd79bb68f01",
+    "recipes/research-dsh": "8f4cce1ad3e96d5b17c18d3b43bd90fdd44289b9d64a5dfaad05a1e53852bd21",
+    "recipes/review-first": "fe4d763f425af1773ee01084a08a33685469f2cd72798fbd313fa1eadc7a6927",
+    "recipes/standby": "35576b2b813e3f7c9bd659aed567a2b77256dbfd4f3e880dd91f8131de5d1aed",
+    "recipes/triage": "4e410156ddde186fb2a76500d7e94a8a8fe99fd1eef3e17f65792d012bcfc2c6",
+    "recipes/wager-harness": "6562af6de145331fcad167ce2d9062d4ba68f6c3b05fdf855add4cbce69f62b7",
+    "recipes/wager-harness-dsh": "7332d8f5b0e635b09b85484b69c7c18d485a5910e49a7e77c85b85b179278d0f",
+    "recipes/wager-harness-muse": "2194c744c35886ef6cf3d030439c33eb44eea41ae8a2c6b7d5b41dc374a507a0"
+  },
+  "charters": {
+    "analyst.md": "2a2a606dab2737936ba5efd2e972c4c2f36300a9cce39f2c09c836091d08408f",
+    "chief-architect.md": "290cfc2763143a2c2411af161fde01558df9b73783cb16d53d95048ddfb8d783",
+    "clarifier.md": "5028f0624c92272ce12a4cc50fd771e86591436dd912d31b2127687a3d233fa7",
+    "implementer-sdd.md": "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
+    "implementer.md": "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
+    "intake.md": "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
+    "muninn.md": "642425f63f73d9184e6998fa4b8f10ec4deb5843c82cd47b1db2b2434d96e12d",
+    "position-robustness.md": "6d7926ae2f207ca576f65d949dae79501cfeccca5cd0ae436b2e85ce8969241a",
+    "position-simplicity.md": "22a5d52aa78e3b1d9ba28afdcdb938b1f2857d7c5a946dbd10a205fc4d1e880f",
+    "release-manager.md": "f2fc2c009138882233f193e4e10034c8e273ea81f6dec9b38d8a9cc26e0b6e7c",
+    "researcher.md": "ce577d4c12c874cd4f1ee39fe03b2a5781e4d4a315a911c773daa76647a9fd1b",
+    "review-adversarial.md": "b188aed4546a8af672835f7fea2de1ac1c13d1f6ae783baafd8644e440743251",
+    "review-chief.md": "199acde1e2e1cdd41d432f58c2f9a5ea6d74fa80d26c06302ad464125774b7e8",
+    "review-correctness.md": "40fe2d11b6d20ee7964d503aea72548605758ee20f8bae521ad65664028dbea1",
+    "review-security.md": "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
+    "review-spec-compliance.md": "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
+    "reviewer.md": "311489fc120a0bec72ffd0302bac12e60f184ca0e6d4c9e168f4e88453f6c410",
+    "triage.md": "8a7683bddc61597fb19be19b63cb6a5211d1e201f3a6f251a2c84121d90af3ec"
+  }
+}

@@ -1,6 +1,3 @@
-//! Decision 0046: hands sites now pin the realm boundary; codex
-//! harness fragments also move every identity that consults that adapter.
-//! Pins below are updated only from the tests' reported left/right pairs.
 //! Composition proof (decision 0017). The resolver is a pure function
 //! over recipe sources, so every test here is a library of small JSON
 //! documents on disk and an assertion about the ONE flat bundle they
@@ -986,133 +983,23 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
     );
 }
 
-/// Decision 0039 moved `recipes/fast` here as it moved it in the witness
-/// file: the table gained `REVIEW-CLEAN-DOCS-FIXES`, and a table that
-/// rules differently is a different bundle. Nothing else in this list moved.
-/// Decision 0043 moved every pinned bundle at once, and for one reason:
-/// every adapter file gained `hands` — how the provider puts its hands in
-/// the box, or the measured reason it cannot — and a bundle whose inline
-/// gate pins the adapter declaration that authorised it (decision 0021)
-/// carries that file's digest in its identity. The bundles hiring the
-/// review agents moved further: those agents now chain fable@high →
-/// opus@xhigh → sol@xhigh and declare boxed hands, so their resolution
-/// records and the manifest's `hands` key changed. Nothing else moved.
-/// The five bundles that declare no `extends`. Their digests are pinned
-/// to what MAIN produces without composition — three of them moved when
-/// those recipes adopted agents (decision 0016), and four moved again
-/// when their tables gained the reforging back-edge (decision 0022);
-/// each time that is a different bundle and so legitimately a different
-/// identity, re-recorded as the identity change it is. All five moved
-/// again with decision 0019's rename: the `{forge}` token in bundle
-/// argv became `{brokkr}`, and the adapters and charters those bundles
-/// resolve moved with it. All five moved a fourth time when decision
-/// 0021's compile-time refusals landed: every seat, step and panel
-/// member gained the class that says whether it works or judges, and
-/// every adapter gained the trust tier and binding grant those refusals
-/// read — the law is part of what a bundle IS, so a bundle that now
-/// declares it is a different bundle. Every one of them is a different
-/// bundle now. Closing decision 0019's rename moved the living role text
-/// and policy descriptions once more. The two with INLINE gates — `recipes/fast` and
-/// `bundles/verify` — moved once more when those gates began pinning
-/// the adapter declaration that authorises them, so a tier demoted in
-/// `adapters/` moves the identity of the bundles it was standing behind.
-/// Decision 0033 moved the three recipe entries once more by adding the
-/// descriptions and relative costs rendered in the contributing guide;
-/// the two system bundles did not move.
-/// Decision 0035 ruling 5 moved all five: every model pin now carries an
-/// effort pin, whether the pin lives in an inline argv (`recipes/fast`,
-/// `bundles/verify`) or in the agent library a bundle resolves against
-/// (`recipes/panel-review`, `recipes/triage`, `bundles/self`, whose agents
-/// now name the effort they hire beside the model). A hire that gained
-/// half its terms is a different hire, and therefore a different bundle.
-/// Decision 0041 moves all five again: ruling 1 advances the fable
-/// adapter mapping, ruling 2 reorders and re-efforts the roster, and
-/// ruling 3 adds the judges declaration to every adapter digest.
-/// The ruling-2 review correction moves the three adopters again because
-/// intake and implement now name and receive the Git capability their
-/// charters require, while dead allow-lists no longer sit beside hands.
-/// Rulings 4 and 5 move all five for the declared reason: reviewer fixes
-/// disappear, implementers gain `oversized`, and every finding-bearing
-/// table gains its bounded return edges (or, for verify, the read-only
-/// charter and inputs that make the absence of such an edge explicit).
-/// The boxed-gate correction moves the five again because each exec
-/// script is now explicitly bundle-relative and travels through the
-/// read-only bundle mount instead of being mistaken for repository data.
-/// The returned implementation moves them once more because the scripts
-/// themselves now live under, and are digested with, the roots that own
-/// those commands.
+/// The bundles that declare no `extends`. Their digests are the ones the
+/// witness table (`tests/witnesses.json`, #358) pins, which is what MAIN
+/// produces without composition.
 /// What this proves is that COMPOSITION moves none of them:
 /// the recipe library must not shift under recipes that opted into
 /// nothing. A move here means composition changed a bundle it was never
 /// asked to touch — or the engine version did, which is the other thing
 /// a bundle's identity legitimately covers.
-/// Decision 0041 ruling 8 moves the agent-backed entries because their
-/// charters now contain only office text, and moves triage again because
-/// non-final sequence vocabularies are pinned in its manifest.
-/// Decision 0044 ruling 5 moves all four entries: the claude adapter's
-/// declared tool vocabulary gained `webfetch` and `websearch`, and every
-/// bundle here pins that adapter through an agent or an inline gate. No
-/// recipe charter, table or hire moved.
-/// Proposed decision 0056 moves all four again for the same reason: the
-/// `resume` assessment is adapter DATA, so it rides the declaration
-/// digest every one of these bundles pins. That is not incidental — a
-/// declaration edit moving bundle identity is what makes an in-flight
-/// run refuse the offer rather than resume under a changed rule.
-/// The returned F1 correction moves `recipes/fast` once more alone: its
-/// inline Claude implementer now pins the declaration it reads its resume
-/// assessment from, exactly as its gate seats already pinned the
-/// declaration that authorises them. The other three witness only
-/// deterministic exec gates, so composition still moves none of them.
-/// The 2026-09-16 Codex declaration reconciliation moves
-/// `recipes/panel-review` and `bundles/self` among these four: each
-/// pins the codex adapter declaration its seats resolve, so the measured
-/// declaration edit moves their composed identity. `recipes/fast` and
-/// `bundles/verify` keep their digests.
-/// Proposed decision 0069 moves the same two, and for the same reason:
-/// `adapters/codex.json` gained its `hands.notice` declaration and its
-/// dated 2026-09-24 hands-discovery limitations, and both seats pin that
-/// declaration. The values are this tree's actual compiles, measured
-/// before and after the edit; `recipes/fast` and `bundles/verify` again
-/// reported no movement.
-/// The Opus 5.5 / Fable 5.1 prompt audit (acffed37) moves three of the
-/// four: `recipes/fast`'s implementer role, and the implementer charter
-/// `recipes/panel-review` and `bundles/self` seat, gained a scope
-/// paragraph, an evidence paragraph and a targeted-edit sentence.
-/// `bundles/verify` seats no implementer and reported no movement; each
-/// value is the test's own reported digest.
-/// Decision 0071 (#333) moves `recipes/panel-review` and `bundles/self`
-/// again: the charters they seat gained its principles. `recipes/fast` and
-/// `bundles/verify` reported no movement. #334 moves `recipes/fast` and
-/// `bundles/verify`: their roles now point at the house rules.
-/// `recipes/panel-review` and `bundles/self` reported no movement.
-/// #427 moves `recipes/fast`, whose verifier gained fmt, clippy and the
-/// lint list, and `recipes/panel-review`, whose README now says which of
-/// those checks its own verifier runs. `bundles/self` and `bundles/verify`
-/// reported no movement; each value is the test's own reported digest.
-/// #444 moves `recipes/fast` again: its verifier puts a failing lint's
-/// tail in its notes. The other three reported no movement.
-/// #355 moves all four: the adapters they pin trade `binding_grant` for
-/// `egress` and drop `python3` and `pytest`, and `recipes/fast` and
-/// `bundles/verify` drop those two from their inline allow-lists; each
-/// value is the test's own reported digest.
-const UNCOMPOSED: [(&str, &str); 4] = [
-    (
-        "recipes/fast",
-        "fea35589dc0fbb0e302052d8e9ac44f5f8fa61fbcacdca5d24f8edf9d9e19ad8",
-    ),
-    (
-        "recipes/panel-review",
-        "4ecbfa8a957d8d994eca7f3a3c3cee73264f42cf7d3b24b986e22ee8c03f85d4",
-    ),
-    (
-        "bundles/self",
-        "611570a8f11a17f62ba84dfb83711cd51c3ce36a3d8437dcacf30f8588bd3860",
-    ),
-    (
-        "bundles/verify",
-        "b606cd1e6b2f89e2ae10cfd85ec8849c43e8a0e6ec2cc2151c584d3580790584",
-    ),
+const UNCOMPOSED: [&str; 4] = [
+    "recipes/fast",
+    "recipes/panel-review",
+    "bundles/self",
+    "bundles/verify",
 ];
+
+#[path = "../../tests/support/witnesses.rs"]
+mod witnesses;
 
 /// Windows spells the same path with backslashes. Every assertion here
 /// is about WHICH file an error names, never about how the platform
@@ -1133,7 +1020,9 @@ fn workspace() -> PathBuf {
 #[test]
 fn recipes_that_opted_into_nothing_keep_their_digests() {
     // AC-21, the hard regression.
-    for (path, digest) in UNCOMPOSED {
+    let pinned = witnesses::Witnesses::load(&workspace()).bundles;
+    for path in UNCOMPOSED {
+        let digest = &pinned[path];
         // Explicit roots: the defaults are relative, and a test's cwd
         // is the crate, not the workspace.
         let bundle = Bundle::compile_with(
@@ -1142,7 +1031,7 @@ fn recipes_that_opted_into_nothing_keep_their_digests() {
             &workspace().join("adapters"),
         )
         .unwrap();
-        assert_eq!(bundle.manifest_digest(), digest, "{path} digest moved");
+        assert_eq!(&bundle.manifest_digest(), digest, "{path} digest moved");
         assert_eq!(bundle.chain.len(), 0, "{path} composed nothing");
         assert_eq!(bundle.roots, vec![bundle.dir.clone()], "{path} is one root");
         for key in bundle.manifest["files"].as_object().unwrap().keys() {
@@ -1223,53 +1112,9 @@ fn a_composed_bundles_manifest_is_pinned() {
     );
     assert_eq!(
         triage.manifest_digest(),
-        // Decision 0042's five SDD phases and the returned reviews' restored
-        // contracts are bundle identity: judges consume the deterministic
-        // check and closed drift vocabulary, and the smith names every result.
-        // Moved by proposed decision 0056: an adapter's `resume` assessment
-        // is adapter data, so it rides the declaration digest the manifest
-        // pins — which is exactly what makes a declaration edit spawn cold.
-        // Its ruling 10 moves it again through the SDD smith's charter,
-        // which every phase of this route resolves. The F1 return moves it
-        // once more: the Codex declaration's preserved shape now names the
-        // inline `not applicable` coordinate too, so the adapter digest the
-        // route's Codex lanes witness moved. The 2026-09-16 Codex
-        // declaration reconciliation moves it again, and this value agrees
-        // with the `recipes/triage` pin in `tests/witness_digests.rs`; both
-        // are that edit's actual compiles. Task 11.1's 2026-09-17 interface
-        // closure moves it once more: the declaration's `evidence.interface`
-        // and `reason` no longer recite a debt the controller has since
-        // measured, and one dated limitation was appended beside them.
-        // The 2026-09-19 ruling on #303 moves it again: the triage charter's
-        // `design` and `feature` criteria are rewritten to the who-decides
-        // cut, and the charter's bytes ride every route that seats it —
-        // `night-shift` and `gpt-flash` move for the same reason.
-        // Issue #307 (operator rulings 2026-09-20 and 2026-09-21) moves it
-        // once more through the engine smith this route seats: the office
-        // now hires astra@high then fable@high, and decision 0043's
-        // workspace hands replace its Cargo/Git tool list, so the agent
-        // digest, the adapters its chain consults and the `engine` case's
-        // `hands` and `boundary` entries all changed. The value agrees with
-        // the `recipes/triage` pin in `tests/witness_digests.rs`; both are
-        // this tree's actual compile. Proposed decision 0069 moves it
-        // again: the Codex declaration its lanes consult gained
-        // `hands.notice` and dated hands-discovery limitations, and the
-        // measured value again agrees with the witness pin. The Opus 5.5 /
-        // Fable 5.1 prompt audit (acffed37) moves it once more: the SDD
-        // smith's charter and its composed `fast` base's implementer role
-        // gained the scope and evidence text; the measured value agrees with
-        // the witness pin. Decision 0071 (#333) moves it again: the design
-        // offices' charters gained its principles, and the measured value
-        // again agrees with the witness pin. #334 moves it once more: its
-        // composed `fast` base's roles now point at the house rules. #427
-        // moves it again: that base's verifier gained fmt, clippy and the
-        // lint list; the measured value agrees with the witness pin. #444
-        // moves it once more: that verifier puts a failing lint's tail in
-        // its notes; the measured value agrees with the witness pin. #355
-        // moves it once more: the adapters its lanes consult trade
-        // `binding_grant` for `egress` and drop `python3` and `pytest`;
-        // the measured value agrees with the witness pin.
-        "4e410156ddde186fb2a76500d7e94a8a8fe99fd1eef3e17f65792d012bcfc2c6",
+        // Decision 0042's five SDD phases and every office they resolve
+        // are bundle identity; the value is the witness table's pin.
+        witnesses::Witnesses::load(&workspace()).bundles["recipes/triage"],
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

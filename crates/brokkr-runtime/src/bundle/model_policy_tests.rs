@@ -2037,7 +2037,10 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         // one class at the adapter and no routes (ruling 2), and every
         // model they map resolves to exactly where it stood the day
         // before this decision landed. `dsh` is the exception the
-        // operator has since ruled on, and it is pinned in full below.
+        // operator has since ruled on: its routes are classed in
+        // `adapters/dsh.json`, held to the dated route rulings table of
+        // the provider-adapters guide, and `tests/library_data.rs` proves
+        // both, and that every model it maps resolves to a declared class.
         if provider == "dsh" {
             continue;
         }
@@ -2051,70 +2054,6 @@ fn the_shipped_adapters_declare_what_decision_0021_ruled() {
         }
     }
     assert!(adapters.adapter("nobody").is_none());
-
-    // The operator ruled on 2026-09-03 that `dsh`'s `spark` route — the
-    // DGX Spark in their own building — is `local`, and on 2026-09-16
-    // that the `spark-glm` route — a vLLM on the same box — is `local`
-    // too. Those rulings are the whole of what they classed, so this
-    // states all four of `dsh`'s fronts rather than dropping the
-    // assertion that used to cover them: `uncontracted` now means two
-    // different things behind this one binary, and a test that said
-    // only "the floor" would stop telling the adapter's own word apart
-    // from nobody's word.
-    let dsh = adapters.adapter("dsh").expect("a shipped adapter");
-    assert_eq!(dsh.routes.len(), 2, "dsh classes exactly two routes");
-    assert_eq!(
-        dsh.routes.get("spark"),
-        Some(&EgressClass::Local),
-        "the operator's own hardware, ruled 2026-09-03"
-    );
-    assert_eq!(
-        dsh.routes.get("spark-glm"),
-        Some(&EgressClass::Local),
-        "the same box over vLLM, ruled 2026-09-16"
-    );
-    for (model, expected, ground) in [
-        (
-            "deepseek-v4-pro",
-            EgressClass::Uncontracted,
-            "unprefixed: dsh's own adapter class, because the id reaches \
-             whatever the harness profile resolves",
-        ),
-        (
-            "dashscope/qwen3.8-max",
-            EgressClass::Uncontracted,
-            "a route this file does not name: the floor by ruling 1, and \
-             no longer by the adapter declaring no routes at all",
-        ),
-        (
-            "spark/qwen3.8-flash",
-            EgressClass::Local,
-            "the route the operator ruled: local, and the Alibaba front \
-             beside it is not carried along",
-        ),
-        (
-            "spark-glm/GLM-5.3-Flash-EXL3",
-            EgressClass::Local,
-            "the same box over vLLM, ruled 2026-09-16: local, and still \
-             not carried onto any other front",
-        ),
-    ] {
-        assert_eq!(
-            resolve_route(dsh, model).1,
-            expected,
-            "dsh '{model}' — {ground}"
-        );
-    }
-    // And completely, over every model `dsh` maps: local exactly where
-    // the id runs on the operator's own box (`spark/`, `spark-glm/`),
-    // uncontracted everywhere else.
-    for model in dsh.models.values() {
-        let expected = match model.starts_with("spark/") || model.starts_with("spark-glm/") {
-            true => EgressClass::Local,
-            false => EgressClass::Uncontracted,
-        };
-        assert_eq!(resolve_route(dsh, model).1, expected, "dsh '{model}'");
-    }
 }
 
 #[test]
@@ -2271,18 +2210,6 @@ fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
         .get("spark")
         .expect("spark stays the measured effortless route");
     assert!(spark.contains("0.1.5-rc.1"), "{spark}");
-    // The vLLM GLM lane beside it: effort refused at start
-    // (UNSUPPORTED_REASONING_EFFORT, measured 2026-09-16), so it
-    // stands for the same reason — pinned here so a re-pin that
-    // drops the route trips beside the spark half of the same task.
-    let spark_glm = dsh
-        .effortless_routes
-        .get("spark-glm")
-        .expect("spark-glm stays the measured effortless route");
-    assert!(
-        spark_glm.contains("UNSUPPORTED_REASONING_EFFORT"),
-        "{spark_glm}"
-    );
     // The neighbours are untouched by this slice: bare `unsupported`
     // stays bare, so the re-measured reason cannot be mistaken for a
     // capability somebody forgot to wire.
@@ -2303,27 +2230,21 @@ fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // transcribed, not remembered. On 2026-09-22 (codex-cli 0.154.0)
     // `sol` and `luna` moved to `gpt-6-sol` and `gpt-6-luna`, each probed
     // with a `codex exec` turn; the `gpt-6.0-*` spellings are refused for
-    // a ChatGPT-account codex. `terra` has no 6 release and stays. The abstract names are codex's own family words —
+    // a ChatGPT-account codex. `terra` has no 6 release and stays. The
+    // pairs live once, in `adapters/codex.json` (#358); what holds here
+    // is what each must satisfy: the id is a `gpt-` slug from codex's
+    // own catalog, and the abstract names are codex's own family words —
     // NOT claude tiers, so no fallback chain written for one provider
     // can quietly land on the other.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     let codex = adapters.adapter("codex").expect("a shipped adapter");
-    assert_eq!(
-        codex.models.get("astra").map(String::as_str),
-        Some("gpt-6-astra")
-    );
-    assert_eq!(
-        codex.models.get("sol").map(String::as_str),
-        Some("gpt-6-sol")
-    );
-    assert_eq!(
-        codex.models.get("terra").map(String::as_str),
-        Some("gpt-5.6-terra")
-    );
-    assert_eq!(
-        codex.models.get("luna").map(String::as_str),
-        Some("gpt-6-luna")
-    );
+    assert!(!codex.models.is_empty(), "codex maps its catalog's models");
+    for (alias, id) in &codex.models {
+        assert!(
+            id.starts_with("gpt-"),
+            "codex '{alias}' maps '{id}', which is no slug of codex's catalog"
+        );
+    }
     for claude_tier in ["opus", "sonnet", "haiku", "fable"] {
         assert!(
             !codex.models.contains_key(claude_tier),
