@@ -44,7 +44,8 @@ that disagrees:
 - **`Built:`** says how much of the decision the tree carries, apart
   from whether it is accepted: `built`, `partial (#NNN)` or
   `unbuilt (#NNN)`. A partial or unbuilt decision names the issue that
-  carries the rest, and may add ` — ` and a note. The index's `Built`
+  carries the rest, a built one names none, and either may add ` — ` and
+  a note. The index's `Built`
   column renders the marker, with each issue as a link. The slice that
   finishes a decision moves its marker to `built`.
 - **Pointers** name the decisions this one acts on, and those decisions
@@ -58,7 +59,8 @@ that disagrees:
   overturns, replaces or retires one declares `Supersedes:` or
   `Supersedes in part:`. Such text names each number on its own
   (`0008` or `0008's`); a range such as `0041–0043` or `0041/0043` is
-  refused, not read. The back-pointer is added
+  refused, not read. A comma after the verb does not end its clause:
+  `amends, in part, 0008` reads 0008. The back-pointer is added
   to the older file in the same pull request. A back-pointer is a header
   line, not an edit to any ruling, so it is the errata rule's and needs no
   new number.

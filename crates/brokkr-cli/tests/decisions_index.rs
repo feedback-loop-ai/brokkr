@@ -281,6 +281,9 @@ enum Finding {
     WithoutIssue {
         decision: u16,
     },
+    IssueOnBuilt {
+        decision: u16,
+    },
     MalformedMarker {
         decision: u16,
         line: String,
@@ -344,6 +347,10 @@ impl fmt::Display for Finding {
             Finding::WithoutIssue { decision } => write!(
                 f,
                 "{decision:04}: a partial or unbuilt decision names the issue that carries the rest"
+            ),
+            Finding::IssueOnBuilt { decision } => write!(
+                f,
+                "{decision:04}: a built decision names no issue; its marker reads 'built' alone"
             ),
             Finding::MalformedMarker { decision, line } => {
                 write!(f, "{decision:04}: the marker '{line}' does not parse")
@@ -655,16 +662,16 @@ fn built_is_declared(ledger: &Ledger) -> Vec<Finding> {
     ledger
         .decisions
         .iter()
-        .filter_map(|decision| match &decision.built {
-            None => Some(Finding::NoBuilt {
-                decision: decision.number,
-            }),
-            Some(built) if built.build != Build::Built && built.issues.is_empty() => {
-                Some(Finding::WithoutIssue {
-                    decision: decision.number,
-                })
+        .filter_map(|Decision { number, built, .. }| {
+            let decision = *number;
+            let Some(built) = built else {
+                return Some(Finding::NoBuilt { decision });
+            };
+            match (built.build, built.issues.is_empty()) {
+                (Build::Built, false) => Some(Finding::IssueOnBuilt { decision }),
+                (Build::Partial | Build::Unbuilt, true) => Some(Finding::WithoutIssue { decision }),
+                (Build::Built, true) | (Build::Partial | Build::Unbuilt, false) => None,
             }
-            Some(_) => None,
         })
         .collect()
 }
@@ -770,19 +777,23 @@ fn target(word: &str) -> Option<Target> {
 
 /// The targets one clause names, from the word after its verb: every word
 /// that reads like a decision number up to the clause's end or the next
-/// verb, save the word directly before that verb, which is its subject
-/// (`the way 0021 amends a tier`). A number that closes its own clause is
-/// a target even when a verb follows (`0046; supersedes`).
+/// verb, save a number written bare directly before that verb, which is
+/// its subject (`the way 0021 amends a tier`). A number its punctuation
+/// ends is a target even when a verb follows (`0046; supersedes`,
+/// `0004, supersedes`), and a word that is not one number is never a
+/// subject: it is refused wherever it stands.
 fn clause_targets(words: &[&str]) -> Vec<Target> {
     let mut targets = Vec::new();
     for (at, word) in words.iter().enumerate() {
-        let subject =
-            !closes_clause(word) && words.get(at + 1).is_some_and(|next| is_amending(next));
         if is_amending(word) {
             break;
         }
-        if let Some(target) = target(word).filter(|_| !subject) {
-            targets.push(target);
+        let subject = word.ends_with(|c: char| c.is_ascii_alphanumeric())
+            && words.get(at + 1).is_some_and(|next| is_amending(next));
+        match target(word) {
+            Some(Target::Number(_)) if subject => {}
+            Some(target) => targets.push(target),
+            None => {}
         }
         if closes_clause(word) {
             break;
@@ -794,15 +805,16 @@ fn clause_targets(words: &[&str]) -> Vec<Target> {
 /// Every number a decision's own text says it amends or supersedes, with
 /// the verb that says so (`amends decision 0001`, `Amends the read
 /// surfaces of decisions 0026 and 0047 in part:`): the numbers its header
-/// must point at, each by a pointer of its verb's kind. A verb its own
-/// punctuation closes has no object (`the rulings it amends, as 0042
-/// ruling 1 requires`).
+/// must point at, each by a pointer of its verb's kind. Only a full stop
+/// leaves a verb without an object (`what it amends.`); a comma does not,
+/// so `amends, in part, decision 0004` reads 0004, and a sentence that
+/// only mentions a number after `amends,` is refused until it is split.
 fn prose_targets(text: &str) -> BTreeSet<(Verb, Target)> {
     let words: Vec<&str> = text.split_whitespace().collect();
     words
         .iter()
         .enumerate()
-        .filter(|(_, word)| !word.ends_with([',', '.']))
+        .filter(|(_, word)| !word.ends_with('.'))
         .filter_map(|(at, word)| Some((at, Verb::parse(word)?)))
         .flat_map(|(at, verb)| {
             clause_targets(&words[at + 1..])
@@ -1138,7 +1150,7 @@ fn an_amendment_in_the_text_needs_a_pointer_in_the_header() {
             "This amends decision 0001.",
             "Amends the read surfaces of decisions 0001 and 0004 in part: \
              pins it amends by evidence the way 0009 amends a tier. \
-             The rulings it amends, as 0008 asks, are what it amends. 0007 stands.",
+             The rulings are what it amends. 0007 stands.",
         )
         .findings();
     assert_eq!(
@@ -1210,6 +1222,51 @@ fn a_number_the_clause_cannot_read_is_refused_not_skipped() {
                 word: word.into()
             }]
         );
+    }
+}
+
+#[test]
+fn a_comma_leaves_the_clause_open() {
+    let undeclared = |verb, number| Finding::UndeclaredProse {
+        decision: 3,
+        verb,
+        number,
+    };
+    let unreadable = |word: &str| Finding::UnreadableTarget {
+        decision: 3,
+        verb: Verb::Amends,
+        word: word.into(),
+    };
+    // A number before a comma is an object, not the next verb's subject;
+    // a word that is not one number is refused even where a subject stands;
+    // and a comma after the verb does not leave it without an object.
+    let cases = [
+        (
+            "This amends 0004, supersedes 0005.",
+            vec![undeclared(Verb::Amends, 4), undeclared(Verb::Supersedes, 5)],
+        ),
+        (
+            "This amends 0004–0006, supersedes 0005.",
+            vec![unreadable("0004–0006"), undeclared(Verb::Supersedes, 5)],
+        ),
+        (
+            "This amends 0004/0006 amends 0001.",
+            vec![unreadable("0004/0006")],
+        ),
+        (
+            "This amends, in part, decision 0004.",
+            vec![undeclared(Verb::Amends, 4)],
+        ),
+        (
+            "It names the rulings it amends, as 0004 asks.",
+            vec![undeclared(Verb::Amends, 4)],
+        ),
+    ];
+    for (text, expected) in cases {
+        let findings = Fixture::new()
+            .edit("0003", "This amends decision 0001.", text)
+            .findings();
+        assert_eq!(findings, expected, "{text}");
     }
 }
 
@@ -1291,6 +1348,15 @@ fn every_decision_declares_how_much_is_built() {
         findings,
         vec![Finding::WithoutIssue { decision: 3 }, bad_cell("partial")]
     );
+    // What is built leaves nothing for an issue to carry.
+    let findings = Fixture::new()
+        .edit("0001", "Built: built\n", "Built: built (#9)\n")
+        .edit_readme(
+            "| accepted | built |",
+            &format!("| accepted | built ([#9]({ISSUES}9)) |"),
+        )
+        .findings();
+    assert_eq!(findings, vec![Finding::IssueOnBuilt { decision: 1 }]);
     let findings = Fixture::new()
         .edit("0003", "partial (#7)", "partial (#+7)")
         .findings();
@@ -1461,6 +1527,7 @@ fn every_finding_reads_in_the_operators_words() {
         },
         Finding::NoBuilt { decision: 1 },
         Finding::WithoutIssue { decision: 1 },
+        Finding::IssueOnBuilt { decision: 1 },
         Finding::MalformedMarker {
             decision: 1,
             line: "Built: done".into(),
@@ -1518,6 +1585,7 @@ fn every_finding_reads_in_the_operators_words() {
             "0001: status 'enacted' is not one of proposed, accepted, superseded, withdrawn",
             "0001: no 'Built:' marker in its header",
             "0001: a partial or unbuilt decision names the issue that carries the rest",
+            "0001: a built decision names no issue; its marker reads 'built' alone",
             "0001: the marker 'Built: done' does not parse",
             "0001: 'Amended-by: 0003' is not a ledger marker",
             "0001: 'Built:' appears more than once",
