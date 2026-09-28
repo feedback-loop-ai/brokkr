@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-09-01
 Date: 2026-09-01
 
-Built: partial (#363) — resume's fresh-process branch and the remaining control-plane `append_next` sites are unfenced; #363 asks for a tracking issue, and this link moves to it
+Built: partial (#477) — resume's fresh-process branch and the remaining control-plane `append_next` sites are unfenced; #477 tracks finishing them
 
 ## Context
 

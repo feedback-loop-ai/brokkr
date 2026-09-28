@@ -37,10 +37,10 @@ The index says what is in force. Each decision's header carries it, and
 `crates/brokkr-cli/tests/decisions_index.rs` refuses a header or a row
 that disagrees:
 
-- **Status** is one word of a closed vocabulary: `proposed`, `accepted`,
-  `superseded` or `withdrawn`. Part of a decision replaced by a later one
-  is a pointer, not a status. `superseded` goes with a `Superseded by:`
-  pointer, and only with it.
+- **Status**, after its colon, is one word of a closed vocabulary:
+  `proposed`, `accepted`, `superseded` or `withdrawn`. Part of a decision
+  replaced by a later one is a pointer, not a status. `superseded` goes
+  with a `Superseded by:` pointer, and only with it.
 - **`Built:`** says how much of the decision the tree carries, apart
   from whether it is accepted: `built`, `partial (#NNN)` or
   `unbuilt (#NNN)`. A partial or unbuilt decision names the issue that
@@ -56,7 +56,9 @@ that disagrees:
   supersedes a number declares the pointer of that kind: text that amends
   or supplements a number declares `Amends:`, and text that supersedes,
   overturns, replaces or retires one declares `Supersedes:` or
-  `Supersedes in part:`. The back-pointer is added
+  `Supersedes in part:`. Such text names each number on its own
+  (`0008` or `0008's`); a range such as `0041–0043` or `0041/0043` is
+  refused, not read. The back-pointer is added
   to the older file in the same pull request. A back-pointer is a header
   line, not an edit to any ruling, so it is the errata rule's and needs no
   new number.
@@ -95,11 +97,11 @@ cell; the row keeps the decision's own status and `Built` state.
 | [0021](0021-model-policy.md) | Model policy: the law, not the scorecard | Work and gate seats; operator-granted driver trust tiers and egress rights, compile-refused when violated; park, never substitute; economics stays LaneTally's. | accepted | built |
 | [0022](0022-reforging.md) | Reforging: the graph gets its way back into the fire | A security residual returns the run to implement with the finding as declared input, bounded at two reforgings; the exhaustion ladder stops, parks, or ships-as-debt by severity. | accepted | built |
 | [0023](0023-realms.md) | Realms: the map is the world, chosen at invocation | realms.json (minimal v1 schema, this repo its own bootstrap) picked by --realms on run and every read surface, pinned and embedded per run; per-realm facts on decisions; Bifröst and multi-realm runs are later phases. | accepted | built |
-| [0025](0025-skirnir.md) | Skírnir and the grant: the sword is a signed loan | The standing executor acts only within an operator-GPG-signed, expiring, runtime-configurable grant, under a compiled never-list ceiling; every exercise journaled as the grant's, escalation the default. | accepted | unbuilt ([#363](https://github.com/feedback-loop-ai/brokkr/issues/363)) |
+| [0025](0025-skirnir.md) | Skírnir and the grant: the sword is a signed loan | The standing executor acts only within an operator-GPG-signed, expiring, runtime-configurable grant, under a compiled never-list ceiling; every exercise journaled as the grant's, escalation the default. | accepted | unbuilt ([#476](https://github.com/feedback-loop-ai/brokkr/issues/476)) |
 | [0026](0026-many-hearths.md) | Many hearths: per-realm journals and the tabbed fleet | realms/v2 journals per realm (products, not worktrees) with per-realm tabs; same-realm parallelism instead hardens concurrent writers into ONE journal; muninn flies the whole world; journals never merge. | accepted | built |
 | [0027](0027-import.md) | Import: journals never merge, runs relocate | One run moves from a canonical export into a destination journal byte-identically, behind full verification; a broken chain, a run-id collision and a redacted derivative each refuse the import whole; arrival is recorded beside the chain, never inside it. | accepted | built |
 | [0028](0028-keep-refs.md) | Keep-refs: the journal's exhibits outlive the branch | Every SHA a run's journal cites gets `refs/forge/keep/<run>/<sha>`, planted automatically at conclusion and by verb; idempotent, listed by one `for-each-ref`, deleted only by the operator. | accepted | built |
-| [0029](0029-fenced-append.md) | The fenced append: a writer commits onto the head it folded | A control-plane write states the head its fold was taken from and refuses when the journal has moved; a stale fold surfaces the drift rather than picking a winner. A fence, not a lease. Narrowed by erratum: the primitive and the operator/conclude fences landed; the tail (resume's fresh-process branch) remains. | accepted | partial ([#363](https://github.com/feedback-loop-ai/brokkr/issues/363)) |
+| [0029](0029-fenced-append.md) | The fenced append: a writer commits onto the head it folded | A control-plane write states the head its fold was taken from and refuses when the journal has moved; a stale fold surfaces the drift rather than picking a winner. A fence, not a lease. Narrowed by erratum: the primitive and the operator/conclude fences landed; the tail (resume's fresh-process branch) remains. | accepted | partial ([#477](https://github.com/feedback-loop-ai/brokkr/issues/477)) |
 | [0030](0030-codex-session-resume.md) | Codex session resume: the cache win and the sandbox it drops | `codex exec resume` lifts the prompt-cache hit from a ~75% cold plateau to 92–96% (measured), but refuses `--sandbox` and does not inherit it — a resumed read-only thread writes. Safe only via `-c sandbox_mode=`. Ruled: a retry or a re-entry of the same seat rejoins its own thread with the class re-imposed, or the driver spawns cold; only the instance that opened a session may resume it. | accepted | built |
 | [0031](0031-seat-model-pin.md) | The served model is evidence; every model seat is pinned | Drivers record the provider-reported served model, never a configured guess; every model-backed invocation is compile-refused unless explicitly pinned. | accepted | built |
 | [0032](0032-the-transcript-is-the-operators.md) | The transcript is the operator's: one law for every driver | Every driver records one retained, harness-owned transcript reference in `session_meta`; local readouts use the same shape and label, while journal payloads keep paths or ids only. | accepted | built |

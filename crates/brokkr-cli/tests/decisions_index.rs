@@ -309,6 +309,11 @@ enum Finding {
         verb: Verb,
         number: u16,
     },
+    UnreadableTarget {
+        decision: u16,
+        verb: Verb,
+        word: String,
+    },
     SupersededStatus {
         decision: u16,
     },
@@ -366,6 +371,11 @@ impl fmt::Display for Finding {
                     keys.join(" or ")
                 )
             }
+            Finding::UnreadableTarget { decision, verb, word } => write!(
+                f,
+                "{decision:04}: its text {} '{word}', which is not one decision number; name each decision on its own",
+                verb.word()
+            ),
             Finding::SupersededStatus { decision } => write!(
                 f,
                 "{decision:04}: status 'superseded' and a 'Superseded by:' pointer go together"
@@ -391,21 +401,30 @@ fn header(text: &str) -> impl Iterator<Item = &str> {
     text.lines().take_while(|line| !line.starts_with("## "))
 }
 
-/// The first word of the header's `Status` line, bold or plain, up to the
-/// first space: `accepted-ish` is read whole, so the vocabulary refuses it.
-fn status_word(text: &str) -> Option<String> {
+/// A header's `Status` line, read.
+enum StatusLine {
+    /// The first word after the colon.
+    Word(String),
+    /// A `Status` line without its colon, as written.
+    NoColon(String),
+}
+
+/// The header's `Status` line, bold or plain: the first word after its
+/// colon, up to the first space (`accepted-ish` is read whole, so the
+/// vocabulary refuses it). A line without the colon is not read.
+fn status_line(text: &str) -> Option<StatusLine> {
     header(text).find_map(|line| {
-        let line = line.trim_start_matches('*');
-        line.strip_prefix("Status").map(|rest| {
-            rest.trim_start_matches('*')
-                .trim_start_matches(':')
-                .trim()
-                .trim_start_matches('*')
-                .split_whitespace()
-                .next()
-                .unwrap_or_default()
-                .to_string()
-        })
+        let rest = line.trim_start_matches('*').strip_prefix("Status")?;
+        let Some(value) = rest.trim_start_matches('*').strip_prefix(':') else {
+            return Some(StatusLine::NoColon(line.to_string()));
+        };
+        let word = value
+            .trim()
+            .trim_start_matches('*')
+            .split_whitespace()
+            .next()
+            .unwrap_or_default();
+        Some(StatusLine::Word(word.to_string()))
     })
 }
 
@@ -496,7 +515,17 @@ fn read_markers(decision: &mut Decision, findings: &mut Vec<Finding>) {
 /// Read one decision file; what its header cannot say becomes a finding.
 fn read_decision(file: &str, text: &str, findings: &mut Vec<Finding>) -> Decision {
     let number = decision_number(&file[..4]).expect("a decision file starts with its number");
-    let status = status_word(text).unwrap_or_else(|| panic!("{file} carries no Status line"));
+    let status = match status_line(text).unwrap_or_else(|| panic!("{file} carries no Status line"))
+    {
+        StatusLine::Word(word) => word,
+        StatusLine::NoColon(line) => {
+            findings.push(Finding::MalformedMarker {
+                decision: number,
+                line,
+            });
+            String::new()
+        }
+    };
     let mut decision = Decision {
         number,
         file: file.to_string(),
@@ -715,12 +744,36 @@ fn closes_clause(word: &str) -> bool {
         .ends_with(['.', ';', ':', '?', '!'])
 }
 
-/// The decision numbers one clause names, from the word after its verb:
-/// every four-digit number up to the clause's end or the next verb, save
-/// the number directly before that verb, which is its subject (`the way
-/// 0021 amends a tier`). A number that closes its own clause is a target
-/// even when a verb follows (`0046; supersedes`).
-fn clause_targets(words: &[&str]) -> Vec<u16> {
+/// What one word of an amending clause names.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Target {
+    /// A decision number, bare or possessive (`0008`, `0008's`).
+    Number(u16),
+    /// A word that opens on four digits and is not one number (`0041–0043`,
+    /// `0041/0043`, `00081`): refused, never skipped.
+    Unreadable(String),
+}
+
+/// The target a word names, if it reads like a decision number at all.
+fn target(word: &str) -> Option<Target> {
+    let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+    let number = ["'s", "’s"]
+        .iter()
+        .find_map(|possessive| word.strip_suffix(possessive))
+        .unwrap_or(word);
+    if let Some(number) = decision_number(number) {
+        return Some(Target::Number(number));
+    }
+    let opens_on_a_number = word.len() >= 4 && word.as_bytes()[..4].iter().all(u8::is_ascii_digit);
+    opens_on_a_number.then(|| Target::Unreadable(word.to_string()))
+}
+
+/// The targets one clause names, from the word after its verb: every word
+/// that reads like a decision number up to the clause's end or the next
+/// verb, save the word directly before that verb, which is its subject
+/// (`the way 0021 amends a tier`). A number that closes its own clause is
+/// a target even when a verb follows (`0046; supersedes`).
+fn clause_targets(words: &[&str]) -> Vec<Target> {
     let mut targets = Vec::new();
     for (at, word) in words.iter().enumerate() {
         let subject =
@@ -728,8 +781,8 @@ fn clause_targets(words: &[&str]) -> Vec<u16> {
         if is_amending(word) {
             break;
         }
-        if let Some(number) = decision_number(&bare(word)).filter(|_| !subject) {
-            targets.push(number);
+        if let Some(target) = target(word).filter(|_| !subject) {
+            targets.push(target);
         }
         if closes_clause(word) {
             break;
@@ -744,7 +797,7 @@ fn clause_targets(words: &[&str]) -> Vec<u16> {
 /// must point at, each by a pointer of its verb's kind. A verb its own
 /// punctuation closes has no object (`the rulings it amends, as 0042
 /// ruling 1 requires`).
-fn prose_targets(text: &str) -> BTreeSet<(Verb, u16)> {
+fn prose_targets(text: &str) -> BTreeSet<(Verb, Target)> {
     let words: Vec<&str> = text.split_whitespace().collect();
     words
         .iter()
@@ -754,7 +807,7 @@ fn prose_targets(text: &str) -> BTreeSet<(Verb, u16)> {
         .flat_map(|(at, verb)| {
             clause_targets(&words[at + 1..])
                 .into_iter()
-                .map(move |number| (verb, number))
+                .map(move |target| (verb, target))
         })
         .collect()
 }
@@ -766,16 +819,21 @@ fn prose_amendments_are_declared(ledger: &Ledger) -> Vec<Finding> {
         .flat_map(|decision| {
             prose_targets(&decision.text)
                 .into_iter()
-                .filter(|(verb, number)| {
-                    !verb
+                .filter_map(|(verb, target)| match target {
+                    Target::Number(number) => (!verb
                         .declared_by()
                         .iter()
-                        .any(|pointer| decision.points(*pointer, *number))
-                })
-                .map(|(verb, number)| Finding::UndeclaredProse {
-                    decision: decision.number,
-                    verb,
-                    number,
+                        .any(|pointer| decision.points(*pointer, number)))
+                    .then_some(Finding::UndeclaredProse {
+                        decision: decision.number,
+                        verb,
+                        number,
+                    }),
+                    Target::Unreadable(word) => Some(Finding::UnreadableTarget {
+                        decision: decision.number,
+                        verb,
+                        word,
+                    }),
                 })
         })
         .collect()
@@ -978,6 +1036,22 @@ fn an_unknown_status_word_is_refused() {
             word: "accepted-ish".into()
         }]
     );
+    let findings = Fixture::new()
+        .edit("0001", "Status: accepted", "Status accepted")
+        .findings();
+    assert_eq!(
+        findings,
+        vec![
+            Finding::MalformedMarker {
+                decision: 1,
+                line: "Status accepted".into()
+            },
+            Finding::UnknownStatus {
+                decision: 1,
+                word: String::new()
+            },
+        ]
+    );
 }
 
 #[test]
@@ -1097,6 +1171,46 @@ fn an_amendment_in_the_text_needs_a_pointer_in_the_header() {
             undeclared(Verb::Supersedes, 6),
         ]
     );
+}
+
+#[test]
+fn a_number_the_clause_cannot_read_is_refused_not_skipped() {
+    // A possessive names its decision.
+    for possessive in ["0004's", "0004’s"] {
+        let findings = Fixture::new()
+            .edit(
+                "0003",
+                "decision 0001.",
+                &format!("decision 0001 and {possessive} ruling 2."),
+            )
+            .findings();
+        assert_eq!(
+            findings,
+            vec![Finding::UndeclaredProse {
+                decision: 3,
+                verb: Verb::Amends,
+                number: 4
+            }]
+        );
+    }
+    // A range, or anything else opening on four digits, is not one number.
+    for word in ["0004–0006", "0004/0006", "00041"] {
+        let findings = Fixture::new()
+            .edit(
+                "0003",
+                "decision 0001.",
+                &format!("decision 0001 and ({word})."),
+            )
+            .findings();
+        assert_eq!(
+            findings,
+            vec![Finding::UnreadableTarget {
+                decision: 3,
+                verb: Verb::Amends,
+                word: word.into()
+            }]
+        );
+    }
 }
 
 #[test]
@@ -1380,6 +1494,11 @@ fn every_finding_reads_in_the_operators_words() {
             verb: Verb::Supersedes,
             number: 1,
         },
+        Finding::UnreadableTarget {
+            decision: 3,
+            verb: Verb::Amends,
+            word: "0041–0043".into(),
+        },
         Finding::SupersededStatus { decision: 1 },
         Finding::DuplicateNumber { number: 1 },
         Finding::UnexplainedGap { number: 2 },
@@ -1406,6 +1525,7 @@ fn every_finding_reads_in_the_operators_words() {
             "0003: 'Amends: 0001' has no 'Amended by: 0003' in 0001",
             "0003: its text amends 0001, and its header declares no 'Amends:' pointer to it",
             "0003: its text supersedes 0001, and its header declares no 'Supersedes:' or 'Supersedes in part:' pointer to it",
+            "0003: its text amends '0041–0043', which is not one decision number; name each decision on its own",
             "0001: status 'superseded' and a 'Superseded by:' pointer go together",
             "0001: two decision files hold this number",
             "0002: no decision holds this number and the index does not say why",
