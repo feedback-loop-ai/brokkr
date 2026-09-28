@@ -8,6 +8,7 @@ use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::Store;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -279,19 +280,36 @@ pub(super) fn at_seats(key: &str) -> Tui {
     tui
 }
 
-fn buffer_of(tui: &Tui, views: &Views, width: u16, height: u16) -> Vec<String> {
+/// One frame drawn at a fixed size, the one drawing skeleton both test
+/// files share: its backend displays the text the snapshots hold, and its
+/// buffer keeps the styles that text drops.
+pub(super) fn drawn(tui: &Tui, views: &Views, width: u16, height: u16) -> Terminal<TestBackend> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal.draw(|frame| draw(frame, tui, views)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let mut lines = Vec::new();
-    for row in 0..buffer.area.height {
-        let mut line = String::new();
-        for column in 0..buffer.area.width {
-            line.push_str(buffer[(column, row)].symbol());
-        }
-        lines.push(line);
-    }
-    lines
+    terminal
+}
+
+/// Each row of a drawn buffer as the text it shows.
+pub(super) fn lines_of(buffer: &Buffer) -> Vec<String> {
+    let line = |row| {
+        (0..buffer.area.width)
+            .map(|column| buffer[(column, row)].symbol())
+            .collect()
+    };
+    (0..buffer.area.height).map(line).collect()
+}
+
+/// The `(column, row)` of the cell where `needle` first starts on `row`
+/// of a buffer whose rows read as `lines`: the one walk from a byte
+/// offset to a character column every styled-cell assertion shares.
+pub(super) fn cell_at(lines: &[String], row: usize, needle: &str) -> (u16, u16) {
+    let byte = lines[row].find(needle).expect("the text is on that row");
+    let column = lines[row][..byte].chars().count();
+    (u16::try_from(column).unwrap(), u16::try_from(row).unwrap())
+}
+
+fn buffer_of(tui: &Tui, views: &Views, width: u16, height: u16) -> Vec<String> {
+    lines_of(drawn(tui, views, width, height).backend().buffer())
 }
 
 fn frame_of(tui: &Tui, views: &Views, width: u16, height: u16) -> String {
@@ -2693,23 +2711,10 @@ fn the_selection_and_the_current_phase_differ_in_a_channel_that_is_not_colour() 
     );
 }
 
-fn buffer_and_lines(
-    tui: &Tui,
-    views: &Views,
-    width: u16,
-    height: u16,
-) -> (ratatui::buffer::Buffer, Vec<String>) {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| draw(frame, tui, views)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let mut lines = Vec::new();
-    for row in 0..buffer.area.height {
-        let mut line = String::new();
-        for column in 0..buffer.area.width {
-            line.push_str(buffer[(column, row)].symbol());
-        }
-        lines.push(line);
-    }
+/// One frame's buffer beside its rows as text, from the shared helpers.
+fn buffer_and_lines(tui: &Tui, views: &Views, width: u16, height: u16) -> (Buffer, Vec<String>) {
+    let buffer = drawn(tui, views, width, height).backend().buffer().clone();
+    let lines = lines_of(&buffer);
     (buffer, lines)
 }
 
@@ -2724,15 +2729,8 @@ fn baseline_of(lines: &[String]) -> usize {
         .expect("one baseline carrying every name")
 }
 
-fn modifier_at(
-    buffer: &ratatui::buffer::Buffer,
-    lines: &[String],
-    row: usize,
-    needle: &str,
-) -> Modifier {
-    let byte = lines[row].find(needle).expect("the text is on that row");
-    let column = lines[row][..byte].chars().count();
-    buffer[(u16::try_from(column).unwrap(), u16::try_from(row).unwrap())].modifier
+fn modifier_at(buffer: &Buffer, lines: &[String], row: usize, needle: &str) -> Modifier {
+    buffer[cell_at(lines, row, needle)].modifier
 }
 
 // -------------------------------------------------- AC-anim-2, AC-anim-4

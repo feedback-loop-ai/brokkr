@@ -8,8 +8,9 @@
 //! fixture clock, with the pulse still. Every input is a fixture literal:
 //! no frame carries a clock read, the environment, a temporary directory
 //! or this checkout's path, so a frame is the same on Linux and macOS.
-//! The text snapshots drop colour, so the status colours are asserted on
-//! the buffer's own cells beside them.
+//! The text snapshots drop style, so the status colours, the focused
+//! pane's border and the runs table's selection are asserted on the
+//! buffer's own cells beside them (issue #414).
 //!
 //! insta (decision 0014's dependency ruling of 2026-09-25) refuses to
 //! write a snapshot and fails a mismatch under `CI=true` or
@@ -17,27 +18,18 @@
 //! `INSTA_UPDATE=always`, read in its `.snap` file, and committed.
 
 use super::tests::{
-    adopting_views, at_run, at_seats, at_transcript, boxed_views, claude_reference, panel_views,
-    read_of, refused_read, state_of, turns_of, views, NOW, T0,
+    adopting_views, at_run, at_seats, at_transcript, boxed_views, cell_at, claude_reference, drawn,
+    lines_of, panel_views, read_of, refused_read, state_of, turns_of, views, NOW, T0,
 };
 use super::*;
 use brokkr_core::fold::Status;
 use brokkr_view::transcript::Unavailable;
-use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 
 /// The issue's two fixed terminals: the common 80×20 and a wide 160×48.
 const SIZES: [(u16, u16); 2] = [(80, 20), (160, 48)];
 
 // --------------------------------------------------------------- helpers
-
-/// One frame drawn at a fixed size: its backend displays the text the
-/// snapshots hold, and its buffer keeps the styles that text drops.
-fn drawn(tui: &Tui, views: &Views, width: u16, height: u16) -> Terminal<TestBackend> {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|frame| draw(frame, tui, views)).unwrap();
-    terminal
-}
 
 /// The snapshot directory by the crate's own root and the bare names,
 /// so the split of #288 moving this file or its module path renames no
@@ -175,6 +167,7 @@ fn every_notice_kind_is_pinned() {
     noisy.notices = brokkr_view::transcript::notices(true, 2, 3);
     participant_snapshot("notice_transcript_counts", noisy);
     participant_snapshot("notice_truncated_empty", read_of(Vec::new(), true));
+    participant_snapshot("notice_empty", read_of(Vec::new(), false));
     let refused = refused_read(
         claude_reference("abcd-1234", "/home/operator/.claude/projects"),
         Unavailable::NotFound,
@@ -261,24 +254,21 @@ fn each_keyboard_flow_is_pinned() {
 
 // ------------------------------------------------------ status colours
 
+/// The first row of a drawn frame that shows `text`.
+fn row_naming(lines: &[String], text: &str) -> usize {
+    lines
+        .iter()
+        .position(|line| line.contains(text))
+        .unwrap_or_else(|| panic!("no row names {text}"))
+}
+
 /// The style of the first cell of `text` on the row that names `run`.
 /// `text` is what the 80-column status cell shows, so the one needle
 /// finds it at both sizes.
 fn style_of(buffer: &Buffer, run: &str, text: &str) -> Style {
-    for row in 0..buffer.area.height {
-        let line: String = (0..buffer.area.width)
-            .map(|column| buffer[(column, row)].symbol())
-            .collect();
-        if !line.contains(run) {
-            continue;
-        }
-        let byte = line
-            .find(&format!(" {text}"))
-            .expect("the status is on the run's row");
-        let column = u16::try_from(line[..=byte].chars().count()).unwrap();
-        return buffer[(column, row)].style();
-    }
-    panic!("no row names {run}");
+    let lines = lines_of(buffer);
+    let (column, row) = cell_at(&lines, row_naming(&lines, run), &format!(" {text}"));
+    buffer[(column + 1, row)].style()
 }
 
 /// The text snapshots drop colour, so the colour each status row wears
@@ -308,5 +298,105 @@ fn each_status_row_wears_its_own_colour() {
                 "{run} at {width}x{height}"
             );
         }
+    }
+}
+
+// ---------------------------------------------------- focus and selection
+
+/// The modifiers the pane titled `title` wears on its top-left corner
+/// and on its title's first cell: its border style and its title's.
+fn border_of(buffer: &Buffer, lines: &[String], title: &str) -> (Modifier, Modifier) {
+    let needle = format!("┌{title}─");
+    let (column, row) = cell_at(lines, row_naming(lines, &needle), &needle);
+    (
+        buffer[(column, row)].modifier,
+        buffer[(column + 1, row)].modifier,
+    )
+}
+
+/// What every pane of a level wears with its pane `focus` focused: bold
+/// on the focused one, dim on every other, and dim on each pane focus
+/// never reaches.
+fn borders_wanted<'a>(
+    panes: &[&'a str],
+    never: &[&'a str],
+    focus: usize,
+) -> Vec<(&'a str, (Modifier, Modifier))> {
+    let worn = |focused: bool| match focused {
+        true => (Modifier::BOLD, Modifier::BOLD),
+        false => (Modifier::DIM, Modifier::DIM),
+    };
+    let focusable = panes
+        .iter()
+        .enumerate()
+        .map(|(index, title)| (*title, worn(index == focus)));
+    let dim = never.iter().map(|title| (*title, worn(false)));
+    focusable.chain(dim).collect()
+}
+
+/// A level as the focus test reaches it: the state that draws it, the
+/// panes its focus moves across in order, and the panes it never reaches.
+type Panes = (
+    fn(&Views) -> Tui,
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+/// The border is the only focus affordance (`pane`), and the text
+/// snapshots drop it, so a level that focused the wrong pane would pass
+/// them all. Every pane at every level, under each focus the level can
+/// take, is asserted on the buffer's own cells at both sizes.
+#[test]
+fn only_the_focused_pane_wears_a_bold_border() {
+    let views = views();
+    let levels: [Panes; 3] = [
+        (|_| Tui::new(None), &["runs"], &[]),
+        (|_| at_run(), &["graph", "seats", "trail"], &[]),
+        (at_participant, &["checkpoints", "transcript"], &["seat"]),
+    ];
+    for (level, panes, never) in levels {
+        for (focus, (width, height)) in (0..panes.len()).flat_map(|f| SIZES.map(|s| (f, s))) {
+            let mut tui = level(&views);
+            tui.pane = focus;
+            let terminal = drawn(&tui, &views, width, height);
+            let buffer = terminal.backend().buffer();
+            let lines = lines_of(buffer);
+            let worn: Vec<_> = (panes.iter().chain(never))
+                .map(|title| (*title, border_of(buffer, &lines, title)))
+                .collect();
+            let wanted = borders_wanted(panes, never, focus);
+            assert_eq!(
+                worn, wanted,
+                "{:?} pane {focus} at {width}x{height}",
+                tui.level
+            );
+        }
+    }
+}
+
+/// The runs table's selection is `REVERSED` across the cursor's whole
+/// row, between the pane's borders, and on no cell of any other row.
+#[test]
+fn the_selected_run_row_is_reversed_from_border_to_border() {
+    let views = fleet_of_every_status();
+    let mut tui = Tui::new(None);
+    tui.cursor[0] = Some("run-parked".to_string());
+    let runs = ["run-stopped", "run-completed", "run-parked", "run-running"];
+    for (width, height) in SIZES {
+        let terminal = drawn(&tui, &views, width, height);
+        let buffer = terminal.backend().buffer();
+        let lines = lines_of(buffer);
+        let reversed = |run: &'static str| {
+            let row = u16::try_from(row_naming(&lines, run)).unwrap();
+            let inner = 1..width - 1;
+            let cells =
+                inner.filter(|column| buffer[(*column, row)].modifier.contains(Modifier::REVERSED));
+            (run, cells.count())
+        };
+        let wanted = runs.map(|run| match run == "run-parked" {
+            true => (run, usize::from(width - 2)),
+            false => (run, 0),
+        });
+        assert_eq!(runs.map(reversed), wanted, "at {width}x{height}");
     }
 }
