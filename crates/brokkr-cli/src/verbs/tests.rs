@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::cli_args::*;
 use crate::selector::{refusal_kind, Refusal};
-use crate::tests::{at, cli, running_store, stopped_mid_flight_run, workspace};
+use crate::tests::{at, bundled, cli, running_store, stopped_mid_flight_run, workspace};
 use crate::{run, Cmd, Exit};
 
 /// A journal that exists and holds no run.
@@ -45,13 +45,10 @@ fn costs_resolves_latest() {
 fn resume_resolves_latest() {
     let dir = tempfile::tempdir().unwrap();
     let resume = Cmd::Resume(ResumeArgs {
-        bundle: Some(workspace().join("recipes/fast")),
-        recipe: None,
-        recipes_dir: workspace().join("recipes"),
+        delivery: bundled(workspace().join("recipes/fast")),
         run: "latest".into(),
         journal: at(&empty_journal(dir.path())),
         repo: None,
-        secrets_file: None,
     });
     assert_eq!(refusal(resume), Some(Refusal::Empty));
 }
@@ -61,12 +58,13 @@ fn rerun_resolves_latest() {
     let dir = tempfile::tempdir().unwrap();
     let rerun = Cmd::Rerun(RerunArgs {
         run: "latest".into(),
-        bundle: None,
-        recipe: Some("fast".into()),
-        recipes_dir: workspace().join("recipes"),
+        delivery: DeliveryArgs {
+            bundle: None,
+            recipe: Some("fast".into()),
+            ..bundled(PathBuf::new())
+        },
         journal: at(&empty_journal(dir.path())),
         repo: None,
-        secrets_file: None,
     });
     assert_eq!(refusal(rerun), Some(Refusal::Empty));
 }

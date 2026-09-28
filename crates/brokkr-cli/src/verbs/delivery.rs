@@ -12,7 +12,7 @@ use brokkr_runtime::{Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
 use serde_json::Value;
 
-use crate::cli_args::{ConcludeArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
+use crate::cli_args::{ConcludeArgs, DeliveryArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs};
 use crate::{compile_from_manifest, compile_in_realm, drive_to_end, finish, open_journal};
 use crate::{recipes, refuse_unboxable, selector, supersede, Access, Exit, Invocation};
 
@@ -20,15 +20,18 @@ use crate::{recipes, refuse_unboxable, selector, supersede, Access, Exit, Invoca
 pub(crate) fn run(
     workspace: &Path,
     RunArgs {
-        bundle,
-        recipe,
-        recipes_dir,
+        delivery:
+            DeliveryArgs {
+                bundle,
+                recipe,
+                recipes_dir,
+                secrets_file,
+            },
         feature,
         realms,
         db,
         repo,
         dispatch,
-        secrets_file,
     }: RunArgs,
 ) -> Result<ExitCode> {
     // The map is read BEFORE anything is compiled, opened or
@@ -123,13 +126,16 @@ fn start_dispatched(
 pub(crate) fn resume(
     workspace: &Path,
     ResumeArgs {
-        bundle,
-        recipe,
-        recipes_dir,
+        delivery:
+            DeliveryArgs {
+                bundle,
+                recipe,
+                recipes_dir,
+                secrets_file,
+            },
         run,
         journal,
         repo,
-        secrets_file,
     }: ResumeArgs,
 ) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Append)?;
@@ -169,12 +175,15 @@ pub(crate) fn rerun(
     workspace: &Path,
     RerunArgs {
         run,
-        bundle,
-        recipe,
-        recipes_dir,
+        delivery:
+            DeliveryArgs {
+                bundle,
+                recipe,
+                recipes_dir,
+                secrets_file,
+            },
         journal,
         repo,
-        secrets_file,
     }: RerunArgs,
 ) -> Result<ExitCode> {
     // A rerun is a NEW run, and it stands where `run` stands

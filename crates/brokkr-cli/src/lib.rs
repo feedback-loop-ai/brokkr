@@ -240,32 +240,11 @@ enum Cmd {
 }
 
 #[derive(Subcommand)]
-enum SecretsCmd {
-    /// Bind NAME to a value read from STDIN (never argv — the CLI obeys
-    /// its own injection discipline). Creates the store 0600.
-    Set {
-        name: String,
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-    /// Print bound names, one per line — names, never values.
-    List {
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-    /// Remove NAME from the store.
-    Remove {
-        name: String,
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
-    },
-}
-
-#[derive(Subcommand)]
 enum AgentsCmd {
     /// One line per agent — name, model chain, description. A broken
     /// definition prints a warning line and never aborts the listing.
     List {
+        /// The agent library directory.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
     },
@@ -273,9 +252,12 @@ enum AgentsCmd {
     /// the compiler would compute. An unknown name errors naming the
     /// known set.
     Show {
+        /// The agent's name in the library.
         name: String,
+        /// The agent library directory.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
+        /// The adapter library the chain's models are resolved against.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
         adapters_dir: PathBuf,
     },
@@ -295,16 +277,20 @@ enum MuninnCmd {
         /// either, .forge/forge.db as always.
         #[arg(long)]
         db: Option<PathBuf>,
+        /// The agent library Muninn's own seat is hired from.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
         agents_dir: PathBuf,
+        /// The adapter library that seat's model is resolved against.
         #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
         adapters_dir: PathBuf,
+        /// The append-only file each proposal is recorded in.
         #[arg(long, default_value = muninn::DEFAULT_RECORD)]
         record: PathBuf,
     },
     /// Read the record back: every proposal, with the run ids and
     /// sequence numbers it cited.
     List {
+        /// The record file to read.
         #[arg(long, default_value = muninn::DEFAULT_RECORD)]
         record: PathBuf,
         /// Emit the recorded entries verbatim — this is what scripts read.
@@ -323,18 +309,22 @@ enum KeepRefsCmd {
         run: String,
         #[command(flatten)]
         journal: JournalArgs,
+        /// The git repository the keep-refs are planted in.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
     /// Which runs hold which exhibits — one `for-each-ref`, no journal
     /// needed. `--run` narrows the listing to one run.
     List {
-        /// Full run id, a unique run-id prefix, or `latest`; without it,
-        /// every run holding keep-refs in this repository.
+        /// A run id; with the workspace journal there, also a unique
+        /// prefix or `latest`, and without it the id is taken literally
+        /// and `latest` is refused. Omitted, every run holding keep-refs
+        /// in this repository.
         #[arg(long)]
         run: Option<String>,
         #[command(flatten)]
         journal: JournalArgs,
+        /// The git repository whose keep-refs are listed.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -342,10 +332,14 @@ enum KeepRefsCmd {
     /// operator's decision alone — nothing in the engine ever deletes a
     /// keep-ref, and the objects are then as mortal as gc leaves them.
     Delete {
+        /// A run id; with the workspace journal there, also a unique
+        /// prefix or `latest`, and without it the id is taken literally
+        /// and `latest` is refused.
         #[arg(long)]
         run: String,
         #[command(flatten)]
         journal: JournalArgs,
+        /// The git repository the keep-refs are removed from.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
@@ -356,21 +350,27 @@ enum RecipesCmd {
     /// List recipes under --dir plus the built-in bundles; broken ones
     /// print a warning line, never abort the listing.
     List {
+        /// The recipe library directory.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
     /// Install a recipe from a local path or a git URL into <dir>/<name>.
     Add {
+        /// A local bundle directory or a git URL.
         source: String,
+        /// The name the recipe is installed under.
         #[arg(long)]
         name: String,
+        /// The recipe library directory it is installed into.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
     /// Print one recipe's RESOLVED bundle and, when it extends another,
     /// the composition chain it was resolved from (decision 0017).
     Show {
+        /// The recipe's name, resolved to <dir>/<name>.
         name: String,
+        /// The recipe library directory.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,
     },
@@ -720,13 +720,16 @@ pub enum HandsCommand {
     /// how a deterministic `exec` seat holds a gate. Exits with the
     /// command's own code.
     Exec {
+        /// The worktree, bound read-write at its own path.
         #[arg(long)]
         workdir: PathBuf,
         /// Strategy root, bound read-only at /runtime/bundle.
         #[arg(long)]
         bundle_root: Option<PathBuf>,
+        /// The box spec as JSON, as `serve` takes it.
         #[arg(long, default_value = "\"workspace\"")]
         spec: String,
+        /// The command and its arguments, run inside the box.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },

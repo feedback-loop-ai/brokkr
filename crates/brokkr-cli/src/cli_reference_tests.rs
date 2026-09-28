@@ -22,6 +22,8 @@ use clap::{Arg, ArgAction, Command, CommandFactory, Parser};
 use crate::exit::Exit;
 use crate::Cli;
 
+#[path = "../tests/support/records.rs"]
+mod records;
 #[path = "../tests/support/tracked.rs"]
 mod tracked;
 
@@ -32,11 +34,51 @@ const REFERENCE: &str = "docs/reference/cli.md";
 const REGENERATE: &str =
     "BROKKR_REGENERATE_CLI_REFERENCE=1 cargo test -p brokkr-cli --lib cli_reference";
 
-/// The arguments that name a run through decision 0015's selector: a
-/// full id, a unique prefix, or `latest`. Each verb carrying one resolves
-/// it through `selector::resolve_run`, and `verbs/tests.rs` pins the verbs
-/// that came to it last.
-const SELECTORS: [&str; 3] = ["run", "run_a", "run_b"];
+/// How an argument that names a run reads it: the page's Selector column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Selector {
+    /// Always through decision 0015's `selector::resolve_run`: a full
+    /// id, a unique prefix, or `latest`.
+    Always,
+    /// Through the resolver when the workspace journal is there, and
+    /// otherwise taken literally with `latest` refused (`keep_ref_run`).
+    WithJournal,
+}
+
+/// Every argument that names a run, by verb and argument id, with how it
+/// reads the run. `verbs/tests.rs` pins the verbs that came to the
+/// resolver last, and an entry that names no argument fails
+/// `every_selector_names_an_argument`.
+const SELECTORS: [(&str, &str, Selector); 20] = [
+    ("brokkr costs", "run", Selector::Always),
+    ("brokkr ledger", "run", Selector::Always),
+    ("brokkr anchor", "run", Selector::Always),
+    ("brokkr keep-refs plant", "run", Selector::Always),
+    ("brokkr keep-refs list", "run", Selector::WithJournal),
+    ("brokkr keep-refs delete", "run", Selector::WithJournal),
+    ("brokkr tui", "run", Selector::Always),
+    ("brokkr resume", "run", Selector::Always),
+    ("brokkr rerun", "run", Selector::Always),
+    ("brokkr compare", "run_a", Selector::Always),
+    ("brokkr compare", "run_b", Selector::Always),
+    ("brokkr conclude", "run", Selector::Always),
+    ("brokkr operator", "run", Selector::Always),
+    ("brokkr inspect", "run", Selector::Always),
+    ("brokkr transcript", "run", Selector::Always),
+    ("brokkr seats", "run", Selector::Always),
+    ("brokkr watch", "run", Selector::Always),
+    ("brokkr replay", "run", Selector::Always),
+    ("brokkr export", "run", Selector::Always),
+    ("brokkr bridge", "run", Selector::Always),
+];
+
+/// How `verb`'s argument reads a run, when it names one.
+fn selector(verb: &str, arg: &Arg) -> Option<Selector> {
+    SELECTORS
+        .iter()
+        .find(|(path, id, _)| *path == verb && arg.get_id() == *id)
+        .map(|(_, _, selector)| *selector)
+}
 
 /// The exit the table lists after `exit`, matched exhaustively so a new
 /// variant has to be given its place.
@@ -136,8 +178,16 @@ fn spelled(arg: &Arg) -> String {
     }
 }
 
-/// One argument's table row.
-fn argument_row(arg: &Arg) -> String {
+/// An argument's description, from its doc comment, as a table cell.
+fn description(arg: &Arg) -> String {
+    arg.get_long_help()
+        .or(arg.get_help())
+        .map(|help| prose(&help.to_string(), true))
+        .unwrap_or_default()
+}
+
+/// One argument's table row, in the verb at `path`.
+fn argument_row(path: &str, arg: &Arg) -> String {
     let default = if arg.get_action().takes_values() {
         arg.get_default_values()
             .iter()
@@ -147,17 +197,37 @@ fn argument_row(arg: &Arg) -> String {
     } else {
         String::new()
     };
-    let selector = if SELECTORS.contains(&arg.get_id().as_str()) {
-        "yes"
-    } else {
-        ""
+    let selector = match selector(path, arg) {
+        Some(Selector::Always) => "yes",
+        Some(Selector::WithJournal) => "with a journal",
+        None => "",
     };
-    let help = arg
-        .get_long_help()
-        .or(arg.get_help())
-        .map(|help| prose(&help.to_string(), true))
-        .unwrap_or_default();
+    let help = description(arg);
     format!("| `{}` | {default} | {selector} | {help} |\n", spelled(arg))
+}
+
+/// The arguments a verb's table lists: clap's own help and version and
+/// every hidden argument are left out.
+fn listed(verb: &Command) -> Vec<&Arg> {
+    verb.get_arguments()
+        .filter(|arg| !arg.is_hide_set())
+        .filter(|arg| !matches!(arg.get_action(), ArgAction::Help | ArgAction::Version))
+        .collect()
+}
+
+/// Every listed argument with no description, as `verb argument`: a row
+/// the page would print with its Description cell empty.
+fn undescribed(cli: &Command) -> Vec<String> {
+    verbs(cli)
+        .into_iter()
+        .flat_map(|verb| {
+            let path = verb.get_bin_name().expect("a built command names its path");
+            listed(verb)
+                .into_iter()
+                .filter(|arg| description(arg).trim().is_empty())
+                .map(move |arg| format!("{path} {}", spelled(arg)))
+        })
+        .collect()
 }
 
 /// One verb's section: its heading, its description, its usage and a
@@ -170,16 +240,12 @@ fn section(verb: &Command) -> String {
     }
     let usage = verb.clone().render_usage().to_string();
     out.push_str(&format!("```text\n{}\n```\n\n", usage.trim_end()));
-    let arguments: Vec<&Arg> = verb
-        .get_arguments()
-        .filter(|arg| !arg.is_hide_set())
-        .filter(|arg| !matches!(arg.get_action(), ArgAction::Help | ArgAction::Version))
-        .collect();
+    let arguments = listed(verb);
     if !arguments.is_empty() {
         out.push_str("| Argument | Default | Selector | Description |\n");
         out.push_str("| --- | --- | --- | --- |\n");
         for arg in arguments {
-            out.push_str(&argument_row(arg));
+            out.push_str(&argument_row(path, arg));
         }
         out.push('\n');
     }
@@ -200,10 +266,16 @@ fn exit_codes() -> String {
     out
 }
 
-/// The whole page.
-fn reference() -> String {
+/// The command tree, built so every verb knows its path.
+fn built() -> Command {
     let mut cli = Cli::command();
     cli.build();
+    cli
+}
+
+/// The whole page.
+fn reference() -> String {
+    let cli = built();
     let mut page = format!(
         "# CLI reference\n\n\
          <!-- Rendered from the clap definitions by \
@@ -211,10 +283,12 @@ fn reference() -> String {
          Regenerate with: {REGENERATE} -->\n\n\
          Every `brokkr` verb and argument with its default, and every exit \
          code, as the binary defines them; `brokkr <verb> --help` prints the \
-         same text. An argument marked **selector** takes a full run id, a \
-         unique prefix of one, or `latest`, the run created most recently \
-         (decision 0015, and for the write paths its proposed 2026-09-28 \
-         addendum). Every verb also takes clap's own `-h`/`--help`, \
+         same text. An argument marked **yes** under Selector takes a full \
+         run id, a unique prefix of one, or `latest`, the run created most \
+         recently (decision 0015, and for the write paths its proposed \
+         2026-09-28 addendum); one marked **with a journal** does so only \
+         when the workspace journal is there, and otherwise takes the id \
+         literally and refuses `latest`. Every verb also takes clap's own `-h`/`--help`, \
          and `brokkr` itself `-V`/`--version`; the tables leave them out.\n\n"
     );
     for verb in verbs(&cli) {
@@ -247,6 +321,65 @@ fn the_cli_reference_is_rendered_from_clap() {
         committed == rendered,
         "{REFERENCE} differs from the clap definitions; regenerate it with:\n  {REGENERATE}"
     );
+    let undescribed = undescribed(&built());
+    assert!(
+        undescribed.is_empty(),
+        "arguments {REFERENCE} would list with no description; give each a doc \
+         comment saying what it takes and what its absence means:\n{}",
+        undescribed.join("\n")
+    );
+}
+
+#[test]
+fn an_argument_without_a_description_is_refused() {
+    let mut cli = Command::new("brokkr").subcommand(
+        Command::new("verb")
+            .arg(
+                Arg::new("described")
+                    .long("described")
+                    .help("What it takes."),
+            )
+            .arg(Arg::new("bare").long("bare"))
+            .arg(Arg::new("blank").help(" ")),
+    );
+    cli.build();
+    assert_eq!(
+        undescribed(&cli),
+        ["brokkr verb --bare <BARE>", "brokkr verb <BLANK>"]
+    );
+}
+
+#[test]
+fn every_selector_names_an_argument() {
+    let cli = built();
+    let verbs = verbs(&cli);
+    for (path, id, _) in SELECTORS {
+        let verb = verbs
+            .iter()
+            .find(|verb| verb.get_bin_name() == Some(path))
+            .unwrap_or_else(|| panic!("{path} is no verb"));
+        assert!(
+            listed(verb).iter().any(|arg| arg.get_id() == id),
+            "{path} has no argument {id}"
+        );
+    }
+    let keep_refs_list = verbs
+        .iter()
+        .find(|verb| verb.get_bin_name() == Some("brokkr keep-refs list"))
+        .unwrap();
+    let run = listed(keep_refs_list)
+        .into_iter()
+        .find(|arg| arg.get_id() == "run")
+        .unwrap();
+    assert_eq!(
+        selector("brokkr keep-refs list", run),
+        Some(Selector::WithJournal)
+    );
+    assert_eq!(
+        selector("brokkr keep-refs plant", run),
+        Some(Selector::Always)
+    );
+    assert_eq!(selector("brokkr runs", run), None);
 }
 
 #[test]
@@ -270,27 +403,6 @@ fn every_exit_is_in_the_table_once() {
     assert!(table.contains("| 4 | contended |"), "{table}");
     assert!(table.contains("| its own | boxed |"), "{table}");
 }
-
-/// Tracked docs whose words are fixed when they are written, each with
-/// the reason it is not held to today's command line.
-const RECORDS: [(&str, &str); 7] = [
-    (
-        "docs/decisions/",
-        "a decision's text is fixed when it is ruled",
-    ),
-    ("docs/releases/", "release notes say what shipped"),
-    ("docs/lore/", "lore is the history as it was told"),
-    ("docs/essays/", "an essay is dated"),
-    ("docs/evidence/", "evidence records work as it happened"),
-    (
-        "docs/research/",
-        "a research entry reads an article as of its date",
-    ),
-    (
-        "openspec/changes/",
-        "a change records its proposal and its work",
-    ),
-];
 
 /// The fences whose lines are commands, a fence with no language among
 /// them, as most of the guides write one. A `console` fence that prompts
@@ -640,11 +752,16 @@ fn refusals_in(file: &str, doc: &str) -> Vec<String> {
     }
 }
 
-/// The living docs: every tracked Markdown file outside [`RECORDS`].
+/// The living docs: every tracked Markdown file outside
+/// [`records::RECORDS`], whose words are not held to today's command line.
 fn living_docs(root: &Path) -> Vec<String> {
     tracked::tracked(root, &["*.md"])
         .into_iter()
-        .filter(|path| !RECORDS.iter().any(|(record, _)| path.starts_with(record)))
+        .filter(|path| {
+            !records::RECORDS
+                .iter()
+                .any(|(record, _)| path.starts_with(record))
+        })
         .collect()
 }
 

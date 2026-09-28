@@ -1,13 +1,12 @@
 use super::*;
 use crate::agents::HarnessHands;
 use crate::bundle::{Limits, Seat};
+use crate::dispatch_fixture::dispatch_envelope;
 use crate::envelope_builder::EnvelopeBuilder;
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::dispatch::PRODUCER_EFFECTS;
 use brokkr_core::policy::Machine;
 use brokkr_protocol::{Body, Message, ResultStatus};
 use std::collections::BTreeMap;
-use time::format_description::well_known::Rfc3339;
 
 fn machine() -> Machine {
     Machine::from_table(&json!({
@@ -1377,36 +1376,8 @@ pub(super) fn event(event_type: EventType, payload: Value) -> EventEnvelope {
 }
 
 pub(super) fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
-    let now = time::OffsetDateTime::now_utc();
-    serde_json::from_value::<DispatchEnvelopeV2>(json!({
-        "schema":"forge-dispatch/v2", "envelope_id":"envelope", "forge_run_id":"bound-run",
-        "issued_at":(now-time::Duration::minutes(1)).format(&Rfc3339).unwrap(),
-        "expires_at":(now+time::Duration::minutes(5)).format(&Rfc3339).unwrap(),
-        "canonical_digest":"",
-        "looper":{"organization_id":"org","product_id":"product","story_id":"story",
-            "delivery_run_id":"delivery","request_grant_id":"grant","feature_path":"feature",
-            "immutable_inputs_sha256":"a".repeat(64)},
-        "actor":{"principal_kind":"api_key","principal_id":"key","actor_kind":"service",
-            "actor_id":"brokkr","accountable_operator_id":"operator","authority_source":"looper-grant",
-            "operating_profile":"bounded"},
-        "repository":{"owner":"owner","name":"repo","base_sha":"b".repeat(64),
-            "candidate_sha":null,"workspace_class":"isolated","target_environment":"dogfood"},
-        "recipe":{"name":"test","compiled_sha256":bundle.manifest_digest()},
-        "budget":{"lane_tally_run_id":"lane","reservation_id":null,"cost_state":"known",
-            "ceiling_microunits":1000,"currency":"USD"},
-        "producer":{"registration_id":"registration","token_reference":"key",
-            "callback_audience":"https://dogfood.example","accepting_service_id":"looper-api",
-            "runtime_id":"runtime","producer_release":"brokkr@test","protocol_version":1,
-            "starting_cursor":0},
-        "allowed_effects":PRODUCER_EFFECTS,"forbidden_actions":["grant_create","grant_widen",
-            "artifact_decide","workflow_advance","release_promote"],
-        "bounds":{"max_attempts":3,"max_parallel_effects":4,"max_event_bytes":65536,
-            "max_events_per_ten_seconds":40,"replay_retention_seconds":604800,
-            "safe_stop":"boundary","cancellation":"fenced"},
-        "evidence_requirements":["ordered_hash_chain"],"attestation_requirement":"self_reported"
-    }))
-    .unwrap()
-    .sealed()
+    let digest = bundle.manifest_digest();
+    dispatch_envelope("bound-run", "test", &digest, "https://dogfood.example")
 }
 
 #[test]

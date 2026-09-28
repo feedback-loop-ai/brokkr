@@ -35,5 +35,8 @@ pub use realms::{World, WorldError};
 
 // The workspace's shared test support (#357).
 #[cfg(test)]
+#[path = "../../../tests/support/dispatch.rs"]
+mod dispatch_fixture;
+#[cfg(test)]
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
