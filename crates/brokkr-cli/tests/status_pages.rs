@@ -12,10 +12,10 @@
 use std::collections::BTreeSet;
 
 use brokkr_runtime::agents::{
-    Adapter, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus,
+    Adapter, Agent, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus,
     ToolPermissions,
 };
-use brokkr_runtime::{Adapters, HarnessHands, TrustTier};
+use brokkr_runtime::{Adapters, HarnessHands, Library, TrustTier};
 
 #[path = "support/workspace.rs"]
 mod workspace;
@@ -276,6 +276,65 @@ fn the_status_matrix_is_the_adapter_data() {
         "docs/status.md's behaviour table lists every adapter"
     );
     assert_eq!(rows.len(), providers.len(), "one behaviour row per adapter");
+}
+
+/// The claude row's web-search cell as the agent library renders it. For
+/// an agent a claude seat can hire, a tool list becomes `--allowedTools`
+/// and hands become the box's `--tools ""`; an agent with neither runs
+/// unboxed with no tool flag, so the harness and the operator's own
+/// settings decide, never a Brokkr control (#467).
+fn claude_web_cell(library: &Library, claude: &Adapter) -> String {
+    let hireable: Vec<&Agent> = library
+        .agents()
+        .filter(|agent| agent.models.iter().any(|m| claude.models.contains_key(m)))
+        .collect();
+    let tool_less = hireable
+        .iter()
+        .filter(|agent| agent.allow.is_none() && agent.hands.is_none())
+        .map(|agent| &agent.name);
+    let web = hireable
+        .iter()
+        .filter(|agent| {
+            agent.allow.as_ref().is_some_and(|allow| {
+                allow
+                    .iter()
+                    .any(|tool| tool == "websearch" || tool == "webfetch")
+            })
+        })
+        .map(|agent| &agent.name);
+    format!(
+        "Decided by the harness's permission model and the operator's own Claude Code settings, \
+         which reach every unboxed seat. An agent that lists tools passes them as `--allowedTools`; \
+         `websearch` or `webfetch` is listed by {}. An agent that lists no tools and declares no \
+         hands, as {} do, runs unboxed with no tool flag, so Claude Code's default tools, \
+         `WebSearch` and `WebFetch` among them, and the operator's MCP servers reach it \
+         ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)). \
+         A boxed seat runs with `--tools \"\"`",
+        names(web),
+        names(tool_less),
+    )
+}
+
+#[test]
+fn the_claude_web_cell_names_what_decides() {
+    let root = workspace();
+    let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
+    let library = Library::load(&root.join("agents")).expect("the shipped agents load");
+    let claude = adapters.adapter("claude").expect("a claude adapter");
+    let page = read("docs/status.md");
+    let row = block(&page, "harness-behaviour")
+        .lines()
+        .find(|line| line.starts_with("| `claude` |"))
+        .expect("a claude behaviour row");
+    let (_, cell) = row
+        .trim_end_matches(" |")
+        .rsplit_once(" | ")
+        .expect("a web-search cell");
+    let rendered = claude_web_cell(&library, claude);
+    assert_eq!(
+        cell, rendered,
+        "docs/status.md's claude web-search cell drifted from agents/*.json; the rendering is:\n{rendered}"
+    );
 }
 
 /// Every item of a page's `## Known limitations` list links the open

@@ -103,10 +103,17 @@ adapter cannot express boxed hands, never does.
   with `cargo`, `git`, `ls`, `rg`, `gh pr view` and `gh run view`.
   Offices that declare neither, such as `triage` and the position
   seats, get no tool flag at all.
+- **An unboxed claude seat with no tool list keeps Claude Code's
+  defaults.** Brokkr passes no tool flag, no `--settings` and no
+  `--setting-sources`, so the seat has Claude Code's default tools,
+  `WebSearch` and `WebFetch` included, subject to the operator's own
+  permission settings, and the operator's MCP servers. The shipped
+  `triage` gate is such a seat.
 - **Unboxed claude seats read the operator's MCP servers.** Only the
   boxed fragment passes `--strict-mcp-config`, so an unboxed claude seat
-  loads whatever MCP servers the operator's own Claude Code
-  configuration names.
+  starts every MCP server the operator's own Claude Code configuration
+  names, with their credentials. A Codex seat, boxed or not, starts the
+  MCP servers in `~/.codex/config.toml`.
 - **The `harness` boundary is the harness's word.** Codex restricts by
   sandbox class (`read-only`, `workspace-write`), not by tool, and
   Brokkr has not measured what that sandbox enforces. An unboxed `exec`
@@ -202,6 +209,12 @@ an instruction:
   ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319)).
 - **dsh turns on `web_search` and `web_fetch` in every seat**, with no
   realm grant ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)).
+- **Brokkr bounds neither a tool-less claude seat's tools nor the MCP
+  servers of an unboxed claude seat or any Codex seat**
+  ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)), as
+  [what the box does not do](#what-the-box-does-not-do) states. Decision
+  0065 slice one ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319))
+  brings the capability grants meant to close it.
 - **A timed-out attempt's detached descendants can outlive the kill**
   ([#403](https://github.com/feedback-loop-ai/brokkr/issues/403)).
 - **Dead hands servers leak their scratch trees**

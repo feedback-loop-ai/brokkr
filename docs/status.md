@@ -81,7 +81,7 @@ to the adapter list, one row per adapter.
 <!-- harness-behaviour:start -->
 | Harness | Transcript | Turns and tokens | Cost in USD | Git commits in the seat | Secrets delivered | Web search |
 |---|---|---|---|---|---|---|
-| `claude` | The Claude Code session under `~/.claude/projects` | Turns and input, output, cache-read and cache-write tokens per turn; reasoning tokens only in the final result | Yes, as the harness reports it | Unsigned in the box, which sets `commit.gpgsign=false`. Unboxed, the seat's `git` reads the host's own configuration, signing included | Yes, through the environment, where the route meets the egress minimum. Never to a boxed seat, which compilation refuses | Only where the seat's tool list grants `websearch` or `webfetch`, which the `researcher` office's does. A boxed seat runs with `--tools ""` |
+| `claude` | The Claude Code session under `~/.claude/projects` | Turns and input, output, cache-read and cache-write tokens per turn; reasoning tokens only in the final result | Yes, as the harness reports it | Unsigned in the box, which sets `commit.gpgsign=false`. Unboxed, the seat's `git` reads the host's own configuration, signing included | Yes, through the environment, where the route meets the egress minimum. Never to a boxed seat, which compilation refuses | Decided by the harness's permission model and the operator's own Claude Code settings, which reach every unboxed seat. An agent that lists tools passes them as `--allowedTools`; `websearch` or `webfetch` is listed by `researcher`. An agent that lists no tools and declares no hands, as `muninn`, `position-robustness`, `position-simplicity`, `triage` do, runs unboxed with no tool flag, so Claude Code's default tools, `WebSearch` and `WebFetch` among them, and the operator's MCP servers reach it ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)). A boxed seat runs with `--tools ""` |
 | `codex` | The Codex thread under `$CODEX_HOME` or `~/.codex` | Turns and input, cached-input, output and reasoning tokens per turn; no cache-write figure | No: Codex reports none, and the field stays absent | As `claude` | No at the default minimum: the adapter is `uncontracted`, so compilation refuses a binding | **On** in every Codex seat, boxed or not. Codex runs it server-side, outside the box |
 | `dsh` | The dsh session under the seat's own `sessions/brokkr/seat-*` root | Turns and input, output, cache-read and reasoning tokens, folded from the session file the driver tails; whether they arrive per turn on a live seat is unverified | No | The driver sets `commit.gpgsign=false` and the host's identity; commits from a dsh seat fail today | Only on the `local` routes `spark` and `spark-glm` at the default minimum | **On**: dsh 0.1.5's base profile turns on `web_search` and `web_fetch` in every seat |
 | `exec` | None | None; model and effort are recorded as `not applicable` | No | Unsigned: boxed or not, the driver sets `commit.gpgsign=false` | Yes, through the environment; `{{secret:NAME}}` in a command resolves to `$NAME`, never the value. Never to a boxed seat | Not applicable: no model |
@@ -115,6 +115,17 @@ that prefix with `NO_ADAPTER` at launch.
 - **Codex seats can search the web.** Codex's server-side `web_search`
   stays on. Its off switch exists only on the unmerged decision 0065
   slice ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319)).
+- **Unboxed seats inherit the operator's harness configuration.** A
+  claude seat whose agent lists no tools and declares no hands, such as
+  the `triage` gate, keeps Claude Code's default tools, `WebSearch` and
+  `WebFetch` among them, under the operator's own permission settings,
+  and an unboxed claude seat starts every MCP server in the operator's
+  user-scope configuration, with its credentials. A Codex seat, boxed
+  or not, starts the MCP servers in `~/.codex/config.toml`
+  ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
+  The capability grants that are to close it are decision 0065's, on
+  its unmerged slice one
+  ([#319](https://github.com/feedback-loop-ai/brokkr/pull/319)).
 - **A timed-out attempt's detached descendants can outlive the kill**
   ([#403](https://github.com/feedback-loop-ai/brokkr/issues/403)).
 - **Dead hands servers leak their scratch trees under `/tmp`**

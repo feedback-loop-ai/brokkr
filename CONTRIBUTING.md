@@ -1,12 +1,13 @@
 # Contributing to Brokkr
 
-A pull request to `main` goes through Brokkr. The run implements,
-verifies, reviews, and prepares the change; you review the result and
-open the pull request that names the run. A branch you wrote yourself —
-a decision, a pin, a fix, a sweep of prose — goes through Brokkr too:
-the `landing` recipe reads it, verifies it when it is code, judges it,
-sends findings back to a smith, and ships it, so the pull request names
-a run all the same (decision 0051).
+A pull request to `main` goes through Brokkr, unless the operator labels
+it `by-hand` or an administrator merges past the check (below). The run
+implements, verifies, reviews, and prepares the change; you review the
+result and open the pull request that names the run. A branch you wrote
+yourself — a decision, a pin, a fix, a sweep of prose — goes through
+Brokkr too: the `landing` recipe reads it, verifies it when it is code,
+judges it, sends findings back to a smith, and ships it, so the pull
+request names a run all the same (decision 0051).
 
 <!-- required-checks:start -->
 `main`'s branch protection, as observed on 2026-09-26 ([snapshot](.github/branch-protection.json)), requires 12 checks: `delivered by brokkr`, `MSRV (1.88)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `test (macos-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `baseline ratchets`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
