@@ -6,14 +6,7 @@ use serde_json::json;
 /// A repository with an identity, exactly like `anchor`'s tests build.
 fn repo() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    for args in [
-        &["init", "-q"][..],
-        &["config", "user.email", "test@example.invalid"],
-        &["config", "user.name", "test"],
-        &["config", "commit.gpgsign", "false"],
-    ] {
-        git(dir.path(), args, None).unwrap();
-    }
+    crate::realms::tests::initialised(dir.path());
     dir
 }
 

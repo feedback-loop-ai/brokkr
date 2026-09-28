@@ -2169,26 +2169,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
 
 fn git_commit(repo: &Path, message: &str) -> String {
     if !repo.join(".git").exists() {
-        assert!(Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo)
-            .status()
-            .unwrap()
-            .success());
-        for (key, value) in [("user.name", "Brokkr Test"), ("user.email", "brokkr@test")] {
-            assert!(Command::new("git")
-                .args(["config", key, value])
-                .current_dir(repo)
-                .status()
-                .unwrap()
-                .success());
-        }
-        assert!(Command::new("git")
-            .args(["config", "commit.gpgSign", "false"])
-            .current_dir(repo)
-            .status()
-            .unwrap()
-            .success());
+        crate::realms::tests::initialised(repo);
     }
     std::fs::write(repo.join(format!("{message}.txt")), message).unwrap();
     assert!(Command::new("git")
