@@ -10,7 +10,10 @@ use std::path::Path;
 pub(crate) fn numbered_files(dir: &Path) -> Vec<(String, String)> {
     let mut files: Vec<(String, String)> = std::fs::read_dir(dir)
         .unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
-        .filter_map(|entry| entry.ok())
+        // An entry the listing cannot read fails the test rather than
+        // leaving its file out of the ledger. No fixture can make readdir
+        // fail on one entry, so no test drives this arm (ruling 9).
+        .map(|entry| entry.unwrap_or_else(|error| panic!("{}: {error}", dir.display())))
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .filter(|name| {
             name.len() > 5 && name[..4].chars().all(|c| c.is_ascii_digit()) && name.ends_with(".md")
