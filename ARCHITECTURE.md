@@ -254,11 +254,11 @@ the realm's **boundary** (decision 0046): `namespace`, `seatbelt`,
 under `harness` or `open`. Decision 0008's `driver.confine` is refused
 (0046 ruling 5) until slice (iii) builds `container`.
 
-The implemented boundaries are `namespace` (Linux/WSL2 with bubblewrap),
-`harness` and `open`. `seatbelt` and `container` refuse at start until their
-implementation lands. Harness gates require a measured adapter fragment;
-therefore not every shipped recipe is available under `harness`. The manifest
-pins the selected boundary, and CLI, TUI and web readouts retain that fact.
+Built today: `namespace` (Linux/WSL2, bubblewrap), `harness` and `open`;
+`seatbelt` and `container` refuse at start. Harness gates need a measured
+adapter fragment, so not every shipped recipe runs under `harness`
+([status](docs/status.md)). The manifest pins the selected boundary, and
+CLI, TUI and web readouts retain that fact.
 
 ## Verification, in layers
 
@@ -267,7 +267,7 @@ pins the selected boundary, and CLI, TUI and web readouts retain that fact.
 | Differential corpus | A frozen 97-case corpus in [fixtures/](fixtures/) pins the evaluator: contract data, never regenerated. |
 | Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, boxed hands and bundle pinning. |
 | Self-delivery | `bundles/self` lets the engine deliver changes to this repository; `shipped` is the sole entry into `done`, and the operator keeps push and merge. |
-| Brokkr verification | `bundles/verify` examines an already-delivered change with a verify seat and a strictly read-only review seat. It has hard-stopped its own author's work on a real security finding. |
+| Brokkr verification | `bundles/verify` examines a delivered change with a boxed verify seat and an unboxed review seat bounded only by its tool list ([security model](docs/security-model.md)). It has hard-stopped its author's work on a real security finding. |
 
 ## The operating surface
 

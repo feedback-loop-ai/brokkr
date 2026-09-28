@@ -447,7 +447,11 @@ total.** Zero is a measurement, and a harness that stayed silent did not
 make it.
 
 **Every driver speaks per turn, not only at exit.** This is the standard
-each built-in driver meets and the one a new driver is held to: every
+a new driver is held to. The claude and codex drivers meet it; the dsh
+driver folds its turns from the session file it tails, and whether they
+arrive per turn on a live seat is unverified
+([#281](https://github.com/feedback-loop-ai/brokkr/issues/281)); `exec`
+has no turns. The standard: every
 assistant turn becomes at least one checkpoint while the process is
 still running; the turn count and the harness's usage ride in
 `num_turns` and `total_cost_usd` (token counts in `input_tokens`,

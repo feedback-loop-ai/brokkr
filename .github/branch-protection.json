@@ -1,0 +1,25 @@
+{
+  "branch": "main",
+  "observed": "2026-09-26",
+  "source": "GET /repos/feedback-loop-ai/brokkr/branches/main/protection, as issue #366's current-state reconciliation records it; branch protection lives outside the tree, so re-read it with gh api and edit this file when a setting changes",
+  "required_status_checks": {
+    "strict": false,
+    "contexts": [
+      "delivered by brokkr",
+      "MSRV (1.88)",
+      "format, clippy, contracts",
+      "test (ubuntu-latest)",
+      "test (macos-latest)",
+      "exact coverage gate",
+      "dependency licenses (cargo-deny)",
+      "non-Rust lints",
+      "baseline ratchets",
+      "RustSec dependency audit",
+      "release binary artifact",
+      "mutants in the diff: brokkr-core"
+    ]
+  },
+  "required_signatures": true,
+  "required_approving_review": false,
+  "enforce_admins": false
+}

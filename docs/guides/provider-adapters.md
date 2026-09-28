@@ -512,10 +512,14 @@ hands compiles there; the shipped smith does not, refused at link 2
 because claude declares no `hands.harness.work`. The two paths are never
 combined in one launch.
 
-All of this is compile and composition evidence. A boxed seat has no
-network, so no seat can run a live codex smith; the first one — cargo
-and git through the box on codex, a real commit, verify passing — is the
-controller's measurement after the change lands, and is pending.
+All of this is compile and composition evidence. The box takes the
+network away from the commands it runs, when the hands grant none, and
+from nothing else: the harness and its provider's traffic stay outside
+it, and so does Codex's server-side web search, which stays on in every
+Codex seat until decision 0065 is built (see the
+[security model](../security-model.md)). The first live codex smith —
+cargo and git through the box on codex, a real commit, verify passing —
+is the controller's measurement after the change lands, and is pending.
 
 ## Native capabilities
 
@@ -835,6 +839,11 @@ defect the essay records). `brokkr driver dsh` resolves the worktree's
 and, when the seat's mode is `workspace-write` and the common dir lies
 outside the workspace, points dsh's supported sandbox `runnerCommand` at
 `brokkr dsh-sandbox-runner` with those paths as trusted argv.
+
+**Not working today.** What follows is what was built and tested, not a
+working path: commits from a dsh seat still fail, which
+[#282](https://github.com/feedback-loop-ai/brokkr/issues/282) tracks.
+The [status page](../status.md) lists it with the other dsh limits.
 
 **The shared repository is never writable.** The runner adds exactly two
 read-write mounts: the worktree's own administrative directory

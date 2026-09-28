@@ -30,6 +30,16 @@ because a model reads its own environment: binding a secret to a model
 seat hands it to that model and to the route's provider, so bind there
 only what the route is cleared to receive.
 
+Two refusals bound that. A seat with hands cannot declare a binding at
+all: the box clears the environment, and compilation refuses it
+(decision [0043](../decisions/0043-the-hands-are-one-tool.md)). At the
+default minimum, `contracted`, the shipped claude and exec adapters may
+bind; the codex and LaneTally adapters may not, and neither may any dsh
+route but the `local` `spark` and `spark-glm`. Separately, a model seat
+inherits the engine's own environment, so a value the launching shell
+exports reaches the harness undeclared and is not masked. The
+[security model](../security-model.md) states the whole flow.
+
 Whatever the child writes back is masked to `[secret:NAME]` before it
 reaches the journal: its stderr on raw bytes before the string ever
 exists; a harness's stream and transcript on each decoded event, before
