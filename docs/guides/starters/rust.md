@@ -152,8 +152,8 @@ The same names, in the same order, are each agent's `tools.allow` —
 sized by the class of the seat the agent backs:
 
 - **work seats (`intake`, `implement`)** — the whole set:
-  `["cargo", "git", "ls", "rg", "mkdir"]`. A work seat may run exactly
-  the commands its charter names, and nothing broader.
+  `["cargo", "git", "ls", "rg", "mkdir"]`, pre-approved as exactly the
+  commands its charter names.
 - **gate seats (`verify`, `review`, `ship`)** — the read-only subset:
   `["cargo", "git", "ls", "rg"]`, never `mkdir`.
 
@@ -161,6 +161,10 @@ The grant is per BINARY, not per subcommand: `Bash(cargo:*)` answers to
 `cargo build` as readily as to `cargo test`. What keeps a gate from
 building is its charter — "prove it, fix nothing" — and the scaffold
 README says so rather than promising a boundary the glob cannot draw.
+Nor is the list a boundary on an unboxed seat: `--allowedTools`
+pre-approves these commands and removes no other tool, so the
+operator's own Claude Code permission settings and MCP servers reach
+the seat too ([security model](../../security-model.md)).
 An allowance is ONE grant with the adapter's map: a name the map cannot
 express refuses the scaffold's own compile (decision 0016), so when you
 edit one side, edit both.

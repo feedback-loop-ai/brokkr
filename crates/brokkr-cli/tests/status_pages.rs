@@ -8,6 +8,9 @@
 //! destructured without `..`, so a field the loader grows fails this
 //! file's compile until the matrix rules on it: a field an adapter grows
 //! cannot go unlisted, and a rendered value that changes shows on the page.
+//!
+//! No living doc may say a tool list bounds a seat: every tracked Markdown
+//! file outside the dated records is read for that wording.
 
 use std::collections::BTreeSet;
 
@@ -17,6 +20,8 @@ use brokkr_runtime::agents::{
 };
 use brokkr_runtime::{Adapters, HarnessHands, Library, TrustTier};
 
+#[path = "support/tracked.rs"]
+mod tracked_files;
 #[path = "support/workspace.rs"]
 mod workspace;
 
@@ -371,6 +376,80 @@ fn every_known_limitation_links_its_issue() {
             "{page} states a limitation with no issue link"
         );
     }
+}
+
+/// Records whose words are fixed when they are written, and so are not
+/// living docs.
+const RECORDS: [&str; 4] = [
+    "docs/decisions/",
+    "docs/releases/",
+    "docs/lore/",
+    "docs/essays/",
+];
+
+/// What names a claude seat's tool list: the list itself, the agent
+/// field it comes from, or the flag it is passed as.
+const TOOL_LIST: [&str; 4] = ["tool list", "tools.allow", "tool grant", "--allowedtools"];
+
+/// Wording that says a tool list bounds a seat. `--allowedTools`
+/// pre-approves and removes no tool, so an unboxed claude seat is bounded
+/// by Claude Code's permission model and the operator's own settings and
+/// MCP servers, never by its tool list alone (#467).
+const OVERCLAIMS: [&str; 12] = [
+    "only restriction",
+    "bounded only by",
+    "bounded by its tool list",
+    "restricted to its tool list",
+    "restricted by its tool list",
+    "limited to its tool list",
+    "can only use",
+    "may only use",
+    "may run only",
+    "may run exactly",
+    "may run nothing outside",
+    "decides what the seats may run",
+];
+
+/// Each paragraph of a Markdown text that pairs a tool list with wording
+/// that says it bounds the seat, lowercased with its code and emphasis
+/// marks dropped and its line breaks joined, so neither can hide one.
+fn tool_list_overclaims(text: &str) -> Vec<String> {
+    text.split("\n\n")
+        .map(|paragraph| {
+            paragraph
+                .replace(['`', '*'], "")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase()
+        })
+        .filter(|paragraph| TOOL_LIST.iter().any(|anchor| paragraph.contains(anchor)))
+        .filter(|paragraph| OVERCLAIMS.iter().any(|claim| paragraph.contains(claim)))
+        .collect()
+}
+
+#[test]
+fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
+    let pages: Vec<String> = tracked_files::tracked(&workspace(), &["*.md"])
+        .into_iter()
+        .filter(|page| !RECORDS.iter().any(|record| page.starts_with(record)))
+        .collect();
+    for page in ["ARCHITECTURE.md", "README.md", "docs/security-model.md"] {
+        assert!(pages.iter().any(|p| p == page), "{page} is not scanned");
+    }
+    let offenses: Vec<String> = pages
+        .iter()
+        .flat_map(|page| {
+            tool_list_overclaims(&read(page))
+                .into_iter()
+                .map(move |paragraph| format!("{page}: {paragraph}"))
+        })
+        .collect();
+    assert_eq!(
+        offenses,
+        Vec::<String>::new(),
+        "a living doc says a tool list bounds a seat; say what decides instead"
+    );
 }
 
 #[test]

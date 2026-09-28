@@ -35,7 +35,9 @@ they are read in the adapter file, not here.
   may bind a secret only on a route that meets the bundle's minimum,
   which defaults to `contracted`.
 - **Tool allow-list**: the tool names a seat's `tools.allow` may map
-  onto the harness's own allow-list flag.
+  onto the harness's own allow-list flag. On claude that flag is
+  `--allowedTools`, which pre-approves the tools it names and removes
+  none, so it does not bound an unboxed seat.
 - **Boxed hands**: whether the harness can put its hands in Brokkr's
   box (decision 0043). **Own sandbox for** is the seat classes whose
   harness sandbox stands in for the box under the `harness` boundary

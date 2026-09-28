@@ -93,16 +93,23 @@ adapter cannot express boxed hands, never does.
   (decision [0054](decisions/0054-the-dsh-harness-sandbox-reaches-a-linked-worktree-s-git-metadata.md)'s
   consequences). The dsh runner closes it for dsh seats by giving the
   seat a private common directory.
-- **Tool-list offices are not boxed.** `implementer` and
-  `implementer-sdd` (granted `cargo` and `git`), `intake` (`git`) and
-  `researcher` (`webfetch`, `websearch`, `git`, `ls`, `rg`) declare a
-  tool list, not hands. They run on the host as the operator's user, in
-  the engine's environment, under claude's `--permission-mode
-  acceptEdits`, and the tool list is their only restriction. The
-  `bundles/verify` review seat is the same: unboxed, `acceptEdits`,
-  with `cargo`, `git`, `ls`, `rg`, `gh pr view` and `gh run view`.
-  Offices that declare neither, such as `triage` and the position
-  seats, get no tool flag at all.
+- **Tool-list offices are not boxed, and their tool list does not
+  bound them.** `implementer` and `implementer-sdd` (granted `cargo`
+  and `git`), `intake` (`git`) and `researcher` (`webfetch`,
+  `websearch`, `git`, `ls`, `rg`) declare a tool list, not hands. They
+  run on the host as the operator's user, in the engine's environment,
+  under claude's `--permission-mode acceptEdits`, which pre-approves
+  file edits. Brokkr passes the tool list as `--allowedTools`, Claude
+  Code's list of tools it runs without asking, which removes no other
+  tool. Only `--tools` restricts which tools a seat has, and the
+  adapter passes it on the boxed hands path alone. What such a seat may
+  run is decided by Claude Code's permission model and the operator's
+  own Claude Code permission settings, and the operator's MCP servers
+  reach it ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
+  The `bundles/verify` review seat is the same: unboxed, `acceptEdits`,
+  with `cargo`, `git`, `ls`, `rg`, `gh pr view` and `gh run view`
+  pre-approved. Offices that declare neither, such as `triage` and the
+  position seats, get no tool flag at all.
 - **An unboxed claude seat with no tool list keeps Claude Code's
   defaults.** Brokkr passes no tool flag, no `--settings` and no
   `--setting-sources`, so the seat has Claude Code's default tools,

@@ -417,7 +417,8 @@ either way, because a failed door is a missing result, loud.
 **claude** declares **no** `hands.harness` member yet. The measurement
 is the operator's, against the installed 2.1.x line (the transcript
 above records 2.1.251), because the implementing seat's tool grant is
-`cargo` and `git` and `claude` is not a command it may run. Until it is
+`cargo` and `git` and `claude` is not a command it is pre-approved to
+run. Until it is
 recorded every shipped bundle whose hands agent's chain reaches claude
 — most hands agents chain `opus`, and the engine smith falls back to
 `fable` — refuses under `harness` naming

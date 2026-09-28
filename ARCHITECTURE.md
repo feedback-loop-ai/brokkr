@@ -267,7 +267,7 @@ CLI, TUI and web readouts retain that fact.
 | Differential corpus | A frozen 97-case corpus in [fixtures/](fixtures/) pins the evaluator: contract data, never regenerated. |
 | Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, boxed hands and bundle pinning. |
 | Self-delivery | `bundles/self` lets the engine deliver changes to this repository; `shipped` is the sole entry into `done`, and the operator keeps push and merge. |
-| Brokkr verification | `bundles/verify` examines a delivered change with a boxed verify seat and an unboxed review seat bounded only by its tool list ([security model](docs/security-model.md)). It has hard-stopped its author's work on a real security finding. |
+| Brokkr verification | `bundles/verify` examines a delivered change with a boxed verify seat and an unboxed review seat under the operator's Claude Code permissions ([security model](docs/security-model.md)). It has hard-stopped its author's work on a real security finding. |
 
 ## The operating surface
 

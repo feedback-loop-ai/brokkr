@@ -244,14 +244,17 @@ Limits remain on every seat, while the model chain and tool grant belong
 only to agent-backed seats. `brokkr agents show <name>` reads an agent back.
 
 **The seats are granted the tools their charters name.** The same
-detection below decides what the seats may *run*: the binary each
-command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`, `ls`, `rg` and
-`mkdir` go into the adapter's `tool_permissions.names` as
+detection below decides what the seats are pre-approved to *run*: the
+binary each command invokes (`cargo`, `bun`, `pnpm`, …) plus `git`,
+`ls`, `rg` and `mkdir` go into the adapter's `tool_permissions.names` as
 `Bash(<bin>:*)` entries, and each model agent's `tools.allow` names them —
 the whole set for the work seats and the read-only subset for review. The
 verify and ship gates are scripts with no model grant. A
 repository `init` does not recognize gets an EMPTY map and a README
-that says so, rather than a guessed permission.
+that says so, rather than a guessed permission. The grant is claude's
+`--allowedTools`, which pre-approves and removes no other tool: an
+unboxed seat also runs under the operator's own Claude Code permission
+settings and MCP servers ([security model](../security-model.md)).
 
 **`init` looks before it scaffolds.** The repository you ran it from is
 read for the manifests and lockfiles at its root, and the implementer
@@ -784,7 +787,9 @@ where a manifest is ambiguous (`bun.lock` out-votes the npm fallback,
 `nx.json`) out-votes any single package's script and is run through
 whichever package manager the root's lockfile names, and a Cargo
 workspace or a `go.work` gets a charter that says so rather than a
-command it did not need. The same stack decides what the seats may RUN:
+command it did not need. The same stack decides what the seats are
+pre-approved to RUN, not what else the operator's own Claude Code
+settings allow them:
 the binaries its commands invoke are written into the scaffold's
 `adapters/claude.json` `tool_permissions.names` as `Bash(<bin>:*)`
 entries and granted in the agents' `tools.allow` — the whole set to the
