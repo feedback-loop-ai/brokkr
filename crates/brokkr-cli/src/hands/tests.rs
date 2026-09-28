@@ -19,10 +19,12 @@ fn a_session_that_cannot_lock_prints_the_lock_and_the_errno() {
         spec: "\"workspace\"".to_string(),
     };
     let error = run_with(serve, refused).unwrap_err();
+    let mut stderr = Vec::new();
+    assert_eq!(crate::report_to(&error, &mut stderr), ExitCode::from(1));
     assert_eq!(
-        crate::failure_line(&error),
+        String::from_utf8(stderr).unwrap(),
         format!(
-            "error: hands session: cannot lock {}/.owner.lock: {}",
+            "error: hands session: cannot lock {}/.owner.lock: {}\n",
             tree.display(),
             nolck()
         )

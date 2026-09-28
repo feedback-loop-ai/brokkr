@@ -88,6 +88,17 @@ fn a_session_that_cannot_lock_refuses_and_leaves_no_tree() {
     assert_eq!(cause.raw_os_error(), Some(Errno::NOLCK.raw_os_error()));
     assert_eq!(path.file_name().unwrap(), LOCK);
     assert_eq!(path.parent().unwrap().parent().unwrap(), tmp.path());
+    // The tree it names is the one it would have become, never its
+    // staged name.
+    let tree = path
+        .parent()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let final_name = format!("{PREFIX}serve-{}-", std::process::id());
+    assert!(tree.starts_with(&final_name), "{tree}");
     assert_eq!(
         error.to_string(),
         format!(

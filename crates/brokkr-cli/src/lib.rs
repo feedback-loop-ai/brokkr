@@ -829,16 +829,24 @@ fn contention(error: &anyhow::Error) -> Option<&brokkr_store::StoreError> {
 /// journaled nineteen good events simply vanished. Contention says its
 /// own name now, says that nothing was lost, and carries its own code.
 fn report(error: &anyhow::Error) -> ExitCode {
+    report_to(error, &mut std::io::stderr().lock())
+}
+
+/// `report`, writing its line to `stderr`: the seam a test reads to pin
+/// what the binary prints.
+fn report_to(error: &anyhow::Error, stderr: &mut impl std::io::Write) -> ExitCode {
+    // A stderr that cannot be written leaves the exit code to say it.
     match contention(error) {
         Some(store) => {
-            eprintln!(
+            let _ = writeln!(
+                stderr,
                 "contended: {store}\nA peer is writing this journal. Nothing was \
                  written and nothing was lost — resume when it is done."
             );
             ExitCode::from(CONTENDED_EXIT)
         }
         None => {
-            eprintln!("{}", failure_line(error));
+            let _ = writeln!(stderr, "{}", failure_line(error));
             ExitCode::from(1)
         }
     }

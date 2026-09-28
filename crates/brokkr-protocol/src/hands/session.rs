@@ -101,6 +101,7 @@ impl Session {
         // Built under a name `owner_pid` rejects, so no reaper considers
         // the tree before its lock is held, and renamed into place after.
         let staged = tmp.join(format!("{STAGING}{name}"));
+        let dir = tmp.join(name);
         std::fs::create_dir_all(&staged)?;
         let mut session = Session {
             lock: File::create(staged.join(LOCK))?,
@@ -108,12 +109,12 @@ impl Session {
         };
         // A session holding no lock would read as unowned the moment its
         // pid reads as dead, as it does from another pid namespace: it
-        // refuses instead, and dropping it removes the tree.
+        // refuses instead, and dropping it removes the tree. The refusal
+        // names the tree the operator would have met, not its staged name.
         lock(session.lock.as_fd()).map_err(|errno| SessionError::Lock {
-            path: session.dir.join(LOCK),
+            path: dir.join(LOCK),
             cause: said(errno),
         })?;
-        let dir = tmp.join(name);
         std::fs::rename(&session.dir, &dir)?;
         session.dir = dir;
         Ok(session)
