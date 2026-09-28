@@ -4450,10 +4450,11 @@ pub(crate) struct BoundInput {
 #[derive(PartialEq, Eq)]
 pub(crate) struct Binding {
     /// The file-map key under which the declaring layer's walk pins what the
-    /// reference names: the entry the layer's identity names the input by.
-    /// Where no step of the written path is a link it is `target_key`;
-    /// through a link it is the written spelling, which is the link's own
-    /// entry.
+    /// reference names, as written. Where no step of the written path is a
+    /// link it is `target_key`. Through a link it is the written spelling:
+    /// the link's own entry where the last step is the link, and otherwise
+    /// the path the walk lists through a linked directory, which names the
+    /// target's own entry, never a second one (rebuild unit 16-fix-d).
     key: String,
     /// The file-map key the declaring layer's walk writes for the target:
     /// each name exactly as it was looked up in the held directory before
@@ -4472,12 +4473,13 @@ impl Binding {
     }
 
     /// What a layer's walk is told about `key`, one of these keys, whose
-    /// buffer hashed to `digest`.
-    pub(crate) fn supplied(&self, digest: &str) -> Supplied {
+    /// buffer hashed to `digest`, read for `consumer`.
+    pub(crate) fn supplied(&self, digest: &str, consumer: String) -> Supplied {
         Supplied {
             digest: digest.to_string(),
             id: self.id,
             target: self.target_key.clone(),
+            consumer,
         }
     }
 }
@@ -4490,6 +4492,9 @@ pub(crate) struct Supplied {
     digest: String,
     id: (u64, u64),
     target: String,
+    /// Who consumed it, bounded, as its own refusal opens: the declaring
+    /// file, and the document, the table or the seat and its role.
+    consumer: String,
 }
 
 /// One step of an owner-rooted resolution, in the order it was taken: an
@@ -6642,14 +6647,16 @@ fn manifest_for(
 /// the digest is sealed.
 ///
 /// The walk is the one place that sees every name in the layer, so it holds
-/// each consumed file to exactly one name (rebuild unit 16-fix-d): a
-/// consumed key it lists no entry for is refused, a file under no consumed
-/// key that IS a consumed file is refused as another name for it (16-fix-c,
-/// F1), and a consumed file met under a second name, consumed or not, is
-/// refused naming both. What was consumed is known by its binding, not by
-/// the name the walk happens to list it under. A link is its own entry, so
-/// a contained link to a consumed file is one name whose target is the
-/// other, never a second name.
+/// each consumed file to exactly one entry (rebuild unit 16-fix-d): a
+/// consumed key it lists no entry for is refused, naming who consumed it,
+/// a file under no consumed key that IS a consumed file under another entry
+/// is refused as another name for it (16-fix-c, F1), and a consumed file
+/// met under a second entry, consumed or not, is refused naming both. What
+/// was consumed is known by its binding, not by the name the walk happens
+/// to list it under. A link is its own entry, so a contained link to a
+/// consumed file is one name whose target is the other; and a path through
+/// a contained linked directory lists the target's own entry again, which
+/// is that entry, never a second one ([`Entry`]).
 fn walk_files(
     dir: &Path,
     scope: &Path,
@@ -6722,29 +6729,36 @@ fn walk_files(
         }
         walked.push((path, rel));
     }
-    if let Some(key) = consumed
-        .keys()
-        .find(|key| !walked.iter().any(|(_, rel)| rel == *key))
+    if let Some((key, supplied)) = consumed
+        .iter()
+        .find(|(key, _)| !walked.iter().any(|(_, rel)| rel == *key))
     {
         return Err(CompileError::Invalid(format!(
-            "bundle file {} is the name a bound read consumed its file by, and the walk that pins \
-             the layer lists no entry of that name: the name reached the file through a case or \
-             normalization alias the filesystem accepted, or the entry was removed after the \
-             read. A layer's identity names a consumed file by the entry its directory lists, so \
-             it is refused; write the reference as its directory lists it (decision 0065 slice \
-             one, design D7)",
+            "{}, which the walk that pins the layer lists under no entry of the name {} it was \
+             read by: the name reached the file through a case or normalization alias the \
+             filesystem accepted, or the entry was removed after the read. A layer's identity \
+             names a consumed file by the entry its directory lists, so it is refused; write the \
+             reference as its directory lists it (decision 0065 slice one, design D7)",
+            supplied.consumer,
             bounded_reference(key)
         )));
     }
-    let mut named: BTreeMap<(u64, u64), String> = BTreeMap::new();
+    let mut named: BTreeMap<(u64, u64), (Entry, String)> = BTreeMap::new();
     let mut files = BTreeMap::new();
     for (path, rel) in walked {
         let supplied = consumed.get(&rel);
         if supplied.is_none() {
             at_stage(ReadStage::Walked, &path);
         }
-        if let Some(held) = consumed_entry(&path, consumed)? {
-            if supplied.map(|supplied| supplied.id) != Some(held.id) {
+        if let Some((held, entry)) = consumed_entry(&path, consumed)? {
+            // A path through a linked directory lists the target's own
+            // entry again: the same file, under the same entry, is the
+            // consumed file and not another name for it.
+            let same = match supplied {
+                Some(supplied) => supplied.id == held.id,
+                None => entry == entry_of(&dir.join(&held.target))?,
+            };
+            if !same {
                 return Err(CompileError::Invalid(format!(
                     "bundle file {} is another name for {}, the file a bound read consumed: a \
                      layer's identity names a consumed file by the entry it was read by, and a \
@@ -6754,13 +6768,16 @@ fn walk_files(
                     bounded_reference(&held.target)
                 )));
             }
-            if let Some(first) = named.insert(held.id, rel.clone()) {
+            let (first_entry, first) = named
+                .entry(held.id)
+                .or_insert_with(|| (entry.clone(), rel.clone()));
+            if *first_entry != entry {
                 return Err(CompileError::Invalid(format!(
                     "bundle files {} and {} are two names for one file a bound read consumed: a \
                      layer's identity names a consumed file by exactly one entry, and a second \
                      name for it inside the layer, consumed or not, is refused rather than bound \
                      twice (decision 0065 slice one, design D7)",
-                    bounded_reference(&first),
+                    bounded_reference(first),
                     bounded_reference(&rel)
                 )));
             }
@@ -6774,28 +6791,53 @@ fn walk_files(
     Ok(files)
 }
 
-/// The consumed file the entry at `path` is, when it is one: the same
-/// `(dev, ino)` as a file a bound read held. The entry itself is asked,
-/// never a link's target, so a link to a consumed file is walked as the
-/// link it is.
+/// One directory entry: the `(dev, ino)` of the directory that holds it,
+/// and its name there. Two walked paths are one entry exactly when both
+/// agree, however many linked directories either passed through; two hard
+/// links are two entries.
+type Entry = ((u64, u64), OsString);
+
+/// The entry `path` names: its directory, following links on the way, and
+/// its own name.
+#[cfg(unix)]
+fn entry_of(path: &Path) -> std::io::Result<Entry> {
+    use std::os::unix::fs::MetadataExt;
+    let parent = std::fs::metadata(path.parent().expect("a walked path has a parent"))?;
+    let name = path.file_name().expect("a walked path has a name");
+    Ok(((parent.dev(), parent.ino()), name.to_os_string()))
+}
+
+/// The consumed file the entry at `path` is, when it is one — the same
+/// `(dev, ino)` as a file a bound read held — with the entry it is. The
+/// entry itself is asked, never a link's target, so a link to a consumed
+/// file is walked as the link it is.
 #[cfg(unix)]
 fn consumed_entry<'a>(
     path: &Path,
     consumed: &'a BTreeMap<String, Supplied>,
-) -> std::io::Result<Option<&'a Supplied>> {
+) -> std::io::Result<Option<(&'a Supplied, Entry)>> {
     use std::os::unix::fs::MetadataExt;
     let meta = std::fs::symlink_metadata(path)?;
     let id = (meta.dev(), meta.ino());
-    Ok(consumed.values().find(|supplied| supplied.id == id))
+    match consumed.values().find(|supplied| supplied.id == id) {
+        Some(supplied) => Ok(Some((supplied, entry_of(path)?))),
+        None => Ok(None),
+    }
 }
 
 /// No supported host lacks the identity; any other consumes nothing, since
 /// its every bound read refuses (design D7).
 #[cfg(not(unix))]
+fn entry_of(_: &Path) -> std::io::Result<Entry> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// As [`entry_of`]: any other host consumes nothing.
+#[cfg(not(unix))]
 fn consumed_entry<'a>(
     _: &Path,
     _: &'a BTreeMap<String, Supplied>,
-) -> std::io::Result<Option<&'a Supplied>> {
+) -> std::io::Result<Option<(&'a Supplied, Entry)>> {
     Ok(None)
 }
 

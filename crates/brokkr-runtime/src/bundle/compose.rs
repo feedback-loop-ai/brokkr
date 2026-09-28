@@ -652,19 +652,33 @@ impl Consumed {
     /// buffer that was read (rebuild unit 16-fix-b, F3), with the file that
     /// read held (16-fix-c, F1). Where two reads name one key the first
     /// stands, and the other is judged against it.
+    /// Each carries who consumed it, as that input's own refusal names it,
+    /// so a key the walk lists no entry for is refused with its source,
+    /// kind, site and reference (16-fix-d).
     fn digests(&self) -> BTreeMap<String, super::Supplied> {
-        let tables = self.table.iter().map(|table| &table.pinned);
-        let charters = self.charters.iter().map(|charter| &charter.pinned);
+        let file = self.file.display();
+        let document = (
+            &self.document,
+            format!("{file}: the layer's declaring document"),
+        );
+        let tables = self.table.iter().map(|table| {
+            let consumer = format!("{file}: 'policy' names {}", table.reference);
+            (&table.pinned, consumer)
+        });
+        let charters = self.charters.iter().map(|charter| {
+            let consumer = format!(
+                "{file}: seat {} names role {}",
+                charter.site, charter.reference
+            );
+            (&charter.pinned, consumer)
+        });
         let mut digests = BTreeMap::new();
-        for pinned in std::iter::once(&self.document)
-            .chain(tables)
-            .chain(charters)
-        {
+        for (pinned, consumer) in std::iter::once(document).chain(tables).chain(charters) {
             let binding = pinned.held.binding();
             for key in binding.keys() {
                 digests
                     .entry(key.to_string())
-                    .or_insert_with(|| binding.supplied(&pinned.digest));
+                    .or_insert_with(|| binding.supplied(&pinned.digest, consumer.clone()));
             }
         }
         digests

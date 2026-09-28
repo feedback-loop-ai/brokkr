@@ -3079,7 +3079,7 @@ for. No production file moved.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
-- [x] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1) Reopened by unit 16-fix-c (2026-09-28): the alias acceptance's proof (baseline red, caught mutation, restored pass on a filesystem that accepts a case alias) is pending, so this task is not claimed complete. Closed by unit 16-fix-d (2026-09-28): the alias surface was removed under the refusal ruling, so the pending alias-positive proof is retired, not claimed; a spelling its directory does not list is refused on every filesystem. The case-insensitive row of that refusal is pending on macOS (see the unit 16-fix-d note).
+- [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1) Reopened by unit 16-fix-c (2026-09-28): the alias acceptance's proof (baseline red, caught mutation, restored pass on a filesystem that accepts a case alias) is pending, so this task is not claimed complete. Unit 16-fix-d (2026-09-28): the alias surface was removed under the refusal ruling, so the pending alias-positive proof is retired, not claimed; a spelling its directory does not list is refused on every filesystem. Kept open by the 16-fix-d return (2026-09-28, council F5): the case-insensitive row of that refusal is unobserved (it needs macOS or a casefolded directory, and this seat refuses `unshare`), so this task is not claimed complete until that refusal is observed.
 
 - [x] 16.2 Unit 16 binds regular policy read/hash/parse to owner pin, comparing later walk before sealing. Verify FIFO/changed-buffer refusal and allowed identity movement. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 3. (previous 5.2)
 
@@ -3416,6 +3416,17 @@ patching it; F5 is not acted on. Production: `bundle.rs` and
 `bundle/compose.rs` only. **16.1 closes, and 16.2 and 16.3 stay closed, on
 this visit's evidence; the pending items below stay pending.**
 
+*Corrected by the 16-fix-d return (council on `e5c58a8c`, F1–F5):* 16.1 did
+not close: its case-insensitive refusal row is unobserved, so it is open
+again. "Contained link bindings still compile" held for a link as the last
+step only. A path through a contained linked directory (`also -> roles`)
+was refused as a second name for its own entry. The F3 regression below
+bound an absent walked key, not a failing lookup: every lookup in it
+succeeded, and M3 removed the walk's guard, not error propagation. The F2
+inherited row, the two-other-names row and the moved-away-and-back row
+had no independently observed red or caught mutation. The return repairs
+each of these; see its note below.
+
 - **F1, F3: the alias search is deleted.** `listed`, `listing`,
   `many_names` and the `fdopendir`/`readdir`/`closedir`/`errno` FFI are
   gone. Each name is bound exactly as it was looked up in the held
@@ -3459,6 +3470,73 @@ this visit's evidence; the pending items below stay pending.**
   - The case-insensitive rows of the spelling refusal (macOS, or Linux on
     a casefolded directory). This host's fixture root accepts no alias.
   - macOS `openat`/`readlinkat`, the flag values and the socket wording.
+  - Exact coverage outside the box.
+  - Remote CI and the council.
+
+Unit 16-fix-d, return (2026-09-28, run
+`0065-rebuild-unit-16-see-the-uni-1d9ed775`, based on `e5c58a8c`;
+evidence.md, "Unit 16-fix-d, return"). It answers the council's F1–F5 on
+`e5c58a8c`; F6 is not acted on. Production: `bundle.rs` and
+`bundle/compose.rs` only. **16.2 and 16.3 stay closed on this visit's
+evidence. 16.1 stays open: its case-insensitive refusal row is pending.**
+
+- **F1, a linked directory is not a second name.** The walk now holds each
+  consumed file to one *entry*: the `(dev, ino)` of the directory holding
+  it, and its name there. A path through a contained linked directory
+  lists the target's own entry again, so it is accepted, consumed or not.
+  Two hard links are two entries and are still refused.
+  - New test `a_path_through_a_contained_linked_directory_is_the_entry_it_lists`,
+    standalone and inherited. It checks the pinned digest under both
+    paths, and that the charter's bytes alone move the leaf's and the
+    ancestor's identity. A hard-link control through the same link is
+    still refused.
+  - Red on `e5c58a8c`, both rows. Caught by M1 and M2.
+  - `Binding.key` and the `walk_files` documentation now say this.
+- **F2, a failing lookup.** New test
+  `a_lookup_that_fails_is_refused_where_it_fails`. The exact lookup fails
+  while `tables/h.json` holds the file, standalone and inherited, at three
+  points:
+  - at the read's second observation, with `NotFound`: refused as
+    *replaced*;
+  - at the same point, with `NotADirectory`: refused as *replaced*;
+  - at the walk's verification: refused as *changed*.
+  M4 swallows the error at the second observation, and M5 at the walk's
+  verification. Each is caught on exactly its rows. **No baseline red
+  exists for this test.** It passes on `e5c58a8c` and on `95d4ff19`: an
+  exact lookup's error already refused on both. The swallowed errors were
+  candidate lookups inside the deleted search, and no lookup reaches them
+  now. The old F3 test keeps its assertion and is documented as the
+  absent-key case it is.
+- **F3, proof records.** Each row below was observed on `95d4ff19` and
+  under a mutation:
+  - `two_consumed_names_for_one_file_are_refused` now compares standalone
+    and inherited together. Its inherited half is red on `95d4ff19`
+    (`compiled to 5cdd9efb…`).
+  - The two-other-names row is its own test,
+    `a_name_gone_at_its_second_observation_is_not_searched_for`. It is
+    caught by M4.
+  - The moved-away-and-back row is its own test,
+    `an_entry_moved_away_and_back_is_the_name_it_was_read_by`. It is red on
+    `95d4ff19` (*replaced*) and caught by M6, a path look after the lookup.
+- **F4, context.** Each consumed key now carries who read it: the file and
+  the document, the table, or the seat and its role. The walk's
+  unlisted-key refusal opens with that, as the input's own refusal does.
+  - Changed assertions: the spelling rows, the absent-key row, and a
+    removed table link and a removed charter link, standalone and
+    inherited.
+  - Red on `e5c58a8c`. Caught by M3.
+- **F5.** 16.1 is open again, as above.
+- **Standing-admission lines and fixture migrations:** none.
+- **Gates.**
+  - fmt and clippy are clean.
+  - Runtime: 25 results, lib 601.
+  - Workspace, all features: 77 results, 0 failed.
+  - `bundles/self` (`45dc1c7e…`) and `bundles/verify` (`f7cbd4bb…`) are
+    unchanged.
+  - Strict OpenSpec (18) and `git diff --check` are clean.
+- **Pending.**
+  - The case-insensitive rows of the spelling refusal, and with them 16.1.
+  - macOS `openat`/`readlinkat` and the flag values.
   - Exact coverage outside the box.
   - Remote CI and the council.
 

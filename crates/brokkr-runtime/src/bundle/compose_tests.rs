@@ -2601,15 +2601,31 @@ fn a_bound_read_supplies_its_handles_bytes_and_never_a_second_reads() {
 }
 
 /// The walk's refusal of a consumed key it lists no entry for (rebuild unit
-/// 16-fix-d).
-fn unwalked(key: &str) -> String {
+/// 16-fix-d), opened by `consumer`, who read it: the declaring file and the
+/// table or the seat's role, as [`table_by`] and [`role_by`] say them.
+fn unwalked(consumer: &str, key: &str) -> String {
     format!(
-        "bundle: bundle file '{key}' is the name a bound read consumed its file by, and the walk \
-         that pins the layer lists no entry of that name: the name reached the file through a \
-         case or normalization alias the filesystem accepted, or the entry was removed after \
-         the read. A layer's identity names a consumed file by the entry its directory lists, so \
-         it is refused; write the reference as its directory lists it (decision 0065 slice one, \
-         design D7)"
+        "{consumer}, which the walk that pins the layer lists under no entry of the name '{key}' \
+         it was read by: the name reached the file through a case or normalization alias the \
+         filesystem accepted, or the entry was removed after the read. A layer's identity names \
+         a consumed file by the entry its directory lists, so it is refused; write the reference \
+         as its directory lists it (decision 0065 slice one, design D7)"
+    )
+}
+
+/// `layer`'s table, read by `reference`, as a refusal opens.
+fn table_by(layer: &Path, reference: &str) -> String {
+    format!(
+        "{}: 'policy' names '{reference}'",
+        layer.join("bundle.json").display()
+    )
+}
+
+/// `layer`'s seat `site`'s role, read by `reference`, as a refusal opens.
+fn role_by(layer: &Path, site: &str, reference: &str) -> String {
+    format!(
+        "{}: seat '{site}' names role '{reference}'",
+        layer.join("bundle.json").display()
     )
 }
 
@@ -2620,7 +2636,9 @@ fn unwalked(key: &str) -> String {
 /// where it accepts one (macOS), the exact lookup opens the file, but the
 /// walk lists no entry of that name, and the compile is refused for exactly
 /// that. A link reached by an alias spelling is the same. On every host, a
-/// link removed after the read is refused by the walk for the same reason.
+/// link removed after the read is refused by the walk for the same reason,
+/// naming the source, the kind, the site and the reference that read it —
+/// a table's and a charter's, standalone and inherited (16-fix-d, F4).
 ///
 /// Which reason each row asserts is decided by the FILESYSTEM the fixture
 /// stands on, probed on the fixture's own canonical root (unit 16-fix-c),
@@ -2640,7 +2658,10 @@ fn a_spelling_its_directory_does_not_list_is_refused() {
     let accepts_alias = accepts_case_alias(library.path());
     let (base, _) = active_inputs(&library, "roles/role.md", "POLICY.JSON");
     let expected = match accepts_alias {
-        true => unwalked("POLICY.JSON"),
+        true => format!(
+            "bundle: {}",
+            unwalked(&table_by(&base, "POLICY.JSON"), "POLICY.JSON")
+        ),
         false => missing(&base, "POLICY.JSON"),
     };
     assert_eq!(said(&base), expected, "alias accepted: {accepts_alias}");
@@ -2649,20 +2670,53 @@ fn a_spelling_its_directory_does_not_list_is_refused() {
     let (base, _) = active_inputs(&library, "roles/role.md", "TABLE.JSON");
     symlink("policy.json", base.join("table.json")).unwrap();
     let expected = match accepts_alias {
-        true => unwalked("TABLE.JSON"),
+        true => format!(
+            "bundle: {}",
+            unwalked(&table_by(&base, "TABLE.JSON"), "TABLE.JSON")
+        ),
         false => missing(&base, "TABLE.JSON"),
     };
     assert_eq!(said(&base), expected, "alias accepted: {accepts_alias}");
-    // Every host: the link read by its listed name, removed once the read
-    // is verified, before the walk.
+    // Every host: a link read by its listed name, removed once the read is
+    // verified, before the walk; standalone and inherited.
     let library = Library::new();
-    let (base, _) = active_inputs(&library, "roles/role.md", "table.json");
-    let link = base.join("table.json");
-    symlink("policy.json", &link).unwrap();
-    let remove = move || std::fs::remove_file(&link).unwrap();
+    let (base, leaf) = active_inputs(&library, "roles/linked.md", "table.json");
+    std::fs::write(base.join("roles/target.md"), "# work\n").unwrap();
+    let (table, role) = (base.join("table.json"), base.join("roles/linked.md"));
+    // Both links are put back, then `link` is removed once the read of
+    // `watched`, its target, is verified.
+    let unlinked = |link: &Path, compiled: &Path, watched: PathBuf| {
+        for (each, text) in [(&table, "policy.json"), (&role, "target.md")] {
+            let _ = std::fs::remove_file(each);
+            symlink(text, each).unwrap();
+        }
+        let link = link.to_path_buf();
+        let remove = move || std::fs::remove_file(&link).unwrap();
+        said_replacing(compiled, &watched, ReadStage::Verified, remove)
+    };
+    let refusals = |consumer: String, key: &str| {
+        let refused = unwalked(&consumer, key);
+        (
+            format!("bundle: {refused}"),
+            format!("bundle: bundle: {refused} (composed: derived -> base)"),
+        )
+    };
+    let watched = base.join("roles/target.md");
+    let said_table = (
+        unlinked(&table, &base, base.join("policy.json")),
+        unlinked(&table, &leaf, base.join("policy.json")),
+    );
     assert_eq!(
-        said_replacing(&base, &base.join("roles/role.md"), ReadStage::Read, remove),
-        unwalked("table.json")
+        said_table,
+        refusals(table_by(&base, "table.json"), "table.json")
+    );
+    let said_role = (
+        unlinked(&role, &base, watched.clone()),
+        unlinked(&role, &leaf, watched),
+    );
+    assert_eq!(
+        said_role,
+        refusals(role_by(&base, "work", "roles/linked.md"), "roles/linked.md")
     );
 }
 
@@ -3145,13 +3199,14 @@ fn a_name_hidden_at_every_observation_binds_no_other_entry() {
     );
 }
 
-/// Rebuild unit 16-fix-d, F3 (16.1, 16.2; design D7): a failing lookup is a
-/// refusal, never a search. `policy.json` is hidden at each of the read's
+/// Rebuild unit 16-fix-d (16.1, 16.2; design D7): a name gone at the walk
+/// is not found elsewhere. `policy.json` is hidden at each of the read's
 /// observations and put back between them, and is gone when the walk runs,
-/// so the exact name no longer resolves while `h.json` holds the file that
-/// was read. On `95d4ff19` the observations had bound `h.json` in its
-/// place; now the walk lists no entry of the name the file was read by, and
-/// refuses for exactly that.
+/// while `h.json` holds the file that was read. On `95d4ff19` the
+/// observations had bound `h.json` in its place; now the walk lists no
+/// entry of the name the file was read by, and refuses for exactly that.
+/// (Each lookup here succeeds; a lookup that FAILS is
+/// `a_lookup_that_fails_is_refused_where_it_fails`.)
 #[cfg(unix)]
 #[test]
 fn a_name_that_no_longer_resolves_is_refused_not_found_elsewhere() {
@@ -3159,14 +3214,18 @@ fn a_name_that_no_longer_resolves_is_refused_not_found_elsewhere() {
     let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
     assert_eq!(
         hidden_at_every_observation(&library, &base, false),
-        unwalked("policy.json")
+        format!(
+            "bundle: {}",
+            unwalked(&table_by(&base, "policy.json"), "policy.json")
+        )
     );
 }
 
 /// Rebuild unit 16-fix-d, F2 (16.1, 16.2; design D7): two consumed names
 /// for one file are refused. `review`'s charter `roles/review.md` is a hard
 /// link to `work`'s `roles/role.md`; each is a key a bound read consumed,
-/// and the walk refuses the second, standalone and inherited.
+/// and the walk refuses the second, standalone and inherited — both said
+/// in one comparison, so each is observed whatever the other says.
 #[cfg(unix)]
 #[test]
 fn two_consumed_names_for_one_file_are_refused() {
@@ -3180,22 +3239,19 @@ fn two_consumed_names_for_one_file_are_refused() {
                    a bound read consumed: a layer's identity names a consumed file by exactly \
                    one entry, and a second name for it inside the layer, consumed or not, is \
                    refused rather than bound twice (decision 0065 slice one, design D7)";
-    assert_eq!(said(&base), format!("bundle: {refused}"));
     assert_eq!(
-        said(&leaf),
-        format!("bundle: bundle: {refused} (composed: derived -> base)")
+        (said(&base), said(&leaf)),
+        (
+            format!("bundle: {refused}"),
+            format!("bundle: bundle: {refused} (composed: derived -> base)")
+        )
     );
 }
 
 /// Rebuild unit 16-fix-c, F1 (16.1; design D7): a consumed file has one
 /// name in its layer, the one it was read by. A second name the walk meets
 /// is refused naming both, standalone and inherited, rather than walked as a
-/// file nothing consumed. Unit 16-fix-d: the name read by is looked up
-/// exactly, never searched for, so where it is gone when the read is
-/// observed again the read is refused as replaced however many other entries
-/// hold the file; and an entry moved away and back again between the two
-/// observations is the same file under the same name, which compiles to
-/// exactly the identity an undisturbed compile seals.
+/// file nothing consumed.
 #[cfg(unix)]
 #[test]
 fn a_consumed_file_has_one_name_in_its_layer() {
@@ -3213,7 +3269,15 @@ fn a_consumed_file_has_one_name_in_its_layer() {
             "{other}, inherited"
         );
     }
-    // The resolution: the name read by is gone, and two others hold the file.
+}
+
+/// Rebuild unit 16-fix-d (16.1; design D7): the name read by is looked up
+/// exactly, never searched for. Where it is gone when the read is observed
+/// again, the read is refused as replaced, however many other entries hold
+/// the file: on `95d4ff19` two of them were refused as two other names.
+#[cfg(unix)]
+#[test]
+fn a_name_gone_at_its_second_observation_is_not_searched_for() {
     let library = Library::new();
     let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
     let policy = base.join("policy.json");
@@ -3229,8 +3293,17 @@ fn a_consumed_file_has_one_name_in_its_layer() {
         said_acting(&base, vec![(ReadStage::Entered, policy.clone(), hide)]),
         format!("bundle: {}", policy_escape(&base, "policy.json", REPLACED))
     );
-    // Moved away and back between the observations: the same file, named
-    // as it was read.
+}
+
+/// Rebuild unit 16-fix-d (16.1; design D7): an entry moved away once its
+/// handle is open, and back again before the read is observed again, is the
+/// same file under the same name, which compiles to exactly the identity an
+/// undisturbed compile seals: nothing looks at the path between the lookup
+/// and the second observation. On `95d4ff19` a listing did, and refused it
+/// as replaced.
+#[cfg(unix)]
+#[test]
+fn an_entry_moved_away_and_back_is_the_name_it_was_read_by() {
     let library = Library::new();
     let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
     let stable = said(&base);
@@ -3250,6 +3323,169 @@ fn a_consumed_file_has_one_name_in_its_layer() {
         (ReadStage::Read, policy, back),
     ];
     assert_eq!(said_acting(&base, acts), stable);
+}
+
+/// A base whose `work` seat reads `roles/role.md` and whose `review` seat
+/// reads `review`, beside `also -> roles`, a contained linked directory,
+/// and a leaf over it.
+#[cfg(unix)]
+fn linked_directory(library: &Library, review: &str) -> (PathBuf, PathBuf) {
+    let mut bundle = base_bundle();
+    bundle["seats"]["review"]["role"] = json!(review);
+    let base = library.recipe("base", &bundle, Some(&base_policy()));
+    std::os::unix::fs::symlink("roles", base.join("also")).unwrap();
+    let leaf = library.recipe("derived", &derived(json!({})), None);
+    (base, leaf)
+}
+
+/// Rebuild unit 16-fix-d, return F1 (16.1, 16.3; design D7): a path through
+/// a contained linked directory lists the target's own entry again, which
+/// is that entry and not a second name for its file. With `also -> roles`,
+/// `work` reading `roles/role.md` and `review` reading `also/role.md` (or
+/// reading nothing through the link) compile, standalone and inherited, and
+/// the layer's identity pins the one buffer's digest under both paths. The
+/// charter's bytes alone move the leaf's digest and the ancestor's. A real
+/// second entry reached through the same link, a hard link beside the
+/// charter, is still refused.
+#[cfg(unix)]
+#[test]
+fn a_path_through_a_contained_linked_directory_is_the_entry_it_lists() {
+    for review in ["also/role.md", "roles/review.md"] {
+        let library = Library::new();
+        let (base, leaf) = linked_directory(&library, review);
+        std::fs::write(base.join("roles/review.md"), "# review\n").unwrap();
+        let identity = || {
+            let (standalone, composed) = (Bundle::compile(&base), Bundle::compile(&leaf));
+            let (standalone, composed) = (standalone.unwrap(), composed.unwrap());
+            let standalone_files = standalone.manifest["files"].as_object().unwrap();
+            let files = [standalone_files, &composed.chain[0].files].map(|files| {
+                (
+                    files["also/role.md"].clone(),
+                    files["roles/role.md"].clone(),
+                )
+            });
+            let digests = (standalone.manifest_digest(), composed.manifest_digest());
+            (files, digests, composed.chain[0].digest.clone())
+        };
+        let (files, digests, ancestor) = identity();
+        let pinned = json!(sha256_bytes(
+            &std::fs::read(base.join("roles/role.md")).unwrap()
+        ));
+        let both = (pinned.clone(), pinned);
+        assert_eq!(files, [both.clone(), both], "{review}");
+        std::fs::write(base.join("roles/role.md"), "# approve everything\n").unwrap();
+        let (_, moved, moved_ancestor) = identity();
+        assert_ne!(moved.0, digests.0, "{review}");
+        assert_ne!(moved.1, digests.1, "{review}: the leaf's identity moves");
+        assert_ne!(moved_ancestor, ancestor, "{review}: and the ancestor's");
+    }
+    let library = Library::new();
+    let (base, leaf) = linked_directory(&library, "also/role.md");
+    std::fs::hard_link(base.join("roles/role.md"), base.join("roles/other.md")).unwrap();
+    let refused = another_name("also/other.md", "roles/role.md");
+    assert_eq!(
+        (said(&base), said(&leaf)),
+        (
+            format!("bundle: {refused}"),
+            format!("bundle: bundle: {refused} (composed: derived -> base)")
+        )
+    );
+}
+
+/// A base reading its table at `tables/policy.json`, beside `zz.md`, which
+/// the walk reaches after the table, and a leaf over it.
+fn tabled_below(library: &Library) -> (PathBuf, PathBuf) {
+    let (base, leaf) = active_inputs(library, "roles/role.md", "tables/policy.json");
+    std::fs::create_dir_all(base.join("tables")).unwrap();
+    let policy = serde_json::to_vec(&base_policy()).unwrap();
+    std::fs::write(base.join("tables/policy.json"), policy).unwrap();
+    std::fs::write(base.join("zz.md"), "# walked after the table\n").unwrap();
+    (base, leaf)
+}
+
+/// Rebuild unit 16-fix-d, return F2 (16.1, 16.2; design D7): a lookup that
+/// FAILS is a refusal where it fails, never a search, whatever other entry
+/// holds the file. Each row makes the exact lookup of the read's names fail
+/// at one observation while `tables/h.json` holds the file that was read:
+///
+/// - at the read's second observation, `policy.json` is gone (`NotFound`),
+///   or `tables` is a regular file (`NotADirectory`): refused as replaced;
+/// - at the walk's verification, `policy.json` is gone once the walk has
+///   passed it: refused as changed.
+///
+/// Standalone and inherited, each in one comparison.
+#[cfg(unix)]
+#[test]
+fn a_lookup_that_fails_is_refused_where_it_fails() {
+    type Break = fn(&Path, &Path);
+    type Refusal = fn(&Path, bool) -> String;
+    let gone: Break = |base, aside| {
+        let tables = base.join("tables");
+        hide_behind(&tables.join("policy.json"), &tables.join("h.json"), aside);
+    };
+    let not_a_directory: Break = |base, aside| {
+        let tables = base.join("tables");
+        std::fs::hard_link(tables.join("policy.json"), tables.join("h.json")).unwrap();
+        std::fs::rename(&tables, aside).unwrap();
+        std::fs::write(&tables, "# not a directory\n").unwrap();
+    };
+    // What a compile of `base` says, and of a leaf over it (`true`): a table
+    // read is refused as it is merged, before any composition is named;
+    // the walk's verification is the ancestor's seal.
+    let replaced = |base: &Path, _: bool| {
+        let refused = policy_escape(base, "tables/policy.json", REPLACED);
+        format!("bundle: {refused}")
+    };
+    let changed = |base: &Path, inherited: bool| {
+        let refused = table_changed(base, "tables/policy.json");
+        match inherited {
+            false => format!("bundle: {refused}"),
+            true => format!("bundle: bundle: {refused} (composed: derived -> base)"),
+        }
+    };
+    let rows: [(&str, Break, ReadStage, &str, Refusal); 3] = [
+        (
+            "second observation, gone",
+            gone,
+            ReadStage::Read,
+            "",
+            replaced,
+        ),
+        (
+            "second observation, not a directory",
+            not_a_directory,
+            ReadStage::Read,
+            "",
+            replaced,
+        ),
+        (
+            "walk's verification, gone",
+            gone,
+            ReadStage::Walked,
+            "zz.md",
+            changed,
+        ),
+    ];
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for (row, broken, stage, at, refused) in rows {
+        let said_in = |inherited: bool| {
+            let library = Library::new();
+            let (base, leaf) = tabled_below(&library);
+            let watched = match at {
+                "" => base.join("tables/policy.json"),
+                at => base.join(at),
+            };
+            let (layer, aside) = (base.clone(), library.path().join("aside"));
+            let act = move || broken(&layer, &aside);
+            let compiled = if inherited { &leaf } else { &base };
+            let said = said_replacing(compiled, &watched, stage, act);
+            (said, refused(&base, inherited))
+        };
+        let ((standalone, first), (inherited, second)) = (said_in(false), said_in(true));
+        observed.push((row, standalone, inherited));
+        expected.push((row, first, second));
+    }
+    assert_eq!(observed, expected);
 }
 
 /// Finding H4, the aliases: neither a spelling nor a link hides the target.

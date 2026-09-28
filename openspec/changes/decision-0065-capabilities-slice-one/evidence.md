@@ -18468,3 +18468,247 @@ The default-feature workspace suite was not run on this visit.
 - Dispatch still reads a role by its written path (unit 18).
 - The walk still lists a layer by path and hashes unconsumed files by
   path. Only its judgement of consumed identities changed.
+
+## Unit 16-fix-d, return — one entry, a failing lookup, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-1d9ed775`, based on `e5c58a8c`. This
+visit answers the council's F1–F5 on `e5c58a8c`. F6 (verdict advocacy in
+member notes) is not acted on. Production: `bundle.rs` and
+`bundle/compose.rs`. Tests: `bundle/compose_tests.rs`. Scratch logs are in
+`.forge/u16e/*` (not committed).
+
+Method: baselines ran this visit's test file against the production files
+of `e5c58a8c` or `95d4ff19`. Each mutation edited the candidate, ran
+`cargo test -p brokkr-runtime --all-features --locked --lib bundle::`,
+and was restored from the saved candidate (`.forge/u16e/*.cand`). After
+the last restore, `cmp` showed all three files equal to their candidates,
+and the suite passed (237, `restored.log`). A few row checks ran a scratch
+copy of the test file with the earlier assertion skipped, so a later row
+could be observed. These are named below, and the committed file was
+restored afterwards.
+
+The line numbers in the logs are those of the candidate before `cargo fmt`
+and one clippy-driven type alias. Tests are named here by function.
+
+### Corrections to the unit 16-fix-d section above
+
+- *"A link is its own entry, so a contained link to a consumed file is one
+  name whose target is the other, and it still compiles"* held only where
+  the last step is the link. `walk_files` follows a linked directory, and
+  `symlink_metadata` follows the links before the last name. So with
+  `also -> roles`, `also/role.md` was refused as a second name for
+  `roles/role.md`, whether or not it was consumed. Observed on `e5c58a8c`
+  (below).
+- *"`a_name_that_no_longer_resolves_is_refused_not_found_elsewhere` (F3)"*
+  did not prove a failing lookup. Every lookup in it succeeds, and it binds
+  the walk's absent-key refusal. M3 there removed that guard, not error
+  propagation. The failing-lookup proof is new here.
+- *"F2 … standalone and inherited"* and the two changed rows of
+  `a_consumed_file_…` were not each observed. The F2 baseline and M2 logs
+  stop at the standalone assertion. The two-other-names row had no caught
+  mutation. The moved-away-and-back row had neither a red nor a caught
+  mutation. Each is observed below.
+- 16.1 did not close. Its case-insensitive refusal row is unobserved, so it
+  is open again (F5).
+
+### What changed
+
+**F1, one entry per consumed file.** The walk used to judge one name per
+consumed file. It now judges one *entry*: the `(dev, ino)` of the
+directory holding it, followed through links, plus its name there
+(`Entry`, `entry_of`). `consumed_entry` returns the entry with the
+consumed file.
+
+- **Two names.** Refused only when a consumed file is met under a second,
+  different entry.
+- **Another name.** A file under no consumed key is refused unless its
+  entry is the consumed target's own entry. `also/role.md` under
+  `also -> roles` is `roles/role.md`'s entry, so it is accepted and walked
+  as before.
+- Two hard links are two entries, so both refusals still hold for them.
+- `Binding.key`, `walk_files` and `Supplied` are documented accordingly.
+
+**F4, context.** `Supplied` carries `consumer`, the clause that opens that
+input's own refusal:
+
+- `<file>: the layer's declaring document`;
+- `<file>: 'policy' names '<reference>'`;
+- `<file>: seat '<site>' names role '<reference>'`.
+
+`Consumed::digests` builds it. The walk's unlisted-key refusal now opens
+with it and names the key read by. `Binding::supplied` takes it.
+
+**F2.** No production change. Deleting the search in `e5c58a8c` already
+made every exact lookup's error a refusal. What was missing was the proof.
+
+### Tests
+
+New, in `bundle/compose_tests.rs`:
+
+- **`a_path_through_a_contained_linked_directory_is_the_entry_it_lists`
+  (F1).** The fixture is `also -> roles`, with `work` reading
+  `roles/role.md`. There are two rows: `review` reads `also/role.md`, or
+  `review` reads `roles/review.md` and nothing consumes through the link.
+  Each row compiles standalone and inherited. Both manifests (the base's,
+  and the leaf's `chain[0].files`) pin the buffer's digest under
+  `also/role.md` and `roles/role.md`. Rewriting the charter moves the
+  base's, the leaf's and the ancestor's digests. The control is a hard
+  link `roles/other.md` with `review` reading through the link. It is
+  refused as `another_name("also/other.md", "roles/role.md")`, standalone
+  and inherited, in one comparison.
+- **`a_lookup_that_fails_is_refused_where_it_fails` (F2).** The fixture is
+  the table `tables/policy.json` with `zz.md` beside it. At each point the
+  exact lookup fails while `tables/h.json` holds the file that was read:
+  - at the read's `Read`, `policy.json` is moved out of the layer. The
+    second observation gets `NotFound` and refuses as *replaced*.
+  - at the same point, `tables` is moved out and replaced by a regular
+    file. The second observation gets `NotADirectory` and refuses as
+    *replaced*.
+  - at `Walked` for `zz.md`, after the walk has passed the table,
+    `policy.json` is moved out. `Held::intact` gets `NotFound`, and the
+    table is refused as *changed*.
+
+  Each row is compiled standalone and inherited, and all rows are compared
+  in one assertion. A table read is refused as it is merged, so its
+  inherited refusal names no composition. The walk's verification is at
+  the ancestor's seal, so that one does.
+- **`a_name_gone_at_its_second_observation_is_not_searched_for`** and
+  **`an_entry_moved_away_and_back_is_the_name_it_was_read_by` (F3).** These
+  are the two resolution rows of `a_consumed_file_has_one_name_in_its_layer`,
+  moved into their own tests with unchanged assertions, so each is
+  observed by itself.
+
+Changed:
+
+- `unwalked(consumer, key)` now takes the consumer clause. There are new
+  helpers `table_by` and `role_by`.
+- `a_spelling_its_directory_does_not_list_is_refused` (F4). The case rows
+  expect the table's context. The removed-link row now covers a table
+  link and a charter link, each standalone and inherited, in one
+  comparison each.
+- `a_name_that_no_longer_resolves_is_refused_not_found_elsewhere` expects
+  the table's context. Its documentation now says it is the absent-key
+  case, not a failing lookup.
+- `two_consumed_names_for_one_file_are_refused` (F3) compares
+  `(standalone, inherited)` in one assertion. The expectations are
+  unchanged.
+- `a_consumed_file_has_one_name_in_its_layer` keeps its walk rows.
+
+### Baseline on `e5c58a8c`
+
+Command: `cargo test -p brokkr-runtime --all-features --locked --lib
+bundle::compose_tests`, with this visit's test file and `e5c58a8c`'s
+production files. Result: 49 passed, 3 failed (`baseline-e5c5.log`).
+
+- `a_path_through_…`, row `also/role.md`: the compile's `unwrap` met
+  "bundle files 'also/role.md' and 'roles/role.md' are two names for one
+  file a bound read consumed…".
+- `a_name_that_no_longer_resolves_…`: left the context-free "bundle file
+  'policy.json' is the name a bound read consumed its file by…".
+- `a_spelling_…`, table-link row: left the context-free refusal, standalone
+  and inherited.
+
+Scratch rows (`baseline-e5c5-rows.log`). With the first loop row and the
+table-link assertion skipped:
+
+- `a_path_through_…`, row `roles/review.md`: "bundle file 'also/review.md'
+  is another name for 'roles/review.md'…".
+- `a_spelling_…`, charter-link row: left "bundle file 'roles/linked.md' is
+  the name…", standalone and inherited.
+
+With both loop rows skipped (`baseline-e5c5-control.log`), the hard-link
+control passes on `e5c58a8c`. It is a control, not a regression.
+
+`a_lookup_that_fails_…` passes on `e5c58a8c` (in `baseline-e5c5.log`'s 49)
+and on `95d4ff19` (in `baseline-95d4.log`'s 45). **No baseline red exists
+for it.** On both heads an exact lookup's error already refused. The
+errors `95d4ff19` discarded were candidate lookups inside the alias
+search. That search is deleted, and no exact lookup reaches that code.
+The test proves the refusal where each lookup fails. M4 and M5 show that
+it binds.
+
+### Baseline on `95d4ff19`
+
+Same command, with `95d4ff19`'s production files. Result: 45 passed, 7
+failed (`baseline-95d4.log`). The F3 record rows:
+
+- `two_consumed_names_…`: left `("compiled to 2662257a…", "compiled to
+  5cdd9efb…")`. **The inherited half is red on its own.**
+- `a_name_gone_at_its_second_observation_…`: left "…which its directory
+  no longer lists by the name it was read by, while 'h1.json' and
+  'h2.json' both name the file that was read…".
+- `an_entry_moved_away_and_back_…`: left "…'policy' names 'policy.json',
+  which was replaced while it was read…". Right: `compiled to c4061ec5…`.
+- The other four reds are the F1 regression (`compiled to 32393b07…`,
+  reproduced again), the absent-key row, `a_path_through_…` and
+  `a_spelling_…`.
+
+### Mutations
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| M1: two-names compares the first name too (`\|\| *first != rel`) | `a_path_through_…`, row `also/role.md`: "bundle files 'also/role.md' and 'roles/role.md' are two names…". 236 passed | `m1.log` |
+| M2: an unconsumed path is never the target's entry (`&& false`) | `a_path_through_…`, row `roles/review.md`: "bundle file 'also/review.md' is another name for 'roles/review.md'…". 236 passed | `m2.log` |
+| M3: the unlisted-key refusal opens with "bundle file '<key>'" instead of its consumer | `a_name_that_no_longer_resolves_…` and `a_spelling_…` table-link row, standalone and inherited. 235 passed. In a scratch run with the table-link assertion skipped, the charter-link row also fails, standalone and inherited (`m3-role.log`) | `m3.log` |
+| M4: the read's second observation treats a lookup error as standing (`map_or(true, …)`) | `a_lookup_that_fails_…`: both "second observation" rows, standalone and inherited, left the unlisted-key refusal. The walk's-verification row is unchanged. `a_name_gone_at_its_second_observation_…`: left the unlisted-key refusal. Also the existing `a_replacement_between_check_and_read_…`. 234 passed | `m4.log` |
+| M5: `Held::intact` treats a lookup error as standing (`map_or(true, …)`) | `a_lookup_that_fails_…`, walk's-verification row: left `compiled to bf8a353f…` standalone and `compiled to a8386554…` inherited. 236 passed | `m5.log` |
+| M6: `observe` looks at the path after each lookup and refuses if it is gone | `an_entry_moved_away_and_back_…`: left *replaced*, right `compiled to c4061ec5…`. Also the F1 regression and the absent-key row. 234 passed | `m6.log` |
+
+Unmutated: 237 passed (`cand.log`), and again once restored
+(`restored.log`).
+
+### Coverage diagnostic (not the gate)
+
+Command: `cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --lib
+--all-features --branch --lcov` (`u16e.lcov`). This time the records
+were cut from the two files' own `SF` sections:
+
+- `bundle.rs`, `walk_files` through `consumed_entry` (`:6660–6839`): 124
+  `DA` and 24 `BRDA` records (`bundle-range.txt`).
+- `compose.rs`, `Consumed::digests` (`:655–689`): 23 `DA` records
+  (`compose-range.txt`).
+
+Both files were read in full. None of the records is zero or untaken.
+This is not `scripts/coverage-exact.sh`.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+All on the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`). The first run asked for a type alias in
+  the new test, which was added.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 results, 0
+  failed, lib 601 (`runtime.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, 0 failed
+  (`workspace.log`).
+- `compile --bundle bundles/self`: `45dc1c7e…`. `bundles/verify`:
+  `f7cbd4bb…`. Both are unchanged.
+- `openspec validate --all --strict --no-interactive`: 18 passed.
+- `git diff --check`: clean.
+
+The default-feature workspace suite was not run on this visit.
+
+### Pending
+
+- **The case-insensitive rows of the spelling refusal, and with them
+  16.1.** This seat refused `unshare`, which a casefolded tmpfs needs, as
+  16-fix-c's seat did. The fixture root here accepts no case alias. The
+  unlisted-key reason, now with its consumer, for `POLICY.JSON` and
+  `TABLE.JSON` still needs a run on macOS or a casefolded Linux directory.
+- macOS: `openat`/`readlinkat` and the flag values.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council.
+
+### Follow-ups, not built here
+
+- Dispatch still reads a role by its written path (unit 18).
+- The walk still follows a linked directory by path. That includes one
+  whose target stands outside the layer, which only a bound read refuses.
+  That is pre-existing and unchanged here.
