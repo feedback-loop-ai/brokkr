@@ -61,12 +61,12 @@ fn a_seat_not_proven_over_parks_with_its_received_result() {
 
 #[test]
 fn a_dialect_step_not_proven_over_parks_with_its_evidence() {
-    let mut evidence = Map::new();
+    let mut evidence = Unproven::Proven;
     dialect_attempt_outcome(
         DriverRun::Ran(succeeded(json!({"result": "pass"}))),
         &mut evidence,
     );
-    assert_eq!(evidence, Map::new());
+    assert!(matches!(evidence, Unproven::Proven));
     let held = unresolved(json!({"result": "pass"}), Unsettled::Stderr);
     assert!(matches!(
         dialect_attempt_outcome(DriverRun::Ran(held), &mut evidence),
@@ -74,7 +74,7 @@ fn a_dialect_step_not_proven_over_parks_with_its_evidence() {
             attempt is not proven over: a process outside its tree still held the driver's stderr"
     ));
     assert_eq!(
-        Value::Object(evidence),
+        json!(evidence),
         json!({
             "received": {"status": "succeeded", "result": {"result": "pass"}},
             "cleanup": {
@@ -144,7 +144,7 @@ fn a_member_marker_names_the_settled_outcome() {
 fn a_panel_member_not_proven_over_parks_the_panel_with_its_evidence() {
     let result = || json!({"result": "pass", "notes": "ok"});
     let settled = vec![("ok".to_string(), succeeded(result()))];
-    assert_eq!(panel_evidence(&settled), Map::new());
+    assert!(matches!(Unproven::panel(&settled), Unproven::Proven));
     let reports = vec![
         ("ok".to_string(), succeeded(result())),
         (
@@ -158,7 +158,7 @@ fn a_panel_member_not_proven_over_parks_the_panel_with_its_evidence() {
             if reason == "panel members [\"held\"] could not establish completion"
     ));
     assert_eq!(
-        Value::Object(panel_evidence(&reports)),
+        json!(Unproven::panel(&reports)),
         json!({"unresolved_members": {"held": {
             "received": {"status": "succeeded", "result": result()},
             "cleanup": {
@@ -167,4 +167,56 @@ fn a_panel_member_not_proven_over_parks_the_panel_with_its_evidence() {
             },
         }}})
     );
+}
+
+/// Every field an attempt not proven over adds to `effect/indeterminate`
+/// is published in `effect-cleanup.v1` and validates against it, and one
+/// proven over adds none (decision 0016's additive rule).
+#[test]
+fn the_cleanup_fields_are_the_published_extension() {
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../../contracts/effect-cleanup.v1.schema.json"
+    ))
+    .unwrap();
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let v1 = ["attempt_id", "effect_id", "reason"];
+    let lost = || AttemptOutcome::Indeterminate {
+        reason: "lost".into(),
+    };
+    let proven = parked(report(lost(), ""));
+    assert_eq!(
+        proven.as_object().unwrap().keys().collect::<Vec<_>>(),
+        v1.iter().collect::<Vec<_>>()
+    );
+    let refused_kill = AttemptReport {
+        cleanup: Cleanup::Unresolved {
+            reason: Unsettled::Reap { pid: 9 },
+        },
+        ..report(lost(), "")
+    };
+    let panel = json!(Indeterminate {
+        effect_id: "effect",
+        attempt_id: "attempt",
+        reason: String::new(),
+        unproven: Unproven::panel(&[
+            ("ok".into(), succeeded(json!({}))),
+            (
+                "held".into(),
+                unresolved(json!({"result": "pass"}), Unsettled::Stdout),
+            ),
+        ]),
+    });
+    let seat = parked(unresolved(json!({"result": "complete"}), Unsettled::Stderr));
+    for payload in [seat.clone(), parked(refused_kill), panel] {
+        assert!(validator.is_valid(&payload), "{payload}");
+        for field in payload.as_object().unwrap().keys() {
+            assert!(
+                v1.contains(&field.as_str()) || schema["properties"].get(field).is_some(),
+                "{field} is not published"
+            );
+        }
+    }
+    let mut halved = seat;
+    halved.as_object_mut().unwrap().remove("cleanup");
+    assert!(!validator.is_valid(&halved));
 }

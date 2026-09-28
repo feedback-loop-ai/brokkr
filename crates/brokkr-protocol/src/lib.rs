@@ -188,18 +188,27 @@ impl AttemptReport {
         }
     }
 
-    /// The fields a terminal event carries for an unresolved cleanup: the
-    /// outcome received, typed, beside the cleanup. Empty once settled, so
-    /// a settled attempt's event keeps its bytes.
-    pub fn cleanup_evidence(&self) -> serde_json::Map<String, Value> {
+    /// The evidence a terminal event carries for an unresolved cleanup:
+    /// the outcome received, typed, beside the cleanup. None once settled,
+    /// so a settled attempt's event keeps its bytes.
+    pub fn cleanup_evidence(&self) -> Option<CleanupEvidence> {
         match &self.cleanup {
-            Cleanup::Settled => serde_json::Map::new(),
-            Cleanup::Unresolved { .. } => serde_json::Map::from_iter([
-                ("received".to_string(), serde_json::json!(self.outcome)),
-                ("cleanup".to_string(), serde_json::json!(self.cleanup)),
-            ]),
+            Cleanup::Settled => None,
+            Cleanup::Unresolved { .. } => Some(CleanupEvidence {
+                received: self.outcome.clone(),
+                cleanup: self.cleanup.clone(),
+            }),
         }
     }
+}
+
+/// An attempt not proven over, as its terminal event carries it (#403):
+/// the `received` and `cleanup` fields of
+/// `contracts/effect-cleanup.v1.schema.json`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupEvidence {
+    received: AttemptOutcome,
+    cleanup: Cleanup,
 }
 
 // The binary's one environment guard (#357).

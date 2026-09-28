@@ -949,7 +949,7 @@ fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
         settled.settled_outcome(),
         AttemptOutcome::Succeeded { .. }
     ));
-    assert!(settled.cleanup_evidence().is_empty());
+    assert!(settled.cleanup_evidence().is_none());
     // A refusal replaces the outcome acted on, never the one received.
     let refused = AttemptReport {
         refused: Some(AttemptOutcome::Failed {
@@ -986,7 +986,7 @@ fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
         );
     }
     assert_eq!(
-        Value::Object(report(succeeded(), stdout()).cleanup_evidence()),
+        json!(report(succeeded(), stdout()).cleanup_evidence()),
         json!({
             "received": {"status": "succeeded", "result": {"result": "complete"}},
             "cleanup": {

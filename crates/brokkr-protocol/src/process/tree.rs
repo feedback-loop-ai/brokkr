@@ -54,7 +54,12 @@
 //! attempt running, and so sets the attempt's end. The next read, up to
 //! the tracker's 100 ms later, finds the child with the engine, born
 //! after that end, and files it as the engine's own. Cleanup can then be
-//! certified while the child runs.
+//! certified while the child runs. The same read has a second ordering.
+//! Once the pid counter has wrapped, a detached child can have a lower
+//! pid than its parent, so its row is read first, still naming that
+//! parent, and the parent exits before its own row is read. That read
+//! records the child neither as a descendant nor as a stray, and the same
+//! certification follows.
 //!
 //! The second is the read-to-fork instant, a wrong kill rather than a
 //! missed one. No read is atomic with the fork, so an orphan of the

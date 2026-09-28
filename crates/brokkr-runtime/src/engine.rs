@@ -33,7 +33,8 @@ use crate::bundle::{
     SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
-use brokkr_protocol::{AttemptReport, Cleanup};
+use brokkr_protocol::{AttemptReport, Cleanup, CleanupEvidence};
+use serde::Serialize;
 
 mod checkpoints;
 use checkpoints::Checkpoints;
@@ -78,42 +79,63 @@ fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
         .collect()
 }
 
-/// A dialect step's outcome, and into `evidence` the unresolved cleanup
-/// its terminal event carries (#403).
-fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Map<String, Value>) -> AttemptOutcome {
+/// A dialect step's outcome, and into `evidence` what its terminal event
+/// carries when its tree is not proven over (#403).
+fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {
     match run {
         DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
         DriverRun::Ran(report) => {
-            *evidence = report.cleanup_evidence();
+            *evidence = Unproven::seat(&report);
             report.settled_outcome()
         }
     }
 }
 
-/// A terminal event's payload with the evidence of an unresolved cleanup
-/// beside its reason (#403): the outcome received, typed, and the cleanup.
-fn carrying(mut payload: Value, evidence: Map<String, Value>) -> Value {
-    payload
-        .as_object_mut()
-        .expect("a terminal payload is an object")
-        .extend(evidence);
-    payload
+/// What an `effect/indeterminate` carries of an attempt not proven over
+/// (#403), the fields `contracts/effect-cleanup.v1.schema.json` publishes:
+/// nothing once proven over, so the event keeps its v1 bytes; a seat's own
+/// evidence; or a panel's, by member. The member's own marker is a closed
+/// seat record and carries none.
+#[derive(Debug, Default, Serialize)]
+#[serde(untagged)]
+enum Unproven {
+    #[default]
+    Proven,
+    Seat(CleanupEvidence),
+    Panel {
+        unresolved_members: BTreeMap<String, CleanupEvidence>,
+    },
 }
 
-/// The unresolved cleanups of a panel's members, by member, for the
-/// attempt's terminal event (#403). The member's own marker is a closed
-/// seat record and carries none.
-fn panel_evidence(reports: &[(String, AttemptReport)]) -> Map<String, Value> {
-    let members: Map<String, Value> = reports
-        .iter()
-        .filter_map(|(name, report)| {
-            let evidence = report.cleanup_evidence();
-            (!evidence.is_empty()).then_some((name.clone(), Value::Object(evidence)))
-        })
-        .collect();
-    Map::from_iter(
-        (!members.is_empty()).then_some(("unresolved_members".to_string(), Value::Object(members))),
-    )
+impl Unproven {
+    fn seat(report: &AttemptReport) -> Self {
+        report
+            .cleanup_evidence()
+            .map_or(Unproven::Proven, Unproven::Seat)
+    }
+
+    fn panel(reports: &[(String, AttemptReport)]) -> Self {
+        let unresolved_members: BTreeMap<String, CleanupEvidence> = reports
+            .iter()
+            .filter_map(|(name, report)| Some((name.clone(), report.cleanup_evidence()?)))
+            .collect();
+        if unresolved_members.is_empty() {
+            Unproven::Proven
+        } else {
+            Unproven::Panel { unresolved_members }
+        }
+    }
+}
+
+/// An `effect/indeterminate` payload: its v1 fields, and beside them what
+/// of the attempt is not proven over.
+#[derive(Serialize)]
+struct Indeterminate<'a> {
+    effect_id: &'a str,
+    attempt_id: &'a str,
+    reason: String,
+    #[serde(flatten)]
+    unproven: Unproven,
 }
 
 #[derive(Debug, Error)]
@@ -1688,7 +1710,7 @@ impl Engine {
         };
         let start_failure = failed_to_start(&report);
         let stderr_tail = stderr_tail(&report.stderr);
-        let evidence = report.cleanup_evidence();
+        let unproven = Unproven::seat(&report);
         match report.settled_outcome() {
             AttemptOutcome::Succeeded { result } => {
                 let result = stamp_boundary(result, boundary);
@@ -1718,14 +1740,12 @@ impl Engine {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    carrying(
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "reason": format!("{reason}; stderr tail: {stderr_tail}"),
-                        }),
-                        evidence,
-                    ),
+                    json!(Indeterminate {
+                        effect_id,
+                        attempt_id,
+                        reason: format!("{reason}; stderr tail: {stderr_tail}"),
+                        unproven,
+                    }),
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -1890,19 +1910,17 @@ impl Engine {
         let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
         let start_failures = start_failure_sites(&reports, "");
-        let evidence = panel_evidence(&reports);
+        let unproven = Unproven::panel(&reports);
         match panel_outcome(aggregate, reports) {
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(
                     EventType::EffectIndeterminate,
-                    carrying(
-                        json!({
-                            "effect_id": effect_id,
-                            "attempt_id": attempt_id,
-                            "reason": reason,
-                        }),
-                        evidence,
-                    ),
+                    json!(Indeterminate {
+                        effect_id,
+                        attempt_id,
+                        reason,
+                        unproven,
+                    }),
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -2240,7 +2258,7 @@ impl Engine {
             let mut start_failures: Vec<Site> = Vec::new();
             // What this step's terminal event carries when its tree is
             // not proven over (#403).
-            let mut evidence = Map::new();
+            let mut unproven = Unproven::Proven;
             // The gate span inside a sequence is THIS step: armed here,
             // compared and cleared at this step's own end below, before
             // any later step gets to move the tree lawfully (decision
@@ -2313,7 +2331,7 @@ impl Engine {
                             if failed_to_start(&report) {
                                 start_failures.push(site);
                             }
-                            evidence = report.cleanup_evidence();
+                            unproven = Unproven::seat(&report);
                             match report.settled_outcome() {
                                 AttemptOutcome::Succeeded { result } => {
                                     AttemptOutcome::Succeeded { result }
@@ -2359,7 +2377,7 @@ impl Engine {
                         &tag_prefix,
                     )?;
                     start_failures = start_failure_sites(&reports, &tag_prefix);
-                    evidence = panel_evidence(&reports);
+                    unproven = Unproven::panel(&reports);
                     panel_outcome(*aggregate, reports)
                 }
                 StepBody::Dialect { execution } => {
@@ -2446,7 +2464,7 @@ impl Engine {
                             Some(&step.name),
                             None,
                         )?,
-                        &mut evidence,
+                        &mut unproven,
                     )
                 }
             };
@@ -2479,14 +2497,12 @@ impl Engine {
                 AttemptOutcome::Indeterminate { reason } => {
                     self.append(
                         EventType::EffectIndeterminate,
-                        carrying(
-                            json!({
-                                "effect_id": effect_id,
-                                "attempt_id": attempt_id,
-                                "reason": format!("sequence step '{}': {reason}", step.name),
-                            }),
-                            evidence,
-                        ),
+                        json!(Indeterminate {
+                            effect_id,
+                            attempt_id,
+                            reason: format!("sequence step '{}': {reason}", step.name),
+                            unproven,
+                        }),
                         Some(attempt_id.to_string()),
                     )?;
                     return Ok(());

@@ -345,8 +345,9 @@ pub brokkr_protocol::AttemptReport::refused: core::option::Option<brokkr_protoco
 pub brokkr_protocol::AttemptReport::session_ref: core::option::Option<alloc::string::String>
 pub brokkr_protocol::AttemptReport::stderr: alloc::string::String
 impl brokkr_protocol::AttemptReport
-pub fn brokkr_protocol::AttemptReport::cleanup_evidence(&self) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub fn brokkr_protocol::AttemptReport::cleanup_evidence(&self) -> core::option::Option<brokkr_protocol::CleanupEvidence>
 pub fn brokkr_protocol::AttemptReport::settled_outcome(&self) -> brokkr_protocol::AttemptOutcome
+pub struct brokkr_protocol::CleanupEvidence
 pub struct brokkr_protocol::Message
 pub brokkr_protocol::Message::body: brokkr_protocol::Body
 pub brokkr_protocol::Message::msg_id: alloc::string::String

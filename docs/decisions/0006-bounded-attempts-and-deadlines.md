@@ -94,7 +94,7 @@ determinate was not.
   the engine's own, as git's detached maintenance is. The read before a
   driver starts is taken afresh, never shared with an earlier one, so an
   orphan of the engine's own born before it is not taken for the
-  attempt's. So on Linux, but for the residual below, no descendant the
+  attempt's. So on Linux, but for the first residual below, no descendant the
   engine can see is left running while an attempt is certified settled.
   A kernel that refuses the engine the subreaper or a pidfd leaves this
   second means absent, and then a kill that saw any descendant parks,
@@ -136,21 +136,31 @@ determinate was not.
   without the read that tells its orphans from what ran before it. The
   report keeps
   the outcome the attempt reached, typed, beside an unresolved cleanup,
-  and the engine journals both. A checkpoint the journal refused changes
+  and the engine journals both on `effect/indeterminate`, as the
+  numbered extension `contracts/effect-cleanup.v1.schema.json`
+  publishes them: `received` and `cleanup` for a seat or a step, and the
+  same pair per member under `unresolved_members` for a panel. An
+  attempt proven over journals the v1 payload unchanged. A checkpoint
+  the journal refused changes
   the outcome acted on, never the outcome received. The engine never
   certifies the outcome or retries it.
-- One Linux residual remains, the table-read race, accepted by the
-  operator's ruling of 2026-09-28. A Linux read of the table is a
+- Two Linux residuals remain. The first, the table-read race, is
+  accepted by the operator's ruling of 2026-09-28. A Linux read of the table is a
   `/proc` listing followed by one stat read per pid. Suppose a failed
   driver's last live descendant forks a detached child after the listing
   and exits before its own row is read. That read shows nothing of the
   attempt running, and so sets the attempt's end. The next read, up to
   the tracker's 100 ms later, finds the child with the engine, born
   after that end, and files it as the engine's own. Cleanup can then be
-  certified while the child runs. It is inherent to polling the table;
+  certified while the child runs. The same read has a second ordering:
+  once the pid counter has wrapped, a detached child can have a lower
+  pid than its parent, so its row is read first, still naming that
+  parent, and the parent exits before its own row is read. That read
+  records the child neither as a descendant nor as a stray, and the same
+  certification follows. It is inherent to polling the table;
   per-attempt cgroup containment, filed as #472, closes it by
   construction.
-- A second Linux residual, the read-to-fork instant, is accepted by the
+- The second Linux residual, the read-to-fork instant, is accepted by the
   operator's further ruling of 2026-09-28. It is a wrong kill, not a
   missed one. No read of the table is atomic with the fork, so an orphan
   of the engine's own (git's detached maintenance, say) that the engine

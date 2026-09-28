@@ -355,14 +355,14 @@ fn an_undeclared_change_claim_is_dropped() {
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn dialect_change_expands_from_typed_history_and_absence_parks() {
     assert!(matches!(
-        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into()), &mut Map::new()),
+        dialect_attempt_outcome(DriverRun::SpawnFailed("gone".into()), &mut Unproven::Proven),
         AttemptOutcome::Failed { error } if error == "gone"
     ));
     assert!(matches!(
         dialect_attempt_outcome(DriverRun::Ran(report(
             AttemptOutcome::Indeterminate { reason: "lost".into() },
             ""
-        )), &mut Map::new()),
+        )), &mut Unproven::Proven),
         AttemptOutcome::Indeterminate { reason } if reason == "lost"
     ));
     let step = SequenceStep {
