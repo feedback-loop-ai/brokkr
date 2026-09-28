@@ -3483,13 +3483,13 @@ where
         if (ops.poll)(TICK)? {
             if let Some(key) = from_crossterm((ops.read)()?) {
                 if apply(tui, &views, key) == Flow::Quit {
-                    return Ok(ExitCode::SUCCESS);
+                    return Ok(crate::Exit::Completed.into());
                 }
             }
         }
         tui.ticks += 1;
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(crate::Exit::Completed.into())
 }
 
 /// Enter the terminal, run the console, leave the terminal — with every

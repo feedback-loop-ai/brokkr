@@ -1,8 +1,9 @@
-//! Decision 0015 says every `--run` takes a selector, and #362 found
-//! seven verbs that took the string literally. One test per verb pins
-//! that each now asks `selector::resolve_run`: a verb that resolves names
-//! the run `latest` stands for, and on a journal holding no run at all it
-//! answers with the resolver's own refusal rather than its own.
+//! #362 found seven verbs that took `--run` literally, and decision
+//! 0015's proposed 2026-09-28 addendum gives every `--run` its selector.
+//! One test per verb pins that each now asks `selector::resolve_run`: a
+//! verb that resolves names the run `latest` stands for, and on a journal
+//! holding no run at all it answers with the resolver's own refusal,
+//! matched by its [`Refusal`] variant; `selector`'s tests pin the text.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -13,11 +14,9 @@ use brokkr_store::Store;
 use serde_json::json;
 
 use crate::cli_args::*;
+use crate::selector::{refusal_kind, Refusal};
 use crate::tests::{at, cli, running_store, stopped_mid_flight_run, workspace};
-use crate::{run, Cmd};
-
-/// The resolver's refusal of `latest` where there is no run.
-const NOTHING: &str = "no runs in this workspace database; 'latest' resolves to nothing";
+use crate::{run, Cmd, Exit};
 
 /// A journal that exists and holds no run.
 fn empty_journal(dir: &Path) -> PathBuf {
@@ -26,9 +25,9 @@ fn empty_journal(dir: &Path) -> PathBuf {
     db
 }
 
-/// What a verb says when `latest` names nothing.
-fn refusal(command: Cmd) -> String {
-    format!("{:#}", run(cli(command)).unwrap_err())
+/// Which selector refusal a verb answers with, if any.
+fn refusal(command: Cmd) -> Option<Refusal> {
+    refusal_kind(&run(cli(command)).unwrap_err())
 }
 
 #[test]
@@ -39,7 +38,7 @@ fn costs_resolves_latest() {
         run: "latest".into(),
         journal,
     });
-    assert_eq!(refusal(costs), NOTHING);
+    assert_eq!(refusal(costs), Some(Refusal::Empty));
 }
 
 #[test]
@@ -54,7 +53,7 @@ fn resume_resolves_latest() {
         repo: None,
         secrets_file: None,
     });
-    assert_eq!(refusal(resume), NOTHING);
+    assert_eq!(refusal(resume), Some(Refusal::Empty));
 }
 
 #[test]
@@ -69,7 +68,7 @@ fn rerun_resolves_latest() {
         repo: None,
         secrets_file: None,
     });
-    assert_eq!(refusal(rerun), NOTHING);
+    assert_eq!(refusal(rerun), Some(Refusal::Empty));
 }
 
 #[test]
@@ -82,7 +81,7 @@ fn conclude_resolves_latest_to_the_run_it_stops() {
         reason: "the engine moved on without it".into(),
         journal: at(&db),
     });
-    assert_eq!(run(cli(conclude)).unwrap(), ExitCode::from(3));
+    assert_eq!(run(cli(conclude)).unwrap(), ExitCode::from(Exit::Stopped));
     let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
     assert_eq!(state.status, Status::Stopped);
 }
@@ -104,7 +103,7 @@ fn operator_resolves_latest_for_every_command() {
     };
     assert_eq!(
         run(cli(Cmd::Operator(operator("stop", &db)))).unwrap(),
-        ExitCode::SUCCESS
+        ExitCode::from(Exit::Completed)
     );
     let events = Store::open(&db).unwrap().load("running-run").unwrap();
     assert_eq!(
@@ -119,7 +118,7 @@ fn operator_resolves_latest_for_every_command() {
         by_seq: Some(9),
         ..operator("supersede", &empty_journal(empty.path()))
     };
-    assert_eq!(refusal(Cmd::Operator(supersede)), NOTHING);
+    assert_eq!(refusal(Cmd::Operator(supersede)), Some(Refusal::Empty));
 }
 
 #[test]
@@ -133,7 +132,7 @@ fn bridge_resolves_latest() {
         follow: false,
         interval_ms: 0,
     });
-    assert_eq!(refusal(bridge), NOTHING);
+    assert_eq!(refusal(bridge), Some(Refusal::Empty));
 }
 
 #[test]
@@ -150,10 +149,10 @@ fn compare_resolves_both_runs() {
     };
     assert_eq!(
         run(cli(compare("latest", "first"))).unwrap(),
-        ExitCode::SUCCESS
+        ExitCode::from(Exit::Completed)
     );
     assert_eq!(
         refusal(compare("first-run", "second")),
-        "no run matching 'second' in this workspace database"
+        Some(Refusal::Missing)
     );
 }

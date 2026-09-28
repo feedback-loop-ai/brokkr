@@ -701,7 +701,7 @@ fn keep_refs(workspace: &std::path::Path, command: KeepRefsCmd) -> Result<ExitCo
             eprintln!("released {removed} exhibit(s) for {run}");
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 #[derive(Subcommand, Debug)]
@@ -1498,7 +1498,7 @@ fn transcript_command(
                     )
                 );
             }
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
         Some(reason) => {
             // The refusal explanation and notices reach stderr in both
@@ -1720,7 +1720,7 @@ fn supersede(
          --run {run}",
         written.seq
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// The journal alone, for the read surfaces that take a map only to know

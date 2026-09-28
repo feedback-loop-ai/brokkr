@@ -56,7 +56,7 @@ pub(crate) fn init(workspace: &Path, InitArgs { dir }: InitArgs) -> Result<ExitC
              `harness` instead (decision 0046)"
         );
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr doctor`: tools, drivers, the database and optionally a bundle.
@@ -76,7 +76,7 @@ pub(crate) fn doctor(
     );
     println!("{}", report.render());
     Ok(if report.healthy {
-        ExitCode::SUCCESS
+        Exit::Completed.into()
     } else {
         Exit::Failed.into()
     })
@@ -90,7 +90,7 @@ pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> 
         "{}",
         serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr recipes`: list, add or show a recipe.
@@ -106,7 +106,7 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             );
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr agents`: list the agent library or show one definition.
@@ -119,7 +119,7 @@ pub(crate) fn agents(command: AgentsCmd) -> Result<ExitCode> {
             adapters_dir,
         } => agents::show(&name, &agents_dir, &adapters_dir)?,
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr muninn`: read the fleet and record proposals, or list them.
@@ -148,7 +148,7 @@ pub(crate) fn muninn(workspace: &Path, command: MuninnCmd) -> Result<ExitCode> {
         }
         MuninnCmd::List { record, json } => {
             muninn::list(&record, json)?;
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
     }
 }
@@ -186,7 +186,7 @@ pub(crate) fn secrets(command: SecretsCmd) -> Result<ExitCode> {
             eprintln!("removed {name} from {}", secrets_file.display());
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr driver`: serve a built-in forge-driver/v1 adapter.
@@ -196,7 +196,7 @@ pub(crate) fn driver(DriverArgs { kind, args }: DriverArgs) -> Result<ExitCode> 
     })?;
     let extra = driver_payload(kind, args);
     brokkr_protocol::adapters::serve(kind, extra)?;
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }
 
 /// `brokkr fake-driver`: the scripted driver the machine proof runs.
@@ -209,5 +209,5 @@ pub(crate) fn fake_driver(
     }: FakeDriverArgs,
 ) -> Result<ExitCode> {
     brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
-    Ok(ExitCode::SUCCESS)
+    Ok(Exit::Completed.into())
 }

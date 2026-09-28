@@ -163,10 +163,12 @@ find out mid-run. Warnings are optional capabilities. `doctor` executes
 no agent. Dialect lines compare the installed specification tool with the
 realm's pin and check every file its dialect requires; a missing dialect tool
 warns that the design route will refuse without making the whole doctor fail.
-Three flags: `--bundle <dir>` also compiles a bundle and reports
+Four flags: `--bundle <dir>` also compiles a bundle and reports
 the result, and `--db <path>` chooses the workspace journal (default: the
 map's journal, else `.forge/forge.db`); `--realms <path>` selects a
-non-default realm map.
+non-default realm map, and `--secrets-file <path>` names the secrets
+store (default `.forge/secrets.env`) so doctor can say which declared
+credentials a route takes from the ambient environment instead.
 
 ### Step 2 — `brokkr init .`
 

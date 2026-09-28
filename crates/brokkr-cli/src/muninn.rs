@@ -1018,7 +1018,7 @@ pub(crate) fn run(
         "recorded in {}; nothing was executed — issue any command yourself",
         record_path.display()
     );
-    Ok(ExitCode::SUCCESS)
+    Ok(crate::Exit::Completed.into())
 }
 
 /// `brokkr muninn list`. Reads the record back, citations included.

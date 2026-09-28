@@ -290,7 +290,7 @@ pub(crate) fn operator(
     match operator_command(&mut store, &run, verb, &operator, &reason)? {
         FencedCommandOutcome::Accepted { .. } => {
             eprintln!("recorded operator {command}; continue with: brokkr resume --run {run}");
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
         FencedCommandOutcome::Rejected { reason, .. } => {
             // The reason word carries which condition it was —

@@ -33,7 +33,7 @@ fn run_with(
             let (input, output) = (stdin.lock(), std::io::stdout());
             let path = session.path();
             hands::serve(input, output, &workdir, path, &spec, &hands::execute)?;
-            Ok(ExitCode::SUCCESS)
+            Ok(Exit::Completed.into())
         }
         HandsCommand::Exec {
             workdir,
