@@ -73,39 +73,63 @@ determinate was not.
   own, and the kill is SIGKILL to the group. While the attempt runs, the
   engine also records every descendant by pid and start time, a
   descendant that left the group (`setsid`, as Node's `detached` spawn
-  does) included, and the kill ends those identities too. A pid alone is
-  never signalled. Nothing is chosen by working directory, so a
-  concurrent run in the same checkout is never signalled.
-- On Linux the engine is a child subreaper, so an orphan of the tree is
-  adopted by the engine and not by init. An adopted orphan in a session of
-  its own that no attempt recorded cannot be attributed. While one is
-  running, the attempt that is ending is not proven over.
+  does, or a job that shell job control moves to a group of its own)
+  included. Every kill reads the table once more first, and ends those
+  identities too. A pid alone is never signalled. Nothing is chosen by
+  working directory, so a concurrent run in the same checkout is never
+  signalled.
+- On Linux the engine and every driver are child subreapers. An orphan
+  of the tree goes to its driver while the driver runs, where it is
+  recorded as a descendant. Once the driver is gone, it goes to the
+  engine and not to init, whatever its session. Every running child of
+  the engine outside the engine's own group (a child the engine spawns
+  stays in it) that no live attempt leads, records or began after is a
+  stray. A stray is attributed to the attempts that could have left it:
+  those it does not predate, whose driver no longer runs, and that had
+  not yet ended when it was born, as the start stamps order it. One such
+  attempt ends it with its own tree. When there are several, the stray
+  is ended and every one of them parks. When there is none, the stray is
+  the engine's own, as git's detached maintenance is. So on Linux no
+  descendant the engine can see is left running while an attempt is
+  certified settled.
+  A kernel that refuses the engine the subreaper or a pidfd leaves this
+  second means absent, and then a kill that saw any descendant parks,
+  naming the means that was missing.
 - Every attempt ends the same way, whatever ended it: `shutdown`, written
   without waiting past the grace; a bounded grace for the driver to exit;
-  SIGKILL to the group and the recorded descendants; a bounded reap; and
-  a bounded wait for the process table to show nothing of the tree
-  running. A zombie counts as gone. The group is signalled only while its
-  leader is unreaped, so its id cannot name another process.
+  a read of the table, then SIGKILL to the group and to every identity the
+  attempt owns; a bounded reap; and a bounded wait for the process table
+  to show nothing of the tree running. A zombie counts as gone. The group
+  is signalled only while its leader is unreaped, so its id cannot name
+  another process.
 - The engine ends every live attempt the same way when SIGINT, SIGTERM or
-  SIGHUP tells it to stop, then exits with 128 plus the signal. The driver
-  no longer shares the engine's group, so a terminal's Ctrl-C or hangup
-  would not otherwise reach it. A signal the engine inherited as ignored
-  (`nohup`) stays ignored.
+  SIGHUP tells it to stop, strays included. It then waits, within the
+  settle bound, for the table to read every attempt gone, and exits with
+  128 plus the signal. When it cannot prove that, it says why and exits
+  125. The driver no longer shares the engine's group, so a terminal's
+  Ctrl-C or hangup would not otherwise reach it. A signal the engine
+  inherited as ignored (`nohup`) stays ignored.
 - The report returns only once the tree is proven gone, so the retry
   this decision allows cannot overlap it.
 - An end that cannot be proven is `indeterminate`, by this decision's own
   line: completion of the cleanup is not known. That covers a group or a
-  recorded descendant still running, an unattributed adopted orphan, a
-  kill the kernel refused, a leader not reaped, a table that cannot be
-  read, and a pipe something outside the tree still holds. The report
-  keeps the outcome the attempt reached, typed, beside an unresolved
-  cleanup, and the engine journals both. It never certifies the outcome
-  or retries it.
-- The residual is a descendant that is born, leaves the group and loses
-  its parent between two reads of the table, and that also closes the
-  attempt's pipes. On Linux the engine adopts such an orphan, and the
-  attempt parks on it if it started a session of its own. One that left
-  only its group, as shell job control does, is not seen. On macOS,
-  where launchd adopts every orphan, neither is seen. On macOS a pid
-  reused between the read and the signal is also a residual, because
-  macOS has no pidfd.
+  recorded descendant still running, a stray that could not be attributed
+  to one attempt, a kill the kernel refused on the group or on a live
+  identity, a leader not reaped, a missing means, and a pipe something
+  outside the tree still holds. It also covers a table that cannot be
+  read whole: a row that cannot be read or parsed, a `ps` that exits
+  nonzero, and a snapshot without the engine's own row. A row that
+  vanished between the listing and its read is gone. The report keeps
+  the outcome the attempt reached, typed, beside an unresolved cleanup,
+  and the engine journals both. A checkpoint the journal refused changes
+  the outcome acted on, never the outcome received. The engine never
+  certifies the outcome or retries it.
+- macOS has no subreaper and no pidfd. There the engine reads the table
+  synchronously at the kill, ends what it attributes, and parks on any
+  doubt. The operator's ruling of 2026-09-28 (LINUX CLOSED, MACOS
+  RESIDUAL ACCEPTED) accepts one residual there: a descendant that
+  leaves the group and whose parent exits between two reads of the
+  table, faster than the tracker's 100 ms interval, is reparented to
+  launchd unseen. Separately, and not a limit of settlement: without a
+  pidfd, a pid reused between `ps`'s confirmation and the signal could
+  be signalled.

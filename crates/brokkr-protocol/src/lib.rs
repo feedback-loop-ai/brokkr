@@ -105,7 +105,7 @@ impl Message {
 /// outcome: the engine parks rather than guessing (target-architecture,
 /// outbox discipline step 4). Serialized, it is the `received` evidence
 /// of an attempt whose cleanup is unresolved.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum AttemptOutcome {
     Succeeded { result: Value },
@@ -137,9 +137,14 @@ pub enum Cleanup {
 
 #[derive(Debug, Clone)]
 pub struct AttemptReport {
-    /// What the driver reached, as it reached it. Act on
-    /// [`AttemptReport::settled_outcome`], which also reads `cleanup`.
+    /// What the driver reached, as it reached it: the `received`
+    /// evidence. Act on [`AttemptReport::settled_outcome`], which also
+    /// reads `refused` and `cleanup`.
     pub outcome: AttemptOutcome,
+    /// The outcome the engine put in place of `outcome` when the journal
+    /// refused one of the attempt's checkpoints (decision 0034, ruling
+    /// 6). It replaces the outcome acted on, never the one received.
+    pub refused: Option<AttemptOutcome>,
     pub cleanup: Cleanup,
     pub session_ref: Option<String>,
     pub checkpoints: Vec<Value>,
@@ -166,16 +171,18 @@ pub struct AttemptReport {
 
 impl AttemptReport {
     /// The outcome a caller may act on (#403, decision 0006): the one the
-    /// driver reached once its tree is proven over, and `Indeterminate`,
-    /// which parks, while it is not. No settlement, retry or fallback is
-    /// certified beside what may still be running.
+    /// driver reached, or the one a refusal put in its place, once its
+    /// tree is proven over, and `Indeterminate`, which parks, while it is
+    /// not. No settlement, retry or fallback is certified beside what may
+    /// still be running.
     pub fn settled_outcome(&self) -> AttemptOutcome {
+        let reached = self.refused.as_ref().unwrap_or(&self.outcome);
         match &self.cleanup {
-            Cleanup::Settled => self.outcome.clone(),
+            Cleanup::Settled => reached.clone(),
             Cleanup::Unresolved { reason } => AttemptOutcome::Indeterminate {
                 reason: format!(
                     "{}; the attempt is not proven over: {reason}",
-                    self.outcome.reached()
+                    reached.reached()
                 ),
             },
         }

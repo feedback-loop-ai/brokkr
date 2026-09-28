@@ -1821,7 +1821,7 @@ impl Engine {
                 sink.offer("", checkpoint);
             },
         );
-        report.outcome = sink.settle()?.outcome("", report.outcome);
+        sink.settle()?.carry("", &mut report);
         Ok(DriverRun::Ran(report))
     }
 
@@ -2057,6 +2057,7 @@ impl Engine {
                                 outcome: AttemptOutcome::Failed {
                                     error: format!("member driver did not spawn: {e}"),
                                 },
+                                refused: None,
                                 // Nothing was spawned, so nothing is left.
                                 cleanup: Cleanup::Settled,
                                 session_ref: None,
@@ -2123,7 +2124,7 @@ impl Engine {
         Ok(reports
             .into_iter()
             .map(|(name, mut report)| {
-                report.outcome = settled.outcome(&format!("{tag_prefix}{name}"), report.outcome);
+                settled.carry(&format!("{tag_prefix}{name}"), &mut report);
                 (name, report)
             })
             .collect())
@@ -2144,12 +2145,13 @@ impl Engine {
                 .iter()
                 .find(|run| run.name == *name)
                 .and_then(|run| run.boundary);
-            let kind = match &report.outcome {
+            let settled = report.settled_outcome();
+            let kind = match &settled {
                 AttemptOutcome::Succeeded { .. } => "succeeded",
                 AttemptOutcome::Failed { .. } => "failed",
                 AttemptOutcome::Indeterminate { .. } => "indeterminate",
             };
-            let model = match &report.outcome {
+            let model = match &settled {
                 AttemptOutcome::Succeeded { result } => result
                     .get("model")
                     .and_then(Value::as_str)

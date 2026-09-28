@@ -18,27 +18,33 @@ fn unresolved(result: Value, reason: Unsettled) -> AttemptReport {
     }
 }
 
-/// A single seat that reported success is journaled indeterminate — it
-/// parks, never settles or retries — with the result it received.
-#[test]
-fn a_seat_not_proven_over_parks_with_its_received_result() {
+/// The terminal event a single seat's `report` concludes in, which is
+/// indeterminate: it parks.
+fn parked(report: AttemptReport) -> Value {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
-    let result = json!({"result": "complete", "notes": "done"});
-    let descendants = Unsettled::Descendants { pids: vec![41, 42] };
     engine
         .conclude_single(
             "effect",
             "attempt",
-            DriverRun::Ran(unresolved(result.clone(), descendants)),
+            DriverRun::Ran(report),
             &Selection::new(),
             None,
         )
         .unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    let last = events.last().unwrap();
+    let mut events = engine.store.load(&engine.run_id).unwrap();
+    let last = events.pop().unwrap();
     assert_eq!(last.event_type, EventType::EffectIndeterminate);
+    last.payload
+}
+
+/// A single seat that reported success is journaled indeterminate — it
+/// parks, never settles or retries — with the result it received.
+#[test]
+fn a_seat_not_proven_over_parks_with_its_received_result() {
+    let result = json!({"result": "complete", "notes": "done"});
+    let descendants = Unsettled::Descendants { pids: vec![41, 42] };
     assert_eq!(
-        last.payload,
+        parked(unresolved(result.clone(), descendants)),
         json!({
             "effect_id": "effect",
             "attempt_id": "attempt",
@@ -76,6 +82,59 @@ fn a_dialect_step_not_proven_over_parks_with_its_evidence() {
                 "reason": "a process outside its tree still held the driver's stderr",
             },
         })
+    );
+}
+
+/// A checkpoint the journal refused, on an attempt not proven over: the
+/// refusal replaces the outcome acted on, which still parks and names the
+/// refusal, while the evidence keeps the result the driver sent as
+/// `received` (#403 finding 4).
+#[test]
+fn a_refused_checkpoint_keeps_the_received_result_beside_an_unresolved_cleanup() {
+    let result = json!({"result": "complete"});
+    let refusal = SeatRecordError {
+        seq: 9,
+        path: "/".into(),
+        contract: "contracts/seat-record.v1.schema.json",
+    };
+    let received = succeeded(result.clone());
+    let refused = AttemptReport {
+        refused: Some(refused_outcome(received.outcome.clone(), &refusal)),
+        ..unresolved(result.clone(), Unsettled::Group { group: 7 })
+    };
+    let group = "its process group 7 still had members after the kill";
+    assert_eq!(
+        parked(refused),
+        json!({
+            "effect_id": "effect",
+            "attempt_id": "attempt",
+            "reason": format!(
+                "{refusal}; the attempt is not proven over: {group}; stderr tail: "
+            ),
+            "received": {"status": "succeeded", "result": result},
+            "cleanup": {"state": "unresolved", "reason": group},
+        })
+    );
+}
+
+/// A panel member's own marker names the outcome the panel acts on: an
+/// unresolved member's is indeterminate, whatever it received (#403
+/// finding 5).
+#[test]
+fn a_member_marker_names_the_settled_outcome() {
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    let reports = vec![(
+        "held".to_string(),
+        unresolved(json!({"result": "pass"}), Unsettled::Stdout),
+    )];
+    engine
+        .journal_panel_members("effect", "attempt", &reports, &[], "")
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let marker = &events.last().unwrap().payload["checkpoint"];
+    assert_eq!(
+        (&marker["member"], &marker["outcome"]),
+        (&json!("held"), &json!("indeterminate"))
     );
 }
 

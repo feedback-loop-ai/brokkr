@@ -1,15 +1,27 @@
 //! The host's process table, as the attempt's tree is read from it (#403).
 //! Linux reads `/proc`; macOS reads `ps`. A process is named by its pid
 //! AND its start stamp, so a pid the kernel has since handed to another
-//! process never reads as the one recorded.
+//! process never reads as the one recorded. A table that cannot be read
+//! whole is no table: a row the engine cannot read could be the
+//! attempt's, so it fails the read rather than reading as gone.
 
 use rustix::process::{Pid, Signal};
+use thiserror::Error;
 
 /// One process, by pid and the kernel's start stamp for it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Identity {
     pub(super) pid: i32,
     pub(super) start: String,
+}
+
+impl Identity {
+    /// When the process was born, in clock ticks since boot: on Linux
+    /// the start stamp, so stamps order births. macOS's stamp is a date,
+    /// and orders nothing.
+    pub(super) fn born(&self) -> Option<u64> {
+        self.start.parse().ok()
+    }
 }
 
 /// One row of a snapshot. A zombie has exited: it holds a pid until its
@@ -19,35 +31,77 @@ pub(super) struct Entry {
     pub(super) id: Identity,
     pub(super) ppid: i32,
     pub(super) pgid: i32,
-    /// The session, as a token compared only with another row's. macOS
-    /// leaves it empty: no process is adopted there (no subreaper), and
-    /// the session is read only to tell an adopted orphan apart.
-    pub(super) session: String,
     pub(super) zombie: bool,
 }
 
-/// Every process the host lists. A process that exits between the listing
-/// and its read is simply not in the snapshot.
+/// Why the table could not be read whole.
+#[derive(Debug, Error)]
+pub(super) enum TableError {
+    #[cfg(target_os = "linux")]
+    #[error("/proc could not be listed: {0}")]
+    List(std::io::Error),
+    #[cfg(target_os = "linux")]
+    #[error("the row of process {pid} could not be read: {error}")]
+    Row { pid: i32, error: std::io::Error },
+    #[cfg(not(target_os = "linux"))]
+    #[error("ps could not be run: {0}")]
+    Ps(std::io::Error),
+    #[cfg(not(target_os = "linux"))]
+    #[error("ps exited {0}")]
+    Status(std::process::ExitStatus),
+    #[cfg(not(target_os = "linux"))]
+    #[error("the ps row {row:?} could not be read")]
+    Unparsed { row: String },
+    #[error("the table has no row for the engine itself (pid {pid})")]
+    NoSelf { pid: i32 },
+}
+
 #[cfg(target_os = "linux")]
-pub(super) fn snapshot() -> std::io::Result<Vec<Entry>> {
+const PROC: &str = "/proc";
+
+/// Every process the host lists.
+#[cfg(target_os = "linux")]
+pub(super) fn snapshot() -> Result<Vec<Entry>, TableError> {
+    snapshot_in(std::path::Path::new(PROC))
+}
+
+/// Every process `proc` lists. A process that exits between the listing
+/// and its read is gone, and is left out as gone; a row that cannot be
+/// read for any other reason, or read whole, fails the snapshot.
+#[cfg(target_os = "linux")]
+fn snapshot_in(proc: &std::path::Path) -> Result<Vec<Entry>, TableError> {
     let mut entries = Vec::new();
-    for dir in std::fs::read_dir("/proc")? {
-        let name = dir?.file_name();
-        let pid = name.to_str().and_then(|name| name.parse::<i32>().ok());
-        entries.extend(pid.and_then(read));
+    for dir in std::fs::read_dir(proc).map_err(TableError::List)? {
+        let name = dir.map_err(TableError::List)?.file_name();
+        if let Some(pid) = name.to_str().and_then(|name| name.parse::<i32>().ok()) {
+            entries.extend(read(proc, pid).map_err(|error| TableError::Row { pid, error })?);
+        }
     }
     Ok(entries)
 }
 
+/// The row of `pid`, or `None` when the process is gone: its directory
+/// went with it (`ENOENT`), or it exited while its `stat` was read
+/// (`ESRCH`).
 #[cfg(target_os = "linux")]
-fn read(pid: i32) -> Option<Entry> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    parse_stat(pid, &stat)
+fn read(proc: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
+    let stat = match std::fs::read_to_string(proc.join(pid.to_string()).join("stat")) {
+        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => {
+            return Ok(None)
+        }
+        stat => stat?,
+    };
+    parse_stat(pid, &stat).map(Some).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("unparsed stat {stat:?}"),
+        )
+    })
 }
 
 /// `/proc/<pid>/stat`: the command name is parenthesised and may hold any
 /// byte, so fields are counted from its closing parenthesis — state,
-/// ppid, pgrp, session, and the start time nineteen fields on.
+/// ppid, pgrp, and the start time twenty fields on.
 #[cfg(target_os = "linux")]
 fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
     let (_, rest) = stat.rsplit_once(')')?;
@@ -59,7 +113,6 @@ fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
         },
         ppid: fields.get(1)?.parse().ok()?,
         pgid: fields.get(2)?.parse().ok()?,
-        session: fields.get(3)?.to_string(),
         zombie: ["Z", "X"].contains(fields.first()?),
     })
 }
@@ -68,16 +121,33 @@ fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
 /// on, so when the start stamp read after opening it still matches, the
 /// signal cannot reach a process that reused the pid. A process already
 /// gone is not signalled; whether the signal ended it is read afterwards,
-/// from the table, which is the proof `tree::end` settles on.
+/// from the table, which is the proof `tree::end` settles on. A refusal,
+/// or a row that cannot be read to confirm the stamp, is returned.
 #[cfg(target_os = "linux")]
-pub(super) fn kill(id: &Identity) {
+pub(super) fn kill(id: &Identity) -> std::io::Result<()> {
+    Pid::from_raw(id.pid).map_or(Ok(()), |pid| signal(pid, id))
+}
+
+#[cfg(target_os = "linux")]
+fn signal(pid: Pid, id: &Identity) -> std::io::Result<()> {
     use rustix::process::{pidfd_open, pidfd_send_signal, PidfdFlags};
-    let pidfd = Pid::from_raw(id.pid).map(|pid| pidfd_open(pid, PidfdFlags::empty()));
-    if let Some(Ok(pidfd)) = pidfd {
-        if read(id.pid).is_some_and(|entry| entry.id == *id) {
-            let _ = pidfd_send_signal(&pidfd, Signal::KILL);
-        }
+    let pidfd = match pidfd_open(pid, PidfdFlags::empty()) {
+        Ok(pidfd) => pidfd,
+        Err(errno) => return refusal(Err(errno)),
+    };
+    let row = read(std::path::Path::new(PROC), id.pid)?;
+    if row.is_some_and(|entry| entry.id == *id) {
+        refusal(pidfd_send_signal(&pidfd, Signal::KILL))
+    } else {
+        Ok(())
     }
+}
+
+/// A signal's refusal; `ESRCH` is none, because the process is gone.
+fn refusal(signalled: rustix::io::Result<()>) -> std::io::Result<()> {
+    super::tree::refused(signalled)
+        .map(std::io::Error::from)
+        .map_or(Ok(()), Err)
 }
 
 /// Reap `pid`, a zombie the engine adopted as the attempt's subreaper
@@ -90,25 +160,39 @@ pub(super) fn reap(pid: i32) {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn snapshot() -> std::io::Result<Vec<Entry>> {
-    ps(&["-axo", COLUMNS])
+pub(super) fn snapshot() -> Result<Vec<Entry>, TableError> {
+    listed(ps(&["-axo", COLUMNS])?)
 }
 
 #[cfg(not(target_os = "linux"))]
 const COLUMNS: &str = "pid=,ppid=,pgid=,stat=,lstart=";
 
 #[cfg(not(target_os = "linux"))]
-fn ps(args: &[&str]) -> std::io::Result<Vec<Entry>> {
-    let output = std::process::Command::new("ps")
+fn ps(args: &[&str]) -> Result<std::process::Output, TableError> {
+    std::process::Command::new("ps")
         .args(args)
         .env("LC_ALL", "C")
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .output()?;
-    Ok(String::from_utf8_lossy(&output.stdout)
+        .output()
+        .map_err(TableError::Ps)
+}
+
+/// The rows `ps` printed. A nonzero status is a table that was not read,
+/// whatever it printed, and every row must parse.
+#[cfg(not(target_os = "linux"))]
+fn listed(output: std::process::Output) -> Result<Vec<Entry>, TableError> {
+    if !output.status.success() {
+        return Err(TableError::Status(output.status));
+    }
+    String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter_map(parse_ps)
-        .collect())
+        .map(|line| {
+            parse_ps(line).ok_or_else(|| TableError::Unparsed {
+                row: line.to_string(),
+            })
+        })
+        .collect()
 }
 
 /// One `ps` row: pid, ppid, pgid, state, then the start time, which is
@@ -125,20 +209,27 @@ fn parse_ps(line: &str) -> Option<Entry> {
         id: Identity { pid, start },
         ppid,
         pgid,
-        session: String::new(),
         zombie,
     })
 }
 
 /// SIGKILL `id` once `ps` has confirmed its start stamp. macOS has no
-/// pidfd, so a pid reused between the read and the signal is the named
-/// residual of this platform.
+/// pidfd, so a pid reused between the read and the signal could be
+/// signalled: a limit of the kill's precision there, not of settlement.
 #[cfg(not(target_os = "linux"))]
-pub(super) fn kill(id: &Identity) {
+pub(super) fn kill(id: &Identity) -> std::io::Result<()> {
     let pid = id.pid.to_string();
-    let rows = ps(&["-o", COLUMNS, "-p", pid.as_str()]).unwrap_or_default();
+    let rows = match ps(&["-o", COLUMNS, "-p", pid.as_str()]).and_then(listed) {
+        Ok(rows) => rows,
+        // `ps -p` lists nothing, and exits 1, when the pid is gone.
+        Err(TableError::Status(status)) if status.code() == Some(1) => Vec::new(),
+        Err(error) => return Err(std::io::Error::other(error)),
+    };
     if rows.iter().any(|entry| entry.id == *id && !entry.zombie) {
-        let _ = Pid::from_raw(id.pid).map(|pid| rustix::process::kill_process(pid, Signal::KILL));
+        let pid = Pid::from_raw(id.pid).expect("a listed pid is positive");
+        refusal(rustix::process::kill_process(pid, Signal::KILL))
+    } else {
+        Ok(())
     }
 }
 

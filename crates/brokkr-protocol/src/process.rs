@@ -24,7 +24,6 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use rustix::process::Pid;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -153,6 +152,19 @@ impl DriverProcess {
         deadline: Option<Duration>,
         env: &SpawnEnv,
     ) -> Result<Self, SpawnError> {
+        Self::spawn_with(command, workdir, deadline, env, Host::REAL)
+    }
+
+    /// `spawn` on `host`, which the watchdog's kill and the attempt's end
+    /// call, and which the tracker and the stop handler call when this
+    /// is the engine's first attempt.
+    fn spawn_with(
+        command: &[String],
+        workdir: &std::path::Path,
+        deadline: Option<Duration>,
+        env: &SpawnEnv,
+        host: Host,
+    ) -> Result<Self, SpawnError> {
         let (program, args) = command.split_first().ok_or(SpawnError::EmptyCommand)?;
         let mut builder = Command::new(program);
         builder
@@ -166,7 +178,7 @@ impl DriverProcess {
             builder.env_clear().envs(table);
         }
         let (mut child, attempt) =
-            Attempt::spawn(&mut builder).map_err(|source| SpawnError::Spawn {
+            Attempt::spawn(&mut builder, host).map_err(|source| SpawnError::Spawn {
                 command: command.join(" "),
                 source,
             })?;
@@ -174,7 +186,6 @@ impl DriverProcess {
         let stdout = read_stdout(child.stdout.take().expect("piped stdout"));
         let stderr = read_stderr(child.stderr.take().expect("piped stderr"));
         let timed_out = Arc::new(AtomicBool::new(false));
-        let group = Pid::from_child(&child);
         let key = attempt.key();
         let watchdog = deadline.map(|deadline| {
             let (tx, rx) = mpsc::channel::<()>();
@@ -182,10 +193,10 @@ impl DriverProcess {
             let thread = std::thread::spawn(move || {
                 if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(deadline) {
                     timed_out.store(true, Ordering::SeqCst);
-                    // A refusal here is read again, and carried, by
-                    // `tree::end`, which kills the group once more.
-                    let _ = tree::kill_group(group);
-                    Attempt::kill_recorded(key);
+                    // A refusal here is met again, and carried, by
+                    // `tree::end`, whose kill reads the table and signals
+                    // the same tree once more.
+                    drop(Attempt::kill(key, host));
                 }
             });
             (tx, thread)
@@ -201,7 +212,7 @@ impl DriverProcess {
             deadline,
             started: Instant::now(),
             bounds: Bounds::DEFAULT,
-            host: Host::REAL,
+            host,
         })
     }
 
@@ -311,6 +322,7 @@ impl DriverProcess {
         };
         AttemptReport {
             outcome,
+            refused: None,
             cleanup: match ended {
                 Ok(()) => Cleanup::Settled,
                 Err(reason) => Cleanup::Unresolved { reason },

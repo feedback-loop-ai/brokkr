@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::EventEnvelope;
-use brokkr_protocol::AttemptOutcome;
+use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use brokkr_store::{SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
@@ -278,6 +278,17 @@ impl Settled {
         reasons.extend(refusal.map(ToString::to_string));
         AttemptOutcome::Indeterminate {
             reason: reasons.join("; "),
+        }
+    }
+
+    /// Carry what the checkpoints of the site `owner` names leave of
+    /// `report`'s outcome (#403): the received outcome stays where the
+    /// driver put it, and the one the engine acts on, when the checkpoints
+    /// changed it, rides beside it as the report's refusal.
+    pub(super) fn carry(&self, owner: &str, report: &mut AttemptReport) {
+        let acted = self.outcome(owner, report.outcome.clone());
+        if acted != report.outcome {
+            report.refused = Some(acted);
         }
     }
 

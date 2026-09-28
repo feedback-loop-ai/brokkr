@@ -193,6 +193,7 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         outcome: AttemptOutcome::Failed {
             error: "model not found".into(),
         },
+        refused: None,
         cleanup: Cleanup::Settled,
         session_ref: None,
         checkpoints,
@@ -230,6 +231,7 @@ fn the_fail_to_start_predicate_reads_only_structure() {
     ] {
         assert!(!failed_to_start(&AttemptReport {
             outcome,
+            refused: None,
             cleanup: Cleanup::Settled,
             session_ref: None,
             checkpoints: Vec::new(),
@@ -267,6 +269,7 @@ fn start_failure_sites_names_the_members_that_never_started() {
         outcome: AttemptOutcome::Failed {
             error: "boom".into(),
         },
+        refused: None,
         cleanup: Cleanup::Settled,
         session_ref: None,
         checkpoints: Vec::new(),
@@ -401,6 +404,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
                 outcome: AttemptOutcome::Failed {
                     error: reason.into(),
                 },
+                refused: None,
                 cleanup: Cleanup::Settled,
                 session_ref: None,
                 checkpoints: Vec::new(),

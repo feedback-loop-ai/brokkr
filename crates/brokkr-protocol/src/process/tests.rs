@@ -1,4 +1,5 @@
 use super::*;
+use rustix::process::Pid;
 use serde_json::json;
 
 fn command(script: &str) -> Vec<String> {
@@ -610,17 +611,22 @@ impl Seats {
         )
     }
 
-    /// The same stub, whose grandchild leaves the group and the session
-    /// (`setsid`, as Node's `detached` spawn does) before it records
-    /// itself: this test binary, re-executed in its `detached` role.
-    fn detached_driver(&self, tag: &str, handshake: &str, then: &str) -> Vec<String> {
+    /// The same stub, whose grandchild is this test binary re-executed in
+    /// `role`, which leaves the group before it records itself: `detached`
+    /// leaves the session too (`setsid`, as Node's `detached` spawn does);
+    /// `job` moves to a group of its own in the same session, as shell job
+    /// control does, and the shell that starts it exits at once, so it is
+    /// orphaned before the tracker can see its parent.
+    fn role_driver(&self, tag: &str, role: &str, handshake: &str, then: &str) -> Vec<String> {
         let exe = std::env::current_exe().unwrap();
+        let background = if role == "job" { " &" } else { "" };
         self.stub(
             tag,
             handshake,
             &format!(
-                "{ROLE}=detached {ROLE_PID}=\"$GRANDCHILD\" {ROLE_MARKER}=\"$MARKER\" \
-                 {ROLE_DIR}=\"$DIR\" '{}' --exact process::tests::role --ignored",
+                "{ROLE}={role} {ROLE_PID}=\"$GRANDCHILD\" {ROLE_MARKER}=\"$MARKER\" \
+                 {ROLE_DIR}=\"$DIR\" sh -c '\"$0\" --exact process::tests::role \
+                 --ignored{background}' '{}'",
                 exe.display()
             ),
             then,
@@ -798,9 +804,23 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
     let kill_refused = attempt(process);
 
     let mut process = spawned(&command("exit 0"), std::path::Path::new("."), None);
-    process.host.table = || Err(std::io::Error::other("no table"));
+    process.host.table = || Ok(Vec::new());
     process.bounds.settle = Duration::from_millis(50);
     let unreadable = attempt(process);
+
+    let seats = Seats::new();
+    let with_descendants = seats.driver("seat", &accepting(), "exit 0");
+    let missing = || {
+        Some(Unsettled::Subreaper(
+            rustix::io::Errno::INVAL.raw_os_error(),
+        ))
+    };
+    let mut process = spawned(&with_descendants, &seats.dir, None);
+    process.host.missing = missing;
+    let unwatched = attempt(process);
+    let mut process = spawned(&command(&answering), std::path::Path::new("."), None);
+    process.host.missing = missing;
+    let alone = attempt(process);
 
     assert!(
         matches!(&stdout_held.outcome, AttemptOutcome::Failed { error }
@@ -822,9 +842,15 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
     assert_eq!(
         unresolved(&unreadable),
         Some(&Unsettled::Table {
-            error: "no table".into()
+            error: format!(
+                "the table has no row for the engine itself (pid {})",
+                std::process::id()
+            )
         })
     );
+    assert_eq!(unresolved(&unwatched), missing().as_ref());
+    assert_eq!(seats.pids("seat").map(gone), [true, true]);
+    assert_eq!(alone.cleanup, Cleanup::Settled, "no descendant, no doubt");
 }
 
 fn unresolved(report: &AttemptReport) -> Option<&Unsettled> {
@@ -871,6 +897,7 @@ fn a_leader_that_outlives_the_kill_is_not_waited_on_past_the_settle_bound() {
 fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
     let report = |outcome: AttemptOutcome, cleanup: Cleanup| AttemptReport {
         outcome,
+        refused: None,
         cleanup,
         session_ref: None,
         checkpoints: Vec::new(),
@@ -890,6 +917,18 @@ fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
         AttemptOutcome::Succeeded { .. }
     ));
     assert!(settled.cleanup_evidence().is_empty());
+    // A refusal replaces the outcome acted on, never the one received.
+    let refused = AttemptReport {
+        refused: Some(AttemptOutcome::Failed {
+            error: "refused".into(),
+        }),
+        ..settled
+    };
+    assert!(matches!(
+        refused.settled_outcome(),
+        AttemptOutcome::Failed { error } if error == "refused"
+    ));
+    assert!(matches!(refused.outcome, AttemptOutcome::Succeeded { .. }));
     let not_over = "the attempt is not proven over: \
                     a process outside its tree still held the driver's stdout";
     for (outcome, reached) in [
@@ -968,20 +1007,39 @@ fn a_concurrent_run_in_the_same_directory_is_never_signalled() {
 #[ignore = "played only when a test re-executes this binary"]
 fn role() {
     let var = |name: &str| std::env::var(name).unwrap_or_default();
+    let dir = var(ROLE_DIR);
+    let detached =
+        |seats: &Seats| seats.role_driver("seat", "detached", &accepting(), "read -r never");
+    let in_group = |seats: &Seats| seats.driver("seat", &accepting(), "read -r never");
+    let blind = Host {
+        table: || Ok(Vec::new()),
+        ..Host::REAL
+    };
     match var(ROLE).as_str() {
-        "detached" => detached(&var(ROLE_PID), &var(ROLE_MARKER), &var(ROLE_DIR)),
-        "engine" => stopped_engine(&var(ROLE_DIR), false),
-        "nohup-engine" => stopped_engine(&var(ROLE_DIR), true),
+        "detached" => left(setsid, &var(ROLE_PID), &var(ROLE_MARKER), &dir),
+        "job" => left(own_group, &var(ROLE_PID), &var(ROLE_MARKER), &dir),
+        "engine" => stopped_engine(&dir, libc::SIG_DFL, detached, Host::REAL),
+        "nohup-engine" => stopped_engine(&dir, libc::SIG_IGN, detached, Host::REAL),
+        "blind-engine" => stopped_engine(&dir, libc::SIG_DFL, in_group, blind),
+        "job-engine" => orphaning_engine(&dir),
         _ => {}
     }
 }
 
-/// A descendant that leaves the attempt's group and session, as Node's
-/// `detached` spawn does, its stdio already pointed away from the
-/// driver's pipes. It records its pid only once it has left, then appends
-/// to its marker for as long as the seats' directory lasts.
-fn detached(pid_file: &str, marker: &str, dir: &str) {
+fn setsid() {
     rustix::process::setsid().expect("a detached descendant leaves the session");
+}
+
+fn own_group() {
+    rustix::process::setpgid(None, None).expect("a job leads a group of its own");
+}
+
+/// A descendant that leaves the attempt's group by `leave`, its stdio
+/// already pointed away from the driver's pipes. It records its pid only
+/// once it has left, then appends to its marker for as long as the seats'
+/// directory lasts.
+fn left(leave: fn(), pid_file: &str, marker: &str, dir: &str) {
+    leave();
     std::fs::write(pid_file, format!("{}\n", std::process::id())).unwrap();
     while std::path::Path::new(dir).is_dir() {
         let mut file = std::fs::OpenOptions::new()
@@ -994,42 +1052,68 @@ fn detached(pid_file: &str, marker: &str, dir: &str) {
     }
 }
 
-/// An engine running one attempt whose driver has a detached grandchild,
-/// with the stop signals at their defaults whatever launched the test,
-/// or with hangup ignored as under `nohup`. It ends only by a signal.
-fn stopped_engine(dir: &str, nohup: bool) {
+/// An engine running one attempt of `driver` on `host`, as its first,
+/// with the stop signals at their defaults whatever launched the test and
+/// hangup at `hangup` (`SIG_IGN` as under `nohup`). It ends only by a
+/// signal.
+fn stopped_engine(
+    dir: &str,
+    hangup: libc::sighandler_t,
+    driver: fn(&Seats) -> Vec<String>,
+    host: Host,
+) {
     use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
     for signal in [SIGINT, SIGTERM, SIGHUP] {
         // SAFETY: setting a default disposition, before any handler exists.
         unsafe { libc::signal(signal, libc::SIG_DFL) };
     }
-    if nohup {
-        // SAFETY: as above, the disposition `nohup` leaves.
-        unsafe { libc::signal(SIGHUP, libc::SIG_IGN) };
-    }
+    // SAFETY: as above.
+    unsafe { libc::signal(SIGHUP, hangup) };
     let seats = Seats::at(dir);
-    let driver = seats.detached_driver("seat", &accepting(), "read -r never");
-    attempt(spawned(&driver, &seats.dir, None));
+    let process =
+        DriverProcess::spawn_with(&driver(&seats), &seats.dir, None, &SpawnEnv::Inherit, host);
+    attempt(process.unwrap());
     unreachable!("the driver never ends on its own");
 }
 
-/// This test binary as an engine in a process group of its own, playing
-/// `role` over `seats`, once its attempt's tree has formed and the
-/// tracker has had time to record the detached grandchild.
-fn engine_in_its_own_group(seats: &Seats, role: &str) -> (Child, [i32; 2]) {
-    let engine = Command::new(std::env::current_exe().unwrap())
+/// An engine whose attempt's grandchild is an orphaned `job`, and whose
+/// driver exits as soon as the job has recorded itself, so the job comes
+/// to the engine. It writes down the cleanup, the outcome and what of the
+/// tree it still reads running once the report has returned.
+fn orphaning_engine(dir: &str) {
+    let seats = Seats::at(dir);
+    let driver = seats.role_driver("seat", "job", &accepting(), "exit 0");
+    let report = attempt(spawned(&driver, &seats.dir, None));
+    let tree = seats.pids("seat");
+    let survivors: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
+    let written = format!("{:?} {:?} {survivors:?}", report.cleanup, report.outcome);
+    std::fs::write(seats.file("seat", "report"), written).unwrap();
+}
+
+/// This test binary as an engine playing `role` over `seats`.
+fn engine(seats: &Seats, role: &str) -> Command {
+    let mut engine = Command::new(std::env::current_exe().unwrap());
+    engine
         .args(["--exact", "process::tests::role", "--ignored"])
         .env(ROLE, role)
         .env(ROLE_DIR, &seats.dir)
-        .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::null());
+    engine
+}
+
+/// The engine, in a process group of its own, once its attempt's tree has
+/// formed and the tracker has had time to record the detached grandchild.
+/// It is registered as one of this process's attempts: in a group of its
+/// own and this process's child, it would otherwise read, to another
+/// test's attempt, as an orphan this process adopted.
+fn engine_in_its_own_group(seats: &Seats, role: &str) -> (Child, Attempt, [i32; 2]) {
+    let (engine, registered) =
+        Attempt::spawn(engine(seats, role).process_group(0), Host::REAL).unwrap();
     let tree = seats.pids("seat");
     std::thread::sleep(Duration::from_millis(500));
-    (engine, tree)
+    (engine, registered, tree)
 }
 
 fn signal_group(engine: &Child, signal: i32) {
@@ -1079,7 +1163,7 @@ fn a_stopped_engine_ends_its_attempts_before_it_exits() {
     use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
     for signal in [SIGINT, SIGTERM, SIGHUP] {
         let seats = Seats::new();
-        let (mut engine, tree) = engine_in_its_own_group(&seats, "engine");
+        let (mut engine, _registered, tree) = engine_in_its_own_group(&seats, "engine");
         signal_group(&engine, signal);
         assert_eq!(
             exit_code(&mut engine),
@@ -1090,13 +1174,27 @@ fn a_stopped_engine_ends_its_attempts_before_it_exits() {
     }
 }
 
+/// #403 finding 3: a stop that cannot read the process table still kills
+/// what its group signal reaches, then waits out the settle bound for a
+/// table that never reads its attempts gone, and exits 125 rather than
+/// 128 plus the signal: it cannot say they are over.
+#[test]
+fn a_stop_that_cannot_prove_its_attempts_over_exits_distinctly() {
+    use signal_hook::consts::SIGTERM;
+    let seats = Seats::new();
+    let (mut engine, _registered, tree) = engine_in_its_own_group(&seats, "blind-engine");
+    signal_group(&engine, SIGTERM);
+    assert_eq!(exit_code(&mut engine), Some(125));
+    assert_ended(&seats, tree, SIGTERM);
+}
+
 /// A hangup the engine inherited as ignored, as under `nohup`, stays
 /// ignored: its attempt runs on through one, and SIGTERM still ends it.
 #[test]
 fn an_engine_that_inherited_hangup_ignored_runs_on_through_one() {
     use signal_hook::consts::{SIGHUP, SIGTERM};
     let seats = Seats::new();
-    let (mut engine, tree) = engine_in_its_own_group(&seats, "nohup-engine");
+    let (mut engine, _registered, tree) = engine_in_its_own_group(&seats, "nohup-engine");
     signal_group(&engine, SIGHUP);
     let marker = seats.marker("seat");
     std::thread::sleep(Duration::from_millis(500));
@@ -1114,7 +1212,7 @@ fn an_engine_that_inherited_hangup_ignored_runs_on_through_one() {
 #[test]
 fn a_deadline_kill_ends_a_descendant_that_left_the_group_and_its_pipes() {
     let seats = Seats::new();
-    let driver = seats.detached_driver("seat", &accepting(), "read -r never");
+    let driver = seats.role_driver("seat", "detached", &accepting(), "read -r never");
     let report = attempt(spawned(&driver, &seats.dir, Some(Duration::from_secs(3))));
     let tree = seats.pids("seat");
     let survivors: Vec<i32> = tree.into_iter().filter(|pid| !gone(*pid)).collect();
@@ -1127,6 +1225,72 @@ fn a_deadline_kill_ends_a_descendant_that_left_the_group_and_its_pipes() {
         marker,
         "the detached grandchild kept writing"
     );
+}
+
+/// #403: a running driver is its own tree's subreaper, so an orphan of the
+/// tree goes to the driver, where the tracker records it, and not to the
+/// engine, where another attempt could be taken for its source.
+#[test]
+fn a_running_driver_adopts_its_trees_orphans() {
+    let seats = Seats::new();
+    let orphan = seats.file("seat", "orphan");
+    let driver = command(&format!(
+        "read -r hello; {}; sh -c 'sleep 30 & printf \"%s\\n\" \"$!\" > \"$1\"' orphan '{}'; \
+         read -r never",
+        accepting(),
+        orphan.display()
+    ));
+    let process = spawned(&driver, &seats.dir, Some(Duration::from_secs(2)));
+    let leader = i32::try_from(process.child.id()).unwrap();
+    let ended = std::thread::spawn(move || attempt(process));
+    let until = Instant::now() + Duration::from_secs(2);
+    let pid = loop {
+        let text = std::fs::read_to_string(&orphan).unwrap_or_default();
+        if let Ok(pid) = text.trim().parse::<i32>() {
+            break pid;
+        }
+        assert!(Instant::now() < until, "the orphan never recorded itself");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let parent = |pid| {
+        let rows = table::snapshot().unwrap();
+        rows.into_iter()
+            .find(|entry| entry.id.pid == pid)
+            .map(|entry| entry.ppid)
+    };
+    while parent(pid) != Some(leader) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let adopted = parent(pid);
+    let report = ended.join().unwrap();
+    assert_eq!(adopted, Some(leader), "the orphan's parent");
+    deadline_failure(&report, 2);
+    assert!(gone(pid), "the adopted orphan outlived the attempt");
+}
+
+/// #403 finding 1: a grandchild that shell job control moves to a group of
+/// its own, in the driver's session, whose shell exits at once and whose
+/// driver exits next, comes to the engine before the tracker can record
+/// it. The engine adopts it as a stray, whatever its session, attributes
+/// it to the attempt whose leader is gone, and ends it before the report
+/// returns, which certifies the end only because it is gone. The engine
+/// is a child process, so that no other test's attempt is live beside it.
+#[test]
+fn a_job_orphaned_before_the_tracker_saw_it_is_ended_before_the_report() {
+    let seats = Seats::new();
+    let mut engine = engine(&seats, "job-engine").spawn().unwrap();
+    assert_eq!(exit_code(&mut engine), Some(0));
+    let written = std::fs::read_to_string(seats.file("seat", "report")).unwrap();
+    assert_eq!(
+        written,
+        "Settled Indeterminate { reason: \"driver exited after accepting, before a result — \
+         attempt cannot be established as complete\" } []"
+    );
+    let tree = seats.pids("seat");
+    assert_eq!(tree.map(gone), [true, true], "tree {tree:?}");
+    let marker = seats.marker("seat");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(seats.marker("seat"), marker, "the job kept writing");
 }
 
 /// A pipe, and how many bytes it holds before a write blocks, handed back

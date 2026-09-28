@@ -854,6 +854,7 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
 pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
     AttemptReport {
         outcome,
+        refused: None,
         cleanup: Cleanup::Settled,
         session_ref: Some("session".into()),
         checkpoints: vec![json!({"step":"inner"})],
@@ -5942,10 +5943,15 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
     else {
         panic!("the driver spawned");
     };
-    let AttemptOutcome::Failed { error } = report.outcome else {
+    let AttemptOutcome::Failed { error } = report.settled_outcome() else {
         panic!("a refused checkpoint fails the attempt");
     };
     assert!(refusal_text(&error), "{error}");
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Succeeded { result }
+            if *result == json!({"result":"complete"})),
+        "the outcome received is kept beside the refusal"
+    );
     assert_eq!(
         driven
             .store
