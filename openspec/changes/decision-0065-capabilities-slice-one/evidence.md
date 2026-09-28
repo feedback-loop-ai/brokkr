@@ -15772,3 +15772,58 @@ The bounded return to triage cannot grant scope.
 three assertion lines, a split naming `engine/capability_tests.rs`, or a
 ruling on the optional-member encoding), 14b, exact coverage outside the
 box, macOS, remote CI and the council.
+
+## Unit 14a4c second visit — F2 admitted, 2026-09-28
+
+Run `0065-rebuild-unit-14-see-the-uni-411e4cb1`, on `9f5a00f9`.
+
+**The ruling.** The operator ruled on 2026-09-28, in this visit's framing,
+on the three exact-JSON lines. The ruling admits them for this unit, as
+assertion updates only:
+
+- `crates/brokkr-runtime/src/engine/capability_tests.rs:758`, `:802` and
+  `:958`, in
+  `the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed`.
+- Each gains `"stands": {"kind": "none"}`. The settled design seals the
+  boundary as a typed member, and 14a2's closed JSON writes every member
+  and refuses absence.
+- The optional-member encoding is not taken.
+
+The ruling is recorded here. `operator-ruling-2026-09-23.md` is the
+operator's document and was not edited.
+
+**Nothing new was built.** The three lines have been in the tree since
+`6a8dfde7`. `git diff a4a184c7 HEAD --` on that file shows exactly those
+three `+` lines and nothing else. No production or test file moved in this
+visit.
+
+- **Baseline red, as the ruling directs.** The red was already observed on
+  the `a4a184c7` bytes of that file. The test failed at `:750`, with the
+  sealed `"stands": Object {"kind": String("none")}` on the left and its
+  absence on the right (`.forge/unit-14a4c-f2-forced.txt`). The re-fire
+  observed the same red again (`.forge/unit-14a4c-refire-f2-forced.txt`).
+- **Restored pass, this visit.** The test passes in the full
+  `brokkr-runtime` run below.
+
+### Gates
+
+The gates were re-run on `9f5a00f9`, and the output is transcribed in
+`.forge/unit-14a4c-v2-gates.txt`.
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -p brokkr-protocol --all-features --locked`: 538, 99 (2
+  ignored) and 1 passed, none failed.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 summaries, all
+  `ok`, none failed. Two named tests passed: the serving-inputs test and
+  the probe pair
+  `an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open`.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0
+  failed.
+- `git diff --check`: clean.
+- Fixture migrations: none.
+- Standing-admission lines: none beyond the three the ruling admits.
+
+**Pending.** 14b, whose saved patch must name `Dialect::stands`. Also
+exact coverage outside the box, macOS, remote CI and the council.

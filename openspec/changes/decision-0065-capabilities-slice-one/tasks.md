@@ -2789,6 +2789,31 @@ Re-verified, not rebuilt: without the three lines the serving-inputs test
 still fails at `:750`; restored, it and the probe pair pass. Nothing moved
 but these records. **Pending.** The same as above.
 
+Unit 14a4c second visit (2026-09-28, run
+`0065-rebuild-unit-14-see-the-uni-411e4cb1`, on `9f5a00f9`; evidence.md,
+"Unit 14a4c second visit — F2 admitted"). **Result: complete.**
+
+- **The ruling.** The operator's ruling of 2026-09-28 admits F2's three
+  lines as assertion updates only. They are
+  `engine/capability_tests.rs:758`, `:802` and `:958`, each
+  `"stands": {"kind": "none"}`. The optional-member encoding is not taken.
+- **Nothing new was built.** The lines have been in the tree since
+  `6a8dfde7`. Their baseline red on the `a4a184c7` bytes is
+  `.forge/unit-14a4c-f2-forced.txt` (fails at `:750`). The test passes
+  again in this visit's runtime run.
+- F1 was closed on the first visit. F2 is now closed. 14.1 stays open
+  until 14b.
+- Fixture migrations: none.
+- Standing-admission lines: only the three the ruling admits.
+- **Gates.**
+  - fmt and clippy are clean.
+  - `brokkr-protocol` passed.
+  - `brokkr-runtime` returned 25 summaries `ok`.
+  - Strict OpenSpec: 18 passed.
+  - `git diff --check`: clean.
+- **Pending.** 14b (its saved patch must name `Dialect::stands`), exact
+  coverage outside the box, macOS, remote CI and the council.
+
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
 - [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
