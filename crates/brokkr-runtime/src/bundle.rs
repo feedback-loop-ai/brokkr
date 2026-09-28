@@ -4634,6 +4634,12 @@ pub(crate) enum ReadStage {
     /// The walk is about to judge, then read and hash, a file under no
     /// consumed key.
     Walked,
+    /// The walk is about to list a directory: one in a skipped tree is not
+    /// yet checked to be the directory its parent listed there.
+    Listing,
+    /// A directory in a skipped tree was checked to be the directory its
+    /// parent listed there, and is about to be listed.
+    DirectoryChecked,
 }
 
 #[cfg(test)]
@@ -6664,25 +6670,32 @@ fn manifest_for(
 /// no identity; but a hard link there to a consumed file is a second name for
 /// it inside the layer all the same, and is refused on the same terms. That
 /// search never follows a link (16-fix-e, F3): a linked directory there is
-/// one entry, not a tree, so it cannot leave the layer or loop. A directory
-/// the walk cannot list, skipped or not, is refused naming it.
+/// one entry, not a tree, so it cannot leave the layer or loop, and a
+/// directory there is listed only while it is the one its parent listed
+/// ([`listing`]; 16-fix-e, return F3). A directory the walk cannot list,
+/// skipped or not, is refused naming it, and naming who read a consumed
+/// entry it holds.
 fn walk_files(
     dir: &Path,
     scope: &Path,
     consumed: &BTreeMap<String, Supplied>,
 ) -> Result<BTreeMap<String, String>, CompileError> {
-    let mut stack = vec![(scope.to_path_buf(), false)];
+    // Each directory to list, with the `(dev, ino)` its parent listed it as
+    // when it stands in a skipped tree.
+    let mut stack = vec![(scope.to_path_buf(), None)];
     let (mut paths, mut unpinned) = (Vec::new(), Vec::new());
-    while let Some((current, skipped)) = stack.pop() {
-        let refuse = |error| unlisted(dir, &current, error);
-        for entry in std::fs::read_dir(&current).map_err(refuse)? {
-            let entry = entry.map_err(refuse)?;
+    while let Some((current, found)) = stack.pop() {
+        for entry in listing(dir, &current, found, consumed)? {
             let path = entry.path();
+            // A consumed entry is the one entry it was read by, never a tree
+            // to descend (16-fix-e, return F1): whatever stands there now is
+            // judged by its own check, which names who read it.
+            let consumed_here = consumed.contains_key(&walk_key(dir, &path).unwrap_or_default());
             // A scaffold may also be the workspace from which Brokkr is
             // invoked. Its realm map and dialect library are workspace
             // declarations pinned into the RUN manifest, never bundle files:
             // changing either must not move the strategy's identity.
-            let skipped = skipped
+            let skipped = found.is_some()
                 || current == dir
                     && path
                         .file_name()
@@ -6691,16 +6704,20 @@ fn walk_files(
             if skipped && consumed.is_empty() {
                 continue;
             }
-            let tree = if skipped {
-                entry.file_type().map_err(refuse)?.is_dir()
-            } else {
-                path.is_dir()
-            };
-            if tree {
-                stack.push((path, skipped));
-            } else if skipped {
-                unpinned.push(path);
-            } else if path.is_file() {
+            if skipped {
+                // Asked of the entry, never its target (16-fix-e, F3): a
+                // linked directory here is one entry, not a tree.
+                let meta = entry
+                    .metadata()
+                    .map_err(|error| unlisted(dir, &current, error, consumed))?;
+                if meta.is_dir() {
+                    stack.push((path, Some(node(&meta))));
+                } else {
+                    unpinned.push(path);
+                }
+            } else if !consumed_here && path.is_dir() {
+                stack.push((path, None));
+            } else if consumed_here || path.is_file() {
                 // A secrets store inside the bundle would ride the
                 // manifest digest: rotation would change the digest AND
                 // the manifest would embed a SHA-256 of the secret file —
@@ -6788,19 +6805,92 @@ fn walk_files(
     Ok(files)
 }
 
-/// The refusal of `directory`, under the layer `dir`, which the walk could
-/// not list (rebuild unit 16-fix-e, F3): named by its place in the layer,
-/// with the kind of failure, never an unbounded io message.
-fn unlisted(dir: &Path, directory: &Path, error: std::io::Error) -> CompileError {
+/// The entries of `current`, a directory under the layer `dir`, as the walk
+/// lists them. One in a skipped tree was `found` by its parent's listing as
+/// the directory with that `(dev, ino)`, asked without following a link
+/// (rebuild unit 16-fix-e, return F3): it is listed only while that entry is
+/// still that directory, checked before the listing and again after it, so a
+/// link or anything else put in its place is refused before a name listed
+/// through it is walked, and the walk never descends out of the layer.
+fn listing(
+    dir: &Path,
+    current: &Path,
+    found: Option<(u64, u64)>,
+    consumed: &BTreeMap<String, Supplied>,
+) -> Result<Vec<std::fs::DirEntry>, CompileError> {
+    let stands = |id| std::fs::symlink_metadata(current).is_ok_and(|meta| node(&meta) == id);
+    at_stage(ReadStage::Listing, current);
+    if found.is_some_and(|id| !stands(id)) {
+        return Err(replaced(dir, current, "before"));
+    }
+    if found.is_some() {
+        at_stage(ReadStage::DirectoryChecked, current);
+    }
+    let listed = std::fs::read_dir(current).and_then(Iterator::collect);
+    if found.is_some_and(|id| !stands(id)) {
+        return Err(replaced(dir, current, "while"));
+    }
+    listed.map_err(|error| unlisted(dir, current, error, consumed))
+}
+
+/// The refusal of `directory`, in a skipped tree under the layer `dir`,
+/// which stood as another entry `moment` the walk listed it.
+fn replaced(dir: &Path, directory: &Path, moment: &str) -> CompileError {
     let key = walk_key(dir, directory).unwrap_or_default();
     CompileError::Invalid(format!(
+        "bundle directory {} was replaced {moment} the walk listed it: a tree the walk skips is \
+         searched only to hold each consumed file to one name, entered as the directory its \
+         parent listed there and never through a link, so a directory replaced there is refused \
+         rather than followed (decision 0065 slice one, design D7)",
+        bounded_reference(&format!("./{key}"))
+    ))
+}
+
+/// The refusal of `directory`, under the layer `dir`, which the walk could
+/// not list (rebuild unit 16-fix-e, F3): named by its place in the layer,
+/// with the kind of failure, never an unbounded io message. Where it holds a
+/// consumed entry, the refusal opens with who read that entry, as the
+/// input's own refusals do (16-fix-e, return F1).
+fn unlisted(
+    dir: &Path,
+    directory: &Path,
+    error: std::io::Error,
+    consumed: &BTreeMap<String, Supplied>,
+) -> CompileError {
+    let key = walk_key(dir, directory).unwrap_or_default();
+    let refusal = format!(
         "bundle directory {} cannot be listed ({}): the walk that pins a layer lists every \
          directory it enters, a skipped tree's included where it holds each consumed file to one \
          name, so a directory it cannot list is refused rather than passed over (decision 0065 \
          slice one, design D7)",
         bounded_reference(&format!("./{key}")),
         error.kind()
-    ))
+    );
+    match consumed
+        .iter()
+        .find(|(held, _)| Path::new(held).starts_with(&key))
+    {
+        Some((held, supplied)) => CompileError::Invalid(format!(
+            "{}, whose entry {} stands in {refusal}",
+            supplied.consumer,
+            bounded_reference(held)
+        )),
+        None => CompileError::Invalid(refusal),
+    }
+}
+
+/// The `(dev, ino)` `meta` describes.
+#[cfg(unix)]
+fn node(meta: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino())
+}
+
+/// As [`entry_of`]: any other host consumes nothing, and so never searches a
+/// skipped tree.
+#[cfg(not(unix))]
+fn node(_: &std::fs::Metadata) -> (u64, u64) {
+    (0, 0)
 }
 
 /// The refusal of a consumed input whose entry `key` the walk could not

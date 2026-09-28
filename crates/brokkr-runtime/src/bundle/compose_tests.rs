@@ -3455,6 +3455,132 @@ fn a_root_rewalk_passes_over_what_the_walk_skips() {
     );
 }
 
+// ---------------- unit 16-fix-e, return: collection names who read it
+
+/// A mode-000 directory put at `path`, whatever stood there moved to
+/// `aside`.
+#[cfg(unix)]
+fn locked_in_place_of(path: &Path, aside: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::rename(path, aside).unwrap();
+    std::fs::create_dir(path).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+}
+
+/// Rebuild unit 16-fix-e, return F1 (16.1; capability-manifest-and-prompts:
+/// a missing or unreadable consumed input refuses with a bounded
+/// source/site/kind/path cause): as the walk is about to list the layer, the
+/// table `policy.json`, already read, is replaced by a directory it cannot
+/// list, and in a second compile `roles/`, which holds the charter, is. The
+/// consumed entry is walked as the one entry it is, never descended, so the
+/// table's own check names it; a directory holding a consumed entry that the
+/// walk cannot list names who read that entry. Standalone and inherited. On
+/// `e132c3a5` both said only "bundle directory ... cannot be listed".
+#[cfg(unix)]
+#[test]
+fn a_consumed_entry_replaced_before_the_walk_lists_it_names_who_read_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for inherited in [false, true] {
+        let library = Library::new();
+        let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+        let compiled = if inherited { &leaf } else { &base };
+        let said_locked = |name: &str| {
+            let (path, aside) = (base.join(name), library.path().join("aside"));
+            let (locked, moved) = (path.clone(), aside.clone());
+            let act: Box<dyn FnOnce()> = Box::new(move || locked_in_place_of(&locked, &moved));
+            let said = said_acting(compiled, vec![(ReadStage::Listing, base.clone(), act)]);
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::remove_dir(&path).unwrap();
+            std::fs::rename(&aside, &path).unwrap();
+            said
+        };
+        let (table, role) = (said_locked("policy.json"), said_locked("roles"));
+        observed.push((inherited, table, role));
+        let refused = |refusal: String| match inherited {
+            false => format!("bundle: {refusal}"),
+            true => format!("bundle: bundle: {refusal} (composed: derived -> base)"),
+        };
+        expected.push((
+            inherited,
+            refused(table_changed(&base, "policy.json")),
+            // `review`, read first, also names the charter `work` names.
+            refused(format!(
+                "{}, whose entry 'roles/role.md' stands in {}",
+                role_by(&base, "review", "roles/role.md"),
+                unlisted_directory("roles", "permission denied")
+            )),
+        ));
+    }
+    assert_eq!(observed, expected);
+}
+
+/// The walk's refusal of the skipped directory `key`, replaced `moment` it
+/// was listed.
+fn replaced_directory(key: &str, moment: &str) -> String {
+    format!(
+        "bundle directory './{key}' was replaced {moment} the walk listed it: a tree the walk \
+         skips is searched only to hold each consumed file to one name, entered as the directory \
+         its parent listed there and never through a link, so a directory replaced there is \
+         refused rather than followed (decision 0065 slice one, design D7)"
+    )
+}
+
+/// Rebuild unit 16-fix-e, return F3 (16.1; design D7): a directory in a
+/// skipped tree is entered as the directory its parent listed, never through
+/// a link put in its place. `dialects`, an ordinary directory, is replaced by
+/// a link to a directory outside the layer holding one it cannot list: before
+/// the walk checks it, and once it is checked and about to be listed. Each is
+/// refused naming `dialects`, standalone and inherited, and nothing outside
+/// is descended; the link left standing there is one entry, and compiles
+/// with the identity the ordinary directory had. On `e132c3a5` each
+/// replacement was listed and descended, and refused the outside tree's
+/// './dialects/locked'.
+#[cfg(unix)]
+#[test]
+fn a_skipped_directory_replaced_by_a_link_is_not_followed() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for inherited in [false, true] {
+        for (stage, moment) in [
+            (ReadStage::Listing, "before"),
+            (ReadStage::DirectoryChecked, "while"),
+        ] {
+            let library = Library::new();
+            let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+            let compiled = if inherited { &leaf } else { &base };
+            let dialects = base.join("dialects");
+            std::fs::create_dir_all(dialects.join("inner")).unwrap();
+            let before = said(compiled);
+            assert!(before.starts_with("compiled to"), "{before}");
+            let (outside, aside) = (library.path().join("outside"), library.path().join("aside"));
+            let locked = outside.join("locked");
+            std::fs::create_dir_all(&locked).unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let replaced = dialects.clone();
+            let swap: Box<dyn FnOnce()> = Box::new(move || {
+                std::fs::rename(&replaced, &aside).unwrap();
+                symlink(&outside, &replaced).unwrap();
+            });
+            let swapped = said_acting(compiled, vec![(stage, dialects, swap)]);
+            let linked = said(compiled);
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+            observed.push((inherited, moment, swapped, linked));
+            let refusal = replaced_directory("dialects", moment);
+            expected.push((
+                inherited,
+                moment,
+                match inherited {
+                    false => format!("bundle: {refusal}"),
+                    true => format!("bundle: bundle: {refusal} (composed: derived -> base)"),
+                },
+                before,
+            ));
+        }
+    }
+    assert_eq!(observed, expected);
+}
+
 /// Rebuild unit 16-fix-d, F2 (16.1, 16.2; design D7): two consumed names
 /// for one file are refused. `review`'s charter `roles/review.md` is a hard
 /// link to `work`'s `roles/role.md`; each is a key a bound read consumed,

@@ -3655,6 +3655,52 @@ still unobserved and is not claimed.**
 - **Pending.** F4 and with it 16.1; macOS; exact coverage outside the box;
   remote CI and the council.
 
+Unit 16-fix-e, return (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-fd9035f4`,
+based on `e132c3a5`; evidence.md, "Unit 16-fix-e, return"). It answers the
+chief's F1 and F3 on `e132c3a5`. Production: `bundle.rs` only. Tests:
+`bundle/compose_tests.rs`. **16.2 and 16.3 stay closed. 16.1 stays open: F4,
+its case-insensitive refusal row, is still unobserved and is not claimed.**
+
+- **F1, collection names who read it.** A consumed entry is walked as the one
+  entry it was read by and never descended, whatever stands there now, so its
+  own check names its consumer. A directory the walk cannot list that holds a
+  consumed entry now opens its refusal with who read that entry.
+  - New test `a_consumed_entry_replaced_before_the_walk_lists_it_names_who_read_it`.
+    At the new `Listing` seam for the base layer, `policy.json`, or in a
+    second compile `roles/`, is replaced by a mode-000 directory. Standalone
+    and inherited.
+  - Red on `e132c3a5` plus the seams: every cell said `bundle directory
+    './policy.json'` or `'./roles' cannot be listed (permission denied)`, with
+    no consumer. Caught by M1 (a consumed entry descended again: the table
+    rows) and M2 (the consumer dropped from `unlisted`: the `roles` rows).
+- **F3, descent is bound to the no-follow observation.** A directory in a
+  skipped tree is listed only while its entry is still the `(dev, ino)` its
+  parent's listing found, asked without following a link. This is checked
+  before the listing and again after it. A replacement is refused naming the
+  directory before any name listed through it is walked.
+  - New test `a_skipped_directory_replaced_by_a_link_is_not_followed`.
+    `dialects` is replaced by a link out of the layer (to a tree holding a
+    mode-000 directory) at the `Listing` seam, and at the new
+    `DirectoryChecked` seam. Each is refused naming `'./dialects'`, standalone
+    and inherited. The link left standing compiles to the ordinary
+    directory's identity.
+  - Red on `e132c3a5` plus the seams: every swapped cell refused the outside
+    tree's `'./dialects/locked'`. Caught by M3 (no pre-check: the `before`
+    rows say `while`), M4 (no post-check: the `while` rows reach
+    `'./dialects/locked'`) and M5 (skipped entries classified through links:
+    this test and `a_skipped_tree_is_searched_without_following_a_link`).
+- **F2.** Still exercised. In the clean crate-scoped diagnostic,
+  `DA:6705,6` and `BRDA:6704,1,2,6`, and there is no zero `DA`/`BRDA` in
+  `bundle.rs` 6600–6999.
+- **F4.** Still pending, and 16.1 with it.
+- **Standing-admission lines and fixture migrations:** none.
+- **Gates.** fmt and clippy are clean. Workspace, all features: 77 results,
+  all ok; the runtime lib has 608. `bundles/self` (`45dc1c7e…`) and
+  `bundles/verify` (`f7cbd4bb…`) are unchanged. Strict OpenSpec (18) and
+  `git diff --check` are clean.
+- **Pending.** F4 and with it 16.1; macOS; exact coverage outside the box;
+  remote CI and the council.
+
 ## 17. Unit 17 — Select charter owner and source at compile
 
 - [ ] 17.1 Unit 17 binds selected charter owner/reference/target/digest, no longest-prefix guess. Verify external/nested/overlapping owners and all site/candidate paths. Requirements: [Library charter pins are enforced at consumption][MPL], [A new manifest version records capabilities per executable seat][MP1]. Reopened/remaining: operator ruling 3. (previous 6.2)

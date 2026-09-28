@@ -19032,4 +19032,170 @@ The default-feature workspace suite was not run on this visit.
 - An entry under no consumed key whose own metadata fails mid-walk is still
   a bare io error: it is not known to be a consumed input. A directory
   removed after listing, above a consumed file, is refused naming the
-  directory, not the consumer.
+  directory, not the consumer. *(The second half is answered by the return
+  below: such a directory's refusal now opens with the consumer.)*
+
+## Unit 16-fix-e, return — collection names who read it, and descent is bound, 2026-09-28
+
+Same run, `0065-rebuild-unit-16-see-the-uni-fd9035f4`, returned from review
+of `e132c3a5`. It answers the chief's F1 (MEDIUM) and F3 (LOW) on that head.
+F4 stays pending under the operator's ruling of 2026-09-28. Production:
+`bundle.rs` only. Tests: `bundle/compose_tests.rs`. Scratch logs are under
+`.forge/unit-16-fix-e-return/` (not committed).
+
+### Production
+
+**Seams.** `ReadStage` gains `Listing` (the walk is about to list a directory)
+and `DirectoryChecked` (a skipped-tree directory has passed its check and is
+about to be listed). They are test hooks only, like the other stages.
+
+**F1.** Two paths lost the consumer during collection:
+
+- An entry under a consumed key was classified like any other, so a consumed
+  file replaced by a directory was descended. It is now walked as the one
+  entry it was read by and never descended, whatever stands there. It then
+  reaches its own `Consumed::check`, which names its consumer (for the table:
+  `'policy' names 'policy.json', whose entry, target or bytes changed…`).
+  This also holds when a consumed key is replaced by anything else that is not
+  a regular file. That was refused before as well, by the unlisted-key
+  refusal, which also names the consumer.
+- `unlisted` now takes the consumed map. When the directory it refuses holds
+  a consumed key (compared by path components, so `roles` holds
+  `roles/role.md` and not `rolesx/…`), the refusal opens with `<consumer>,
+  whose entry '<key>' stands in ` and then the unchanged directory refusal.
+  Otherwise it is byte-identical to before.
+
+**F3.** `walk_files` now stacks each skipped-tree directory with the `(dev,
+ino)` its parent's listing found. The lookup is `DirEntry::metadata`, which
+does not follow a link; it replaces `file_type`, and still classifies a
+linked directory as one unpinned entry. The new `listing` function lists such
+a directory only while `symlink_metadata` of its path still gives that `(dev,
+ino)`:
+
+- It checks before `read_dir`, refusing `bundle directory './<key>' was
+  replaced before the walk listed it: …`.
+- It checks again after `read_dir`, before any listed name is used, refusing
+  `… replaced while the walk listed it: …`.
+
+A link, file or other directory put in its place is refused, so the walk
+never descends out of the layer. A listing error on a replaced directory is
+reported as the replacement, not as the outside tree's io kind.
+
+Pinned directories are listed as before: they still follow contained linked
+directories, and they get no identity check. The one-name check
+(`one_entry`) is unchanged.
+
+**Limitation, from reading the code, not observed.** `read_dir` takes a
+path. A link swapped in and then swapped back between the two checks would
+be listed. A directory named by that listing is pushed as `<dir>/<name>`,
+with the `(dev, ino)` the outside listing found. Its own check resolves the
+path through the restored in-layer directory, so it is refused unless the
+path is swapped out again for that check too. No test exercises that double
+swap.
+
+### Tests
+
+New, in `bundle/compose_tests.rs`, with helpers `locked_in_place_of` and
+`replaced_directory`:
+
+- **`a_consumed_entry_replaced_before_the_walk_lists_it_names_who_read_it`
+  (F1).** Standalone and inherited, in one assertion. At `Listing` for the
+  base layer's root:
+  - `policy.json` is moved aside and a mode-000 directory is put in its
+    place. Expected: `table_changed(base, "policy.json")`.
+  - In a second compile, the same is done to `roles/`. Expected: `<base>/bundle.json: seat 'review' names role 'roles/role.md', whose
+    entry 'roles/role.md' stands in bundle directory './roles' cannot be
+    listed (permission denied): …`.
+  - Inherited cells wrap the same refusal as `bundle: bundle: … (composed:
+    derived -> base)`.
+  - Modes and entries are restored after each compile.
+- **`a_skipped_directory_replaced_by_a_link_is_not_followed` (F3).**
+  Standalone and inherited, at each of `Listing` and `DirectoryChecked` for
+  `base/dialects`. `dialects` is an ordinary directory holding `inner/`, and
+  its compile is the control (`compiled to …`). It is moved aside and
+  replaced by a link to `outside/`, which holds a mode-000 `locked/`.
+  - Expected: `replaced_directory("dialects", "before" | "while")`.
+  - Then the link left standing compiles to the control's identity. The
+    control identities were `c4061ec5…` standalone and `6ad7ff5d…`
+    inherited, per the baseline log.
+
+### Baseline (`e132c3a5` plus the two seams only)
+
+The seams are saved as `baseline-seam.diff`: both fire before `read_dir`,
+with no check. Result in `baseline.log`: 0 passed, 2 failed.
+
+- F1 test, left: `bundle: bundle directory './policy.json' cannot be listed
+  (permission denied): …` and `bundle: bundle directory './roles' cannot be
+  listed (permission denied): …`, and the same inherited with `(composed:
+  derived -> base)`. No consumer is named, as in the chief's F1.
+- F3 test, left: every swapped cell (both seams, both modes) was `bundle
+  directory './dialects/locked' cannot be listed (permission denied)`. The
+  walk descended the outside tree, as in the chief's F3. The linked-standing
+  cells already matched the control.
+
+### Mutations (each compiles; restored after each)
+
+| Mutation | Fails (exact assertion) | Log |
+| --- | --- | --- |
+| M1: a consumed entry is classified like any other (`let consumed_here = false && …`) | F1 test: the table cell is `…'policy' names 'policy.json', whose entry 'policy.json' stands in bundle directory './policy.json' cannot be listed (permission denied)…`. 58 passed | `m1.log` |
+| M2: `unlisted` names no consumer (`find(\|…\| false && …)`) | F1 test: the `roles` cell is `bundle: bundle directory './roles' cannot be listed (permission denied)…`. 58 passed | `m2.log` |
+| M3: no check before the listing (`if false && found.is_some_and(…)`, `before`) | F3 test: the `before` cells say `was replaced while the walk listed it`. 58 passed | `m3.log` |
+| M4: no check after the listing (`if false && …`, `while`) | F3 test: the `while` cells are `bundle directory './dialects/locked' cannot be listed (permission denied)`. 58 passed | `m4.log` |
+| M5: skipped entries classified through links (`std::fs::metadata(&path)`) | F3 test and `a_skipped_tree_is_searched_without_following_a_link`: the standing-link cells are `bundle directory './dialects' was replaced before…` and `'./dialects/out' was replaced before…`. 57 passed | `m5.log` |
+
+Restored: the compose suite passed 59 (`candidate-compose.log`: 57 before,
+plus these two). The runtime crate suite passed with 608 in the lib
+(`restored-runtime.log`).
+
+### Coverage diagnostic (not the gate)
+
+Commands:
+
+- `cargo +nightly-2026-09-05 llvm-cov clean --workspace`
+- `cargo +nightly-2026-09-05 llvm-cov --locked -p brokkr-runtime --lib
+  --branch --lcov` (`runtime-final.lcov`, on the committed tree; 608 passed)
+
+No `DA` record for lines 6600–6999, in any file of the report, is 0, and no
+`BRDA` there is 0 or `-`. Specifically:
+
+- F2, unchanged: `DA:6705,6` (the `continue`), and `BRDA:6704,1,2,6` /
+  `BRDA:6704,1,3,311`.
+- The consumed-entry classification: `BRDA:6718` (all four arms hit) and
+  `BRDA:6720` (`1,3,1`: a non-regular pinned entry under no consumed key).
+- `listing`: `BRDA:6823,0,0,2` and `DA:6824,2` (before); `BRDA:6826` (a
+  skipped directory or not); `BRDA:6830,0,0,2` and `DA:6831,2` (while).
+- `unlisted`: `DA:6873,2` (with a consumer) and `DA:6878,14` (without one).
+
+`scripts/coverage-exact.sh` stays the external gate, and it is pending.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+On the final tree, in this session:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D
+  warnings`: clean (`clippy.log`).
+- `cargo test --workspace --all-features --locked`: 77 results, all ok
+  (`workspace.log`). The runtime lib has 608.
+- `compile --bundle bundles/self`: `45dc1c7e…`, unchanged. `bundles/verify`:
+  `f7cbd4bb…`, unchanged.
+- `openspec validate --all --strict`: 18 passed.
+- `git diff --check`: clean.
+
+The default-feature workspace suite was not run on this visit.
+
+### Pending
+
+- **F4, and with it 16.1.** The case-insensitive rows of the spelling
+  refusal (`POLICY.JSON`, `TABLE.JSON`) are unobserved. They need a
+  case-folding or macOS host. Not claimed.
+- macOS: `openat`/`readlinkat`, the flag values, and `DirEntry::metadata` as
+  a no-follow lookup there. It is documented not to traverse links, but that
+  has not been observed on macOS.
+- Exact coverage outside the box (`scripts/coverage-exact.sh`).
+- Remote CI.
+- The council.
