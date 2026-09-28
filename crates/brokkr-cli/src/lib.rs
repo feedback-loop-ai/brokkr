@@ -17,6 +17,7 @@ mod cli_args;
 mod compare;
 mod doctor;
 mod fleet;
+mod hands;
 mod init;
 mod ledger;
 mod muninn;
@@ -500,13 +501,17 @@ fn status_exit(status: &Status) -> ExitCode {
     }
 }
 
-/// A driven run's ending: the conclusion's anchor and keep-ref gaps on
-/// stderr, then the summary `finish` prints.
-fn finish_drive(end: &brokkr_runtime::DriveEnd) -> ExitCode {
+/// Drive a started run to its ending. The start first reaps the scratch
+/// trees of hands servers whose owners died and says each on stderr,
+/// journaling nothing (#415). Then the conclusion's anchor and keep-ref
+/// gaps on stderr, and the summary `finish` prints.
+fn drive_to_end(engine: &mut brokkr_runtime::Engine) -> Result<ExitCode> {
+    eprint!("{}", brokkr_protocol::hands::reap_dead_sessions());
+    let end = engine.drive()?;
     for gap in &end.gaps {
         eprintln!("{gap}");
     }
-    finish(&end.state)
+    Ok(finish(&end.state))
 }
 
 fn finish(state: &RunState) -> ExitCode {
@@ -737,53 +742,6 @@ pub enum HandsCommand {
     },
 }
 
-fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
-    use brokkr_protocol::hands;
-    let parse_spec = |spec: &str| -> anyhow::Result<hands::HandsSpec> {
-        let raw: serde_json::Value = serde_json::from_str(spec)?;
-        hands::HandsSpec::parse(&raw).map_err(|problem| anyhow::anyhow!("--spec: {problem}"))
-    };
-    match command {
-        HandsCommand::Serve { workdir, spec } => {
-            let spec = parse_spec(&spec)?;
-            // The session outlives every call: overlay upper layers live
-            // here until the harness closes the server's stdin.
-            let session = hands::session_dir("serve").map_err(anyhow::Error::msg)?;
-            let stdin = std::io::stdin();
-            let served = hands::serve(
-                stdin.lock(),
-                std::io::stdout(),
-                &workdir,
-                &session,
-                &spec,
-                &hands::execute,
-            );
-            let _ = std::fs::remove_dir_all(&session);
-            served?;
-            Ok(ExitCode::SUCCESS)
-        }
-        HandsCommand::Exec {
-            workdir,
-            bundle_root,
-            spec,
-            command,
-        } => {
-            let spec = parse_spec(&spec)?;
-            // Only the leading separator is ours; a command may carry
-            // its own `--`.
-            let command: Vec<String> = match command.first().map(String::as_str) {
-                Some("--") => command[1..].to_vec(),
-                _ => command,
-            };
-            let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
-                .map_err(anyhow::Error::msg)?;
-            Ok(ExitCode::from(
-                u8::try_from(code.clamp(0, 255)).unwrap_or(1),
-            ))
-        }
-    }
-}
-
 use boundary::refuse_unboxable;
 
 /// The payload the LONG-STANDING adapters (claude, lanetally, codex,
@@ -871,19 +829,32 @@ fn contention(error: &anyhow::Error) -> Option<&brokkr_store::StoreError> {
 /// journaled nineteen good events simply vanished. Contention says its
 /// own name now, says that nothing was lost, and carries its own code.
 fn report(error: &anyhow::Error) -> ExitCode {
+    report_to(error, &mut std::io::stderr().lock())
+}
+
+/// `report`, writing its line to `stderr`: the seam a test reads to pin
+/// what the binary prints.
+fn report_to(error: &anyhow::Error, stderr: &mut impl std::io::Write) -> ExitCode {
+    // A stderr that cannot be written leaves the exit code to say it.
     match contention(error) {
         Some(store) => {
-            eprintln!(
+            let _ = writeln!(
+                stderr,
                 "contended: {store}\nA peer is writing this journal. Nothing was \
                  written and nothing was lost — resume when it is done."
             );
             ExitCode::from(CONTENDED_EXIT)
         }
         None => {
-            eprintln!("error: {}", safe_lines(&format!("{error:#}")));
+            let _ = writeln!(stderr, "{}", failure_line(error));
             ExitCode::from(1)
         }
     }
+}
+
+/// What an uncontended failure prints on stderr.
+fn failure_line(error: &anyhow::Error) -> String {
+    format!("error: {}", safe_lines(&format!("{error:#}")))
 }
 
 /// Sanitize an error display line by line, keeping the chain's own line
@@ -2024,7 +1995,7 @@ fn run_with(
         Cmd::Bridge(args) => exchange::bridge(workspace, args, bridge_iteration_limit),
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
-        Cmd::Hands { command } => hands(command),
+        Cmd::Hands { command } => hands::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
         Cmd::Recipes { command } => setup::recipes(workspace, command),

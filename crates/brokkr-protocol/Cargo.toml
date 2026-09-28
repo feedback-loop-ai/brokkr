@@ -25,5 +25,12 @@ tempfile = { workspace = true }
 # `faccessat(AT_EACCESS)` against the process's EFFECTIVE identity, and
 # the standard library exposes no such call. This extends a direct edge
 # to a version already in Cargo.lock; no registry version moves.
+#
+# #415 widens it for a hands session's scratch tree: `process` asks the
+# kernel whether an owner pid is alive (kill with no signal) and
+# `signal-hook` lets a server remove its tree when a termination signal
+# ends it. Both are crates Cargo.lock already holds (signal-hook through
+# crossterm); no registry version moves.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "process"] }
+signal-hook = { version = "0.3.18", default-features = false, features = ["iterator"] }

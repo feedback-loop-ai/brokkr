@@ -117,6 +117,13 @@ pub enum brokkr_protocol::hands::BindMode
 pub brokkr_protocol::hands::BindMode::Overlay
 pub brokkr_protocol::hands::BindMode::Ro
 pub brokkr_protocol::hands::BindMode::Rw
+pub enum brokkr_protocol::hands::SessionError
+pub brokkr_protocol::hands::SessionError::Io(core::io::error::Error)
+pub brokkr_protocol::hands::SessionError::Lock
+pub brokkr_protocol::hands::SessionError::Lock::cause: core::io::error::Error
+pub brokkr_protocol::hands::SessionError::Lock::path: std::path::PathBuf
+impl core::convert::From<brokkr_protocol::hands::SessionError> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_protocol::hands::SessionError) -> alloc::string::String
 pub struct brokkr_protocol::hands::Bind
 pub brokkr_protocol::hands::Bind::mask: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::hands::Bind::mode: brokkr_protocol::hands::BindMode
@@ -138,6 +145,16 @@ pub brokkr_protocol::hands::HandsSpec::network: bool
 impl brokkr_protocol::hands::HandsSpec
 pub fn brokkr_protocol::hands::HandsSpec::parse(&serde_json::value::Value) -> core::result::Result<brokkr_protocol::hands::HandsSpec, alloc::string::String>
 pub fn brokkr_protocol::hands::HandsSpec::to_value(&self) -> serde_json::value::Value
+pub struct brokkr_protocol::hands::Reaped
+impl core::fmt::Display for brokkr_protocol::hands::Reaped
+pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_protocol::hands::Session
+impl brokkr_protocol::hands::Session
+pub fn brokkr_protocol::hands::Session::create(&str) -> core::result::Result<brokkr_protocol::hands::Session, brokkr_protocol::hands::SessionError>
+pub fn brokkr_protocol::hands::Session::path(&self) -> &std::path::Path
+pub fn brokkr_protocol::hands::Session::remove_on_termination(&self) -> core::result::Result<(), brokkr_protocol::hands::SessionError>
+impl core::ops::drop::Drop for brokkr_protocol::hands::Session
+pub fn brokkr_protocol::hands::Session::drop(&mut self)
 pub const brokkr_protocol::hands::BOUNDARY_EVIDENCE_ENV: &str
 pub const brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS: &str
 pub const brokkr_protocol::hands::HANDS_BOX_ENV: &str
@@ -163,13 +180,13 @@ pub fn brokkr_protocol::hands::overlay_supported(&brokkr_protocol::hands::HandsS
 pub fn brokkr_protocol::hands::overlay_supported_by(&str, &std::path::Path) -> core::result::Result<(), alloc::string::String>
 pub fn brokkr_protocol::hands::parse_version(&str) -> core::option::Option<(u32, u32, u32)>
 pub fn brokkr_protocol::hands::probe_network_prefix(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, u32, u32) -> bool
+pub fn brokkr_protocol::hands::reap_dead_sessions() -> brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::require_bwrap() -> core::result::Result<std::path::PathBuf, alloc::string::String>
 pub fn brokkr_protocol::hands::require_bwrap_for(&brokkr_protocol::hands::HandsSpec) -> core::result::Result<std::path::PathBuf, alloc::string::String>
 pub fn brokkr_protocol::hands::run_boxed(&brokkr_protocol::hands::HandsSpec, &std::path::Path, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
 pub fn brokkr_protocol::hands::run_boxed_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
 pub fn brokkr_protocol::hands::serve<R: alloc::io::buf_read::BufRead, W: core::io::write::Write>(R, W, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &brokkr_protocol::hands::Executor) -> core::io::error::Result<()>
 pub fn brokkr_protocol::hands::serve_args(&std::path::Path, &brokkr_protocol::hands::HandsSpec) -> alloc::vec::Vec<alloc::string::String>
-pub fn brokkr_protocol::hands::session_dir(&str) -> core::result::Result<std::path::PathBuf, alloc::string::String>
 pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
 pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
 pub fn brokkr_protocol::hands::unboxed_environment(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &[(alloc::string::String, alloc::string::String)], &std::path::Path, &std::path::Path) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>

@@ -394,9 +394,8 @@ fn bwrap_is_required_not_simulated() {
         Err("hands doing: boom".to_string())
     );
     assert_eq!(io_context(Ok(1), "doing"), Ok(1));
-    let session = session_dir("test").unwrap();
-    assert!(session.is_dir());
-    let _ = std::fs::remove_dir_all(&session);
+    let session = Session::create("test").unwrap();
+    assert!(session.path().is_dir());
 }
 
 #[test]
@@ -680,7 +679,8 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     let host_secret = dir.path().join("host-secret");
     std::fs::write(&host_secret, "never\n").unwrap();
     let spec = HandsSpec::default();
-    let session = session_dir("test").unwrap();
+    let owner = Session::create("test").unwrap();
+    let session = owner.path().to_path_buf();
     let long = Duration::from_secs(30);
 
     let seen = execute(
@@ -799,7 +799,6 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     )
     .unwrap_err();
     assert!(blocked.contains("namespace"), "{blocked}");
-    let _ = std::fs::remove_dir_all(&session);
 }
 
 /// Ruling 6, for real: git works inside the box for a `git worktree`,
@@ -882,7 +881,8 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     assert_eq!(git_facts(dir.path()).common_dir, None);
 
     let spec = HandsSpec::default();
-    let session = session_dir("git").unwrap();
+    let owner = Session::create("git").unwrap();
+    let session = owner.path().to_path_buf();
     let long = Duration::from_secs(30);
     let status = execute(
         &spec,
@@ -952,7 +952,6 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     assert!(!std::fs::read_to_string(common.join("config"))
         .unwrap()
         .contains("evil"));
-    let _ = std::fs::remove_dir_all(&session);
 }
 
 /// Decision 0054: a boundary proof that cannot open a namespace logs a

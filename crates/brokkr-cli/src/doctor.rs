@@ -13,7 +13,7 @@ use brokkr_protocol::adapters::{
     dsh_composite_prepared, DshComposite, DshInvocation, DshPrepared, DshSeams, DshSelection,
     DshUnprepared, DshUnselected,
 };
-use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::hands::{execute, HandsSpec, Session};
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
@@ -101,10 +101,10 @@ fn probe_in_box(spec: &HandsSpec, workdir: &Path, program: &str) -> Result<Optio
     } else {
         format!("{} --version", shell_quote(program))
     };
-    let session = brokkr_protocol::hands::session_dir("doctor").map_err(unbuilt)?;
-    let result = brokkr_protocol::hands::execute(spec, workdir, &session, &command, PROBE_TIMEOUT);
-    let _ = std::fs::remove_dir_all(&session);
-    match result {
+    let session = Session::create("doctor")
+        .map_err(String::from)
+        .map_err(unbuilt)?;
+    match execute(spec, workdir, session.path(), &command, PROBE_TIMEOUT) {
         Ok(executed) => box_answer(&executed),
         Err(error) => Err(unbuilt(error)),
     }
