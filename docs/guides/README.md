@@ -16,6 +16,7 @@ for someone arriving from outside this repository.
 | [Driver authoring](driver-authoring.md) | The `forge-driver/v1` wire contract for a harness that is not Claude Code, Codex or dsh: handshake, `accepted`, checkpoints, results, deadlines, and the conformance suite as the acceptance test. |
 | [Secrets](secrets.md) | Names cross the control plane; values stay in the operator-side store and are masked before capture. |
 | [Journal and verification](journal-and-verification.md) | Anchor, export, verify, replay, import and keep the evidence that proves a run. |
+| [Bug provenance](bug-provenance.md) | Trace observed defects to introducing commits and runs, then to verified fixes. |
 | [Repository layout](repository-layout.md) | The crates, contracts, recipes, evidence and read-only shelves, with the reason each exists. |
 | [Adopting a Node repo](adopting-a-node-repo.md) | The quickstart's flow 3 at length for a Node/TypeScript repo on `recipes/node`: what you are granting, the five files your repo needs, the `realms.json` it writes for itself, what each seat runs, and where the package-manager fork points are. |
 | [Versioning](versioning.md) | What is stable and what may still move: the frozen-contract law, the two manifest lineages, semver as of 1.0, and the live deprecation window. |

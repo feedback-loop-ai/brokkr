@@ -32,7 +32,7 @@ GitHub's required-field checks do not enforce the rules below.
 | Field | Value |
 |---|---|
 | `schema` | Exactly `brokkr.bug-provenance/v1` |
-| `classification` | `unknown`, `introduced-defect`, `pre-existing-defect`, `regression`, or `changed-requirement` |
+| `classification` | One of the classifications defined below |
 | `observations` | Array of reproduction observations |
 | `introductions` | Array of candidate or confirmed introducing changes |
 | `fixes` | Array of proposed or verified corrective changes |
@@ -42,6 +42,25 @@ An empty array means no entries are recorded, not proof that no relevant change
 exists. Use `null` for an unknown scalar and `[]` for unknown or absent lists.
 Do not guess a run ID. GitHub records the issue reporter and creation time;
 discovery and attribution may have different actors and times.
+
+### Classification rules
+
+Classify relative to the delivery being investigated and the requirement that
+applied when it shipped. This describes the observed outcome; the introduction
+entry separately records how certain its causal attribution is.
+
+| Value | Use when |
+|---|---|
+| `unknown` | Evidence does not yet distinguish the other categories. |
+| `introduced-defect` | Newly delivered behavior failed its original requirement, with no established earlier working version of that behavior. |
+| `pre-existing-defect` | The defect is evidenced before the delivery being investigated; that delivery discovered or exposed it rather than introducing it. |
+| `regression` | Previously working behavior fails under the same applicable requirement; cite the working and failing versions. Prefer this over `introduced-defect` when that comparison exists. |
+| `changed-requirement` | The requested behavior differs from the requirement that applied to the delivery. Reclassify the issue as feature/change work; do not count it as a delivered defect. |
+
+If a report combines outcomes that need different classifications, split the
+reports or keep the classification unknown until triage separates them.
+
+### Entry fields
 
 Entry fields:
 
