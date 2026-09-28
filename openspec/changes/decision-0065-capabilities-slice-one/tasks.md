@@ -3079,11 +3079,50 @@ for. No production file moved.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 
-- [ ] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)
+- [x] 16.1 Unit 16 resolves actual files/owners and refuses outward/excluded/nonregular/unpinned inputs. Bind the verified read to the contained target by handle or refuse. Verify controlled replacements, equal-byte outward links/FIFOs and standalone/inherited full causes; path-string checks alone prove no race guarantee. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Library charter pins are enforced at consumption][MPL]. Reopened/remaining: operator ruling 3. (previous 5.1)
 
-- [ ] 16.2 Unit 16 binds regular policy read/hash/parse to owner pin, comparing later walk before sealing. Verify FIFO/changed-buffer refusal and allowed identity movement. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 3. (previous 5.2)
+- [x] 16.2 Unit 16 binds regular policy read/hash/parse to owner pin, comparing later walk before sealing. Verify FIFO/changed-buffer refusal and allowed identity movement. Requirements: [Active instructions and policy cannot escape bundle identity][MPI], [Capability authorization participates in bundle identity][MP2]. Reopened/remaining: operator ruling 3. (previous 5.2)
 
-- [ ] 16.3 Unit 16 replaces outward-link positives with containment refusal. Verify four role/policy standalone/inherited escapes and contained-link/byte-change controls. Requirement: [Active instructions and policy cannot escape bundle identity][MPI]. Reopened/remaining: operator ruling 3. (previous 6.1)
+- [x] 16.3 Unit 16 replaces outward-link positives with containment refusal. Verify four role/policy standalone/inherited escapes and contained-link/byte-change controls. Requirement: [Active instructions and policy cannot escape bundle identity][MPI]. Reopened/remaining: operator ruling 3. (previous 6.1)
+
+Unit 16 (2026-09-28, run `0065-rebuild-unit-16-see-the-uni-2d820f61`, based
+on `ca51d8d0`; evidence.md, "Unit 16"). **Result: complete.** 16.1, 16.2
+and 16.3 close here. Production: `bundle.rs` and `bundle/compose.rs` only.
+
+- `bound_input` (in `bundle.rs`) replaces `active_input`. It serves both
+  the inline role (`parse_role`) and every layer's table (`own_table`).
+  - The written reference keeps its lexical checks: out of the layer,
+    under a skipped tree, or through `..`.
+  - The canonical target is then resolved once. It must stand inside the
+    declaring layer (the new outward refusal, even with equal bytes) and
+    outside every skipped tree.
+  - The target must be a regular file before any open. It is opened
+    `O_NONBLOCK`, and the handle's own kind is checked. The path is resolved
+    again and must still be the same target, whose `(dev, ino)` must be the
+    handle's. The bytes come from that handle only.
+  - A host other than Linux or macOS refuses (the host cannot bind the read).
+- The table is parsed from the bound buffer. Its digest is compared with
+  the declaring layer's walk before that layer's identity is sealed. That
+  covers every ancestor in `resolve`, overridden ones included, and the leaf
+  in `assemble`.
+- Tests, all in `bundle/compose_tests.rs`:
+  - The revoked outward-link positive in
+    `a_symlink_and_a_parent_step_cannot_carry_an_active_input_out_of_the_pin`
+    is now the exact refusal.
+  - Five new tests: the four escapes with equal and changed bytes, plus a
+    directory link; contained links followed, with each byte change moving
+    identity; FIFO, directory and missing inputs; controlled replacements
+    through a test-only stage hook; and a table changed between its read and
+    its walk.
+- Baseline red on `ca51d8d0`'s production: three tests fail. Mutations
+  M1–M13, each compiling and restored, fail the rows they should. M6 (no
+  `O_NONBLOCK`) hangs and is killed at 60 s.
+- Standing-admission lines and fixture migrations: none.
+- Gates: fmt, clippy, the runtime (579 lib) and CLI (482 lib) suites,
+  `bundles/self` and `bundles/verify`, strict OpenSpec (18 passed) and
+  `git diff --check` are clean. A crate-scoped `llvm-cov` diagnostic found
+  one new unhit line (a missing table), and an assertion now covers it.
+- Pending: exact coverage outside the box, macOS, remote CI and the council.
 
 ## 17. Unit 17 — Select charter owner and source at compile
 

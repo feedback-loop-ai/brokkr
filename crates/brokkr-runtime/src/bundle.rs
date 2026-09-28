@@ -2027,6 +2027,11 @@ impl Bundle {
             boundary,
             Some(capability_record),
         )?;
+        // Design D7: the leaf's table was parsed from one bound buffer
+        // before this walk hashed the leaf; the two agree or nothing seals.
+        if let Some(table) = &resolved.table_read {
+            table.check(manifest["files"].as_object().expect("manifest files"))?;
+        }
         // Second council H6: every agent charter this compile bound, kept
         // where a projection of the site facts cannot lose it.
         let charters: CharterPins = sites
@@ -4351,13 +4356,13 @@ fn unpinned_top_level(name: &str) -> bool {
 /// it. One predicate, shared with the walk, so the two cannot drift.
 ///
 /// `root` is the declaring layer's canonical directory and `reference` is
-/// what that layer wrote. Judged twice: the reference as written, its `.`
-/// and `..` folded without touching the disk, which catches a path spelled
-/// into the skipped tree — a link there that points back out included,
-/// since the link is itself bytes nobody pins; and its canonical target,
-/// which catches an allowed spelling whose file, or whose parent, is a
-/// link into it. A target that does not exist answers `None` here and is
-/// refused by its caller as the missing file it is.
+/// what that layer wrote. Judged twice: here, the reference as written, its
+/// `.` and `..` folded without touching the disk, which catches a path
+/// spelled into the skipped tree — a link there that points back out
+/// included, since the link is itself bytes nobody pins; and in
+/// [`bound_input`], its canonical target, which catches an allowed spelling
+/// whose file, or whose parent, is a link into it. That second question is
+/// asked of the one resolution the read is then bound to.
 ///
 /// A reference written OUT of the layer altogether — `../shared/role.md`
 /// — escapes the same map the same way, and no other route pins it: an
@@ -4367,9 +4372,10 @@ fn unpinned_top_level(name: &str) -> bool {
 /// input stands, as the clause both refusals carry.
 ///
 /// Second council H5: A `..` STEP IS NOT A PATH THE WALK EVER TAKES. The
-/// walk descends real directory entries — through a link, which is why a
-/// `roles/role.md` that links out of the layer is pinned by content under
-/// its own name — and every key it writes is a chain of such entries. A
+/// walk descends real directory entries — through a link, though a
+/// consumed input whose link leaves the layer is refused by
+/// [`bound_input`] under operator ruling 3 — and every key it writes is a
+/// chain of such entries. A
 /// reference that walks back UP cannot be one of those keys: with
 /// `base/alias -> ../outside/child`, `alias/../charter.md` folds
 /// lexically to `base/charter.md`, which the map does pin, while the file
@@ -4378,22 +4384,9 @@ fn unpinned_top_level(name: &str) -> bool {
 ///
 /// So the fold is no longer asked to stand in for the filesystem: a
 /// reference that reaches its file through `..` is refused outright, and
-/// what remains is exactly the set of paths the walk enumerates. The
-/// canonical target is still asked the narrower skipped-tree question,
-/// since a link may point INTO operator configuration.
-pub(crate) fn unpinned_active_input(root: &Path, reference: &str) -> Option<String> {
-    let skipped = |path: &Path| -> Option<String> {
-        let first = path.strip_prefix(root).ok()?.components().next()?;
-        let name = first.as_os_str().to_str()?;
-        unpinned_top_level(name).then(|| {
-            format!(
-                "which stands under '{name}' — a top-level name the bundle's file walk does \
-                 not pin, because it holds operator configuration"
-            )
-        })
-    };
-    let written = root.join(reference);
-    let folded = folded(&written);
+/// what remains is exactly the set of paths the walk enumerates.
+fn unpinned_active_input(root: &Path, reference: &str) -> Option<String> {
+    let folded = folded(&root.join(reference));
     if !folded.starts_with(root) {
         return Some(
             "which stands outside the layer's own directory, where the bundle's file walk \
@@ -4403,32 +4396,193 @@ pub(crate) fn unpinned_active_input(root: &Path, reference: &str) -> Option<Stri
     }
     // The narrower question first, so a reference spelled into operator
     // configuration keeps naming the tree it reached.
-    skipped(&folded)
-        .or_else(|| {
-            Path::new(reference)
-                .components()
-                .any(|part| part == std::path::Component::ParentDir)
-                .then(|| {
-                    "which reaches its file through a '..' step — never a path the bundle's \
-                     file walk takes, so a link earlier in it can put the file a reader opens \
-                     outside everything the walk pinned"
-                        .to_string()
-                })
-        })
-        .or_else(|| skipped(&written.canonicalize().ok()?))
+    skipped_top_level(root, &folded).or_else(|| {
+        Path::new(reference)
+            .components()
+            .any(|part| part == std::path::Component::ParentDir)
+            .then(|| {
+                "which reaches its file through a '..' step — never a path the bundle's file \
+                 walk takes, so a link earlier in it can put the file a reader opens outside \
+                 everything the walk pinned"
+                    .to_string()
+            })
+    })
 }
 
-/// The same question, answered with the path the compile pins, the
-/// identity walk hashes and the dispatch verifies — ONE path, reached by
-/// the walk's own steps, however many links stand along it (second
-/// council H5). `Err` is the clause a refusal carries; whether the file
-/// is there is the caller's own question, because a missing charter and a
-/// missing table are not said in the same words.
-pub(crate) fn active_input(root: &Path, reference: &str) -> Result<PathBuf, String> {
-    match unpinned_active_input(root, reference) {
-        Some(place) => Err(place),
-        None => Ok(root.join(reference)),
+/// The clause for a path standing under a top-level name the walk skips,
+/// judged relative to the declaring layer's canonical `root`.
+fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
+    let first = path.strip_prefix(root).ok()?.components().next()?;
+    let name = first.as_os_str().to_str()?;
+    unpinned_top_level(name).then(|| {
+        format!(
+            "which stands under '{name}' — a top-level name the bundle's file walk does not \
+             pin, because it holds operator configuration"
+        )
+    })
+}
+
+/// One consumed active input, read through a handle bound to its contained
+/// target (operator ruling 3; decision 0065 slice one, design D7).
+pub(crate) struct BoundInput {
+    /// The file-map key the declaring layer's walk writes for the target.
+    pub(crate) key: String,
+    /// The bytes the handle supplied: the buffer a caller hashes and parses.
+    pub(crate) bytes: Vec<u8>,
+}
+
+/// Why an active input was not bound. `Missing` is the caller's own
+/// question, because a missing charter and a missing table are not said in
+/// the same words; `Place` is the clause a refusal carries.
+pub(crate) enum InputFault {
+    Missing(std::io::Error),
+    Place(String),
+}
+
+/// Where a bound read stands, for the tests' controlled replacements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadStage {
+    /// The target resolved inside the layer and was a regular file.
+    Checked,
+    /// A handle is open on the path the check resolved.
+    Opened,
+    /// The handle's bytes are in the buffer.
+    Read,
+}
+
+#[cfg(test)]
+type ReadHook = Box<dyn FnMut(ReadStage, &Path)>;
+
+#[cfg(test)]
+thread_local! {
+    /// A controlled replacement, run at each stage of a bound read on this
+    /// thread. Tests only: nothing in production can reach between the
+    /// stages.
+    pub(crate) static READ_HOOK: std::cell::RefCell<Option<ReadHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn at_stage(stage: ReadStage, target: &Path) {
+    READ_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook(stage, target);
+        }
+    });
+}
+
+#[cfg(not(test))]
+fn at_stage(_: ReadStage, _: &Path) {}
+
+/// `O_NONBLOCK` as each supported host spells it (decision 0063). Opening
+/// a FIFO for reading waits for a writer; a FIFO renamed over the checked
+/// file between the check and the open must be refused by the handle's
+/// kind, not wait there.
+#[cfg(target_os = "linux")]
+const O_NONBLOCK: i32 = 0o4000;
+#[cfg(target_os = "macos")]
+const O_NONBLOCK: i32 = 0x0004;
+
+/// Decision 0065 slice one, design D7, under operator ruling 3 ("It is not
+/// pinned and admitted"): resolve what `reference` names against the
+/// declaring layer's canonical `root`, require the target to stand inside
+/// that layer and outside every tree the walk skips, require a regular
+/// file, and read it through ONE handle that is proved to be that target.
+///
+/// A link inside the layer is followed; one whose target leaves the layer
+/// is refused even where the walk would pin the bytes it reaches, because
+/// the walk pins a link only by those bytes and a retarget to equal bytes
+/// moves nothing. Kind is checked before any open, so a FIFO, device or
+/// directory never supplies bytes and a FIFO never blocks the compile. The
+/// handle is opened non-blocking, its own kind is checked, and the path is
+/// resolved again after the open: it must still resolve to the same
+/// target, and that target must be the very file the handle holds. A
+/// replacement of the file, of a link along the path or of a parent
+/// directory in between is refused, with equal bytes too, and the bytes a
+/// caller uses are only those the bound handle supplied.
+pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, InputFault> {
+    if let Some(place) = unpinned_active_input(root, reference) {
+        return Err(InputFault::Place(place));
     }
+    let written = root.join(reference);
+    let target = written.canonicalize().map_err(InputFault::Missing)?;
+    if !target.starts_with(root) {
+        return Err(InputFault::Place(
+            "which resolves through a link to a file outside the layer's own directory; the \
+             walk pins such a link only by the bytes it reaches, so retargeting it to equal \
+             bytes moves nothing, and it is refused rather than pinned and admitted (operator \
+             ruling 3)"
+                .to_string(),
+        ));
+    }
+    if let Some(place) = skipped_top_level(root, &target) {
+        return Err(InputFault::Place(place));
+    }
+    // Kind before any open, so a FIFO, device or directory is never opened.
+    if !std::fs::metadata(&target)
+        .map_err(InputFault::Missing)?
+        .is_file()
+    {
+        return Err(InputFault::Place(
+            "which is not a regular file; only a regular file's bytes are read, hashed and \
+             pinned, and a FIFO, device or directory could supply bytes the walk never hashed"
+                .to_string(),
+        ));
+    }
+    at_stage(ReadStage::Checked, &target);
+    let bytes = read_bound(&written, &target)?;
+    at_stage(ReadStage::Read, &target);
+    let key = target
+        .strip_prefix(root)
+        .expect("contained target")
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(BoundInput { key, bytes })
+}
+
+/// The handle half of [`bound_input`] on a supported host. The handle is
+/// checked to be a regular file itself: the target was one when
+/// [`bound_input`] looked, so a handle of any other kind means the file was
+/// replaced in between.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn read_bound(written: &Path, target: &Path) -> Result<Vec<u8>, InputFault> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let unreadable = |error: std::io::Error| {
+        InputFault::Place(format!("which cannot be read ({})", error.kind()))
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NONBLOCK)
+        .open(target)
+        .map_err(unreadable)?;
+    at_stage(ReadStage::Opened, target);
+    let held = file.metadata().map_err(unreadable)?;
+    let still = held.is_file()
+        && written.canonicalize().ok().as_deref() == Some(target)
+        && std::fs::metadata(target)
+            .is_ok_and(|now| (now.dev(), now.ino()) == (held.dev(), held.ino()));
+    if !still {
+        return Err(InputFault::Place(
+            "which was replaced while it was read: the file the read holds is no longer the \
+             contained target that was checked, so its bytes are not the ones verified"
+                .to_string(),
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(unreadable)?;
+    Ok(bytes)
+}
+
+/// No supported host lacks the binding; any other refuses rather than
+/// reading an input it cannot bind (design D7).
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn read_bound(_: &Path, _: &Path) -> Result<Vec<u8>, InputFault> {
+    Err(InputFault::Place(
+        "which this host cannot read through a handle bound to its contained target".to_string(),
+    ))
 }
 
 /// A path with its `.` and `..` folded away, without touching the disk:
@@ -5720,24 +5874,22 @@ fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileErr
     };
     // Decision 0066 ruling 5: `dir` is the layer that WROTE this seat, so
     // an inherited, selected or nested body is judged against its own
-    // declaring layer and the refusal names that layer's file. The answer
-    // is the CANONICAL file, so what the compile pins, what the identity
-    // walk hashes and what the driver reads are one file (second council
-    // H5).
-    let role_path = active_input(dir, role_rel).map_err(|place| {
-        CompileError::Invalid(format!(
+    // declaring layer and the refusal names that layer's file. The charter
+    // is read through a handle bound to its contained, regular target
+    // (operator ruling 3; design D7), so a link out of the layer, a FIFO
+    // or a replacement mid-read refuses here rather than at the seat.
+    match bound_input(dir, role_rel) {
+        Ok(_) => Ok(dir.join(role_rel)),
+        Err(InputFault::Missing(_)) => Err(CompileError::Invalid(format!(
+            "seat '{what}' role file '{role_rel}' does not exist"
+        ))),
+        Err(InputFault::Place(place)) => Err(CompileError::Invalid(format!(
             "{}: seat '{what}' names role '{role_rel}', {place}. A charter there could change \
              what the seat is told without moving the bundle's identity, so it is refused; move \
              it to a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
             dir.join("bundle.json").display()
-        ))
-    })?;
-    if !role_path.is_file() {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' role file '{role_rel}' does not exist"
-        )));
+        ))),
     }
-    Ok(role_path)
 }
 
 /// Parse a seat's declared secret bindings (decision 0012): NAMES only,

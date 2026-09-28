@@ -16945,3 +16945,211 @@ These ran on the tree as committed.
 **Pending.** Exact coverage outside the box, macOS, remote CI and the
 council. The runtime and CLI suites were not re-run in this visit, because
 no file they compile moved.
+
+## Unit 16 — bound canonical inputs and policy bytes, 2026-09-28
+
+Run `0065-rebuild-unit-16-see-the-uni-2d820f61`, based on `ca51d8d0`.
+**Result: complete.** 16.1, 16.2 and 16.3 close. The production files are
+`crates/brokkr-runtime/src/bundle.rs` and `bundle/compose.rs`, as the unit
+names. Scratch logs are in `.forge/unit-16/` (not committed).
+
+### What was built
+
+**`bound_input(root, reference)`** in `bundle.rs` replaces `active_input`.
+Both of that function's callers now use it: `parse_role`, for an inline
+role, and `own_table`, for each layer's table. It proceeds in order:
+
+1. **The written reference.** `unpinned_active_input` keeps its lexical
+   questions: written out of the layer, spelled into a skipped top-level
+   tree, or reaching its file through `..`. Its old last question, the
+   canonical target's skipped tree, moves to step 2, so it is asked of the
+   same resolution the read is bound to.
+2. **The canonical target, resolved once.** If it does not exist, the
+   caller's own missing wording applies: the role's "does not exist", or
+   the table's io error, both unchanged. If it stands outside the declaring
+   layer, it is refused with the new clause, *"which resolves through a link
+   to a file outside the layer's own directory; the walk pins such a link
+   only by the bytes it reaches, so retargeting it to equal bytes moves
+   nothing, and it is refused rather than pinned and admitted (operator
+   ruling 3)"*. If it stands under a skipped tree, it is refused with the
+   existing clause.
+3. **Kind, before any open.** If `metadata(target)` is not a regular file,
+   the input is refused as *"which is not a regular file; …"*. A FIFO,
+   device or directory is never opened.
+4. **The bound handle** (`read_bound`, Linux and macOS). The target is opened
+   read-only with `O_NONBLOCK` (0o4000 on Linux, 0x0004 on macOS). Then:
+   - the handle's own `fstat` must be a regular file;
+   - the written path, resolved again, must equal the target;
+   - `metadata(target)` must have the handle's `(dev, ino)`.
+
+   Any failure is refused as *"which was replaced while it was read: …"*.
+   Only then are the bytes read, from that handle. An open or read error is
+   refused as *"which cannot be read (<io kind>)"*. On any other host,
+   `read_bound` refuses, because the host cannot establish the binding
+   (design D7).
+5. **A test-only stage hook.** `READ_HOOK` is under `#[cfg(test)]`, and
+   `at_stage` is a no-op otherwise. It fires at `Checked`, `Opened` and
+   `Read`, so tests replace files at known points. Nothing in production
+   can reach between the stages.
+
+**Policy bytes (16.2).** `own_table` parses the bound buffer and returns a
+`Consumed` record: the layer file, the reference, the walk key and the
+buffer's digest. `resolve` compares each ancestor's record with that
+ancestor's walked `files` before sealing its compose digest. That includes
+an ancestor whose rules a leaf overrode, since its table was still read.
+`assemble` compares the leaf's record (`Resolved::table_read`) with the
+leaf manifest's `files`. A mismatch is refused as *"…whose bytes changed
+between the read that parsed them and the walk that pinned them. The table
+a run is ruled by must be the table its identity names, so it is refused
+(decision 0065 slice one, design D7)"*.
+
+**Contained links keep working.** A role or table link whose target stands
+inside the layer compiles. `role_path` is still the written path, so the
+file map key and the dispatch read (`charter_text`) are unchanged. Unit 18
+owns dispatch.
+
+### Tests (`crates/brokkr-runtime/src/bundle/compose_tests.rs`)
+
+- **Revoked positive (16.3).** In
+  `a_symlink_and_a_parent_step_cannot_carry_an_active_input_out_of_the_pin`,
+  the old "contained control" was really an outward link:
+  `roles/linked.md -> ../../outside/charter.md`, pinned by content and
+  admitted. It now asserts the exact outward refusal, before and after the
+  outside bytes change. The doc comment says so.
+- **`a_link_out_of_the_layer_is_refused_even_with_equal_bytes`.** The
+  outside file is first a byte copy of the layer's own, then changed bytes.
+  Each case is asserted standalone and inherited, with the whole refusal.
+  The cases:
+  - the role through a file link (`roles/linked.md`);
+  - the role through a directory link (`roles/out/role.md`, with
+    `roles/out -> ../../outside/roles`);
+  - the table through a file link (`table.json`), with two valid rulings.
+- **`a_link_inside_the_layer_is_followed_and_its_target_bytes_are_identity`.**
+  `roles/linked.md -> target.md` and `table.json -> tables/policy.json`
+  compile, standalone and inherited. Identical inputs keep one identity.
+  The charter's bytes alone, then the table's alone, move the leaf digest,
+  the base digest and the ancestor's compose digest.
+- **`a_fifo_supplies_no_charter_and_no_table`.**
+  - A FIFO role is refused with the nonregular clause, standalone and
+    inherited.
+  - A FIFO table and a directory table are refused on the same clause,
+    standalone and inherited. The compile does not block.
+  - An absent table stays `"bundle io: No such file or directory (os error
+    2)"`. This row was added after the coverage diagnostic (below).
+- **`a_replacement_between_check_and_read_is_refused_never_read`.** Each
+  replacement supplies equal bytes:
+  - after the open, the link is retargeted to another contained file, and
+    the inherited role is refused as replaced;
+  - after the open, an equal copy is renamed over the table (a new inode),
+    and it is refused as replaced;
+  - after the open, the parent `tables/` is swapped for a link out of the
+    layer to an equal copy, and it is refused as replaced;
+  - after the kind check, a FIFO is renamed over the table. The
+    non-blocking handle's kind refuses it as replaced, without waiting;
+  - after the kind check, the table is removed, and it is refused as
+    `"which cannot be read (entity not found)"`.
+- **`a_table_changed_between_its_read_and_its_walk_is_refused`.** The bytes
+  are rewritten in place (same inode) after the read.
+  - Standalone, the leaf check refuses, naming the base's file.
+  - A leaf `tabled` overrides the base's `WORK` rule, and the base's check
+    still refuses, naming the base.
+  - Unchanged, the same compile succeeds, and a byte change between
+    compiles moves the digest.
+
+FIFOs are made with the host's `mkfifo`, so no test needs `unsafe`. Each
+replacement case has its own library, so no fixture writes into another
+case's FIFO.
+
+### Baseline reds
+
+HEAD's `bundle.rs` and `compose.rs` were checked out (`git checkout
+ca51d8d0 -- …`). The two hook tests and `said_replacing` were disabled with
+`#[cfg(any())]`, because they cannot compile against HEAD, which has no
+hook. The run gave 25 passed and 3 failed (`baseline-head.txt`):
+
+- `a_link_out_of_the_layer_…`: left `"compiled to 66fee5e8…"`; the right
+  side is the outward refusal.
+- `a_fifo_supplies_…`: left `"bundle: seat 'work' role file 'roles/pipe.md'
+  does not exist"`.
+- `a_symlink_and_a_parent_step_…`: left `"compiled to 572ad5bc…"`, at the
+  revoked positive.
+
+`a_link_inside_…` passed on HEAD: it is a control. Afterwards the
+production patch was re-applied and the `cfg` lines removed. `git diff` was
+byte-identical to the saved `full.patch` (`cmp`).
+
+The FIFO-table half was not reached on HEAD, because the role assertion
+fails first. By construction HEAD's `std::fs::read` of a FIFO blocks
+(C3). That was not re-measured here.
+
+### Mutations
+
+Each mutation is one compiling edit to production. Each was restored.
+After M1–M10, `git diff` of the two production files was byte-identical
+to `prod.patch`. M11–M13 were restored by the reverse edit, before the
+final gates.
+
+| Mutation | Fails (exact) | Log |
+| --- | --- | --- |
+| M1: outward refusal off (`if false && …`) | `a_link_out_…` and `a_symlink_and_a_parent_step_…`. Both panic at `bundle.rs` `expect("contained target")`, since an outside target has no walk key | `m1.txt` |
+| M2: kind check before open off | `a_fifo_…`: left is the *replaced* clause, right is the *nonregular* clause. The handle check still refuses, under another cause | `m2.txt` |
+| M3: handle kind check off (`true \|\| held.is_file()`) | `a_replacement_…` at the FIFO-after-check row: left `"bundle json: EOF while parsing a value at line 1 column 0"`, the FIFO's empty bytes parsed | `m3.txt` |
+| M4: re-resolution after open off | `a_replacement_…` at the link-retarget row: left `"compiled to c94f2b74…"` | `m4.txt` |
+| M5: `(dev, ino)` comparison off | `a_replacement_…` at the equal-copy rename row: left `"compiled to 6ad7ff5d…"` | `m5.txt` |
+| M6: no `O_NONBLOCK` (`O_NONBLOCK & 0`) | `a_replacement_…` run alone blocks in `open` on the raced FIFO. `timeout 60` exits 124, and no orphan process remained (`pgrep`) | — |
+| M7: leaf compare before seal off | `a_table_changed_…` standalone row: left `"compiled to 465f103f…"` | `m7.txt` |
+| M8: ancestor compare before seal off | `a_table_changed_…` overridden-ancestor row: left `"compiled to 3e003934…"` | `m8.txt` |
+| M9: every link refused (`\|\| target != written`) | `a_link_inside_…` (its `compile(...).unwrap()`); `a_replacement_…`'s precondition; `no_spelling_and_no_link_…`, where the alias into `capabilities/` now gets the outward clause | `m9.txt` |
+| M10: open failure as `Missing` | `a_replacement_…` removal row: left `"bundle io: No such file or directory (os error 2)"` | `m10.txt` |
+| M11: missing table as plain invalid | `a_fifo_…` absent row: left `"bundle: No such file or directory (os error 2)"` | `m11.txt` |
+| M12: role containment off alone (`&& !reference.ends_with(".md")`) | `a_link_out_…` and `a_symlink_and_a_parent_step_…`, at their role rows | `m12.txt` |
+| M13: policy containment off alone (`&& !reference.ends_with(".json")`) | `a_link_out_…` only, at its table rows. Its role rows ran first and passed, and `a_symlink_…` passed | `m13.txt` |
+
+Under M1 and M12–M13 the failure is the production `expect`, not the
+assertion. With containment removed, an outside target has no key in its
+layer's file map. The baseline's `a_link_out_…` failure above shows the
+assertion itself red on HEAD.
+
+### Standing-admission lines and fixture migrations
+
+None. No file outside the unit's two production files and
+`bundle/compose_tests.rs` moved.
+
+### Coverage diagnostic (not the gate)
+
+`cargo +nightly-2026-09-05 llvm-cov -p brokkr-runtime --all-features
+--locked --branch --lcov` was run, crate-scoped, in the seat. Its only
+unhit line in the new code was `compose.rs`'s `InputFault::Missing` arm
+(a table that is absent). The absent-table row and M11 now bind it. Every
+other unhit record in `bundle.rs` and `compose.rs` predates this unit, at
+lines this unit did not write. That run misses what only the CLI suite
+reaches. The non-Linux/macOS `read_bound` is not compiled on the measuring
+host. Exact coverage is pending outside the box.
+
+### Gates
+
+These ran on the tree as committed.
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -p brokkr-runtime --all-features --locked`: 25 binaries, all
+  ok, lib 579 passed (`runtime-final.txt`).
+- `cargo test -p brokkr-cli --all-features --locked`: 33 binaries, all ok,
+  lib 482 passed (`cli-final.txt`).
+- `compile --bundle bundles/self`: digest `45dc1c7e…`.
+  `compile --bundle bundles/verify`: digest `f7cbd4bb…`. Both compile.
+- `openspec validate --all --strict --no-interactive`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** Exact coverage outside the box, macOS (the `O_NONBLOCK`
+spelling and `/private/var` canonical roots are exercised only on Linux
+here), remote CI and the council.
+
+### Follow-ups, not built here
+
+- Dispatch still reads a role by its written path (`charter_text`). Unit 18
+  consumes the bound read and carries the charter's owner and target.
+- The walk itself (`walk_files`) still follows links out of a layer when it
+  hashes files that no compile consumes. That is unchanged and outside
+  this unit.
