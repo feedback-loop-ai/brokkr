@@ -2855,9 +2855,9 @@ complete.** 14.1 closes here. Production: `adapters.rs` only.
 
 ## 15. Unit 15 — Integrate eligible resume and replacement
 
-- [x] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
+- [ ] 15.1 Unit 15 checks actual resume and cold replacement independently. Verify session/stdin/eligibility/controls and selected fallback OFF; cold never counts as resume evidence. Requirements: [Eligible Codex resumes reimpose the capability control][NC3], [Every accepted native control reaches the final command][NCC], [Denial and admission have removal proofs and bounded live claims][NC6], [Neither inline arguments nor fallback can override native denial][NC4]. Reopened/remaining: operator ruling 1–2 / R10. (previous 7.2)
 
-- [x] 15.2 Units 12–15 integrate refusal/provenance across compile and private launch input; close only after unit 15 covers cold, actual resume and replacement. Verify counterfeit/missing origins, structural substitutions and candidate replacement before work. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 4.7)
+- [ ] 15.2 Units 12–15 integrate refusal/provenance across compile and private launch input; close only after unit 15 covers cold, actual resume and replacement. Verify counterfeit/missing origins, structural substitutions and candidate replacement before work. Requirements: [Authored provider configuration cannot supply capability authority][RGR], [Known native powers require a valid delivered denial or refusal][NCR], [Every accepted native control reaches the final command][NCC]. Reopened/remaining: operator ruling 1–2. (previous 4.7)
 
 Unit 15 (2026-09-28, run `0065-rebuild-unit-15-see-the-uni-4a097606`, based
 on `51dcf6b5`; evidence.md, "Unit 15"). **Result: complete.** 15.1 and 15.2
@@ -2941,6 +2941,35 @@ was emptied, reversed or grown by a hands token was served as if intact.
   OpenSpec passes 18. `git diff --check` is clean.
 - **Pending.** Exact coverage outside the box, macOS, remote CI and the
   council. Live resumed-provider enforcement is still owed.
+
+Unit 15, second review return (2026-09-28, same run, based on `4a2b3a6a`;
+evidence.md, "Unit 15, second review return"). **Result: oversized.** 15.1
+and 15.2 are reopened: the record above closed them too early.
+
+- SC15-R2-1 (medium) stands and is not built here. `served` still serves a
+  launch whose input carries the engine's plan (`native_controls`) but
+  neither sealed input as composed. The guard it asks for was built and
+  measured, then reverted. It breaks 93 of 541 protocol lib tests and 19 of
+  58 `capability_launch` tests. Their fixtures hand the driver the plan
+  without the sealed pair: `engine_input` in `adapters/tests.rs`, and
+  fixtures such as `try_launch` in `capability_launch.rs`. Sealing those fixtures moves more
+  than a hundred tests owned by earlier units onto the final check. That is
+  a fixture migration no standing admission covers and not a narrow visit.
+  The split it needs is in evidence.md.
+- SC15-R2-2 (low) is answered. In
+  `a_compiled_rejoin_is_served_only_as_its_final_check_returns_it`, the
+  selected fallback's cold command and the boxed Claude hands are now
+  independent ordered literals. Only the test executable, which `{brokkr}`
+  binds, is substituted. They no longer use `Transport::expand`, the adapter
+  fragments or `boxed_hands`/`checked_codex`. Two mutations in
+  `native_controls.rs` fail the new literals and pass HEAD's test. Each is
+  one production change that moves the actual and the old expected command
+  together: the TOML argument join `","` to `", "`, and a trailing space on
+  the MCP document. Both were restored.
+- CH15-RUN-1 (low) is a panel-prose defect and needs no change here.
+- Fixture migrations and standing-admission lines: none.
+- **Pending.** SC15-R2-1, then exact coverage outside the box, macOS,
+  remote CI and the council.
 
 ## 16. Unit 16 — Bind canonical inputs and policy bytes
 

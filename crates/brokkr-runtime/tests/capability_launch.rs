@@ -4644,9 +4644,36 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
         Some(link) => link.resume.value(),
         None => bundle.sites[label].inline_resume.clone().unwrap(),
     };
+    // The box's hands as independent literals, never production's own
+    // expansion (NC6): only the test's executable, the canonical fixture
+    // value `{brokkr}` binds, is substituted.
+    let exe = std::env::current_exe().unwrap();
+    let exe = exe.to_str().unwrap();
+    let serve = r#"["hands","serve","--workdir","/w","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
     // The selected fallback's cold command, its hands expanded for the box.
-    let mut fallback = checked_codex(&boxed_hands(&boxed, "boxed"));
-    fallback[0] = codex.to_str().unwrap().to_string();
+    let fallback: Vec<String> = [
+        codex.to_str().unwrap(),
+        "exec",
+        "--json",
+        "-C",
+        "/w",
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+        "--sandbox",
+        "read-only",
+        "-c",
+        &format!("mcp_servers.brokkr.command=\"{exe}\""),
+        "-c",
+        &format!("mcp_servers.brokkr.args={serve}"),
+        "-c",
+        "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+        "-c",
+        "web_search=\"disabled\"",
+    ]
+    .map(String::from)
+    .to_vec();
 
     // The Claude rejoin: the cold command, then the session it rejoins.
     let enabled = |boundary: &str, hands: &str| {
@@ -4657,18 +4684,17 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
             "evidence": {"interface": "i", "restrictions": "r", "root": "o", "accounting": "a"},
             "limitations": [], "reason": null}})
     };
-    let adapter: Value =
-        serde_json::from_slice(&std::fs::read(workspace().join("adapters/claude.json")).unwrap())
-            .unwrap();
-    let fragment: Vec<String> =
-        serde_json::from_value(adapter["hands"]["workspace"].clone()).unwrap();
-    let claude_hands = brokkr_protocol::native_controls::Transport {
-        brokkr: &std::env::current_exe().unwrap(),
-        workdir: Path::new("/w"),
-        spec: &boxed.hands["chain"],
-    }
-    .expand(&fragment)
-    .unwrap();
+    let claude_hands: Vec<String> = [
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        &format!(r#"{{"mcpServers":{{"brokkr":{{"args":{serve},"command":"{exe}"}}}}}}"#),
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ]
+    .map(String::from)
+    .to_vec();
     let rejoined_claude = |mode: &[&str], hands: &[String]| {
         Ok([
             words(

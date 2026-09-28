@@ -16248,3 +16248,121 @@ None.
 **Pending.** Exact coverage outside the box, macOS, remote CI and the
 council. Live resumed-provider enforcement is still owed to the
 controller.
+
+## Unit 15, second review return — oversized on SC15-R2-1, SC15-R2-2 answered, 2026-09-28
+
+Same run, third implement visit, based on `4a2b3a6a`. **Result:
+oversized.** 15.1 and 15.2 are reopened in tasks.md. The earlier records
+closed them too early, as SC15-R2-1 says.
+
+### SC15-R2-1 (medium): measured, reverted, needs a split
+
+The finding: `served` returns the composed command when `launch_record`
+and `serving_inputs` are both absent, before it looks at
+`native_controls`. An engine-governed launch stripped of both is served
+unchecked.
+
+The guard the finding asks for was built in `adapters.rs` as one arm: when
+`native_controls` is present and neither sealed input is, refuse with a
+new whole reason, `UNSEALED`. Only a launch with no plan and no sealed
+input keeps the by-hand exemption. Production dispatch already fits this
+rule. `mark_capabilities` (`engine.rs:1375` to `:1430`) writes the plan,
+and then either seals both inputs or sets the spawn's refusal. A plan that
+is `null` is refused earlier, by `managed` in `composed_launch`.
+
+Under that one edit, with nothing else moved:
+
+- `cargo test -p brokkr-protocol --lib`: 448 passed, **93 failed** (92 in
+  `adapters::tests`, plus
+  `hands::tests::the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path`).
+- `cargo test -p brokkr-runtime`: every binary is `ok` except
+  `capability_launch`, which ran 39 passed and **19 failed**. The new
+  refusal's text appears 21 times in that output. The failing tests
+  include `a_codex_seat_that_does_not_hold_search_is_launched_with_it_switched_off`,
+  `an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_round`
+  and
+  `the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_limits`.
+
+These tests hand the driver the engine's plan without the sealed pair,
+which is the shape the guard now refuses. The fixtures that build that
+shape include `engine_input` (`adapters/tests.rs:14121`), used across the
+Codex, Claude and DSH driver suites, and `try_launch`
+(`capability_launch.rs:267`). Most of these tests belong to earlier units,
+from the DSH offers to the Claude restrictions. To keep them proving what
+they prove, each needs a sealed record whose segments reassemble its
+handed arguments, plus an `Expected` and a `SealedServing` that match its
+plan. `check_final` would then judge commands those tests never put
+through it. That is a fixture migration of more than a hundred tests.
+The standing fixture-migration admission covers only inline options the
+refusal ruling refuses, and the standing admission covers only lines the
+compiler forces. Neither covers this, and it is not a narrow visit. The
+guard was reverted (`git checkout crates/brokkr-protocol/src/adapters.rs`).
+After the revert, the protocol lib passed 541 and `capability_launch`
+passed 58.
+
+The split this needs, for triage and the operator to rule on:
+
+1. **15-fix-a, tests only** (`adapters/tests.rs`, `capability_launch.rs`):
+   seal the plan-carrying fixtures the way dispatch seals them. In the
+   runtime, that means the existing `sealed`/`sealed_launch`. In the
+   protocol, it means a sealed-pair helper beside `engine_input`. Every
+   migrated assertion stays the same, and each needs a ruling that admits
+   the migration. The alternative is a ruling that these driver fixtures
+   stay unsealed and drop the plan instead.
+2. **15-fix-b** (`adapters.rs`): the `UNSEALED` arm, plus exact
+   missing-both regressions for the eligible Codex rejoin and its cold
+   replacement. Each needs a baseline red, a mutation and a restored pass.
+   It lands on 15-fix-a.
+
+### SC15-R2-2 (low): independent literals, answered
+
+In `a_compiled_rejoin_is_served_only_as_its_final_check_returns_it`
+(`capability_launch.rs`), two expected values used to come from production.
+The selected fallback's cold command came from
+`checked_codex(&boxed_hands(..))`, and the boxed Claude hands came from
+`Transport::expand` over `adapters/claude.json`'s fragment. Both are now
+independent ordered literals. The literals share one `serve` TOML/JSON
+argument array. The only substitution is `std::env::current_exe()`, the
+canonical fixture value that `{brokkr}` and the MCP document's `command`
+bind. `boxed_hands` and `checked_codex` are kept, because other tests use
+them.
+
+To get the literals, the expanded values were printed once from the
+unedited test with a temporary `eprintln!`, which was then removed. Each
+mutation below was one compiling edit in `native_controls.rs`, restored
+afterwards. Each moves the actual command and HEAD's expected command
+together:
+
+| Mutation | New test | HEAD's test |
+| --- | --- | --- |
+| `Transport::arguments` joins with `", "` | failed: row "the selected fallback, declined and served cold" (`:4980`), `mcp_servers.brokkr.args=["hands", "serve", ...]` against the literal | passed (1 passed) |
+| `Transport::document` gains a trailing space | failed: row "boxed claude, rejoined" (`:4980`) | passed (1 passed) |
+
+A first attempt (`{brokkr}` expanded with a trailing `x`) was not usable.
+The final check refused it as "sealed with hands that are not the
+engine's workspace hands", which would fail both versions of the test. It
+is not counted. After the restore, `capability_launch` passed 58 and
+`native_controls.rs` is unchanged (`git status`).
+
+### CH15-RUN-1 (low)
+
+This is a defect in the panel's prose. No file changes for it.
+
+### Standing-admission lines and fixture migrations
+
+None.
+
+### Gates
+
+These ran on the tree as committed, with `adapters.rs` equal to `4a2b3a6a`.
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  clean.
+- `cargo test -p brokkr-protocol --lib`: 541 passed.
+- `cargo test -p brokkr-runtime --test capability_launch`: 58 passed.
+- `openspec validate --all --strict`: 18 passed, 0 failed.
+- `git diff --check`: clean.
+
+**Pending.** SC15-R2-1 (the split above), exact coverage outside the box,
+macOS, remote CI and the council.
